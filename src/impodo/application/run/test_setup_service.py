@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.application.data_version.inspection import SourceFileCatalog
@@ -124,6 +124,7 @@ class TestRunSetupService:
         credential_generation: str,
         operation_id: str,
         actor: Actor,
+        progress: Callable[[int, int, str], None] | None = None,
     ):
         binding = self.get(migration_run_id, actor=actor)
         if binding.project_id != require_uuid(project_id, "project_id"):
@@ -143,6 +144,7 @@ class TestRunSetupService:
             control_values=run_values.controls,
             operation_id=operation_id,
             actor=actor,
+            progress=progress,
         )
 
     def get(self, migration_run_id: str, *, actor: Actor) -> TestRunSetupBinding:
@@ -154,7 +156,13 @@ class TestRunSetupService:
         )
         return binding
 
-    def resume_activation_if_needed(self, migration_run_id: str, *, actor: Actor):
+    def resume_activation_if_needed(
+        self,
+        migration_run_id: str,
+        *,
+        actor: Actor,
+        progress: Callable[[int, int, str], None] | None = None,
+    ):
         """Finish the original activation before collecting any new Odoo evidence."""
 
         binding = self.get(migration_run_id, actor=actor)
@@ -185,7 +193,9 @@ class TestRunSetupService:
             expected_workspace_revision=operation.expected_revision,
             target_schema=schema, target_reference_bundle=references,
             credential_generation=schema.read_credential_binding_hash,
-            operation_id=operation.operation_id, actor=actor,
+            operation_id=operation.operation_id,
+            actor=actor,
+            progress=progress,
         )
 
     def list(self, project_id: str, *, actor: Actor) -> tuple[TestRunSetupBinding, ...]:

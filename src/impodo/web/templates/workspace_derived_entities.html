@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Separate combined information - {{ migration_project.display_name }} - Impodo{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/derived-entities.js') }}" defer></script>
+{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
@@ -38,10 +41,11 @@
     <section class="form-card">
       <h2>What does your source contain?</h2>
       <div class="actions">
-        <a class="button primary" href="#lookup-extraction">One field contains reusable values</a>
-        <a class="button secondary" href="#create-related-datasets">Several rows describe the same record</a>
+        <a class="button primary" href="#lookup-extraction" data-derived-entity-trigger>One field contains reusable values</a>
+        <a class="button secondary" href="#hierarchy-extraction" data-derived-entity-trigger>Several fields form a hierarchy</a>
+        <a class="button secondary" href="#create-related-datasets" data-derived-entity-trigger>Several rows describe the same record</a>
       </div>
-      <p class="muted">Choose the first option when values from one field should become their own records. Choose the second when repeated information connects several rows.</p>
+      <p class="muted">Choose the hierarchy option when separate fields contain the parent and child names. Choose the final option when repeated information connects several rows.</p>
     </section>
 
     {% if pending_related %}
@@ -162,22 +166,24 @@
       </section>
     {% endfor %}
 
-    <section class="form-card" id="create-related-datasets">
-      <p class="eyebrow">For files where information repeats across rows</p>
-      <h2>Create two related tables</h2>
-      <p class="lead-instruction">Use this when several source rows describe the same record. Impodo will create one table with one row per group and another that keeps every source row.</p>
+    <details class="form-card secondary-preparation" id="create-related-datasets" data-derived-entity-section>
+      <summary>
+        <span><strong>Create two related tables</strong><small>Use this when several source rows describe the same record.</small></span>
+      </summary>
+      <section class="nested-rule-card">
+        <p class="lead-instruction">Impodo will create one table with one row per group and another that keeps every source row.</p>
 
-      {% for source_view in related_source_views %}
-        {% set dataset = source_view.dataset %}
-        <details class="source-preparation-choice" {% if loop.first and not source_view.has_split %}open{% endif %}>
-          <summary>
-            <span><strong>{{ dataset.name }}</strong><small>{{ dataset.row_count }} rows - {{ dataset.columns|length }} fields</small></span>
-            {% if source_view.has_split %}<span class="status registered">Complete</span>{% endif %}
-          </summary>
-          {% if source_view.has_split %}
-            <div class="notice success">This source already has a reviewed related-table setup. Remove that setup above before replacing it.</div>
-          {% else %}
-            <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/related/preview">
+        {% for source_view in related_source_views %}
+          {% set dataset = source_view.dataset %}
+          <details class="source-preparation-choice" {% if loop.first and not source_view.has_split %}open{% endif %}>
+            <summary>
+              <span><strong>{{ dataset.name }}</strong><small>{{ dataset.row_count }} rows - {{ dataset.columns|length }} fields</small></span>
+              {% if source_view.has_split %}<span class="status registered">Complete</span>{% endif %}
+            </summary>
+            {% if source_view.has_split %}
+              <div class="notice success">This source already has a reviewed related-table setup. Remove that setup above before replacing it.</div>
+            {% else %}
+              <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/related/preview">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
               <input type="hidden" name="source_dataset_id" value="{{ dataset.dataset_id }}">
@@ -246,13 +252,173 @@
               <div class="actions">
                 <button class="button primary" type="submit">Preview the related tables</button>
               </div>
-            </form>
-          {% endif %}
-        </details>
-      {% endfor %}
-    </section>
+              </form>
+            {% endif %}
+          </details>
+        {% endfor %}
+      </section>
+    </details>
 
-    <details class="form-card secondary-preparation" id="lookup-extraction" open>
+    <details class="form-card secondary-preparation" id="hierarchy-extraction" data-derived-entity-section>
+      <summary>
+        <span><strong>Build a hierarchy from separate fields</strong><small>Use this when one field contains the parent and another contains its child.</small></span>
+      </summary>
+
+      {% if pending_hierarchy %}
+        {% set pending_rule = pending_hierarchy.rule %}
+        {% set pending_preview = pending_hierarchy.preview %}
+        <section class="nested-rule-card" id="hierarchy-preview">
+          <div class="page-heading compact">
+            <div>
+              <p class="eyebrow">Review before creating</p>
+              <h2>{{ pending_rule.output_dataset_name }}</h2>
+              <p>Check the complete paths and every missing-value decision before adding this hierarchy to data matching.</p>
+            </div>
+            <span class="status registered">PREVIEW</span>
+          </div>
+          <div class="metric-grid">
+            <div><span>Rows sampled</span><strong>{{ pending_preview.sampled_source_rows }}</strong></div>
+            <div><span>Hierarchy records</span><strong>{{ pending_preview.candidates|length }}</strong></div>
+            <div><span>Fixed parent used</span><strong>{{ pending_preview.fixed_parent_sample_rows }}</strong></div>
+            <div><span>Made top-level</span><strong>{{ pending_preview.promoted_root_sample_rows }}</strong></div>
+            <div><span>Deepest level used</span><strong>{{ pending_preview.deepest_level_sample_rows }}</strong></div>
+            <div><span>Blank relationship</span><strong>{{ pending_preview.blank_reference_sample_rows }}</strong></div>
+          </div>
+          {% if pending_preview.blocked_sample_rows or pending_preview.quarantined_sample_rows %}
+            <div class="notice warning">
+              {{ pending_preview.blocked_sample_rows }} sampled row(s) will stop preparation and {{ pending_preview.quarantined_sample_rows }} sampled row(s) will be set aside.
+            </div>
+          {% endif %}
+          {% if pending_preview.candidates %}
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead><tr><th>Related record</th><th>Complete path key</th><th>Parent record</th><th>Sample rows</th></tr></thead>
+                <tbody>
+                  {% for candidate in pending_preview.candidates %}
+                    <tr>
+                      <th>{{ candidate.name }}</th>
+                      <td><code>{{ candidate.canonical_key }}</code></td>
+                      <td><code>{{ candidate.parent_entity_id or "Top level" }}</code></td>
+                      <td>{{ candidate.sampled_source_row_count }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/save">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
+            <input type="hidden" name="source_dataset_id" value="{{ pending_rule.source_dataset_id }}">
+            {% for key in pending_rule.source_level_column_keys %}<input type="hidden" name="hierarchy_level_{{ loop.index }}" value="{{ key }}">{% endfor %}
+            <input type="hidden" name="output_dataset_name" value="{{ pending_rule.output_dataset_name }}">
+            <input type="hidden" name="target_model" value="{{ pending_rule.target_model }}">
+            <input type="hidden" name="target_name_field" value="{{ pending_rule.target_name_field }}">
+            <input type="hidden" name="external_id_namespace" value="{{ pending_rule.external_id_namespace }}">
+            <input type="hidden" name="missing_parent_mode" value="{{ pending_rule.missing_parent.mode }}">
+            <input type="hidden" name="missing_parent_value" value="{{ pending_rule.missing_parent.value or '' }}">
+            <input type="hidden" name="missing_leaf" value="{{ pending_rule.missing_leaf }}">
+            <input type="hidden" name="all_blank_mode" value="{{ pending_rule.all_blank.mode }}">
+            <input type="hidden" name="all_blank_value" value="{{ pending_rule.all_blank.value or '' }}">
+            <div class="actions">
+              <a class="button secondary" href="/workspaces/{{ workspace_id }}/derived-entities#hierarchy-extraction">Change selections</a>
+              <button class="button primary" type="submit">Create this hierarchy table</button>
+            </div>
+          </form>
+        </section>
+      {% endif %}
+
+      {% if model_catalog %}
+        {% for source_view in related_source_views %}
+          {% set dataset = source_view.dataset %}
+          <details class="source-preparation-choice" {% if loop.first %}open{% endif %}>
+            <summary><span><strong>{{ dataset.name }}</strong><small>{{ dataset.row_count }} rows · {{ dataset.columns|length }} fields</small></span></summary>
+            <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/preview#hierarchy-preview">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
+              <input type="hidden" name="source_dataset_id" value="{{ dataset.dataset_id }}">
+              <div class="form-grid">
+                {% for level in range(1, 6) %}
+                  <label>
+                    Hierarchy level {{ level }}{% if level > 2 %} (optional){% endif %}
+                    <select name="hierarchy_level_{{ level }}" {% if level <= 2 %}required{% endif %}>
+                      <option value="">{% if level <= 2 %}Choose level {{ level }}{% else %}No further level{% endif %}</option>
+                      {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }}</option>{% endfor %}
+                    </select>
+                  </label>
+                {% endfor %}
+                <label>
+                  Name shown in Impodo
+                  <input name="output_dataset_name" pattern="[a-z][a-z0-9_]{0,62}" placeholder="related_records" required>
+                </label>
+                <label>
+                  Type of Odoo record
+                  <input name="target_model" list="derived-target-models" placeholder="Start typing an Odoo record type" autocomplete="off" required>
+                </label>
+                <label>
+                  When a parent is blank but a later level is populated
+                  <select name="missing_parent_mode">
+                    <option value="block">Stop and ask me to correct it</option>
+                    <option value="quarantine">Set the affected rows aside</option>
+                    <option value="fixed">Use a fixed parent value</option>
+                    <option value="promote">Make the next populated value top-level</option>
+                  </select>
+                </label>
+                <label>
+                  Fixed parent value
+                  <input name="missing_parent_value" maxlength="500" placeholder="Default">
+                  <small>This is required only when you choose a fixed parent. It creates or reuses a real incoming related record.</small>
+                </label>
+                <label>
+                  When the final level is blank
+                  <select name="missing_leaf">
+                    <option value="use_deepest">Use the deepest populated level</option>
+                    <option value="block">Stop and ask me to correct it</option>
+                    <option value="quarantine">Set the affected rows aside</option>
+                  </select>
+                </label>
+                <label>
+                  When every selected level is blank
+                  <select name="all_blank_mode">
+                    <option value="emit_null_reference">Leave the related value blank</option>
+                    <option value="fixed">Use one fixed related value</option>
+                    <option value="block">Stop and ask me to correct it</option>
+                    <option value="quarantine">Set the affected rows aside</option>
+                  </select>
+                </label>
+                <label>
+                  Fixed related value
+                  <input name="all_blank_value" maxlength="500">
+                </label>
+              </div>
+              <details class="technical-details">
+                <summary>Support options</summary>
+                <label>Odoo display field <input name="target_name_field" value="name" pattern="[a-z_][a-z0-9_.]{0,127}" required></label>
+                <label>Stable source-system namespace <input name="external_id_namespace" value="{{ namespace_default }}" pattern="[a-z][a-z0-9_]{0,39}" required></label>
+              </details>
+              <div class="notice">
+                A blank parent cannot become an empty Odoo record. Choose a real fixed parent, make the populated value top-level, set the row aside, or stop for correction.
+              </div>
+              <div class="actions"><button class="button primary" type="submit">Preview hierarchy records</button></div>
+            </form>
+          </details>
+        {% endfor %}
+      {% else %}
+        <div class="notice warning">
+          <strong>Load the existing Odoo record types first.</strong>
+          Impodo checks this hierarchy against the available record types in the configured Odoo database.
+        </div>
+        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh?return_to=hierarchy">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="actions">
+            <button class="button primary" type="submit">Show available Odoo record types</button>
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Review the Odoo connection</a>
+          </div>
+        </form>
+      {% endif %}
+    </details>
+
+    <details class="form-card secondary-preparation" id="lookup-extraction" data-derived-entity-section>
       <summary>
         <span><strong>Create related records from one field</strong><small>Use this when values from one source field should become their own Odoo records.</small></span>
       </summary>

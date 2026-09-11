@@ -28,6 +28,7 @@ from impodo.domain.mapping.contracts import (
     MappingDefinition,
     MappingTargetMode,
     ResolverOrigin,
+    RowInclusionMode,
     TargetFieldDisposition,
     TargetFieldHandling,
 )
@@ -255,6 +256,18 @@ class RecipeMappingPolicy(Protocol):
     ) -> None: ...
 
 
+class MappingRowInclusionConfirmationRepository(Protocol):
+    """Prove that exact checked row counts were explicitly confirmed."""
+
+    def is_confirmed(
+        self,
+        workspace_id: str,
+        *,
+        mapping_content_hash: str,
+        source_selection_hash: str,
+    ) -> bool: ...
+
+
 class MappingWorkspaceService:
     """Own Stage D concurrency, evidence binding, and submission gates.
 
@@ -274,6 +287,9 @@ class MappingWorkspaceService:
         supporting_lookups: MappingSupportingLookupRepository | None = None,
         downstream_invalidator: MappingDownstreamInvalidator | None = None,
         recipe_applications: RecipeMappingPolicy | None = None,
+        row_inclusion_confirmations: (
+            MappingRowInclusionConfirmationRepository | None
+        ) = None,
     ) -> None:
         self.sources = sources
         self.schemas = schemas
@@ -283,6 +299,7 @@ class MappingWorkspaceService:
         self.supporting_lookups = supporting_lookups
         self.downstream_invalidator = downstream_invalidator
         self.recipe_applications = recipe_applications
+        self.row_inclusion_confirmations = row_inclusion_confirmations
         self.validator = MappingSemanticValidator()
 
     def begin_mutation(
@@ -1097,6 +1114,21 @@ class MappingWorkspaceService:
             )
             raise WorkspaceError(
                 f"Mapping cannot be submitted: {first.message}"
+            )
+        if any(
+            item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
+            for item in revision.definition.datasets
+        ) and (
+            self.row_inclusion_confirmations is None
+            or not self.row_inclusion_confirmations.is_confirmed(
+                workspace_id,
+                mapping_content_hash=revision.definition.content_hash,
+                source_selection_hash=selection.content_hash,
+            )
+        ):
+            raise WorkspaceError(
+                "Check and confirm the current rows to use before confirming "
+                "field matches."
             )
         warning_fingerprints = tuple(
             sorted(

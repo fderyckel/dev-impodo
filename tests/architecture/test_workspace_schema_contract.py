@@ -22,7 +22,7 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
                 ).fetchone(),
                 (SCHEMA_GENERATION, SCHEMA_VERSION),
             )
-            self.assertEqual(SCHEMA_VERSION, 12)
+            self.assertEqual(SCHEMA_VERSION, 13)
             tables = {
                 item[0] for item in connection.execute("SHOW TABLES").fetchall()
             }
@@ -35,6 +35,9 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
             self.assertIn("matching_order_check", tables)
             self.assertIn("matching_order_check_attempt", tables)
             self.assertIn("matching_order_protected_snapshot", tables)
+            self.assertIn("mapping_row_inclusion_review", tables)
+            self.assertIn("mapping_row_inclusion_review_row", tables)
+            self.assertIn("mapping_row_inclusion_confirmation", tables)
             self.assertNotIn("workspace_state", tables)
             self.assertNotIn("project_schema_migration", tables)
             audit_columns = tuple(

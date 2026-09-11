@@ -36,7 +36,11 @@ from impodo.application.data_version.source_snapshots import (
     validate_snapshot_for_dataset,
     validate_source_snapshot_path,
 )
-from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
+from impodo.domain.workspace.contracts import (
+    OdooSchemaCatalog,
+    SourceDataset,
+    SourceSelection,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 
 
@@ -47,17 +51,18 @@ import polars as pl  # noqa: E402
 
 CATEGORICAL_SCAN_CONTRACT_HASH = content_hash(
     {
-        "contract_version": 2,
+        "contract_version": 3,
         "input": "source_snapshot_value_columns",
         "blank": "trimmed_empty_excluded",
         "grouping": "exact_utf8_tuple",
         "maximum_distinct_values_per_field": MAX_VALUE_MAPPINGS,
         "dataset_reads": "one_projected_scan",
+        "derived_exact_business_key": "covered_without_physical_projection",
     }
 )
 CATEGORICAL_PROVIDER_SEMANTICS_HASH = content_hash(
     {
-        "contract_version": 4,
+        "contract_version": 5,
         "explicit_match_choice": "str(raw).strip()",
         "exact_target_value": "evaluate_scalar_mapping_value",
         "relationship_choice": "str(raw).strip()",
@@ -69,6 +74,9 @@ CATEGORICAL_PROVIDER_SEMANTICS_HASH = content_hash(
         "conditional_selection": "ordered_first_match_with_typed_inputs",
         "conditional_blank_domain": "included",
         "constant_existing_relationship": "portable_ordered_business_reference",
+        "derived_dataset_exact_business_key": (
+            "covered_by_policy_with_resolution_deferred_to_preparation"
+        ),
     }
 )
 
@@ -269,6 +277,18 @@ class CategoricalCoverageService:
             }
         for dataset_id in sorted(by_dataset):
             dataset_fields = by_dataset[dataset_id]
+            physical_dataset = (
+                next(
+                    (
+                        item
+                        for item in physical_selection.datasets
+                        if item.dataset_id == dataset_id
+                    ),
+                    None,
+                )
+                if physical_selection is not None
+                else None
+            )
             supported_fields: list[_CoverageField] = []
             for item in dataset_fields:
                 if item.unsupported_reason is None:
@@ -286,6 +306,9 @@ class CategoricalCoverageService:
                 )
             scan_fields: list[_CoverageField] = []
             for item in supported_fields:
+                if _derived_exact_business_key(item, physical_dataset):
+                    results.append(_covered_without_value_scan(item))
+                    continue
                 if item.source_column_keys:
                     scan_fields.append(item)
                     continue
@@ -562,6 +585,7 @@ def _evaluate_field(
         distinct = tuple(
             CategoricalValueCount(values=values, count=count)
             for values, count in sorted(raw_counts.items())
+            if any(value.strip() for value in values)
         )
         uncovered = _uncovered_values(item, raw_counts)
     status = "UNCOVERED" if uncovered else "COVERED"
@@ -678,6 +702,47 @@ def _unsupported_result(item: _CoverageField) -> CategoricalFieldResult:
         distinct_values=(),
         uncovered_values=(),
         status="UNSUPPORTED",
+    )
+
+
+def _derived_exact_business_key(
+    item: _CoverageField,
+    physical_dataset: SourceDataset | None,
+) -> bool:
+    """Identify a generated consumer key that has no physical Parquet column.
+
+    Exact incoming business keys have no finite categorical domain to close:
+    every populated value follows the declared dataset resolver, while
+    existence and uniqueness are checked during preparation. A hierarchy's
+    selected-path key is generated from the frozen source and therefore must
+    not be projected directly from the physical source snapshot.
+    """
+
+    if (
+        physical_dataset is None
+        or item.policy is not CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+        or item.relationship is None
+        or item.relationship.resolver.origin is not ResolverOrigin.DATASET
+    ):
+        return False
+    physical_keys = {column.stable_key for column in physical_dataset.columns}
+    return bool(item.source_column_keys) and any(
+        key not in physical_keys for key in item.source_column_keys
+    )
+
+
+def _covered_without_value_scan(item: _CoverageField) -> CategoricalFieldResult:
+    """Record policy coverage when values are produced after source capture."""
+
+    return CategoricalFieldResult(
+        path=item.path,
+        dataset_id=item.dataset.dataset_id,
+        target_field=item.target_field,
+        policy=item.policy.value,
+        source_column_keys=item.source_column_keys,
+        distinct_values=(),
+        uncovered_values=(),
+        status="COVERED",
     )
 
 

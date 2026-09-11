@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}{% if job.kind.value == 'ODOO_CHECK' %}Checking Odoo{% else %}Preparing target values{% endif %} &middot; Impodo{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/job-polling.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+  {% set active = job.status.value in ('QUEUED', 'RUNNING') %}
+  <div
+    class="recipe-run-progress-page"
+    data-recipe-run-job
+    data-status-url="/projects/{{ job.project_id }}/runs/{{ job.migration_run_id }}/progress/{{ job.job_id }}/status"
+    aria-busy="{{ 'true' if active else 'false' }}"
+  >
+    <section class="page-heading">
+      <div>
+        <p class="eyebrow">Check Odoo &middot; Read-only work</p>
+        <h1>{% if job.kind.value == 'ODOO_CHECK' %}Checking this Odoo{% else %}Preparing target-value review{% endif %}</h1>
+        <p>Impodo is working locally. You can return to the run overview while this task continues; keep Impodo open.</p>
+      </div>
+      <span class="status {% if job.status.value == 'FAILED' %}blocked{% elif active %}review{% else %}ready{% endif %}" data-recipe-run-state>
+        {% if job.status.value == 'FAILED' %}Needs attention{% elif active %}In progress{% else %}Ready{% endif %}
+      </span>
+    </section>
+
+    <section class="form-card recipe-run-progress-card" aria-labelledby="recipe-run-progress-title">
+      <div class="preparation-progress-heading">
+        <div role="status" aria-live="polite" aria-atomic="true">
+          <p class="eyebrow">Current step</p>
+          <h2 id="recipe-run-progress-title" data-recipe-run-message>{{ job.message }}</h2>
+        </div>
+        <span class="activity-spinner" aria-hidden="true" data-recipe-run-spinner {% if not active %}hidden{% endif %}></span>
+      </div>
+      <progress
+        max="100"
+        value="{{ job.progress_percent }}"
+        aria-label="Recipe run task progress"
+        data-recipe-run-progress
+      >{{ job.progress_percent }}%</progress>
+      <div class="preparation-progress-numbers">
+        <strong data-recipe-run-percent>{{ job.progress_percent }}%</strong>
+        <span data-recipe-run-units>
+          {% if job.total_units %}{{ job.completed_units }} of {{ job.total_units }} {{ job.unit_label }}{% else %}Starting safely{% endif %}
+        </span>
+      </div>
+      <p class="muted" data-recipe-run-heartbeat>
+        Progress updated just now. Long Odoo responses can keep one step active for a while.
+      </p>
+    </section>
+
+    <section class="form-card recipe-run-stage-card" aria-labelledby="recipe-run-stage-title">
+      <p class="eyebrow">Overall progress</p>
+      <h2 id="recipe-run-stage-title">What Impodo is doing</h2>
+      <ol class="recipe-run-stage-list" data-recipe-run-stages>
+        {% for stage in progress_stages %}
+          <li
+            class="recipe-run-stage {{ stage.state }}"
+            data-phase="{{ stage.phase }}"
+            {% if stage.state == 'current' %}aria-current="step"{% endif %}
+          >
+            <span aria-hidden="true" class="recipe-run-stage-marker">{{ loop.index }}</span>
+            <span>
+              <strong>{{ stage.label }}</strong>
+              <small data-stage-status>{{ stage.status_label }}</small>
+            </span>
+          </li>
+        {% endfor %}
+      </ol>
+    </section>
+
+    <section class="next-action-card blocked" data-recipe-run-failed role="alert" {% if job.status.value != 'FAILED' %}hidden{% endif %}>
+      <div>
+        <p class="eyebrow">The check stopped</p>
+        <h2>Review the saved Odoo setup</h2>
+        <p data-recipe-run-failure>{{ job.failure_message }}</p>
+        <p>No Odoo record was changed. The accepted fresh data remains available.</p>
+      </div>
+      <a class="button primary" href="/projects/{{ job.project_id }}/runs/{{ job.migration_run_id }}/odoo">Return to Check Odoo</a>
+    </section>
+
+    <section class="next-action-card ready" data-recipe-run-complete role="status" {% if job.status.value != 'SUCCEEDED' %}hidden{% endif %}>
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2 data-recipe-run-complete-message>{{ job.message }}</h2>
+        <p>The next page will open automatically. Use the button if it does not.</p>
+      </div>
+      <a class="button primary" data-recipe-run-continue href="{{ job.redirect_url or ('/projects/' ~ job.project_id ~ '/runs/' ~ job.migration_run_id) }}">Continue</a>
+    </section>
+
+    <div class="preparation-progress-actions" data-recipe-run-active {% if not active %}hidden{% endif %}>
+      <a class="button secondary" href="/projects/{{ job.project_id }}/runs/{{ job.migration_run_id }}">Return to run overview</a>
+      <span class="muted">This read-only task will continue in the background.</span>
+    </div>
+
+    <details class="technical-details form-card">
+      <summary>Support details</summary>
+      <p>Attempt {{ job.attempt }} &middot; Job <code>{{ job.job_id }}</code></p>
+    </details>
+  </div>
+{% endblock %}

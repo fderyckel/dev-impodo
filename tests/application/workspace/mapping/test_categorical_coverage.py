@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 import unittest
+from uuid import uuid4
 
 import polars as pl
 
@@ -20,6 +21,11 @@ from impodo.domain.mapping.contracts import (
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
+    ScalarValueSource,
+    SelectionCondition,
+    SelectionConditionOperator,
+    SelectionRule,
+    SelectionRuleSet,
     ValueMapping,
 )
 from impodo.domain.mapping.control_expectations import EditionControlExpectation
@@ -359,6 +365,82 @@ class CategoricalCoverageTests(unittest.TestCase):
             (),
         )
 
+    def test_generated_exact_business_key_is_not_read_from_physical_snapshot(
+        self,
+    ) -> None:
+        generated_key = "derived:categories:selected_path"
+        physical_dataset = self.selection.datasets[0]
+        effective_selection = replace(
+            self.selection,
+            datasets=(
+                replace(
+                    physical_dataset,
+                    columns=(
+                        *physical_dataset.columns,
+                        SourceDatasetColumn(
+                            3,
+                            "Selected category path",
+                            generated_key,
+                            "string",
+                        ),
+                    ),
+                ),
+            ),
+            content_hash="sha256:" + "d" * 64,
+        )
+        relationship = self.definition.datasets[0].relationships[0]
+        definition = replace(
+            self.definition,
+            source_selection_hash=effective_selection.content_hash,
+            datasets=(
+                replace(
+                    self.definition.datasets[0],
+                    fields=(),
+                    relationships=(
+                        replace(
+                            relationship,
+                            source_column_keys=(generated_key,),
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.DATASET,
+                                dataset_id="derived:categories",
+                            ),
+                            categorical_policy=(
+                                CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        service = _RecordingCoverageService(
+            _Sources(self.selection),
+            pl.DataFrame(
+                {
+                    "language": ["English", "German", "English"],
+                    "country": ["LUX", "DE", "LUX"],
+                }
+            ),
+        )
+
+        collected = service.collect(
+            self.workspace_id,
+            definition,
+            effective_selection,
+            self.schema,
+        )
+
+        self.assertEqual(service.scan_calls, [])
+        self.assertEqual(collected.issues, ())
+        self.assertTrue(collected.evidence.recipe_eligible)
+        self.assertEqual(
+            collected.evidence.field_results[0].status,
+            "COVERED",
+        )
+        self.assertEqual(
+            collected.evidence.field_results[0].source_column_keys,
+            (generated_key,),
+        )
+
     def test_exact_target_coverage_uses_runtime_transformation_semantics(self) -> None:
         partner_model = self.schema.models[0]
         language = partner_model.fields[0]
@@ -423,6 +505,76 @@ class CategoricalCoverageTests(unittest.TestCase):
             ((" fr ",),),
         )
         self.assertEqual(service.scan_calls, [("dataset:customers", ("language",))])
+
+    def test_conditional_blank_domain_is_evaluated_but_not_serialized_as_a_value(
+        self,
+    ) -> None:
+        conditional = replace(
+            self.definition,
+            datasets=(
+                replace(
+                    self.definition.datasets[0],
+                    fields=(
+                        ScalarFieldMapping(
+                            target_field="lang",
+                            value_source=ScalarValueSource.CONDITIONAL_RULES,
+                            categorical_policy=(
+                                CategoricalCoveragePolicy.EXACT_TARGET_VALUE
+                            ),
+                            selection_rules=SelectionRuleSet(
+                                rules=(
+                                    SelectionRule(
+                                        rule_id=str(uuid4()),
+                                        conditions=(
+                                            SelectionCondition(
+                                                condition_id=str(uuid4()),
+                                                source_column_key="language",
+                                                operator=(
+                                                    SelectionConditionOperator.EQUALS
+                                                ),
+                                                comparison_value="English",
+                                            ),
+                                        ),
+                                        target_value="en",
+                                    ),
+                                ),
+                                otherwise_value="de",
+                            ),
+                        ),
+                    ),
+                    relationships=(),
+                ),
+            ),
+        )
+        service = _RecordingCoverageService(
+            _Sources(self.selection),
+            pl.DataFrame(
+                {
+                    "language": ["English", None, ""],
+                    "country": ["LUX", "DE", "LUX"],
+                }
+            ),
+        )
+
+        collected = service.collect(
+            self.workspace_id,
+            conditional,
+            self.selection,
+            self.schema,
+        )
+
+        self.assertEqual(collected.issues, ())
+        self.assertEqual(
+            tuple(
+                item.values
+                for item in collected.evidence.field_results[0].distinct_values
+            ),
+            (("English",),),
+        )
+        self.assertEqual(
+            collected.evidence.field_results[0].status,
+            "COVERED",
+        )
 
     def test_current_parser_rejects_unknown_nested_fields(self) -> None:
         payload = self.definition.to_dict()

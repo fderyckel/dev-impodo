@@ -16,7 +16,10 @@ from impodo.domain.workspace.business_keys import (
     recommend_business_key,
     selectable_business_key_fields,
 )
-from impodo.domain.workspace.derived_entities import DerivedEntityRule
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityRule,
+    HierarchicalLookupRule,
+)
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
@@ -205,6 +208,7 @@ def _render_derived_entities(
     status_code: int = 200,
     pending_related: dict[str, object] | None = None,
     pending_lookup: dict[str, object] | None = None,
+    pending_hierarchy: dict[str, object] | None = None,
 ):
     workspace_state = context.queries.get(workspace_id)
     selection = context.queries.get_source_selection(workspace_id)
@@ -238,7 +242,7 @@ def _render_derived_entities(
         try:
             preview = (
                 context.derived_entities.preview(workspace_id, rule)
-                if isinstance(rule, DerivedEntityRule)
+                if isinstance(rule, (DerivedEntityRule, HierarchicalLookupRule))
                 else context.derived_entities.preview_related(workspace_id, rule)
             )
             preview_error = None
@@ -247,7 +251,7 @@ def _render_derived_entities(
             preview_error = str(preview_failure)
         target = (
             rule_views
-            if isinstance(rule, DerivedEntityRule)
+            if isinstance(rule, (DerivedEntityRule, HierarchicalLookupRule))
             else related_rule_views
         )
         target.append(
@@ -297,6 +301,7 @@ def _render_derived_entities(
         related_source_views=related_source_views,
         pending_related=pending_related,
         pending_lookup=pending_lookup,
+        pending_hierarchy=pending_hierarchy,
         namespace_default=namespace,
         error=error,
         status_code=status_code,

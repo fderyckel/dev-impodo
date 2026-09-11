@@ -1,0 +1,45 @@
+{% if row_inclusion_review %}
+  <section class="form-card" id="rows-to-use-review" aria-labelledby="rows-to-use-review-title">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Rows to use</p>
+        <h2 id="rows-to-use-review-title">Checked source rows</h2>
+      </div>
+      {% if row_inclusion_confirmation %}
+        <span class="status ready">Confirmed</span>
+      {% elif row_inclusion_review.confirmable %}
+        <span class="status needs_review">Needs confirmation</span>
+      {% else %}
+        <span class="status needs_review">Needs attention</span>
+      {% endif %}
+    </div>
+
+    <div class="impact-cards" aria-label="Rows-to-use counts">
+      <article class="impact-card unchanged"><span>Rows checked</span><strong>{{ row_inclusion_review.source_row_count }}</strong></article>
+      <article class="impact-card provided"><span>Included</span><strong>{{ row_inclusion_review.included_count }}</strong></article>
+      <article class="impact-card null"><span>Excluded by rule</span><strong>{{ row_inclusion_review.excluded_count }}</strong></article>
+      <article class="impact-card invalid"><span>Could not be checked</span><strong>{{ row_inclusion_review.cannot_evaluate_count }}</strong></article>
+    </div>
+
+    {% for result in row_inclusion_review.datasets %}
+      <article class="notice {% if result.confirmable %}success{% else %}warning{% endif %}">
+        <strong>{{ result.dataset_name }}: {{ result.included_count }} included, {{ result.excluded_count }} excluded{% if result.cannot_evaluate_count %}, {{ result.cannot_evaluate_count }} could not be checked{% endif %}</strong>
+        <p>{{ result.rule_sentence }}</p>
+      </article>
+    {% endfor %}
+
+    <div class="actions">
+      <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/rows-to-use">Review rows</a>
+      {% if row_inclusion_review.confirmable and row_inclusion_review.excluded_count and not row_inclusion_confirmation %}
+        <button class="button primary" type="submit" name="action" value="confirm_rows" data-confirm-row-inclusion>Confirm {{ row_inclusion_review.included_count }} rows to use</button>
+      {% elif row_inclusion_confirmation %}
+        <span class="status ready">{{ row_inclusion_review.included_count }} rows confirmed</span>
+      {% elif row_inclusion_review.confirmable %}
+        <span class="status ready">Every checked row is included</span>
+      {% endif %}
+    </div>
+    {% if not row_inclusion_review.confirmable %}
+      <p class="muted">Change the rule or correct values that could not be read, then check matches again.</p>
+    {% endif %}
+  </section>
+{% endif %}

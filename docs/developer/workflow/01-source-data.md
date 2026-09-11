@@ -67,9 +67,18 @@ transaction. `WorkspaceDataVersionSourceService` accepts the same complete set
 as the Data version's source evidence. A failed capture or publication leaves
 the previous complete set current.
 
-`derived_entities.py` routes optional lookup extraction and parent/child split
-rules through `DerivedEntityWorkspaceService`. These rules remain plans until
-full preparation expands them over the frozen source.
+`derived_entities.py` routes optional lookup extraction, multi-column hierarchy,
+and parent/child split rules through `DerivedEntityWorkspaceService`. These
+rules remain plans until full preparation expands them over the frozen source.
+
+`HierarchicalLookupRule` is model-neutral. It binds two to five ordered stable
+column keys from one accepted dataset, an arbitrary captured target model and
+name field, and explicit missing-parent, missing-leaf, and all-blank policies.
+`evaluate_hierarchy_path` is the shared preview and staging oracle. The rule
+does not assume Product Categories or technical fields such as `parent_id` and
+`categ_id`; Match data discovers compatible self-parent and consumer many2one
+fields from the captured schema. The original one-column `DerivedEntityRule`
+retains its version-4 meaning.
 
 ## Contract invariants
 
@@ -121,6 +130,8 @@ form token.
 | Data-version source acceptance | [`WorkspaceDataVersionSourceService`](../../../src/impodo/application/workspace_data_version_source_service.py) |
 | Odoo capture jobs | [`OdooCaptureJobManager`](../../../src/impodo/application/odoo_capture_job_service.py) |
 | Related-dataset plans | [`DerivedEntityWorkspaceService`](../../../src/impodo/application/workspace/derived_entities.py) |
+| Multi-column hierarchy contract and path oracle | [`HierarchicalLookupRule`](../../../src/impodo/domain/workspace/derived_entities.py) |
+| Authenticated hierarchy-tutorial screenshot capture | [`capture_hierarchy_tutorial_screenshots.py`](../../../scripts/capture_hierarchy_tutorial_screenshots.py) |
 | Source routes | [`sources.py`](../../../src/impodo/web/routers/sources.py) |
 | Related-dataset routes | [`derived_entities.py`](../../../src/impodo/web/routers/derived_entities.py) |
 
@@ -184,6 +195,12 @@ falling back to unbounded Python work.
 
 ## Verification
 
+`capture_hierarchy_tutorial_screenshots.py::capture` creates an isolated
+fictional Product workspace and captures the current authenticated Stage 1
+hierarchy form and preview in Edge. It exercises complete, missing-parent,
+missing-leaf, and all-blank paths without reading or changing an operator
+workspace.
+
 - [`tests/integration/duckdb/test_workspace.py`](../../../tests/integration/duckdb/test_workspace.py)
 - [`tests/application/data_version/test_source_worker.py`](../../../tests/application/data_version/test_source_worker.py)
 - [`tests/domain/data_version/test_source_snapshot.py`](../../../tests/domain/data_version/test_source_snapshot.py)
@@ -203,3 +220,4 @@ cancellation, lineage, and both navigation variants.
 - [Project lifecycle contract](../contracts/project-lifecycle.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
 - [Related-table authoring](../../user/guides/related-tables.md)
+- [Multi-column hierarchy design](../../plans/multi-column-hierarchical-related-records.md)

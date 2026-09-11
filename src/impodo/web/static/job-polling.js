@@ -366,4 +366,127 @@ document.addEventListener("DOMContentLoaded", () => {
     window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
   }
 
+  const recipeRunJob = document.querySelector("[data-recipe-run-job]");
+  if (recipeRunJob) {
+    const statusUrl = recipeRunJob.dataset.statusUrl;
+    const state = recipeRunJob.querySelector("[data-recipe-run-state]");
+    const message = recipeRunJob.querySelector("[data-recipe-run-message]");
+    const progress = recipeRunJob.querySelector("[data-recipe-run-progress]");
+    const percent = recipeRunJob.querySelector("[data-recipe-run-percent]");
+    const units = recipeRunJob.querySelector("[data-recipe-run-units]");
+    const heartbeat = recipeRunJob.querySelector("[data-recipe-run-heartbeat]");
+    const spinner = recipeRunJob.querySelector("[data-recipe-run-spinner]");
+    const activeActions = recipeRunJob.querySelector("[data-recipe-run-active]");
+    const failed = recipeRunJob.querySelector("[data-recipe-run-failed]");
+    const failure = recipeRunJob.querySelector("[data-recipe-run-failure]");
+    const complete = recipeRunJob.querySelector("[data-recipe-run-complete]");
+    const completeMessage = recipeRunJob.querySelector(
+      "[data-recipe-run-complete-message]"
+    );
+    const continueLink = recipeRunJob.querySelector("[data-recipe-run-continue]");
+    let pollTimer;
+    let heartbeatTimer;
+    let lastUpdatedAt = new Date();
+    let active = true;
+    let updatesPaused = false;
+
+    const formatUnits = (job) => {
+      if (!job.total_units) return "Working through this step";
+      return `${Number(job.completed_units).toLocaleString()} of ${Number(job.total_units).toLocaleString()} ${job.unit_label}`;
+    };
+
+    const updateHeartbeat = () => {
+      if (!heartbeat) return;
+      const elapsed = Math.max(0, Math.floor((Date.now() - lastUpdatedAt.getTime()) / 1000));
+      if (updatesPaused) {
+        heartbeat.textContent = "Progress updates paused — reconnecting…";
+      } else if (!active) {
+        heartbeat.textContent = "The result is saved. You can continue now.";
+      } else if (elapsed < 5) {
+        heartbeat.textContent = "Progress updated just now. Long Odoo responses can keep one step active for a while.";
+      } else {
+        heartbeat.textContent = `This step has been active for ${elapsed.toLocaleString()} seconds. Long Odoo responses can keep one step active for a while.`;
+      }
+    };
+
+    const updateStages = (stages) => {
+      (stages || []).forEach((stage) => {
+        const row = recipeRunJob.querySelector(`[data-phase="${stage.phase}"]`);
+        if (!row) return;
+        row.classList.remove("complete", "current", "attention", "waiting");
+        row.classList.add(stage.state);
+        if (stage.state === "current") {
+          row.setAttribute("aria-current", "step");
+        } else {
+          row.removeAttribute("aria-current");
+        }
+        const label = row.querySelector("[data-stage-status]");
+        if (label) label.textContent = stage.status_label;
+      });
+    };
+
+    const showRecipeRunStatus = (job) => {
+      active = job.status === "QUEUED" || job.status === "RUNNING";
+      lastUpdatedAt = new Date(job.updated_at);
+      if (Number.isNaN(lastUpdatedAt.getTime())) lastUpdatedAt = new Date();
+      if (message) message.textContent = job.message;
+      if (progress) progress.value = job.progress_percent;
+      if (percent) percent.textContent = `${job.progress_percent}%`;
+      if (units) units.textContent = formatUnits(job);
+      if (spinner) spinner.hidden = !active;
+      if (activeActions) activeActions.hidden = !active;
+      recipeRunJob.setAttribute("aria-busy", active ? "true" : "false");
+      updateStages(job.stages);
+      updateHeartbeat();
+      if (state) {
+        state.classList.remove("ready", "review", "blocked");
+        state.textContent = active
+          ? "In progress"
+          : job.status === "SUCCEEDED"
+            ? "Ready"
+            : "Needs attention";
+        state.classList.add(
+          active ? "review" : job.status === "SUCCEEDED" ? "ready" : "blocked"
+        );
+      }
+      if (job.status === "FAILED") {
+        if (failed) failed.hidden = false;
+        if (failure) failure.textContent = job.failure_message;
+      } else if (job.status === "SUCCEEDED") {
+        if (complete) complete.hidden = false;
+        if (completeMessage) completeMessage.textContent = job.message;
+        if (continueLink && job.redirect_url) continueLink.href = job.redirect_url;
+        if (job.redirect_url) {
+          window.setTimeout(() => window.location.assign(job.redirect_url), 700);
+        }
+      }
+      return active;
+    };
+
+    const pollRecipeRun = async () => {
+      try {
+        const response = await fetch(statusUrl, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error("Progress is temporarily unavailable");
+        updatesPaused = false;
+        if (showRecipeRunStatus(await response.json())) {
+          pollTimer = window.setTimeout(pollRecipeRun, 750);
+        }
+      } catch {
+        updatesPaused = true;
+        updateHeartbeat();
+        pollTimer = window.setTimeout(pollRecipeRun, 1500);
+      }
+    };
+
+    heartbeatTimer = window.setInterval(updateHeartbeat, 1000);
+    if (statusUrl) pollRecipeRun();
+    window.addEventListener("pagehide", () => {
+      window.clearTimeout(pollTimer);
+      window.clearInterval(heartbeatTimer);
+    });
+  }
+
 });

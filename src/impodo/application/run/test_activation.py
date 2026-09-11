@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from uuid import UUID, uuid5
 
@@ -260,6 +260,7 @@ class TestRunActivationUseCase:
         actor: Actor,
         fault: FaultInjector | None = None,
         control_values: Mapping[str, Mapping[str, str]] | None = None,
+        progress: Callable[[int, int, str], None] | None = None,
     ) -> IntegratedRunBundle:
         """Activate one fresh Test setup and create isolated Recipe work areas."""
 
@@ -349,6 +350,7 @@ class TestRunActivationUseCase:
                     test_binding.setup_workspace_id
                 ),
                 actor=actor,
+                progress=progress,
             )
             self._ensure_cutover_plan(
                 materialized,
@@ -475,6 +477,7 @@ class TestRunActivationUseCase:
                 test_binding.setup_workspace_id
             ),
             actor=actor,
+            progress=progress,
         )
         self._ensure_cutover_plan(
             committed,

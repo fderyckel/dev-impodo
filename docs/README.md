@@ -93,9 +93,16 @@ applies those rules when documentation is created or rewritten.
 - [Combine source columns into one Odoo field](plans/concatenate-source-columns-matching-rule.md)
   — the implemented design record for the guided, reusable matching rule that
   joins two to five source columns without changing the accepted workbook.
+- [Include only matching source rows](plans/source-row-inclusion-rules.md) —
+  the proposed reusable dataset rule that keeps complete source evidence while
+  preventing non-matching rows from reaching preparation or Odoo.
 - [Recipe runs in three pages](plans/recipe-run-three-page-ui-refactor.md) —
   the approved plan for applying an existing Recipe to fresh data and an Odoo
   target without repeating the six authoring stages.
+- [Build hierarchical related records from separate source columns](plans/multi-column-hierarchical-related-records.md) —
+  the implemented, model-neutral Stage 1 hierarchy extraction and Stage 3
+  self-parent and consumer matching design, including explicit fixed-parent
+  and blank-path decisions.
 - The separate browser-language proposal is active design work. Completed
   delivery history belongs in Git history; current behavior belongs in the
   architecture, contracts, and paired workflow pages.

@@ -30,9 +30,9 @@ from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
 
-MAPPING_CONTRACT_VERSION = 15
+MAPPING_CONTRACT_VERSION = 16
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
-    {12, 13, 14, MAPPING_CONTRACT_VERSION}
+    {12, 13, 14, 15, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
@@ -40,6 +40,7 @@ MAX_CONTROL_TOTALS_PER_DATASET = 3
 MAX_SELECTION_RULES = 20
 MAX_SELECTION_RULE_CONDITIONS = 8
 MAX_SELECTION_RULE_COLUMNS = 20
+MAX_ROW_INCLUSION_CONDITIONS = 8
 
 
 class UnsupportedMappingContractError(ValueError):
@@ -192,6 +193,95 @@ class SelectionConditionOperator(StrEnum):
     GREATER_THAN_OR_EQUAL = "greater_than_or_equal"
     IS_TRUE = "is_true"
     IS_FALSE = "is_false"
+
+
+class RowInclusionMode(StrEnum):
+    """Choose whether a dataset uses every row or only matching rows."""
+
+    ALL_ROWS = "all_rows"
+    MATCHING_ROWS = "matching_rows"
+
+
+class RowInclusionJoin(StrEnum):
+    """Combine the conditions in one dataset row-inclusion rule."""
+
+    ALL = "all"
+    ANY = "any"
+
+
+@dataclass(frozen=True, slots=True)
+class RowInclusionCondition:
+    """Compare one stable source column when deciding whether to use a row."""
+
+    condition_id: str
+    source_column_key: str
+    operator: SelectionConditionOperator
+    comparison_value: str | None = None
+    value_type: str = "string"
+
+    def __post_init__(self) -> None:
+        try:
+            object.__setattr__(self, "condition_id", str(UUID(self.condition_id)))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise ValueError(
+                "Row-inclusion condition identifier is invalid"
+            ) from error
+        if not self.source_column_key or len(self.source_column_key) > 500:
+            raise ValueError("Row-inclusion source column is invalid")
+        object.__setattr__(
+            self,
+            "operator",
+            SelectionConditionOperator(self.operator),
+        )
+        if self.value_type not in {
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "datetime",
+        }:
+            raise ValueError("Row-inclusion comparison type is unsupported")
+        unary = {
+            SelectionConditionOperator.IS_BLANK,
+            SelectionConditionOperator.IS_NOT_BLANK,
+            SelectionConditionOperator.IS_TRUE,
+            SelectionConditionOperator.IS_FALSE,
+        }
+        if self.operator in unary:
+            if self.comparison_value is not None:
+                raise ValueError("This row-inclusion comparison takes no value")
+        elif self.comparison_value is None:
+            raise ValueError("This row-inclusion comparison requires a value")
+        elif len(self.comparison_value) > 10_000:
+            raise ValueError("Row-inclusion comparison value is too long")
+
+
+@dataclass(frozen=True, slots=True)
+class RowInclusionPolicy:
+    """Select the rows from one dataset that belong to the migration."""
+
+    mode: RowInclusionMode = RowInclusionMode.ALL_ROWS
+    conditions: tuple[RowInclusionCondition, ...] = ()
+    join: RowInclusionJoin = RowInclusionJoin.ALL
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mode", RowInclusionMode(self.mode))
+        object.__setattr__(self, "conditions", tuple(self.conditions))
+        object.__setattr__(self, "join", RowInclusionJoin(self.join))
+        if self.mode is RowInclusionMode.ALL_ROWS:
+            if self.conditions:
+                raise ValueError("Use-every-row mode cannot contain conditions")
+            return
+        if not 1 <= len(self.conditions) <= MAX_ROW_INCLUSION_CONDITIONS:
+            raise ValueError(
+                "Matching-row mode requires one to "
+                f"{MAX_ROW_INCLUSION_CONDITIONS} conditions"
+            )
+        if len({item.condition_id for item in self.conditions}) != len(
+            self.conditions
+        ):
+            raise ValueError("Row-inclusion condition identifiers must be unique")
 
 
 class CategoricalCoveragePolicy(StrEnum):
@@ -663,6 +753,9 @@ class DatasetMapping:
 
     dataset_id: str
     target_model: str
+    row_inclusion: RowInclusionPolicy = field(
+        default_factory=RowInclusionPolicy
+    )
     mode: MappingTargetMode = MappingTargetMode.UPSERT
     on_existing: str | None = None
     source_identity_column_keys: tuple[str, ...] = ()
@@ -837,6 +930,14 @@ class MappingDefinition:
                 f"Mapping contract v{self.contract_version} cannot contain "
                 "a constant relationship"
             )
+        if self.contract_version < 16 and any(
+            dataset.row_inclusion != RowInclusionPolicy()
+            for dataset in self.datasets
+        ):
+            raise ValueError(
+                f"Mapping contract v{self.contract_version} cannot contain "
+                "row inclusion rules"
+            )
         if self.contract_version == 12 and any(
             resolver.dataset_projection_field is not None
             for dataset in self.datasets
@@ -977,14 +1078,22 @@ def _dataset_mapping_from_dict(
     *,
     contract_version: int,
 ) -> DatasetMapping:
+    expected_fields = _contract_fields(DatasetMapping)
+    if contract_version < 16:
+        expected_fields.remove("row_inclusion")
     _require_contract_fields(
         payload,
-        _contract_fields(DatasetMapping),
+        expected_fields,
         "Dataset mapping fields do not match the current contract",
     )
     return DatasetMapping(
         dataset_id=str(payload["dataset_id"]),
         target_model=str(payload.get("target_model", "")),
+        row_inclusion=(
+            _row_inclusion_policy_from_dict(payload["row_inclusion"])
+            if contract_version >= 16
+            else RowInclusionPolicy()
+        ),
         mode=MappingTargetMode(payload.get("mode", "upsert")),
         on_existing=payload.get("on_existing"),
         source_identity_column_keys=tuple(
@@ -1040,6 +1149,8 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    if contract_version < 16:
+        payload.pop("row_inclusion", None)
     if contract_version < 15:
         payload = _without_relationship_value_provider(payload)
     if contract_version < 14:
@@ -1047,6 +1158,52 @@ def _dataset_mapping_to_dict(
     if contract_version == 12:
         return _without_dataset_projection_field(payload)
     return payload
+
+
+def _row_inclusion_policy_from_dict(
+    payload: Mapping[str, Any],
+) -> RowInclusionPolicy:
+    _require_contract_fields(
+        payload,
+        _contract_fields(RowInclusionPolicy),
+        "Row-inclusion fields do not match the current mapping contract",
+    )
+    conditions_payload = payload.get("conditions", ())
+    if not isinstance(conditions_payload, (list, tuple)):
+        raise ValueError("Row-inclusion conditions are invalid")
+    return RowInclusionPolicy(
+        mode=RowInclusionMode(
+            payload.get("mode", RowInclusionMode.ALL_ROWS.value)
+        ),
+        conditions=tuple(
+            _row_inclusion_condition_from_dict(item)
+            for item in conditions_payload
+        ),
+        join=RowInclusionJoin(
+            payload.get("join", RowInclusionJoin.ALL.value)
+        ),
+    )
+
+
+def _row_inclusion_condition_from_dict(
+    payload: Mapping[str, Any],
+) -> RowInclusionCondition:
+    _require_contract_fields(
+        payload,
+        _contract_fields(RowInclusionCondition),
+        "Row-inclusion condition fields do not match the current mapping contract",
+    )
+    return RowInclusionCondition(
+        condition_id=str(payload.get("condition_id", "")),
+        source_column_key=str(payload.get("source_column_key", "")),
+        operator=SelectionConditionOperator(payload.get("operator", "")),
+        comparison_value=(
+            str(payload["comparison_value"])
+            if payload.get("comparison_value") is not None
+            else None
+        ),
+        value_type=str(payload.get("value_type", "string")),
+    )
 
 
 def _without_relationship_value_provider(

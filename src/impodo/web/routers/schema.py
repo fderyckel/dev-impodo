@@ -11,13 +11,24 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from ...application.odoo_read_failures import (
     OdooReadCredentialMissingError,
     classify_odoo_read_failure,
+)
+from ...application.run.recipe_run_jobs import (
+    RecipeRunJob,
+    RecipeRunJobKind,
+    RecipeRunJobNotFoundError,
+    RecipeRunJobPhase,
+    RecipeRunJobProgress,
+    RecipeRunJobResult,
+    RecipeRunJobStatus,
 )
 from impodo.domain.odoo.contracts import ConnectorError
 from ...domain.schema.governance import (
@@ -44,7 +55,7 @@ from ..forms import (
     _submitted_model_scope,
     _text,
 )
-from ..presenters.common import _flash
+from ..presenters.common import _flash, _render
 from ..presenters.mapping_forms import _business_key_id, _comma_values
 from ..presenters.schema import _manual_schema_models, _render_schema
 from ..presenters.summary import _require_local_stack_access
@@ -69,8 +80,21 @@ async def _capture_selected_schema(
 ) -> OdooSchemaCatalog:
     """Load and persist field details for the saved Odoo model choices."""
 
+    return await run_in_threadpool(
+        _capture_selected_schema_sync,
+        context,
+        workspace_state,
+    )
+
+
+def _capture_selected_schema_sync(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+) -> OdooSchemaCatalog:
+    """Synchronous core used by both request and background-job boundaries."""
+
     snapshot, read_credential_binding_hash, read_identity, local_profile = (
-        await _read_selected_schema(context, workspace_state)
+        _read_selected_schema_sync(context, workspace_state)
     )
     schema = context.schema_workspace.capture(
         workspace_state.workspace_id,
@@ -89,8 +113,21 @@ async def _check_selected_schema(
 ) -> OdooSchemaCatalog:
     """Check saved field details without replacing current schema meaning."""
 
+    return await run_in_threadpool(
+        _check_selected_schema_sync,
+        context,
+        workspace_state,
+    )
+
+
+def _check_selected_schema_sync(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+) -> OdooSchemaCatalog:
+    """Synchronous core used by both request and background-job boundaries."""
+
     snapshot, read_credential_binding_hash, read_identity, local_profile = (
-        await _read_selected_schema(context, workspace_state)
+        _read_selected_schema_sync(context, workspace_state)
     )
     schema = context.schema_workspace.check_refresh(
         workspace_state.workspace_id,
@@ -103,8 +140,11 @@ async def _check_selected_schema(
     return schema
 
 
-async def _read_selected_schema(context: WebContext, workspace_state: WorkspaceState):
-    """Read one closed metadata snapshot and its verified access provenance."""
+def _read_selected_schema_sync(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+):
+    """Perform the closed target read without depending on an event loop."""
 
     local_profile = _selected_local_profile(context, workspace_state)
     credential = get_target_credential(
@@ -113,8 +153,7 @@ async def _read_selected_schema(context: WebContext, workspace_state: WorkspaceS
         TargetCredentialRole.READ,
     )
     if local_profile is not None and credential is None:
-        snapshot = await run_in_threadpool(
-            context.local_odoo_reader.get_model_metadata,
+        snapshot = context.local_odoo_reader.get_model_metadata(
             workspace_state,
             local_profile,
             workspace_state.intended_models,
@@ -128,14 +167,12 @@ async def _read_selected_schema(context: WebContext, workspace_state: WorkspaceS
             raise OdooReadCredentialMissingError(
                 _missing_schema_reader_message(workspace_state)
             )
-        read_identity = await run_in_threadpool(
-            context.read_identity_probe,
+        read_identity = context.read_identity_probe(
             workspace_state,
             credential.secret,
             tuple(sorted(workspace_state.intended_models)),
         )
-        snapshot = await run_in_threadpool(
-            context.schema_reader,
+        snapshot = context.schema_reader(
             workspace_state,
             credential.secret,
         )
@@ -237,6 +274,86 @@ def build_schema_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "expected_workspace_revision", "operation_id"},
         )
+        if context.recipe_run_jobs is not None:
+            binding = None
+            try:
+                binding, _run, workspace_state, _plan = _run_odoo_check_scope(
+                    context,
+                    project_id,
+                    migration_run_id,
+                    run_kind,
+                )
+                if (
+                    run_kind is RunSetupKind.PRODUCTION
+                    and context.production_runs.activation_operation(
+                        migration_run_id,
+                        actor=context.actor,
+                    )
+                    is not None
+                ):
+                    return RedirectResponse(
+                        f"/projects/{project_id}/production-runs/"
+                        f"{migration_run_id}/activate",
+                        status_code=303,
+                    )
+                _require_run_read_credential(context, workspace_state)
+                expected_workspace_revision = int(
+                    _text(form, "expected_workspace_revision")
+                )
+                operation_id = _text(form, "operation_id")
+                job = context.recipe_run_jobs.enqueue(
+                    kind=RecipeRunJobKind.ODOO_CHECK,
+                    project_id=project_id,
+                    migration_run_id=migration_run_id,
+                    workspace_id=binding.setup_workspace_id,
+                    run_purpose=run_kind.purpose,
+                    work=lambda report: _perform_run_odoo_check(
+                        context,
+                        project_id,
+                        migration_run_id,
+                        run_kind,
+                        expected_workspace_revision=expected_workspace_revision,
+                        operation_id=operation_id,
+                        report=report,
+                    ),
+                )
+            except (
+                ConnectorError,
+                MigrationFoundationError,
+                RecipeError,
+                SecretStoreError,
+                WorkspaceStateError,
+                WorkspaceError,
+                TypeError,
+                ValueError,
+            ) as error:
+                if binding is None:
+                    raise
+                read_failure = classify_odoo_read_failure(error)
+                return _render_schema(
+                    request,
+                    context,
+                    binding.setup_workspace_id,
+                    error=str(error),
+                    operation_id=_text(form, "operation_id"),
+                    read_credential_required=(
+                        read_failure.asks_for_read_credential
+                    ),
+                    read_credential_resume="submit",
+                    read_credential_resume_action=(
+                        f"/projects/{project_id}/{run_kind}/"
+                        f"{migration_run_id}/odoo/check"
+                    ),
+                    status_code=422,
+                )
+            _flash(
+                request,
+                "Odoo check started. You can follow each step here.",
+            )
+            return RedirectResponse(
+                _recipe_run_progress_url(project_id, migration_run_id, job.job_id),
+                status_code=303,
+            )
         workspace_id = ""
         try:
             binding = context.run_setups.get(
@@ -449,6 +566,57 @@ def build_schema_router(context: WebContext) -> APIRouter:
         return RedirectResponse(
             f"/projects/{project_id}/runs/{migration_run_id}",
             status_code=303,
+        )
+
+    @router.get(
+        "/projects/{project_id}/runs/{migration_run_id}/progress/{job_id}",
+        response_class=HTMLResponse,
+    )
+    async def recipe_run_progress(
+        request: Request,
+        project_id: str,
+        migration_run_id: str,
+        job_id: str,
+    ):
+        """Show resumable progress for one read-only Recipe run task."""
+
+        require_session(request)
+        job = _get_recipe_run_job(
+            context,
+            project_id,
+            migration_run_id,
+            job_id,
+        )
+        workspace_state = context.queries.get(job.workspace_id)
+        return _render(
+            request,
+            "project_recipe_run_progress.html",
+            workspace_state=workspace_state,
+            job=job,
+            progress_stages=_recipe_run_progress_stages(job),
+        )
+
+    @router.get(
+        "/projects/{project_id}/runs/{migration_run_id}/progress/{job_id}/status"
+    )
+    async def recipe_run_progress_status(
+        request: Request,
+        project_id: str,
+        migration_run_id: str,
+        job_id: str,
+    ):
+        """Return the latest non-sensitive job checkpoint."""
+
+        require_session(request)
+        return JSONResponse(
+            _recipe_run_job_payload(
+                _get_recipe_run_job(
+                    context,
+                    project_id,
+                    migration_run_id,
+                    job_id,
+                )
+            )
         )
 
     @router.post("/workspaces/{workspace_id}/schema/local-config")
@@ -928,3 +1096,519 @@ def build_schema_router(context: WebContext) -> APIRouter:
         )
 
     return router
+
+
+def _run_odoo_check_scope(
+    context: WebContext,
+    project_id: str,
+    migration_run_id: str,
+    run_kind: RunSetupKind,
+):
+    """Validate the immutable run scope before starting or repeating a job."""
+
+    binding = context.run_setups.get(
+        migration_run_id,
+        actor=context.actor,
+    )
+    run = context.migration_runs.get(migration_run_id, actor=context.actor)
+    if binding.project_id != project_id or run.purpose.value != run_kind.purpose:
+        raise HTTPException(status_code=404, detail="Recipe run not found")
+    data_version = context.data_versions.get(
+        binding.data_version_id,
+        actor=context.actor,
+    )
+    if data_version.state.value != "FROZEN":
+        raise MigrationFoundationError(
+            "Accept the fresh data before checking this Odoo target"
+        )
+    _, values = context.run_setups.fresh_data_details(
+        binding,
+        actor=context.actor,
+    )
+    if not values.ready_to_continue:
+        raise MigrationFoundationError(
+            "Confirm the Recipe details on Fresh data before checking Odoo"
+        )
+    workspace_state = context.queries.get(binding.setup_workspace_id)
+    plan = context.run_setups.odoo_check_requirements_for_workspace(
+        workspace_state.workspace_id,
+        actor=context.actor,
+    )
+    if plan is None or not plan.models:
+        raise RecipeError(
+            "The selected Recipes do not contain an Odoo requirement"
+        )
+    return binding, run, workspace_state, plan
+
+
+def _require_run_read_credential(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+) -> None:
+    """Keep the existing credential prompt ahead of background work."""
+
+    local_profile = _selected_local_profile(context, workspace_state)
+    credential = get_target_credential(
+        context.secret_store,
+        workspace_state,
+        TargetCredentialRole.READ,
+    )
+    if local_profile is None and credential is None:
+        raise OdooReadCredentialMissingError(
+            _missing_schema_reader_message(workspace_state)
+        )
+
+
+def _perform_run_odoo_check(
+    context: WebContext,
+    project_id: str,
+    migration_run_id: str,
+    run_kind: RunSetupKind,
+    *,
+    expected_workspace_revision: int,
+    operation_id: str,
+    report: Callable[[RecipeRunJobProgress], None],
+) -> RecipeRunJobResult:
+    """Execute the former request-bound Odoo check with visible checkpoints."""
+
+    report(
+        RecipeRunJobProgress(
+            RecipeRunJobPhase.VALIDATING,
+            "Checking the saved run setup",
+            5,
+        )
+    )
+    binding, _run, workspace_state, plan = _run_odoo_check_scope(
+        context,
+        project_id,
+        migration_run_id,
+        run_kind,
+    )
+    if run_kind is RunSetupKind.PRODUCTION:
+        operation = context.production_runs.activation_operation(
+            migration_run_id,
+            actor=context.actor,
+        )
+        if operation is not None:
+            return RecipeRunJobResult(
+                f"/projects/{project_id}/production-runs/"
+                f"{migration_run_id}/activate",
+                "Odoo check is ready for Production review",
+            )
+    for application in context.run_planning.repository.list_applications(
+        migration_run_id
+    ):
+        context.recipe_target_matches.clear_prepared_review(
+            application.application_id
+        )
+    if run_kind is RunSetupKind.TEST:
+        resumed = context.test_runs.resume_activation_if_needed(
+            migration_run_id,
+            actor=context.actor,
+            progress=lambda completed, total, recipe_id: (
+                _report_materialization(
+                    report,
+                    completed,
+                    total,
+                    recipe_id,
+                )
+            ),
+        )
+        if resumed is not None:
+            return _complete_test_run_check(
+                context,
+                project_id,
+                migration_run_id,
+                resumed,
+                report,
+                start_preparation=False,
+            )
+    if workspace_state.intended_models != plan.model_names:
+        workspace_state = context.workspace_states.update_schema_scope(
+            workspace_state.workspace_id,
+            actor=context.actor,
+            expected_revision=workspace_state.revision,
+            permitted_models=plan.model_names,
+        )
+    current = context.queries.get_odoo_schema_catalog(
+        workspace_state.workspace_id
+    )
+    if current is not None and current.pending_refresh is not None:
+        raise WorkspaceError(
+            "Review the detected Odoo changes before continuing"
+        )
+    field_count = sum(len(item.field_names) for item in plan.models)
+    report(
+        RecipeRunJobProgress(
+            RecipeRunJobPhase.READING_ODOO,
+            "Connecting to this Odoo and reading the required fields",
+            10,
+            total_units=field_count,
+            unit_label="required fields",
+        )
+    )
+    schema = (
+        _check_selected_schema_sync(context, workspace_state)
+        if current is not None and current.origin is SchemaOrigin.LIVE_API
+        else _capture_selected_schema_sync(context, workspace_state)
+    )
+    report(
+        RecipeRunJobProgress(
+            RecipeRunJobPhase.CHECKING_FIELDS,
+            f"Checked {field_count} required Odoo field"
+            f"{'s' if field_count != 1 else ''}",
+            30,
+            completed_units=field_count,
+            total_units=field_count,
+            unit_label="required fields",
+        )
+    )
+    if schema.pending_refresh is not None:
+        return RecipeRunJobResult(
+            f"/projects/{project_id}/runs/{migration_run_id}"
+            "/odoo#odoo-schema-changes",
+            "Odoo changes are ready for review",
+        )
+    supporting_count = len(plan.supporting_values)
+    report(
+        RecipeRunJobProgress(
+            RecipeRunJobPhase.SUPPORTING_VALUES,
+            (
+                "Reading current supporting values from Odoo"
+                if supporting_count
+                else "No supporting value sets are needed"
+            ),
+            35,
+            total_units=supporting_count,
+            unit_label="supporting value sets",
+        )
+    )
+    _capture_recipe_supporting_values(
+        context,
+        workspace_state,
+        schema,
+        plan.supporting_values,
+    )
+    report(
+        RecipeRunJobProgress(
+            RecipeRunJobPhase.SUPPORTING_VALUES,
+            (
+                f"Read {supporting_count} supporting value set"
+                f"{'s' if supporting_count != 1 else ''}"
+                if supporting_count
+                else "No supporting value sets were needed"
+            ),
+            50,
+            completed_units=supporting_count,
+            total_units=supporting_count,
+            unit_label="supporting value sets",
+        )
+    )
+    target_schema, target_references = (
+        context.run_planning.target_evidence_from_workspace(
+            project_id,
+            workspace_state.workspace_id,
+            actor=context.actor,
+        )
+    )
+    if run_kind is RunSetupKind.PRODUCTION:
+        return RecipeRunJobResult(
+            f"/projects/{project_id}/production-runs/"
+            f"{migration_run_id}/activate",
+            "Odoo fields and supporting values are ready",
+        )
+    if binding.state.value == "ACTIVE":
+        report(
+            RecipeRunJobProgress(
+                RecipeRunJobPhase.MATERIALIZING,
+                "Updating the Recipe work areas with checked Odoo defaults",
+                60,
+            )
+        )
+        context.run_planning.recover_blocked_test_run_defaults(
+            migration_run_id,
+            current_schema=target_schema,
+            actor=context.actor,
+        )
+        bundle = context.run_planning.repository.get_bundle(migration_run_id)
+        return _complete_test_run_check(
+            context,
+            project_id,
+            migration_run_id,
+            bundle,
+            report,
+            start_preparation=False,
+        )
+    read_credential = get_target_credential(
+        context.secret_store,
+        workspace_state,
+        TargetCredentialRole.READ,
+    )
+    if read_credential is None:
+        raise OdooReadCredentialMissingError(
+            "Enter and verify the read-only Odoo key for this Test run first"
+        )
+    report(
+        RecipeRunJobProgress(
+            RecipeRunJobPhase.MATERIALIZING,
+            "Creating the Recipe work areas",
+            55,
+        )
+    )
+    result = context.test_runs.activate(
+        project_id,
+        migration_run_id,
+        expected_workspace_revision=expected_workspace_revision,
+        target_schema=target_schema,
+        target_reference_bundle=target_references,
+        credential_generation=read_credential.binding_hash,
+        operation_id=operation_id,
+        actor=context.actor,
+        progress=lambda completed, total, recipe_id: _report_materialization(
+            report,
+            completed,
+            total,
+            recipe_id,
+        ),
+    )
+    return _complete_test_run_check(
+        context,
+        project_id,
+        migration_run_id,
+        result,
+        report,
+        start_preparation=True,
+    )
+
+
+def _report_materialization(
+    report: Callable[[RecipeRunJobProgress], None],
+    completed: int,
+    total: int,
+    _recipe_id: str,
+) -> None:
+    total = max(0, int(total))
+    completed = min(total, max(0, int(completed)))
+    fraction = completed / total if total else 0.0
+    report(
+        RecipeRunJobProgress(
+            RecipeRunJobPhase.MATERIALIZING,
+            (
+                f"Created {completed} of {total} Recipe work areas"
+                if total
+                else "Creating the Recipe work areas"
+            ),
+            55 + round(30 * fraction),
+            completed_units=completed,
+            total_units=total,
+            unit_label="Recipe work areas",
+        )
+    )
+
+
+def _complete_test_run_check(
+    context: WebContext,
+    project_id: str,
+    migration_run_id: str,
+    result,
+    report: Callable[[RecipeRunJobProgress], None],
+    *,
+    start_preparation: bool,
+) -> RecipeRunJobResult:
+    """Prepare focused reviews so their browser route is a bounded read."""
+
+    mapped_applications = tuple(
+        application
+        for application in result.applications
+        if getattr(application, "mapping_id", None) is not None
+    )
+    application_issues = (
+        context.run_planning.repository.list_run_issues(migration_run_id)
+        if mapped_applications
+        else {}
+    )
+    target_applications = tuple(
+        application
+        for application in mapped_applications
+        if any(
+            issue.code == "MAPPING_CATEGORICAL_COVERAGE_INCOMPLETE"
+            for issue in application_issues.get(
+                application.application_id,
+                (),
+            )
+        )
+    )
+    target_count = len(target_applications)
+    if not target_count:
+        report(
+            RecipeRunJobProgress(
+                RecipeRunJobPhase.TARGET_MATCHES,
+                "All target-specific values already match",
+                99,
+            )
+        )
+    for index, application in enumerate(target_applications):
+        report(
+            RecipeRunJobProgress(
+                RecipeRunJobPhase.TARGET_MATCHES,
+                f"Preparing target values for Recipe {index + 1} of "
+                f"{target_count}",
+                88 + round(11 * index / target_count),
+                completed_units=index,
+                total_units=target_count,
+                unit_label="Recipe reviews",
+            )
+        )
+        context.recipe_target_matches.prepare_review(
+            application,
+            actor=context.actor,
+        )
+        report(
+            RecipeRunJobProgress(
+                RecipeRunJobPhase.TARGET_MATCHES,
+                f"Prepared {index + 1} of {target_count} Recipe reviews",
+                88 + round(11 * (index + 1) / target_count),
+                completed_units=index + 1,
+                total_units=target_count,
+                unit_label="Recipe reviews",
+            )
+        )
+    if target_applications:
+        first = target_applications[0]
+        return RecipeRunJobResult(
+            f"/projects/{project_id}/runs/{migration_run_id}/applications/"
+            f"{first.application_id}/target-matches",
+            "Target-specific values are ready for review",
+        )
+    if start_preparation and context.preparation_jobs is not None:
+        try:
+            start_next_preparation(context, migration_run_id)
+        except WorkspaceError:
+            pass
+    return RecipeRunJobResult(
+        f"/projects/{project_id}/runs/{migration_run_id}",
+        "Odoo is ready for Review and load",
+    )
+
+
+def _get_recipe_run_job(
+    context: WebContext,
+    project_id: str,
+    migration_run_id: str,
+    job_id: str,
+) -> RecipeRunJob:
+    if context.recipe_run_jobs is None:
+        raise HTTPException(status_code=404, detail="Recipe run job not found")
+    project = context.migration_projects.get(project_id, actor=context.actor)
+    run = context.migration_runs.get(migration_run_id, actor=context.actor)
+    if run.project_id != project.project_id:
+        raise HTTPException(status_code=404, detail="Recipe run job not found")
+    try:
+        return context.recipe_run_jobs.get(
+            project_id,
+            migration_run_id,
+            job_id,
+        )
+    except RecipeRunJobNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail="Recipe run job not found",
+        ) from error
+
+
+def _recipe_run_job_payload(job: RecipeRunJob) -> dict[str, object]:
+    return {
+        "job_id": job.job_id,
+        "kind": job.kind.value,
+        "run_purpose": job.run_purpose,
+        "status": job.status.value,
+        "phase": job.phase.value,
+        "message": job.message,
+        "progress_percent": job.progress_percent,
+        "completed_units": job.completed_units,
+        "total_units": job.total_units,
+        "unit_label": job.unit_label,
+        "updated_at": job.updated_at.isoformat(),
+        "failure_message": job.failure_message,
+        "redirect_url": job.redirect_url,
+        "stages": _recipe_run_progress_stages(job),
+    }
+
+
+def _recipe_run_progress_url(
+    project_id: str,
+    migration_run_id: str,
+    job_id: str,
+) -> str:
+    return (
+        f"/projects/{project_id}/runs/{migration_run_id}/progress/{job_id}"
+    )
+
+
+def _recipe_run_progress_stages(job: RecipeRunJob) -> tuple[dict[str, str], ...]:
+    if job.kind is RecipeRunJobKind.TARGET_MATCH_REVIEW:
+        definitions = (
+            (RecipeRunJobPhase.VALIDATING, "Check the Recipe application"),
+            (RecipeRunJobPhase.TARGET_MATCHES, "Prepare target values"),
+        )
+    elif job.run_purpose == "PRODUCTION":
+        definitions = (
+            (RecipeRunJobPhase.VALIDATING, "Check saved run setup"),
+            (RecipeRunJobPhase.READING_ODOO, "Connect to this Odoo"),
+            (RecipeRunJobPhase.SUPPORTING_VALUES, "Read supporting values"),
+        )
+    else:
+        definitions = (
+            (RecipeRunJobPhase.VALIDATING, "Check saved run setup"),
+            (RecipeRunJobPhase.READING_ODOO, "Connect to this Odoo"),
+            (RecipeRunJobPhase.SUPPORTING_VALUES, "Read supporting values"),
+            (RecipeRunJobPhase.MATERIALIZING, "Prepare Recipe work areas"),
+            (RecipeRunJobPhase.TARGET_MATCHES, "Prepare target values"),
+        )
+    phase_index = {
+        RecipeRunJobPhase.QUEUED: -1,
+        RecipeRunJobPhase.VALIDATING: 0,
+        RecipeRunJobPhase.READING_ODOO: 1,
+        RecipeRunJobPhase.CHECKING_FIELDS: 1,
+        RecipeRunJobPhase.SUPPORTING_VALUES: 2,
+        RecipeRunJobPhase.MATERIALIZING: 3,
+        RecipeRunJobPhase.TARGET_MATCHES: 4,
+        RecipeRunJobPhase.COMPLETE: len(definitions),
+    }
+    if job.kind is RecipeRunJobKind.TARGET_MATCH_REVIEW:
+        phase_index.update(
+            {
+                RecipeRunJobPhase.TARGET_MATCHES: 1,
+                RecipeRunJobPhase.COMPLETE: 2,
+            }
+        )
+    elif job.run_purpose == "PRODUCTION":
+        phase_index.update(
+            {
+                RecipeRunJobPhase.COMPLETE: 3,
+            }
+        )
+    active_index = phase_index[job.phase]
+    stages = []
+    for index, (phase, label) in enumerate(definitions):
+        if job.status is RecipeRunJobStatus.FAILED and index == active_index:
+            state = "attention"
+            status_label = "Needs attention"
+        elif index < active_index or job.status is RecipeRunJobStatus.SUCCEEDED:
+            state = "complete"
+            status_label = "Complete"
+        elif index == active_index:
+            state = "current"
+            status_label = "Current"
+        else:
+            state = "waiting"
+            status_label = "Waiting"
+        stages.append(
+            {
+                "phase": phase.value,
+                "label": label,
+                "state": state,
+                "status_label": status_label,
+            }
+        )
+    return tuple(stages)

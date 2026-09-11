@@ -108,6 +108,9 @@ stages:
       - src/impodo/application/workspace_data_version_source_service.py::WorkspaceDataVersionSourceService
       - src/impodo/application/odoo_capture_job_service.py::OdooCaptureJobManager
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService
+      - src/impodo/domain/workspace/derived_entities.py::HierarchicalLookupRule
+      - src/impodo/domain/workspace/derived_entities.py::evaluate_hierarchy_path
+      - scripts/capture_hierarchy_tutorial_screenshots.py::capture
       - src/impodo/application/data_version/source_worker.py::validate_source_file_isolated
       - src/impodo/web/source_file_commands.py::accept_source_uploads
       - src/impodo/web/source_file_commands.py::remove_source_file
@@ -125,6 +128,7 @@ stages:
       - docs/developer/contracts/evidence-lifecycle.md
     references:
       - docs/user/guides/related-tables.md
+      - docs/plans/multi-column-hierarchical-related-records.md
 
   - id: integrated-test
     order: 7
@@ -141,6 +145,7 @@ stages:
       - src/impodo/web/templates/project_integrated_run.html
       - src/impodo/web/templates/project_recipe_odoo_defaults.html
       - src/impodo/web/templates/project_recipe_target_matches.html
+      - src/impodo/web/templates/project_recipe_run_progress.html
     code_references:
       - src/impodo/application/run/test_setup_service.py::TestRunSetupService
       - src/impodo/application/run/test_setup_start.py::TestRunSetupStartUseCase.start
@@ -317,6 +322,11 @@ stages:
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_key_tuples
       - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
+      - src/impodo/domain/mapping/contracts.py::RowInclusionPolicy
+      - src/impodo/domain/mapping/row_inclusion.py::row_is_included
+      - src/impodo/domain/mapping/row_inclusion_review.py::RowInclusionReviewSnapshot
+      - src/impodo/application/workspace/mapping/row_inclusion_review.py::RowInclusionReviewService
+      - src/impodo/adapters/duckdb/row_inclusion_review_repository.py::RowInclusionReviewRepository
       - src/impodo/domain/mapping/contracts.py::ScalarConcatenation
       - src/impodo/domain/mapping/contracts.py::ConstantBusinessReference
       - src/impodo/domain/mapping/contracts.py::relationship_target_fields
@@ -333,6 +343,7 @@ stages:
       - src/impodo/domain/matching_order.py::MatchingOrderCheck
       - src/impodo/domain/matching_order.py::live_matching_order_recommendation
       - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v11_to_v12
+      - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v12_to_v13
       - src/impodo/domain/execution/planner.py::plan_record_requests
       - src/impodo/domain/preparation/preflight.py::PreflightEngine
       - src/impodo/domain/execution_snapshot.py::build_execution_snapshot
@@ -347,12 +358,14 @@ stages:
       - src/impodo/web/routers/lifecycle.py::build_lifecycle_router
       - src/impodo/web/server_supervisor.py::supervise_server
       - scripts/capture_match_data_recovery_screenshots.py::capture
+      - scripts/capture_hierarchy_tutorial_screenshots.py::capture
       - src/impodo/domain/recipe/value_rules.py::validate_formula
       - src/impodo/web/mapping_formula_authoring.py::validate_formula_authoring
       - src/impodo/web/mapping_catalog_runtime.py::MappingCatalogProjectionCache
       - src/impodo/web/mapping_catalog_runtime.py::MappingCatalogSearchCoordinator
       - src/impodo/web/presenters/mapping_view.py::_render_mapping
       - src/impodo/web/presenters/mapping_view.py::_matching_order_view
+      - src/impodo/web/presenters/mapping_view.py::_build_dataset_catalog_projection
     tests:
       - tests/integration/web/test_mapping_forms.py
       - tests/domain/mapping/test_validation.py
@@ -360,6 +373,7 @@ stages:
       - tests/domain/mapping/test_concatenation.py
       - tests/integration/columnar/test_polars_transformation.py
       - tests/domain/recipe/test_representative_shapes.py
+      - tests/application/workspace/test_derived_entities.py
       - tests/integration/web/test_mapping_impact_presenter.py
       - tests/integration/web/test_mapping_workflow.py
       - tests/integration/web/test_mapping_catalog_scale.py
@@ -374,12 +388,16 @@ stages:
       - tests/application/workspace/mapping/test_matching_order_live_check.py
       - tests/integration/duckdb/test_matching_order_repository.py
       - tests/integration/duckdb/test_forward_upgrades.py
+      - tests/integration/duckdb/test_row_inclusion_review_repository.py
+      - tests/domain/mapping/test_row_inclusion.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
       - docs/developer/contracts/recipe-lifecycle.md
       - docs/developer/contracts/canonical-staging.md
     references:
       - docs/plans/smart-match-data-ordering.md
+      - docs/plans/multi-column-hierarchical-related-records.md
+      - docs/plans/source-row-inclusion-rules.md
 
   - id: prepare
     order: 4
@@ -403,6 +421,8 @@ stages:
       - src/impodo/application/workspace/preparation/quality_service.py::QualityService
       - src/impodo/application/workspace/preparation/resolution_service.py::ResolutionService
       - src/impodo/application/workspace/preparation/normalization_service.py::NormalizationService
+      - src/impodo/domain/staging/evaluator.py::evaluate_browser_mapping
+      - src/impodo/domain/preparation/staging_contracts.py::canonical_row_from_inclusion_decision
     tests:
       - tests/application/workspace/preparation/test_jobs.py
       - tests/architecture/test_build_contract.py
@@ -411,6 +431,8 @@ stages:
       - tests/domain/preparation/test_quality.py
       - tests/domain/preparation/test_normalization.py
       - tests/integration/web/test_preparation_workflow.py
+      - tests/application/workspace/preparation/test_readiness.py
+      - tests/integration/artifacts/test_source_snapshot_io.py
     contracts:
       - docs/developer/contracts/canonical-staging.md
       - docs/developer/contracts/normalization.md

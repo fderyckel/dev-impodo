@@ -22,8 +22,11 @@ from .contracts import (
 )
 from .contracts import (
     SelectionCondition,
-    SelectionConditionOperator,
     SelectionRuleJoin,
+)
+from .source_conditions import (
+    SourceConditionValueError,
+    source_condition_matches,
 )
 
 
@@ -299,107 +302,18 @@ def _selection_condition_matches(
     condition: SelectionCondition,
     raw_value: Any,
 ) -> bool:
-    operator = condition.operator
-    blank = raw_value is None or str(raw_value).strip() == ""
-    if operator is SelectionConditionOperator.IS_BLANK:
-        return blank
-    if operator is SelectionConditionOperator.IS_NOT_BLANK:
-        return not blank
-    if operator is SelectionConditionOperator.IS_TRUE:
-        parsed_boolean = _selection_boolean(raw_value)
-        if not blank and parsed_boolean is None:
-            raise ScalarValueRuleError(
-                "SOURCE_SELECTION_RULE_SOURCE_INVALID",
-                "A source value could not be read as yes or no.",
-            )
-        return parsed_boolean is True
-    if operator is SelectionConditionOperator.IS_FALSE:
-        parsed_boolean = _selection_boolean(raw_value)
-        if not blank and parsed_boolean is None:
-            raise ScalarValueRuleError(
-                "SOURCE_SELECTION_RULE_SOURCE_INVALID",
-                "A source value could not be read as yes or no.",
-            )
-        return parsed_boolean is False
-    if blank:
-        return False
-
-    comparison = condition.comparison_value
-    if comparison is None:
-        return False
-    if condition.value_type == "string":
-        left = str(raw_value)
-        right = comparison
-    else:
-        try:
-            left = _selection_typed_value(raw_value, condition.value_type)
-            right = _selection_typed_value(comparison, condition.value_type)
-        except (InvalidOperation, TypeError, ValueError) as error:
-            raise ScalarValueRuleError(
-                "SOURCE_SELECTION_RULE_SOURCE_INVALID",
-                "A source value does not match the rule's comparison type.",
-            ) from error
-
-    if operator is SelectionConditionOperator.EQUALS:
-        return left == right
-    if operator is SelectionConditionOperator.NOT_EQUALS:
-        return left != right
-    if operator is SelectionConditionOperator.EQUALS_IGNORE_CASE:
-        return str(left).lower() == str(right).lower()
-    if operator is SelectionConditionOperator.CONTAINS:
-        return str(right) in str(left)
-    if operator is SelectionConditionOperator.STARTS_WITH:
-        return str(left).startswith(str(right))
-    if operator is SelectionConditionOperator.ENDS_WITH:
-        return str(left).endswith(str(right))
-    if operator is SelectionConditionOperator.LESS_THAN:
-        return left < right
-    if operator is SelectionConditionOperator.LESS_THAN_OR_EQUAL:
-        return left <= right
-    if operator is SelectionConditionOperator.GREATER_THAN:
-        return left > right
-    if operator is SelectionConditionOperator.GREATER_THAN_OR_EQUAL:
-        return left >= right
-    return False
-
-
-def _selection_typed_value(value: Any, value_type: str) -> Any:
-    text = str(value).strip()
-    if value_type == "integer":
-        return int(text, 10)
-    if value_type == "decimal":
-        parsed = Decimal(text)
-        if (
-            not parsed.is_finite()
-            or len(parsed.as_tuple().digits) > 38
-            or max(-parsed.as_tuple().exponent, 0) > 12
-        ):
-            raise ValueError("Decimal comparison exceeds 38 digits or 12 places")
-        return parsed
-    if value_type == "boolean":
-        parsed = _selection_boolean(value)
-        if parsed is None:
-            raise ValueError("Not a boolean")
-        return parsed
-    if value_type == "date":
-        return date.fromisoformat(text)
-    if value_type == "datetime":
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-    return text
-
-
-def _selection_boolean(value: Any) -> bool | None:
-    if isinstance(value, bool):
-        return value
-    token = str(value).strip().casefold() if value is not None else ""
-    if token in {"true", "1", "yes", "y"}:
-        return True
-    if token in {"false", "0", "no", "n"}:
-        return False
-    return None
+    try:
+        return source_condition_matches(
+            raw_value=raw_value,
+            operator=condition.operator,
+            comparison_value=condition.comparison_value,
+            value_type=condition.value_type,
+        )
+    except SourceConditionValueError as error:
+        raise ScalarValueRuleError(
+            "SOURCE_SELECTION_RULE_SOURCE_INVALID",
+            str(error),
+        ) from error
 
 
 def _transform_scalar_text(

@@ -11,6 +11,12 @@ from starlette.concurrency import run_in_threadpool
 
 from impodo.application.run.target_defaults import mapped_target_defaults
 from impodo.application.run.target_matches import TargetMatchReviewChanged
+from impodo.application.run.recipe_run_jobs import (
+    RecipeRunJobKind,
+    RecipeRunJobPhase,
+    RecipeRunJobProgress,
+    RecipeRunJobResult,
+)
 from impodo.application.run.progress import (
     ApplicationResumeStep, application_resume_step, next_unverified_application,
 )
@@ -356,6 +362,39 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         """Show only target-specific Selection and Many2one decisions."""
 
         require_session(request)
+        application = _run_application(
+            context,
+            project_id,
+            migration_run_id,
+            application_id,
+        )
+        prepared_review = context.recipe_target_matches.prepared_review(
+            application_id
+        )
+        if prepared_review is None and context.recipe_run_jobs is not None:
+            job = context.recipe_run_jobs.enqueue(
+                kind=RecipeRunJobKind.TARGET_MATCH_REVIEW,
+                project_id=project_id,
+                migration_run_id=migration_run_id,
+                workspace_id=application.workspace_id,
+                application_id=application_id,
+                work=lambda report: _prepare_target_match_review(
+                    context,
+                    project_id,
+                    migration_run_id,
+                    application_id,
+                    report,
+                ),
+            )
+            _flash(
+                request,
+                "Impodo is preparing the current target values for review.",
+            )
+            return RedirectResponse(
+                f"/projects/{project_id}/runs/{migration_run_id}/progress/"
+                f"{job.job_id}",
+                status_code=303,
+            )
         return await run_in_threadpool(
             _render_application_target_matches,
             request,
@@ -363,6 +402,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             project_id,
             migration_run_id,
             application_id,
+            prepared_review,
         )
 
     @router.post(
@@ -727,6 +767,7 @@ def _render_application_target_matches(
     project_id: str,
     migration_run_id: str,
     application_id: str,
+    prepared_review=None,
     *,
     error: str | None = None,
     status_code: int = 200,
@@ -740,11 +781,12 @@ def _render_application_target_matches(
         migration_run_id,
         application_id,
     )
-    review = None
+    review = prepared_review
     try:
-        review = context.recipe_target_matches.build_review(
-            application, actor=context.actor, submitted=submitted,
-        )
+        if review is None or submitted is not None:
+            review = context.recipe_target_matches.build_review(
+                application, actor=context.actor, submitted=submitted,
+            )
     except WorkspaceError as review_error:
         error = error or str(review_error)
         status_code = 422
@@ -760,4 +802,56 @@ def _render_application_target_matches(
         workspace_state=workspace_state,
         error=error,
         status_code=status_code,
+    )
+
+
+def _prepare_target_match_review(
+    context: WebContext,
+    project_id: str,
+    migration_run_id: str,
+    application_id: str,
+    report,
+) -> RecipeRunJobResult:
+    """Prepare one target-value page outside the browser request."""
+
+    report(
+        RecipeRunJobProgress(
+            RecipeRunJobPhase.VALIDATING,
+            "Checking the Recipe application",
+            8,
+        )
+    )
+    application = _run_application(
+        context,
+        project_id,
+        migration_run_id,
+        application_id,
+    )
+    report(
+        RecipeRunJobProgress(
+            RecipeRunJobPhase.TARGET_MATCHES,
+            "Comparing fresh-data values with this Odoo",
+            20,
+        )
+    )
+    review = context.recipe_target_matches.prepare_review(
+        application,
+        actor=context.actor,
+    )
+    field_count = len(review.fields)
+    report(
+        RecipeRunJobProgress(
+            RecipeRunJobPhase.TARGET_MATCHES,
+            f"Prepared {field_count} target field"
+            f"{'s' if field_count != 1 else ''} for review",
+            95,
+            completed_units=field_count,
+            total_units=field_count,
+            unit_label="target fields",
+        )
+    )
+    return RecipeRunJobResult(
+        f"/projects/{project_id}/runs/{migration_run_id}/applications/"
+        f"{application_id}/target-matches",
+        "Target-specific values are ready for review",
     )

@@ -20,6 +20,7 @@ from dataclasses import replace
 from io import StringIO
 from time import perf_counter
 from uuid import UUID, uuid4
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import (
@@ -70,10 +71,15 @@ from ...domain.errors import ReadinessError
 from ...domain.mapping.contracts import (
     MAPPING_CONTRACT_VERSION,
     SUPPORTED_MAPPING_CONTRACT_VERSIONS,
+    RowInclusionMode,
     TargetFieldHandling,
     UnsupportedMappingContractError,
 )
 from ...domain.mapping.validation.evidence import MappingValidationResult
+from ...domain.mapping.row_inclusion_review import (
+    RowInclusionReviewFilter,
+    RowInclusionReviewOutcome,
+)
 from ...domain.staging.transformation_impact import TransformationImpactFilter
 from ..constants import (
     TRANSFORMATION_IMPACT_OUTCOMES,
@@ -170,6 +176,85 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             return response
 
         return await run_in_threadpool(render_mapping_page)
+
+    @router.get(
+        "/workspaces/{workspace_id}/mapping/rows-to-use",
+        response_class=HTMLResponse,
+    )
+    async def review_workspace_rows_to_use(
+        request: Request,
+        workspace_id: str,
+    ):
+        """Show one bounded, server-filtered page of checked row decisions."""
+
+        require_session(request)
+        active_url = _active_preparation_url(context, workspace_id)
+        if active_url:
+            return RedirectResponse(active_url, status_code=303)
+        outcome = request.query_params.get("outcome", "").strip()
+        if outcome not in {item.value for item in RowInclusionReviewOutcome}:
+            outcome = ""
+        query = request.query_params.get("q", "").strip()[:128]
+        dataset_id = request.query_params.get("dataset", "").strip()[:200]
+        after = _optional_nonnegative_query_int(request.query_params.get("after"))
+        before = _optional_nonnegative_query_int(request.query_params.get("before"))
+        try:
+            snapshot, filters, page = await run_in_threadpool(
+                context.row_inclusion_reviews.page,
+                workspace_id,
+                RowInclusionReviewFilter(
+                    dataset_id=dataset_id,
+                    outcome=outcome,
+                    query=query,
+                ),
+                page_size=100,
+                after=after,
+                before=before,
+                actor=context.actor,
+            )
+        except (ValueError, WorkspaceError) as error:
+            _flash(request, str(error))
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/mapping",
+                status_code=303,
+            )
+        base_parameters = {
+            "dataset": filters.dataset_id,
+            "outcome": filters.outcome,
+            "q": filters.query,
+        }
+
+        def page_url(*, after_value=None, before_value=None) -> str:
+            parameters = {
+                **base_parameters,
+                "after": str(after_value) if after_value is not None else "",
+                "before": str(before_value) if before_value is not None else "",
+            }
+            encoded = urlencode(
+                {name: value for name, value in parameters.items() if value}
+            )
+            base = f"/workspaces/{workspace_id}/mapping/rows-to-use"
+            return f"{base}?{encoded}" if encoded else base
+
+        return _render(
+            request,
+            "mapping/row_inclusion_review.html",
+            workspace_id=workspace_id,
+            workspace_state=context.queries.get(workspace_id),
+            snapshot=snapshot,
+            page=page,
+            filters=filters,
+            previous_url=(
+                page_url(before_value=page.previous_before)
+                if page.previous_before is not None
+                else ""
+            ),
+            next_url=(
+                page_url(after_value=page.next_after)
+                if page.next_after is not None
+                else ""
+            ),
+        )
 
     @router.post("/workspaces/{workspace_id}/mapping/order")
     async def save_workspace_matching_order(
@@ -1117,6 +1202,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             if action not in {
                 "save_progress",
                 "draft",
+                "confirm_rows",
                 "submit",
                 "remove_readonly",
                 "confirm_defaults",
@@ -1423,7 +1509,23 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 selection,
                 schema,
             )
-            if action == "save_progress":
+            if action == "confirm_rows":
+                await run_in_threadpool(
+                    context.row_inclusion_reviews.confirm_current,
+                    workspace_id,
+                    datasets=datasets,
+                    expected_revision_version=expected_parent,
+                    expected_working_draft_version=expected_working_version,
+                    actor=context.actor,
+                    operation_id=operation_id,
+                )
+                message = "Rows to use confirmed."
+                mapping_return_url = (
+                    f"{_mapping_return_url(request, workspace_id)}"
+                    "#rows-to-use-review"
+                )
+                _flash(request, message)
+            elif action == "save_progress":
                 working_draft = await run_in_threadpool(
                     context.mapping_workspace.save_working_draft,
                     workspace_id,
@@ -1533,7 +1635,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     progress_return_url,
                     status_code=303,
                 )
-            if action == "draft":
+            elif action == "draft":
                 _revision, validation = await run_in_threadpool(
                     context.mapping_workspace.check_definition,
                     workspace_id,
@@ -1545,11 +1647,38 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     actor=context.actor,
                     operation_id=operation_id,
                 )
+                row_review = None
+                if validation.status.value != "INVALID" and any(
+                    item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
+                    for item in _revision.definition.datasets
+                ):
+                    row_review = await run_in_threadpool(
+                        context.row_inclusion_reviews.check_current,
+                        workspace_id,
+                        actor=context.actor,
+                    )
                 if validation.status.value == "INVALID":
                     message = "Matches checked. Review the items that need attention."
                     mapping_return_url = (
                         f"{_mapping_return_url(request, workspace_id)}"
                         "#next-step-blockers"
+                    )
+                elif row_review is not None and not row_review.confirmable:
+                    message = (
+                        "Matches checked. The rows-to-use result needs attention."
+                    )
+                    mapping_return_url = (
+                        f"{_mapping_return_url(request, workspace_id)}"
+                        "#rows-to-use-review"
+                    )
+                elif row_review is not None and row_review.excluded_count:
+                    message = (
+                        "Matches checked. Review and confirm "
+                        f"{row_review.included_count} rows to use."
+                    )
+                    mapping_return_url = (
+                        f"{_mapping_return_url(request, workspace_id)}"
+                        "#rows-to-use-review"
                     )
                 else:
                     message = "Matches checked and ready to confirm."
@@ -2026,6 +2155,8 @@ def _mapping_mutation_action(action: str) -> MappingMutationAction:
         return MappingMutationAction.SAVE_PROGRESS
     if action == "draft":
         return MappingMutationAction.CHECK_MATCHES
+    if action == "confirm_rows":
+        return MappingMutationAction.CONFIRM_ROWS
     if action == "submit":
         return MappingMutationAction.CONFIRM_MATCHES
     if action == "remove_readonly":

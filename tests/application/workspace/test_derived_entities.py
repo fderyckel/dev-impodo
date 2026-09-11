@@ -13,7 +13,20 @@ from impodo.domain.shared.access import (
     CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
 )
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan, DerivedEntityRule, RelatedDatasetRule, derived_dataset_links, derived_mapping_samples, mapping_source_selection, preview_derived_entities, preview_related_datasets, related_dataset_links
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    DerivedEntityRule,
+    HierarchicalLookupRule,
+    HierarchyValuePolicy,
+    RelatedDatasetRule,
+    derived_dataset_links,
+    derived_mapping_samples,
+    evaluate_hierarchy_path,
+    mapping_source_selection,
+    preview_derived_entities,
+    preview_related_datasets,
+    related_dataset_links,
+)
 from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
 from impodo.application.data_version.inspection import (
     CATALOG_CONTRACT_VERSION,
@@ -54,6 +67,297 @@ DATA_VERSION_ID = str(uuid4())
 
 
 class DerivedEntityPreviewTests(unittest.TestCase):
+    def test_multi_column_hierarchy_applies_reviewed_blank_decisions(self) -> None:
+        selection, catalog = _hierarchy_source_evidence()
+        dataset = selection.datasets[0]
+        rule = HierarchicalLookupRule(
+            rule_id=str(uuid4()),
+            output_dataset_name="product_categories",
+            source_dataset_id=dataset.dataset_id,
+            source_level_column_keys=(
+                dataset.columns[1].stable_key,
+                dataset.columns[2].stable_key,
+            ),
+            target_model="product.category",
+            target_name_field="name",
+            external_id_namespace="legacy_erp",
+            missing_parent=HierarchyValuePolicy(mode="fixed", value="Default"),
+            missing_leaf="use_deepest",
+            all_blank=HierarchyValuePolicy(mode="emit_null_reference"),
+        )
+
+        preview = preview_derived_entities(rule, selection, (catalog,))
+        by_key = {item.canonical_key: item for item in preview.candidates}
+
+        self.assertEqual(
+            set(by_key),
+            {
+                "components",
+                "default",
+                "default / m-200",
+                "finished",
+                "finished / m-100",
+            },
+        )
+        self.assertEqual(preview.fixed_parent_sample_rows, 1)
+        self.assertEqual(preview.deepest_level_sample_rows, 1)
+        self.assertEqual(preview.blank_reference_sample_rows, 1)
+        self.assertEqual(
+            by_key["default / m-200"].parent_entity_id,
+            by_key["default"].entity_id,
+        )
+
+        promoted = replace(
+            rule,
+            missing_parent=HierarchyValuePolicy(mode="promote"),
+        )
+        evaluation = evaluate_hierarchy_path(
+            promoted,
+            {
+                dataset.columns[1].stable_key: None,
+                dataset.columns[2].stable_key: "M-200",
+            },
+        )
+        self.assertEqual(evaluation.canonical_parts, ("m-200",))
+        self.assertEqual(evaluation.outcomes, ("promote",))
+
+    def test_multi_column_hierarchy_supports_arbitrary_models(self) -> None:
+        selection, catalog = _hierarchy_source_evidence()
+        dataset = selection.datasets[0]
+        rule = HierarchicalLookupRule(
+            rule_id=str(uuid4()),
+            output_dataset_name="organizational_units",
+            source_dataset_id=dataset.dataset_id,
+            source_level_column_keys=(
+                dataset.columns[1].stable_key,
+                dataset.columns[2].stable_key,
+            ),
+            target_model="x_org_unit",
+            target_name_field="title",
+            external_id_namespace="legacy_erp",
+            missing_parent=HierarchyValuePolicy(mode="fixed", value="Default"),
+        )
+        plan = DerivedEntityPlan(
+            plan_id=str(uuid4()),
+            version=1,
+            workspace_id=WORKSPACE_ID,
+            source_selection_hash=selection.content_hash,
+            rules=(rule,),
+            updated_at=datetime.now(timezone.utc),
+            updated_by="Test operator",
+        )
+        effective = mapping_source_selection(selection, plan, (catalog,))
+        link = derived_dataset_links(plan)[0]
+
+        self.assertEqual(
+            tuple(item.name for item in effective.datasets),
+            ("organizational_units", "products"),
+        )
+        self.assertTrue(link.hierarchical)
+        self.assertIn(
+            link.source_column_key,
+            {item.stable_key for item in effective.datasets[1].columns},
+        )
+        self.assertEqual(
+            tuple(item.stable_key for item in effective.datasets[0].columns),
+            (
+                link.canonical_key_column_key,
+                link.name_column_key,
+                link.parent_key_column_key,
+            ),
+        )
+
+        schema = OdooSchemaCatalog(
+            workspace_id=WORKSPACE_ID,
+            policy_hash=ODOO_SOURCE_POLICY_HASH,
+            captured_at=datetime.now(timezone.utc),
+            captured_by="Test operator",
+            connection_mode="LOCAL",
+            database="test",
+            odoo_version="19.0",
+            models=(
+                SchemaModel(
+                    name="x_org_unit",
+                    label="Organizational Unit",
+                    fields=(
+                        _schema_field("title", "Title", "char"),
+                        _schema_field(
+                            "superior_unit_id",
+                            "Superior Unit",
+                            "many2one",
+                            relation="x_org_unit",
+                        ),
+                    ),
+                ),
+                SchemaModel(
+                    name="x_worker",
+                    label="Worker",
+                    fields=(
+                        _schema_field("employee_code", "Employee Number", "char"),
+                        _schema_field(
+                            "assigned_unit_id",
+                            "Assigned Unit",
+                            "many2one",
+                            relation="x_org_unit",
+                        ),
+                    ),
+                ),
+            ),
+            content_hash="sha256:" + "2" * 64,
+            origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash="sha256:" + "3" * 64,
+            read_principal_hash="sha256:" + "4" * 64,
+            read_permission_hash="sha256:" + "5" * 64,
+            read_context_hash="sha256:" + "6" * 64,
+            connection_target_hash="sha256:" + "7" * 64,
+        )
+        governance = SchemaGovernance(
+            governance_id=str(uuid4()),
+            version=1,
+            workspace_id=WORKSPACE_ID,
+            catalog_hash=schema.content_hash,
+            permitted_models=("x_org_unit", "x_worker"),
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="x_org_unit::title",
+                    model="x_org_unit",
+                    key_fields=("title",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+                BusinessKeyDefinition(
+                    key_id="x_worker::employee_code",
+                    model="x_worker",
+                    key_fields=("employee_code",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+            recorded_at=datetime.now(timezone.utc),
+            recorded_by="Test operator",
+        )
+        views = _mapping_dataset_views(
+            effective,
+            schema,
+            governance,
+            (),
+            (catalog,),
+            {0: "x_org_unit", 1: "x_worker"},
+            (),
+            (link,),
+            {
+                link.derived_dataset_id: derived_mapping_samples(
+                    link,
+                    preview_derived_entities(rule, selection, (catalog,)),
+                )
+            },
+        )
+        parent = next(
+            item
+            for item in views[0]["relation_rows"]
+            if item["metadata"].name == "superior_unit_id"
+        )
+        worker_unit = next(
+            item
+            for item in views[1]["relation_rows"]
+            if item["metadata"].name == "assigned_unit_id"
+        )
+        self.assertEqual(parent["recommended_dataset_id"], link.derived_dataset_id)
+        self.assertEqual(
+            parent["recommended_source_columns"],
+            (link.parent_key_column_key,),
+        )
+        self.assertEqual(parent["recommended_origin"], "dataset")
+        self.assertEqual(
+            worker_unit["recommended_source_columns"],
+            (link.source_column_key,),
+        )
+        self.assertEqual(worker_unit["recommended_origin"], "dataset")
+
+        scoped_governance = replace(
+            governance,
+            governance_id=str(uuid4()),
+            version=2,
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="x_org_unit::title,superior_unit_id",
+                    model="x_org_unit",
+                    key_fields=("title",),
+                    scope_fields=("superior_unit_id",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+                governance.business_keys[1],
+            ),
+        )
+        scoped_views = _mapping_dataset_views(
+            effective,
+            schema,
+            scoped_governance,
+            (),
+            (catalog,),
+            {0: "x_org_unit", 1: "x_worker"},
+            (),
+            (link,),
+            {
+                link.derived_dataset_id: derived_mapping_samples(
+                    link,
+                    preview_derived_entities(rule, selection, (catalog,)),
+                )
+            },
+        )
+        parent_identity = next(
+            item
+            for item in scoped_views[0]["identity_rows"]
+            if item["target_field"] == "superior_unit_id"
+        )
+        self.assertEqual(
+            parent_identity["selected_sources"],
+            (link.parent_key_column_key,),
+        )
+        self.assertEqual(parent_identity["selected_origin"], "dataset")
+        self.assertEqual(
+            parent_identity["selected_dataset_id"],
+            link.derived_dataset_id,
+        )
+        self.assertIn(
+            link.derived_dataset_id,
+            {
+                item.dataset_id
+                for item in parent_identity["related_datasets"]
+            },
+        )
+
+        restored = DerivedEntityPlan.from_json(plan.to_json())
+        restored_rule = restored.rules[0]
+        self.assertIsInstance(restored_rule, HierarchicalLookupRule)
+        self.assertEqual(
+            restored_rule.source_level_column_keys,
+            rule.source_level_column_keys,
+        )
+        self.assertEqual(restored_rule.missing_parent.value, "Default")
+
+    def test_hierarchy_requires_explicit_valid_missing_value_policies(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires a value"):
+            HierarchicalLookupRule(
+                rule_id=str(uuid4()),
+                output_dataset_name="categories",
+                source_dataset_id="dataset:products",
+                source_level_column_keys=("column:group", "column:code"),
+                target_model="product.category",
+                target_name_field="name",
+                external_id_namespace="legacy",
+                missing_parent=HierarchyValuePolicy(mode="fixed"),
+            )
+        with self.assertRaisesRegex(ValueError, "different field"):
+            HierarchicalLookupRule(
+                rule_id=str(uuid4()),
+                output_dataset_name="categories",
+                source_dataset_id="dataset:products",
+                source_level_column_keys=("column:group", "column:group"),
+                target_model="product.category",
+                target_name_field="name",
+                external_id_namespace="legacy",
+                missing_parent=HierarchyValuePolicy(mode="block"),
+            )
+
     def test_effective_selection_is_stable_across_physical_dataset_order(
         self,
     ) -> None:
@@ -608,6 +912,37 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
             self.derived_entities.get_derived_entity_plan(self.workspace_state.workspace_id)
         )
 
+    def test_multi_column_hierarchy_is_saved_as_one_versioned_rule(self) -> None:
+        dataset = self.selection.datasets[0]
+
+        plan, rule = self.service.save_hierarchy(
+            self.workspace_state.workspace_id,
+            output_dataset_name="product_categories",
+            source_dataset_id=dataset.dataset_id,
+            source_level_column_keys=tuple(
+                item.stable_key for item in dataset.columns
+            ),
+            target_model="product.category",
+            target_name_field="name",
+            external_id_namespace="legacy_erp",
+            missing_parent_mode="fixed",
+            missing_parent_value="Default",
+            missing_leaf="use_deepest",
+            all_blank_mode="emit_null_reference",
+            all_blank_value=None,
+            expected_parent_version=None,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(plan.version, 1)
+        self.assertEqual(rule.missing_parent.value, "Default")
+        self.assertEqual(
+            self.derived_entities.get_derived_entity_plan(
+                self.workspace_state.workspace_id
+            ),
+            plan,
+        )
+
     def test_related_split_replaces_physical_source_for_mapping(self) -> None:
         dataset = self.selection.datasets[0]
         plan, rule = self.service.save_related_split(
@@ -757,6 +1092,98 @@ def _source_evidence(
         created_by="Test operator",
         datasets=(dataset,),
         content_hash="sha256:" + "b" * 64,
+    )
+    return selection, catalog
+
+
+def _hierarchy_source_evidence() -> tuple[SourceSelection, SourceFileCatalog]:
+    rows = (
+        ("P-001", "Finished", "M-100"),
+        ("P-002", None, "M-200"),
+        ("P-003", "Components", None),
+        ("P-004", None, None),
+    )
+    now = datetime.now(timezone.utc)
+    profiles = tuple(
+        SourceColumnProfile(
+            ordinal=ordinal,
+            name=name,
+            candidate_type="string",
+            null_count=sum(row[ordinal - 1] is None for row in rows),
+            non_null_count=sum(row[ordinal - 1] is not None for row in rows),
+            distinct_count=len(
+                {row[ordinal - 1] for row in rows if row[ordinal - 1] is not None}
+            ),
+            distinct_count_is_exact=True,
+            duplicate_count=0,
+            minimum=None,
+            maximum=None,
+            minimum_length=None,
+            maximum_length=None,
+        )
+        for ordinal, name in enumerate(
+            ("Product ID", "Model group", "Model code"),
+            start=1,
+        )
+    )
+    table = SourceTableCatalog(
+        table_key="csv",
+        name="products",
+        kind="csv",
+        hidden=False,
+        header_row=1,
+        row_count=len(rows),
+        column_count=3,
+        columns=profiles,
+        preview_rows=rows,
+    )
+    catalog = SourceFileCatalog(
+        contract_version=CATALOG_CONTRACT_VERSION,
+        file_id=str(uuid4()),
+        display_name="products.csv",
+        source_sha256="c" * 64,
+        source_size_bytes=256,
+        format="csv",
+        inspected_at=now,
+        encoding="utf-8",
+        delimiter=",",
+        tables=(table,),
+    )
+    columns = tuple(
+        SourceDatasetColumn(
+            ordinal=ordinal,
+            source_name=name,
+            stable_key=f"column:{ordinal}:{name.casefold().replace(' ', '_')}",
+            candidate_type="string",
+        )
+        for ordinal, name in enumerate(
+            ("Product ID", "Model group", "Model code"),
+            start=1,
+        )
+    )
+    dataset = SourceDataset(
+        dataset_id="dataset:products",
+        name="products",
+        source=FileSourceBinding(
+            file_id=catalog.file_id,
+            table_key="csv",
+            source_sha256=catalog.source_sha256,
+            catalog_hash=catalog.content_hash,
+            encoding="utf-8",
+            delimiter=",",
+            header_row=1,
+        ),
+        row_count=len(rows),
+        columns=columns,
+    )
+    selection = SourceSelection(
+        selection_id=str(uuid4()),
+        version=1,
+        data_version_id=DATA_VERSION_ID,
+        created_at=now,
+        created_by="Test operator",
+        datasets=(dataset,),
+        content_hash="sha256:" + "d" * 64,
     )
     return selection, catalog
 

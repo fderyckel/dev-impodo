@@ -22,7 +22,6 @@ from ..contracts import (
     DatasetMapping,
     ScalarFieldMapping,
     ScalarValueSource,
-    SelectionConditionOperator,
     TargetFieldHandling,
 )
 from ..create_field_policy import (
@@ -34,8 +33,8 @@ from ..scalar_values import (
     _DATE_FORMATS,
     _DECIMAL_LOCALES,
     canonicalize_scalar_value,
-    _selection_typed_value,
 )
+from ..source_conditions import source_condition_configuration_problems
 from .common import (
     _NULL_POLICIES,
     _RELATION_TYPES,
@@ -486,22 +485,6 @@ def _validate_selection_rules(
                     target_field=field_mapping.target_field,
                 )
             )
-    text_only = {
-        SelectionConditionOperator.EQUALS_IGNORE_CASE,
-        SelectionConditionOperator.CONTAINS,
-        SelectionConditionOperator.STARTS_WITH,
-        SelectionConditionOperator.ENDS_WITH,
-    }
-    ordered = {
-        SelectionConditionOperator.LESS_THAN,
-        SelectionConditionOperator.LESS_THAN_OR_EQUAL,
-        SelectionConditionOperator.GREATER_THAN,
-        SelectionConditionOperator.GREATER_THAN_OR_EQUAL,
-    }
-    boolean_only = {
-        SelectionConditionOperator.IS_TRUE,
-        SelectionConditionOperator.IS_FALSE,
-    }
     for rule_index, rule in enumerate(rule_set.rules):
         for condition_index, condition in enumerate(rule.conditions):
             condition_path = (
@@ -515,81 +498,26 @@ def _validate_selection_rules(
                 columns,
                 issues,
             )
-            if condition.operator in text_only and condition.value_type != "string":
+            for problem in source_condition_configuration_problems(
+                operator=condition.operator,
+                comparison_value=condition.comparison_value,
+                value_type=condition.value_type,
+            ):
                 issues.append(
                     _issue(
-                        "MAPPING_SELECTION_RULE_OPERATOR_INVALID",
+                        (
+                            "MAPPING_SELECTION_RULE_VALUE_INVALID"
+                            if problem.kind == "value"
+                            else "MAPPING_SELECTION_RULE_OPERATOR_INVALID"
+                        ),
                         condition_path,
-                        "This comparison is only available for text values.",
-                        "Choose a text comparison or change the comparison type.",
+                        problem.message,
+                        problem.remediation,
                         dataset=dataset,
                         source_column=condition.source_column_key,
                         target_field=field_mapping.target_field,
                     )
                 )
-            if condition.operator in ordered and condition.value_type not in {
-                "integer",
-                "decimal",
-                "date",
-                "datetime",
-            }:
-                issues.append(
-                    _issue(
-                        "MAPPING_SELECTION_RULE_OPERATOR_INVALID",
-                        condition_path,
-                        "This ordered comparison requires a number or date.",
-                        "Choose the matching comparison type.",
-                        dataset=dataset,
-                        source_column=condition.source_column_key,
-                        target_field=field_mapping.target_field,
-                    )
-                )
-            if condition.operator in boolean_only and condition.value_type != "boolean":
-                issues.append(
-                    _issue(
-                        "MAPPING_SELECTION_RULE_OPERATOR_INVALID",
-                        condition_path,
-                        "True and false comparisons require a yes/no source value.",
-                        "Choose the yes/no comparison type.",
-                        dataset=dataset,
-                        source_column=condition.source_column_key,
-                        target_field=field_mapping.target_field,
-                    )
-                )
-            if condition.value_type == "boolean" and condition.operator not in {
-                SelectionConditionOperator.IS_BLANK,
-                SelectionConditionOperator.IS_NOT_BLANK,
-                *boolean_only,
-            }:
-                issues.append(
-                    _issue(
-                        "MAPPING_SELECTION_RULE_OPERATOR_INVALID",
-                        condition_path,
-                        "A yes/no source value requires a yes, no, or blank comparison.",
-                        "Choose a yes/no comparison.",
-                        dataset=dataset,
-                        source_column=condition.source_column_key,
-                        target_field=field_mapping.target_field,
-                    )
-                )
-            if condition.comparison_value is not None:
-                try:
-                    _selection_typed_value(
-                        condition.comparison_value,
-                        condition.value_type,
-                    )
-                except (InvalidOperation, TypeError, ValueError):
-                    issues.append(
-                        _issue(
-                            "MAPPING_SELECTION_RULE_VALUE_INVALID",
-                            condition_path,
-                            "The comparison value does not match its selected type.",
-                            "Correct the value or choose another comparison type.",
-                            dataset=dataset,
-                            source_column=condition.source_column_key,
-                            target_field=field_mapping.target_field,
-                        )
-                    )
 
 
 def _validate_categorical_policy(

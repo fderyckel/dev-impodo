@@ -25,6 +25,8 @@ from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityRule,
+    HierarchicalLookupRule,
+    HierarchyValuePolicy,
     RelatedDatasetRule,
     derived_dataset_links,
     mapping_source_selection,
@@ -46,7 +48,11 @@ from impodo.domain.mapping.contracts import (
     RelationshipMapping,
     RelationshipResolver,
     ResolverOrigin,
+    RowInclusionCondition,
+    RowInclusionMode,
+    RowInclusionPolicy,
     ScalarFieldMapping,
+    SelectionConditionOperator,
     ValueMapping,
 )
 from impodo.domain.source_binding import FileSourceBinding
@@ -753,6 +759,236 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         self.assertEqual(result.counts[Classification.CREATE.value], 5)
         self.assertEqual(result.counts[Classification.BLOCKED.value], 0)
 
+    def test_row_inclusion_stops_excluded_rows_before_transformation(self) -> None:
+        evidence = self._evidence(
+            (
+                ("BOM-A", "1", "KEEP"),
+                ("BOM-A", "not-an-int", "DROP"),
+                ("BOM-B", "3", "DROP"),
+            )
+        )
+        definition = evidence[1]
+        parent, child = definition.datasets
+        child = replace(
+            child,
+            row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS,
+                conditions=(
+                    RowInclusionCondition(
+                        condition_id=str(uuid4()),
+                        source_column_key="column:component",
+                        operator=SelectionConditionOperator.EQUALS,
+                        comparison_value="KEEP",
+                    ),
+                ),
+            ),
+        )
+        definition = replace(definition, datasets=(parent, child))
+
+        staged = stage_browser_mapping(
+            evidence[0],
+            definition,
+            *evidence[2:],
+        )
+
+        prepared_children = staged.prepared.by_dataset()["bom_components"]
+        self.assertEqual(len(prepared_children), 1)
+        self.assertEqual(
+            prepared_children[0].scalar_values["component_code"],
+            "KEEP",
+        )
+        child_rows = tuple(
+            row
+            for row in staged.canonical_run.rows
+            if row.dataset == "bom_components"
+        )
+        self.assertEqual(
+            [row.disposition for row in child_rows],
+            [
+                StagingDisposition.CANDIDATE,
+                StagingDisposition.EXCLUDED,
+                StagingDisposition.EXCLUDED,
+            ],
+        )
+        for row in child_rows[1:]:
+            self.assertEqual(row.source_identity, ())
+            self.assertEqual(row.proposed_values, {})
+            self.assertEqual(row.references, {})
+            self.assertEqual(
+                row.lineage.field_sources,
+                {"$row_inclusion": ("column:component",)},
+            )
+        reconciliation = {
+            item.dataset: item for item in staged.canonical_run.datasets
+        }["bom_components"]
+        self.assertEqual(reconciliation.input_rows, 3)
+        self.assertEqual(reconciliation.input_rows_used, 3)
+        self.assertEqual(reconciliation.output_rows, 3)
+        self.assertEqual(reconciliation.candidate_rows, 1)
+        self.assertEqual(reconciliation.excluded_rows, 2)
+        self.assertEqual(reconciliation.blocked_rows, 0)
+        self.assertEqual(staged.canonical_run.reconciliation.excluded_rows, 2)
+
+        metadata, records = self._snapshots(evidence[0])
+        result = PreflightEngine().run(
+            staged.plan,
+            staged.prepared,
+            metadata,
+            records,
+        )
+        self.assertEqual(result.counts[Classification.CREATE.value], 3)
+        self.assertEqual(result.counts[Classification.BLOCKED.value], 0)
+
+    def test_unreadable_row_inclusion_value_is_blocking_evidence(self) -> None:
+        evidence = self._evidence(
+            (
+                ("BOM-A", "1", "COMP-1"),
+                ("BOM-A", "not-an-int", "COMP-2"),
+            )
+        )
+        definition = evidence[1]
+        parent, child = definition.datasets
+        child = replace(
+            child,
+            row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS,
+                conditions=(
+                    RowInclusionCondition(
+                        condition_id=str(uuid4()),
+                        source_column_key="column:line_id",
+                        operator=SelectionConditionOperator.EQUALS,
+                        comparison_value="1",
+                        value_type="integer",
+                    ),
+                ),
+            ),
+        )
+        definition = replace(definition, datasets=(parent, child))
+
+        staged = stage_browser_mapping(
+            evidence[0],
+            definition,
+            *evidence[2:],
+        )
+
+        blocked = next(
+            row
+            for row in staged.canonical_run.rows
+            if row.dataset == "bom_components"
+            and row.disposition is StagingDisposition.BLOCKED
+        )
+        self.assertEqual(blocked.source_identity, ())
+        self.assertEqual(blocked.proposed_values, {})
+        self.assertEqual(
+            [(issue.code, issue.field) for issue in blocked.issues],
+            [("ROW_INCLUSION_SOURCE_VALUE_INVALID", "column:line_id")],
+        )
+        self.assertEqual(
+            len(staged.prepared.by_dataset()["bom_components"]),
+            1,
+        )
+        reconciliation = {
+            item.dataset: item for item in staged.canonical_run.datasets
+        }["bom_components"]
+        self.assertEqual(reconciliation.blocked_rows, 1)
+        self.assertEqual(reconciliation.excluded_rows, 0)
+
+    def test_row_inclusion_with_zero_matches_blocks_the_dataset(self) -> None:
+        evidence = self._evidence((("BOM-A", "1", "DROP"),))
+        definition = evidence[1]
+        parent, child = definition.datasets
+        child = replace(
+            child,
+            row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS,
+                conditions=(
+                    RowInclusionCondition(
+                        condition_id=str(uuid4()),
+                        source_column_key="column:component",
+                        operator=SelectionConditionOperator.EQUALS,
+                        comparison_value="KEEP",
+                    ),
+                ),
+            ),
+        )
+
+        staged = stage_browser_mapping(
+            evidence[0],
+            replace(definition, datasets=(parent, child)),
+            *evidence[2:],
+        )
+
+        self.assertEqual(
+            len(staged.prepared.by_dataset().get("bom_components", ())),
+            0,
+        )
+        self.assertEqual(
+            [
+                issue.code
+                for issue in staged.canonical_run.issues
+                if issue.dataset == "bom_components"
+            ],
+            ["ROW_INCLUSION_ZERO_INCLUDED"],
+        )
+        child_row = next(
+            row
+            for row in staged.canonical_run.rows
+            if row.dataset == "bom_components"
+        )
+        self.assertIs(child_row.disposition, StagingDisposition.EXCLUDED)
+
+    def test_multi_column_hierarchy_stages_parent_and_product_links(self) -> None:
+        evidence, link = self._hierarchy_evidence()
+
+        staged = stage_browser_mapping(*evidence)
+        by_dataset = staged.prepared.by_dataset()
+        categories = {
+            item.source_identity[0]: item
+            for item in by_dataset["product_categories"]
+        }
+
+        self.assertEqual(
+            set(categories),
+            {
+                "components",
+                "default",
+                "default / m-200",
+                "finished",
+                "finished / m-100",
+            },
+        )
+        self.assertIsNone(categories["default"].references["parent_id"])
+        self.assertEqual(
+            categories["default / m-200"].references["parent_id"].key,
+            ("default",),
+        )
+        products = by_dataset["products"]
+        self.assertEqual(
+            [
+                (
+                    item.references["categ_id"].key
+                    if item.references["categ_id"] is not None
+                    else None
+                )
+                for item in products
+            ],
+            [
+                ("finished / m-100",),
+                ("default / m-200",),
+                ("components",),
+                None,
+            ],
+        )
+        self.assertFalse(any(item.blocked for item in products))
+        self.assertEqual(
+            link.source_column_key,
+            next(
+                column.stable_key
+                for column in evidence[3].datasets[1].columns
+                if column.source_name.startswith("Selected product_categories")
+            ),
+        )
+
     def test_selection_and_derived_relationship_share_source_without_collision(
         self,
     ) -> None:
@@ -1259,6 +1495,193 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         workspace_state = WorkspaceState(
             workspace_id=project_id,
             name="Product migration",
+            source_system="Legacy ERP",
+            odoo_connection_mode=OdooConnectionMode.LOCAL,
+            odoo_base_url="http://127.0.0.1:8069",
+            odoo_database="odoo19_dev",
+            intended_models=("product.category", "product.template"),
+            source_files=(
+                SourceFile(
+                    file_id=file_id,
+                    display_name="products.csv",
+                    stored_name=source_path.name,
+                    size_bytes=source_path.stat().st_size,
+                    sha256=digest,
+                    received_at=now,
+                ),
+            ),
+            status=WorkspaceStatus.REGISTERED,
+            registered_at=now,
+        )
+        return (
+            (
+                workspace_state,
+                definition,
+                physical,
+                effective,
+                plan,
+                (catalog,),
+                _SingleArtifactStore(source_path),
+            ),
+            link,
+        )
+
+    def _hierarchy_evidence(self):
+        project_id = str(uuid4())
+        file_id = str(uuid4())
+        source_path = self.root / f"{file_id}.csv"
+        rows = (
+            ("P001", "Finished", "M-100"),
+            ("P002", "", "M-200"),
+            ("P003", "Components", ""),
+            ("P004", "", ""),
+        )
+        source_path.write_text(
+            "DefaultCode,ModelGroup,ModelCode\n"
+            + "".join(",".join(row) + "\n" for row in rows),
+            encoding="utf-8",
+        )
+        digest = sha256(source_path.read_bytes()).hexdigest()
+        now = datetime.now(timezone.utc)
+        table = SourceTableCatalog(
+            table_key="csv",
+            name="products",
+            kind="CSV",
+            hidden=False,
+            header_row=1,
+            row_count=len(rows),
+            column_count=3,
+            columns=(
+                _column_profile(1, "DefaultCode", 4),
+                _column_profile(2, "ModelGroup", 3),
+                _column_profile(3, "ModelCode", 3),
+            ),
+            preview_rows=rows,
+        )
+        catalog = SourceFileCatalog(
+            contract_version=2,
+            file_id=file_id,
+            display_name="products.csv",
+            source_sha256=digest,
+            source_size_bytes=source_path.stat().st_size,
+            format="csv",
+            inspected_at=now,
+            encoding="utf-8",
+            delimiter=",",
+            tables=(table,),
+        )
+        columns = (
+            SourceDatasetColumn(1, "DefaultCode", "column:default_code", "string"),
+            SourceDatasetColumn(2, "ModelGroup", "column:model_group", "string"),
+            SourceDatasetColumn(3, "ModelCode", "column:model_code", "string"),
+        )
+        physical_dataset = SourceDataset(
+            dataset_id="dataset:products",
+            name="products",
+            source=FileSourceBinding(
+                file_id=file_id,
+                table_key="csv",
+                source_sha256=digest,
+                catalog_hash=catalog.content_hash,
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            ),
+            row_count=len(rows),
+            columns=columns,
+        )
+        physical = SourceSelection(
+            selection_id=str(uuid4()),
+            version=1,
+            data_version_id=project_id,
+            created_at=now,
+            created_by="Tester",
+            datasets=(physical_dataset,),
+            content_hash="sha256:" + "7" * 64,
+        )
+        rule = HierarchicalLookupRule(
+            rule_id=str(uuid4()),
+            output_dataset_name="product_categories",
+            source_dataset_id=physical_dataset.dataset_id,
+            source_level_column_keys=(
+                columns[1].stable_key,
+                columns[2].stable_key,
+            ),
+            target_model="product.category",
+            target_name_field="name",
+            external_id_namespace="legacy",
+            missing_parent=HierarchyValuePolicy(mode="fixed", value="Default"),
+            missing_leaf="use_deepest",
+            all_blank=HierarchyValuePolicy(mode="emit_null_reference"),
+        )
+        plan = DerivedEntityPlan(
+            plan_id=str(uuid4()),
+            version=1,
+            workspace_id=project_id,
+            source_selection_hash=physical.content_hash,
+            rules=(rule,),
+            updated_at=now,
+            updated_by="Tester",
+        )
+        effective = mapping_source_selection(physical, plan, (catalog,))
+        link = derived_dataset_links(plan)[0]
+        category, products = effective.datasets
+        definition = MappingDefinition(
+            mapping_id=str(uuid4()),
+            source_selection_hash=effective.content_hash,
+            schema_hash="sha256:" + "8" * 64,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=category.dataset_id,
+                    target_model="product.category",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(link.canonical_key_column_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(link.name_column_key,),
+                            target_fields=("name",),
+                        ),
+                    ),
+                    relationships=(
+                        RelationshipMapping(
+                            target_field="parent_id",
+                            kind="many2one",
+                            source_column_keys=(link.parent_key_column_key,),
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.DATASET,
+                                dataset_id=category.dataset_id,
+                            ),
+                        ),
+                    ),
+                ),
+                DatasetMapping(
+                    dataset_id=products.dataset_id,
+                    target_model="product.template",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(columns[0].stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(columns[0].stable_key,),
+                            target_fields=("default_code",),
+                        ),
+                    ),
+                    relationships=(
+                        RelationshipMapping(
+                            target_field="categ_id",
+                            kind="many2one",
+                            source_column_keys=(link.source_column_key,),
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.DATASET,
+                                dataset_id=category.dataset_id,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        workspace_state = WorkspaceState(
+            workspace_id=project_id,
+            name="Product hierarchy migration",
             source_system="Legacy ERP",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",

@@ -1,10 +1,15 @@
 """Exercise run-owned target review through real compilation and preparation."""
 
 from datetime import UTC, datetime
+from time import monotonic, sleep
 from unittest import TestCase
 from uuid import uuid4
 
 from impodo.domain.mapping.contracts import CategoricalCoveragePolicy, ValueMapping
+from impodo.application.run.recipe_run_jobs import (
+    RecipeRunJobManager,
+    RecipeRunJobStatus,
+)
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.serialization import content_hash
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField, SchemaModel, SchemaOrigin
@@ -132,3 +137,38 @@ class RecipeTargetMatchBrowserTests(TestCase):
         staging = self.context.preparation.staging.get_current_staging_summary(application.workspace_id)
         self.assertTrue(staging.control_totals[0].passed)
         self.assertEqual(staging.control_totals[0].expected_total, "125.50")
+
+    def test_slow_target_review_has_resumable_progress(self):
+        url = self.review_ready_delivery()
+        manager = RecipeRunJobManager()
+        self.context.recipe_run_jobs = manager
+        self.addCleanup(manager.shutdown)
+
+        started = self.client.get(url, follow_redirects=False)
+
+        self.assertEqual(started.status_code, 303, started.text)
+        progress_url = started.headers["location"]
+        self.assertRegex(progress_url, r"/runs/[^/]+/progress/[^/]+$")
+        progress_page = self.client.get(progress_url)
+        self.assertEqual(progress_page.status_code, 200, progress_page.text)
+        self.assertIn("Preparing target-value review", progress_page.text)
+        self.assertIn("data-recipe-run-progress", progress_page.text)
+        self.assertIn("Progress updated just now", progress_page.text)
+
+        status_url = progress_url + "/status"
+        deadline = monotonic() + 5
+        payload = None
+        while monotonic() < deadline:
+            payload = self.client.get(status_url).json()
+            if payload["status"] not in {"QUEUED", "RUNNING"}:
+                break
+            sleep(0.01)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["status"], RecipeRunJobStatus.SUCCEEDED.value)
+        self.assertEqual(payload["progress_percent"], 100)
+        self.assertEqual(payload["redirect_url"], url)
+        self.assertTrue(all(stage["state"] == "complete" for stage in payload["stages"]))
+
+        review = self.client.get(url)
+        self.assertEqual(review.status_code, 200, review.text)
+        self.assertIn("1 value needs a match", review.text)

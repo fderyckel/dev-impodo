@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import json
 from time import perf_counter
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse
@@ -19,6 +20,7 @@ from impodo.application.workspace.mapping.order_service import MatchingOrderServ
 from impodo.domain.shared.access import Capability
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityRule,
+    HierarchicalLookupRule,
     derived_dataset_links,
     derived_mapping_samples,
     preview_derived_entities,
@@ -34,8 +36,11 @@ from ...domain.source_binding import (
 from ...domain.mapping.contracts import (
     MAPPING_CONTRACT_VERSION,
     MAX_CONTROL_TOTALS_PER_DATASET,
+    MAX_ROW_INCLUSION_CONDITIONS,
     RelationshipValueSource,
     ResolverOrigin,
+    RowInclusionMode,
+    RowInclusionPolicy,
     ScalarFieldMapping,
     ScalarValueSource,
     relationship_target_fields,
@@ -101,6 +106,7 @@ class _CatalogRecommendation:
     dataset_id: str
     source_columns: tuple[str, ...]
     kind: str | None = None
+    origin: str = "target_then_dataset"
 
 
 @dataclass(frozen=True, slots=True)
@@ -398,6 +404,27 @@ def _render_mapping(
     validation_problem_count = len(visible_validation_issues) + (
         1 if readonly_field_recovery else 0
     )
+    has_row_inclusion = bool(
+        active_definition is not None
+        and any(
+            item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
+            for item in active_definition.datasets
+        )
+    )
+    row_inclusion_review = None
+    row_inclusion_confirmation = None
+    if revision is not None and not has_unvalidated_changes and has_row_inclusion:
+        try:
+            (
+                row_inclusion_review,
+                row_inclusion_confirmation,
+            ) = context.row_inclusion_reviews.current(
+                workspace_id,
+                actor=context.actor,
+            )
+        except WorkspaceError:
+            row_inclusion_review = None
+            row_inclusion_confirmation = None
     matching_order_view = _matching_order_view(
         request,
         workspace_id,
@@ -442,6 +469,9 @@ def _render_mapping(
             previous_check_blocking_issue_views
         ),
         readonly_field_recovery=readonly_field_recovery,
+        has_row_inclusion=has_row_inclusion,
+        row_inclusion_review=row_inclusion_review,
+        row_inclusion_confirmation=row_inclusion_confirmation,
     )
     quality_view = None
     if (
@@ -492,6 +522,8 @@ def _render_mapping(
         readonly_field_recovery=readonly_field_recovery,
         visible_validation_issues=visible_validation_issues,
         validation_problem_count=validation_problem_count,
+        row_inclusion_review=row_inclusion_review,
+        row_inclusion_confirmation=row_inclusion_confirmation,
         mapping_review_workbook_ready=mapping_review_workbook_ready,
         blocking_issue_views=blocking_issue_views,
         next_step=next_step,
@@ -752,7 +784,7 @@ def _lookup_mapping_materials(
     lookup_rules = tuple(
         rule
         for rule in preparation_plan.rules
-        if isinstance(rule, DerivedEntityRule)
+        if isinstance(rule, (DerivedEntityRule, HierarchicalLookupRule))
     )
     for link, rule in zip(lookup_links, lookup_rules, strict=True):
         lookup_samples[link.derived_dataset_id] = derived_mapping_samples(
@@ -1501,6 +1533,9 @@ def _mapping_next_step(
     blocking_issue_views,
     previous_check_blocking_issue_views,
     readonly_field_recovery,
+    has_row_inclusion=False,
+    row_inclusion_review=None,
+    row_inclusion_confirmation=None,
 ):
     """Return one visible next action and every reason it is unavailable."""
 
@@ -1629,6 +1664,52 @@ def _mapping_next_step(
                 for item in blocking_issue_views
                 if item not in default_reviews and item not in default_checks
             )
+        if (
+            has_row_inclusion
+            and validation is not None
+            and validation.status.value != "INVALID"
+        ):
+            if row_inclusion_review is None:
+                blockers.append(
+                    {
+                        "title": "Rows to use have not been checked",
+                        "message": (
+                            "Check matches to count the rows included and excluded "
+                            "by the current rule."
+                        ),
+                        "action_label": "Check matches",
+                        "action": "draft",
+                    }
+                )
+            elif not row_inclusion_review.confirmable:
+                blockers.append(
+                    {
+                        "title": "The rows-to-use result needs attention",
+                        "message": (
+                            "Include at least one row and resolve every row that "
+                            "could not be checked."
+                        ),
+                        "action_label": "Review rows",
+                        "href": f"/workspaces/{workspace_id}/mapping/rows-to-use",
+                    }
+                )
+            elif (
+                row_inclusion_review.excluded_count > 0
+                and row_inclusion_confirmation is None
+            ):
+                blockers.append(
+                    {
+                        "title": "Confirm the rows to use",
+                        "message": (
+                            f"Review and confirm {row_inclusion_review.included_count} "
+                            "included source rows before confirming field matches."
+                        ),
+                        "action_label": (
+                            f"Confirm {row_inclusion_review.included_count} rows to use"
+                        ),
+                        "action": "confirm_rows",
+                    }
+                )
     return {
         "label": "Confirm field matches",
         "available": not blockers,
@@ -1672,6 +1753,7 @@ def _build_dataset_catalog_projection(
     source_dataset_id,
     link_by_child,
     derived_by_consumer,
+    derived_by_dataset,
     selected_model_by_dataset,
 ) -> _DatasetCatalogProjection:
     """Build one search-neutral field index from immutable saved evidence."""
@@ -1763,7 +1845,30 @@ def _build_dataset_catalog_projection(
                 field_name=matches[0].name,
                 dataset_id=link.derived_dataset_id,
                 source_columns=(link.source_column_key,),
-                kind="extracted_lookup",
+                kind=(
+                    "hierarchical_lookup"
+                    if link.hierarchical
+                    else "extracted_lookup"
+                ),
+                origin=("dataset" if link.hierarchical else "target_then_dataset"),
+            )
+    self_link = derived_by_dataset.get(source_dataset_id)
+    if self_link is not None and self_link.hierarchical:
+        self_model = selected_model_by_dataset.get(source_dataset_id)
+        matches = tuple(
+            item.field
+            for item in relation_fields
+            if item.field.name not in identity_targets
+            and item.field.type == "many2one"
+            and item.field.relation == self_model
+        )
+        if len(matches) == 1 and self_link.parent_key_column_key is not None:
+            recommendation_by_field[matches[0].name] = _CatalogRecommendation(
+                field_name=matches[0].name,
+                dataset_id=source_dataset_id,
+                source_columns=(self_link.parent_key_column_key,),
+                kind="hierarchy_parent",
+                origin="dataset",
             )
     relation_candidates = tuple(
         sorted(
@@ -1960,12 +2065,23 @@ def _mapping_dataset_views(
                     component.resolver if component else None,
                     related_keys,
                 )
+                hierarchy_self_parent = bool(
+                    derived_link is not None
+                    and derived_link.hierarchical
+                    and derived_link.parent_key_column_key is not None
+                    and metadata is not None
+                    and metadata.type == "many2one"
+                    and metadata.relation == selected_model_name
+                )
                 related_datasets = tuple(
                     item
                     for item in selection.datasets
-                    if item.dataset_id != source_dataset.dataset_id
-                    and selected_model_by_dataset.get(item.dataset_id)
+                    if selected_model_by_dataset.get(item.dataset_id)
                     == (metadata.relation if metadata is not None else None)
+                    and (
+                        item.dataset_id != source_dataset.dataset_id
+                        or hierarchy_self_parent
+                    )
                 )
                 identity_rows.append(
                     {
@@ -1980,11 +2096,15 @@ def _mapping_dataset_views(
                             component.source_column_keys
                             if component
                             else (
-                                (derived_link.name_column_key,)
-                                if derived_link is not None
-                                and target_field
-                                == derived_link.target_name_field
-                                else ()
+                                (derived_link.parent_key_column_key,)
+                                if hierarchy_self_parent
+                                else (
+                                    (derived_link.name_column_key,)
+                                    if derived_link is not None
+                                    and target_field
+                                    == derived_link.target_name_field
+                                    else ()
+                                )
                             )
                         ),
                         "related_keys": related_keys,
@@ -1997,13 +2117,21 @@ def _mapping_dataset_views(
                             component.resolver.origin.value
                             if component is not None
                             and component.resolver is not None
-                            else ResolverOrigin.TARGET_CATALOG.value
+                            else (
+                                ResolverOrigin.DATASET.value
+                                if hierarchy_self_parent
+                                else ResolverOrigin.TARGET_CATALOG.value
+                            )
                         ),
                         "selected_dataset_id": (
                             component.resolver.dataset_id
                             if component is not None
                             and component.resolver is not None
-                            else None
+                            else (
+                                source_dataset.dataset_id
+                                if hierarchy_self_parent
+                                else None
+                            )
                         ),
                         "related_datasets": related_datasets,
                         "recommended_related_key_id": (
@@ -2054,6 +2182,7 @@ def _mapping_dataset_views(
                 source_dataset_id=source_dataset.dataset_id,
                 link_by_child=link_by_child,
                 derived_by_consumer=derived_by_consumer,
+                derived_by_dataset=derived_by_dataset,
                 selected_model_by_dataset=selected_model_by_dataset,
             )
 
@@ -2200,6 +2329,7 @@ def _mapping_dataset_views(
                 "dataset_id": item.dataset_id,
                 "source_columns": item.source_columns,
                 "kind": item.kind,
+                "origin": item.origin,
             }
             for item in catalog_projection.relation_recommendations
         }
@@ -2341,6 +2471,7 @@ def _mapping_dataset_views(
                 ]
                 if recommendation.get("kind"):
                     row["recommendation_kind"] = recommendation["kind"]
+                row["recommended_origin"] = recommendation["origin"]
             relation_rows.append(row)
         result.append(
             {
@@ -2352,6 +2483,10 @@ def _mapping_dataset_views(
                 },
                 "source_samples": source_samples,
                 "mapping": existing,
+                "row_inclusion_slots": _row_inclusion_slots(
+                    source_dataset.dataset_id,
+                    existing.row_inclusion if existing else RowInclusionPolicy(),
+                ),
                 "odoo_pinned": odoo_pinned,
                 "approved_write_fields": (
                     existing.approved_write_fields if existing else ()
@@ -2396,6 +2531,10 @@ def _mapping_dataset_views(
                     item
                     for item in selection.datasets
                     if item.dataset_id != source_dataset.dataset_id
+                    or (
+                        derived_link is not None
+                        and derived_link.hierarchical
+                    )
                 ),
                 "related_role": (
                     "lookup"
@@ -2430,6 +2569,36 @@ def _mapping_dataset_views(
             }
         )
     return tuple(result)
+
+
+def _row_inclusion_slots(
+    dataset_id: str,
+    policy: RowInclusionPolicy,
+) -> tuple[dict[str, object], ...]:
+    """Return eight stable editor slots without giving blank slots meaning."""
+
+    return tuple(
+        {
+            "index": index,
+            "condition_id": (
+                policy.conditions[index].condition_id
+                if index < len(policy.conditions)
+                else str(
+                    uuid5(
+                        NAMESPACE_URL,
+                        f"impodo:row-inclusion:{dataset_id}:{index}",
+                    )
+                )
+            ),
+            "condition": (
+                policy.conditions[index]
+                if index < len(policy.conditions)
+                else None
+            ),
+            "visible": index < max(1, len(policy.conditions)),
+        }
+        for index in range(MAX_ROW_INCLUSION_CONDITIONS)
+    )
 
 
 def _odoo_pinned_write_eligible(field) -> bool:

@@ -1367,12 +1367,14 @@ label.model-choice input {
 }
 
 .preparation-progress-card,
+.recipe-run-progress-card,
 .capture-progress-card,
 .load-progress-card {
   max-width: 760px;
 }
 
 .preparation-progress-page [hidden],
+.recipe-run-progress-page [hidden],
 .capture-progress-page [hidden],
 .load-progress-page [hidden] {
   display: none !important;
@@ -1394,6 +1396,7 @@ label.model-choice input {
 }
 
 .preparation-progress-card progress,
+.recipe-run-progress-card progress,
 .capture-progress-card progress,
 .load-progress-card progress {
   width: 100%;
@@ -1409,6 +1412,7 @@ label.model-choice input {
 }
 
 .preparation-progress-actions,
+.recipe-run-progress-page .preparation-progress-actions,
 .capture-progress-actions,
 .load-progress-actions {
   justify-content: flex-start;
@@ -1416,9 +1420,68 @@ label.model-choice input {
 }
 
 .preparation-progress-actions form,
+.recipe-run-progress-page .preparation-progress-actions form,
 .capture-progress-actions form,
 .load-progress-actions form {
   margin: 0;
+}
+
+.recipe-run-stage-card {
+  max-width: 760px;
+  margin-top: 1.25rem;
+}
+
+.recipe-run-stage-list {
+  display: grid;
+  gap: .75rem;
+  margin: 1.2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recipe-run-stage {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: .85rem;
+  border-left: 4px solid var(--line);
+  background: var(--impodo-soft);
+  padding: .75rem .9rem;
+}
+
+.recipe-run-stage.complete {
+  border-left-color: #4d7c5b;
+}
+
+.recipe-run-stage.current {
+  border-left-color: var(--impodo-red);
+  background: #fff9f8;
+}
+
+.recipe-run-stage.attention {
+  border-left-color: var(--impodo-warning);
+  background: var(--warning-bg);
+}
+
+.recipe-run-stage.waiting {
+  color: var(--muted);
+}
+
+.recipe-run-stage-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: .8rem;
+  font-weight: 800;
+}
+
+.recipe-run-stage strong,
+.recipe-run-stage small {
+  display: block;
 }
 
 .capture-confirmation {

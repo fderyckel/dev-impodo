@@ -12,7 +12,11 @@ from impodo.application.recipe_application_compilation import (
     RecipeApplicationCompiler,
 )
 from impodo.application.recipe_application_service import RecipeApplicationService
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan, RelatedDatasetRule
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    HierarchicalLookupRule,
+    RelatedDatasetRule,
+)
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
 from impodo.domain.mapping.contracts import (
     BusinessControlDefinition,
@@ -22,14 +26,19 @@ from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
+    MAPPING_CONTRACT_VERSION,
     ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
     RelationshipValueSource,
     ResolverOrigin,
+    RowInclusionCondition,
+    RowInclusionMode,
+    RowInclusionPolicy,
     ScalarConcatenation,
     ScalarFieldMapping,
     ScalarValueSource,
+    SelectionConditionOperator,
     ValueMapping,
 )
 from impodo.domain.recipe_parameters import (
@@ -211,6 +220,120 @@ def _publish(
 
 
 class RepresentativeRecipeShapeTests(unittest.TestCase):
+    def test_row_inclusion_fails_closed_until_recipe_reuse_is_supported(
+        self,
+    ) -> None:
+        project_id = str(uuid4())
+        products = _dataset(
+            "Products",
+            (("Code statut product", "string"),),
+            "8",
+        )
+        selection = SourceSelection(
+            str(uuid4()),
+            1,
+            project_id,
+            datetime.now(timezone.utc),
+            "Data manager",
+            (products,),
+            "sha256:" + "8" * 64,
+        )
+        mapping = DatasetMapping(
+            dataset_id=products.dataset_id,
+            target_model="product.template",
+            row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS,
+                conditions=(
+                    RowInclusionCondition(
+                        condition_id=str(uuid4()),
+                        source_column_key=_column(
+                            products,
+                            "Code statut product",
+                        ),
+                        operator=SelectionConditionOperator.EQUALS,
+                        comparison_value="30",
+                    ),
+                ),
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            AssertionError,
+            "ROW_INCLUSION_NOT_PORTABLE",
+        ):
+            _publish(
+                base_selection=selection,
+                mapping_selection=selection,
+                mappings=(mapping,),
+                models=(
+                    SchemaModel(
+                        "product.template",
+                        "Product",
+                        (_field("name"),),
+                    ),
+                ),
+                business_keys=(),
+            )
+
+    def test_hierarchy_preparation_rebinds_every_ordered_source_level(self) -> None:
+        rule = RecipeApplicationCompiler()._preparation_rule(
+            {
+                "kind": "hierarchical_lookup",
+                "logical_rule_id": "preparation:hierarchical_lookup.categories",
+                "output_dataset_name": "categories",
+                "source_dataset_id": "dataset:products",
+                "source_level_column_keys": (
+                    "column:model_group",
+                    "column:model_code",
+                ),
+                "target_model": "product.category",
+                "target_name_field": "name",
+                "external_id_namespace": "legacy",
+                "missing_parent": {"mode": "fixed", "value": "Default"},
+                "missing_leaf": "use_deepest",
+                "all_blank": {"mode": "emit_null_reference", "value": None},
+            },
+            {
+                "dataset:products": "fresh:products",
+                "column:model_group": "fresh:model_group",
+                "column:model_code": "fresh:model_code",
+            },
+        )
+
+        self.assertIsInstance(rule, HierarchicalLookupRule)
+        self.assertEqual(rule.source_dataset_id, "fresh:products")
+        self.assertEqual(
+            rule.source_level_column_keys,
+            ("fresh:model_group", "fresh:model_code"),
+        )
+        self.assertEqual(rule.missing_parent.value, "Default")
+
+    def test_hierarchy_preparation_publishes_logical_source_levels(self) -> None:
+        compiler = object.__new__(RecipeCompiler)
+        payload = {
+            "kind": "hierarchical_lookup",
+            "source_dataset_id": "physical:products",
+            "source_level_column_keys": [
+                "physical:model_group",
+                "physical:model_code",
+            ],
+        }
+
+        compiler._replace_preparation_ids(
+            payload,
+            {"physical:products": "dataset:products"},
+            {
+                ("physical:products", "physical:model_group"): "column:model_group",
+                ("physical:products", "physical:model_code"): "column:model_code",
+            },
+        )
+
+        self.assertEqual(payload["source_dataset_id"], "dataset:products")
+        self.assertEqual(
+            payload["source_level_column_keys"],
+            ["column:model_group", "column:model_code"],
+        )
+
     def test_combined_source_columns_keep_order_and_policy_in_recipe_reuse(
         self,
     ) -> None:
@@ -362,7 +485,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             mappings=(mapping,),
             models=(partner_model,),
             business_keys=(_key("res.partner", "ref"),),
-            mapping_contract_version=15,
+            mapping_contract_version=MAPPING_CONTRACT_VERSION,
         )
         with_related_capture = _publish(
             base_selection=selection,
@@ -380,7 +503,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                 ),
             ),
             business_keys=(_key("res.partner", "ref"),),
-            mapping_contract_version=15,
+            mapping_contract_version=MAPPING_CONTRACT_VERSION,
         )
 
         self.assertEqual(without_related_capture, with_related_capture)
@@ -417,7 +540,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                     ),
                 ),
                 business_keys=(_key("res.partner", "ref"),),
-                mapping_contract_version=15,
+                mapping_contract_version=MAPPING_CONTRACT_VERSION,
             )
 
     def test_product_recipe_compiles_scalar_and_target_reference_meaning(self):

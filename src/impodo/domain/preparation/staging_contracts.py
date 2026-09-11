@@ -30,7 +30,7 @@ from impodo.domain.preparation.source import PreparedBundle
 
 
 STAGING_CONTRACT_VERSION = 6
-BROWSER_EVALUATOR_VERSION = 6
+BROWSER_EVALUATOR_VERSION = 7
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -857,6 +857,7 @@ class CanonicalStagingRun:
             str, tuple[str, StagingDatasetRole, int]
         ],
         control_totals: tuple[CanonicalControlTotal, ...] = (),
+        additional_rows: Iterable[CanonicalRow] = (),
     ) -> "CanonicalStagingRun":
         """Convert compiler/preparation output into durable Stage-E evidence.
 
@@ -874,30 +875,31 @@ class CanonicalStagingRun:
         lineage_parts = {
             key: _lineage_parts(value) for key, value in source_lineage.items()
         }
+        prepared_rows = tuple(
+            _canonical_row(
+                record,
+                mode=mode_by_dataset[record.dataset],
+                source_hash=prepared.source_hashes[record.dataset],
+                source_selection_hash=source_selection_hash,
+                mapping_hash=mapping_hash,
+                schema_hash=schema_hash,
+                derived_plan_hash=derived_plan_hash,
+                field_sources=field_sources.get(record.dataset, {}),
+                physical_dataset_id=lineage_parts[
+                    (record.dataset, record.source_row)
+                ][0],
+                physical_source_rows=lineage_parts[
+                    (record.dataset, record.source_row)
+                ][1],
+                physical_sources=lineage_parts[
+                    (record.dataset, record.source_row)
+                ][2],
+            )
+            for record in prepared.records
+        )
         rows = tuple(
             sorted(
-                (
-                    _canonical_row(
-                        record,
-                        mode=mode_by_dataset[record.dataset],
-                        source_hash=prepared.source_hashes[record.dataset],
-                        source_selection_hash=source_selection_hash,
-                        mapping_hash=mapping_hash,
-                        schema_hash=schema_hash,
-                        derived_plan_hash=derived_plan_hash,
-                        field_sources=field_sources.get(record.dataset, {}),
-                        physical_dataset_id=lineage_parts[
-                            (record.dataset, record.source_row)
-                        ][0],
-                        physical_source_rows=lineage_parts[
-                            (record.dataset, record.source_row)
-                        ][1],
-                        physical_sources=lineage_parts[
-                            (record.dataset, record.source_row)
-                        ][2],
-                    )
-                    for record in prepared.records
-                ),
+                (*prepared_rows, *tuple(additional_rows)),
                 key=_row_order,
             )
         )
@@ -1056,6 +1058,69 @@ def canonical_row_from_prepared(
         physical_dataset_id=physical_dataset_id,
         physical_source_rows=physical_source_rows,
         physical_sources=physical_sources,
+    )
+
+
+def canonical_row_from_inclusion_decision(
+    *,
+    dataset: str,
+    source_row: int,
+    target_model: str,
+    disposition: StagingDisposition,
+    issues: Iterable[Issue],
+    source_hash: str,
+    source_selection_hash: str,
+    mapping_hash: str,
+    schema_hash: str,
+    derived_plan_hash: str | None,
+    source_column_keys: tuple[str, ...],
+    physical_dataset_id: str,
+    physical_source_rows: tuple[int, ...],
+    physical_sources: Mapping[str, tuple[int, ...]] | None = None,
+) -> CanonicalRow:
+    """Build one lineage-only decision that cannot become an Odoo record."""
+
+    if disposition not in {
+        StagingDisposition.EXCLUDED,
+        StagingDisposition.BLOCKED,
+    }:
+        raise ValueError("Row-inclusion decisions must be excluded or blocked")
+    canonical_issues = tuple(CanonicalIssue.from_issue(item) for item in issues)
+    lineage = CanonicalLineage(
+        source_selection_hash=source_selection_hash,
+        source_hash=source_hash,
+        mapping_hash=mapping_hash,
+        schema_hash=schema_hash,
+        derived_plan_hash=derived_plan_hash,
+        dataset=dataset,
+        source_row=source_row,
+        physical_dataset_id=physical_dataset_id,
+        physical_source_rows=physical_source_rows,
+        field_sources={"$row_inclusion": source_column_keys},
+        physical_sources=physical_sources or {},
+    )
+    row_id = "sha256:" + sha256(
+        canonical_json_bytes(
+            {
+                "lineage": lineage.to_portable_dict(),
+                "target_model": target_model,
+                "row_inclusion_disposition": disposition.value,
+            }
+        )
+    ).hexdigest()
+    return CanonicalRow(
+        row_id=row_id,
+        dataset=dataset,
+        source_row=source_row,
+        target_model=target_model,
+        disposition=disposition,
+        source_identity=(),
+        target_identity=(),
+        target_scope=(),
+        proposed_values={},
+        references={},
+        issues=canonical_issues,
+        lineage=lineage,
     )
 
 

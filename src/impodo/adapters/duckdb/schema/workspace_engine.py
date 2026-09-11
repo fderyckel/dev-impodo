@@ -131,6 +131,37 @@ _MATCHING_ORDER_CHECK_ATTEMPT_COLUMNS = (
     "updated_at",
     "finished_at",
 )
+_ROW_INCLUSION_REVIEW_COLUMNS = (
+    "snapshot_hash",
+    "identity_hash",
+    "physical_selection_hash",
+    "source_selection_hash",
+    "mapping_content_hash",
+    "schema_hash",
+    "derived_plan_hash",
+    "evaluator_version",
+    "checked_at",
+    "checked_by",
+    "snapshot_json",
+)
+_ROW_INCLUSION_REVIEW_ROW_COLUMNS = (
+    "snapshot_hash",
+    "ordinal",
+    "dataset_id",
+    "dataset_name",
+    "source_row",
+    "values_json",
+    "outcome",
+    "rule_sentence",
+    "message",
+)
+_ROW_INCLUSION_CONFIRMATION_COLUMNS = (
+    "snapshot_hash",
+    "mapping_content_hash",
+    "source_selection_hash",
+    "confirmed_at",
+    "confirmed_by",
+)
 _ODOO_CAPTURE_SELECTION_CURRENT_COLUMNS = (
     "model",
     "selection_id",
@@ -154,6 +185,8 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "matching_order_preference", "matching_order_check",
         "matching_order_check_active", "matching_order_check_attempt",
         "matching_order_check_current", "matching_order_protected_snapshot",
+        "mapping_row_inclusion_confirmation", "mapping_row_inclusion_current",
+        "mapping_row_inclusion_review", "mapping_row_inclusion_review_row",
         "mapping_working_draft", "normalization_current", "normalization_effect",
         "normalization_group", "normalization_run", "normalization_transition",
         "odoo_capture_manifest_current", "odoo_capture_manifest_revision",
@@ -860,6 +893,7 @@ class WorkspaceEngineSchemaMixin:
         create_derived_value_artifact_schema(connection)
         create_recipe_compilation_schema(connection)
         create_supporting_lookup_schema(connection)
+        _create_row_inclusion_review_schema(connection)
 
     def _ensure_workspace_database_schema(
         self,
@@ -924,6 +958,18 @@ class WorkspaceEngineSchemaMixin:
             (
                 "matching_order_check_attempt",
                 _MATCHING_ORDER_CHECK_ATTEMPT_COLUMNS,
+            ),
+            (
+                "mapping_row_inclusion_review",
+                _ROW_INCLUSION_REVIEW_COLUMNS,
+            ),
+            (
+                "mapping_row_inclusion_review_row",
+                _ROW_INCLUSION_REVIEW_ROW_COLUMNS,
+            ),
+            (
+                "mapping_row_inclusion_confirmation",
+                _ROW_INCLUSION_CONFIRMATION_COLUMNS,
             ),
             (
                 "odoo_capture_selection_current",
@@ -1185,6 +1231,65 @@ def _upgrade_workspace_engine_v11_to_v12(
     )
 
 
+def _create_row_inclusion_review_schema(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Create protected Stage-3 row-admission review evidence."""
+
+    connection.execute(
+        """
+        CREATE TABLE mapping_row_inclusion_review (
+            snapshot_hash VARCHAR PRIMARY KEY,
+            identity_hash VARCHAR NOT NULL,
+            physical_selection_hash VARCHAR NOT NULL,
+            source_selection_hash VARCHAR NOT NULL,
+            mapping_content_hash VARCHAR NOT NULL,
+            schema_hash VARCHAR NOT NULL,
+            derived_plan_hash VARCHAR,
+            evaluator_version INTEGER NOT NULL,
+            checked_at VARCHAR NOT NULL,
+            checked_by VARCHAR NOT NULL,
+            snapshot_json VARCHAR NOT NULL
+        );
+        CREATE TABLE mapping_row_inclusion_review_row (
+            snapshot_hash VARCHAR NOT NULL,
+            ordinal BIGINT NOT NULL,
+            dataset_id VARCHAR NOT NULL,
+            dataset_name VARCHAR NOT NULL,
+            source_row BIGINT NOT NULL,
+            values_json VARCHAR NOT NULL,
+            outcome VARCHAR NOT NULL,
+            rule_sentence VARCHAR NOT NULL,
+            message VARCHAR NOT NULL,
+            PRIMARY KEY (snapshot_hash, ordinal)
+        );
+        CREATE INDEX mapping_row_inclusion_review_row_lookup
+            ON mapping_row_inclusion_review_row (
+                snapshot_hash, outcome, dataset_id, ordinal
+            );
+        CREATE TABLE mapping_row_inclusion_current (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            snapshot_hash VARCHAR NOT NULL
+        );
+        CREATE TABLE mapping_row_inclusion_confirmation (
+            snapshot_hash VARCHAR PRIMARY KEY,
+            mapping_content_hash VARCHAR NOT NULL,
+            source_selection_hash VARCHAR NOT NULL,
+            confirmed_at VARCHAR NOT NULL,
+            confirmed_by VARCHAR NOT NULL
+        );
+        """
+    )
+
+
+def _upgrade_workspace_engine_v12_to_v13(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add protected row-inclusion review and confirmation evidence."""
+
+    _create_row_inclusion_review_schema(connection)
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -1229,5 +1334,9 @@ WORKSPACE_ENGINE_UPGRADES = {
     11: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v11-to-v12-matching-order-checks",
         apply=_upgrade_workspace_engine_v11_to_v12,
+    ),
+    12: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v12-to-v13-row-inclusion-review",
+        apply=_upgrade_workspace_engine_v12_to_v13,
     ),
 }

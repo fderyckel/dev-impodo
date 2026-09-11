@@ -40,6 +40,13 @@ and ordered portable key and scope values. It requires no logical source-column
 binding. Each application resolves those values against its own target
 evidence.
 
+A hierarchical lookup preparation stores two to five ordered logical
+source-column identities, its arbitrary target model and name field, and all
+missing-value policies. Publication replaces every physical hierarchy field
+with its logical identity. Application must rebind every level in the saved
+order and stops when one is missing or ambiguous; it never substitutes a
+similar heading or a model-specific category convention.
+
 It must exclude source rows, file and snapshot identities, current source
 hashes, Project and workspace UUIDs, target endpoint or database, credentials,
 numeric Odoo IDs, actors, approvals, execution journals, read-back, and

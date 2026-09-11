@@ -81,32 +81,67 @@ Recipe, prepared data, or the safe order used later to load Odoo.
    suggestion** and then **Apply recommendation**. Work through one table at a
    time. You can also select **Reorder tables**, arrange the queue, and select
    **Save table order**.
-2. Choose whether the table is a reference, create, update, or upsert dataset.
-3. Match the source identity to the confirmed Odoo business key.
-4. For each writable field, choose one source value, combine source columns,
+2. Under **Rows to use**, keep **Use every row** or select **Use only rows that
+   match** and add one to eight source conditions.
+3. Choose whether the table is a reference, create, update, or upsert dataset.
+4. Match the source identity to the confirmed Odoo business key.
+5. For each writable field, choose one source value, combine source columns,
    supply a fixed value, or make an explicit Odoo decision. Use **Let Odoo choose** only when the target
    configuration supplies a default. Use **Odoo manages this field** only for
    a field Odoo creates or maintains itself. When you select **Let Odoo
    choose**, Impodo saves that decision and immediately checks the current
    matches.
-5. Configure text, number, date, and selection-value preparation where needed.
-6. Resolve linked fields using a stable key in another project table or
+6. Configure text, number, date, and selection-value preparation where needed.
+7. Resolve linked fields using a stable key in another project table or
    approved existing Odoo data.
-7. Select **Save progress** before leaving the page. When shown, use **Next
+8. Select **Save progress** before leaving the page. When shown, use **Next
    recommended table** to continue through the queue.
    If an advanced formula is malformed, Impodo shows **Must fix** beside the
    field. Saving still preserves the formula and reports **Saved — needs
    attention**.
-8. Correct every displayed formula issue, then select **Check matches**. Use
+9. Correct every displayed formula issue, then select **Check matches**. Use
    **Go to issue** when the affected field is outside the current field page.
-9. Select **Create matching review workbook** when you want to review the
+10. If a rows-to-use rule excludes anything, review the included and excluded
+    rows, then select **Confirm N rows to use**. A row that could not be checked
+    or a rule that includes zero rows must be corrected and checked again.
+11. Select **Create matching review workbook** when you want to review the
    checked matches in Excel. You can create it when the check passes or when
    it finds errors.
-10. Select **Download matching review workbook** after Impodo creates it.
-11. Optionally select **Review rule effects** when you want to inspect changed
+12. Select **Download matching review workbook** after Impodo creates it.
+13. Optionally select **Review rule effects** when you want to inspect changed
    values before confirmation.
-12. Select **Confirm field matches** for the exact checked revision. You can
+14. Select **Confirm field matches** for the exact checked revision. You can
     continue without the optional rule-effects preview.
+
+### Choose which source rows belong to the migration
+
+**Rows to use** appears before record identity and field matches for each
+table. **Use every row** is the default and preserves the behavior of existing
+mappings. Select **Use only rows that match** when the accepted file contains a
+larger population than this migration needs.
+
+For example, choose **Code statut product**, **is exactly**, `30`, and compare
+as **Text**. Text is safest for business status codes because `030` remains
+different from `30`. A blank or any other value is excluded by this rule; the
+accepted Data version and original file remain unchanged.
+
+Add up to eight conditions. With two or more conditions, choose whether
+**all** or **any** must match. The builder accepts guided comparisons only; it
+does not accept a formula, regular expression, SQL, or code.
+
+Select **Save progress**, then **Check matches**. The checked result reports
+**Rows checked**, **Included**, **Excluded by rule**, and **Could not be
+checked**. Select **Review rows** to filter the complete decision set by table,
+decision, or relevant source value. This review is read-only: filtering the
+page never changes the saved rule or its decisions.
+
+When at least one row is excluded, select **Confirm N rows to use** before
+confirming the field matches. The confirmation belongs only to the exact
+checked mapping and Data version. Editing the rule, checking a different
+mapping revision, or changing the current source evidence requires a fresh
+check and confirmation. If no row is included, or a typed value cannot be
+read safely, Impodo blocks confirmation instead of treating the result as an
+ordinary exclusion.
 
 When installed Odoo applications add required fields, Impodo checks the
 current create defaults for supported required writable fields in one bounded
@@ -206,7 +241,42 @@ frozen source. The advanced formula control is unavailable for this provider,
 but the normal text cleanup and final checks still run after the values are
 combined.
 
+**Combine source columns** produces one scalar Odoo text value. It does not
+create a generated-table identity or a relationship key. To create related
+records from separate hierarchy fields, first use **Several fields form a
+hierarchy** in Stage 1. This stage then suggests the generated table for its
+compatible self-parent relationship and for the consumer model's compatible
+many2one. Both relationships use complete generated path keys rather than a
+combined label or final record name.
+
 ![Current combined-source-column controls for a fictional Contact text field.](../../images/user/11e-mapping-combined-columns.png)
+
+### Match a generated hierarchy and its original table
+
+When Stage 1 creates a hierarchy from separate source fields, match the
+generated table before the original table that uses it.
+
+For the generated table, use its complete-path **matching key** as **Unique row
+identifier** and choose the scoped Odoo matching rule, such as **Name within
+Parent Category**. Map the generated display name to **Name**. For the parent
+relationship, select the generated parent-path key, choose **Only another
+incoming table**, and select the generated table marked **(this generated
+table)**. This is a self-reference: each non-root row points to another row in
+the generated hierarchy, not to the original consumer table.
+
+![A generated Product Category table uses itself as the incoming table for its parent relationship.](../../images/user/10b-hierarchy-parent-mapping.png)
+
+For the original table's compatible linked field, select **A value from the
+source**, choose the generated complete-path column, choose **Only another
+incoming table**, and select the generated hierarchy table. Use the same
+scoped related-record matching rule.
+
+![A fictional Product table resolves its Product Category through the generated hierarchy table.](../../images/user/12a-hierarchy-product-link.png)
+
+The complete path prevents same-named children below different parents from
+merging. Select **Save progress**, then **Check matches** before confirmation.
+For the Stage 1 setup, blank-level decisions, and a complete click-by-click
+example, see [Create hierarchical records from separate source columns](../tutorials/match-data-questions-and-answers.md#how-do-i-create-hierarchical-records-from-separate-source-columns).
 
 ### Use one existing Odoo record for every row
 

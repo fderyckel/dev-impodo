@@ -54,7 +54,11 @@
                 {% else %}
                   {% if row.recommended_dataset_id and not mapping %}
                     <div class="notice success">
-                      {% if row.recommendation_kind == 'extracted_lookup' %}
+                      {% if row.recommendation_kind == 'hierarchy_parent' %}
+                        Suggested from the parent path created with this hierarchy. Review the choices below; Impodo will create or resolve each parent before its child.
+                      {% elif row.recommendation_kind == 'hierarchical_lookup' %}
+                        Suggested from the complete hierarchy path created in Source data. Review the choices below; Impodo will use the generated hierarchy table instead of matching by the final record name alone.
+                      {% elif row.recommendation_kind == 'extracted_lookup' %}
                         Suggested from the separate list created from this source field. Review the choices below; Impodo will match each value against that related source table.
                       {% else %}
                         Suggested from the combined-information step. Review the choices below; Impodo will stop if a main record is missing or unclear.
@@ -139,7 +143,7 @@
                     </label>
                     <label>
                       Where should Impodo find the matching choice?
-                      {% set selected_origin = mapping.resolver.origin.value if mapping else ('target_then_dataset' if row.recommended_dataset_id else 'target_catalog') %}
+                      {% set selected_origin = mapping.resolver.origin.value if mapping else (row.recommended_origin if row.recommended_dataset_id else 'target_catalog') %}
                       <select name="relation_origin_{{ dataset_index }}_{{ relation_index }}">
                         <option value="target_catalog" {% if selected_origin == 'target_catalog' %}selected{% endif %}>Only existing Odoo records</option>
                         <option value="dataset" {% if selected_origin == 'dataset' %}selected{% endif %}>Only another incoming table</option>
@@ -154,7 +158,7 @@
                         {% for candidate in view.other_datasets %}
                           {% set selected_dataset_id = mapping.resolver.dataset_id if mapping else row.recommended_dataset_id %}
                           <option value="{{ candidate.dataset_id }}" {% if selected_dataset_id == candidate.dataset_id %}selected{% endif %}>
-                            {{ candidate.name }}
+                            {{ candidate.name }}{% if candidate.dataset_id == view.source.dataset_id %} (this generated table){% endif %}
                           </option>
                         {% endfor %}
                       </select>

@@ -8,9 +8,10 @@ status: current
 
 ## Responsibility
 
-Prepare data compiles the submitted mapping, transforms every frozen row,
-publishes canonical staging and quality evidence, resolves ambiguous source
-entities, and freezes required normalization decisions.
+Prepare data compiles the submitted mapping and evaluates every frozen row.
+It transforms the rows admitted by the mapping, publishes canonical staging
+and quality evidence, resolves ambiguous source entities, and freezes required
+normalization decisions.
 
 It is target-independent and must not contact Odoo.
 
@@ -55,6 +56,8 @@ the frozen source.
 | Quality publication | [`QualityService`](../../../src/impodo/application/workspace/preparation/quality_service.py) |
 | Entity resolution | [`ResolutionService`](../../../src/impodo/application/workspace/preparation/resolution_service.py) |
 | Normalization decisions | [`NormalizationService`](../../../src/impodo/application/workspace/preparation/normalization_service.py) |
+| Canonical hierarchy materialization | [`evaluate_browser_mapping`](../../../src/impodo/domain/staging/evaluator.py) |
+| Canonical row-inclusion decision | [`canonical_row_from_inclusion_decision`](../../../src/impodo/domain/preparation/staging_contracts.py) |
 
 ## Evidence and state
 
@@ -62,6 +65,13 @@ Prepared evidence includes the compiled plan hash, complete canonical rows,
 source-to-canonical lineage, control totals, quality findings, quarantine,
 resolution state, normalization decisions, and preparation-session status.
 Publication is project-scoped and hash-bound.
+
+A version-16 `matching_rows` policy runs before target-oriented preparation.
+The bounded materialized and durable paths publish the same lineage-only
+`EXCLUDED` or `BLOCKED` decisions while passing only included records to later
+work. The columnar capability compiler currently routes this policy to the
+bounded evaluator with `COLUMNAR_ROW_INCLUSION_UNSUPPORTED`; it does not
+silently run an unverified native interpretation.
 
 When an incoming record supplies part of a dependent row's target identity,
 `evaluate_quality` treats the parent and its dependent rows as one update
@@ -130,6 +140,8 @@ lineage parity before being called an optimization.
 - [`tests/domain/preparation/test_normalization.py`](../../../tests/domain/preparation/test_normalization.py)
 - [`tests/performance/test_preparation_scale.py`](../../../tests/performance/test_preparation_scale.py)
 - [`tests/integration/web/test_preparation_workflow.py`](../../../tests/integration/web/test_preparation_workflow.py)
+- [`tests/application/workspace/preparation/test_readiness.py`](../../../tests/application/workspace/preparation/test_readiness.py)
+- [`tests/integration/artifacts/test_source_snapshot_io.py`](../../../tests/integration/artifacts/test_source_snapshot_io.py)
 
 Verify atomic rollback, cancellation, retry, bounded memory, complete
 accounting, deterministic hashes, lineage, progress rendering under real

@@ -101,10 +101,14 @@ from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.supporting_lookup_service import SupportingLookupService
 from ..application.run.target_matches import RecipeTargetMatchService
+from ..application.run.recipe_run_jobs import RecipeRunJobManager
 from ..application.workspace.preparation.recovery import PreparationRecoveryService
 from ..adapters.duckdb.preparation_recovery_repository import PreparationRecoveryRepository
 from ..application.workspace.mapping.transformation_impact import (
     TransformationImpactService,
+)
+from ..application.workspace.mapping.row_inclusion_review import (
+    RowInclusionReviewService,
 )
 from ..application.workspace.mapping.order_service import MatchingOrderService
 from impodo.application.shared.artifacts import GovernedArtifactStores
@@ -161,6 +165,9 @@ from ..adapters.duckdb.preparation_session_repository import (
 from ..adapters.duckdb.advanced_coverage_repository import AdvancedCoverageRepository
 from ..adapters.duckdb.transformation_impact_repository import (
     TransformationImpactRepository,
+)
+from ..adapters.duckdb.row_inclusion_review_repository import (
+    RowInclusionReviewRepository,
 )
 from ..adapters.polars_transformation import PolarsTransformationAdapter
 from ..adapters.correction_review_pipeline import NativeCorrectionReviewPipeline
@@ -313,6 +320,7 @@ def create_local_app(
     local_odoo_reader: LocalOdooMetadataReader | None = None,
     preparation_jobs_enabled: bool = True,
     odoo_capture_jobs_enabled: bool = True,
+    recipe_run_jobs_enabled: bool = True,
     load_jobs_enabled: bool = True,
     duckdb_lock_wait_timeout_seconds: float = (
         DEFAULT_BROWSER_DATABASE_LOCK_WAIT_SECONDS
@@ -420,6 +428,7 @@ def create_local_app(
     execution_repository = ExecutionRepository(database)
     reconciliation_repository = ReconciliationRepository(database)
     transformation_impact_repository = TransformationImpactRepository(database)
+    row_inclusion_review_repository = RowInclusionReviewRepository(database)
     protected_runs = build_protected_run_capability(
         project_root,
         foundation_repository=foundation_repository,
@@ -557,6 +566,7 @@ def create_local_app(
         supporting_lookups=supporting_lookup_repository,
         downstream_invalidator=correction_repository,
         recipe_applications=recipe_application_state,
+        row_inclusion_confirmations=row_inclusion_review_repository,
     )
     matching_order = MatchingOrderService(
         matching_order_repository,
@@ -736,6 +746,7 @@ def create_local_app(
         if odoo_capture_jobs_enabled
         else None
     )
+    recipe_run_jobs = RecipeRunJobManager() if recipe_run_jobs_enabled else None
     load_jobs = LoadJobManager() if load_jobs_enabled else None
     resolved_connection_tester = connection_tester or _test_connection
     resolved_read_identity_probe = read_identity_probe or _probe_read_identity
@@ -939,6 +950,20 @@ def create_local_app(
         resolved_destination_match_reader = injected_destination_match_reader
 
     supporting_lookups = SupportingLookupService(supporting_lookup_repository, workspace_access)
+    transformation_impacts = TransformationImpactService(
+        workspace_state_repository,
+        mapping_repository,
+        source_repository,
+        derived_entity_repository,
+        transformation_impact_repository,
+        artifacts,
+        workspace_access,
+    )
+    row_inclusion_reviews = RowInclusionReviewService(
+        transformation_impacts,
+        row_inclusion_review_repository,
+        workspace_access,
+    )
     context = WebContext(
         queries=BrowserQueryService(
             workspace_state_repository,
@@ -1002,6 +1027,7 @@ def create_local_app(
         recipe_target_matches=RecipeTargetMatchService(
             mapping_workspace, run_planning, supporting_lookups,
         ),
+        recipe_run_jobs=recipe_run_jobs,
         categorical_coverage=categorical_coverage,
         preparation=preparation,
         preparation_recovery=PreparationRecoveryService(
@@ -1018,15 +1044,8 @@ def create_local_app(
         reconciliation=reconciliation,
         corrections=corrections,
         correction_jobs=correction_jobs,
-        transformation_impacts=TransformationImpactService(
-            workspace_state_repository,
-            mapping_repository,
-            source_repository,
-            derived_entity_repository,
-            transformation_impact_repository,
-            artifacts,
-            workspace_access,
-        ),
+        transformation_impacts=transformation_impacts,
+        row_inclusion_reviews=row_inclusion_reviews,
         odoo_source_capture=odoo_source_capture,
         odoo_capture_publication=odoo_capture_publication,
         odoo_capture_jobs=odoo_capture_jobs,
@@ -1106,6 +1125,8 @@ def create_local_app(
                     context.preparation_jobs.shutdown()
                 if context.odoo_capture_jobs is not None:
                     context.odoo_capture_jobs.shutdown()
+                if context.recipe_run_jobs is not None:
+                    context.recipe_run_jobs.shutdown()
                 if context.load_jobs is not None:
                     context.load_jobs.shutdown()
                 context.correction_jobs.shutdown()

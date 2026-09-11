@@ -5,10 +5,20 @@ from __future__ import annotations
 from io import BytesIO
 from openpyxl import load_workbook
 from time import sleep
+from types import SimpleNamespace
+from uuid import uuid4
 
 from impodo.domain.mapping.contracts import (
     RelationshipValueSource,
     UnsupportedMappingContractError,
+)
+from impodo.domain.mapping.row_inclusion_review import (
+    RowInclusionDatasetReview,
+    RowInclusionReviewIdentity,
+    RowInclusionReviewOutcome,
+    RowInclusionReviewReport,
+    RowInclusionReviewRow,
+    RowInclusionSourceValue,
 )
 from impodo.web.target_credentials import (
     TargetCredentialRole,
@@ -48,6 +58,165 @@ from tests.support.browser_scenarios import (
 
 
 class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
+    def test_rows_to_use_are_checked_reviewed_and_confirmed_exactly(self) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=0,
+        )
+        context = self.app.state.context
+        source_identity, source_value = dataset.columns
+        condition_id = str(uuid4())
+        entries = [
+            ["csrf_token", self.csrf],
+            ["action", "draft"],
+            ["expected_parent_version", ""],
+            ["expected_working_draft_version", ""],
+            ["editable_dataset_id", dataset.dataset_id],
+            ["target_model_0", "res.partner"],
+            ["mode_0", "upsert"],
+            ["on_existing_0", "block"],
+            ["source_identity_0", source_identity.stable_key],
+            ["business_key_0", business_key.key_id],
+            ["identity_source_0_0", source_identity.stable_key],
+            ["row_inclusion_mode_0", "matching_rows"],
+            ["row_inclusion_join_0", "all"],
+            ["row_inclusion_condition_id_0_0", condition_id],
+            ["row_inclusion_source_0_0", source_value.stable_key],
+            ["row_inclusion_operator_0_0", "equals"],
+            ["row_inclusion_value_0_0", "Example"],
+            ["row_inclusion_type_0_0", "string"],
+        ]
+
+        def checked_rows(*args, **_kwargs):
+            definition = args[1]
+            physical_selection = args[2]
+            effective_selection = args[3]
+            plan = args[4]
+            sentence = "Include a row when Value is exactly Example."
+            report = RowInclusionReviewReport(
+                identity=RowInclusionReviewIdentity(
+                    physical_selection_hash=physical_selection.content_hash,
+                    source_selection_hash=effective_selection.content_hash,
+                    mapping_content_hash=definition.content_hash,
+                    schema_hash=definition.schema_hash,
+                    derived_plan_hash=(
+                        plan.content_hash if plan is not None else None
+                    ),
+                ),
+                datasets=(
+                    RowInclusionDatasetReview(
+                        dataset.dataset_id,
+                        dataset.name,
+                        2,
+                        1,
+                        1,
+                        0,
+                        sentence,
+                    ),
+                ),
+                rows=(
+                    RowInclusionReviewRow(
+                        dataset.dataset_id,
+                        dataset.name,
+                        1,
+                        (
+                            RowInclusionSourceValue(
+                                source_value.stable_key,
+                                source_value.source_name,
+                                "Example",
+                            ),
+                        ),
+                        RowInclusionReviewOutcome.INCLUDED,
+                        sentence,
+                    ),
+                    RowInclusionReviewRow(
+                        dataset.dataset_id,
+                        dataset.name,
+                        2,
+                        (
+                            RowInclusionSourceValue(
+                                source_value.stable_key,
+                                source_value.source_name,
+                                "Ignore",
+                            ),
+                        ),
+                        RowInclusionReviewOutcome.EXCLUDED,
+                        sentence,
+                    ),
+                ),
+            )
+            return SimpleNamespace(row_inclusion_review=report)
+
+        with patch(
+            "impodo.application.workspace.mapping.row_inclusion_review."
+            "stage_browser_mapping",
+            side_effect=checked_rows,
+        ):
+            checked = self.client.post(
+                f"/workspaces/{workspace_id}/mapping/save",
+                json={"entries": entries},
+                headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+            )
+
+        self.assertEqual(checked.status_code, 200, checked.text)
+        self.assertIn("Review and confirm 1 rows to use", checked.json()["message"])
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("Rows to use", page.text)
+        self.assertIn("1 included, 1 excluded", page.text)
+        self.assertIn("Confirm 1 rows to use", page.text)
+
+        review = self.client.get(
+            f"/workspaces/{workspace_id}/mapping/rows-to-use?outcome=excluded"
+        )
+        self.assertEqual(review.status_code, 200, review.text)
+        self.assertIn("Ignore", review.text)
+        self.assertIn("Excluded by rule", review.text)
+
+        revision = context.queries.get_mapping_revision(workspace_id)
+        working = context.queries.get_mapping_working_draft(workspace_id)
+        self.assertIsNotNone(revision)
+        self.assertIsNotNone(working)
+        current_entries = [
+            [
+                name,
+                (
+                    "submit"
+                    if name == "action"
+                    else (
+                        str(revision.version)
+                        if name == "expected_parent_version"
+                        else (
+                            str(working.version)
+                            if name == "expected_working_draft_version"
+                            else value
+                        )
+                    )
+                ),
+            ]
+            for name, value in entries
+        ]
+        blocked = self.client.post(
+            f"/workspaces/{workspace_id}/mapping/save",
+            json={"entries": current_entries},
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+        self.assertEqual(blocked.status_code, 422, blocked.text)
+        self.assertIn("Check and confirm", blocked.json()["detail"])
+
+        confirm_entries = [
+            [name, "confirm_rows" if name == "action" else value]
+            for name, value in current_entries
+        ]
+        confirmed = self.client.post(
+            f"/workspaces/{workspace_id}/mapping/save",
+            json={"entries": confirm_entries},
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json()["message"], "Rows to use confirmed.")
+        confirmed_page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        self.assertIn("1 rows confirmed", confirmed_page.text)
+
     def test_stage_two_sidebar_keeps_connection_credentials_accessible(self) -> None:
         workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=1,
@@ -117,7 +286,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         self.assertEqual(page.status_code, 200, page.text)
         self.assertIn("created with mapping contract v12", page.text)
-        self.assertIn("create a v15 successor revision", page.text)
+        self.assertIn("create a v16 successor revision", page.text)
 
     def test_unsupported_mapping_has_controlled_stage_and_project_pages(self) -> None:
         workspace_id, _dataset, _business_key = self._mapping_ready_workspace(

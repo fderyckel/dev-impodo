@@ -85,6 +85,101 @@ labels can differ, but their business meaning must be the same.
 🔴 A missing or duplicate incoming order blocks the affected line. Impodo does
 not attach the line to a similar order and does not load it as an orphan.
 
+## How do I create hierarchical records from separate source columns?
+
+Use **Several fields form a hierarchy** when separate source columns contain
+ordered parent and child names. This is a generic related-record feature. It can
+prepare Product Categories, departments, locations, analytic accounts, or
+another Odoo record type with a compatible parent relationship.
+
+For the Product example, `Groupe de modèles d'article` is Level 1 and `code2`
+is Level 2. The screenshots use the fictional equivalents `Product family` and
+`Model code` so no operational data appears in the documentation.
+
+| Source values | Recommended decision | Resulting relationship |
+| --- | --- | --- |
+| Level 1 = `Finished goods`; Level 2 = `Model 100` | Keep both levels. | `Finished goods / Model 100` |
+| Level 1 is blank; Level 2 = `Model 200` | **Use a fixed parent value** = `Default`. | `Default / Model 200` |
+| Level 1 = `Components`; Level 2 is blank | **Use the deepest populated level**. | `Components` |
+| Both levels are blank | **Leave the related value blank**. | No Product Category relationship |
+
+`Default` is a real generated parent record. It is not an Odoo field default.
+
+### Stage 1: create the hierarchy table
+
+1. Open **Source data**, then **Separate combined information**.
+2. Under **What does your source contain?**, select **Several fields form a
+   hierarchy**.
+3. Select the original source table, such as `plw_products`.
+4. Set **Hierarchy level 1** to `Groupe de modèles d'article` and **Hierarchy
+   level 2** to `code2`. Keep the levels in parent-to-child order.
+5. Enter a clear **Name shown in Impodo**, such as `product_categories`, and
+   choose the intended **Type of Odoo record**, such as **Product Category**.
+6. For the example above, choose **Use a fixed parent value**, enter `Default`,
+   choose **Use the deepest populated level** for a blank final level, and
+   choose **Leave the related value blank** when every selected level is blank.
+
+![A fictional two-level hierarchy is configured with a fixed Default parent and a deepest-populated-level fallback.](../../images/user/06a-hierarchy-setup.png)
+
+🔵 The first selected field is the parent. Changing the field order changes the
+record hierarchy.
+
+7. Select **Preview hierarchy records**. Review **Related record**, **Complete
+   path key**, **Parent record**, and the sampled source rows.
+8. When the preview represents the intended business records, select **Create
+   this hierarchy table**.
+
+![The hierarchy preview keeps the display name, complete path identity, and parent path separate.](../../images/user/06b-hierarchy-preview.png)
+
+🟡 The complete path owns the generated identity. This keeps a child called
+`Accessories` below `Furniture` separate from another `Accessories` below
+`Computers`.
+
+### Stage 3: match the generated hierarchy table
+
+Open the generated `product_categories` table before the original Product
+table. For the generated table:
+
+1. Choose **Product Category** under **Send these rows to** and keep the
+   intended create or update outcome.
+2. Under **Unique row identifier**, select only the generated **matching key**,
+   such as `Product family → Model code matching key`.
+3. Under **Matching rule**, choose **Name within Parent Category**.
+4. Map **Name** to the generated name column, such as `Product family → Model
+   code`.
+5. For **Parent Category**, select the generated parent-path key, such as
+   `Parent Product family → Model code key`.
+6. Choose **Only another incoming table** and select `product_categories (this
+   generated table)` under **Which related source table?**.
+7. Keep **Name within Parent Category** as the related-record matching rule.
+
+![The generated Product Category table uses its complete path as identity and itself as the source of parent records.](../../images/user/10b-hierarchy-parent-mapping.png)
+
+🔴 Do not select the original `plw_products` table for **Parent Category**. A
+generated category's parent is another row in the same generated hierarchy
+table.
+
+### Stage 3: connect the original rows to the hierarchy
+
+Open the original `plw_products` table and find its **Product Category** linked
+field:
+
+1. Under **Fill this linked field using**, select **A value from the source**.
+2. Select the generated complete-path column, such as **Selected
+   product_categories path**.
+3. Under **Where should Impodo find the related record?**, choose **Only another
+   incoming table**.
+4. Under **Which related source table?**, choose `product_categories`.
+5. Keep **Name within Parent Category** as the related-record matching rule and
+   keep the exact generated key interpretation offered by Impodo.
+
+![The original Product table resolves its Product Category path through the generated product_categories table.](../../images/user/12a-hierarchy-product-link.png)
+
+Select **Save progress**, then **Check matches**. Review missing and ambiguous
+relationships before selecting **Confirm field matches**. Impodo uses the saved
+relationships to schedule parent categories before their children and before
+the Product rows that use them.
+
 ## How can I fill a normal Odoo field?
 
 For each field, use the menu in **Use value from**. The available choices are:
@@ -391,6 +486,7 @@ confirmation no longer describe the current rule.
 | More than one Odoo record matches | Stop or send it to review. Never select the first result. |
 | A relationship differs only by case | Treat it as a review case; match it explicitly only after approval. |
 | A child matching rule uses an incoming parent | Select the parent table and align the child reference values with that table's **Unique row identifier** in the same order. |
+| A generated hierarchy's parent points to the original source table | Choose the generated table marked **(this generated table)**; the parent-path key identifies another generated row. |
 | Two conditional rules both match | Reorder them deliberately and inspect **Review rule effects**. |
 | An advanced formula shows **Must fix** | Follow the correction beside the formula. Saving preserves the draft, but correct the issue before **Check matches**. |
 | A required field has no source value | Map it, use a verified Odoo default, or use an Odoo-managed disposition only when Impodo offers it. |
@@ -405,6 +501,8 @@ confirmation no longer describe the current rule.
 - [ ] Every required field has a deliberate source, fixed value, verified Odoo
   default, or Odoo-managed decision.
 - [ ] Each choice and relationship is exact or explicitly matched.
+- [ ] A generated hierarchy uses its complete path as identity, and its parent
+  path resolves through the same generated table.
 - [ ] Missing, ambiguous, blank, and case-different values have the intended
   outcome.
 - [ ] Any calculation, cleanup, total, or business check has been reviewed.

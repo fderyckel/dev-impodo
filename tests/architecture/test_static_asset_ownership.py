@@ -97,6 +97,7 @@ class StaticAssetOwnershipTests(unittest.TestCase):
             "workspace_odoo_capture_progress.html": ("/job-polling.js",),
             "workspace_load_progress.html": ("/job-polling.js",),
             "project_integrated_run.html": ("/job-polling.js",),
+            "project_recipe_run_progress.html": ("/job-polling.js",),
         }
 
         for relative_template, assets in expected_assets.items():

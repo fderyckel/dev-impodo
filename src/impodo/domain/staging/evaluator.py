@@ -18,15 +18,20 @@ from impodo.domain.workspace.derived_entities import (
     DerivedDatasetLink,
     DerivedEntityPlan,
     DerivedEntityRule,
+    HierarchicalLookupRule,
+    LookupRule,
     RelatedDatasetRule,
     _display_path,
     _normalized_path,
     derived_dataset_links,
+    evaluate_hierarchy_path,
 )
 from ..mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
+    RowInclusionMode,
+    RowInclusionPolicy,
     ScalarFieldMapping,
     ResolverOrigin,
     ScalarValueSource,
@@ -39,6 +44,17 @@ from ..mapping.scalar_values import (
     ScalarValueRuleError,
     evaluate_scalar_mapping_value,
 )
+from ..mapping.row_inclusion import row_is_included
+from ..mapping.row_inclusion_review import (
+    RowInclusionDatasetReview,
+    RowInclusionReviewIdentity,
+    RowInclusionReviewOutcome,
+    RowInclusionReviewReport,
+    RowInclusionReviewRow,
+    RowInclusionSourceValue,
+    describe_row_inclusion_policy,
+)
+from ..mapping.source_conditions import SourceConditionValueError
 from ..mapping.descriptions import transformation_rule_summary
 from impodo.domain.shared.models import (
     InvalidPreparedValue,
@@ -53,8 +69,11 @@ from impodo.domain.preparation.source import (
     prepare_source_tables,
 )
 from impodo.domain.preparation.staging_contracts import (
+    CanonicalRow,
     CanonicalStagingRun,
+    StagingDisposition,
     StagingDatasetRole,
+    canonical_row_from_inclusion_decision,
 )
 from impodo.domain.workspace.contracts import (
     SourceDataset,
@@ -106,6 +125,7 @@ class StagedBrowserMapping:
     source_field_labels: Mapping[tuple[str, str], str]
     physical_rows: Mapping[str, tuple[int, ...]]
     transformation_impact: TransformationImpactReport | None = None
+    row_inclusion_review: RowInclusionReviewReport | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +164,7 @@ class _RelationshipFieldPlan:
 class _DatasetEvaluationPlan:
     dataset_id: str
     dataset_name: str
+    row_inclusion: RowInclusionPolicy
     ordinal_columns: tuple[tuple[int, str], ...]
     identities: tuple[_IdentityImpactPlan, ...]
     relationship_fields: tuple[_RelationshipFieldPlan, ...]
@@ -153,7 +174,7 @@ class _DatasetEvaluationPlan:
 
 @dataclass(frozen=True, slots=True)
 class _DerivedReferencePlan:
-    rule: DerivedEntityRule
+    rule: LookupRule
     source_column_key: str
     prepared_column_key: str
     target_field: str
@@ -167,6 +188,24 @@ class ProjectedBrowserRow:
     source_values: Mapping[str, object]
     values: dict[str, object]
     parent_key: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _RowInclusionDecision:
+    """One row that stops before target-oriented transformation."""
+
+    source_row: int
+    outcome: RowInclusionReviewOutcome
+    values: tuple[RowInclusionSourceValue, ...]
+    issues: tuple[Issue, ...] = ()
+
+    @property
+    def disposition(self) -> StagingDisposition | None:
+        if self.outcome is RowInclusionReviewOutcome.EXCLUDED:
+            return StagingDisposition.EXCLUDED
+        if self.outcome is RowInclusionReviewOutcome.CANNOT_EVALUATE:
+            return StagingDisposition.BLOCKED
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,7 +233,11 @@ class CompiledBrowserRowTransformer:
         """Select stable columns and normalize governed related-row keys."""
 
         source_values = {
-            stable_key: row.values.get(self.source_name_by_key[stable_key])
+            stable_key: (
+                row.values.get(self.source_name_by_key[stable_key])
+                if stable_key in self.source_name_by_key
+                else None
+            )
             for stable_key in self.effective_column_keys
         }
         values = dict(source_values)
@@ -265,6 +308,14 @@ class CompiledBrowserRowTransformer:
         return (
             SourceRow(number=projected.number, values=projected.values),
             issues,
+        )
+
+    def includes(self, projected: ProjectedBrowserRow) -> bool:
+        """Evaluate dataset admission before any target-oriented work."""
+
+        return row_is_included(
+            self.evaluation_plan.row_inclusion,
+            projected.source_values,
         )
 
 
@@ -339,7 +390,7 @@ def evaluate_browser_mapping(
     lookup_rules = tuple(
         item
         for item in (plan.rules if plan else ())
-        if isinstance(item, DerivedEntityRule)
+        if isinstance(item, (DerivedEntityRule, HierarchicalLookupRule))
     )
     lookup_by_dataset_id = {
         link.derived_dataset_id: (rule, link)
@@ -363,7 +414,7 @@ def evaluate_browser_mapping(
                     impact_collector.register_rule(rule)
     lookup_by_consumer: dict[
         str,
-        list[tuple[DerivedEntityRule, DerivedDatasetLink]],
+        list[tuple[LookupRule, DerivedDatasetLink]],
     ] = {}
     for link, rule in zip(lookup_links, lookup_rules, strict=True):
         lookup_by_consumer.setdefault(link.consumer_dataset_id, []).append(
@@ -401,6 +452,9 @@ def evaluate_browser_mapping(
     )
     staged_tables: list[SourceTable] = []
     preparation_issues: list[Issue] = []
+    row_inclusion_decisions: list[
+        tuple[SourceDataset, DatasetMapping, _RowInclusionDecision]
+    ] = []
     source_labels: dict[tuple[str, str], str] = {}
     source_lineage: dict[
         tuple[str, int],
@@ -438,7 +492,7 @@ def evaluate_browser_mapping(
         if physical is None:
             raise ReadinessError("Prepared dataset no longer has a source")
         if structural is not None:
-            staged, issues, _ = _stage_table(
+            staged, issues, _, decisions = _stage_table(
                 effective,
                 physical,
                 mapping,
@@ -451,7 +505,7 @@ def evaluate_browser_mapping(
             )
             row_lineage = structural.lineage
         elif lookup is not None:
-            staged, issues, row_lineage = _stage_derived_table(
+            staged, issues, row_lineage, decisions = _stage_derived_table(
                 effective,
                 physical,
                 mapping,
@@ -462,7 +516,7 @@ def evaluate_browser_mapping(
                 reference_indexes=reference_indexes,
             )
         else:
-            staged, issues, row_lineage = _stage_table(
+            staged, issues, row_lineage, decisions = _stage_table(
                 effective,
                 physical,
                 mapping,
@@ -475,6 +529,24 @@ def evaluate_browser_mapping(
             )
         staged_tables.append(staged)
         preparation_issues.extend(issues)
+        if (
+            mapping.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
+            and not staged.rows
+        ):
+            preparation_issues.append(
+                Issue(
+                    code="ROW_INCLUSION_ZERO_INCLUDED",
+                    message=(
+                        "The row-inclusion rule did not include any rows. "
+                        "Review the rule before continuing."
+                    ),
+                    severity=Severity.ERROR,
+                    dataset=effective.name,
+                )
+            )
+        row_inclusion_decisions.extend(
+            (effective, mapping, decision) for decision in decisions
+        )
         if structural is not None:
             source_lineage.update(
                 {
@@ -562,6 +634,28 @@ def evaluate_browser_mapping(
             prepared,
             preparation_issues,
         )
+    decision_rows = tuple(
+        _canonical_row_inclusion_decision(
+            effective=effective,
+            mapping=mapping,
+            decision=decision,
+            lineage=source_lineage[(effective.name, decision.source_row)],
+            source_hash=prepared.source_hashes[effective.name],
+            source_selection_hash=effective_selection.content_hash,
+            mapping_hash=definition.content_hash,
+            schema_hash=definition.schema_hash,
+            derived_plan_hash=(plan.content_hash if plan is not None else None),
+        )
+        for effective, mapping, decision in row_inclusion_decisions
+        if decision.disposition is not None
+    )
+    row_inclusion_review = _row_inclusion_review_report(
+        definition=definition,
+        physical_selection=physical_selection,
+        effective_selection=effective_selection,
+        plan=plan,
+        decisions=row_inclusion_decisions,
+    )
     canonical_run = CanonicalStagingRun.from_prepared(
         workspace_id=workspace_id,
         mapping_id=definition.mapping_id,
@@ -580,6 +674,7 @@ def evaluate_browser_mapping(
             effective_selection,
             prepared,
         ),
+        additional_rows=decision_rows,
     )
     return StagedBrowserMapping(
         plan=compiled_plan,
@@ -597,6 +692,171 @@ def evaluate_browser_mapping(
         transformation_impact=(
             impact_collector.report() if impact_collector is not None else None
         ),
+        row_inclusion_review=row_inclusion_review,
+    )
+
+
+def _canonical_row_inclusion_decision(
+    *,
+    effective: SourceDataset,
+    mapping: DatasetMapping,
+    decision: _RowInclusionDecision,
+    lineage: tuple[str, tuple[int, ...]] | Mapping[str, tuple[int, ...]],
+    source_hash: str,
+    source_selection_hash: str,
+    mapping_hash: str,
+    schema_hash: str,
+    derived_plan_hash: str | None,
+) -> CanonicalRow:
+    """Bind one early row decision to its complete physical lineage."""
+
+    if isinstance(lineage, Mapping):
+        physical_sources = {
+            dataset_id: tuple(rows)
+            for dataset_id, rows in sorted(lineage.items())
+        }
+        physical_dataset_id = next(iter(physical_sources))
+        physical_source_rows = physical_sources[physical_dataset_id]
+    else:
+        physical_dataset_id, physical_source_rows = lineage
+        physical_sources = {physical_dataset_id: physical_source_rows}
+    disposition = decision.disposition
+    if disposition is None:
+        raise ValueError("Included rows do not create early canonical decisions")
+    return canonical_row_from_inclusion_decision(
+        dataset=effective.name,
+        source_row=decision.source_row,
+        target_model=mapping.target_model,
+        disposition=disposition,
+        issues=decision.issues,
+        source_hash=source_hash,
+        source_selection_hash=source_selection_hash,
+        mapping_hash=mapping_hash,
+        schema_hash=schema_hash,
+        derived_plan_hash=derived_plan_hash,
+        source_column_keys=tuple(
+            condition.source_column_key
+            for condition in mapping.row_inclusion.conditions
+        ),
+        physical_dataset_id=physical_dataset_id,
+        physical_source_rows=physical_source_rows,
+        physical_sources=physical_sources,
+    )
+
+
+def _row_inclusion_review_values(
+    effective: SourceDataset,
+    mapping: DatasetMapping,
+    source_values: Mapping[str, object],
+) -> tuple[RowInclusionSourceValue, ...]:
+    """Project only the source values that explain the admission decision."""
+
+    labels = {item.stable_key: item.source_name for item in effective.columns}
+    return tuple(
+        RowInclusionSourceValue(
+            source_column_key=condition.source_column_key,
+            source_column_label=labels.get(
+                condition.source_column_key,
+                condition.source_column_key,
+            ),
+            value=_display_value(source_values.get(condition.source_column_key)),
+        )
+        for condition in mapping.row_inclusion.conditions
+    )
+
+
+def _row_inclusion_review_report(
+    *,
+    definition: MappingDefinition,
+    physical_selection: SourceSelection,
+    effective_selection: SourceSelection,
+    plan: DerivedEntityPlan | None,
+    decisions: list[tuple[SourceDataset, DatasetMapping, _RowInclusionDecision]],
+) -> RowInclusionReviewReport | None:
+    """Build exact checked counts and bounded review rows for matching policies."""
+
+    matching = {
+        mapping.dataset_id: mapping
+        for mapping in definition.datasets
+        if mapping.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
+    }
+    if not matching:
+        return None
+    decisions_by_dataset: dict[str, list[_RowInclusionDecision]] = {
+        dataset_id: [] for dataset_id in matching
+    }
+    effective_by_id = {
+        dataset.dataset_id: dataset for dataset in effective_selection.datasets
+    }
+    for effective, _mapping, decision in decisions:
+        decisions_by_dataset[effective.dataset_id].append(decision)
+    dataset_reviews = []
+    review_rows = []
+    for effective in effective_selection.datasets:
+        mapping = matching.get(effective.dataset_id)
+        if mapping is None:
+            continue
+        labels = {
+            item.stable_key: item.source_name for item in effective.columns
+        }
+        sentence = describe_row_inclusion_policy(
+            mapping.row_inclusion,
+            labels,
+        )
+        dataset_decisions = decisions_by_dataset[effective.dataset_id]
+        included = sum(
+            item.outcome is RowInclusionReviewOutcome.INCLUDED
+            for item in dataset_decisions
+        )
+        excluded = sum(
+            item.outcome is RowInclusionReviewOutcome.EXCLUDED
+            for item in dataset_decisions
+        )
+        cannot_evaluate = sum(
+            item.outcome is RowInclusionReviewOutcome.CANNOT_EVALUATE
+            for item in dataset_decisions
+        )
+        dataset_reviews.append(
+            RowInclusionDatasetReview(
+                dataset_id=effective.dataset_id,
+                dataset_name=effective.name,
+                source_row_count=len(dataset_decisions),
+                included_count=included,
+                excluded_count=excluded,
+                cannot_evaluate_count=cannot_evaluate,
+                rule_sentence=sentence,
+            )
+        )
+        review_rows.extend(
+            RowInclusionReviewRow(
+                dataset_id=effective.dataset_id,
+                dataset_name=effective.name,
+                source_row=decision.source_row,
+                values=decision.values,
+                outcome=decision.outcome,
+                rule_sentence=sentence,
+                message=(
+                    decision.issues[0].message if decision.issues else ""
+                ),
+            )
+            for decision in dataset_decisions
+        )
+    if set(matching) != set(item.dataset_id for item in dataset_reviews):
+        missing = sorted(set(matching).difference(effective_by_id))
+        raise ReadinessError(
+            "Row-inclusion review is missing current datasets: "
+            + ", ".join(missing)
+        )
+    return RowInclusionReviewReport(
+        identity=RowInclusionReviewIdentity(
+            physical_selection_hash=physical_selection.content_hash,
+            source_selection_hash=effective_selection.content_hash,
+            mapping_content_hash=definition.content_hash,
+            schema_hash=definition.schema_hash,
+            derived_plan_hash=(plan.content_hash if plan is not None else None),
+        ),
+        datasets=tuple(dataset_reviews),
+        rows=tuple(review_rows),
     )
 
 
@@ -712,6 +972,7 @@ def _compile_dataset_evaluation_plan(
     return _DatasetEvaluationPlan(
         dataset_id=mapping.dataset_id,
         dataset_name=effective.name,
+        row_inclusion=mapping.row_inclusion,
         ordinal_columns=tuple(
             (column.ordinal, column.stable_key) for column in effective.columns
         ),
@@ -768,7 +1029,7 @@ def compile_browser_row_transformer(
     rule: RelatedDatasetRule | None,
     role: str,
     lookup_bindings: tuple[
-        tuple[DerivedEntityRule, DerivedDatasetLink], ...
+        tuple[LookupRule, DerivedDatasetLink], ...
     ] = (),
     reference_indexes: Mapping[
         tuple[str, str],
@@ -806,7 +1067,7 @@ def _stage_table(
     rule: RelatedDatasetRule | None,
     role: str,
     lookup_bindings: tuple[
-        tuple[DerivedEntityRule, DerivedDatasetLink], ...
+        tuple[LookupRule, DerivedDatasetLink], ...
     ] = (),
     *,
     impact_collector: _TransformationImpactCollector | None = None,
@@ -818,6 +1079,7 @@ def _stage_table(
     SourceTable,
     tuple[Issue, ...],
     dict[int, tuple[int, ...]],
+    tuple[_RowInclusionDecision, ...],
 ]:
     transformer = compile_browser_row_transformer(
         effective,
@@ -832,8 +1094,54 @@ def _stage_table(
     issues: list[Issue] = []
     parent_row_by_key: dict[tuple[str, ...], int] = {}
     source_rows_by_output: dict[int, list[int]] = {}
+    row_decisions: list[_RowInclusionDecision] = []
     for row in table.rows:
         projected = transformer.project(row)
+        review_values = _row_inclusion_review_values(
+            effective,
+            mapping,
+            projected.source_values,
+        )
+        try:
+            included = transformer.includes(projected)
+        except SourceConditionValueError as error:
+            row_decisions.append(
+                _RowInclusionDecision(
+                    source_row=row.number,
+                    outcome=RowInclusionReviewOutcome.CANNOT_EVALUATE,
+                    values=review_values,
+                    issues=(
+                        Issue(
+                            code="ROW_INCLUSION_SOURCE_VALUE_INVALID",
+                            message=str(error),
+                            severity=Severity.ERROR,
+                            dataset=effective.name,
+                            row=row.number,
+                            field=error.source_column_key,
+                        ),
+                    ),
+                )
+            )
+            source_rows_by_output[row.number] = [row.number]
+            continue
+        if not included:
+            row_decisions.append(
+                _RowInclusionDecision(
+                    source_row=row.number,
+                    outcome=RowInclusionReviewOutcome.EXCLUDED,
+                    values=review_values,
+                )
+            )
+            source_rows_by_output[row.number] = [row.number]
+            continue
+        if mapping.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS:
+            row_decisions.append(
+                _RowInclusionDecision(
+                    source_row=row.number,
+                    outcome=RowInclusionReviewOutcome.INCLUDED,
+                    values=review_values,
+                )
+            )
         if projected.parent_key is not None:
             existing_row = parent_row_by_key.get(projected.parent_key)
             if existing_row is not None:
@@ -860,6 +1168,7 @@ def _stage_table(
             output_row: tuple(source_rows)
             for output_row, source_rows in source_rows_by_output.items()
         },
+        tuple(row_decisions),
     )
 
 
@@ -868,7 +1177,7 @@ def _stage_derived_table(
     physical: SourceDataset,
     mapping: DatasetMapping,
     table: SourceTable,
-    rule: DerivedEntityRule,
+    rule: LookupRule,
     link: DerivedDatasetLink,
     *,
     impact_collector: _TransformationImpactCollector | None = None,
@@ -880,26 +1189,48 @@ def _stage_derived_table(
     SourceTable,
     tuple[Issue, ...],
     dict[int, tuple[int, ...]],
+    tuple[_RowInclusionDecision, ...],
 ]:
     """Materialize every unique related record from the full source table."""
 
     evaluation_plan = _compile_dataset_evaluation_plan(effective, mapping)
-    source_column = next(
-        item
+    source_columns = {
+        item.stable_key: item
         for item in physical.columns
-        if item.stable_key == rule.source_column_key
-    )
+        if item.stable_key
+        in (
+            rule.source_level_column_keys
+            if isinstance(rule, HierarchicalLookupRule)
+            else (rule.source_column_key,)
+        )
+    }
     accumulated: dict[tuple[str, ...], dict[str, object]] = {}
     for row in table.rows:
-        path = _normalized_path(
-            row.values.get(source_column.source_name),
-            rule.parent_separator,
-        )
-        if path is None:
-            continue
-        display_parts, key_parts = path
-        if not display_parts:
-            continue
+        if isinstance(rule, HierarchicalLookupRule):
+            hierarchy = evaluate_hierarchy_path(
+                rule,
+                {
+                    key: row.values.get(source_columns[key].source_name)
+                    for key in rule.source_level_column_keys
+                },
+            )
+            if not hierarchy.has_path:
+                continue
+            display_parts = hierarchy.display_parts
+            key_parts = hierarchy.canonical_parts
+            display_separator = "/"
+        else:
+            source_column = source_columns[rule.source_column_key]
+            path = _normalized_path(
+                row.values.get(source_column.source_name),
+                rule.parent_separator,
+            )
+            if path is None:
+                continue
+            display_parts, key_parts = path
+            if not display_parts:
+                continue
+            display_separator = rule.parent_separator
         for depth in range(1, len(key_parts) + 1):
             key_path = key_parts[:depth]
             display_path = display_parts[:depth]
@@ -914,13 +1245,14 @@ def _stage_derived_table(
             )
             aliases = entry["aliases"]
             assert isinstance(aliases, set)
-            aliases.add(_display_path(display_path, rule.parent_separator))
+            aliases.add(_display_path(display_path, display_separator))
             source_rows = entry["source_rows"]
             assert isinstance(source_rows, set)
             source_rows.add(row.number)
 
     rows: list[SourceRow] = []
     issues: list[Issue] = []
+    row_decisions: list[_RowInclusionDecision] = []
     source_rows_by_output: dict[int, tuple[int, ...]] = {}
     ordered_candidates = sorted(
         accumulated.items(),
@@ -939,6 +1271,55 @@ def _stage_derived_table(
                 " / ".join(key_path[:-1]) if key_path[:-1] else None
             )
         source_values = MappingProxyType(dict(values))
+        review_values = _row_inclusion_review_values(
+            effective,
+            mapping,
+            source_values,
+        )
+        try:
+            included = row_is_included(mapping.row_inclusion, source_values)
+        except SourceConditionValueError as error:
+            row_decisions.append(
+                _RowInclusionDecision(
+                    source_row=generated_row,
+                    outcome=RowInclusionReviewOutcome.CANNOT_EVALUATE,
+                    values=review_values,
+                    issues=(
+                        Issue(
+                            code="ROW_INCLUSION_SOURCE_VALUE_INVALID",
+                            message=str(error),
+                            severity=Severity.ERROR,
+                            dataset=effective.name,
+                            row=generated_row,
+                            field=error.source_column_key,
+                        ),
+                    ),
+                )
+            )
+            source_rows = entry["source_rows"]
+            assert isinstance(source_rows, set)
+            source_rows_by_output[generated_row] = tuple(sorted(source_rows))
+            continue
+        if not included:
+            row_decisions.append(
+                _RowInclusionDecision(
+                    source_row=generated_row,
+                    outcome=RowInclusionReviewOutcome.EXCLUDED,
+                    values=review_values,
+                )
+            )
+            source_rows = entry["source_rows"]
+            assert isinstance(source_rows, set)
+            source_rows_by_output[generated_row] = tuple(sorted(source_rows))
+            continue
+        if mapping.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS:
+            row_decisions.append(
+                _RowInclusionDecision(
+                    source_row=generated_row,
+                    outcome=RowInclusionReviewOutcome.INCLUDED,
+                    values=review_values,
+                )
+            )
         _prepare_relationship_values(values, evaluation_plan)
         _record_identity_preparation(
             source_values,
@@ -994,13 +1375,14 @@ def _stage_derived_table(
         ),
         tuple(issues),
         source_rows_by_output,
+        tuple(row_decisions),
     )
 
 
 def _compile_derived_reference_plan(
     mapping: DatasetMapping,
     lookup_bindings: tuple[
-        tuple[DerivedEntityRule, DerivedDatasetLink], ...
+        tuple[LookupRule, DerivedDatasetLink], ...
     ],
 ) -> tuple[_DerivedReferencePlan, ...]:
     lookup_by_source = {
@@ -1045,6 +1427,45 @@ def _normalize_derived_references(
 ) -> tuple[Issue, ...]:
     issues: list[Issue] = []
     for item in plan:
+        if isinstance(item.rule, HierarchicalLookupRule):
+            evaluation = evaluate_hierarchy_path(item.rule, values)
+            values[item.prepared_column_key] = (
+                " / ".join(evaluation.canonical_parts)
+                if evaluation.has_path
+                else None
+            )
+            blocking_outcome = next(
+                (
+                    outcome
+                    for outcome in evaluation.outcomes
+                    if outcome.startswith(("block_", "quarantine_"))
+                ),
+                None,
+            )
+            if blocking_outcome is None:
+                continue
+            quarantined = blocking_outcome.startswith("quarantine_")
+            issue_kind = blocking_outcome.removeprefix(
+                "quarantine_" if quarantined else "block_"
+            ).replace("_", " ")
+            issues.append(
+                Issue(
+                    code=(
+                        "DERIVED_REFERENCE_QUARANTINED"
+                        if quarantined
+                        else "DERIVED_REFERENCE_MISSING"
+                    ),
+                    message=(
+                        f"the hierarchy has {issue_kind} and cannot identify "
+                        f"a related record in {item.rule.output_dataset_name}"
+                    ),
+                    severity=Severity.ERROR,
+                    dataset=dataset,
+                    row=source_row,
+                    field=item.target_field,
+                )
+            )
+            continue
         path = _normalized_path(
             values.get(item.prepared_column_key),
             item.rule.parent_separator,
@@ -1461,8 +1882,9 @@ def _attach_preparation_issues(
     prepared: PreparedBundle,
     issues: Iterable[Issue],
 ) -> PreparedBundle:
+    items = tuple(issues)
     by_row: dict[tuple[str, int], list[Issue]] = {}
-    for issue in issues:
+    for issue in items:
         if issue.dataset is None or issue.row is None:
             continue
         by_row.setdefault((issue.dataset, issue.row), []).append(issue)
@@ -1477,7 +1899,14 @@ def _attach_preparation_issues(
             )
             for record in prepared.records
         ),
-        issues=prepared.issues,
+        issues=(
+            *prepared.issues,
+            *(
+                issue
+                for issue in items
+                if issue.dataset is not None and issue.row is None
+            ),
+        ),
         source_hashes=prepared.source_hashes,
     )
 

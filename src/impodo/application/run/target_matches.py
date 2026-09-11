@@ -9,6 +9,7 @@ are written only to the current Recipe application mapping.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from threading import RLock
 from typing import Mapping
 
 from impodo.domain.mapping.contracts import (
@@ -134,6 +135,8 @@ class RecipeTargetMatchService:
         self.mapping_workspace = mapping_workspace
         self.run_planning = run_planning
         self.supporting_lookups = supporting_lookups
+        self._prepared_reviews: dict[str, TargetMatchReview] = {}
+        self._prepared_lock = RLock()
 
     def build_review(
         self, application: RunRecipeApplication, *, actor: Actor,
@@ -145,6 +148,34 @@ class RecipeTargetMatchService:
             actor, Capability.MAPPING_EDIT, workspace_id=application.workspace_id,
         )
         return _build_target_match_review(self, application, actor=actor, submitted=submitted)
+
+    def prepare_review(
+        self,
+        application: RunRecipeApplication,
+        *,
+        actor: Actor,
+    ) -> TargetMatchReview:
+        """Build and retain the immutable review needed by the next browser page."""
+
+        review = self.build_review(application, actor=actor)
+        with self._prepared_lock:
+            self._prepared_reviews[application.application_id] = review
+        return review
+
+    def prepared_review(
+        self,
+        application_id: str,
+    ) -> TargetMatchReview | None:
+        """Return a review prepared by the current run job, when available."""
+
+        with self._prepared_lock:
+            return self._prepared_reviews.get(application_id)
+
+    def clear_prepared_review(self, application_id: str) -> None:
+        """Discard a cached browser projection after its decisions change."""
+
+        with self._prepared_lock:
+            self._prepared_reviews.pop(application_id, None)
 
     def confirm(
         self, application: RunRecipeApplication, *, decisions: Mapping[str, str],
@@ -159,7 +190,9 @@ class RecipeTargetMatchService:
             RecipeApplicationStatus.READY,
         }:
             raise WorkspaceError("This application has already moved beyond target-value review. Return to the run.")
-        review = self.build_review(application, actor=actor)
+        review = self.prepared_review(application.application_id)
+        if review is None or review.evidence_hash != expected_evidence_hash:
+            review = self.build_review(application, actor=actor)
         if (
             review.working_draft_version != expected_working_draft_version
             or review.definition_hash != expected_definition_hash
@@ -201,7 +234,12 @@ class RecipeTargetMatchService:
             expected_version=revision.version, expected_working_draft_version=checked.version,
             actor=actor,
         )
-        return self.run_planning.confirm_application_mapping(application.application_id, actor=actor)
+        confirmed = self.run_planning.confirm_application_mapping(
+            application.application_id,
+            actor=actor,
+        )
+        self.clear_prepared_review(application.application_id)
+        return confirmed
 
 
 def _build_target_match_review(

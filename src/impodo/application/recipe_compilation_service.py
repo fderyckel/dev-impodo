@@ -15,6 +15,7 @@ from ..domain.mapping.contracts import (
     MAPPING_CONTRACT_VERSION,
     DatasetMapping,
     MappingTargetMode,
+    RowInclusionMode,
     UnsupportedMappingContractError,
     relationship_target_fields,
 )
@@ -239,6 +240,18 @@ class RecipeCompiler:
                     RecipeDraftRecoveryStep.MATCH_DATA,
                 ),
         )
+        if any(
+            item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
+            for item in revision.definition.datasets
+        ):
+            return None, (
+                self._issue(
+                    "ROW_INCLUSION_NOT_PORTABLE",
+                    "Rows to use rules are not yet reusable Recipe meaning.",
+                    "Change each dataset to Use every row before publishing a Recipe.",
+                    RecipeDraftRecoveryStep.MATCH_DATA,
+                ),
+            )
         if any(
             item.mode is MappingTargetMode.ODOO_PINNED_UPDATE
             for item in revision.definition.datasets
@@ -1377,6 +1390,14 @@ class RecipeCompiler:
                 value[key] = self._column(raw_left_dataset, raw, columns)
             elif key == "right_column_key" and isinstance(raw_right_dataset, str):
                 value[key] = self._column(raw_right_dataset, raw, columns)
+        if local_dataset is not None and isinstance(
+            value.get("source_level_column_keys"),
+            (list, tuple),
+        ):
+            value["source_level_column_keys"] = [
+                self._column(local_dataset, raw, columns)
+                for raw in value["source_level_column_keys"]
+            ]
         for item in value.values():
             self._replace_preparation_ids(
                 item,

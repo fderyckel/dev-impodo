@@ -1058,6 +1058,12 @@ def evaluate_quality(
     rows = tuple(
         item.canonical_row for item in effective.rows
     ) if effective is not None else staging.rows
+    checkable_rows = tuple(
+        row
+        for row in rows
+        if row.disposition
+        in {StagingDisposition.CANDIDATE, StagingDisposition.REFERENCE}
+    )
     ruleset_hash = ruleset.content_hash
     if ruleset.reference_bundle_hash is not None and (
         reference_bundle is None
@@ -1094,20 +1100,23 @@ def evaluate_quality(
         issue_map[issue.issue_id] = issue
     available_fields: dict[str, set[str]] = {}
     rows_by_dataset: dict[str, list[CanonicalRow]] = {}
-    for row in rows:
+    for row in checkable_rows:
         available_fields.setdefault(row.dataset, set()).update(
             row.proposed_values
         )
         rows_by_dataset.setdefault(row.dataset, []).append(row)
+    checkable_datasets = set(rows_by_dataset)
     invalid_manager_rules = {
         rule.rule_id
         for rule in ruleset.manager_rules
-        if set(rule.input_fields) - available_fields.get(rule.dataset, set())
+        if rule.dataset in checkable_datasets
+        and set(rule.input_fields) - available_fields.get(rule.dataset, set())
     }
     invalid_advanced_rules = {
         rule.rule_id
         for rule in ruleset.rules
         if rule.source is QualityRuleSource.SCOPE_APPROVED
+        and rule.dataset in checkable_datasets
         and set(rule.input_fields) - available_fields.get(rule.dataset, set())
     }
     for rule in ruleset.manager_rules:

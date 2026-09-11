@@ -17,7 +17,8 @@ from impodo.domain.compiler.columnar_transformation import (
     ColumnarTransformationProgram,
     compile_columnar_transformation_programs,
 )
-from impodo.domain.mapping.contracts import MappingDefinition
+from impodo.domain.mapping.contracts import MappingDefinition, RowInclusionMode
+from impodo.domain.mapping.source_conditions import SourceConditionValueError
 from impodo.domain.prepared_snapshot import (
     PREPARED_WRITER_CONTRACT_VERSION,
     PreparedSnapshot,
@@ -53,7 +54,12 @@ from impodo.domain.staging.transformation_impact import (
     reviewable_rule_impact_definitions,
 )
 from impodo.application.data_version.inspection import SourceFileCatalog
-from impodo.domain.shared.models import Issue, PreparedRecord, canonical_json_bytes
+from impodo.domain.shared.models import (
+    Issue,
+    PreparedRecord,
+    Severity,
+    canonical_json_bytes,
+)
 from impodo.domain.workspace.workbench import WorkspaceState, SourceFile
 from impodo.domain.preparation.source import CompiledPreparedRowTransformer, SourceLoadError
 from impodo.application.data_version.source_files import open_selected_source_batches
@@ -65,6 +71,8 @@ from impodo.domain.preparation.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
     StagingDatasetRole,
+    StagingDisposition,
+    canonical_row_from_inclusion_decision,
     canonical_row_from_prepared,
 )
 from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
@@ -545,6 +553,7 @@ def prepare_bounded_direct_session(
             if preparer.dataset_issue is not None:
                 run_issues.append(preparer.dataset_issue)
             row_count = 0
+            included_row_count = 0
             with _open_preparation_source(
                 workspace_state,
                 physical_selection,
@@ -563,11 +572,74 @@ def prepare_bounded_direct_session(
                     prepared_batch: list[CanonicalPreparedSessionRow] = []
                     for source_row in source_batch:
                         projected = transformer.project(source_row)
+                        ordinal = (
+                            dataset_offsets[effective.dataset_id]
+                            + row_count
+                            + len(prepared_batch)
+                        )
+                        try:
+                            included = transformer.includes(projected)
+                        except SourceConditionValueError as error:
+                            prepared_batch.append(
+                                _canonical_inclusion_session_row(
+                                    dataset=effective.name,
+                                    source_row=source_row.number,
+                                    target_model=mapping.target_model,
+                                    disposition=StagingDisposition.BLOCKED,
+                                    issues=(
+                                        Issue(
+                                            code=(
+                                                "ROW_INCLUSION_SOURCE_VALUE_INVALID"
+                                            ),
+                                            message=str(error),
+                                            severity=Severity.ERROR,
+                                            dataset=effective.name,
+                                            row=source_row.number,
+                                            field=error.source_column_key,
+                                        ),
+                                    ),
+                                    ordinal=ordinal,
+                                    source_hash=source_hashes[effective.name],
+                                    source_selection_hash=source_selection_hash,
+                                    mapping_hash=mapping_hash,
+                                    schema_hash=schema_hash,
+                                    source_column_keys=tuple(
+                                        condition.source_column_key
+                                        for condition
+                                        in mapping.row_inclusion.conditions
+                                    ),
+                                    physical_dataset_id=physical.dataset_id,
+                                )
+                            )
+                            continue
+                        if not included:
+                            prepared_batch.append(
+                                _canonical_inclusion_session_row(
+                                    dataset=effective.name,
+                                    source_row=source_row.number,
+                                    target_model=mapping.target_model,
+                                    disposition=StagingDisposition.EXCLUDED,
+                                    issues=(),
+                                    ordinal=ordinal,
+                                    source_hash=source_hashes[effective.name],
+                                    source_selection_hash=source_selection_hash,
+                                    mapping_hash=mapping_hash,
+                                    schema_hash=schema_hash,
+                                    source_column_keys=tuple(
+                                        condition.source_column_key
+                                        for condition
+                                        in mapping.row_inclusion.conditions
+                                    ),
+                                    physical_dataset_id=physical.dataset_id,
+                                )
+                            )
+                            continue
                         staged_row, preparation_issues = transformer.finish(
                             projected,
                             impact_collector=impact_collector,
                         )
                         record = preparer.transform(staged_row)
+                        included_row_count += 1
                         if preparation_issues:
                             record = replace(
                                 record,
@@ -578,11 +650,7 @@ def prepare_bounded_direct_session(
                             _canonical_session_row(
                                 record,
                                 source_row=source_row.number,
-                                ordinal=(
-                                    dataset_offsets[effective.dataset_id]
-                                    + row_count
-                                    + len(prepared_batch)
-                                ),
+                                ordinal=ordinal,
                                 mode=modes[effective.name],
                                 source_hash=source_hashes[effective.name],
                                 source_selection_hash=source_selection_hash,
@@ -604,6 +672,21 @@ def prepare_bounded_direct_session(
                     completed_rows += len(source_batch)
                     if batch_progress is not None:
                         batch_progress(completed_rows, total_rows)
+            if (
+                mapping.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
+                and included_row_count == 0
+            ):
+                run_issues.append(
+                    Issue(
+                        code="ROW_INCLUSION_ZERO_INCLUDED",
+                        message=(
+                            "The row-inclusion rule did not include any rows. "
+                            "Review the rule before continuing."
+                        ),
+                        severity=Severity.ERROR,
+                        dataset=effective.name,
+                    )
+                )
             dataset_evidence[effective.name] = (
                 physical.dataset_id,
                 StagingDatasetRole.DIRECT,
@@ -694,6 +777,59 @@ def _canonical_session_row(
             target_identity=canonical.target_identity,
             target_scope=canonical.target_scope,
         ),
+        issues=canonical.issues,
+    )
+
+
+def _canonical_inclusion_session_row(
+    *,
+    dataset: str,
+    source_row: int,
+    target_model: str,
+    disposition: StagingDisposition,
+    issues: tuple[Issue, ...],
+    ordinal: int,
+    source_hash: str,
+    source_selection_hash: str,
+    mapping_hash: str,
+    schema_hash: str,
+    source_column_keys: tuple[str, ...],
+    physical_dataset_id: str,
+) -> CanonicalPreparedSessionRow:
+    """Adapt one early row decision through durable direct publication."""
+
+    physical_sources = {physical_dataset_id: (source_row,)}
+    canonical = canonical_row_from_inclusion_decision(
+        dataset=dataset,
+        source_row=source_row,
+        target_model=target_model,
+        disposition=disposition,
+        issues=issues,
+        source_hash=source_hash,
+        source_selection_hash=source_selection_hash,
+        mapping_hash=mapping_hash,
+        schema_hash=schema_hash,
+        derived_plan_hash=None,
+        source_column_keys=source_column_keys,
+        physical_dataset_id=physical_dataset_id,
+        physical_source_rows=(source_row,),
+        physical_sources=physical_sources,
+    )
+    return CanonicalPreparedSessionRow(
+        row_id=canonical.row_id,
+        ordinal=ordinal,
+        dataset=canonical.dataset,
+        source_row=canonical.source_row,
+        target_model=canonical.target_model,
+        disposition=canonical.disposition,
+        source_identity=(),
+        row_json=canonical_json_bytes(canonical.to_portable_dict()).decode(
+            "utf-8"
+        ),
+        references={},
+        physical_sources=physical_sources,
+        record_label=f"Source row {source_row}",
+        quality_identity_key=None,
         issues=canonical.issues,
     )
 

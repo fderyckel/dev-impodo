@@ -1,0 +1,104 @@
+{% set policy = view.mapping.row_inclusion if view.mapping else none %}
+{% set policy_mode = policy.mode.value if policy else 'all_rows' %}
+<section class="mapping-row-inclusion" aria-labelledby="rows-to-use-{{ dataset_index }}" data-row-inclusion-editor>
+  <div class="page-heading compact">
+    <div>
+      <p class="eyebrow">Source population</p>
+      <h3 id="rows-to-use-{{ dataset_index }}">Rows to use</h3>
+      <p class="muted">Choose which source rows belong to this migration. Your accepted Data version remains unchanged.</p>
+    </div>
+    {% if not view.active and policy_mode == 'matching_rows' %}<span class="status needs_review">Rule saved</span>{% endif %}
+  </div>
+
+  {% if view.active %}
+    <fieldset class="row-inclusion-modes">
+      <legend class="visually-hidden">Rows to use</legend>
+      <label>
+        <input type="radio" name="row_inclusion_mode_{{ dataset_index }}" value="all_rows" {% if policy_mode == 'all_rows' %}checked{% endif %} data-row-inclusion-mode>
+        Use every row
+      </label>
+      <label>
+        <input type="radio" name="row_inclusion_mode_{{ dataset_index }}" value="matching_rows" {% if policy_mode == 'matching_rows' %}checked{% endif %} data-row-inclusion-mode>
+        Use only rows that match
+      </label>
+    </fieldset>
+
+    <div class="row-inclusion-builder" data-row-inclusion-builder {% if policy_mode != 'matching_rows' %}hidden{% endif %}>
+      <div class="row-inclusion-join" data-row-inclusion-join {% if not policy or policy.conditions|length < 2 %}hidden{% endif %}>
+        <label>
+          Include a row when
+          <select name="row_inclusion_join_{{ dataset_index }}">
+            <option value="all" {% if not policy or policy.join.value == 'all' %}selected{% endif %}>all</option>
+            <option value="any" {% if policy and policy.join.value == 'any' %}selected{% endif %}>any</option>
+          </select>
+          of these conditions match:
+        </label>
+      </div>
+      <p data-row-inclusion-single-sentence {% if policy and policy.conditions|length > 1 %}hidden{% endif %}>Include a row when this condition matches:</p>
+
+      <div class="row-inclusion-conditions" data-row-inclusion-conditions>
+        {% for slot in view.row_inclusion_slots %}
+          {% set condition = slot.condition %}
+          <fieldset class="row-inclusion-condition" data-row-inclusion-condition {% if not slot.visible %}hidden{% endif %}>
+            <legend>Condition {{ slot.index + 1 }}</legend>
+            <input type="hidden" name="row_inclusion_condition_id_{{ dataset_index }}_{{ slot.index }}" value="{{ slot.condition_id }}">
+            <div class="form-grid row-inclusion-condition-grid">
+              <label>
+                Source column
+                <select name="row_inclusion_source_{{ dataset_index }}_{{ slot.index }}" data-row-inclusion-source>
+                  <option value="">Choose source column</option>
+                  {% for column in view.source.columns %}
+                    <option value="{{ column.stable_key }}" {% if condition and condition.source_column_key == column.stable_key %}selected{% endif %}>{{ column.source_name }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>
+                Comparison
+                <select name="row_inclusion_operator_{{ dataset_index }}_{{ slot.index }}" data-row-inclusion-operator>
+                  {% set selected_operator = condition.operator.value if condition else 'equals' %}
+                  <option value="equals" {% if selected_operator == 'equals' %}selected{% endif %}>is exactly</option>
+                  <option value="not_equals" {% if selected_operator == 'not_equals' %}selected{% endif %}>is not</option>
+                  <option value="equals_ignore_case" {% if selected_operator == 'equals_ignore_case' %}selected{% endif %}>is exactly, ignoring case</option>
+                  <option value="contains" {% if selected_operator == 'contains' %}selected{% endif %}>contains</option>
+                  <option value="starts_with" {% if selected_operator == 'starts_with' %}selected{% endif %}>starts with</option>
+                  <option value="ends_with" {% if selected_operator == 'ends_with' %}selected{% endif %}>ends with</option>
+                  <option value="is_blank" {% if selected_operator == 'is_blank' %}selected{% endif %}>is blank</option>
+                  <option value="is_not_blank" {% if selected_operator == 'is_not_blank' %}selected{% endif %}>is not blank</option>
+                  <option value="less_than" {% if selected_operator == 'less_than' %}selected{% endif %}>is less than</option>
+                  <option value="less_than_or_equal" {% if selected_operator == 'less_than_or_equal' %}selected{% endif %}>is at most</option>
+                  <option value="greater_than" {% if selected_operator == 'greater_than' %}selected{% endif %}>is greater than</option>
+                  <option value="greater_than_or_equal" {% if selected_operator == 'greater_than_or_equal' %}selected{% endif %}>is at least</option>
+                  <option value="is_true" {% if selected_operator == 'is_true' %}selected{% endif %}>is yes</option>
+                  <option value="is_false" {% if selected_operator == 'is_false' %}selected{% endif %}>is no</option>
+                </select>
+              </label>
+              <label data-row-inclusion-value-wrap>
+                Comparison value
+                <input type="text" name="row_inclusion_value_{{ dataset_index }}_{{ slot.index }}" value="{{ condition.comparison_value if condition and condition.comparison_value is not none else '' }}" maxlength="10000" data-row-inclusion-value>
+              </label>
+              <label>
+                Compare as
+                {% set selected_type = condition.value_type if condition else 'string' %}
+                <select name="row_inclusion_type_{{ dataset_index }}_{{ slot.index }}">
+                  <option value="string" {% if selected_type == 'string' %}selected{% endif %}>Text</option>
+                  <option value="integer" {% if selected_type == 'integer' %}selected{% endif %}>Whole number</option>
+                  <option value="decimal" {% if selected_type == 'decimal' %}selected{% endif %}>Decimal number</option>
+                  <option value="boolean" {% if selected_type == 'boolean' %}selected{% endif %}>Yes or no</option>
+                  <option value="date" {% if selected_type == 'date' %}selected{% endif %}>Date</option>
+                  <option value="datetime" {% if selected_type == 'datetime' %}selected{% endif %}>Date and time</option>
+                </select>
+              </label>
+            </div>
+            <button class="button secondary compact" type="button" data-remove-row-inclusion-condition>Remove</button>
+          </fieldset>
+        {% endfor %}
+      </div>
+      <button class="button secondary compact" type="button" data-add-row-inclusion-condition>Add another condition</button>
+      <p class="muted">Text is the safest choice for status codes because leading zeroes remain meaningful.</p>
+    </div>
+  {% elif policy_mode == 'matching_rows' %}
+    <p><strong>{{ policy.conditions|length }} saved condition{{ 's' if policy.conditions|length != 1 else '' }}.</strong> Open this table to change which rows are used.</p>
+  {% else %}
+    <p><strong>Use every row.</strong></p>
+  {% endif %}
+</section>

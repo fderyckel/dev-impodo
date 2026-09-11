@@ -16,6 +16,7 @@ from ...domain.schema.governance import (
 )
 from ...domain.mapping.contracts import (
     MAX_CONTROL_TOTALS_PER_DATASET,
+    MAX_ROW_INCLUSION_CONDITIONS,
     BusinessControlDefinition,
     CategoricalCoveragePolicy,
     ConcatenationBlankHandling,
@@ -31,6 +32,10 @@ from ...domain.mapping.contracts import (
     RelationshipResolver,
     RelationshipValueSource,
     ResolverOrigin,
+    RowInclusionCondition,
+    RowInclusionJoin,
+    RowInclusionMode,
+    RowInclusionPolicy,
     ScalarConcatenation,
     ScalarFieldMapping,
     ScalarValueSource,
@@ -252,8 +257,20 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                 f"visible_relation_target_{dataset_index}",
                 f"target_field_disposition_{dataset_index}",
                 f"approved_write_field_{dataset_index}",
+                f"row_inclusion_mode_{dataset_index}",
+                f"row_inclusion_join_{dataset_index}",
             }
         )
+        for condition_index in range(MAX_ROW_INCLUSION_CONDITIONS):
+            allowed.update(
+                {
+                    f"row_inclusion_condition_id_{dataset_index}_{condition_index}",
+                    f"row_inclusion_source_{dataset_index}_{condition_index}",
+                    f"row_inclusion_operator_{dataset_index}_{condition_index}",
+                    f"row_inclusion_value_{dataset_index}_{condition_index}",
+                    f"row_inclusion_type_{dataset_index}_{condition_index}",
+                }
+            )
         target_model = _text(form, f"target_model_{dataset_index}")
         if target_model not in model_names:
             continue
@@ -395,6 +412,11 @@ def _mapping_datasets_from_form(
         source_columns = {
             item.stable_key for item in source_dataset.columns
         }
+        row_inclusion = _row_inclusion_from_form(
+            form,
+            dataset_index=dataset_index,
+            source_columns=source_columns,
+        )
         identity_components: list[IdentityComponentMapping] = []
         scope_components: list[IdentityComponentMapping] = []
         identity_targets: set[str] = set()
@@ -1122,6 +1144,7 @@ def _mapping_datasets_from_form(
             DatasetMapping(
                 dataset_id=source_dataset.dataset_id,
                 target_model=target_model,
+                row_inclusion=row_inclusion,
                 mode=mode,
                 on_existing=(
                     _text(form, f"on_existing_{dataset_index}") or "block"
@@ -1228,6 +1251,10 @@ def _merge_partial_mapping_datasets(
             else None
         )
         if source_dataset.dataset_id != editable_dataset_id:
+            if parsed.row_inclusion != RowInclusionPolicy():
+                raise WorkspaceError(
+                    "Mapping request changed a rows-to-use rule that is not being edited"
+                )
             if (
                 parsed.fields
                 or parsed.relationships
@@ -1271,6 +1298,11 @@ def _merge_partial_mapping_datasets(
                         compatible_existing.approved_write_fields
                         if compatible_existing
                         else ()
+                    ),
+                    row_inclusion=(
+                        compatible_existing.row_inclusion
+                        if compatible_existing
+                        else RowInclusionPolicy()
                     ),
                 )
             )
@@ -1360,6 +1392,90 @@ def _merge_partial_mapping_datasets(
             )
         )
     return tuple(merged)
+
+
+def _row_inclusion_from_form(
+    form,
+    *,
+    dataset_index: int,
+    source_columns: set[str],
+) -> RowInclusionPolicy:
+    """Read one strictly allowlisted, bounded source-row rule."""
+
+    mode = RowInclusionMode(
+        _text(form, f"row_inclusion_mode_{dataset_index}")
+        or RowInclusionMode.ALL_ROWS.value
+    )
+    populated_slots = tuple(
+        condition_index
+        for condition_index in range(MAX_ROW_INCLUSION_CONDITIONS)
+        if _text(
+            form,
+            f"row_inclusion_source_{dataset_index}_{condition_index}",
+        )
+    )
+    if mode is RowInclusionMode.ALL_ROWS:
+        if populated_slots:
+            raise WorkspaceError(
+                "Use-every-row mode cannot submit matching conditions"
+            )
+        return RowInclusionPolicy()
+    conditions = []
+    unary = {
+        SelectionConditionOperator.IS_BLANK,
+        SelectionConditionOperator.IS_NOT_BLANK,
+        SelectionConditionOperator.IS_TRUE,
+        SelectionConditionOperator.IS_FALSE,
+    }
+    for condition_index in populated_slots:
+        source_column_key = _text(
+            form,
+            f"row_inclusion_source_{dataset_index}_{condition_index}",
+        )
+        if source_column_key not in source_columns:
+            raise WorkspaceError(
+                "A rows-to-use source column is not current"
+            )
+        condition_id = _text(
+            form,
+            f"row_inclusion_condition_id_{dataset_index}_{condition_index}",
+        )
+        operator = SelectionConditionOperator(
+            _text(
+                form,
+                f"row_inclusion_operator_{dataset_index}_{condition_index}",
+            )
+            or SelectionConditionOperator.EQUALS.value
+        )
+        comparison_value = _text(
+            form,
+            f"row_inclusion_value_{dataset_index}_{condition_index}",
+        )
+        conditions.append(
+            RowInclusionCondition(
+                condition_id=condition_id,
+                source_column_key=source_column_key,
+                operator=operator,
+                comparison_value=(
+                    None if operator in unary else comparison_value
+                ),
+                value_type=(
+                    _text(
+                        form,
+                        f"row_inclusion_type_{dataset_index}_{condition_index}",
+                    )
+                    or "string"
+                ),
+            )
+        )
+    return RowInclusionPolicy(
+        mode=mode,
+        conditions=tuple(conditions),
+        join=RowInclusionJoin(
+            _text(form, f"row_inclusion_join_{dataset_index}")
+            or RowInclusionJoin.ALL.value
+        ),
+    )
 
 
 def _standard_reference_business_key(

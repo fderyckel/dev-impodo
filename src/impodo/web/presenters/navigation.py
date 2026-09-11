@@ -199,6 +199,7 @@ _TEMPLATE_LOCATION = {
     ),
     "workspace_target.html": ("odoo", "Connection & credentials"),
     "workspace_schema.html": ("odoo", "Choose Odoo records"),
+    "project_recipe_run_progress.html": ("odoo", "Odoo check progress"),
     "project_recipe_target_matches.html": ("odoo", "Review target values"),
     "mapping/page.html": ("match", "Match fields"),
     "workspace_transformation_impact.html": (
@@ -1451,7 +1452,12 @@ def _recipe_run_setup_navigation(
     )
     if template_name in {"workspace_files.html", "workspace_sources.html", "workspace_datasets.html", "workspace_derived_entities.html", "project_run_fresh_data.html"}:
         viewed_stage_id = "fresh"
-    elif template_name in {"workspace_schema.html", "workspace_target.html", "project_production_activation.html"}:
+    elif template_name in {
+        "workspace_schema.html",
+        "workspace_target.html",
+        "project_production_activation.html",
+        "project_recipe_run_progress.html",
+    }:
         viewed_stage_id = "odoo"
     else:
         viewed_stage_id = "review"
@@ -1467,6 +1473,7 @@ def _recipe_run_setup_navigation(
         "project_run_fresh_data.html": "Fresh data",
         "workspace_schema.html": "Review Odoo requirements",
         "project_production_activation.html": "Review Production readiness",
+        "project_recipe_run_progress.html": "Odoo check progress",
     }.get(template_name, navigation.viewed_page_label)
     return WorkspaceNavigation(
         workspace_id=workspace_id,
@@ -1506,7 +1513,10 @@ def _recipe_application_navigation(
         if run_purpose == "TEST" else
         f"/projects/{project_id}/production-runs/{migration_run_id}/fresh-data"
     )
-    target_value_review = template_name == "project_recipe_target_matches.html"
+    target_value_review = template_name in {
+        "project_recipe_target_matches.html",
+        "project_recipe_run_progress.html",
+    }
     review_stages = tuple(
         stage
         for stage in navigation.stages

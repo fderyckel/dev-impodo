@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
 from uuid import UUID, uuid4, uuid5
@@ -126,6 +127,7 @@ class RunApplicationMaterializer:
         ready_event_type: str,
         target_workspace_state,
         actor: Actor,
+        progress: Callable[[int, int, str], None] | None = None,
     ) -> IntegratedRunBundle:
         """Publish source projections and fresh mapping evidence per workspace."""
 
@@ -138,11 +140,24 @@ class RunApplicationMaterializer:
         workspace_by_id = {item.workspace_id: item for item in bundle.workspaces}
         project = self._projects.get(bundle.run.project_id, actor=actor)
         stored_applications = []
-        for application in bundle.applications:
+        total_applications = len(bundle.applications)
+        for application_index, application in enumerate(bundle.applications):
+            if progress is not None:
+                progress(
+                    application_index,
+                    total_applications,
+                    application.recipe_id,
+                )
             # A published mapping is a durable per-application checkpoint.
             # Replaying activation must not replace subsequent run decisions.
             if application.mapping_id is not None:
                 stored_applications.append(application)
+                if progress is not None:
+                    progress(
+                        application_index + 1,
+                        total_applications,
+                        application.recipe_id,
+                    )
                 continue
             item = reviewed[application.recipe_id]
             workspace = workspace_by_id[application.workspace_id]
@@ -197,6 +212,12 @@ class RunApplicationMaterializer:
                     actor=actor,
                 )
             )
+            if progress is not None:
+                progress(
+                    application_index + 1,
+                    total_applications,
+                    application.recipe_id,
+                )
         if stored_applications and all(
             item.status is RecipeApplicationStatus.READY for item in stored_applications
         ):

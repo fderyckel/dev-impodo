@@ -10,6 +10,7 @@
   <script src="{{ url_for('static', path='/mapping-formula-validation.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-value-rules.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-catalogs.js') }}" defer></script>
+  <script src="{{ url_for('static', path='/mapping-row-inclusion.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping.js') }}" defer></script>
 {% endblock %}
 {% block content %}
@@ -67,6 +68,7 @@
         {% include "mapping/_dataset.html" %}
       {% endfor %}
 
+      {% include "mapping/_row_inclusion_review.html" %}
       {% include "mapping/_validation.html" %}
       {% include "mapping/_next_step.html" %}
       {% include "mapping/_form_actions.html" %}

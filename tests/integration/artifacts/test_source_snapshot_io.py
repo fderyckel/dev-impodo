@@ -37,7 +37,11 @@ from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
+    RowInclusionCondition,
+    RowInclusionMode,
+    RowInclusionPolicy,
     ScalarFieldMapping,
+    SelectionConditionOperator,
 )
 from impodo.domain.errors import ReadinessError
 from impodo.domain.source_snapshot import SourceSnapshot
@@ -363,6 +367,78 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 [bounded.session_id, bounded.session_id],
             ).fetchone()
         self.assertEqual(storage, (0, 2))
+
+    def test_row_inclusion_has_bounded_and_materialized_parity(self) -> None:
+        workspace_state, source_file, catalog = self._registered_csv(
+            b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
+        )
+        selection = _selection_for(workspace_state, source_file, catalog)
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                workspace_state,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
+        definition = _direct_mapping(selection)
+        active = selection.datasets[0].columns[2]
+        mapping = replace(
+            definition.datasets[0],
+            row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS,
+                conditions=(
+                    RowInclusionCondition(
+                        condition_id=str(uuid4()),
+                        source_column_key=active.stable_key,
+                        operator=SelectionConditionOperator.EQUALS,
+                        comparison_value="true",
+                    ),
+                ),
+            ),
+        )
+        definition = replace(definition, datasets=(mapping,))
+
+        materialized = stage_browser_mapping(
+            workspace_state,
+            definition,
+            selection,
+            selection,
+            None,
+            (catalog,),
+            self.artifacts,
+            source_snapshots=(snapshot,),
+        )
+        sessions = PreparationSessionRepository(self.database, self.artifacts)
+        bounded = prepare_bounded_direct_session(
+            workspace_state,
+            definition,
+            1,
+            selection,
+            selection,
+            (catalog,),
+            self.artifacts,
+            None,
+            sessions,
+            COLUMNAR_TRANSFORMATIONS,
+            actor=LOCAL_ACTOR,
+            source_snapshots=(snapshot,),
+        )
+
+        self.assertEqual(
+            tuple(bounded.run.rows),
+            materialized.canonical_run.rows,
+        )
+        self.assertEqual(len(materialized.prepared.records), 1)
+        self.assertEqual(
+            [row.disposition for row in bounded.run.rows],
+            [StagingDisposition.CANDIDATE, StagingDisposition.EXCLUDED],
+        )
+        self.assertEqual(bounded.run.reconciliation.excluded_rows, 1)
+        self.assertEqual(bounded.run.datasets[0].input_rows_used, 2)
 
     def test_prepared_backed_projection_detects_artifact_corruption(self) -> None:
         workspace_state, source_file, catalog = self._registered_csv(

@@ -101,6 +101,10 @@ def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("DROP TABLE IF EXISTS matching_order_protected_snapshot")
     connection.execute("DROP TABLE IF EXISTS matching_order_check_attempt")
     connection.execute("DROP TABLE IF EXISTS matching_order_check")
+    connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_confirmation")
+    connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_current")
+    connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_review_row")
+    connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_review")
     connection.execute("DROP TABLE IF EXISTS test_run_parameter_values")
     connection.execute("DROP TABLE IF EXISTS test_run_setup_binding")
     connection.execute("DROP TABLE schema_migration")
@@ -410,6 +414,11 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         11,
                         12,
                         "workspace-engine-v11-to-v12-matching-order-checks",
+                    ),
+                    (
+                        12,
+                        13,
+                        "workspace-engine-v12-to-v13-row-inclusion-review",
                     ),
                 ],
             )

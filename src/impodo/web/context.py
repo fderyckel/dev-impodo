@@ -65,9 +65,13 @@ from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.supporting_lookup_service import SupportingLookupService
 from ..application.run.target_matches import RecipeTargetMatchService
+from ..application.run.recipe_run_jobs import RecipeRunJobManager
 from ..application.workspace.preparation.recovery import PreparationRecoveryService
 from ..application.workspace.mapping.transformation_impact import (
     TransformationImpactService,
+)
+from ..application.workspace.mapping.row_inclusion_review import (
+    RowInclusionReviewService,
 )
 from impodo.application.shared.artifacts import WorkspaceArtifactStore
 from impodo.domain.odoo.contracts import (
@@ -203,6 +207,7 @@ class WebContext:
     matching_order: MatchingOrderService
     supporting_lookups: SupportingLookupService
     recipe_target_matches: RecipeTargetMatchService
+    recipe_run_jobs: RecipeRunJobManager | None
     categorical_coverage: CategoricalCoverageService
     preparation: PreparationService
     preparation_recovery: PreparationRecoveryService
@@ -218,6 +223,7 @@ class WebContext:
     corrections: CorrectionWorkflowService
     correction_jobs: CorrectionJobManager
     transformation_impacts: TransformationImpactService
+    row_inclusion_reviews: RowInclusionReviewService
     odoo_source_capture: OdooSourceCaptureService
     odoo_capture_publication: OdooCapturePublicationService
     odoo_capture_jobs: OdooCaptureJobManager | None

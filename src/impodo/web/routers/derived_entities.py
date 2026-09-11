@@ -1,7 +1,7 @@
 """Expose bounded related-dataset authoring between Stages B and D.
 
-Layer: web route. The router parses lookup-extraction and parent/child rules,
-then delegates preview and optimistic plan revisions to
+Layer: web route. The router parses lookup extraction, multi-column hierarchy,
+and parent/child rules, then delegates preview and optimistic plan revisions to
 ``DerivedEntityWorkspaceService``. A saved plan changes the effective datasets
 visible to mapping but never edits frozen source bytes.
 
@@ -42,7 +42,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
 
     @router.post("/workspaces/{workspace_id}/derived-entities/models/refresh")
     async def refresh_derived_entity_models(request: Request, workspace_id: str):
-        """Load existing Odoo record types and return to lookup extraction."""
+        """Load existing Odoo record types and return to the requesting form."""
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
@@ -67,8 +67,13 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             request,
             f"Loaded {len(catalog.models)} existing Odoo record type(s).",
         )
+        return_anchor = (
+            "hierarchy-extraction"
+            if request.query_params.get("return_to") == "hierarchy"
+            else "lookup-extraction"
+        )
         return RedirectResponse(
-            f"/workspaces/{workspace_id}/derived-entities#lookup-extraction",
+            f"/workspaces/{workspace_id}/derived-entities#{return_anchor}",
             status_code=303,
         )
 
@@ -201,6 +206,126 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             context,
             workspace_id,
             pending_lookup={"rule": rule, "preview": preview},
+        )
+
+    hierarchy_fields = {
+        "csrf_token",
+        "expected_parent_version",
+        "source_dataset_id",
+        "hierarchy_level_1",
+        "hierarchy_level_2",
+        "hierarchy_level_3",
+        "hierarchy_level_4",
+        "hierarchy_level_5",
+        "output_dataset_name",
+        "target_model",
+        "target_name_field",
+        "external_id_namespace",
+        "missing_parent_mode",
+        "missing_parent_value",
+        "missing_leaf",
+        "all_blank_mode",
+        "all_blank_value",
+    }
+
+    def hierarchy_values(form):
+        levels = tuple(
+            value
+            for index in range(1, 6)
+            for value in (_text(form, f"hierarchy_level_{index}"),)
+            if value
+        )
+        missing_parent_mode = _text(form, "missing_parent_mode")
+        all_blank_mode = _text(form, "all_blank_mode")
+        return {
+            "output_dataset_name": _text(form, "output_dataset_name"),
+            "source_dataset_id": _text(form, "source_dataset_id"),
+            "source_level_column_keys": levels,
+            "target_name_field": _text(form, "target_name_field"),
+            "external_id_namespace": _text(form, "external_id_namespace"),
+            "missing_parent_mode": missing_parent_mode,
+            "missing_parent_value": (
+                _text(form, "missing_parent_value") or None
+                if missing_parent_mode == "fixed"
+                else None
+            ),
+            "missing_leaf": _text(form, "missing_leaf"),
+            "all_blank_mode": all_blank_mode,
+            "all_blank_value": (
+                _text(form, "all_blank_value") or None
+                if all_blank_mode == "fixed"
+                else None
+            ),
+        }
+
+    @router.post("/workspaces/{workspace_id}/derived-entities/hierarchy/preview")
+    async def preview_workspace_hierarchy(request: Request, workspace_id: str):
+        form = await request.form()
+        _secure_form(request, form, hierarchy_fields)
+        try:
+            values = hierarchy_values(form)
+            workspace_state = context.queries.get(workspace_id)
+            target_model = _existing_catalog_model(
+                context,
+                workspace_state,
+                _text(form, "target_model"),
+            )
+            rule, preview = context.derived_entities.preview_hierarchy(
+                workspace_id,
+                **values,
+                target_model=target_model,
+            )
+        except (WorkspaceError, ValueError) as error:
+            return _render_derived_entities(
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=422,
+            )
+        return _render_derived_entities(
+            request,
+            context,
+            workspace_id,
+            pending_hierarchy={"rule": rule, "preview": preview},
+        )
+
+    @router.post("/workspaces/{workspace_id}/derived-entities/hierarchy/save")
+    async def save_workspace_hierarchy(request: Request, workspace_id: str):
+        form = await request.form()
+        _secure_form(request, form, hierarchy_fields)
+        try:
+            values = hierarchy_values(form)
+            workspace_state = context.queries.get(workspace_id)
+            target_model = _existing_catalog_model(
+                context,
+                workspace_state,
+                _text(form, "target_model"),
+            )
+            _plan, rule = context.derived_entities.save_hierarchy(
+                workspace_id,
+                **values,
+                target_model=target_model,
+                expected_parent_version=_optional_int(
+                    _text(form, "expected_parent_version")
+                ),
+                actor=context.actor,
+            )
+        except (WorkspaceError, ValueError) as error:
+            return _render_derived_entities(
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, f"Created the hierarchy table {rule.output_dataset_name}.")
+        return RedirectResponse(
+            (
+                f"/workspaces/{workspace_id}/derived-entities"
+                f"#lookup-rule-{rule.rule_id}"
+            ),
+            status_code=303,
         )
 
     @router.post("/workspaces/{workspace_id}/derived-entities/related/preview")

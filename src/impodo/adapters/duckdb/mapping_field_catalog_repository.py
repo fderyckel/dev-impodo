@@ -10,6 +10,7 @@ from ...application.workspace.mapping.field_catalog import (
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityRule,
+    HierarchicalLookupRule,
     RelatedDatasetRule,
 )
 from ...domain.mapping.artifacts import MappingRevision
@@ -176,7 +177,14 @@ class MappingFieldCatalogRepository(DuckDbRepository):
         return bool(
             plan
             and any(
-                isinstance(rule, (DerivedEntityRule, RelatedDatasetRule))
+                isinstance(
+                    rule,
+                    (
+                        DerivedEntityRule,
+                        HierarchicalLookupRule,
+                        RelatedDatasetRule,
+                    ),
+                )
                 for rule in plan.rules
             )
         )

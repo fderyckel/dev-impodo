@@ -2466,6 +2466,7 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             secret_store=self.secret_store,
             preparation_jobs_enabled=False,
             odoo_capture_jobs_enabled=False,
+            recipe_run_jobs_enabled=False,
         )
         with TestClient(browser_app) as browser:
             launched = browser.get(
@@ -3118,6 +3119,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             secret_store=MemorySecretStore(),
             preparation_jobs_enabled=False,
             odoo_capture_jobs_enabled=False,
+            recipe_run_jobs_enabled=False,
         )
         self.client = TestClient(self.app)
         launched = self.client.get(

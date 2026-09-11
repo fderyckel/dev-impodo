@@ -518,7 +518,7 @@ document.addEventListener("DOMContentLoaded", () => {
         choosesOdooDefault ||
         action.startsWith("set_disposition:") ||
         action.startsWith("clear_disposition:");
-      if (action === "submit" && dirty) {
+      if (["submit", "confirm_rows"].includes(action) && dirty) {
         saveRecovery.showFailure(
           "These changes have not been checked yet. Check matches before confirming. Your edits remain on this page."
         );
@@ -557,6 +557,8 @@ document.addEventListener("DOMContentLoaded", () => {
             "Saving the Odoo decision and checking matches...";
         } else if (changesFieldDisposition) {
           saveStatus.textContent = "Saving the Odoo-field decision...";
+        } else if (action === "confirm_rows") {
+          saveStatus.textContent = "Confirming checked rows...";
         } else if (action === "submit") {
           saveStatus.textContent = "Confirming checked matches...";
         } else {

@@ -1223,3 +1223,35 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Saved source tables", saved_page.text)
         self.assertIn("Tables ready for the next step", saved_page.text)
         self.assertNotIn('name="dataset_name_0"', saved_page.text)
+
+        hierarchy_page = self.client.get(
+            f"/workspaces/{workspace_id}/derived-entities"
+        )
+        self.assertEqual(hierarchy_page.status_code, 200)
+        self.assertIn(
+            "Build a hierarchy from separate fields",
+            hierarchy_page.text,
+        )
+        self.assertIn("Several fields form a hierarchy", hierarchy_page.text)
+        self.assertIn(
+            "models/refresh?return_to=hierarchy",
+            hierarchy_page.text,
+        )
+        self.assertIn('/static/derived-entities.js', hierarchy_page.text)
+        for section_id in (
+            "lookup-extraction",
+            "hierarchy-extraction",
+            "create-related-datasets",
+        ):
+            with self.subTest(section_id=section_id):
+                self.assertIn(
+                    f'id="{section_id}" data-derived-entity-section>',
+                    hierarchy_page.text,
+                )
+                self.assertIn(
+                    f'href="#{section_id}" data-derived-entity-trigger',
+                    hierarchy_page.text,
+                )
+        derived_script = self.client.get("/static/derived-entities.js")
+        self.assertEqual(derived_script.status_code, 200)
+        self.assertIn("section.open = true", derived_script.text)

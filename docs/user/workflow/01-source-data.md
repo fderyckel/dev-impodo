@@ -34,6 +34,9 @@ first complete the eligible-field capture described in
 6. Optionally open **Separate combined information** when combined information
    must become separate related tables.
 
+For a multi-column parent-and-child hierarchy, follow [Prepare related
+tables](../guides/related-tables.md#build-a-hierarchy-from-separate-fields).
+
 Once table choices are frozen, the file list cannot be changed in that data
 version.
 

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import StrEnum
-from threading import Condition, RLock, Thread
+from threading import RLock
 from uuid import uuid4
 
+from impodo.application.shared.serial_job_runner import (
+    SerialJobRunner,
+    SerialJobRunnerStoppedError,
+)
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.correction import CorrectionPlanError
 from impodo.domain.correction_origin import CorrectionOriginError
@@ -76,11 +79,8 @@ class CorrectionJobManager:
 
     def __init__(self) -> None:
         self._lock = RLock()
-        self._condition = Condition(self._lock)
         self._jobs: dict[str, CorrectionJob] = {}
-        self._pending: deque[tuple[str, CorrectionWork]] = deque()
-        self._worker: Thread | None = None
-        self._stopping = False
+        self._runner = SerialJobRunner(worker_name="impodo-correction")
 
     def enqueue(
         self,
@@ -90,9 +90,7 @@ class CorrectionJobManager:
         kind: CorrectionJobKind,
         work: CorrectionWork,
     ) -> CorrectionJob:
-        with self._condition:
-            if self._stopping:
-                raise ValueError("Correction jobs are stopping")
+        with self._lock:
             active = self._active_locked(completed_workspace_id)
             if active is not None:
                 return active
@@ -113,15 +111,15 @@ class CorrectionJobManager:
                 updated_at=now,
             )
             self._jobs[job.job_id] = job
-            self._pending.append((job.job_id, work))
-            if self._worker is None:
-                self._worker = Thread(
-                    target=self._run,
-                    name="impodo-correction",
-                    daemon=True,
+            try:
+                self._runner.submit(
+                    job.job_id,
+                    lambda: self._execute(job.job_id, work),
+                    discard=lambda: self._discard(job.job_id),
                 )
-                self._worker.start()
-            self._condition.notify()
+            except SerialJobRunnerStoppedError as error:
+                self._jobs.pop(job.job_id, None)
+                raise ValueError("Correction jobs are stopping") from error
             return job
 
     def get(self, completed_workspace_id: str, job_id: str) -> CorrectionJob:
@@ -151,66 +149,57 @@ class CorrectionJobManager:
             )
 
     def shutdown(self) -> None:
-        with self._condition:
-            self._stopping = True
-            while self._pending:
-                job_id, _work = self._pending.popleft()
-                self._store_failure(
-                    job_id,
-                    "Impodo stopped before this correction began.",
-                )
-            self._condition.notify_all()
-        if self._worker is not None:
-            self._worker.join(timeout=0.25)
+        self._runner.shutdown()
 
-    def _run(self) -> None:
-        while True:
-            with self._condition:
-                while not self._pending and not self._stopping:
-                    self._condition.wait()
-                if self._stopping:
-                    return
-                job_id, work = self._pending.popleft()
+    def _execute(self, job_id: str, work: CorrectionWork) -> None:
+        with self._lock:
+            job = self._jobs[job_id]
+            self._jobs[job_id] = replace(
+                job,
+                status=CorrectionJobStatus.RUNNING,
+                message="Checking current correction evidence",
+                progress_percent=5,
+                updated_at=_now(),
+            )
+        try:
+            result = work(
+                lambda percent, message: self._progress(
+                    job_id,
+                    percent,
+                    message,
+                )
+            )
+        except Exception as error:
+            with self._lock:
+                self._store_failure(job_id, _safe_message(error))
+        else:
+            with self._lock:
                 job = self._jobs[job_id]
+                now = _now()
                 self._jobs[job_id] = replace(
                     job,
-                    status=CorrectionJobStatus.RUNNING,
-                    message="Checking current correction evidence",
-                    progress_percent=5,
-                    updated_at=_now(),
+                    status=CorrectionJobStatus.SUCCEEDED,
+                    message=(
+                        "Correction review ready"
+                        if job.kind is CorrectionJobKind.REVIEW
+                        else (
+                            "Correction verified"
+                            if result.verified
+                            else "Correction outcome needs attention"
+                        )
+                    ),
+                    progress_percent=100,
+                    result=result,
+                    updated_at=now,
+                    finished_at=now,
                 )
-            try:
-                result = work(
-                    lambda percent, message: self._progress(
-                        job_id,
-                        percent,
-                        message,
-                    )
-                )
-            except Exception as error:
-                with self._lock:
-                    self._store_failure(job_id, _safe_message(error))
-            else:
-                with self._lock:
-                    job = self._jobs[job_id]
-                    now = _now()
-                    self._jobs[job_id] = replace(
-                        job,
-                        status=CorrectionJobStatus.SUCCEEDED,
-                        message=(
-                            "Correction review ready"
-                            if job.kind is CorrectionJobKind.REVIEW
-                            else (
-                                "Correction verified"
-                                if result.verified
-                                else "Correction outcome needs attention"
-                            )
-                        ),
-                        progress_percent=100,
-                        result=result,
-                        updated_at=now,
-                        finished_at=now,
-                    )
+
+    def _discard(self, job_id: str) -> None:
+        with self._lock:
+            self._store_failure(
+                job_id,
+                "Impodo stopped before this correction began.",
+            )
 
     def _progress(self, job_id: str, percent: int, message: str) -> None:
         with self._lock:

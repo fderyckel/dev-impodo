@@ -24,6 +24,7 @@ from ..mapping.contracts import (
     MappingDefinition,
     RelationshipValueSource,
     ResolverOrigin,
+    RowInclusionMode,
     ScalarFieldMapping,
     ScalarValueSource,
     TargetFieldHandling,
@@ -82,6 +83,7 @@ class ColumnarOperationKind(StrEnum):
     """Every operation currently considered by the capability compiler."""
 
     READ_SOURCE = "read_source"
+    ROW_INCLUSION = "row_inclusion"
     USE_CONSTANT = "use_constant"
     SOURCE_FALLBACK = "source_fallback"
     CONCATENATE_SOURCE_COLUMNS = "concatenate_source_columns"
@@ -181,6 +183,11 @@ def _oracle(
 
 COLUMNAR_CAPABILITY_MATRIX = (
     _native(ColumnarOperationKind.READ_SOURCE),
+    _oracle(
+        ColumnarOperationKind.ROW_INCLUSION,
+        "COLUMNAR_ROW_INCLUSION_UNSUPPORTED",
+        "Row inclusion currently requires the bounded Python evaluator.",
+    ),
     _native(ColumnarOperationKind.USE_CONSTANT),
     _native(ColumnarOperationKind.SOURCE_FALLBACK),
     _native(ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS),
@@ -964,6 +971,10 @@ def _compile_dataset(
     draft = _CompilationDraft(uses=[], required_keys=set())
     if dataset_kind is not ColumnarDatasetKind.DIRECT:
         draft.use(ColumnarOperationKind.NON_DIRECT_DATASET, "/dataset_kind")
+    if authored.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS:
+        for condition in authored.row_inclusion.conditions:
+            _require_column(condition.source_column_key, columns, draft)
+        draft.use(ColumnarOperationKind.ROW_INCLUSION, "/row_inclusion")
 
     source_identity = tuple(
         _source_identity_component(key, columns, draft, index)

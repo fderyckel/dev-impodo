@@ -11,7 +11,9 @@ status: current
 Match data builds a portable mapping definition from frozen source datasets to
 the governed Odoo schema. It owns recoverable drafts, immutable revisions,
 semantic validation, exact submission, and an optional transformation-impact
-preview with optional review decisions. It also projects one checked revision
+preview with optional review decisions. It owns guided source-row inclusion,
+checked row-decision evidence, bounded review, and exact confirmation before
+submission when a rule excludes rows. It also projects one checked revision
 and its validation result into a portable matching review workbook. For a
 bounded file source, that workbook may re-evaluate the exact frozen rows in
 memory to show non-authoritative proposed values and changed-cell lineage.
@@ -51,6 +53,33 @@ revision, validation, and submission evidence. Domain validation checks scalar
 providers, conversions, identities, relationships, write scope, and coverage.
 `TransformationImpactService` evaluates the checked rules against frozen source
 values without changing source evidence.
+
+`mapping_forms.py` strictly allowlists eight row-inclusion condition slots per
+dataset. It constructs only the closed version-16 `RowInclusionPolicy` shape;
+inactive dataset editors preserve their existing policy, and `all_rows`
+rejects a populated condition payload. `mapping-row-inclusion.js` controls
+progressive disclosure only. Domain construction and semantic validation stay
+authoritative when JavaScript is absent or bypassed.
+
+After a semantically valid **Check matches**, `RowInclusionReviewService`
+reuses the bounded browser staging oracle. It publishes one immutable review
+whose identity binds physical and effective source selections, mapping,
+schema, derived plan, and evaluator version. The report reconciles every
+governed dataset as included, excluded, or cannot-evaluate before the current
+pointer changes. `GET /workspaces/{workspace_id}/mapping/rows-to-use` returns
+at most 100 protected decisions per request with server-side dataset, outcome,
+value, and cursor filters. It performs no Odoo read and cannot mutate mapping
+meaning.
+
+If a current review excludes rows, `CONFIRM_ROWS` records approval for the
+exact snapshot, mapping hash, and source-selection hash. The confirmation and
+mapping mutation receipt commit in one DuckDB transaction. Zero included rows
+or any cannot-evaluate decision blocks confirmation. A review with no excluded
+rows needs no redundant click. `MappingWorkspaceService.submit_current`
+requires this exact current evidence for every `matching_rows` policy before
+it can create `MappingSubmission`. Normal mapping version conflicts, CSRF,
+same-origin checks, project-scoped capabilities, and receipt recovery apply to
+the new action.
 
 `MatchingOrderService` combines confirmed dependencies from saved incoming
 resolvers and source-preparation links with preliminary, unambiguous hints from
@@ -246,6 +275,15 @@ can apply its default. Transformations, null behavior, comparison policy, and
 relationship resolution use closed, versioned choices rather than arbitrary
 code.
 
+Mapping contract version 16 adds `RowInclusionPolicy` to each dataset with an
+`all_rows` default. `matching_rows` contains one to eight distinct, stable
+conditions joined by `all` or `any`. Each condition uses a stable source-column
+key, a closed comparison operator, one supported scalar type, and a bounded
+comparison value where required. `evaluate_source_condition` is the shared
+typed comparison oracle. An unparseable typed source value is
+cannot-evaluate, not a silent exclusion. Older readable contracts project to
+`all_rows` without changing their stored layout.
+
 Mapping contract version 15 adds `RelationshipValueSource`. Existing
 relationships decode as `source`; `constant_existing` is limited to a
 many2one that uses `target_catalog` resolution and `replace` semantics.
@@ -269,6 +307,19 @@ stable source-column keys in order, a separator of at most 20 characters,
 Odoo `char` or `text` target with canonical string output. The contract rejects
 a concatenation that also carries a single source, literal, fallback,
 conditional rules, inline value matches, reference lookup, or formula.
+
+The concatenation provider cannot define a generated-dataset identity or a
+relationship reference. `HierarchicalLookupRule` owns that separate Stage 1
+meaning. For any generated hierarchy model, the mapping presenter recommends
+the active generated dataset for its parent only when the captured schema has
+exactly one compatible self-referential many2one. It recommends the same
+generated dataset to a consumer only when that consumer has exactly one
+compatible many2one. Both recommendations use generated complete-path keys and
+do not widen scalar concatenation or assume category-specific field names.
+The generated table's parent source option is labelled **(this generated
+table)** in the browser so it remains distinguishable from the original source
+table. That wording is presentation only; the saved relationship continues to
+use the generated dataset identifier and complete-path business key.
 
 Version 14 retains the `conditional_rules` scalar provider introduced in
 version 12. A `SelectionRuleSet` preserves author order, applies
@@ -458,6 +509,12 @@ validation result for the malformed formula.
 | Semantic validator | [`validator.py`](../../../src/impodo/domain/mapping/validation/validator.py) |
 | Governed-reference policy | [`reference_keys.py`](../../../src/impodo/domain/workspace/reference_keys.py) |
 | Shared scalar, concatenation, and conditional-rule evaluator | [`scalar_values.py`](../../../src/impodo/domain/mapping/scalar_values.py) |
+| Shared dataset row-inclusion evaluator | [`row_inclusion.py`](../../../src/impodo/domain/mapping/row_inclusion.py) |
+| Row-inclusion review contracts | [`row_inclusion_review.py`](../../../src/impodo/domain/mapping/row_inclusion_review.py) |
+| Row-inclusion check and confirmation use case | [`RowInclusionReviewService`](../../../src/impodo/application/workspace/mapping/row_inclusion_review.py) |
+| Protected row-review persistence and paging | [`RowInclusionReviewRepository`](../../../src/impodo/adapters/duckdb/row_inclusion_review_repository.py) |
+| Guided rows-to-use controls | [`_row_inclusion.html`](../../../src/impodo/web/templates/mapping/_row_inclusion.html) and [`mapping-row-inclusion.js`](../../../src/impodo/web/static/mapping-row-inclusion.js) |
+| Checked-row review page | [`row_inclusion_review.html`](../../../src/impodo/web/templates/mapping/row_inclusion_review.html) |
 | Categorical source-domain scan | [`CategoricalCoverageService`](../../../src/impodo/application/workspace/mapping/categorical_coverage.py) |
 | Native scalar-provider compiler | [`columnar_transformation.py`](../../../src/impodo/domain/compiler/columnar_transformation.py) |
 | Row relationship preparation | [`source.py`](../../../src/impodo/domain/preparation/source.py) |
@@ -481,6 +538,7 @@ validation result for the malformed formula.
 | Same-port server process supervision | [`server_supervisor.py`](../../../src/impodo/web/server_supervisor.py) |
 | Browser heartbeat and disconnected state | [`server-recovery.js`](../../../src/impodo/web/static/server-recovery.js) |
 | Authenticated recovery-state screenshot capture | [`capture_match_data_recovery_screenshots.py`](../../../scripts/capture_match_data_recovery_screenshots.py) |
+| Authenticated hierarchy-tutorial screenshot capture | [`capture_hierarchy_tutorial_screenshots.py`](../../../scripts/capture_hierarchy_tutorial_screenshots.py) |
 | Safe-formula parser | [`value_rules.py`](../../../src/impodo/domain/recipe/value_rules.py) |
 | Formula authoring issue projection | [`mapping_formula_authoring.py`](../../../src/impodo/web/mapping_formula_authoring.py) |
 | Browser-to-runtime mapping compiler | [`browser_mapping_compiler.py`](../../../src/impodo/domain/compiler/browser_mapping_compiler.py) |
@@ -510,6 +568,12 @@ resulting draft/revision content; it cannot make a draft valid or submitted.
 approval evidence. Its source-selection hash supports deterministic display
 reconciliation only. Its dataset order is excluded from mapping and Recipe
 JSON and from every preparation, preflight, compiled-plan, and execution hash.
+`RowInclusionReviewSnapshot` is protected, immutable checked evidence rather
+than mapping meaning. Its current pointer is useful only when the complete
+review identity matches current inputs. `RowInclusionReviewConfirmation`
+approves that snapshot; it does not alter the accepted Data version or permit
+an invalid mapping. Workspace-engine schema version 13 adds the review rows,
+current pointer, and confirmation tables through a forward-only migration.
 
 ## Completion and navigation
 
@@ -682,6 +746,15 @@ presents. The helper stops the isolated server to
 exercise the real heartbeat; it does not edit an operator workspace or use
 operational source data.
 
+`capture_hierarchy_tutorial_screenshots.py::capture` creates an isolated
+fictional Product workspace and drives the same authenticated application and
+Edge viewport. It captures the Stage 1 hierarchy setup and preview, the
+generated model's self-parent relationship, and the original Product model's
+relationship to the generated table. The fixture covers a complete path, a
+missing parent supplied as `Default`, a missing leaf resolved to the deepest
+populated level, and an entirely blank path. It uses no operator workspace or
+operational source data.
+
 - [`tests/integration/web/test_mapping_forms.py`](../../../tests/integration/web/test_mapping_forms.py)
 - [`tests/domain/mapping/test_validation.py`](../../../tests/domain/mapping/test_validation.py)
 - [`tests/domain/mapping/test_selection_rules.py`](../../../tests/domain/mapping/test_selection_rules.py)
@@ -700,14 +773,21 @@ operational source data.
 - [`tests/application/workspace/mapping/test_matching_order_live_check.py`](../../../tests/application/workspace/mapping/test_matching_order_live_check.py)
 - [`tests/integration/duckdb/test_matching_order_repository.py`](../../../tests/integration/duckdb/test_matching_order_repository.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
+- [`tests/integration/duckdb/test_row_inclusion_review_repository.py`](../../../tests/integration/duckdb/test_row_inclusion_review_repository.py)
+- [`tests/domain/mapping/test_row_inclusion.py`](../../../tests/domain/mapping/test_row_inclusion.py)
 - [`tests/domain/mapping/test_concatenation.py`](../../../tests/domain/mapping/test_concatenation.py)
 - [`tests/integration/columnar/test_polars_transformation.py`](../../../tests/integration/columnar/test_polars_transformation.py)
+- [`tests/application/workspace/test_derived_entities.py`](../../../tests/application/workspace/test_derived_entities.py)
 
 Verify draft recovery, stale versions, semantic validation, concatenation
 order, both blank-part policies, native parity, Recipe rebinding, relation modes,
 ordered transformations, optional zero-match and overlap review, hash binding,
 direct exact submission, target-first reuse without updates, case-sensitive
 relationship matching, incoming fallback, and required Stage 4 review.
+For rows to use, verify strict bounded form fields, pre-transformation
+evaluation, reconciled included/excluded/cannot-evaluate counts, zero-included
+blocking, 100-row server paging, exact evidence identity, explicit confirmation,
+submission gating, stale-version rejection, CSRF, and project access.
 For constant existing relationships, verify strict v14 compatibility, closed
 v15 provider shapes, governed key and scope order, browser save without a
 source column, row/native parity, one distinct request for 10,000 rows, Recipe
@@ -737,3 +817,5 @@ Run the focused Mapping package with:
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
 - [Canonical staging contract](../contracts/canonical-staging.md)
 - [Optional Recipe publication contract](../contracts/recipe-lifecycle.md)
+- [Multi-column hierarchy design](../../plans/multi-column-hierarchical-related-records.md)
+- [Source-row inclusion design](../../plans/source-row-inclusion-rules.md)

@@ -13,10 +13,14 @@ from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityPreview,
     DerivedEntityRule,
+    HierarchicalLookupRule,
+    HierarchyValuePolicy,
+    LookupRule,
     RelatedDatasetPreview,
     RelatedDatasetRule,
     SourceFileCatalogView,
     _related_source_dataset,
+    _hierarchy_source_dataset,
     _rule_dataset_names,
     _source_dataset,
     preview_derived_entities,
@@ -214,7 +218,7 @@ class DerivedEntityWorkspaceService:
 
     @staticmethod
     def _validate_lookup_rule_availability(
-        rule: DerivedEntityRule,
+        rule: LookupRule,
         selection: SourceSelection,
         current: DerivedEntityPlan | None,
     ) -> None:
@@ -224,6 +228,159 @@ class DerivedEntityWorkspaceService:
             raise WorkspaceError(
                 "Derived dataset names must be unique in the workspace"
             )
+
+    def preview_hierarchy(
+        self,
+        workspace_id: str,
+        *,
+        output_dataset_name: str,
+        source_dataset_id: str,
+        source_level_column_keys: tuple[str, ...],
+        target_model: str,
+        target_name_field: str,
+        external_id_namespace: str,
+        missing_parent_mode: str,
+        missing_parent_value: str | None,
+        missing_leaf: str,
+        all_blank_mode: str,
+        all_blank_value: str | None,
+    ) -> tuple[HierarchicalLookupRule, DerivedEntityPreview]:
+        """Validate and preview an ordered multi-column hierarchy."""
+
+        selection = self.sources.get_source_selection(workspace_id)
+        if selection is None:
+            raise WorkspaceError("Freeze source datasets before deriving entities")
+        current = self.derived_entities.get_derived_entity_plan(workspace_id)
+        rule = self._hierarchy_rule(
+            selection,
+            output_dataset_name=output_dataset_name,
+            source_dataset_id=source_dataset_id,
+            source_level_column_keys=source_level_column_keys,
+            target_model=target_model,
+            target_name_field=target_name_field,
+            external_id_namespace=external_id_namespace,
+            missing_parent_mode=missing_parent_mode,
+            missing_parent_value=missing_parent_value,
+            missing_leaf=missing_leaf,
+            all_blank_mode=all_blank_mode,
+            all_blank_value=all_blank_value,
+        )
+        self._validate_lookup_rule_availability(rule, selection, current)
+        return (
+            rule,
+            preview_derived_entities(
+                rule,
+                selection,
+                self.sources.get_source_catalogs(workspace_id),
+            ),
+        )
+
+    def save_hierarchy(
+        self,
+        workspace_id: str,
+        *,
+        output_dataset_name: str,
+        source_dataset_id: str,
+        source_level_column_keys: tuple[str, ...],
+        target_model: str,
+        target_name_field: str,
+        external_id_namespace: str,
+        missing_parent_mode: str,
+        missing_parent_value: str | None,
+        missing_leaf: str,
+        all_blank_mode: str,
+        all_blank_value: str | None,
+        expected_parent_version: int | None,
+        actor: Actor,
+    ) -> tuple[DerivedEntityPlan, HierarchicalLookupRule]:
+        """Append one reviewed multi-column hierarchy rule."""
+
+        self.authorization.require(
+            actor,
+            Capability.NORMALIZATION_DECIDE,
+            workspace_id=workspace_id,
+        )
+        selection = self.sources.get_source_selection(workspace_id)
+        if selection is None:
+            raise WorkspaceError("Freeze source datasets before deriving entities")
+        current = self.derived_entities.get_derived_entity_plan(workspace_id)
+        actual_parent = current.version if current else None
+        if expected_parent_version != actual_parent:
+            raise WorkspaceError(
+                "The derived-entity plan was modified by another request; reload it"
+            )
+        if current and current.source_selection_hash != selection.content_hash:
+            raise WorkspaceError(
+                "The derived-entity plan is stale; rebuild it from the frozen datasets"
+            )
+        rule = self._hierarchy_rule(
+            selection,
+            output_dataset_name=output_dataset_name,
+            source_dataset_id=source_dataset_id,
+            source_level_column_keys=source_level_column_keys,
+            target_model=target_model,
+            target_name_field=target_name_field,
+            external_id_namespace=external_id_namespace,
+            missing_parent_mode=missing_parent_mode,
+            missing_parent_value=missing_parent_value,
+            missing_leaf=missing_leaf,
+            all_blank_mode=all_blank_mode,
+            all_blank_value=all_blank_value,
+        )
+        self._validate_lookup_rule_availability(rule, selection, current)
+        plan = DerivedEntityPlan(
+            plan_id=current.plan_id if current else str(uuid4()),
+            version=(current.version + 1 if current else 1),
+            workspace_id=workspace_id,
+            source_selection_hash=selection.content_hash,
+            rules=(*(current.rules if current else ()), rule),
+            updated_at=datetime.now(timezone.utc),
+            updated_by=actor.identity.display_name,
+        )
+        self.derived_entities.save_derived_entity_plan(
+            workspace_id,
+            plan,
+            expected_parent_version=actual_parent,
+            actor=actor,
+        )
+        return plan, rule
+
+    @staticmethod
+    def _hierarchy_rule(
+        selection: SourceSelection,
+        *,
+        output_dataset_name: str,
+        source_dataset_id: str,
+        source_level_column_keys: tuple[str, ...],
+        target_model: str,
+        target_name_field: str,
+        external_id_namespace: str,
+        missing_parent_mode: str,
+        missing_parent_value: str | None,
+        missing_leaf: str,
+        all_blank_mode: str,
+        all_blank_value: str | None,
+    ) -> HierarchicalLookupRule:
+        rule = HierarchicalLookupRule(
+            rule_id=str(uuid4()),
+            output_dataset_name=output_dataset_name,
+            source_dataset_id=source_dataset_id,
+            source_level_column_keys=source_level_column_keys,
+            target_model=target_model,
+            target_name_field=target_name_field,
+            external_id_namespace=external_id_namespace,
+            missing_parent=HierarchyValuePolicy(
+                mode=missing_parent_mode,
+                value=missing_parent_value,
+            ),
+            missing_leaf=missing_leaf,
+            all_blank=HierarchyValuePolicy(
+                mode=all_blank_mode,
+                value=all_blank_value,
+            ),
+        )
+        _hierarchy_source_dataset(selection, rule)
+        return rule
 
     def preview_related_split(
         self,
@@ -423,7 +580,7 @@ class DerivedEntityWorkspaceService:
     def preview(
         self,
         workspace_id: str,
-        rule: DerivedEntityRule,
+        rule: LookupRule,
     ) -> DerivedEntityPreview:
         """Build a bounded lookup-extraction preview from current source catalogs."""
 

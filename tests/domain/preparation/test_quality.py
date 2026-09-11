@@ -992,6 +992,59 @@ class QualityEvaluationTests(unittest.TestCase):
             1,
         )
 
+    def test_row_inclusion_exclusions_bypass_business_quality_checks(self) -> None:
+        candidate = replace(
+            _canonical_row("5", 2),
+            proposed_values={"name": "Included", "email": None},
+        )
+        excluded = replace(
+            _canonical_row("6", 3),
+            disposition=StagingDisposition.EXCLUDED,
+            source_identity=(),
+            target_identity=(),
+            proposed_values={},
+        )
+        staging = _staging(
+            self.workspace_state.workspace_id,
+            (candidate, excluded),
+        )
+        business_rule = manager_quality_rule(
+            workspace_id=self.workspace_state.workspace_id,
+            dataset="contacts",
+            family=QualityRuleFamily.EXACTLY_ONE_OF,
+            name="One contact channel",
+            input_fields=("name", "email"),
+            outcome=QualityOutcomePolicy.WARNING,
+        )
+        ruleset = default_quality_ruleset(
+            workspace_id=self.workspace_state.workspace_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+            manager_rules=(business_rule,),
+        )
+
+        run = evaluate_quality(
+            workspace_state=self.workspace_state,
+            staging=staging,
+            physical_rows={"dataset:contacts": (2, 3)},
+            ruleset=ruleset,
+        )
+
+        by_row = {item.source_row: item for item in run.row_results}
+        self.assertEqual(run.ready_count, 1)
+        self.assertEqual(run.excluded_count, 1)
+        self.assertEqual(run.review_count, 0)
+        self.assertEqual(
+            by_row[3].effective_disposition,
+            QualityDisposition.EXCLUDED,
+        )
+        self.assertEqual(by_row[3].issue_ids, ())
+        self.assertNotIn(
+            "BUSINESS_CHECK_FAILED",
+            {issue.reason_code for issue in run.issues},
+        )
+
     def test_set_aside_row_never_enters_odoo_record_request_plan(self) -> None:
         profile = compile_profile_document(
             load_profile(ROOT / "profiles/examples/golden_slice.yaml")

@@ -177,6 +177,14 @@ class TransformationImpactService:
 
         return self._context(workspace_id, require_valid=True)
 
+    def mapping_review_context(
+        self,
+        workspace_id: str,
+    ) -> TransformationImpactContext:
+        """Resolve one exact checked revision, including invalid field checks."""
+
+        return self._context(workspace_id, require_valid=False)
+
     def _context(
         self,
         workspace_id: str,

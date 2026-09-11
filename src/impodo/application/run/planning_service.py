@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from impodo.domain.shared.access import Actor, AuthorizationPolicy
 from impodo.application.data_version.service import DataVersionService
@@ -262,6 +262,7 @@ class MigrationRunPlanningService:
         actor: Actor,
         fault: FaultInjector | None = None,
         control_values: Mapping[str, Mapping[str, str]] | None = None,
+        progress: Callable[[int, int, str], None] | None = None,
     ) -> IntegratedRunBundle:
         return self._test_activation.activate(
             project_id,
@@ -275,6 +276,7 @@ class MigrationRunPlanningService:
             operation_id=operation_id,
             actor=actor,
             fault=fault,
+            progress=progress,
         )
 
     def activate_production_run(

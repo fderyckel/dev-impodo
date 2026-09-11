@@ -40,6 +40,8 @@
             {% endfor %}
           </template>
 
+          {% include "mapping/_row_inclusion.html" %}
+
           {% if view.odoo_pinned %}
           <input type="hidden" name="target_model_{{ dataset_index }}" value="{{ view.selected_model }}">
           <input type="hidden" name="mode_{{ dataset_index }}" value="odoo_pinned_update">
@@ -149,7 +151,7 @@
                           <select name="identity_dataset_{{ dataset_index }}_{{ loop.index0 }}">
                             <option value="">Not from another table</option>
                             {% for candidate in row.related_datasets %}
-                              <option value="{{ candidate.dataset_id }}" {% if row.selected_dataset_id == candidate.dataset_id %}selected{% endif %}>{{ candidate.name }}</option>
+                              <option value="{{ candidate.dataset_id }}" {% if row.selected_dataset_id == candidate.dataset_id %}selected{% endif %}>{{ candidate.name }}{% if candidate.dataset_id == view.source.dataset_id %} (this generated table){% endif %}</option>
                             {% endfor %}
                           </select>
                           <small>Choose a table mapped to {{ row.metadata.relation }} when incoming records are allowed.</small>

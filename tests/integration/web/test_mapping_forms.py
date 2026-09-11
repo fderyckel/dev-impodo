@@ -7,12 +7,17 @@ import json
 import unittest
 from dataclasses import replace
 from types import SimpleNamespace
+from uuid import uuid4
 
 from jinja2 import Environment, FileSystemLoader
 from starlette.datastructures import FormData
 
 from impodo.domain.mapping.contracts import (
-    BusinessControlDefinition, MappingControlExpectation, RelationshipValueSource, ResolverOrigin,
+    BusinessControlDefinition,
+    MappingControlExpectation,
+    RelationshipValueSource,
+    ResolverOrigin,
+    RowInclusionPolicy,
 )
 from impodo.domain.matching_order import (
     MatchingOrderConfidence,
@@ -32,6 +37,7 @@ from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.presenters.mapping_forms import (
     _mapping_allowed_fields,
     _mapping_datasets_from_form,
@@ -42,10 +48,17 @@ from impodo.web.presenters.mapping_view import (
     _mapping_dataset_views,
     _matching_order_custom_warnings,
     _ordered_mapping_dataset_views,
+    _row_inclusion_slots,
 )
 
 
 class OrderedTextStepFormTests(unittest.TestCase):
+    def test_rows_to_use_starts_with_one_visible_condition(self) -> None:
+        slots = _row_inclusion_slots("dataset:products", RowInclusionPolicy())
+
+        self.assertEqual(len(slots), 8)
+        self.assertEqual(sum(bool(slot["visible"]) for slot in slots), 1)
+
     def test_recommended_display_order_preserves_stable_form_indexes(self) -> None:
         views = (
             {"index": 0, "source": SimpleNamespace(dataset_id="consumer")},
@@ -645,6 +658,76 @@ class OrderedTextStepFormTests(unittest.TestCase):
             _text_steps_from_form(oversized, "steps")
         self.assertEqual(_text_steps_from_form(FormData(), "steps"), ())
 
+    def test_rows_to_use_form_is_bounded_and_strictly_allowlisted(self) -> None:
+        source = SourceDataset(
+            dataset_id="dataset:products",
+            name="Products",
+            source=FileSourceBinding(
+                file_id="file:products",
+                table_key="csv",
+                source_sha256="a" * 64,
+                catalog_hash="sha256:" + "b" * 64,
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            ),
+            row_count=3,
+            columns=(
+                SourceDatasetColumn(
+                    1,
+                    "Code statut product",
+                    "column:status",
+                    "string",
+                ),
+            ),
+        )
+        selection = SimpleNamespace(datasets=(source,))
+        schema = SimpleNamespace(
+            models=(SchemaModel("product.template", "Product", ()),)
+        )
+        condition_id = str(uuid4())
+        form = FormData(
+            (
+                ("target_model_0", "product.template"),
+                ("row_inclusion_mode_0", "matching_rows"),
+                ("row_inclusion_join_0", "all"),
+                ("row_inclusion_condition_id_0_0", condition_id),
+                ("row_inclusion_source_0_0", "column:status"),
+                ("row_inclusion_operator_0_0", "equals"),
+                ("row_inclusion_value_0_0", "30"),
+                ("row_inclusion_type_0_0", "string"),
+            )
+        )
+
+        allowed = _mapping_allowed_fields(form, selection, schema)
+        mapping = _mapping_datasets_from_form(
+            form,
+            selection,
+            schema,
+            SimpleNamespace(business_keys=()),
+        )[0]
+
+        self.assertIn("row_inclusion_mode_0", allowed)
+        self.assertIn("row_inclusion_source_0_7", allowed)
+        self.assertNotIn("row_inclusion_source_0_8", allowed)
+        self.assertEqual(mapping.row_inclusion.conditions[0].condition_id, condition_id)
+        self.assertEqual(mapping.row_inclusion.conditions[0].comparison_value, "30")
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "Use-every-row mode",
+        ):
+            _mapping_datasets_from_form(
+                FormData(
+                    (
+                        *form.multi_items(),
+                        ("row_inclusion_mode_0", "all_rows"),
+                    )
+                ),
+                selection,
+                schema,
+                SimpleNamespace(business_keys=()),
+            )
+
     def test_retired_single_rule_form_names_are_not_allowed(self) -> None:
         selection = SimpleNamespace(datasets=(SimpleNamespace(),))
         schema = SimpleNamespace(
@@ -663,6 +746,8 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIn("scalar_concat_source_0_0_0", allowed)
         self.assertIn("scalar_concat_source_0_0_4", allowed)
         self.assertIn("scalar_concat_separator_0_0", allowed)
+        self.assertIn("row_inclusion_mode_0", allowed)
+        self.assertIn("row_inclusion_condition_id_0_7", allowed)
         self.assertIn("identity_origin_0_0", allowed)
         self.assertIn("identity_dataset_0_0", allowed)
         self.assertNotIn("scalar_search_0_0", allowed)
@@ -746,10 +831,13 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIn("/mapping-formula-validation.js", template)
         self.assertIn("/mapping-value-rules.js", template)
         self.assertIn("/mapping-catalogs.js", template)
+        self.assertIn("/mapping-row-inclusion.js", template)
         self.assertIn("/mapping.js", template)
         self.assertIn(".scalar-table-scroll-top", styles)
         self.assertIn(".mapping-save-state.unsaved", styles)
         self.assertIn(".mapping-table-fields-toggle", styles)
+        self.assertIn("[data-row-inclusion-condition][hidden]", styles)
+        self.assertIn("display: none !important", styles)
         self.assertIn("window.impodoMappingPosition", script)
         self.assertIn("[data-mapping-form]", script)
         self.assertIn("[data-table-fields-toggle]", script)

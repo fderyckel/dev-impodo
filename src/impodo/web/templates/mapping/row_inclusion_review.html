@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Review rows to use &middot; {{ migration_project.display_name }} &middot; Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Stage 3 of 6 &middot; Rows to use</p>
+      <h1>Review checked source rows</h1>
+      <p>These decisions use the saved rule and accepted Data version. Changing a page filter does not change which rows are included.</p>
+    </div>
+    <span class="status registered">Read only</span>
+  </div>
+
+  <section class="impact-cards" aria-label="Rows-to-use counts">
+    <article class="impact-card unchanged"><span>Rows checked</span><strong>{{ snapshot.source_row_count }}</strong></article>
+    <a class="impact-card provided{% if filters.outcome == 'included' %} selected{% endif %}" href="/workspaces/{{ workspace_id }}/mapping/rows-to-use?outcome=included"><span>Included</span><strong>{{ snapshot.included_count }}</strong></a>
+    <a class="impact-card null{% if filters.outcome == 'excluded' %} selected{% endif %}" href="/workspaces/{{ workspace_id }}/mapping/rows-to-use?outcome=excluded"><span>Excluded by rule</span><strong>{{ snapshot.excluded_count }}</strong></a>
+    <a class="impact-card invalid{% if filters.outcome == 'cannot_evaluate' %} selected{% endif %}" href="/workspaces/{{ workspace_id }}/mapping/rows-to-use?outcome=cannot_evaluate"><span>Needs attention</span><strong>{{ snapshot.cannot_evaluate_count }}</strong></a>
+  </section>
+
+  <section class="form-card">
+    <form class="impact-tools" method="get" action="/workspaces/{{ workspace_id }}/mapping/rows-to-use">
+      <label>
+        Table
+        <select name="dataset">
+          <option value="">All tables</option>
+          {% for result in snapshot.datasets %}
+            <option value="{{ result.dataset_id }}" {% if filters.dataset_id == result.dataset_id %}selected{% endif %}>{{ result.dataset_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Decision
+        <select name="outcome">
+          <option value="">All decisions</option>
+          <option value="included" {% if filters.outcome == 'included' %}selected{% endif %}>Included</option>
+          <option value="excluded" {% if filters.outcome == 'excluded' %}selected{% endif %}>Excluded by rule</option>
+          <option value="cannot_evaluate" {% if filters.outcome == 'cannot_evaluate' %}selected{% endif %}>Needs attention</option>
+        </select>
+      </label>
+      <label>
+        Search values
+        <input type="search" name="q" value="{{ filters.query }}" maxlength="128">
+      </label>
+      <div class="actions impact-filter-actions">
+        <button class="button primary" type="submit">Apply filters</button>
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/rows-to-use">Clear</a>
+      </div>
+    </form>
+
+    <p class="muted" role="status">
+      {% if page.matching_count %}Showing {{ page.start_position }}&ndash;{{ page.end_position }} of {{ page.matching_count }} matching rows.{% else %}No rows match the current filters.{% endif %}
+    </p>
+    {% if page.rows %}
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr><th>Table</th><th>Source row</th><th>Relevant source value</th><th>Decision</th><th>Rule</th></tr></thead>
+          <tbody>
+            {% for row in page.rows %}
+              <tr>
+                <td>{{ row.dataset_name }}</td>
+                <td>{{ row.source_row }}</td>
+                <td>
+                  {% for value in row.values %}
+                    <div><strong>{{ value.source_column_label }}:</strong> <code>{{ value.value }}</code></div>
+                  {% endfor %}
+                  {% if row.message %}<small>{{ row.message }}</small>{% endif %}
+                </td>
+                <td>
+                  {% if row.outcome.value == 'included' %}<span class="status ready">Included</span>
+                  {% elif row.outcome.value == 'excluded' %}<span class="status registered">Excluded by rule</span>
+                  {% else %}<span class="status needs_review">Needs attention</span>{% endif %}
+                </td>
+                <td>{{ row.rule_sentence }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+    {% if previous_url or next_url %}
+      <nav class="impact-pagination" aria-label="Checked row pages">
+        {% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Previous 100</a>{% endif %}
+        <span class="muted">Up to 100 rows per page</span>
+        {% if next_url %}<a class="button secondary" href="{{ next_url }}">Next 100</a>{% endif %}
+      </nav>
+    {% endif %}
+  </section>
+
+  <div class="actions">
+    <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping#rows-to-use-review">Return to Match data</a>
+  </div>
+{% endblock %}

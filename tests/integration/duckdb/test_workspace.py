@@ -62,6 +62,8 @@ from impodo.application.schema_workspace_service import SchemaWorkspaceService
 from impodo.application.source_workspace_service import SourceWorkspaceService
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
+    HierarchicalLookupRule,
+    HierarchyValuePolicy,
     RelatedDatasetRule,
 )
 from impodo.domain.workspace.contracts import (
@@ -255,6 +257,52 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                     child_dataset_name="customers",
                     parent_key_column_key=dataset.columns[1].stable_key,
                     child_key_column_key=dataset.columns[0].stable_key,
+                ),
+            ),
+            updated_at=datetime.now(timezone.utc),
+            updated_by=LOCAL_ACTOR.identity.display_name,
+        )
+        self.derived_entity_repository.save_derived_entity_plan(
+            self.workspace_state.workspace_id,
+            plan,
+            expected_parent_version=None,
+            actor=LOCAL_ACTOR,
+        )
+
+        snapshot = (
+            self.mapping_field_catalog_repository
+            .get_mapping_field_catalog_snapshot(self.workspace_state.workspace_id)
+        )
+
+        self.assertEqual(snapshot.preparation_plan, plan)
+        self.assertEqual(snapshot.source_catalogs, (self.catalog,))
+
+    def test_mapping_field_catalog_snapshot_loads_hierarchy_source_catalogs(
+        self,
+    ) -> None:
+        self._capture_authenticated_schema()
+        selection = self.source_repository.get_source_selection(
+            self.workspace_state.workspace_id
+        )
+        assert selection is not None
+        dataset = selection.datasets[0]
+        plan = DerivedEntityPlan(
+            plan_id=str(uuid4()),
+            version=1,
+            workspace_id=self.workspace_state.workspace_id,
+            source_selection_hash=selection.content_hash,
+            rules=(
+                HierarchicalLookupRule(
+                    rule_id=str(uuid4()),
+                    output_dataset_name="customer_categories",
+                    source_dataset_id=dataset.dataset_id,
+                    source_level_column_keys=tuple(
+                        column.stable_key for column in dataset.columns[:2]
+                    ),
+                    target_model="res.partner.category",
+                    target_name_field="name",
+                    external_id_namespace="customer_import",
+                    missing_parent=HierarchyValuePolicy(mode="block"),
                 ),
             ),
             updated_at=datetime.now(timezone.utc),

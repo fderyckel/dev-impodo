@@ -10,6 +10,8 @@ from uuid import uuid4
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityRule,
+    HierarchicalLookupRule,
+    HierarchyValuePolicy,
     RelatedDatasetRule,
 )
 from ..domain.mapping.contracts import (
@@ -651,6 +653,38 @@ class RecipeApplicationCompiler:
                     else None
                 ),
                 blank_policy=str(value.get("blank_policy", "block")),
+            )
+        if kind == "hierarchical_lookup":
+            missing_parent = dict(value.get("missing_parent", {}))
+            all_blank = dict(value.get("all_blank", {}))
+            return HierarchicalLookupRule(
+                rule_id=rule_id,
+                output_dataset_name=str(value["output_dataset_name"]),
+                source_dataset_id=bindings[str(value["source_dataset_id"])],
+                source_level_column_keys=tuple(
+                    bindings[str(item)]
+                    for item in value.get("source_level_column_keys", ())
+                ),
+                target_model=str(value["target_model"]),
+                target_name_field=str(value["target_name_field"]),
+                external_id_namespace=str(value["external_id_namespace"]),
+                missing_parent=HierarchyValuePolicy(
+                    mode=str(missing_parent.get("mode", "block")),
+                    value=(
+                        str(missing_parent["value"])
+                        if missing_parent.get("value") is not None
+                        else None
+                    ),
+                ),
+                missing_leaf=str(value.get("missing_leaf", "use_deepest")),
+                all_blank=HierarchyValuePolicy(
+                    mode=str(all_blank.get("mode", "emit_null_reference")),
+                    value=(
+                        str(all_blank["value"])
+                        if all_blank.get("value") is not None
+                        else None
+                    ),
+                ),
             )
         if kind == "parent_child":
             return RelatedDatasetRule(

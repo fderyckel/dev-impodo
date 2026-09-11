@@ -2,15 +2,18 @@
 
 ## Purpose
 
-Use **Prepare related datasets** when a denormalized source file contains
+Use **Separate combined information** when a denormalized source file contains
 information that should become more than one Odoo record type. Impodo saves
 the rule and keeps the confirmed source unchanged.
 
-The browser supports two shapes:
+The browser supports three shapes:
 
 1. **One field contains reusable values.** Repeated values become one related
    table, while the original rows remain available for mapping.
-2. **Several rows describe the same record.** Impodo creates one table with one
+2. **Several fields form a hierarchy.** Two to five ordered source fields
+   become one related hierarchy and one relationship value on the original
+   rows.
+3. **Several rows describe the same record.** Impodo creates one table with one
    row per group and another table that retains every source row.
 
 These rules currently work with confirmed tables from uploaded files. During
@@ -27,7 +30,62 @@ uploaded source rows.
 - Agree the business identity of each generated record with the functional
   owner. Similar-looking labels are not automatically the same entity.
 
-Open **Source data**, then **Prepare related datasets**.
+Open **Source data**, then **Separate combined information**.
+
+## Build a hierarchy from separate fields
+
+Choose **Several fields form a hierarchy** when two to five fields describe
+ordered levels of one related record hierarchy. The feature is not specific to
+Product Categories: the same rule can prepare departments, analytic accounts,
+locations, classification trees, or another Odoo model with a compatible
+self-referential many2one field.
+
+To create the generated table:
+
+1. Select the original source table.
+2. Set **Hierarchy level 1**, **Hierarchy level 2**, and any later levels in
+   parent-to-child order. Use two to five distinct fields.
+3. Enter the generated **Name shown in Impodo** and choose its **Type of Odoo
+   record**.
+4. Decide what happens when a parent is blank but a later level is populated,
+   when the final selected level is blank, and when every selected level is
+   blank.
+
+For a missing parent, Impodo can stop, set the row aside, use a reviewed fixed
+parent value, or make the next populated value top-level. A fixed value is a
+real generated related record; it is not an Odoo create default. For a missing
+final level, **Use the deepest populated level** links the consumer to the last
+available ancestor. For an entirely blank path, Impodo can leave the
+relationship blank, use a fixed related value, stop, or set the row aside.
+
+![A fictional hierarchy setup uses Product family before Model code and supplies Default when the family is blank.](../../images/user/06a-hierarchy-setup.png)
+
+Select **Preview hierarchy records** and review the complete path keys, parent
+keys, missing-value outcomes, and affected sampled rows. Identically named
+children beneath different parents remain distinct because the complete path,
+not the final label, owns their identity.
+
+![The hierarchy preview shows each generated record, its complete path key, and its parent record.](../../images/user/06b-hierarchy-preview.png)
+
+Select **Create this hierarchy table** only when the preview represents the
+intended business records.
+
+After creating the hierarchy, **Match data** suggests its generated name field,
+its self-parent relationship when the selected Odoo model exposes exactly one
+compatible self-referential many2one, and the consumer's relationship when its
+selected model exposes exactly one compatible many2one. These suggestions are
+discovered from the captured schema and generated-dataset links; field names
+such as `parent_id` and `categ_id` are not assumed.
+
+For the motivating Product example, choose `Groupe de modèles d'article` as
+Level 1 and `code2` as Level 2. Choosing **Use a fixed parent value** with
+`Default` turns a row with a blank Level 1 and populated Level 2 into a path
+such as `Default / M-200`. Choosing **Make the next populated value a top-level
+record** instead produces `M-200` as a root.
+
+Follow [the hierarchical-record Match data walkthrough](../tutorials/match-data-questions-and-answers.md#how-do-i-create-hierarchical-records-from-separate-source-columns)
+for the exact generated-table self-parent and original-table relationship
+choices.
 
 ## Create a related table from reusable values
 

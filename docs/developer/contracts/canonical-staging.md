@@ -39,10 +39,27 @@ issues. Each row records or retains the following evidence:
 - The row stores typed proposed scalar values and symbolic relationships.
 - The row retains structured issues and field-level source lineage.
 
+When a dataset has a `matching_rows` inclusion policy, staging evaluates that
+policy before it prepares identities, target fields, relationships, impacts,
+or control totals. An included row follows the normal canonical path. A
+non-matching row becomes a lineage-only `EXCLUDED` decision with no proposed
+Odoo values or symbolic relationships. A typed source value that cannot be
+read becomes a lineage-only `BLOCKED` decision with a structured issue that
+names the rule column. If the policy includes no rows, staging publishes a
+dataset-level `ROW_INCLUSION_ZERO_INCLUDED` error.
+
 A constant existing many2one remains a symbolic relationship. Its lineage
 names the mapping rule and portable business-key value, but it does not claim
 that a source column supplied that value. Repeated constants are deduplicated
 before the later target-reference read plan.
+
+A multi-column hierarchy evaluates two to five ordered source values with its
+saved missing-value policies. Staging creates one generated row per distinct
+complete path, creates every required ancestor, and stores the parent as a
+same-dataset symbolic relationship. The consumer stores a symbolic reference
+using its synthetic selected-path key. Preview and full staging call the same
+path evaluator, so a fixed parent, promoted root, deepest populated level,
+blank reference, quarantine, or block has one model-neutral meaning.
 
 Portable staging recursively forbids numeric Odoo record IDs. Decimal, date,
 datetime, null, and symbolic-reference values use canonical serialization.
@@ -58,6 +75,9 @@ Reconciliation accounts for every canonical row and every physical source row.
 Dataset controls record how many physical rows Impodo read and used, how many
 canonical rows it produced, and how those rows are linked. They also record
 grouping, derived fan-out, and source rows that produced no derived entity.
+Excluded and row-inclusion-blocked decisions count as represented physical
+rows, but they cannot enter business quality checks, control totals, Odoo
+comparison, request planning, or execution eligibility.
 
 ## Determinism
 

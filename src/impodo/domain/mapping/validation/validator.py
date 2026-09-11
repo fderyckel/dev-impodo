@@ -49,6 +49,7 @@ from .identities import (
     _validate_source_identity,
 )
 from .relationships import _validate_relationship
+from .row_inclusion import _validate_row_inclusion
 from .scalars import _validate_scalar
 
 
@@ -188,6 +189,7 @@ class MappingSemanticValidator:
             columns = {
                 item.stable_key: item for item in source_dataset.columns
             }
+            _validate_row_inclusion(dataset, base, columns, issues)
             is_odoo_source = source_dataset.origin is SourceOriginKind.ODOO
             is_pinned_update = (
                 dataset.mode is MappingTargetMode.ODOO_PINNED_UPDATE
