@@ -1340,6 +1340,26 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             relationship.constant_reference.key_values[0].value,
             "PCE",
         )
+        schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        governance = context.queries.get_schema_governance(workspace_id)
+        selection = context.queries.get_mapping_source_selection(workspace_id)
+        supporting = context.mapping_workspace._current_supporting_references(
+            workspace_id,
+            working.definition,
+            schema,
+        )
+        validation = context.mapping_workspace.validator.validate(
+            working.definition,
+            selection,
+            schema,
+            governance,
+            supporting,
+        )
+        codes = {item.code for item in validation.issues}
+        self.assertEqual(len(supporting), 1)
+        self.assertEqual(supporting[0].relation_model, "uom.uom")
+        self.assertNotIn("MAPPING_TARGET_MODEL_UNKNOWN", codes)
+        self.assertNotIn("MAPPING_BUSINESS_KEY_NOT_GOVERNED", codes)
 
     def test_product_uom_choices_are_fetched_as_bounded_supporting_data(
         self,

@@ -68,6 +68,10 @@ from ..application.transfer_execution_service import TransferExecutionService
 from ..application.workspace.execution.service import ExecutionService
 from ..application.workspace.execution.load_jobs import LoadJobManager
 from ..application.workspace.execution.reconciliation import ReconciliationService
+from ..application.reconciliation_evidence_service import (
+    ReconciliationEvidenceService,
+)
+from ..application.fallout_workbook_service import FalloutWorkbookService
 from ..application.recipe_compilation_service import RecipeCompiler
 from ..application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
@@ -720,6 +724,20 @@ def create_local_app(
         execution_repository,
         reconciliation_repository,
         workspace_access,
+        ReconciliationEvidenceService(
+            workspace_access,
+            artifacts,
+        ),
+        schema_repository,
+    )
+    fallout_workbooks = FalloutWorkbookService(
+        reconciliation,
+        preflight,
+        staging_repository,
+        source_repository,
+        workspace_state_repository,
+        artifacts,
+        workspace_access,
     )
     cutover_plans = CutoverPlanService(
         projects=migration_projects,
@@ -1043,6 +1061,7 @@ def create_local_app(
         transfer_execution=transfer_execution,
         load_jobs=load_jobs,
         reconciliation=reconciliation,
+        fallout_workbooks=fallout_workbooks,
         corrections=corrections,
         correction_jobs=correction_jobs,
         transformation_impacts=transformation_impacts,

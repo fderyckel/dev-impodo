@@ -350,7 +350,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
             _restore_v1_shape(connection)
             self.assertEqual(
                 _schema_fingerprint(connection),
-                "c6b9e0481b2d0e8126515a6900062a71b634d19808e17e744b9746b98c2ff532",
+                "bb35c9e0b9f0abba5a9ae24b8259070ece1d0f20e652e5ad21f8b309a7e7229b",
             )
 
             schema._ensure_workspace_database_schema(connection)
@@ -419,6 +419,11 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         12,
                         13,
                         "workspace-engine-v12-to-v13-row-inclusion-review",
+                    ),
+                    (
+                        13,
+                        14,
+                        "workspace-engine-v13-to-v14-reconciliation-history",
                     ),
                 ],
             )

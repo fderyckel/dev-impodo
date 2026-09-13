@@ -158,6 +158,64 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
 
         self.assertIsNone(current)
 
+    def test_preflight_resolves_exact_reference_independently_from_display(
+        self,
+    ) -> None:
+        captured = self.service.capture(
+            self.workspace_state.workspace_id,
+            relation_model="x.external.reference",
+            key_fields=("external_code",),
+            scope_fields=("company_code",),
+            display_field="display_name",
+            field_contracts=(
+                StandardReferenceFieldContract(
+                    "company_code", "char", False, False
+                ),
+                StandardReferenceFieldContract(
+                    "display_name", "char", False, False
+                ),
+                StandardReferenceFieldContract(
+                    "external_code", "char", True, False
+                ),
+            ),
+            target_hash=self.target_hash,
+            read_credential_binding_hash="binding",
+            read_principal_hash="principal",
+            read_permission_hash="permission",
+            read_context_hash="context",
+            captured_at=self.now,
+            choices=(SupportingLookupChoice('["A","BE"]', "External A"),),
+            ambiguous_values=(),
+            actor=LOCAL_ACTOR,
+        )
+
+        restored = self.service.current_preflight_reference(
+            self.workspace_state.workspace_id,
+            relation_model="x.external.reference",
+            key_fields=("external_code",),
+            scope_fields=("company_code",),
+            target_hash=self.target_hash,
+            read_credential_binding_hash="binding",
+            read_principal_hash="principal",
+            read_context_hash="context",
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(restored, captured)
+        self.assertIsNone(
+            self.service.current_preflight_reference(
+                self.workspace_state.workspace_id,
+                relation_model="x.external.reference",
+                key_fields=("name",),
+                scope_fields=(),
+                target_hash=self.target_hash,
+                read_credential_binding_hash="binding",
+                read_principal_hash="principal",
+                read_context_hash="context",
+                actor=LOCAL_ACTOR,
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

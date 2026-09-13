@@ -13,6 +13,9 @@ from impodo.application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
 )
 from impodo.domain.mapping.contracts import (
+    MAPPING_CONTRACT_VERSION,
+    MAX_CATEGORICAL_EVIDENCE_VALUES,
+    MAX_VALUE_MAPPINGS,
     CategoricalCoveragePolicy,
     DatasetMapping,
     MappingDefinition,
@@ -365,6 +368,75 @@ class CategoricalCoverageTests(unittest.TestCase):
             (),
         )
 
+    def test_large_exact_business_key_domain_is_not_limited_like_explicit_matches(
+        self,
+    ) -> None:
+        distinct_count = 2_677
+        self.assertGreater(distinct_count, MAX_VALUE_MAPPINGS)
+        self.assertLessEqual(distinct_count, MAX_CATEGORICAL_EVIDENCE_VALUES)
+        relationship = self.definition.datasets[0].relationships[0]
+        exact = replace(
+            self.definition,
+            datasets=(
+                replace(
+                    self.definition.datasets[0],
+                    fields=(),
+                    relationships=(
+                        replace(
+                            relationship,
+                            resolver=replace(
+                                relationship.resolver,
+                                value_mappings=(),
+                            ),
+                            categorical_policy=(
+                                CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        frame = pl.DataFrame(
+            {"country": [f"PRODUCT-{index:04d}" for index in range(distinct_count)]}
+        )
+
+        exact_result = _RecordingCoverageService(
+            _Sources(self.selection),
+            frame,
+        ).collect(
+            self.workspace_id,
+            exact,
+            self.selection,
+            self.schema,
+        )
+        explicit_result = _RecordingCoverageService(
+            _Sources(self.selection),
+            frame,
+        ).collect(
+            self.workspace_id,
+            replace(
+                exact,
+                datasets=(
+                    replace(
+                        exact.datasets[0],
+                        relationships=(relationship,),
+                    ),
+                ),
+            ),
+            self.selection,
+            self.schema,
+        )
+
+        self.assertEqual(exact_result.issues, ())
+        self.assertEqual(
+            len(exact_result.evidence.field_results[0].distinct_values),
+            distinct_count,
+        )
+        self.assertEqual(
+            [item.code for item in explicit_result.issues],
+            ["MAPPING_CATEGORICAL_DOMAIN_TOO_LARGE"],
+        )
+
     def test_generated_exact_business_key_is_not_read_from_physical_snapshot(
         self,
     ) -> None:
@@ -586,7 +658,10 @@ class CategoricalCoverageTests(unittest.TestCase):
         payload["datasets"][0]["relationships"][0]["resolver"][
             "unknown_field"
         ] = True
-        with self.assertRaisesRegex(ValueError, "mapping contract v15"):
+        with self.assertRaisesRegex(
+            ValueError,
+            f"mapping contract v{MAPPING_CONTRACT_VERSION}",
+        ):
             MappingDefinition.from_dict(payload)
 
     def test_edition_control_expectation_binds_actor_and_fresh_value(self) -> None:

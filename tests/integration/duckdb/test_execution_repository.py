@@ -3,7 +3,7 @@ from __future__ import annotations
 from tests.support.paths import REPOSITORY_ROOT
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import tempfile
 import unittest
 from uuid import uuid4
@@ -33,6 +33,7 @@ from tests.application.workspace.test_transfer_preflight import (
     _approved_state,
     _fresh,
 )
+from impodo.domain.reconciliation_detail import ReconciliationDetailManifest
 
 
 ROOT = REPOSITORY_ROOT
@@ -480,7 +481,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
 
 
 
-    def test_publishes_one_hash_bound_readback_result(self) -> None:
+    def test_appends_hash_bound_readback_results_and_keeps_latest_current(self) -> None:
         run = self._run()
         self.repository.start_run(self.workspace_state.workspace_id, run, actor=LOCAL_ACTOR)
         started = (
@@ -543,9 +544,29 @@ class ExecutionRepositoryTests(unittest.TestCase):
             ),
         )
 
+        manifest = ReconciliationDetailManifest(
+            reconciliation_id=report.reconciliation_id,
+            storage_name="fallout-detail.json",
+            logical_hash="sha256:" + "3" * 64,
+            artifact_hash="sha256:" + "4" * 64,
+            size_bytes=123,
+            difference_count=0,
+        )
         self.reconciliation.publish(
             self.workspace_state.workspace_id,
             report,
+            actor=LOCAL_ACTOR,
+            detail=manifest,
+        )
+
+        second = replace(
+            report,
+            reconciliation_id=str(uuid4()),
+            verified_at=report.verified_at + timedelta(seconds=1),
+        )
+        self.reconciliation.publish(
+            self.workspace_state.workspace_id,
+            second,
             actor=LOCAL_ACTOR,
         )
 
@@ -553,8 +574,28 @@ class ExecutionRepositoryTests(unittest.TestCase):
             self.workspace_state.workspace_id,
             run.run_id,
         )
-        self.assertEqual(restored.semantic_hash, report.semantic_hash)
+        self.assertEqual(restored.semantic_hash, second.semantic_hash)
         self.assertEqual(restored.verified_count, 3)
+        self.assertEqual(
+            self.reconciliation.history(
+                self.workspace_state.workspace_id,
+                run.run_id,
+            ),
+            (report, second),
+        )
+        self.assertEqual(
+            self.reconciliation.get_detail_manifest(
+                self.workspace_state.workspace_id,
+                report.reconciliation_id,
+            ),
+            manifest,
+        )
+        self.assertIsNone(
+            self.reconciliation.get_detail_manifest(
+                self.workspace_state.workspace_id,
+                second.reconciliation_id,
+            )
+        )
 
 
 

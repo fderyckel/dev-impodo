@@ -13,7 +13,10 @@ from enum import StrEnum
 import json
 from typing import Any, Mapping
 
-from ..contracts import CategoricalCoveragePolicy, MAX_VALUE_MAPPINGS
+from ..contracts import (
+    CategoricalCoveragePolicy,
+    MAX_CATEGORICAL_EVIDENCE_VALUES,
+)
 from ...serialization import canonical_json as _canonical_json
 from ...serialization import content_hash as _content_hash
 from ...serialization import portable as _portable
@@ -25,7 +28,7 @@ MAPPING_VALIDATION_CONTRACT_VERSION = 3
 CATEGORICAL_COVERAGE_CONTRACT_VERSION = 1
 MAX_CATEGORICAL_EVIDENCE_FIELDS = 10_000
 MAX_CATEGORICAL_SOURCE_SNAPSHOTS = 100
-MAX_CATEGORICAL_UNCOVERED_VALUES = MAX_VALUE_MAPPINGS + 1
+MAX_CATEGORICAL_UNCOVERED_VALUES = MAX_CATEGORICAL_EVIDENCE_VALUES
 
 
 class MappingValidationStatus(StrEnum):
@@ -94,7 +97,7 @@ class CategoricalFieldResult:
         CategoricalCoveragePolicy(self.policy)
         if self.status not in {"COVERED", "UNCOVERED", "UNSUPPORTED"}:
             raise ValueError("Categorical coverage status is unsupported")
-        if len(self.distinct_values) > MAX_VALUE_MAPPINGS:
+        if len(self.distinct_values) > MAX_CATEGORICAL_EVIDENCE_VALUES:
             raise ValueError("Categorical distinct-value evidence is too large")
         if len(self.uncovered_values) > MAX_CATEGORICAL_UNCOVERED_VALUES:
             raise ValueError("Categorical uncovered-value evidence is too large")

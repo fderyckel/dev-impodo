@@ -1539,6 +1539,13 @@ def _mapping_next_step(
 ):
     """Return one visible next action and every reason it is unavailable."""
 
+    blocking_issue_views = _deduplicated_mapping_issue_views(
+        blocking_issue_views
+    )
+    previous_check_blocking_issue_views = _deduplicated_mapping_issue_views(
+        previous_check_blocking_issue_views
+    )
+
     if submission is not None:
         return {
             "label": "Continue to Prepare data",
@@ -1719,6 +1726,31 @@ def _mapping_next_step(
         "blockers": tuple(blockers),
         "previous_check_items": tuple(previous_check_items),
     }
+
+
+def _deduplicated_mapping_issue_views(issue_views):
+    """Keep one recovery card for each exact validation issue."""
+
+    unique = []
+    seen = set()
+    for item in issue_views:
+        issue = item["issue"]
+        identity = (
+            issue.code,
+            issue.severity,
+            issue.path,
+            issue.message,
+            issue.remediation,
+            issue.dataset_id,
+            issue.source_column_key,
+            issue.target_model,
+            issue.target_field,
+        )
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(item)
+    return tuple(unique)
 
 
 def _odoo_default_value_label(field) -> str:

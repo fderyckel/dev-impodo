@@ -19,6 +19,7 @@ from impodo.domain.shared.models import (
     TargetRecord,
     target_identity_hash,
 )
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode
 from impodo.domain.execution.planner import PreflightRequirementPlan, ReferenceReadRequirement
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
@@ -42,6 +43,8 @@ from impodo.domain.workspace.contracts import (
     SchemaOrigin,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.reference_keys import StandardReferenceFieldContract
+from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 
 
 HASH = "sha256:" + "1" * 64
@@ -107,7 +110,12 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
             source_record_count=0,
         )
 
-    def _context(self, *, permission_hash: str | None = None):
+    def _context(
+        self,
+        *,
+        permission_hash: str | None = None,
+        supporting_reference: SupportingLookupSnapshot | None = None,
+    ):
         def probe(_project, secret, models):
             normalized = tuple(sorted(models))
             self.probe_calls.append((secret, normalized))
@@ -134,6 +142,12 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
             ),
             read_identity_probe=probe,
             readiness_reader=reader,
+            supporting_lookups=SimpleNamespace(
+                current_preflight_reference=(
+                    lambda _workspace_id, **_kwargs: supporting_reference
+                )
+            ),
+            actor=LOCAL_ACTOR,
         )
 
     def test_rotated_generation_is_probed_but_cannot_reuse_schema(self) -> None:
@@ -212,6 +226,130 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
             [
                 ("first-secret", ("res.partner",)),
                 ("first-secret", ("res.country",)),
+            ],
+        )
+        self.assertEqual(self.reader_calls, 1)
+
+    def test_comparison_reads_generic_target_bound_supporting_model(self) -> None:
+        relation_model = "x.external.reference"
+        self.schema.models = (
+            SimpleNamespace(
+                name="res.partner",
+                fields=(
+                    SimpleNamespace(
+                        name="external_reference_id",
+                        type="many2one",
+                        relation=relation_model,
+                    ),
+                ),
+            ),
+        )
+        supporting_reference = SupportingLookupSnapshot.capture(
+            workspace_id=self.workspace_state.workspace_id,
+            relation_model=relation_model,
+            key_fields=("external_code",),
+            scope_fields=(),
+            display_field="display_name",
+            field_contracts=(
+                StandardReferenceFieldContract(
+                    "display_name", "char", False, False
+                ),
+                StandardReferenceFieldContract(
+                    "external_code", "char", True, False
+                ),
+            ),
+            target_hash=self.target_hash,
+            read_credential_binding_hash=self.first.binding_hash,
+            read_principal_hash=self.schema.read_principal_hash,
+            read_permission_hash="sha256:" + "8" * 64,
+            read_context_hash=self.schema.read_context_hash,
+            captured_at=datetime(2026, 8, 21, tzinfo=timezone.utc),
+            captured_by="test:operator",
+            choices=(),
+            ambiguous_values=(),
+        )
+        context = self._context(supporting_reference=supporting_reference)
+        fingerprint = TargetFingerprint(
+            target_hash=self.target_hash,
+            connection_mode="REMOTE",
+            database="production",
+            odoo_version="19.0",
+            snapshot_timestamp="2026-08-21T00:00:00Z",
+        )
+
+        def reader(_project, _metadata, _records):
+            self.reader_calls += 1
+            return (
+                MetadataSnapshot(
+                    fingerprint=fingerprint,
+                    models={
+                        relation_model: ModelMetadata(
+                            model=relation_model,
+                            description="External reference",
+                            fields={
+                                "external_code": FieldMetadata(
+                                    "external_code",
+                                    "char",
+                                    required=True,
+                                ),
+                            },
+                        )
+                    },
+                ),
+                RecordSnapshot(
+                    fingerprint=fingerprint,
+                    records={relation_model: ()},
+                    requested_fields={relation_model: ("external_code",)},
+                ),
+            )
+
+        context.readiness_reader = reader
+        metadata_requests = (
+            MetadataRequest(model=relation_model, fields=("external_code",)),
+        )
+        record_requests = (
+            RecordRequest(
+                model=relation_model,
+                fields=("external_code",),
+                domain=(["external_code", "in", ["A"]],),
+            ),
+        )
+
+        metadata, _records = _read_readiness_snapshots(
+            context,
+            self.workspace_state,
+            self._requirements(
+                metadata_requests,
+                record_requests,
+                (
+                    ReferenceReadRequirement(
+                        parent_model="res.partner",
+                        relationship_field="external_reference_id",
+                        relationship_type="many2one",
+                        relation_model=relation_model,
+                        key_fields=("external_code",),
+                        scope_fields=(),
+                        requested_fields=("external_code",),
+                    ),
+                ),
+            ),
+        )
+
+        self.assertIn(relation_model, metadata.models)
+        self.assertEqual(len(metadata.reference_evidence), 1)
+        self.assertEqual(
+            metadata.reference_evidence[0].snapshot_id,
+            supporting_reference.snapshot_id,
+        )
+        self.assertEqual(
+            metadata.reference_evidence[0].snapshot_content_hash,
+            supporting_reference.content_hash,
+        )
+        self.assertEqual(
+            self.probe_calls,
+            [
+                ("first-secret", ("res.partner",)),
+                ("first-secret", (relation_model,)),
             ],
         )
         self.assertEqual(self.reader_calls, 1)

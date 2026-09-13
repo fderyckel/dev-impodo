@@ -742,6 +742,42 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         return service, journal, transfer_snapshot
 
+    def test_target_precision_loss_blocks_load_before_odoo_write(self):
+        snapshot = _snapshot()
+        product = snapshot.rows[1]
+        precision_snapshot = replace(
+            snapshot,
+            datasets=tuple(
+                replace(
+                    item,
+                    field_digits=(*item.field_digits, ("weight", (16, 2))),
+                )
+                if item.dataset == product.dataset
+                else item
+                for item in snapshot.datasets
+            ),
+            rows=(
+                snapshot.rows[0],
+                replace(
+                    product,
+                    fields=(
+                        *product.fields,
+                        FieldIntent("weight", "SET_VALUE", Decimal("0.003")),
+                    ),
+                ),
+                snapshot.rows[2],
+            ),
+        )
+        service, journal = self._service(precision_snapshot)
+
+        preview = service.current_preview(precision_snapshot.workspace_id)
+
+        assert preview is not None
+        self.assertFalse(preview.can_load)
+        self.assertIn("TARGET_NUMERIC_PRECISION_LOSS", preview.scope_error)
+        self.assertIn("0.003", preview.scope_error)
+        self.assertIsNone(journal.run)
+
     def test_transfer_rechecks_create_absence_before_journaling(self):
         service, journal, snapshot = self._transfer_service(_snapshot())
         executor = _Executor(
@@ -2036,6 +2072,117 @@ class ExecutionServiceTests(unittest.TestCase):
                     "precise": "1234.500",
                 },
             ),
+        )
+
+    def test_remote_hierarchy_loads_root_null_before_child_parent(self):
+        snapshot = _snapshot()
+        category = replace(
+            snapshot.rows[0],
+            source_identity=("ROOT",),
+            business_identity=("Root",),
+            business_scope=(None,),
+            fields=(
+                FieldIntent("name", "SET_VALUE", "Root"),
+                FieldIntent(
+                    "parent_id",
+                    "SET_NULL",
+                    kind="relation",
+                    relation_operation="replace",
+                    related_model="product.category",
+                    related_identity_fields=("name",),
+                    dependency_strength="hard",
+                ),
+            ),
+        )
+        child = _row(
+            dataset="categories",
+            model="product.category",
+            source_row=3,
+            source_identity=("CHILD",),
+            business_identity=("Child",),
+            disposition="CREATE",
+            fields=(
+                FieldIntent("name", "SET_VALUE", "Child"),
+                FieldIntent(
+                    "parent_id",
+                    "SET_VALUE",
+                    LogicalReference(
+                        origin="incoming",
+                        key=("ROOT",),
+                        dataset="categories",
+                    ),
+                    kind="relation",
+                    relation_operation="replace",
+                    related_model="product.category",
+                    related_identity_fields=("name",),
+                    related_scope_fields=("parent_id",),
+                    dependency_strength="hard",
+                ),
+            ),
+        )
+        child = replace(
+            child,
+            business_scope=(
+                BusinessReference(
+                    "product.category",
+                    ("Root",),
+                    (None,),
+                ),
+            ),
+        )
+        remote_snapshot = replace(
+            snapshot,
+            datasets=(
+                replace(
+                    snapshot.datasets[0],
+                    dependencies=("categories",),
+                    scope_fields=("parent_id",),
+                ),
+            ),
+            rows=(category, child),
+            counts={
+                "CREATE": 2,
+                "UPDATE": 0,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            remote_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(execution_api_scope(remote_snapshot).semantic_hash)
+
+        preview = service.current_preview(remote_snapshot.workspace_id)
+
+        assert preview is not None
+        self.assertTrue(preview.can_load, preview.scope_error)
+        run = service.execute(
+            remote_snapshot.workspace_id,
+            expected_snapshot_hash=remote_snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(
+            [(rows, external_ids) for _model, rows, external_ids in executor.loads],
+            [
+                (
+                    ({"name": "Root", "parent_id": ""},),
+                    (category.proposed_external_id,),
+                ),
+                (
+                    (
+                        {
+                            "name": "Child",
+                            "parent_id/id": category.proposed_external_id,
+                        },
+                    ),
+                    (child.proposed_external_id,),
+                ),
+            ],
         )
 
     def test_remote_unresolved_target_relation_has_actionable_scope_error(self):

@@ -307,16 +307,25 @@
         <div>
           <p class="eyebrow">Odoo read-back complete</p>
           <h2 id="load-result-title">
-            {{ reconciliation.verified_count }} verified &middot;
-            {{ reconciliation.fallout_count }} fallout &middot;
-            {{ reconciliation.unknown_count }} unknown
+            {% if reconciliation.status.value == 'FALLOUT' %}
+              Odoo accepted {{ reconciliation_summary.accepted_count }} written record{{ 's' if reconciliation_summary.accepted_count != 1 else '' }}, but {{ reconciliation.fallout_count }} need review
+            {% else %}
+              {{ reconciliation.verified_count }} verified &middot;
+              {{ reconciliation.fallout_count }} need review &middot;
+              {{ reconciliation.unknown_count }} unknown
+            {% endif %}
           </h2>
           {% if reconciliation.status.value == 'VERIFIED' %}
             <p>Odoo now matches every field in the confirmed load review. Records needing no change are included in the verified total.</p>
           {% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}
             <p>Impodo re-matched uncertain writes where possible. Do not load this review again; the remaining unknown outcomes still need investigation.</p>
           {% else %}
-            <p>The load was checked against Odoo. Review the concise fallout below before preparing another comparison.</p>
+            {% if reconciliation_summary.missing_count == 0 and reconciliation_summary.not_written_count == 0 and reconciliation_summary.unknown_count == 0 %}
+              <p>These records were not rejected. Odoo accepted the write, then returned a different final value in {{ reconciliation_summary.affected_field_count }} field{{ 's' if reconciliation_summary.affected_field_count != 1 else '' }}.</p>
+            {% else %}
+              <p>Impodo found {{ reconciliation_summary.different_count }} record{{ 's' if reconciliation_summary.different_count != 1 else '' }} with different final values and could not verify every other planned write.</p>
+            {% endif %}
+            <p><strong>{{ reconciliation_summary.missing_count }} missing &middot; {{ reconciliation_summary.not_written_count }} not written &middot; {{ reconciliation_summary.unknown_count }} unknown.</strong> Do not load this review again.</p>
           {% endif %}
           {% if reconciliation.retry_safe_count %}
             <p>{{ reconciliation.retry_safe_count }} unapplied create row(s) can safely be planned again by a fresh comparison.</p>
@@ -324,11 +333,55 @@
         </div>
         <div class="button-row">
           {% if reconciliation.fallout_count %}
-            <a class="button secondary" href="/workspaces/{{ workspace_id }}/load/fallout.csv">Download fallout</a>
+            {% if fallout_detail_available %}
+              <a class="button primary" href="/workspaces/{{ workspace_id }}/load/fallout.xlsx">Download highlighted source workbook (.xlsx)</a>
+            {% endif %}
           {% endif %}
           <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Back to final review</a>
         </div>
       </section>
+
+      {% if reconciliation.fallout_count %}
+        {% if fallout_groups %}
+          <section class="form-card" aria-labelledby="fallout-groups-title">
+            <h2 id="fallout-groups-title">What needs review</h2>
+            {% for group in fallout_groups %}
+              <article class="notice warning">
+                <strong>{{ group.field }} &middot; {{ group.count }} cell{{ 's' if group.count != 1 else '' }}</strong>
+                <p>{{ group.explanation }}</p>
+                <p><strong>Next:</strong> {{ group.action }}</p>
+              </article>
+            {% endfor %}
+          </section>
+        {% endif %}
+
+        <section class="form-card" aria-labelledby="recheck-odoo-title">
+          <h2 id="recheck-odoo-title">Check the current Odoo values again</h2>
+          <p>This is read-only. Impodo keeps the previous verification and publishes a new attempt; it does not repeat the load.</p>
+          <form method="post" action="/workspaces/{{ workspace_id }}/load/reverify">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="execution_run_id" value="{{ preview.current_run.run_id }}">
+            <label>
+              Loading API key (read-back only)
+              <input type="password" name="write_api_key" autocomplete="current-password" {% if not has_stored_write_key %}required{% endif %}>
+              <small>{% if has_stored_write_key %}Leave empty to use the saved loading key.{% else %}Enter the same approved loading principal used for this load.{% endif %}</small>
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="remember_write_api_key">
+              <span>Remember this loading key on this computer</span>
+            </label>
+            <button class="button secondary" type="submit">Re-check Odoo now</button>
+          </form>
+          {% if not fallout_detail_available %}
+            <p class="muted">Re-check once to create the exact source-cell evidence needed for the highlighted workbook.</p>
+          {% endif %}
+          <details class="technical-details">
+            <summary>Support details</summary>
+            <p>The technical CSV contains row-level identifiers for support. The highlighted workbook is the operator review artifact.</p>
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/load/fallout.csv">Download technical fallout CSV</a>
+          </details>
+        </section>
+      {% endif %}
 
       <section class="form-card" id="row-outcomes" aria-labelledby="row-outcomes-title">
         <h2 id="row-outcomes-title">Verified write records</h2>

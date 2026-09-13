@@ -31,6 +31,7 @@ from impodo.domain.mapping.contracts import (
     RowInclusionMode,
     TargetFieldDisposition,
     TargetFieldHandling,
+    relationship_target_fields,
 )
 from impodo.domain.mapping.create_field_policy import (
     CreateFieldCoverage,
@@ -1154,6 +1155,12 @@ class MappingWorkspaceService:
             and existing.validation_hash == validation.validation_hash
             and existing.warning_acknowledgements == warning_fingerprints
         ):
+            if operation_id is not None:
+                self.mappings.complete_mapping_mutation(
+                    workspace_id,
+                    operation_id,
+                    content_identity=existing.mapping_content_hash,
+                )
             return existing
         submission = MappingSubmission(
             submission_id=str(uuid4()),
@@ -1277,21 +1284,34 @@ class MappingWorkspaceService:
             return ()
         primary_models = {item.name for item in schema.models}
         lookup_keys: set[str] = set()
-        resolvers = []
+        resolver_requests = []
         for dataset in definition.datasets:
-            resolvers.extend(
-                component.resolver
+            resolver_requests.extend(
+                (
+                    component.resolver,
+                    tuple(
+                        item.target_field
+                        for item in component.resolver.key_mappings
+                    ),
+                    tuple(
+                        item.target_field
+                        for item in component.resolver.scope_mappings
+                    ),
+                )
                 for component in (
                     *dataset.target_identity,
                     *dataset.target_scope,
                 )
                 if component.resolver is not None
             )
-            resolvers.extend(
-                relationship.resolver
+            resolver_requests.extend(
+                (
+                    relationship.resolver,
+                    *relationship_target_fields(relationship),
+                )
                 for relationship in dataset.relationships
             )
-        for resolver in resolvers:
+        for resolver, key_fields, scope_fields in resolver_requests:
             if (
                 resolver.origin
                 not in {
@@ -1302,12 +1322,6 @@ class MappingWorkspaceService:
                 or resolver.model in primary_models
             ):
                 continue
-            key_fields = tuple(
-                item.target_field for item in resolver.key_mappings
-            )
-            scope_fields = tuple(
-                item.target_field for item in resolver.scope_mappings
-            )
             if not key_fields:
                 continue
             standard = standard_reference_key(resolver.model)

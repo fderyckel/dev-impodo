@@ -144,7 +144,13 @@ class ExecutionSnapshotTests(unittest.TestCase):
             models=(
                 SimpleNamespace(
                     name=model,
-                    fields=(SimpleNamespace(name=expected_field, type="html"),),
+                    fields=(
+                        SimpleNamespace(
+                            name=expected_field,
+                            type="html",
+                            digits=(16, 2),
+                        ),
+                    ),
                 ),
             ),
         )
@@ -160,6 +166,7 @@ class ExecutionSnapshotTests(unittest.TestCase):
         )
 
         self.assertEqual(dict(dataset.field_types)[expected_field], "html")
+        self.assertEqual(dict(dataset.field_digits)[expected_field], (16, 2))
 
     def test_snapshot_accounts_for_every_decision_and_only_writes_ready_rows(
         self,

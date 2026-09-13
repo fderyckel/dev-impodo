@@ -41,12 +41,19 @@ Requests contain exact models, fields, and service-generated bounded domains.
 Metadata and record requirements are merged by model and paged deterministically.
 No connector call may occur inside a source-row loop.
 
-Requirement-plan contract version 2 binds the governed-reference policy hash
-and an ordered `ReferenceReadRequirement` for every supporting relationship
-read. Each requirement preserves the captured parent model and relationship,
-related model, ordered business key and scope, and requested fields. The Odoo
-reader re-authorizes that complete reason against current schema evidence; a
-flattened metadata or record request cannot grant access by itself.
+Requirement-plan contract version 4 binds the governed-reference policy hash,
+dependency edges, and an ordered `ReferenceReadRequirement` for every
+supporting relationship read. Each requirement preserves the captured parent
+model and relationship, related model, ordered business key and scope, and
+requested fields. The Odoo reader re-authorizes that complete reason against
+current schema evidence; a flattened metadata or record request cannot grant
+access by itself.
+
+A nullable self-referencing identity scope produces one exact domain
+expression for each prepared lineage. A root ends with an unset relationship,
+while every descendant extends the relationship path through its parent. The
+planner batches those expressions into bounded requests. It never falls back
+to the leaf name or an unrestricted read.
 
 A remote reader performs one exact identity probe for captured models and, if
 needed, one combined identity probe for all authorized supporting models. A

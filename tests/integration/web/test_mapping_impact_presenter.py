@@ -22,6 +22,7 @@ from impodo.domain.mapping.contracts import (
     SelectionRule,
     SelectionRuleSet,
 )
+from impodo.domain.mapping.validation.evidence import MappingValidationIssue
 from impodo.web.presenters.mapping_impact import (
     _transformation_impact_row_views,
     _transformation_rule_impact_views,
@@ -49,6 +50,39 @@ class TransformationImpactPresenterTests(unittest.TestCase):
         self.assertEqual(next_step["action"], "submit")
         self.assertEqual(next_step["label"], "Confirm field matches")
         self.assertEqual(next_step["blockers"], ())
+
+    def test_duplicate_validation_issues_produce_one_recovery_card(self) -> None:
+        issue = MappingValidationIssue(
+            code="MAPPING_CATEGORICAL_DOMAIN_TOO_LARGE",
+            severity="error",
+            path="/datasets/0/relationships/0/categorical_policy",
+            message="The source domain is too large.",
+            remediation="Reduce the source domain.",
+            dataset_id="dataset:products",
+            target_model="mrp.bom",
+            target_field="product_tmpl_id",
+        )
+        issue_view = {
+            "issue": issue,
+            "dataset_label": "BOM",
+            "field_label": "Product",
+            "can_check_default": False,
+        }
+
+        next_step = _mapping_next_step(
+            workspace_id="workspace-1",
+            schema=SimpleNamespace(origin=SimpleNamespace(value="LIVE_API")),
+            revision=SimpleNamespace(),
+            validation=SimpleNamespace(status=SimpleNamespace(value="INVALID")),
+            submission=None,
+            has_unvalidated_changes=False,
+            blocking_issue_views=(issue_view, issue_view),
+            previous_check_blocking_issue_views=(),
+            readonly_field_recovery=None,
+        )
+
+        self.assertEqual(len(next_step["blockers"]), 1)
+        self.assertIs(next_step["blockers"][0]["issue_view"], issue_view)
 
     def test_edge_spaces_are_explained_when_values_look_identical(self) -> None:
         row = TransformationImpactRow(

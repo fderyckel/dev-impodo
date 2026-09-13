@@ -35,6 +35,10 @@ SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
     {12, 13, 14, 15, 16, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
+# Exact categorical policies do not require one authored mapping per source
+# value.  Keep their evidence bounded independently so ordinary large
+# business-key domains are not constrained by the explicit-mapping limit.
+MAX_CATEGORICAL_EVIDENCE_VALUES = 10_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
 MAX_SELECTION_RULES = 20

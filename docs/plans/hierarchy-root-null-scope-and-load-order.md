@@ -2,11 +2,12 @@
 
 ## Status and decision
 
-**Status:** Core semantic correction implemented on 2026-09-11. Mapping
-contract version 17, compiled-plan contract version 2/compiler version 3, and
-Mapping Recipe contract version 3 now preserve the explicit hierarchy-root
-null policy. This plan does not authorize an Odoo load; the affected project
-must create and check new evidence before execution.
+**Status:** Core semantic correction and bounded preflight lookup implemented
+on 2026-09-11. Mapping contract version 17, compiled-plan contract version
+2/compiler version 3, Mapping Recipe contract version 3, and preflight
+requirement-plan contract version 4 preserve the explicit hierarchy-root null
+policy. This plan does not authorize an Odoo load; the affected project must
+create and check new evidence before execution.
 
 Impodo should treat an empty parent on a generated hierarchy root as an
 explicit, valid target scope. It should continue to reject a missing parent on
@@ -320,11 +321,18 @@ hard, acyclic dependency that the scheduler can satisfy in one ordered pass.
 ### Implementation record
 
 The contract, browser authoring, compilation, bounded preparation, collision
-identity, Recipe reuse, and frozen execution-order tests are implemented.
-Relational identity components still route through the Python oracle. The
-columnar compiler recognizes the nullable policy and routes the whole dataset
-to that shared implementation instead of executing the unsupported operation
-natively. Historical version-16 mappings retain the original `reject` meaning.
+identity, bounded target lookup, Recipe reuse, and frozen execution-order tests
+are implemented. Relational identity components still route through the Python
+oracle. The columnar compiler recognizes the nullable policy and routes the
+whole dataset to that shared implementation instead of executing the
+unsupported operation natively. Historical version-16 mappings retain the
+original `reject` meaning.
+
+The preflight planner now emits a separate exact expression for each category
+lineage. A root uses its business key with an unset parent. Each descendant
+extends the Odoo relationship path through its parent and ends at that root.
+The planner batches these expressions in groups of at most 500 and does not
+perform one Odoo read per category.
 
 The remaining operational qualification is a live local and remote Odoo 19
 acceptance run plus the separate Final review improvement that groups propagated

@@ -29,6 +29,14 @@ from impodo.domain.reconciliation import (
     ReconciliationRun,
     ReconciliationRunStatus,
 )
+from impodo.domain.reconciliation_detail import (
+    ReconciliationDetailArtifact,
+    ReconciliationDetailManifest,
+    ReconciliationFieldDifference,
+)
+from impodo.application.reconciliation_evidence_service import (
+    ReconciliationEvidenceService,
+)
 from impodo.domain.shared.models import BusinessReference, LogicalReference, OdooWriteIdentity
 from impodo.domain.execution.odoo_readback import (
     MAX_READBACK_IDS,
@@ -68,7 +76,18 @@ class ReconciliationResultRepository(Protocol):
         report: ReconciliationRun,
         *,
         actor: Actor,
+        detail: ReconciliationDetailManifest | None = None,
     ) -> None: ...
+
+    def get_detail_manifest(
+        self,
+        workspace_id: str,
+        reconciliation_id: str,
+    ) -> ReconciliationDetailManifest | None: ...
+
+
+class ReconciliationSchemaReader(Protocol):
+    def get_odoo_schema_catalog(self, workspace_id: str): ...
 
 
 @dataclass(slots=True)
@@ -79,6 +98,8 @@ class ReconciliationService:
     execution: ReconciliationExecutionRepository
     results: ReconciliationResultRepository
     authorization: AuthorizationPolicy
+    evidence: ReconciliationEvidenceService | None = None
+    schemas: ReconciliationSchemaReader | None = None
 
     def current(self, workspace_id: str) -> ReconciliationRun | None:
         run = self.execution.get_current_run(workspace_id)
@@ -95,6 +116,7 @@ class ReconciliationService:
         actor: Actor,
         write_identity: OdooWriteIdentity | None = None,
         write_credential_binding_hash: str = "",
+        refresh: bool = False,
     ) -> ReconciliationRun:
         self.authorization.require(
             actor,
@@ -111,7 +133,7 @@ class ReconciliationService:
             write_credential_binding_hash,
         )
         existing = self.results.get_current(workspace_id, run.run_id)
-        if existing is not None:
+        if existing is not None and not refresh:
             return existing
         if run.status is ExecutionRunStatus.RUNNING or run.planned_count:
             raise WorkspaceError("The Odoo load is not finished yet")
@@ -131,6 +153,7 @@ class ReconciliationService:
             raise WorkspaceError(
                 "Verification is not bound to this reviewed load preview"
             )
+        differences: list[ReconciliationFieldDifference] = []
         report = self._read_back(
             run,
             snapshot,
@@ -138,11 +161,133 @@ class ReconciliationService:
             actor,
             write_identity=write_identity,
             write_credential_binding_hash=write_credential_binding_hash,
+            difference_sink=differences,
+            target_digits=self._target_digits(workspace_id, snapshot),
         )
         # Exercise the portable contract before it reaches durable storage.
         report = ReconciliationRun.from_json(report.to_json())
-        self.results.publish(workspace_id, report, actor=actor)
+        candidate = None
+        if self.evidence is not None:
+            detail = ReconciliationDetailArtifact(
+                reconciliation_id=report.reconciliation_id,
+                workspace_id=report.workspace_id,
+                execution_run_id=report.execution_run_id,
+                snapshot_hash=report.snapshot_hash,
+                target_hash=report.target_hash,
+                differences=tuple(
+                    sorted(
+                        differences,
+                        key=lambda item: (
+                            item.dataset,
+                            item.source_row,
+                            item.field,
+                            item.row_id,
+                        ),
+                    )
+                ),
+            )
+            detail = ReconciliationDetailArtifact.from_json(detail.to_json())
+            candidate = self.evidence.prepare(report, detail, actor=actor)
+            self.evidence.publish(report, candidate)
+        try:
+            if candidate is None:
+                self.results.publish(workspace_id, report, actor=actor)
+            else:
+                self.results.publish(
+                    workspace_id,
+                    report,
+                    actor=actor,
+                    detail=candidate.manifest,
+                )
+        except Exception:
+            if candidate is not None:
+                try:
+                    self.evidence.delete(report)
+                except Exception:
+                    pass
+            raise
         return report
+
+    def reverify(
+        self,
+        workspace_id: str,
+        *,
+        expected_execution_run_id: str,
+        reader: OdooReadbackReader,
+        actor: Actor,
+        write_identity: OdooWriteIdentity | None = None,
+        write_credential_binding_hash: str = "",
+    ) -> ReconciliationRun:
+        """Append a fresh read-only verification for one completed load."""
+
+        return self.reconcile(
+            workspace_id,
+            expected_execution_run_id=expected_execution_run_id,
+            reader=reader,
+            actor=actor,
+            write_identity=write_identity,
+            write_credential_binding_hash=write_credential_binding_hash,
+            refresh=True,
+        )
+
+    def current_detail(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+    ) -> ReconciliationDetailArtifact | None:
+        report = self.current(workspace_id)
+        reconciliation_id = getattr(report, "reconciliation_id", "")
+        if report is None or not reconciliation_id or self.evidence is None:
+            return None
+        manifest = self.results.get_detail_manifest(
+            workspace_id,
+            reconciliation_id,
+        )
+        if manifest is None:
+            return None
+        return self.evidence.open(report, manifest, actor=actor)
+
+    def current_detail_available(self, workspace_id: str) -> bool:
+        report = self.current(workspace_id)
+        reconciliation_id = getattr(report, "reconciliation_id", "")
+        return bool(
+            report is not None
+            and reconciliation_id
+            and self.evidence is not None
+            and self.results.get_detail_manifest(
+                workspace_id,
+                reconciliation_id,
+            )
+        )
+
+    def _target_digits(
+        self,
+        workspace_id: str,
+        snapshot: ExecutionSnapshot,
+    ) -> dict[tuple[str, str], tuple[int, int]]:
+        result = {
+            (dataset.dataset, field): digits
+            for dataset in snapshot.datasets
+            for field, digits in getattr(dataset, "field_digits", ())
+        }
+        if result or self.schemas is None:
+            return result
+        catalog = self.schemas.get_odoo_schema_catalog(workspace_id)
+        if catalog is None or (
+            catalog.connection_target_hash != snapshot.target_hash
+            or catalog.database != snapshot.target_database
+        ):
+            return result
+        by_model = {model.name: model for model in catalog.models}
+        for dataset in snapshot.datasets:
+            model = by_model.get(dataset.target_model)
+            if model is None:
+                continue
+            for field in model.fields:
+                if field.digits is not None:
+                    result[(dataset.dataset, field.name)] = field.digits
+        return result
 
     def assess_recovery(
         self,
@@ -207,6 +352,8 @@ class ReconciliationService:
         *,
         write_identity: OdooWriteIdentity | None,
         write_credential_binding_hash: str,
+        difference_sink: list[ReconciliationFieldDifference] | None = None,
+        target_digits: Mapping[tuple[str, str], tuple[int, int]] | None = None,
     ) -> ReconciliationRun:
         rows = {
             row.row_id: row
@@ -270,6 +417,8 @@ class ReconciliationService:
                     by_source,
                     resolved_ids,
                     identity_cache,
+                    difference_sink=difference_sink,
+                    target_digits=target_digits or {},
                 )
                 issue = external_id_issues.get(row.row_id)
                 if (
@@ -605,6 +754,9 @@ class ReconciliationService:
             tuple[str, tuple[tuple[str, str, Any], ...]],
             int | None,
         ],
+        *,
+        difference_sink: list[ReconciliationFieldDifference] | None = None,
+        target_digits: Mapping[tuple[str, str], tuple[int, int]] | None = None,
     ) -> ReconciliationRow:
         common = dict(
             row_id=row.row_id,
@@ -669,6 +821,7 @@ class ReconciliationService:
             )
 
         differing = []
+        row_differences: list[ReconciliationFieldDifference] = []
         try:
             field_types = dict(metadata[row.dataset].field_types)
             for intent in row.fields:
@@ -694,6 +847,32 @@ class ReconciliationService:
                     field_type=field_types.get(intent.field, ""),
                 ):
                     differing.append(intent.field)
+                    if difference_sink is not None:
+                        digits = (target_digits or {}).get(
+                            (row.dataset, intent.field)
+                        )
+                        row_differences.append(
+                            ReconciliationFieldDifference(
+                                row_id=row.row_id,
+                                dataset=row.dataset,
+                                source_row=row.source_row,
+                                source_trace_id=row.source_trace_id,
+                                target_model=row.target_model,
+                                operation=row.disposition,
+                                odoo_id=actual.odoo_id,
+                                field=intent.field,
+                                expected_value=expected,
+                                observed_value=actual_value,
+                                field_type=field_types.get(intent.field, ""),
+                                target_digits=digits,
+                                reason_code=_difference_reason(
+                                    expected,
+                                    actual_value,
+                                    field_type=field_types.get(intent.field, ""),
+                                    target_digits=digits,
+                                ),
+                            )
+                        )
         except (KeyError, WorkspaceError) as error:
             return ReconciliationRow(
                 **common,
@@ -701,6 +880,8 @@ class ReconciliationService:
                 message=str(error),
             )
         if differing:
+            if difference_sink is not None:
+                difference_sink.extend(row_differences)
             return ReconciliationRow(
                 **common,
                 status=ReconciliationRowStatus.DIFFERENT,
@@ -912,6 +1093,27 @@ def _values_equal(
         except (InvalidOperation, ValueError):
             return False
     return expected == actual
+
+
+def _difference_reason(
+    expected: Any,
+    actual: Any,
+    *,
+    field_type: str,
+    target_digits: tuple[int, int] | None,
+) -> str:
+    if field_type == "html":
+        return "HTML_CONTENT_DIFFERENT"
+    if target_digits is not None and field_type in {"float", "monetary"}:
+        try:
+            expected_decimal = Decimal(str(expected))
+            quantum = Decimal(1).scaleb(-target_digits[1])
+            if expected_decimal.quantize(quantum) != expected_decimal:
+                return "TARGET_NUMERIC_PRECISION_LOSS"
+        except (InvalidOperation, TypeError, ValueError):
+            pass
+    del actual
+    return "VALUE_DIFFERENT"
 
 
 def _utc_naive(value: datetime) -> datetime:

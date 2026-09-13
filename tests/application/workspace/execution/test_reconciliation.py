@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from decimal import Decimal
 import json
 from types import SimpleNamespace
 import unittest
@@ -21,6 +22,7 @@ from impodo.domain.reconciliation import (
     ReconciliationRowStatus,
     ReconciliationRunStatus,
 )
+from impodo.domain.reconciliation_detail import ReconciliationDetailManifest
 from impodo.domain.execution_snapshot import FieldIntent
 from impodo.domain.shared.models import BusinessReference, OdooWriteIdentity
 from impodo.domain.execution.odoo_readback import ExternalIdBinding, OdooReadbackError, ReadbackLookup, ReadbackRecord
@@ -52,6 +54,7 @@ class _Execution:
 class _Results:
     def __init__(self):
         self.report = None
+        self.detail = None
 
     def get_current(self, project_id, execution_run_id=None):
         if self.report is None or self.report.workspace_id != project_id:
@@ -60,10 +63,46 @@ class _Results:
             return None
         return self.report
 
-    def publish(self, project_id, report, *, actor):
+    def publish(self, project_id, report, *, actor, detail=None):
         del actor
         assert report.workspace_id == project_id
         self.report = report
+        self.detail = detail
+
+    def get_detail_manifest(self, project_id, reconciliation_id):
+        if (
+            self.report is None
+            or self.report.workspace_id != project_id
+            or self.report.reconciliation_id != reconciliation_id
+        ):
+            return None
+        return self.detail
+
+
+class _Evidence:
+    def __init__(self):
+        self.detail = None
+
+    def prepare(self, report, detail, *, actor):
+        del actor
+        self.detail = detail
+        return SimpleNamespace(
+            manifest=ReconciliationDetailManifest(
+                reconciliation_id=report.reconciliation_id,
+                storage_name="fallout-detail.json",
+                logical_hash=detail.logical_hash,
+                artifact_hash="sha256:" + "8" * 64,
+                size_bytes=1,
+                difference_count=len(detail.differences),
+            ),
+            content=b"{}",
+        )
+
+    def publish(self, report, candidate):
+        del report, candidate
+
+    def delete(self, report):
+        del report
 
 
 class _Reader:
@@ -291,6 +330,64 @@ class ReconciliationServiceTests(unittest.TestCase):
 
         self.assertEqual(report.rows[1].status, ReconciliationRowStatus.DIFFERENT)
         self.assertEqual(report.rows[1].differing_fields, ("description",))
+
+    def test_captures_exact_precision_fallout_in_bound_local_detail(self):
+        snapshot = _snapshot()
+        product = snapshot.rows[1]
+        snapshot = replace(
+            snapshot,
+            datasets=tuple(
+                replace(
+                    item,
+                    field_types=(*item.field_types, ("weight", "float")),
+                    field_digits=(*item.field_digits, ("weight", (16, 2))),
+                )
+                if item.dataset == product.dataset
+                else item
+                for item in snapshot.datasets
+            ),
+            rows=(
+                snapshot.rows[0],
+                replace(
+                    product,
+                    fields=(
+                        *product.fields,
+                        FieldIntent("weight", "SET_VALUE", Decimal("0.003")),
+                    ),
+                ),
+                snapshot.rows[2],
+            ),
+        )
+        run = _run(snapshot)
+        results = _Results()
+        evidence = _Evidence()
+        service = ReconciliationService(
+            SimpleNamespace(
+                execution_snapshot=lambda project_id, preflight_id: snapshot
+            ),
+            _Execution(run),
+            results,
+            CapabilityAuthorizationPolicy(),
+            evidence,
+        )
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.records[("product.template", 11)]["weight"] = 0.0
+
+        report = service.reconcile(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(report.rows[1].status, ReconciliationRowStatus.DIFFERENT)
+        assert evidence.detail is not None
+        difference = evidence.detail.differences[0]
+        self.assertEqual(difference.field, "weight")
+        self.assertEqual(difference.expected_value, Decimal("0.003"))
+        self.assertEqual(difference.observed_value, 0.0)
+        self.assertEqual(difference.target_digits, (16, 2))
+        self.assertEqual(difference.reason_code, "TARGET_NUMERIC_PRECISION_LOSS")
 
     def test_reconciliation_rejects_changed_write_principal_before_readback(self):
         snapshot = _snapshot()

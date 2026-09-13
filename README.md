@@ -316,6 +316,10 @@ the [style guide](docs/style-guide.md) and
 
 ## License
 
-Impodo is intended for open-source distribution. This checkout does not yet
-include a root license file; the project license must be specified before
-redistribution terms can be stated here.
+Impodo is released under the [MIT License](LICENSE). You may use, modify, and
+redistribute it, including commercially, provided you retain the copyright
+and license notice. The software is supplied without warranty.
+
+Bundled third-party assets retain their own notices:
+[Bootstrap Icons](src/impodo/web/static/bootstrap-icons-LICENSE.txt) and
+[flag-icons](src/impodo/web/static/flag-icons-LICENSE.txt).

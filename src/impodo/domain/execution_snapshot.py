@@ -62,6 +62,7 @@ class ExecutionDataset:
     identity_fields: tuple[str, ...]
     scope_fields: tuple[str, ...]
     field_types: tuple[tuple[str, str], ...] = ()
+    field_digits: tuple[tuple[str, tuple[int, int]], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -344,6 +345,16 @@ class ExecutionSnapshot:
                     "identity_fields": list(item.identity_fields),
                     "scope_fields": list(item.scope_fields),
                     "field_types": dict(item.field_types),
+                    **(
+                        {
+                            "field_digits": {
+                                field: list(digits)
+                                for field, digits in item.field_digits
+                            }
+                        }
+                        if item.field_digits
+                        else {}
+                    ),
                 }
                 for item in self.datasets
             ],
@@ -430,6 +441,17 @@ class ExecutionSnapshot:
                             (str(key), str(value))
                             for key, value in dict(
                                 item.get("field_types", {})
+                            ).items()
+                        )
+                    ),
+                    field_digits=tuple(
+                        sorted(
+                            (
+                                str(key),
+                                (int(value[0]), int(value[1])),
+                            )
+                            for key, value in dict(
+                                item.get("field_digits", {})
                             ).items()
                         )
                     ),
@@ -544,6 +566,12 @@ def build_execution_snapshot(
                 provisional_rows,
                 schema,
             ),
+            field_digits=_execution_field_digits(
+                dataset.name,
+                dataset.target.model,
+                provisional_rows,
+                schema,
+            ),
         )
         for sequence, dataset in enumerate(frozen.plan.datasets)
     )
@@ -646,6 +674,45 @@ def _execution_field_types(
         (field, available[field])
         for field in sorted(used_fields)
         if field in available
+    )
+
+
+def _execution_field_digits(
+    dataset_name: str,
+    target_model: str,
+    rows: tuple[ExecutionRow, ...],
+    schema: object | None,
+) -> tuple[tuple[str, tuple[int, int]], ...]:
+    """Carry target numeric precision needed for pre-load representability."""
+
+    if schema is None:
+        return ()
+    model = next(
+        (
+            item
+            for item in getattr(schema, "models", ())
+            if getattr(item, "name", None) == target_model
+        ),
+        None,
+    )
+    if model is None:
+        return ()
+    used_fields = {
+        intent.field
+        for row in rows
+        if row.dataset == dataset_name
+        for intent in row.fields
+    }
+    return tuple(
+        (
+            str(field.name),
+            (
+                int(getattr(field, "digits")[0]),
+                int(getattr(field, "digits")[1]),
+            ),
+        )
+        for field in sorted(getattr(model, "fields", ()), key=lambda item: item.name)
+        if field.name in used_fields and getattr(field, "digits", None) is not None
     )
 
 
@@ -1701,6 +1768,19 @@ def _validate_rows(
             )
         ):
             raise ValueError("Execution snapshot field-type metadata is invalid")
+        if (
+            dataset.field_digits != tuple(sorted(dataset.field_digits))
+            or len({field for field, _digits in dataset.field_digits})
+            != len(dataset.field_digits)
+            or any(
+                not field
+                or digits[0] < 1
+                or digits[1] < 0
+                or digits[1] > digits[0]
+                for field, digits in dataset.field_digits
+            )
+        ):
+            raise ValueError("Execution snapshot field precision is invalid")
     expected_keys = {item.value for item in Classification}
     if set(counts) != expected_keys or any(
         int(value) < 0 for value in counts.values()

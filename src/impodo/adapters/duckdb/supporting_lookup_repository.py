@@ -12,6 +12,48 @@ from .repository import DuckDbRepository
 class SupportingLookupRepository(DuckDbRepository):
     """Own supporting-lookup revisions and their current pointers."""
 
+    def list_current_for_model(
+        self,
+        workspace_id: str,
+        relation_model: str,
+    ) -> tuple[SupportingLookupSnapshot, ...]:
+        """Return current evidence variants for one exact related model."""
+
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            rows = connection.execute(
+                """
+                SELECT current.lookup_key, revision.snapshot_json
+                  FROM supporting_lookup_current AS current
+                  JOIN supporting_lookup_revision AS revision
+                    ON revision.snapshot_id = current.snapshot_id
+                 WHERE revision.relation_model = ?
+                 ORDER BY revision.captured_at DESC, revision.snapshot_id DESC
+                """,
+                [relation_model],
+            ).fetchall()
+        snapshots = []
+        for lookup_key, snapshot_json in rows:
+            try:
+                snapshot = SupportingLookupSnapshot.from_json(str(snapshot_json))
+            except (KeyError, TypeError, ValueError) as error:
+                raise WorkspaceError(
+                    "The saved Odoo choices are invalid; refresh them"
+                ) from error
+            if (
+                snapshot.workspace_id != workspace_id
+                or snapshot.lookup_key != str(lookup_key)
+                or snapshot.relation_model != relation_model
+            ):
+                raise WorkspaceError(
+                    "The saved Odoo choices belong to another lookup; refresh them"
+                )
+            snapshots.append(snapshot)
+        return tuple(snapshots)
+
     def get_current(
         self,
         workspace_id: str,

@@ -32,7 +32,7 @@ from impodo.domain.relationship_dependencies import DatasetDependencyEdge
 from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
 
 
-PREFLIGHT_REQUIREMENT_PLAN_VERSION = 3
+PREFLIGHT_REQUIREMENT_PLAN_VERSION = 4
 MAX_KEYS_PER_RECORD_REQUEST = 500
 
 
@@ -381,7 +381,13 @@ def _dataset_identity_domain_chunks(
 ) -> list[list[Any]] | None:
     fields = _dataset_identity_fields(plan, dataset)
     if not fields:
-        return None
+        return _hierarchical_identity_domain_chunks(
+            plan,
+            dataset,
+            records,
+            incoming_identity_index,
+            chunk_size,
+        )
     keys = []
     for record in records:
         key = _record_target_key(
@@ -394,6 +400,180 @@ def _dataset_identity_domain_chunks(
         if key is not None:
             keys.append(key)
     return _key_domain_chunks(fields, keys, chunk_size)
+
+
+def _hierarchical_identity_domain_chunks(
+    plan: CompiledMigrationPlan,
+    dataset: DatasetSpec,
+    records: Iterable[PreparedRecord],
+    incoming_identity_index: dict[
+        tuple[str, bytes], PreparedRecord | None
+    ],
+    chunk_size: int,
+) -> list[list[Any]] | None:
+    """Build bounded domains for a nullable self-referencing identity scope.
+
+    A hierarchy cannot use one flattened field tuple for every row: a root is
+    identified by ``(name, parent=False)``, while a child needs
+    ``(name, parent.name, parent.parent=False)`` and deeper rows extend that
+    path.  Compile each prepared lineage separately, then batch the resulting
+    expressions.  Returning ``None`` retains the fail-closed behaviour for all
+    other identity shapes that cannot be narrowed safely.
+    """
+
+    supports_explicit_root = any(
+        component.null_policy == "explicit_scope_null"
+        and component.resolve is not None
+        and component.resolve.dataset == dataset.name
+        for component in dataset.target_identity.scope
+    )
+    if not supports_explicit_root:
+        return None
+
+    expressions = []
+    for record in records:
+        expression = _record_identity_domain_expression(
+            plan,
+            dataset,
+            record,
+            incoming_identity_index,
+        )
+        if expression is not None:
+            expressions.append(expression)
+    unique_expressions = sorted(
+        {
+            canonical_json_bytes(portable_value(expression)): expression
+            for expression in expressions
+        }.values(),
+        key=lambda item: canonical_json_bytes(portable_value(item)),
+    )
+    return [
+        _or_expressions(unique_expressions[start : start + chunk_size])
+        for start in range(0, len(unique_expressions), chunk_size)
+    ]
+
+
+def _record_identity_domain_expression(
+    plan: CompiledMigrationPlan,
+    dataset: DatasetSpec,
+    record: PreparedRecord,
+    incoming_identity_index: dict[
+        tuple[str, bytes], PreparedRecord | None
+    ],
+    *,
+    prefix: str = "",
+    visiting: frozenset[tuple[str, int]] = frozenset(),
+) -> list[Any] | None:
+    """Return one exact Odoo domain expression for a prepared identity path."""
+
+    record_key = (dataset.name, id(record))
+    if record_key in visiting:
+        return None
+    visiting = visiting | {record_key}
+    terms: list[Any] = []
+    for components, values in (
+        (dataset.target_identity.components, record.target_identity),
+        (dataset.target_identity.scope, record.target_scope),
+    ):
+        cursor = 0
+        for component in components:
+            if component.resolve is None:
+                width = len(component.target_fields)
+                selected = values[cursor : cursor + width]
+                if len(selected) != width or any(
+                    value is None for value in selected
+                ):
+                    return None
+                terms.extend(
+                    [f"{prefix}{field}", "=", value]
+                    for field, value in zip(
+                        component.target_fields,
+                        selected,
+                        strict=True,
+                    )
+                )
+                cursor += width
+                continue
+
+            if cursor >= len(values):
+                return None
+            reference = values[cursor]
+            cursor += 1
+            resolve = component.resolve
+            relation_field = f"{prefix}{component.target_fields[0]}"
+            if reference is None:
+                if component.null_policy != "explicit_scope_null":
+                    return None
+                # Odoo domains represent an unset many2one with boolean false.
+                terms.append([relation_field, "=", False])
+                continue
+            if not isinstance(reference, LogicalReference):
+                return None
+
+            nested_prefix = f"{relation_field}."
+            if resolve.target_model is not None:
+                if (
+                    reference.origin != "target"
+                    or len(reference.key) != len(resolve.target_fields)
+                    or len(reference.scope) != len(resolve.target_scope_fields)
+                ):
+                    return None
+                resolved_fields = (
+                    *resolve.target_fields,
+                    *resolve.target_scope_fields,
+                )
+                resolved_values = (*reference.key, *reference.scope)
+                if any(value is None for value in resolved_values):
+                    return None
+                terms.extend(
+                    [f"{nested_prefix}{field}", "=", value]
+                    for field, value in zip(
+                        resolved_fields,
+                        resolved_values,
+                        strict=True,
+                    )
+                )
+                continue
+
+            if reference.origin != "incoming" or resolve.dataset is None:
+                return None
+            try:
+                referenced_dataset = plan.dataset(resolve.dataset)
+            except KeyError:
+                return None
+            match = incoming_identity_index.get(
+                (
+                    resolve.dataset,
+                    canonical_json_bytes(portable_value(reference.key)),
+                )
+            )
+            if match is None:
+                return None
+            nested = _record_identity_domain_expression(
+                plan,
+                referenced_dataset,
+                match,
+                incoming_identity_index,
+                prefix=nested_prefix,
+                visiting=visiting,
+            )
+            if nested is None:
+                return None
+            terms.extend(_expression_terms(nested))
+        if cursor != len(values):
+            return None
+    if not terms:
+        return None
+    return _and_terms(terms)
+
+
+def _expression_terms(expression: list[Any]) -> list[Any]:
+    """Return the leaves from an expression produced by :func:`_and_terms`."""
+
+    cursor = 0
+    while cursor < len(expression) and expression[cursor] == "&":
+        cursor += 1
+    return expression[cursor:]
 
 
 def _dataset_identity_fields(

@@ -718,6 +718,20 @@ class TargetFirstRelationshipTests(unittest.TestCase):
             ),
         )
 
+        requests = plan_record_requests(plan, prepared.records)
+        self.assertEqual(len(requests), 1)
+        category_domain = requests[0].domain
+        domain_terms = tuple(
+            item
+            for item in category_domain
+            if isinstance(item, list) and len(item) == 3
+        )
+        self.assertIn(["name", "=", "Root"], domain_terms)
+        self.assertIn(["parent_id", "=", False], domain_terms)
+        self.assertIn(["name", "=", "Child"], domain_terms)
+        self.assertIn(["parent_id.name", "=", "Root"], domain_terms)
+        self.assertIn(["parent_id.parent_id", "=", False], domain_terms)
+
         fingerprint = TargetFingerprint(
             target_hash=_HASH,
             connection_mode="LOCAL",

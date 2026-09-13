@@ -20,6 +20,12 @@ from impodo.domain.workspace.reference_keys import (
 class SupportingLookupRepositoryPort(Protocol):
     """Persistence required by the supporting-lookup use case."""
 
+    def list_current_for_model(
+        self,
+        workspace_id: str,
+        relation_model: str,
+    ) -> tuple[SupportingLookupSnapshot, ...]: ...
+
     def get_current(
         self,
         workspace_id: str,
@@ -96,6 +102,65 @@ class SupportingLookupService:
             and snapshot.reference_policy_hash == REFERENCE_POLICY_HASH
             else None
         )
+
+    def current_preflight_reference(
+        self,
+        workspace_id: str,
+        *,
+        relation_model: str,
+        key_fields: tuple[str, ...],
+        scope_fields: tuple[str, ...],
+        target_hash: str,
+        read_credential_binding_hash: str,
+        read_principal_hash: str,
+        read_context_hash: str,
+        actor: Actor,
+    ) -> SupportingLookupSnapshot | None:
+        """Resolve exact target-bound evidence for a preflight reference.
+
+        Display fields are deliberately not part of the lookup. Final review
+        authorizes only the key/scope fields present in its bounded request,
+        while Match data may have captured different display projections for
+        the same portable reference identity.
+        """
+
+        self._authorization.require(
+            actor,
+            Capability.PREFLIGHT_RUN,
+            workspace_id=workspace_id,
+        )
+        expected = (
+            workspace_id,
+            relation_model,
+            key_fields,
+            scope_fields,
+            target_hash,
+            read_credential_binding_hash,
+            read_principal_hash,
+            read_context_hash,
+            REFERENCE_POLICY_HASH,
+        )
+        candidates = []
+        for snapshot in self._repository.list_current_for_model(
+            workspace_id,
+            relation_model,
+        ):
+            actual = (
+                snapshot.workspace_id,
+                snapshot.relation_model,
+                snapshot.key_fields,
+                snapshot.scope_fields,
+                snapshot.target_hash,
+                snapshot.read_credential_binding_hash,
+                snapshot.read_principal_hash,
+                snapshot.read_context_hash,
+                snapshot.reference_policy_hash,
+            )
+            if actual == expected:
+                candidates.append(snapshot)
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: (item.captured_at, item.snapshot_id))
 
     def capture(
         self,

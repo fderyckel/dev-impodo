@@ -125,6 +125,7 @@ def _canonical_html_fragment(
     tokens = _merge_text_tokens(tuple(parser.tokens))
     tokens = _trim_root_whitespace(tokens)
     tokens = _unwrap_outer_paragraph(tokens)
+    tokens = _trim_boundary_text(tokens)
     return _merge_text_tokens(tokens)
 
 
@@ -154,6 +155,21 @@ def _trim_root_whitespace(
 
 def _whitespace_token(token: tuple[object, ...]) -> bool:
     return token[0] == "text" and not str(token[1]).strip()
+
+
+def _trim_boundary_text(
+    tokens: tuple[tuple[object, ...], ...],
+) -> tuple[tuple[object, ...], ...]:
+    """Remove only whitespace Odoo strips at the fragment boundaries."""
+
+    values = list(tokens)
+    if values and values[0][0] == "text":
+        values[0] = ("text", str(values[0][1]).lstrip())
+    if values and values[-1][0] == "text":
+        values[-1] = ("text", str(values[-1][1]).rstrip())
+    return tuple(
+        token for token in values if token[0] != "text" or str(token[1])
+    )
 
 
 def _unwrap_outer_paragraph(

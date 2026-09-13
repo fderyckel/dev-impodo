@@ -453,6 +453,7 @@ stages:
       - src/impodo/application/preflight_service.py::PreflightService
       - src/impodo/application/preflight_service.py::PreflightService.compare
       - src/impodo/application/preflight_service.py::PreflightService.review_workbook_evidence
+      - src/impodo/domain/execution/planner.py::plan_preflight_requirements
       - src/impodo/application/odoo_comparison_service.py::build_odoo_comparison_publication
       - src/impodo/domain/preflight/reports.py::review_workbook_cell_feedback
       - src/impodo/domain/preflight/reports.py::review_workbook_action_priority
@@ -468,6 +469,7 @@ stages:
       - tests/application/workspace/review/test_odoo_comparison.py
       - tests/integration/web/test_review_workflow.py
       - tests/integration/web/test_recipe_comparison_recovery.py
+      - tests/domain/preparation/test_target_first_relationships.py
     contracts:
       - docs/developer/contracts/preflight.md
       - docs/developer/contracts/quality-and-quarantine.md
@@ -576,3 +578,4 @@ stages:
       - docs/architecture/security-and-infrastructure.md
       - docs/testing/acceptance.md
       - docs/plans/scalable-relationship-dependency-planning.md
+      - docs/plans/load-fallout-source-cell-workbook.md

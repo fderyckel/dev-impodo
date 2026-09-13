@@ -109,6 +109,24 @@ component, component page, transport batch, and operation phase as
 later writes. `ReconciliationService` then reads back the affected scope and
 publishes a separate reconciliation run.
 
+Each verification attempt is append-only. A current pointer selects the newest
+valid attempt for the execution run, so `POST .../load/reverify` can perform a
+fresh read-only check without changing the journal or replacing history.
+Field-level differences are stored as ordinary JSON in the owner-restricted
+workspace report store and are bound by size, SHA-256 artifact hash, logical
+hash, reconciliation, execution, snapshot, and target. This detail is not
+application-encrypted and requires no evidence key; API credentials remain in
+the operating-system credential vault. The browser exposes only grouped
+counts. `GET .../load/fallout.xlsx` joins the bound detail to frozen lineage and
+generates a derivative copy with an **Impodo Fallout** sheet, exact-cell links,
+highlights, and comments while leaving the accepted source artifact unchanged.
+
+The execution snapshot freezes captured `digits` metadata for numeric target
+fields. `ExecutionService` rejects a reviewed value that cannot be represented
+without loss before it constructs a write. HTML read-back ignores only Odoo's
+outer-paragraph serialization and boundary whitespace; meaningful markup and
+internal text differences remain fallout.
+
 For a verified Authoring load, the execution route also asks
 `CorrectionWorkflowService.publish_completed_load` to join the current mapping,
 prepared snapshots, execution snapshot, execution journal, reconciliation, and
@@ -262,6 +280,8 @@ recorded outcome.
 | Required dependency validation | [`dependencies.py`](../../../src/impodo/domain/mapping/validation/dependencies.py) |
 | Journal states | [`execution/models.py`](../../../src/impodo/domain/execution/models.py) |
 | Reconciliation | [`ReconciliationService`](../../../src/impodo/application/workspace/execution/reconciliation.py) |
+| Local reconciliation-detail integrity | [`ReconciliationEvidenceService`](../../../src/impodo/application/reconciliation_evidence_service.py) |
+| Highlighted source workbook | [`FalloutWorkbookService`](../../../src/impodo/application/fallout_workbook_service.py) |
 | Recovery read-back | [`ReconciliationService.assess_recovery`](../../../src/impodo/application/workspace/execution/reconciliation.py) |
 | Read-back-gated resume | [`ExecutionService.resume`](../../../src/impodo/application/workspace/execution/service.py) |
 | Odoo-transfer resume facade | [`TransferExecutionService.resume`](../../../src/impodo/application/transfer_execution_service.py) |
@@ -429,3 +449,4 @@ Odoo 19 target.
 - [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)
 - [Proposed scalable relationship dependency plan](../../plans/scalable-relationship-dependency-planning.md)
+- [Proposed source-cell fallout workbook](../../plans/load-fallout-source-cell-workbook.md)

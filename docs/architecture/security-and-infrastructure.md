@@ -145,6 +145,13 @@ classification and are not copied into that sidecar. Existing portable project
 evidence still depends on full-disk encryption and operating-system access
 controls.
 
+Post-load field-difference detail follows that ordinary local-artifact model:
+it is owner-restricted, authorization-checked, and SHA-256-bound, but is not
+wrapped in a second application encryption layer. The same values already
+exist in the governed source workbook, prepared data, and generated review
+workbook, so selectively encrypting only this copy would add a recovery key
+without establishing a coherent confidentiality boundary.
+
 ### Secrets
 
 - Remote read API keys and disposable-target load API keys remain in memory or

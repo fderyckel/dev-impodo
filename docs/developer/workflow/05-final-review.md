@@ -29,6 +29,10 @@ serves the manifest, workbook, and review package.
 `PreflightService` freezes the input bindings, plans metadata and record
 requests, captures the target fingerprint and snapshot, performs offline
 classification, and publishes the report and execution snapshot atomically.
+For a nullable self-referencing identity scope, `plan_preflight_requirements`
+builds one exact name-and-lineage domain expression for each prepared record.
+The expression ends with an unset parent at the root, and the planner batches
+the expressions without widening the Odoo read.
 
 When the operator creates the workbook for a file source,
 `PreflightService.review_workbook_evidence` reloads the exact current frozen
@@ -110,6 +114,7 @@ meaning before a new comparison can use the replacement credential generation.
 | Role | Code |
 | --- | --- |
 | Comparison orchestration | [`PreflightService`](../../../src/impodo/application/preflight_service.py) |
+| Bounded requirement planning | [`planner.py`](../../../src/impodo/domain/execution/planner.py) |
 | Protected Odoo comparison | [`odoo_comparison_service.py`](../../../src/impodo/application/odoo_comparison_service.py) |
 | Protected comparison contract | [`odoo_comparison.py`](../../../src/impodo/domain/odoo_comparison.py) |
 | Frozen input | [`frozen_input.py`](../../../src/impodo/domain/preflight/frozen_input.py) |
@@ -195,6 +200,7 @@ contact Odoo while writing them.
 - [`tests/application/workspace/review/test_odoo_comparison.py`](../../../tests/application/workspace/review/test_odoo_comparison.py)
 - [`tests/integration/web/test_review_workflow.py`](../../../tests/integration/web/test_review_workflow.py)
 - [Recipe comparison and shared-key recovery](../../../tests/integration/web/test_recipe_comparison_recovery.py)
+- [Nullable hierarchy matching and order](../../../tests/domain/preparation/test_target_first_relationships.py)
 
 Verify fixed classification precedence, batched requests, portable identities,
 snapshot completeness, stale bindings, deterministic artifacts, and absence of

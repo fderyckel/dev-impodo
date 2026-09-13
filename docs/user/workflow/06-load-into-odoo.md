@@ -93,12 +93,18 @@ Stage 8B sequence above for an Odoo-to-Odoo workspace.
 6. Follow the current load group and relationship-completion totals. Do not
    resubmit an uncertain request.
 7. Open **Verify result** to read back the affected records.
-8. Review reconciliation and download fallout details when any row cannot be
-   verified.
+8. Review reconciliation when any row cannot be verified. A read-back
+   difference means Odoo accepted the record but stored at least one different
+   value; it does not mean that Odoo rejected the row. Select **Re-check Odoo
+   now** for a fresh read-only attempt, then download the highlighted source
+   workbook to see each affected worksheet cell, prepared value, Odoo value,
+   and recommended action. The original source workbook is never changed.
 
 ![Current Check changes screen with exact new, changed, up-to-date, and per-table totals.](../../images/user/17-load-preview.png)
 
 ![Current Confirm and load screen with the optional loading-key field and one explicit load action.](../../images/user/17b-load-confirmation.png)
+
+![Current fallout outcome with accepted-record wording, field groups, highlighted-workbook download, and read-only re-check.](../../images/user/18-load-fallout.png)
 
 ## Correct a verified Authoring load
 
@@ -157,6 +163,9 @@ approval, execution, or read-back evidence.
   follow.
 - The journal records every attempted row.
 - Read-back verification accounts for the final outcome.
+- A weight or amount with more decimal places than the captured Odoo field can
+  store is resolved before confirmation. Impodo stops the load rather than
+  silently rounding it or guessing a unit conversion.
 
 ## How Impodo handles related records
 
@@ -251,6 +260,14 @@ is waiting for an optional relationship, recovery writes only the relationship
 fields that were already reviewed. A changed target, ambiguous record, missing
 receipt, changed key, or changed loading identity stops recovery and requires
 a new review.
+
+If the load is complete but the newest verification shows fallout, do not
+reload the records. Use **Re-check Odoo now** after correcting Odoo or the
+affected exact records. The previous verification remains as history and the
+new read becomes the current result. The highlighted workbook is a local
+derivative containing business values; it is access-controlled and
+integrity-checked inside the project, while API keys remain in the operating-
+system credential vault.
 
 ## What makes this work stale
 

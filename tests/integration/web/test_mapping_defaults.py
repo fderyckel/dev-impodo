@@ -266,19 +266,18 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(current_validation.status, MappingValidationStatus.VALID)
         self.assertEqual(current_validation.issues, ())
 
+        submission_entries = [
+            *mapping_data.items(),
+            ["action", "submit"],
+            ["expected_parent_version", str(current_revision.version)],
+            [
+                "expected_working_draft_version",
+                str(current_working.version),
+            ],
+        ]
         submitted = self.client.post(
             f"/workspaces/{workspace_id}/mapping/save",
-            json={
-                "entries": [
-                    *mapping_data.items(),
-                    ["action", "submit"],
-                    ["expected_parent_version", str(current_revision.version)],
-                    [
-                        "expected_working_draft_version",
-                        str(current_working.version),
-                    ],
-                ]
-            },
+            json={"entries": submission_entries},
             headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
         )
 
@@ -290,6 +289,19 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
         submitted_page = self.client.get(submitted.json()["redirect_url"])
         self.assertIn("Field matches confirmed", submitted_page.text)
         self.assertIn("Prepare all source rows", submitted_page.text)
+
+        repeated = self.client.post(
+            f"/workspaces/{workspace_id}/mapping/save",
+            json={"entries": submission_entries},
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+
+        self.assertEqual(repeated.status_code, 200, repeated.text)
+        self.assertEqual(repeated.json()["status"], "committed")
+        self.assertEqual(
+            repeated.json()["redirect_url"],
+            f"/workspaces/{workspace_id}/prepare",
+        )
 
     def test_individual_let_odoo_choose_rechecks_matches(self) -> None:
         workspace_id, dataset, business_key = self._mapping_ready_workspace(

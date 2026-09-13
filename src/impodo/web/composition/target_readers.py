@@ -9,7 +9,7 @@ boundary and are never passed into the preflight domain or report.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
 from starlette.concurrency import run_in_threadpool
@@ -20,12 +20,21 @@ from impodo.application.odoo_read_failures import (
     OdooReadWorkflowError,
 )
 from impodo.adapters.odoo.connectors import Json2Config, Json2ReadConnector, target_record_read_config
-from impodo.domain.odoo.contracts import MetadataRequest, MetadataSnapshot, RecordRequest, RecordSnapshot
+from impodo.domain.odoo.contracts import (
+    MetadataRequest,
+    MetadataSnapshot,
+    RecordRequest,
+    RecordSnapshot,
+    ReferenceEvidenceBinding,
+)
 from impodo.adapters.odoo.local_stack import LocalStackProfile
 from impodo.domain.schema.governance import BusinessKeyDefinition
 from impodo.domain.shared.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
-from impodo.domain.execution.planner import PreflightRequirementPlan
+from impodo.domain.execution.planner import (
+    PreflightRequirementPlan,
+    ReferenceReadRequirement,
+)
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStateError, SourceMode
 from impodo.domain.workspace.reference_keys import (
     REFERENCE_POLICY_HASH,
@@ -39,6 +48,7 @@ from impodo.domain.workspace.reference_keys import (
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.supporting_lookups import (
     SupportingLookupChoice,
+    SupportingLookupSnapshot,
     portable_supporting_value,
 )
 from impodo.domain.workspace.contracts import (
@@ -325,9 +335,99 @@ def _existing_catalog_model(
     return selected
 
 
+def _reference_signature(
+    reference: ReferenceReadRequirement,
+) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    """Identify supporting evidence independently from one display projection."""
+
+    return (
+        reference.relation_model,
+        reference.key_fields,
+        reference.scope_fields,
+    )
+
+
+def _current_preflight_supporting_references(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+    schema: OdooSchemaCatalog,
+    requirements: PreflightRequirementPlan,
+) -> tuple[SupportingLookupSnapshot, ...]:
+    """Load exact current evidence for related models outside primary scope."""
+
+    service = getattr(context, "supporting_lookups", None)
+    if service is None or not hasattr(service, "current_preflight_reference"):
+        return ()
+    captured_models = {model.name for model in schema.models}
+    snapshots: dict[str, SupportingLookupSnapshot] = {}
+    for reference in requirements.reference_requirements:
+        if reference.relation_model in captured_models:
+            continue
+        snapshot = service.current_preflight_reference(
+            workspace_state.workspace_id,
+            relation_model=reference.relation_model,
+            key_fields=reference.key_fields,
+            scope_fields=reference.scope_fields,
+            target_hash=schema.connection_target_hash,
+            read_credential_binding_hash=schema.read_credential_binding_hash,
+            read_principal_hash=schema.read_principal_hash,
+            read_context_hash=schema.read_context_hash,
+            actor=context.actor,
+        )
+        if snapshot is not None:
+            snapshots[snapshot.snapshot_id] = snapshot
+    return tuple(snapshots[key] for key in sorted(snapshots))
+
+
+def _governed_preflight_reference_request(
+    schema: OdooSchemaCatalog,
+    captured_models: dict[str, object],
+    reference: ReferenceReadRequirement,
+    *,
+    governed_key: bool,
+) -> GovernedReferenceRequest:
+    """Build the shared policy request for one planned reference read."""
+
+    parent = captured_models.get(reference.parent_model)
+    relationship = next(
+        (
+            field
+            for field in (parent.fields if parent is not None else ())
+            if field.name == reference.relationship_field
+        ),
+        None,
+    )
+    try:
+        odoo_major_version = int(str(schema.odoo_version).split(".", 1)[0])
+    except ValueError:
+        odoo_major_version = -1
+    return GovernedReferenceRequest(
+        parent_model=reference.parent_model,
+        relationship_field=reference.relationship_field,
+        relationship_type=(
+            relationship.type
+            if relationship is not None
+            else reference.relationship_type
+        ),
+        relationship_model=(
+            relationship.relation if relationship is not None else None
+        ),
+        related_model=reference.relation_model,
+        key_fields=reference.key_fields,
+        scope_fields=reference.scope_fields,
+        requested_fields=reference.requested_fields,
+        purpose=ReferenceReadPurpose.PREFLIGHT,
+        odoo_major_version=odoo_major_version,
+        all_fields=False,
+        include_unique_constraints=False,
+        governed_key=governed_key,
+    )
+
+
 def _authorized_supplemental_models(
     schema: OdooSchemaCatalog,
     requirements: PreflightRequirementPlan,
+    supporting_references: tuple[SupportingLookupSnapshot, ...] = (),
 ) -> tuple[str, ...]:
     """Authorize every planned model outside captured schema from its relation."""
 
@@ -337,15 +437,19 @@ def _authorized_supplemental_models(
             "The supporting-reference policy changed; check the field matches again",
         )
     captured_models = {model.name: model for model in schema.models}
+    supporting_by_signature = {
+        (
+            snapshot.relation_model,
+            snapshot.key_fields,
+            snapshot.scope_fields,
+        ): snapshot
+        for snapshot in supporting_references
+    }
     requested_models = {
         *(request.model for request in requirements.metadata_requests),
         *(request.model for request in requirements.record_requests),
     }
     supplemental_models = requested_models - set(captured_models)
-    try:
-        odoo_major_version = int(str(schema.odoo_version).split(".", 1)[0])
-    except ValueError:
-        odoo_major_version = -1
     requested_fields = {model: set() for model in supplemental_models}
     metadata_flags: dict[str, tuple[bool, bool]] = {}
     for request in requirements.metadata_requests:
@@ -362,43 +466,31 @@ def _authorized_supplemental_models(
     authorized_fields = {model: set() for model in supplemental_models}
     authorized_models: set[str] = set()
     for reference in requirements.reference_requirements:
-        parent = captured_models.get(reference.parent_model)
         related = captured_models.get(reference.relation_model)
-        relationship = next(
-            (
-                field
-                for field in (parent.fields if parent is not None else ())
-                if field.name == reference.relationship_field
-            ),
-            None,
+        supporting = supporting_by_signature.get(
+            _reference_signature(reference)
         )
         flags = metadata_flags.get(reference.relation_model, (False, False))
+        request = _governed_preflight_reference_request(
+            schema,
+            captured_models,
+            reference,
+            governed_key=related is not None or supporting is not None,
+        )
         decision = authorize_governed_reference(
-            GovernedReferenceRequest(
-                parent_model=reference.parent_model,
-                relationship_field=reference.relationship_field,
-                relationship_type=(
-                    relationship.type
-                    if relationship is not None
-                    else reference.relationship_type
-                ),
-                relationship_model=(
-                    relationship.relation if relationship is not None else None
-                ),
-                related_model=reference.relation_model,
-                key_fields=reference.key_fields,
-                scope_fields=reference.scope_fields,
-                requested_fields=reference.requested_fields,
-                purpose=ReferenceReadPurpose.PREFLIGHT,
-                odoo_major_version=odoo_major_version,
+            replace(
+                request,
                 all_fields=flags[0],
                 include_unique_constraints=flags[1],
-                governed_key=related is not None,
             ),
             captured_fields=(
                 captured_reference_field_contracts(related.fields)
                 if related is not None
-                else None
+                else (
+                    supporting.field_contracts
+                    if supporting is not None
+                    else None
+                )
             ),
         )
         if not decision.accepted:
@@ -424,6 +516,116 @@ def _authorized_supplemental_models(
             "The comparison requires an Odoo reference outside the governed read policy",
         )
     return tuple(sorted(supplemental_models))
+
+
+def _validate_live_supplemental_metadata(
+    schema: OdooSchemaCatalog,
+    requirements: PreflightRequirementPlan,
+    metadata: MetadataSnapshot,
+    supporting_references: tuple[SupportingLookupSnapshot, ...],
+) -> None:
+    """Recheck live supplemental fields against the evidence that allowed them."""
+
+    captured_models = {model.name: model for model in schema.models}
+    supplemental_models = {
+        request.model
+        for request in requirements.metadata_requests
+        if request.model not in captured_models
+    }
+    supporting_by_signature = {
+        (
+            snapshot.relation_model,
+            snapshot.key_fields,
+            snapshot.scope_fields,
+        ): snapshot
+        for snapshot in supporting_references
+    }
+    for reference in requirements.reference_requirements:
+        if reference.relation_model not in supplemental_models:
+            continue
+        related = metadata.models.get(reference.relation_model)
+        supporting = supporting_by_signature.get(
+            _reference_signature(reference)
+        )
+        support_reference = (
+            f"{reference.parent_model}.{reference.relationship_field} -> "
+            f"{reference.relation_model}"
+        )
+        if related is None:
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.RESPONSE_INCOMPLETE,
+                "Odoo did not return a governed supporting record type",
+                support_reference=support_reference,
+            )
+        actual_contracts = captured_reference_field_contracts(
+            related.fields.values()
+        )
+        if supporting is not None:
+            expected_by_name = {
+                field.name: field for field in supporting.field_contracts
+            }
+            actual_by_name = {field.name: field for field in actual_contracts}
+            if any(
+                actual_by_name.get(field_name)
+                != expected_by_name.get(field_name)
+                for field_name in reference.requested_fields
+            ):
+                raise OdooReadWorkflowError(
+                    OdooReadFailureCode.REFERENCE_POLICY_MISMATCH,
+                    "The linked Odoo fields changed after their matching evidence was captured",
+                    support_reference=support_reference,
+                )
+        decision = authorize_governed_reference(
+            _governed_preflight_reference_request(
+                schema,
+                captured_models,
+                reference,
+                governed_key=supporting is not None,
+            ),
+            captured_fields=actual_contracts,
+        )
+        if not decision.accepted:
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.REFERENCE_POLICY_MISMATCH,
+                "The live Odoo reference no longer matches the governed read policy",
+                support_reference=support_reference,
+            )
+
+
+def _bind_supporting_reference_evidence(
+    requirements: PreflightRequirementPlan,
+    metadata: MetadataSnapshot,
+    supporting_references: tuple[SupportingLookupSnapshot, ...],
+) -> MetadataSnapshot:
+    """Bind every used supporting snapshot into protected metadata evidence."""
+
+    supporting_by_signature = {
+        (
+            snapshot.relation_model,
+            snapshot.key_fields,
+            snapshot.scope_fields,
+        ): snapshot
+        for snapshot in supporting_references
+    }
+    bindings = set(metadata.reference_evidence)
+    for reference in requirements.reference_requirements:
+        snapshot = supporting_by_signature.get(_reference_signature(reference))
+        if snapshot is None:
+            continue
+        bindings.add(
+            ReferenceEvidenceBinding(
+                parent_model=reference.parent_model,
+                relationship_field=reference.relationship_field,
+                relation_model=reference.relation_model,
+                key_fields=reference.key_fields,
+                scope_fields=reference.scope_fields,
+                requested_fields=reference.requested_fields,
+                snapshot_id=snapshot.snapshot_id,
+                snapshot_content_hash=snapshot.content_hash,
+                reference_policy_hash=snapshot.reference_policy_hash,
+            )
+        )
+    return replace(metadata, reference_evidence=tuple(sorted(bindings)))
 
 
 def _read_readiness_snapshots(
@@ -459,32 +661,64 @@ def _read_readiness_snapshots(
             OdooReadFailureCode.SCHEMA_EVIDENCE_MISSING,
             "Capture the current Odoo fields before checking data",
         )
+    supporting_references = _current_preflight_supporting_references(
+        context,
+        workspace_state,
+        schema,
+        requirements,
+    )
     supplemental_models = _authorized_supplemental_models(
         schema,
         requirements,
+        supporting_references,
     )
     if (
         context.readiness_reader is not None
         and workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL
     ):
-        return context.readiness_reader(
+        metadata, records = context.readiness_reader(
             workspace_state,
             metadata_requests,
             record_requests,
         )
+        if isinstance(metadata, MetadataSnapshot):
+            _validate_live_supplemental_metadata(
+                schema,
+                requirements,
+                metadata,
+                supporting_references,
+            )
+            metadata = _bind_supporting_reference_evidence(
+                requirements,
+                metadata,
+                supporting_references,
+            )
+        return metadata, records
     if workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL:
         if local_profile is None:
             raise LocalOdooRecoveryRequired(
                 "Choose and validate the matching local odoo.conf before "
                 "checking data."
             )
-        return context.local_odoo_reader.get_preflight_snapshots(
+        metadata, records = context.local_odoo_reader.get_preflight_snapshots(
             workspace_state,
             local_profile,
             metadata_requests,
             record_requests,
             related_models=supplemental_models,
         )
+        _validate_live_supplemental_metadata(
+            schema,
+            requirements,
+            metadata,
+            supporting_references,
+        )
+        metadata = _bind_supporting_reference_evidence(
+            requirements,
+            metadata,
+            supporting_references,
+        )
+        return metadata, records
     credential = get_target_credential(
         context.secret_store,
         context.target_credential_workspace(workspace_state.workspace_id),
@@ -543,15 +777,39 @@ def _read_readiness_snapshots(
                 "refresh the Odoo fields before checking data",
             )
     if context.readiness_reader is not None:
-        return context.readiness_reader(
+        metadata, records = context.readiness_reader(
             workspace_state,
             metadata_requests,
             record_requests,
         )
+        if isinstance(metadata, MetadataSnapshot):
+            _validate_live_supplemental_metadata(
+                schema,
+                requirements,
+                metadata,
+                supporting_references,
+            )
+            metadata = _bind_supporting_reference_evidence(
+                requirements,
+                metadata,
+                supporting_references,
+            )
+        return metadata, records
     connector = Json2ReadConnector(
         _target_json2_config(workspace_state, credential.secret)
     )
     metadata = connector.get_model_metadata(metadata_requests)
+    _validate_live_supplemental_metadata(
+        schema,
+        requirements,
+        metadata,
+        supporting_references,
+    )
+    metadata = _bind_supporting_reference_evidence(
+        requirements,
+        metadata,
+        supporting_references,
+    )
     records = connector.get_records(record_requests)
     return metadata, records
 

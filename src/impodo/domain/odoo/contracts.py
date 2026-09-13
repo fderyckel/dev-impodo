@@ -41,6 +41,21 @@ class RecordRequest:
     limit: int | None = None
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class ReferenceEvidenceBinding:
+    """Pin the supporting evidence that authorized one related-model read."""
+
+    parent_model: str
+    relationship_field: str
+    relation_model: str
+    key_fields: tuple[str, ...]
+    scope_fields: tuple[str, ...]
+    requested_fields: tuple[str, ...]
+    snapshot_id: str
+    snapshot_content_hash: str
+    reference_policy_hash: str
+
+
 @dataclass(frozen=True, slots=True)
 class MetadataSnapshot:
     """Model metadata plus the exact target identity from which it was read."""
@@ -50,6 +65,7 @@ class MetadataSnapshot:
     create_defaults: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
     complete: bool = True
     limitations: tuple[str, ...] = ()
+    reference_evidence: tuple[ReferenceEvidenceBinding, ...] = ()
     content_hash: str | None = None
 
 
@@ -95,7 +111,7 @@ def bind_snapshot_hashes(
 def metadata_snapshot_payload(snapshot: MetadataSnapshot) -> dict[str, Any]:
     """Return protected deterministic metadata snapshot evidence."""
 
-    return {
+    payload = {
         "fingerprint": snapshot.fingerprint.portable_dict(),
         "complete": snapshot.complete,
         "limitations": list(snapshot.limitations),
@@ -140,6 +156,22 @@ def metadata_snapshot_payload(snapshot: MetadataSnapshot) -> dict[str, Any]:
             for name, model in sorted(snapshot.models.items())
         },
     }
+    if snapshot.reference_evidence:
+        payload["reference_evidence"] = [
+            {
+                "parent_model": item.parent_model,
+                "relationship_field": item.relationship_field,
+                "relation_model": item.relation_model,
+                "key_fields": list(item.key_fields),
+                "scope_fields": list(item.scope_fields),
+                "requested_fields": list(item.requested_fields),
+                "snapshot_id": item.snapshot_id,
+                "snapshot_content_hash": item.snapshot_content_hash,
+                "reference_policy_hash": item.reference_policy_hash,
+            }
+            for item in sorted(snapshot.reference_evidence)
+        ]
+    return payload
 
 
 def record_snapshot_payload(snapshot: RecordSnapshot) -> dict[str, Any]:

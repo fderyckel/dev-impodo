@@ -158,6 +158,27 @@ different field sets are read in separate bounded groups. It proves final
 scalar and relationship values, publishes new immutable evidence, and never
 edits the execution journal.
 
+Workspace schema version 14 permits multiple immutable reconciliation rows for
+one execution run. The execution's current-result pointer moves only after a
+new result is published; earlier attempts remain queryable history. An
+authorized manual re-verification performs the same exact-ID, exact-field read
+and appends a new attempt.
+
+For each differing field, reconciliation may publish a companion local JSON
+artifact with the prepared value, observed value, stable source trace, target
+field type, captured numeric precision, and reason code. Its manifest binds
+the JSON by byte size, SHA-256 hash, logical hash, difference count, execution,
+snapshot, target, and reconciliation ID. The artifact uses workspace access
+controls and integrity verification, not application-level encryption. It
+contains no credential or secret. Normal browser state continues to carry only
+the compact value-free reconciliation projection.
+
+The execution snapshot freezes target numeric `digits`. A value that cannot be
+represented exactly at that precision blocks a new load before writer
+construction with `TARGET_NUMERIC_PRECISION_LOSS`; no implicit rounding or unit
+conversion is allowed. HTML equality may normalize only an Odoo outer
+paragraph and fragment-boundary whitespace.
+
 Recovery assessment uses the same read-back logic but remains ephemeral.
 Execution owns the distinct, atomic journal transition that records which
 recovery report authorized a same-run resume.

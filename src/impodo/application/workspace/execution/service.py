@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import re
 from typing import Any, Callable, Mapping, Protocol, Sequence
 from uuid import uuid4
@@ -2840,6 +2840,42 @@ def _execution_snapshot_error(
     write_rows = tuple(row for row in snapshot.rows if row.fields)
     if not write_rows:
         return NO_WRITE_ROWS_MESSAGE
+    precision_issues: dict[
+        tuple[str, str, tuple[int, int]], list[Decimal]
+    ] = {}
+    digits_by_dataset = {
+        dataset.dataset: dict(getattr(dataset, "field_digits", ()))
+        for dataset in snapshot.datasets
+    }
+    for row in write_rows:
+        field_digits = digits_by_dataset.get(row.dataset, {})
+        for intent in row.fields:
+            digits = field_digits.get(intent.field)
+            if (
+                digits is None
+                or intent.kind != "scalar"
+                or intent.action != "SET_VALUE"
+                or type(intent.value) is bool
+            ):
+                continue
+            value = _unrepresentable_decimal(intent.value, digits)
+            if value is not None:
+                precision_issues.setdefault(
+                    (row.target_model, intent.field, digits), []
+                ).append(value)
+    if precision_issues:
+        (model, field, digits), values = sorted(
+            precision_issues.items(),
+            key=lambda item: (-len(item[1]), item[0]),
+        )[0]
+        examples = ", ".join(str(value) for value in values[:3])
+        return (
+            f"{model}.{field}: {len(values):,} prepared value(s) cannot be "
+            f"represented at Odoo precision ({digits[0]}, {digits[1]}) without "
+            "changing them. Change the Odoo precision or approve an explicit "
+            f"rounding or conversion rule, then compare again. Examples: {examples}. "
+            "Support code: TARGET_NUMERIC_PRECISION_LOSS."
+        )
     datasets = {item.dataset: item for item in snapshot.datasets}
     rows_by_source = {
         (row.dataset, _portable_key(row.source_identity)): row
@@ -2960,7 +2996,7 @@ def _execution_snapshot_error(
             if not row.proposed_external_id:
                 return f"Dataset {row.dataset} has a create without an External ID"
             for intent in row.fields:
-                if intent.action == "OMIT":
+                if intent.action in {"OMIT", "SET_NULL"}:
                     continue
                 if intent.kind == "scalar":
                     continue
@@ -3045,6 +3081,32 @@ def _execution_snapshot_error(
                     "business key"
                 )
     return ""
+
+
+def _unrepresentable_decimal(
+    value: object,
+    digits: tuple[int, int],
+) -> Decimal | None:
+    """Return a finite value when target precision would alter or overflow it."""
+
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if not number.is_finite():
+        return number
+    precision, scale = digits
+    quantum = Decimal(1).scaleb(-scale)
+    try:
+        if number.quantize(quantum) != number:
+            return number
+    except InvalidOperation:
+        return number
+    integral = number.copy_abs().to_integral_value()
+    integral_digits = len(str(integral).replace("-", "").split(".", 1)[0].lstrip("0"))
+    if integral_digits > precision - scale:
+        return number
+    return None
 
 
 def _execution_dependency_summary(

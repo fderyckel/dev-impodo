@@ -104,6 +104,7 @@ from ..application.run.service import MigrationRunService
 from ..application.workspace.service import MigrationWorkspaceService
 from ..application.recipe.service import RecipeService
 from ..application.odoo_connection_service import OdooConnectionTestService
+from ..application.fallout_workbook_service import FalloutWorkbookService
 from impodo.application.shared.secrets import SecretStore
 from .remote_connection import RemoteConnectionStatusService
 
@@ -220,6 +221,7 @@ class WebContext:
     transfer_execution: TransferExecutionService
     load_jobs: LoadJobManager | None
     reconciliation: ReconciliationService
+    fallout_workbooks: FalloutWorkbookService
     corrections: CorrectionWorkflowService
     correction_jobs: CorrectionJobManager
     transformation_impacts: TransformationImpactService

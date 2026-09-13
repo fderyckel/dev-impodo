@@ -9,6 +9,7 @@ from typing import Mapping, Protocol, Sequence
 from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
 from impodo.application.shared.columnar_runtime import configure_columnar_runtime
 from impodo.domain.mapping.contracts import (
+    MAX_CATEGORICAL_EVIDENCE_VALUES,
     MAX_VALUE_MAPPINGS,
     CategoricalCoveragePolicy,
     DatasetMapping,
@@ -55,7 +56,10 @@ CATEGORICAL_SCAN_CONTRACT_HASH = content_hash(
         "input": "source_snapshot_value_columns",
         "blank": "trimmed_empty_excluded",
         "grouping": "exact_utf8_tuple",
-        "maximum_distinct_values_per_field": MAX_VALUE_MAPPINGS,
+        "maximum_distinct_values_per_field": {
+            "explicit_mapping": MAX_VALUE_MAPPINGS,
+            "exact_policy": MAX_CATEGORICAL_EVIDENCE_VALUES,
+        },
         "dataset_reads": "one_projected_scan",
         "derived_exact_business_key": "covered_without_physical_projection",
     }
@@ -572,14 +576,26 @@ def _evaluate_field(
                 is ScalarValueSource.CONDITIONAL_RULES
             ),
         )
-        if len(raw_counts) > MAX_VALUE_MAPPINGS:
+        evidence_limit = _categorical_evidence_limit(item.policy)
+        if len(raw_counts) > evidence_limit:
             return (
                 _unsupported_result(item),
                 _coverage_issue(
                     item,
                     "MAPPING_CATEGORICAL_DOMAIN_TOO_LARGE",
-                    f"This field has {len(raw_counts)} distinct source choices; the evidence limit is {MAX_VALUE_MAPPINGS}.",
-                    "Reduce or govern the source domain before confirming this mapping.",
+                    f"This field has {len(raw_counts)} distinct source choices; the evidence limit is {evidence_limit}.",
+                    (
+                        "Reduce the source domain before confirming this mapping."
+                        if item.policy
+                        in {
+                            CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
+                            CategoricalCoveragePolicy.EXACT_TARGET_VALUE,
+                        }
+                        else (
+                            "Reduce the source domain or use one exact governed "
+                            "policy instead of matching every source choice."
+                        )
+                    ),
                 ),
             )
         distinct = tuple(
@@ -610,6 +626,17 @@ def _evaluate_field(
         else None
     )
     return result, issue
+
+
+def _categorical_evidence_limit(policy: CategoricalCoveragePolicy) -> int:
+    """Keep authored match cardinality separate from exact-policy evidence."""
+
+    if policy in {
+        CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH,
+        CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
+    }:
+        return MAX_VALUE_MAPPINGS
+    return MAX_CATEGORICAL_EVIDENCE_VALUES
 
 
 def _constant_scalar_uncovered(item: _CoverageField) -> tuple[tuple[str, ...], ...]:

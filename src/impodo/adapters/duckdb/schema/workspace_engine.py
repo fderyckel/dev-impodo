@@ -1290,6 +1290,47 @@ def _upgrade_workspace_engine_v12_to_v13(
     _create_row_inclusion_review_schema(connection)
 
 
+def _upgrade_workspace_engine_v13_to_v14(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Retain append-only verification attempts and local detail bindings."""
+
+    connection.execute(
+        """
+        CREATE TABLE reconciliation_run_v14 (
+            reconciliation_id VARCHAR PRIMARY KEY,
+            execution_run_id VARCHAR NOT NULL,
+            snapshot_hash VARCHAR NOT NULL,
+            target_hash VARCHAR NOT NULL,
+            target_database VARCHAR NOT NULL,
+            status VARCHAR NOT NULL,
+            verified_at VARCHAR NOT NULL,
+            verified_by VARCHAR NOT NULL,
+            report_hash VARCHAR NOT NULL,
+            report_json VARCHAR NOT NULL,
+            detail_storage_name VARCHAR,
+            detail_logical_hash VARCHAR,
+            detail_artifact_hash VARCHAR,
+            detail_size_bytes BIGINT,
+            detail_difference_count BIGINT
+        );
+        INSERT INTO reconciliation_run_v14 (
+            reconciliation_id, execution_run_id, snapshot_hash, target_hash,
+            target_database, status, verified_at, verified_by, report_hash,
+            report_json
+        )
+        SELECT reconciliation_id, execution_run_id, snapshot_hash, target_hash,
+               target_database, status, verified_at, verified_by, report_hash,
+               report_json
+          FROM reconciliation_run;
+        DROP TABLE reconciliation_run;
+        ALTER TABLE reconciliation_run_v14 RENAME TO reconciliation_run;
+        CREATE INDEX reconciliation_run_execution_lookup
+            ON reconciliation_run (execution_run_id, verified_at);
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -1338,5 +1379,9 @@ WORKSPACE_ENGINE_UPGRADES = {
     12: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v12-to-v13-row-inclusion-review",
         apply=_upgrade_workspace_engine_v12_to_v13,
+    ),
+    13: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v13-to-v14-reconciliation-history",
+        apply=_upgrade_workspace_engine_v13_to_v14,
     ),
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
 from io import StringIO
@@ -317,8 +318,34 @@ def build_execution_router(
         except SecretStoreError:
             has_stored_write_key = False
         reconciliation = context.reconciliation.current(workspace_id)
+        fallout_detail_available = False
+        fallout_groups = ()
+        reconciliation_summary = None
         if reconciliation is not None:
             load_rows = reconciliation.rows
+            fallout_detail_available = (
+                context.reconciliation.current_detail_available(workspace_id)
+            )
+            reason_counts: Counter[tuple[str, str]] = Counter()
+            if fallout_detail_available:
+                try:
+                    detail = context.reconciliation.current_detail(
+                        workspace_id,
+                        actor=context.actor,
+                    )
+                except WorkspaceError:
+                    fallout_detail_available = False
+                else:
+                    if detail is not None:
+                        reason_counts.update(
+                            (item.field, item.reason_code)
+                            for item in detail.differences
+                        )
+            fallout_groups = _fallout_groups(
+                reconciliation,
+                reason_counts,
+            )
+            reconciliation_summary = _reconciliation_summary(reconciliation)
         elif preview.current_run is not None:
             load_rows = preview.current_run.rows
         else:
@@ -403,6 +430,9 @@ def build_execution_router(
             ),
             blocker_summary=getattr(preview, "blocker_summary", None),
             reconciliation=reconciliation,
+            fallout_detail_available=fallout_detail_available,
+            fallout_groups=fallout_groups,
+            reconciliation_summary=reconciliation_summary,
             load_step=step,
             load_row_page=load_row_page,
             load_row_page_size_options=tuple(
@@ -917,6 +947,7 @@ def build_execution_router(
             status_code=303,
         )
 
+    @router.post("/workspaces/{workspace_id}/load/reverify")
     @router.post("/workspaces/{workspace_id}/load/reconcile")
     async def reconcile_load(request: Request, workspace_id: str):
         form = await request.form()
@@ -999,8 +1030,13 @@ def build_execution_router(
                 api_key,
                 preview.api_scope,
             )
+            reconcile_operation = (
+                context.reconciliation.reverify
+                if request.url.path.endswith("/reverify")
+                else context.reconciliation.reconcile
+            )
             report = await run_in_threadpool(
-                context.reconciliation.reconcile,
+                reconcile_operation,
                 workspace_id,
                 expected_execution_run_id=_text(form, "execution_run_id"),
                 reader=reader,
@@ -1060,6 +1096,30 @@ def build_execution_router(
             status_code=303,
         )
 
+    @router.get("/workspaces/{workspace_id}/load/fallout.xlsx")
+    async def download_fallout_workbook(request: Request, workspace_id: str):
+        require_session(request)
+        try:
+            generated = await run_in_threadpool(
+                context.fallout_workbooks.generate,
+                workspace_id,
+                actor=context.actor,
+            )
+        except (WorkspaceError, OSError, ValueError) as error:
+            return Response(str(error), status_code=409, media_type="text/plain")
+        return Response(
+            generated.content,
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{generated.filename}"'
+                ),
+                "Cache-Control": "no-store",
+            },
+        )
+
     @router.get("/workspaces/{workspace_id}/load/fallout.csv")
     async def download_fallout(request: Request, workspace_id: str):
         require_session(request)
@@ -1112,15 +1172,78 @@ def _flash_reconciliation(request: Request, report) -> None:
             f"Verification needs review: {report.unknown_count} outcome(s) remain unknown.",
         )
     elif report.fallout_count:
+        summary = _reconciliation_summary(report)
         _flash(
             request,
-            f"Verification found {report.fallout_count} fallout row(s).",
+            f"Odoo accepted {summary.accepted_count} written record(s), but "
+            f"{report.fallout_count} need review. "
+            "Do not reload them.",
         )
     else:
         _flash(
             request,
             f"Verified {report.verified_count} row(s) against Odoo.",
         )
+
+
+def _fallout_groups(report, reason_counts: Counter[tuple[str, str]]):
+    compact_counts: Counter[str] = Counter(
+        field
+        for row in report.rows
+        for field in row.differing_fields
+    )
+    groups = []
+    for field, count in sorted(
+        compact_counts.items(),
+        key=lambda item: (-item[1], item[0]),
+    ):
+        reasons = Counter(
+            {
+                reason: reason_count
+                for (reason_field, reason), reason_count in reason_counts.items()
+                if reason_field == field
+            }
+        )
+        reason = reasons.most_common(1)[0][0] if reasons else "VALUE_DIFFERENT"
+        if reason == "TARGET_NUMERIC_PRECISION_LOSS":
+            explanation = (
+                "These prepared values require more decimal precision than the "
+                "captured Odoo field permits."
+            )
+            action = (
+                "Change Odoo precision or approve an explicit rounding or unit "
+                "conversion rule. Do not reload the records."
+            )
+        elif reason == "HTML_CONTENT_DIFFERENT":
+            explanation = "Odoo returned meaningfully different HTML content."
+            action = (
+                "Review the source and add an explicit normalization rule if the "
+                "change is acceptable. Do not reload the records."
+            )
+        else:
+            explanation = "Odoo stored a different final value after accepting the write."
+            action = "Review the source, prepared, and Odoo values. Do not reload."
+        groups.append(
+            SimpleNamespace(
+                field=field.replace("_", " ").title(),
+                count=count,
+                explanation=explanation,
+                action=action,
+            )
+        )
+    return tuple(groups)
+
+
+def _reconciliation_summary(report):
+    statuses = Counter(row.status.value for row in report.rows)
+    return SimpleNamespace(
+        accepted_count=sum(row.odoo_id is not None for row in report.rows),
+        different_count=statuses["DIFFERENT"],
+        missing_count=statuses["MISSING"],
+        not_written_count=(statuses["NOT_WRITTEN"] + statuses["NOT_APPLIED"]),
+        unknown_count=statuses["OUTCOME_UNKNOWN"],
+        affected_field_count=sum(len(row.differing_fields) for row in report.rows),
+    )
 
 
 def _publish_completed_correction_origin(

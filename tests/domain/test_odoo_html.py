@@ -26,6 +26,20 @@ class OdooHtmlValueTests(unittest.TestCase):
             odoo_html_values_equal("<p>Expected</p>", "<p>Changed</p>")
         )
 
+    def test_accepts_boundary_whitespace_removed_by_odoo(self) -> None:
+        self.assertTrue(
+            odoo_html_values_equal(
+                "  CSR-01166M2   P14 ",
+                "<p>CSR-01166M2   P14</p>",
+            )
+        )
+        self.assertFalse(
+            odoo_html_values_equal(
+                "CSR-01166M2   P14",
+                "<p>CSR-01166M2 P14</p>",
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

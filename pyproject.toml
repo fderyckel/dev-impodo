@@ -7,6 +7,8 @@ name = "impodo"
 version = "0.0.0"
 description = "Local Odoo migration preparation, preflight, and practical loading"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "src/impodo/web/static/*-LICENSE.txt"]
 requires-python = ">=3.12"
 dependencies = [
   "cryptography>=49,<51",

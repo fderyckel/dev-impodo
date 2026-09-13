@@ -255,6 +255,15 @@ approvals, comparison output, execution journals, or reconciliation results.
 Application of that revision creates fresh workspace evidence and a normal
 mapping draft; it never copies a prior workspace database.
 
+Post-load reconciliation may append several immutable verification attempts
+for one execution journal. The newest valid attempt is current; previous
+attempts remain history. Exact differing values and frozen source trace IDs are
+kept in a local, authorization-checked, SHA-256-bound workspace report artifact
+so a highlighted source workbook can be reproduced from the same point in
+time. This artifact is not application-encrypted and contains no API key or
+credential. It relies on the same owner-only project directory and workstation
+at-rest controls as source files and DuckDB evidence.
+
 Portable evidence uses business keys and stable technical names. Numeric Odoo
 record IDs may appear only in protected target-specific evidence and never as
 portable source or relationship identities.
