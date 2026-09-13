@@ -971,6 +971,14 @@ class OrderedTextStepFormTests(unittest.TestCase):
         script = (root / "src" / "impodo" / "web" / "static" / "mapping.js").read_text(
             encoding="utf-8"
         )
+        save_recovery_script = (
+            root
+            / "src"
+            / "impodo"
+            / "web"
+            / "static"
+            / "mapping-save-recovery.js"
+        ).read_text(encoding="utf-8")
         order_script = (
             root / "src" / "impodo" / "web" / "static" / "mapping-order.js"
         ).read_text(encoding="utf-8")
@@ -1001,6 +1009,11 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIn("window.impodoMappingPosition", script)
         self.assertIn("[data-mapping-form]", script)
         self.assertIn("[data-table-fields-toggle]", script)
+        self.assertIn("impodo.mapping.tableFields", script)
+        self.assertIn("savedStates.set(datasetId, expanded)", script)
+        self.assertIn("window.sessionStorage.setItem", script)
+        self.assertIn("payload.partial_save === true", save_recovery_script)
+        self.assertIn("updateMappingVersionFields(payload)", save_recovery_script)
         self.assertIn("[data-matching-order-form]", order_script)
         self.assertIn('button[value^="move_up:"]', order_script)
         self.assertIn("dataTransfer.effectAllowed", order_script)

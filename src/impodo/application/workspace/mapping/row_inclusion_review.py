@@ -33,6 +33,9 @@ class RowInclusionReviewRepository(Protocol):
         report: RowInclusionReviewReport,
         *,
         actor: Actor,
+        operation_id: str | None = None,
+        working_draft_version: int | None = None,
+        mapping_revision_version: int | None = None,
     ) -> RowInclusionReviewSnapshot: ...
 
     def get_current_review(
@@ -88,8 +91,9 @@ class RowInclusionReviewService:
         workspace_id: str,
         *,
         actor: Actor,
+        operation_id: str | None = None,
     ) -> RowInclusionReviewSnapshot:
-        """Evaluate and publish every row governed by a matching policy."""
+        """Evaluate and atomically publish every governed row and receipt."""
 
         self.authorization.require(
             actor,
@@ -114,10 +118,16 @@ class RowInclusionReviewService:
         report = staged.row_inclusion_review
         if report is None:
             raise WorkspaceError("The checked mapping does not limit rows")
+        working = self.checked_mapping.mappings.get_mapping_working_draft(
+            workspace_id
+        )
         return self.reviews.replace_current_review(
             workspace_id,
             report,
             actor=actor,
+            operation_id=operation_id,
+            working_draft_version=(working.version if working else None),
+            mapping_revision_version=context.revision.version,
         )
 
     def current(

@@ -752,16 +752,22 @@ def _row_inclusion_review_values(
     """Project only the source values that explain the admission decision."""
 
     labels = {item.stable_key: item.source_name for item in effective.columns}
+    source_column_keys = tuple(
+        dict.fromkeys(
+            condition.source_column_key
+            for condition in mapping.row_inclusion.conditions
+        )
+    )
     return tuple(
         RowInclusionSourceValue(
-            source_column_key=condition.source_column_key,
+            source_column_key=source_column_key,
             source_column_label=labels.get(
-                condition.source_column_key,
-                condition.source_column_key,
+                source_column_key,
+                source_column_key,
             ),
-            value=_display_value(source_values.get(condition.source_column_key)),
+            value=_display_value(source_values.get(source_column_key)),
         )
-        for condition in mapping.row_inclusion.conditions
+        for source_column_key in source_column_keys
     )
 
 

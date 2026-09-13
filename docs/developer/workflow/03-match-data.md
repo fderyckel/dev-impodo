@@ -156,12 +156,24 @@ execution dependency planner remains authoritative for loading.
 Every browser mutation carries one UUID operation identity bound to the exact
 non-secret form meaning, submitted working-draft version, submitted mapping
 revision, and actor. `MappingRepository` first reserves a durable `PENDING`
-`MappingMutationReceipt`. Draft, revision, validation, and submission writes
-change it to `COMMITTED` with the resulting versions and content identity in
-the same DuckDB transaction. A handled rejection records `REJECTED`; an
-interrupted process may deliberately leave `PENDING`, which means unknown and
-does not authorize a blind replay. Reusing an operation identity with different
-meaning fails closed.
+`MappingMutationReceipt`. Most draft, revision, validation, and submission
+writes change it to `COMMITTED` with the resulting versions and content
+identity in the same DuckDB transaction. A valid **Check matches** command
+that limits source rows keeps the receipt `PENDING` after it saves the mapping
+revision. `RowInclusionReviewRepository` publishes the complete current row
+review and changes that receipt to `COMMITTED` with the review snapshot hash
+in one transaction. The browser therefore cannot mistake a saved mapping
+revision for a completed row check. An invalid check or a check that uses every
+row completes explicitly after validation. A handled rejection records
+`REJECTED`; an interrupted process may deliberately leave `PENDING`, which
+means unknown and does not authorize a blind replay. Reusing an operation
+identity with different meaning fails closed.
+
+If row evaluation fails after the checked revision was saved, the receipt uses
+`MAPPING_ROW_REVIEW_FAILED` and exposes a bounded partial-save result. The
+browser adopts the saved revision versions, keeps the form marked as needing a
+check, and permits a fresh **Check matches** command. It does not misreport the
+row review as complete or force the next attempt into a stale-version conflict.
 
 `GET /workspaces/{workspace_id}/mapping/mutation-receipts/{operation_id}` is
 the authenticated read-back boundary. `mapping-editor.js` gives mutations a

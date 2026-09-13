@@ -36,8 +36,11 @@ class RowInclusionReviewRepository(DuckDbRepository):
         report: RowInclusionReviewReport,
         *,
         actor: Actor,
+        operation_id: str | None = None,
+        working_draft_version: int | None = None,
+        mapping_revision_version: int | None = None,
     ) -> RowInclusionReviewSnapshot:
-        """Publish one complete check before making it current."""
+        """Publish one complete check and its operation receipt atomically."""
 
         self._assert_workspace_mutable(workspace_id)
         with self._row_inclusion_review_lock:
@@ -46,6 +49,9 @@ class RowInclusionReviewRepository(DuckDbRepository):
                 report,
                 actor=actor,
                 retry_duplicate=True,
+                operation_id=operation_id,
+                working_draft_version=working_draft_version,
+                mapping_revision_version=mapping_revision_version,
             )
 
     def _replace_current_review_locked(
@@ -55,6 +61,9 @@ class RowInclusionReviewRepository(DuckDbRepository):
         *,
         actor: Actor,
         retry_duplicate: bool,
+        operation_id: str | None,
+        working_draft_version: int | None,
+        mapping_revision_version: int | None,
     ) -> RowInclusionReviewSnapshot:
         """Publish once, then recover an identical cross-process race."""
 
@@ -126,6 +135,14 @@ class RowInclusionReviewRepository(DuckDbRepository):
                     ),
                     actor=actor,
                 )
+                if operation_id is not None:
+                    self._commit_mapping_receipt(
+                        connection,
+                        operation_id,
+                        working_draft_version=working_draft_version,
+                        mapping_revision_version=mapping_revision_version,
+                        content_identity=snapshot.snapshot_hash,
+                    )
                 connection.commit()
             except duckdb.ConstraintException as error:
                 connection.rollback()
@@ -143,6 +160,9 @@ class RowInclusionReviewRepository(DuckDbRepository):
                 report,
                 actor=actor,
                 retry_duplicate=False,
+                operation_id=operation_id,
+                working_draft_version=working_draft_version,
+                mapping_revision_version=mapping_revision_version,
             )
         return self.get_current_review(workspace_id, report.identity) or snapshot
 
@@ -566,7 +586,7 @@ class RowInclusionReviewRepository(DuckDbRepository):
             ],
         ).fetchone()
         if updated is None:
-            raise WorkspaceError("The rows-to-use confirmation receipt is not pending")
+            raise WorkspaceError("The rows-to-use operation receipt is not pending")
 
 
 def asdict_value(value: RowInclusionSourceValue) -> dict[str, str]:

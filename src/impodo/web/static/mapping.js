@@ -2,10 +2,44 @@
 
 document.addEventListener("DOMContentLoaded", () => {
   const storageKey = `impodo.mapping.position:${window.location.pathname}`;
+  const tableFieldsStorageKey =
+    `impodo.mapping.tableFields:${window.location.pathname}`;
   let lastRow = null;
   let lastControl = null;
 
   const setupTableFieldsDisclosure = () => {
+    const savedStates = new Map();
+    try {
+      const stored = JSON.parse(
+        window.sessionStorage.getItem(tableFieldsStorageKey) || "[]"
+      );
+      if (Array.isArray(stored)) {
+        for (const entry of stored) {
+          if (
+            Array.isArray(entry) &&
+            entry.length === 2 &&
+            typeof entry[0] === "string" &&
+            typeof entry[1] === "boolean"
+          ) {
+            savedStates.set(entry[0], entry[1]);
+          }
+        }
+      }
+    } catch {
+      // The disclosure still works when browser storage is unavailable.
+    }
+
+    const rememberStates = () => {
+      try {
+        window.sessionStorage.setItem(
+          tableFieldsStorageKey,
+          JSON.stringify(Array.from(savedStates.entries()))
+        );
+      } catch {
+        // The disclosure still works when browser storage is unavailable.
+      }
+    };
+
     for (const toggle of document.querySelectorAll("[data-table-fields-toggle]")) {
       const panelId = toggle.getAttribute("aria-controls");
       const panel = panelId ? document.getElementById(panelId) : null;
@@ -17,6 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const chevron = toggle.querySelector(".mapping-table-fields-chevron");
       const summary = dataset?.querySelector("[data-table-fields-summary]");
       const expandedCopy = dataset?.querySelector("[data-table-fields-expanded-copy]");
+      const datasetId = dataset?.dataset.mappingDataset || panelId;
 
       const setExpanded = (expanded) => {
         toggle.setAttribute("aria-expanded", String(expanded));
@@ -32,9 +67,16 @@ document.addEventListener("DOMContentLoaded", () => {
       };
 
       toggle.addEventListener("click", () => {
-        setExpanded(toggle.getAttribute("aria-expanded") !== "true");
+        const expanded = toggle.getAttribute("aria-expanded") !== "true";
+        setExpanded(expanded);
+        savedStates.set(datasetId, expanded);
+        rememberStates();
       });
-      setExpanded(toggle.getAttribute("aria-expanded") === "true");
+      setExpanded(
+        savedStates.has(datasetId)
+          ? savedStates.get(datasetId)
+          : toggle.getAttribute("aria-expanded") === "true"
+      );
     }
   };
 

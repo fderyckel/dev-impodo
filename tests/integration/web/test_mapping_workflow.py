@@ -20,6 +20,7 @@ from impodo.domain.mapping.row_inclusion_review import (
     RowInclusionReviewRow,
     RowInclusionSourceValue,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     get_target_credential as actual_get_target_credential,
@@ -65,9 +66,11 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         source_identity, source_value = dataset.columns
         condition_id = str(uuid4())
+        operation_id = str(uuid4())
         entries = [
             ["csrf_token", self.csrf],
             ["action", "draft"],
+            ["operation_id", operation_id],
             ["expected_parent_version", ""],
             ["expected_working_draft_version", ""],
             ["editable_dataset_id", dataset.dataset_id],
@@ -87,6 +90,13 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         ]
 
         def checked_rows(*args, **_kwargs):
+            pending_receipt = context.mapping_workspace.get_mutation_receipt(
+                workspace_id,
+                operation_id,
+                actor=context.actor,
+            )
+            self.assertIsNotNone(pending_receipt)
+            self.assertEqual(pending_receipt.state.value, "PENDING")
             definition = args[1]
             physical_selection = args[2]
             effective_selection = args[3]
@@ -158,7 +168,21 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             )
 
         self.assertEqual(checked.status_code, 200, checked.text)
+        self.assertEqual(checked.json()["status"], "committed")
         self.assertIn("Review and confirm 1 rows to use", checked.json()["message"])
+        receipt = context.mapping_workspace.get_mutation_receipt(
+            workspace_id,
+            operation_id,
+            actor=context.actor,
+        )
+        snapshot, _confirmation = context.row_inclusion_reviews.current(
+            workspace_id,
+            actor=context.actor,
+        )
+        self.assertIsNotNone(receipt)
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(receipt.state.value, "COMMITTED")
+        self.assertEqual(receipt.content_identity, snapshot.snapshot_hash)
         page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(page.status_code, 200, page.text)
         self.assertIn("Rows to use", page.text)
@@ -176,23 +200,14 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         working = context.queries.get_mapping_working_draft(workspace_id)
         self.assertIsNotNone(revision)
         self.assertIsNotNone(working)
+        current_values = {
+            "action": "submit",
+            "operation_id": str(uuid4()),
+            "expected_parent_version": str(revision.version),
+            "expected_working_draft_version": str(working.version),
+        }
         current_entries = [
-            [
-                name,
-                (
-                    "submit"
-                    if name == "action"
-                    else (
-                        str(revision.version)
-                        if name == "expected_parent_version"
-                        else (
-                            str(working.version)
-                            if name == "expected_working_draft_version"
-                            else value
-                        )
-                    )
-                ),
-            ]
+            [name, current_values.get(name, value)]
             for name, value in entries
         ]
         blocked = self.client.post(
@@ -218,6 +233,84 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(confirmed.json()["message"], "Rows to use confirmed.")
         confirmed_page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertIn("1 rows confirmed", confirmed_page.text)
+
+    def test_failed_rows_check_preserves_the_saved_revision_for_retry(self) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=0,
+        )
+        context = self.app.state.context
+        source_identity, source_value = dataset.columns
+        operation_id = str(uuid4())
+        entries = [
+            ["csrf_token", self.csrf],
+            ["action", "draft"],
+            ["operation_id", operation_id],
+            ["expected_parent_version", ""],
+            ["expected_working_draft_version", ""],
+            ["editable_dataset_id", dataset.dataset_id],
+            ["target_model_0", "res.partner"],
+            ["mode_0", "upsert"],
+            ["on_existing_0", "block"],
+            ["source_identity_0", source_identity.stable_key],
+            ["business_key_0", business_key.key_id],
+            ["identity_source_0_0", source_identity.stable_key],
+            ["row_inclusion_mode_0", "matching_rows"],
+            ["row_inclusion_join_0", "all"],
+            ["row_inclusion_condition_id_0_0", str(uuid4())],
+            ["row_inclusion_source_0_0", source_value.stable_key],
+            ["row_inclusion_operator_0_0", "equals"],
+            ["row_inclusion_value_0_0", "Example"],
+            ["row_inclusion_type_0_0", "string"],
+        ]
+
+        with patch(
+            "impodo.application.workspace.mapping.row_inclusion_review."
+            "stage_browser_mapping",
+            side_effect=WorkspaceError(
+                "Included Product rows contain an invalid value."
+            ),
+        ):
+            checked = self.client.post(
+                f"/workspaces/{workspace_id}/mapping/save",
+                json={"entries": entries},
+                headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+            )
+
+        self.assertEqual(checked.status_code, 422, checked.text)
+        self.assertEqual(checked.json()["status"], "rejected")
+        self.assertEqual(
+            checked.json()["failure_code"],
+            "MAPPING_ROW_REVIEW_FAILED",
+        )
+        self.assertTrue(checked.json()["partial_save"])
+        self.assertIn("field matches were saved", checked.json()["detail"])
+        self.assertIn("invalid value", checked.json()["detail"])
+        revision = context.queries.get_mapping_revision(workspace_id)
+        working = context.queries.get_mapping_working_draft(workspace_id)
+        self.assertIsNotNone(revision)
+        self.assertIsNotNone(working)
+        self.assertEqual(
+            checked.json()["expected_parent_version"],
+            revision.version,
+        )
+        self.assertEqual(
+            checked.json()["expected_working_draft_version"],
+            working.version,
+        )
+
+        receipt = self.client.get(
+            f"/workspaces/{workspace_id}/mapping/mutation-receipts/"
+            f"{operation_id}"
+        )
+        self.assertEqual(receipt.status_code, 200, receipt.text)
+        self.assertEqual(receipt.json()["status"], "rejected")
+        self.assertTrue(receipt.json()["partial_save"])
+        self.assertIn("select Check matches again", receipt.json()["detail"])
+        snapshot, _confirmation = context.row_inclusion_reviews.current(
+            workspace_id,
+            actor=context.actor,
+        )
+        self.assertIsNone(snapshot)
 
     def test_stage_two_sidebar_keeps_connection_credentials_accessible(self) -> None:
         workspace_id, _dataset, _business_key = self._mapping_ready_workspace(

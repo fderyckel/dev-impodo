@@ -49,6 +49,7 @@ from impodo.domain.mapping.contracts import (
     RelationshipResolver,
     ResolverOrigin,
     RowInclusionCondition,
+    RowInclusionJoin,
     RowInclusionMode,
     RowInclusionPolicy,
     ScalarFieldMapping,
@@ -838,6 +839,69 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         )
         self.assertEqual(result.counts[Classification.CREATE.value], 3)
         self.assertEqual(result.counts[Classification.BLOCKED.value], 0)
+
+    def test_row_review_shows_a_repeated_condition_column_once(self) -> None:
+        evidence = self._evidence(
+            (
+                ("BOM-A", "1", "KEEP"),
+                ("BOM-B", "2", "ALSO"),
+                ("BOM-C", "3", "DROP"),
+            )
+        )
+        definition = evidence[1]
+        parent, child = definition.datasets
+        child = replace(
+            child,
+            row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS,
+                join=RowInclusionJoin.ANY,
+                conditions=(
+                    RowInclusionCondition(
+                        condition_id=str(uuid4()),
+                        source_column_key="column:component",
+                        operator=SelectionConditionOperator.EQUALS,
+                        comparison_value="KEEP",
+                    ),
+                    RowInclusionCondition(
+                        condition_id=str(uuid4()),
+                        source_column_key="column:component",
+                        operator=SelectionConditionOperator.EQUALS,
+                        comparison_value="ALSO",
+                    ),
+                ),
+            ),
+        )
+
+        staged = stage_browser_mapping(
+            evidence[0],
+            replace(definition, datasets=(parent, child)),
+            *evidence[2:],
+        )
+
+        review = staged.row_inclusion_review
+        self.assertIsNotNone(review)
+        self.assertEqual(review.included_count, 2)
+        self.assertEqual(review.excluded_count, 1)
+        self.assertTrue(
+            all(
+                tuple(value.source_column_key for value in row.values)
+                == ("column:component",)
+                for row in review.rows
+            )
+        )
+        excluded_rows = tuple(
+            row
+            for row in staged.canonical_run.rows
+            if row.dataset == "bom_components"
+            and row.disposition == StagingDisposition.EXCLUDED
+        )
+        self.assertEqual(len(excluded_rows), 1)
+        self.assertEqual(
+            excluded_rows[0].lineage.field_sources,
+            {"$row_inclusion": ("column:component",)},
+        )
+        self.assertIn("is exactly KEEP or", review.datasets[0].rule_sentence)
+        self.assertIn("is exactly ALSO", review.datasets[0].rule_sentence)
 
     def test_included_child_does_not_silently_follow_parent_exclusion(self) -> None:
         evidence = self._evidence(

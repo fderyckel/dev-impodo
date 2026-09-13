@@ -74,6 +74,11 @@ replace a newer saved order; it shows the latest saved sequence instead.
 This queue guides matching work only. It does not change matching rules, a
 Recipe, prepared data, or the safe order used later to load Odoo.
 
+Use **Close this table's fields** when you want a shorter page while reviewing
+the other decisions. Impodo remembers the open or closed state through saves
+and refreshes in the current browser tab. This display choice does not change
+or save any field match.
+
 ## Steps in Impodo
 
 1. Open **Match data** and review the recommended order. After saving the
@@ -521,6 +526,11 @@ The bottom message distinguishes these outcomes:
   reapply only the choices that are still needed.
 - **Save outcome unknown** means Impodo cannot yet prove either outcome. Keep
   the tab open, do not repeat the action, and select **Check save outcome**.
+
+If Impodo saved the field matches but could not finish checking **Rows to
+use**, it keeps the saved version and shows the row-check problem. Correct that
+problem, then select **Check matches** again; you do not need to reload merely
+to recover the saved version.
 
 The full recovery message and support reference remain beside the bottom
 workflow actions. They are also announced to assistive technology.

@@ -233,6 +233,23 @@
         }
         return "conflict";
       }
+      if (status === "rejected" && payload.partial_save === true) {
+        unresolvedOperation = null;
+        staleConflict = false;
+        updateMappingVersionFields(payload);
+        setDirty(true);
+        showFailure(
+          payload.detail ||
+            "The field matches were saved, but the rows-to-use check did not finish. Correct the problem, then check matches again.",
+          { operationId: currentOperationId }
+        );
+        if (saveStatus) {
+          saveStatus.textContent =
+            "Field matches saved; rows still need checking.";
+          saveStatus.classList.add("unsaved");
+        }
+        return "rejected";
+      }
       if (status === "rejected") {
         unresolvedOperation = null;
         staleConflict = false;

@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import shutil
 import unittest
 from uuid import uuid4
 
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
+from impodo.adapters.duckdb.mapping_repository import MappingRepository
 from impodo.adapters.duckdb.row_inclusion_review_repository import (
     RowInclusionReviewRepository,
 )
 from impodo.adapters.duckdb.workspace_state_repository import (
     WorkspaceStateRepository,
+)
+from impodo.domain.mapping.mutations import (
+    MappingMutationAction,
+    MappingMutationState,
 )
 from impodo.domain.mapping.row_inclusion_review import (
     RowInclusionDatasetReview,
@@ -105,11 +111,25 @@ class RowInclusionReviewRepositoryTests(unittest.TestCase):
                 ),
             ),
         )
+        operation_id = str(uuid4())
+        mapping_repository = MappingRepository(self.database)
+        mapping_repository.begin_mapping_mutation(
+            self.workspace_id,
+            operation_id=operation_id,
+            action=MappingMutationAction.CHECK_MATCHES,
+            request_hash="0" * 64,
+            submitted_working_draft_version=6,
+            submitted_mapping_revision_version=2,
+            actor=LOCAL_ACTOR,
+        )
 
         snapshot = self.repository.replace_current_review(
             self.workspace_id,
             report,
             actor=LOCAL_ACTOR,
+            operation_id=operation_id,
+            working_draft_version=7,
+            mapping_revision_version=3,
         )
         repeated = self.repository.replace_current_review(
             self.workspace_id,
@@ -125,6 +145,15 @@ class RowInclusionReviewRepositoryTests(unittest.TestCase):
 
         self.assertEqual(repeated, snapshot)
         self.assertEqual((snapshot.included_count, snapshot.excluded_count), (1, 2))
+        receipt = mapping_repository.get_mapping_mutation_receipt(
+            self.workspace_id,
+            operation_id,
+        )
+        self.assertIsNotNone(receipt)
+        self.assertEqual(receipt.state, MappingMutationState.COMMITTED)
+        self.assertEqual(receipt.working_draft_version, 7)
+        self.assertEqual(receipt.mapping_revision_version, 3)
+        self.assertEqual(receipt.content_identity, snapshot.snapshot_hash)
         self.assertEqual(page.matching_count, 2)
         self.assertEqual(page.rows[0].values[0].value, "20")
         self.assertFalse(
@@ -165,8 +194,21 @@ class RowInclusionReviewRepositoryTests(unittest.TestCase):
             schema_hash=identity.schema_hash,
             derived_plan_hash=None,
         )
+        with self.assertRaisesRegex(WorkspaceError, "receipt is not pending"):
+            self.repository.replace_current_review(
+                self.workspace_id,
+                replace(report, identity=stale),
+                actor=LOCAL_ACTOR,
+                operation_id=str(uuid4()),
+                working_draft_version=8,
+                mapping_revision_version=4,
+            )
         self.assertIsNone(
             self.repository.get_current_review(self.workspace_id, stale)
+        )
+        self.assertEqual(
+            self.repository.get_current_review(self.workspace_id, identity),
+            snapshot,
         )
 
     def test_zero_included_rows_cannot_be_confirmed(self) -> None:

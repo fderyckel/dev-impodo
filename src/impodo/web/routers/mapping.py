@@ -140,6 +140,9 @@ from ..presenters.mapping_view import (
 from ..security import require_csrf, require_session
 
 
+_ROW_REVIEW_FAILURE_CODE = "MAPPING_ROW_REVIEW_FAILED"
+
+
 def build_mapping_router(context: WebContext) -> APIRouter:
     """Build mapping editor, preview, impact, validation, and submission routes."""
 
@@ -1194,6 +1197,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             raise HTTPException(status_code=422, detail="Odoo schema missing")
         operation_id = ""
         mutation_started = False
+        row_review_check_started = False
         try:
             form = await _mapping_request_form(request)
             allowed = _mapping_allowed_fields(form, selection, schema)
@@ -1665,17 +1669,26 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         expected_working_version
                     ),
                     actor=context.actor,
-                    operation_id=operation_id,
                 )
                 row_review = None
                 if validation.status.value != "INVALID" and any(
                     item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
                     for item in _revision.definition.datasets
                 ):
+                    row_review_check_started = True
                     row_review = await run_in_threadpool(
                         context.row_inclusion_reviews.check_current,
                         workspace_id,
                         actor=context.actor,
+                        operation_id=operation_id,
+                    )
+                else:
+                    await run_in_threadpool(
+                        context.mapping_workspace.complete_mutation,
+                        workspace_id,
+                        operation_id,
+                        actor=context.actor,
+                        content_identity=_revision.definition.content_hash,
                     )
                 if validation.status.value == "INVALID":
                     message = "Matches checked. Review the items that need attention."
@@ -1849,12 +1862,17 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             MigrationRunPlanningError,
             WorkspaceError,
         ) as error:
+            failure_code = (
+                _ROW_REVIEW_FAILURE_CODE
+                if row_review_check_started
+                else _mapping_mutation_failure_code(error)
+            )
             rejected = await _reject_mapping_mutation(
                 context,
                 workspace_id,
                 operation_id,
                 mutation_started=mutation_started,
-                failure_code=_mapping_mutation_failure_code(error),
+                failure_code=failure_code,
                 failure_detail=_mapping_mutation_failure_detail(error),
             )
             if (
@@ -1884,20 +1902,25 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     current_working.version if current_working else None,
                 )
                 payload = {
-                        "detail": str(error),
-                        "operation_id": operation_id,
-                        "status": "rejected",
-                        "failure_code": _mapping_mutation_failure_code(error),
-                        "expected_working_draft_version": (
-                            current_working.version if current_working else None
-                        ),
-                        "expected_parent_version": (
-                            current_revision.version if current_revision else None
-                        ),
-                    }
+                    "detail": str(error),
+                    "operation_id": operation_id,
+                    "status": "rejected",
+                    "failure_code": failure_code,
+                    "expected_working_draft_version": (
+                        current_working.version if current_working else None
+                    ),
+                    "expected_parent_version": (
+                        current_revision.version if current_revision else None
+                    ),
+                }
                 if rejected is not None:
                     payload.update(rejected.portable_dict())
                     payload["detail"] = str(error)
+                if row_review_check_started:
+                    payload["partial_save"] = True
+                    payload["detail"] = _row_review_failure_detail(
+                        str(error)
+                    )
                 return JSONResponse(payload, status_code=422)
             request.session["mapping_error"] = str(error)
             return RedirectResponse(
@@ -2235,6 +2258,12 @@ def _mapping_mutation_receipt_payload(
             "reload_url": _mapping_return_url(request, workspace_id),
             "copy_edits": True,
         }
+    elif receipt.failure_code == _ROW_REVIEW_FAILURE_CODE:
+        payload["partial_save"] = True
+        payload["detail"] = _row_review_failure_detail(
+            receipt.failure_detail
+        )
+        payload["message"] = str(payload["detail"])
     else:
         payload["message"] = receipt.failure_detail or (
             "This operation did not complete. Your edits remain on this page."
@@ -2321,6 +2350,18 @@ def _mapping_mutation_failure_detail(error: Exception) -> str:
             "connection and try again."
         )
     return str(error)
+
+
+def _row_review_failure_detail(detail: str) -> str:
+    reason = detail.strip()
+    if reason and reason[-1] not in ".!?":
+        reason = f"{reason}."
+    reason_sentence = f" {reason}" if reason else ""
+    return (
+        "The field matches were saved, but Impodo could not finish checking "
+        f"the rows to use.{reason_sentence} Correct the displayed problem, "
+        "then select Check matches again."
+    )
 
 
 async def _check_saved_default_decision(

@@ -1085,6 +1085,7 @@ def canonical_row_from_inclusion_decision(
         StagingDisposition.BLOCKED,
     }:
         raise ValueError("Row-inclusion decisions must be excluded or blocked")
+    unique_source_column_keys = tuple(dict.fromkeys(source_column_keys))
     canonical_issues = tuple(CanonicalIssue.from_issue(item) for item in issues)
     lineage = CanonicalLineage(
         source_selection_hash=source_selection_hash,
@@ -1096,7 +1097,7 @@ def canonical_row_from_inclusion_decision(
         source_row=source_row,
         physical_dataset_id=physical_dataset_id,
         physical_source_rows=physical_source_rows,
-        field_sources={"$row_inclusion": source_column_keys},
+        field_sources={"$row_inclusion": unique_source_column_keys},
         physical_sources=physical_sources or {},
     )
     row_id = "sha256:" + sha256(
