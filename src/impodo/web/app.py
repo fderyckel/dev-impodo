@@ -64,6 +64,7 @@ from ..application.odoo_capture_job_service import OdooCaptureJobManager
 from ..application.odoo_provenance_service import OdooProvenanceService
 from ..application.odoo_source_capture_service import OdooSourceCaptureService
 from ..application.preflight_service import PreflightService
+from ..application.preflight_jobs import PreflightJobManager
 from ..application.transfer_execution_service import TransferExecutionService
 from ..application.workspace.execution.service import ExecutionService
 from ..application.workspace.execution.load_jobs import LoadJobManager
@@ -323,6 +324,7 @@ def create_local_app(
     local_stack_service: LocalStackService | None = None,
     local_odoo_reader: LocalOdooMetadataReader | None = None,
     preparation_jobs_enabled: bool = True,
+    preflight_jobs_enabled: bool = False,
     odoo_capture_jobs_enabled: bool = True,
     recipe_run_jobs_enabled: bool = True,
     load_jobs_enabled: bool = True,
@@ -763,6 +765,7 @@ def create_local_app(
         if preparation_jobs_enabled
         else None
     )
+    preflight_jobs = PreflightJobManager() if preflight_jobs_enabled else None
     odoo_capture_jobs = (
         OdooCaptureJobManager(
             odoo_capture_publication,
@@ -1057,6 +1060,7 @@ def create_local_app(
         resolution=resolution,
         normalization=normalization,
         preflight=preflight,
+        preflight_jobs=preflight_jobs,
         execution=execution,
         transfer_execution=transfer_execution,
         load_jobs=load_jobs,
@@ -1143,6 +1147,8 @@ def create_local_app(
             try:
                 if context.preparation_jobs is not None:
                     context.preparation_jobs.shutdown()
+                if context.preflight_jobs is not None:
+                    context.preflight_jobs.shutdown()
                 if context.odoo_capture_jobs is not None:
                     context.odoo_capture_jobs.shutdown()
                 if context.recipe_run_jobs is not None:
@@ -1204,6 +1210,11 @@ def create_local_app(
                     recipe_application_id=job.workspace.recipe_application_id,
                     run_purpose=job.workspace.migration_run_purpose.value,
                 )
+            if parts[2] == "preflight" and context.preflight_jobs is not None:
+                return context.preflight_jobs.get(
+                    workspace_id,
+                    parts[3],
+                ).access_context
             if (
                 len(parts) >= 5
                 and parts[2:4] == ["load", "progress"]

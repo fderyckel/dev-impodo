@@ -127,6 +127,14 @@ without loss before it constructs a write. HTML read-back ignores only Odoo's
 outer-paragraph serialization and boundary whitespace; meaningful markup and
 internal text differences remain fallout.
 
+`ExecutionPreview.scope_error_code` carries the stable code extracted from the
+controlled scope error. The load template uses
+`TARGET_NUMERIC_PRECISION_LOSS` to present two owner-correct actions: return to
+**Match data** for an explicit rounding rule, or return to **Odoo data** after
+the target field precision changes. The browser must not select a rounding
+method or infer a unit conversion. A refreshed schema, resubmitted mapping,
+new preparation approval, and new comparison are required before loading.
+
 For a verified Authoring load, the execution route also asks
 `CorrectionWorkflowService.publish_completed_load` to join the current mapping,
 prepared snapshots, execution snapshot, execution journal, reconciliation, and

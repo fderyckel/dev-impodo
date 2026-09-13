@@ -119,6 +119,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 5000);
   };
 
+  const noteResponsive = () => {
+    consecutiveFailures = 0;
+    showRecovered();
+  };
+
   const checkHealth = async () => {
     if (activeRequest) {
       schedule();
@@ -148,8 +153,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!response.ok || payload?.status !== "ok") {
         throw new Error("Health check failed");
       }
-      consecutiveFailures = 0;
-      showRecovered();
+      noteResponsive();
     } catch (_error) {
       consecutiveFailures += 1;
       if (consecutiveFailures >= failureLimit) {
@@ -176,6 +180,6 @@ document.addEventListener("DOMContentLoaded", () => {
     activeRequest?.abort();
   });
 
-  window.impodoServerRecovery = { checkNow: checkHealth };
+  window.impodoServerRecovery = { checkNow: checkHealth, noteResponsive };
   schedule();
 });

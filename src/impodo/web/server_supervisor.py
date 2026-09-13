@@ -268,6 +268,7 @@ def _serve_child_process(
             expected_host=settings.expected_host,
             launch_token=settings.launch_token,
             session_secret=settings.session_secret,
+            preflight_jobs_enabled=True,
             diagnostic_recorder=diagnostics,
         )
         config = uvicorn.Config(

@@ -15,9 +15,15 @@ See ``docs/architecture/python-code-map.md`` and
 from __future__ import annotations
 
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from starlette.concurrency import run_in_threadpool
 
 from impodo.domain.shared.access import Capability
@@ -27,6 +33,14 @@ from ...application.odoo_read_failures import (
     classify_odoo_read_failure,
 )
 from ...application.preflight_service import MANIFEST_NAME
+from ...application.preflight_jobs import (
+    PreflightJob,
+    PreflightJobManager,
+    PreflightJobNotFoundError,
+    PreflightJobResult,
+    PreflightJobStateError,
+    PreflightPhase,
+)
 from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.domain.odoo.contracts import ConnectorError
 from ...domain.errors import ReadinessError
@@ -44,6 +58,8 @@ from impodo.domain.workspace.workbench import OdooConnectionMode, WorkspaceState
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash
+from ..presenters.common import _render
+from ..presenters.comparison_recovery import comparison_recovery_view
 from ..presenters.summary import _render_summary
 from ..run_commands import (
     publish_compared_application,
@@ -200,6 +216,98 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     credential_owner,
                     TargetCredentialRole.READ,
                 )
+            if context.preflight_jobs is not None:
+                def compare_in_background(report_progress):
+                    nonlocal verified_read_identity
+
+                    if credential is not None:
+                        verified_read_identity = _rebind_remote_read_access(
+                            context,
+                            workspace_state,
+                            credential,
+                        )
+                    report = context.preflight.compare(
+                        workspace_id,
+                        reader=reader,
+                        actor=context.actor,
+                        progress=lambda phase: report_progress(
+                            PreflightPhase(phase)
+                        ),
+                    )
+                    preview = context.execution.current_preview(workspace_id)
+                    run = context.migration_runs.get(
+                        access_context.migration_run_id,
+                        actor=context.actor,
+                    )
+                    completed_without_load = False
+                    if access_context.recipe_application_id is not None:
+                        publish_compared_application(
+                            context,
+                            access_context.recipe_application_id,
+                            access_context.migration_run_id,
+                        )
+                    if (
+                        access_context.recipe_application_id is not None
+                        and run.purpose is MigrationRunPurpose.TEST
+                        and preview is not None
+                        and preview.can_complete_without_load
+                    ):
+                        completed = context.execution.complete_no_changes(
+                            workspace_id,
+                            expected_snapshot_hash=preview.snapshot.semantic_hash,
+                            actor=context.actor,
+                        )
+                        readback = context.readback_reader_factory(
+                            workspace_state,
+                            credential.secret if credential is not None else "",
+                            preview.api_scope,
+                        )
+                        verification = context.reconciliation.reconcile(
+                            workspace_id,
+                            expected_execution_run_id=completed.run_id,
+                            reader=readback,
+                            actor=context.actor,
+                        )
+                        if (
+                            not verification.unknown_count
+                            and not verification.fallout_count
+                        ):
+                            publish_reconciled_application(
+                                context,
+                                access_context.recipe_application_id,
+                                access_context.migration_run_id,
+                            )
+                            completed_without_load = True
+                    if completed_without_load:
+                        return PreflightJobResult(
+                            preflight_run_id=report.run_id,
+                            redirect_url=(
+                                f"/projects/{access_context.project_id}/runs/"
+                                f"{access_context.migration_run_id}"
+                            ),
+                            completion_message=(
+                                "Odoo already matches this Recipe. "
+                                "No load confirmation was needed."
+                            ),
+                        )
+                    return PreflightJobResult(
+                        preflight_run_id=report.run_id,
+                        redirect_url=f"/workspaces/{workspace_id}/load/review",
+                        completion_message=(
+                            "Prepared data compared with Odoo. Nothing was changed."
+                        ),
+                    )
+
+                job = context.preflight_jobs.enqueue(
+                    workspace_id,
+                    workspace_state.name,
+                    access_context=access_context,
+                    work=compare_in_background,
+                )
+                return RedirectResponse(
+                    _preflight_progress_url(workspace_id, job.job_id),
+                    status_code=303,
+                )
             if credential is not None:
                 verified_read_identity = await run_in_threadpool(
                     _rebind_remote_read_access,
@@ -213,7 +321,10 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 reader=reader,
                 actor=context.actor,
             )
-            preview = context.execution.current_preview(workspace_id)
+            preview = await run_in_threadpool(
+                context.execution.current_preview,
+                workspace_id,
+            )
             run = context.migration_runs.get(
                 access_context.migration_run_id,
                 actor=context.actor,
@@ -258,7 +369,8 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     )
                     completed_without_load = True
         except LocalOdooRecoveryRequired as error:
-            return _render_summary(
+            return await run_in_threadpool(
+                _render_summary,
                 request,
                 context,
                 workspace_id,
@@ -277,9 +389,11 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             ReadinessError,
             SecretStoreError,
             WorkspaceError,
+            PreflightJobStateError,
             OSError,
         ) as error:
-            return _render_summary(
+            return await run_in_threadpool(
+                _render_summary,
                 request,
                 context,
                 workspace_id,
@@ -300,6 +414,26 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         return RedirectResponse(
             f"/workspaces/{workspace_id}/summary",
             status_code=303,
+        )
+
+    @router.get(
+        "/workspaces/{workspace_id}/preflight/{job_id}",
+        response_class=HTMLResponse,
+    )
+    async def preflight_progress(request: Request, workspace_id: str, job_id: str):
+        require_session(request)
+        return _render_preflight_progress(
+            request,
+            _get_preflight_job(context, workspace_id, job_id),
+        )
+
+    @router.get("/workspaces/{workspace_id}/preflight/{job_id}/status")
+    async def preflight_status(request: Request, workspace_id: str, job_id: str):
+        require_session(request)
+        return JSONResponse(
+            _preflight_job_payload(
+                _get_preflight_job(context, workspace_id, job_id)
+            )
         )
 
     @router.get("/workspaces/{workspace_id}/summary/manifest")
@@ -349,7 +483,8 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             raise HTTPException(status_code=404, detail="Readiness report not found")
         staging = context.preflight.current_staging(workspace_id)
         if staging is None or not staging.control_totals_passed:
-            return _render_summary(
+            return await run_in_threadpool(
+                _render_summary,
                 request,
                 context,
                 workspace_id,
@@ -361,7 +496,8 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             )
         quality = context.quality.current_summary(workspace_id)
         if quality is None or quality.run_id != report.quality_run_id:
-            return _render_summary(
+            return await run_in_threadpool(
+                _render_summary,
                 request,
                 context,
                 workspace_id,
@@ -369,7 +505,8 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 status_code=422,
             )
         if not quality.ready_for_package:
-            return _render_summary(
+            return await run_in_threadpool(
+                _render_summary,
                 request,
                 context,
                 workspace_id,
@@ -381,7 +518,8 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 status_code=422,
             )
         if report.status != "READY":
-            return _render_summary(
+            return await run_in_threadpool(
+                _render_summary,
                 request,
                 context,
                 workspace_id,
@@ -418,7 +556,8 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             ReportGenerationError,
             WorkspaceError,
         ) as error:
-            return _render_summary(
+            return await run_in_threadpool(
+                _render_summary,
                 request,
                 context,
                 workspace_id,
@@ -467,3 +606,70 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         )
 
     return router
+
+
+def _preflight_manager(context: WebContext) -> PreflightJobManager:
+    if context.preflight_jobs is None:
+        raise PreflightJobStateError("Background comparisons are unavailable")
+    return context.preflight_jobs
+
+
+def _get_preflight_job(
+    context: WebContext,
+    workspace_id: str,
+    job_id: str,
+) -> PreflightJob:
+    try:
+        return _preflight_manager(context).get(workspace_id, job_id)
+    except PreflightJobNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail="Comparison job not found",
+        ) from error
+
+
+def _preflight_progress_url(workspace_id: str, job_id: str) -> str:
+    return f"/workspaces/{workspace_id}/preflight/{job_id}"
+
+
+def _render_preflight_progress(request: Request, job: PreflightJob):
+    recovery = (
+        comparison_recovery_view(job.workspace_id, job.failure)
+        if job.failure is not None
+        else None
+    )
+    return _render(
+        request,
+        "workspace_preflight_progress.html",
+        workspace_state=SimpleNamespace(
+            workspace_id=job.workspace_id,
+            name=job.migration_project_name,
+            registered_at=True,
+        ),
+        job=job,
+        recovery=recovery,
+    )
+
+
+def _preflight_job_payload(job: PreflightJob) -> dict[str, object]:
+    recovery = (
+        comparison_recovery_view(job.workspace_id, job.failure)
+        if job.failure is not None
+        else None
+    )
+    return {
+        "job_id": job.job_id,
+        "status": job.status.value,
+        "phase": job.phase.value,
+        "message": job.message,
+        "progress_percent": job.progress_percent,
+        "updated_at": job.updated_at.isoformat(),
+        "preflight_run_id": job.preflight_run_id,
+        "redirect_url": job.redirect_url,
+        "completion_message": job.completion_message,
+        "failure_code": recovery.support_code if recovery is not None else "",
+        "failure_title": recovery.title if recovery is not None else "",
+        "failure_message": recovery.message if recovery is not None else "",
+        "failure_action_href": recovery.action_href if recovery is not None else "",
+        "failure_action_label": recovery.action_label if recovery is not None else "",
+    }

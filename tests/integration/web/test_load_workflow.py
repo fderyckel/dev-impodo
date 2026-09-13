@@ -189,6 +189,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             current_run=None,
             can_load=True,
             scope_error="",
+            scope_error_code="",
             deferred_create_count=0,
             dependency_summary=SimpleNamespace(
                 groups=(
@@ -262,6 +263,14 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 f"/workspaces/{workspace_state.workspace_id}/load/confirm",
                 follow_redirects=False,
             )
+            preview.scope_error = (
+                "product.template.weight cannot be represented. "
+                "Support code: TARGET_NUMERIC_PRECISION_LOSS."
+            )
+            preview.scope_error_code = "TARGET_NUMERIC_PRECISION_LOSS"
+            precision_review = self.client.get(
+                f"/workspaces/{workspace_state.workspace_id}/load/review"
+            )
 
         self.assertEqual(review.status_code, 200)
         self.assertIn("Check what will change in Odoo", review.text)
@@ -284,6 +293,12 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Why loading is blocked", blocked_review.text)
         self.assertIn("A related source record is missing", blocked_review.text)
         self.assertIn("Add the supporting record", blocked_review.text)
+        self.assertIn(
+            "Choose how Odoo should store these numbers",
+            precision_review.text,
+        )
+        self.assertIn("Adjust the number rule", precision_review.text)
+        self.assertIn("Refresh Odoo precision", precision_review.text)
         self.assertEqual(
             blocked_confirm.headers["location"],
             f"/workspaces/{workspace_state.workspace_id}/load/review",

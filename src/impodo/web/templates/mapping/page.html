@@ -37,6 +37,8 @@
       data-formula-validation-url="/workspaces/{{ workspace_id }}/mapping/formula-validation"
       data-mutation-receipt-url="/workspaces/{{ workspace_id }}/mapping/mutation-receipts/"
       data-mutation-timeout-ms="15000"
+      data-mutation-receipt-wait-ms="180000"
+      data-mutation-receipt-poll-ms="1500"
       data-formula-authoring-issues='{{ formula_authoring_issue_payloads|tojson }}'
     >
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

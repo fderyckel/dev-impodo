@@ -40,6 +40,20 @@
       10
     );
     const receiptTimeoutMs = 5000;
+    const configuredReceiptWaitMs = Number.parseInt(
+      mappingForm.dataset.mutationReceiptWaitMs || "180000",
+      10
+    );
+    const configuredReceiptPollMs = Number.parseInt(
+      mappingForm.dataset.mutationReceiptPollMs || "1500",
+      10
+    );
+    const receiptWaitMs = Number.isFinite(configuredReceiptWaitMs)
+      ? Math.max(configuredReceiptWaitMs, 0)
+      : 180000;
+    const receiptPollMs = Number.isFinite(configuredReceiptPollMs)
+      ? Math.max(configuredReceiptPollMs, 250)
+      : 1500;
     let unresolvedOperation = null;
     let staleConflict = false;
     let lastSubmittedEntries = [];
@@ -111,6 +125,9 @@
         window.clearTimeout(timer);
       }
     };
+
+    const wait = (delayMs) =>
+      new Promise((resolve) => window.setTimeout(resolve, delayMs));
 
     const responseJson = async (response) => {
       const body = await response.text();
@@ -278,24 +295,46 @@
       return "pending";
     };
 
+    const showUnknownOutcome = (operation) => {
+      unresolvedOperation = operation;
+      showFailure(
+        "Impodo could not verify whether this operation was saved. Do not repeat it yet. Keep this tab open and check the save outcome again.",
+        { operationId: operation.operationId, unknown: true }
+      );
+      if (saveStatus) {
+        saveStatus.textContent = "Save outcome unknown. Check before retrying.";
+        saveStatus.classList.add("unsaved");
+      }
+      return "pending";
+    };
+
     const resolveMutationOutcome = async (operation) => {
-      try {
-        const payload = await readMutationReceipt(operation.operationId);
+      const receiptDeadline = Date.now() + receiptWaitMs;
+      while (true) {
+        let payload;
+        try {
+          payload = await readMutationReceipt(operation.operationId);
+        } catch (_error) {
+          return showUnknownOutcome(operation);
+        }
         if (!payload.operation_id) {
           payload.operation_id = operation.operationId;
         }
-        return applyMutationOutcome(payload, operation);
-      } catch (_error) {
-        unresolvedOperation = operation;
-        showFailure(
-          "Impodo could not verify whether this operation was saved. Do not repeat it yet. Keep this tab open and check the save outcome again.",
-          { operationId: operation.operationId, unknown: true }
-        );
-        if (saveStatus) {
-          saveStatus.textContent = "Save outcome unknown. Check before retrying.";
-          saveStatus.classList.add("unsaved");
+        if (String(payload.status || "") !== "pending") {
+          return applyMutationOutcome(payload, operation);
         }
-        return "pending";
+
+        unresolvedOperation = operation;
+        const remainingMs = receiptDeadline - Date.now();
+        if (remainingMs <= 0) {
+          return applyMutationOutcome(payload, operation);
+        }
+        if (saveStatus) {
+          saveStatus.textContent =
+            "The operation is still running. Waiting for its saved outcome...";
+          saveStatus.classList.remove("unsaved");
+        }
+        await wait(Math.min(receiptPollMs, remainingMs));
       }
     };
 

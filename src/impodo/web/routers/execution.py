@@ -500,7 +500,12 @@ def build_execution_router(
                 _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        return render(request, workspace_id, step="review")
+        return await run_in_threadpool(
+            render,
+            request,
+            workspace_id,
+            step="review",
+        )
 
     @router.get(
         "/workspaces/{workspace_id}/load/confirm",
@@ -514,7 +519,10 @@ def build_execution_router(
                 _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        preview = context.execution.current_preview(workspace_id)
+        preview = await run_in_threadpool(
+            context.execution.current_preview,
+            workspace_id,
+        )
         if preview is None:
             return RedirectResponse(
                 f"/workspaces/{workspace_id}/summary",
@@ -549,7 +557,8 @@ def build_execution_router(
                 f"/workspaces/{workspace_id}/load/review",
                 status_code=303,
             )
-        return render(
+        return await run_in_threadpool(
+            render,
             request,
             workspace_id,
             step="confirm",
@@ -980,7 +989,10 @@ def build_execution_router(
                 actor=context.actor,
                 capability=Capability.EXPORT_PLAN_EXECUTE,
             )
-            preview = context.execution.current_preview(workspace_id)
+            preview = await run_in_threadpool(
+                context.execution.current_preview,
+                workspace_id,
+            )
             if preview is None:
                 raise WorkspaceError("Compare the prepared data with Odoo first")
             submitted_key = _text(form, "write_api_key") or _text(
@@ -1054,7 +1066,8 @@ def build_execution_router(
             SecretStoreError,
             WorkspaceError,
         ) as error:
-            return render(
+            return await run_in_threadpool(
+                render,
                 request,
                 workspace_id,
                 step="outcome",

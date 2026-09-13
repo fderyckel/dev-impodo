@@ -206,11 +206,16 @@
       <section class="next-action-card blocked" aria-labelledby="load-blocked-title">
         <div>
           <p class="eyebrow">Load unavailable</p>
-          <h2 id="load-blocked-title">{% if preview.credential_refresh_required %}Refresh the Odoo data{% else %}Return to the final review{% endif %}</h2>
+          <h2 id="load-blocked-title">{% if preview.credential_refresh_required %}Refresh the Odoo data{% elif preview.scope_error_code == 'TARGET_NUMERIC_PRECISION_LOSS' %}Choose how Odoo should store these numbers{% else %}Return to the final review{% endif %}</h2>
           <p>{{ preview.scope_error or 'Resolve every row needing attention, or compare again if this review is no longer current.' }}</p>
         </div>
         {% if preview.credential_refresh_required %}
           <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Refresh Odoo data</a>
+        {% elif preview.scope_error_code == 'TARGET_NUMERIC_PRECISION_LOSS' %}
+          <div class="button-row">
+            <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping">Adjust the number rule</a>
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Refresh Odoo precision</a>
+          </div>
         {% else %}
           <a class="button primary" href="/workspaces/{{ workspace_id }}/summary">Back to final review</a>
         {% endif %}

@@ -94,6 +94,7 @@ class StaticAssetOwnershipTests(unittest.TestCase):
                 "/transformation-impact.js",
             ),
             "workspace_preparation_progress.html": ("/job-polling.js",),
+            "workspace_preflight_progress.html": ("/job-polling.js",),
             "workspace_odoo_capture_progress.html": ("/job-polling.js",),
             "workspace_load_progress.html": ("/job-polling.js",),
             "project_integrated_run.html": ("/job-polling.js",),

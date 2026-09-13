@@ -166,6 +166,7 @@ class PreflightPublicationTests(unittest.TestCase):
             identity=ActorIdentity("test", "operator", "Test operator"),
             capabilities=frozenset({Capability.PREFLIGHT_RUN}),
         )
+        phases = []
 
         with (
             patch(
@@ -190,6 +191,7 @@ class PreflightPublicationTests(unittest.TestCase):
                 workspace_id,
                 reader=MagicMock(return_value=(metadata, records)),
                 actor=actor,
+                progress=phases.append,
             )
 
         self.assertEqual(artifacts.write_report.call_count, 2)
@@ -207,6 +209,10 @@ class PreflightPublicationTests(unittest.TestCase):
         self.assertEqual(
             manifest["preflight_evidence"]["execution_snapshot_hash"],
             "sha256:" + "9" * 64,
+        )
+        self.assertEqual(
+            phases,
+            ["VERIFYING", "READING", "COMPARING", "BUILDING", "PUBLISHING"],
         )
 
     def test_report_cleanup_removes_empty_unpublished_run_directory(self) -> None:

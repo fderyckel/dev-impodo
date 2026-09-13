@@ -610,7 +610,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (payload.status !== "committed" && payload.status !== "pending") {
           throw new Error("Impodo returned an incomplete save receipt.");
         }
-        saveRecovery.applyMutationOutcome(payload, operation);
+        if (payload.status === "pending") {
+          await saveRecovery.resolveMutationOutcome(operation);
+        } else {
+          saveRecovery.applyMutationOutcome(payload, operation);
+        }
       } catch (_error) {
         await saveRecovery.resolveMutationOutcome(operation);
       } finally {

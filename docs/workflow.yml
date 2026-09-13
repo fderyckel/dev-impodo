@@ -449,7 +449,9 @@ stages:
       - src/impodo/web/routers/preflight.py
     templates:
       - src/impodo/web/templates/workspace_summary.html
+      - src/impodo/web/templates/workspace_preflight_progress.html
     code_references:
+      - src/impodo/application/preflight_jobs.py::PreflightJobManager
       - src/impodo/application/preflight_service.py::PreflightService
       - src/impodo/application/preflight_service.py::PreflightService.compare
       - src/impodo/application/preflight_service.py::PreflightService.review_workbook_evidence
@@ -460,6 +462,7 @@ stages:
       - src/impodo/adapters/artifacts/reporting.py::write_review_workbook
       - src/impodo/web/composition/target_readers.py::LocalOdooRecoveryRequired
     tests:
+      - tests/application/workspace/review/test_preflight_jobs.py
       - tests/application/workspace/review/test_preflight.py
       - tests/domain/preflight/test_review_workbook.py
       - tests/performance/test_preflight_scale.py

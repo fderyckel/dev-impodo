@@ -167,6 +167,22 @@ approval, execution, or read-back evidence.
   store is resolved before confirmation. Impodo stops the load rather than
   silently rounding it or guessing a unit conversion.
 
+When **Load unavailable** names `TARGET_NUMERIC_PRECISION_LOSS`, choose one
+explicit recovery:
+
+- Select **Refresh Odoo precision** after an Odoo developer changes the field
+  to the required precision. In **Odoo data**, check for Odoo changes and use
+  the updated details. Then submit the field matches, prepare, approve, and
+  compare again.
+- Select **Adjust the number rule** only when the business accepts a documented
+  rounding rule. In **Match data**, open the affected field, set **Decimal
+  rounding**, its places, and method, review the impact, then prepare, approve,
+  and compare again.
+
+Changing the Odoo field precision is the non-lossy option when the prepared
+values are correct. A unit conversion is a separate business rule and is safe
+only when the source unit and Odoo unit are both explicitly known.
+
 ## How Impodo handles related records
 
 Impodo reads the relationships that you confirmed in **Match data** and places

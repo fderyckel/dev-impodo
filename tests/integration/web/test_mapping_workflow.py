@@ -802,11 +802,17 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("readMutationReceipt", recovery.text)
         self.assertIn("MAPPING_VERSION_CONFLICT", recovery.text)
         self.assertIn("Check save outcome", recovery.text)
+        self.assertIn("receiptDeadline", recovery.text)
         self.assertIn("window.impodoMappingSaveRecovery", recovery.text)
 
         editor = self.client.get("/static/mapping-editor.js")
         self.assertEqual(editor.status_code, 200, editor.text)
         self.assertIn("window.impodoMappingSaveRecovery.create", editor.text)
+        self.assertIn('if (payload.status === "pending")', editor.text)
+        self.assertIn(
+            "await saveRecovery.resolveMutationOutcome(operation)",
+            editor.text,
+        )
         self.assertIn("mappingForm.removeAttribute(\"aria-busy\")", editor.text)
         self.assertIn("finally", editor.text)
 
@@ -816,6 +822,8 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(page.status_code, 200, page.text)
         self.assertIn('data-mutation-timeout-ms="15000"', page.text)
+        self.assertIn('data-mutation-receipt-wait-ms="180000"', page.text)
+        self.assertIn('data-mutation-receipt-poll-ms="1500"', page.text)
         self.assertIn("data-mapping-save-outcome", page.text)
         self.assertIn("data-copy-mapping-edits", page.text)
         self.assertIn("data-reload-saved-mapping", page.text)

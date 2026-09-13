@@ -23,8 +23,25 @@ must have the narrow scope derived from the compiled requirements.
 ## Implementation flow
 
 `summary.py` renders the current local result. `preparation.py` can create the
-prepared review input. `preflight.py` invokes `PreflightService.compare`, then
-serves the manifest, workbook, and review package.
+prepared review input. In the production launcher, `preflight.py` enqueues
+`PreflightService.compare` through `PreflightJobManager`, redirects immediately
+to a progress page, then serves the manifest, workbook, and review package.
+The manager serializes comparisons, permits one active attempt per workspace,
+and binds the already authorized `WorkspaceAccessContext` in its worker thread.
+Credential-bearing reader closures remain only in process memory; job state and
+status responses contain no credential or business value.
+
+`PreflightService.compare` emits coarse `VERIFYING`, `READING`, `COMPARING`,
+`BUILDING`, and `PUBLISHING` phases. They are operational progress, not durable
+comparison evidence. A success status names the published preflight run and
+continues to the load review. Failures retain the existing typed Odoo read
+classification and safe recovery presentation. Rapid repeat submissions reuse
+the active attempt. After a process restart, unfinished in-memory job state is
+gone; the existing atomic report publication still leaves either the previous
+current report or the complete new report, never a partial current report.
+
+Tests may disable the manager and exercise the synchronous compatibility path.
+Both paths call the same comparison service and publication transaction.
 
 `PreflightService` freezes the input bindings, plans metadata and record
 requests, captures the target fingerprint and snapshot, performs offline
@@ -114,6 +131,7 @@ meaning before a new comparison can use the replacement credential generation.
 | Role | Code |
 | --- | --- |
 | Comparison orchestration | [`PreflightService`](../../../src/impodo/application/preflight_service.py) |
+| Background comparison control | [`preflight_jobs.py`](../../../src/impodo/application/preflight_jobs.py) |
 | Bounded requirement planning | [`planner.py`](../../../src/impodo/domain/execution/planner.py) |
 | Protected Odoo comparison | [`odoo_comparison_service.py`](../../../src/impodo/application/odoo_comparison_service.py) |
 | Protected comparison contract | [`odoo_comparison.py`](../../../src/impodo/domain/odoo_comparison.py) |
@@ -121,6 +139,7 @@ meaning before a new comparison can use the replacement credential generation.
 | Review reports | [`reports.py`](../../../src/impodo/domain/preflight/reports.py) |
 | Workbook projection | [`reporting.py`](../../../src/impodo/adapters/artifacts/reporting.py) |
 | Browser routes | [`preflight.py`](../../../src/impodo/web/routers/preflight.py) |
+| Progress page | [`workspace_preflight_progress.html`](../../../src/impodo/web/templates/workspace_preflight_progress.html) |
 | Failure classification | [`odoo_read_failures.py`](../../../src/impodo/application/odoo_read_failures.py) |
 | Recovery presentation | [`comparison_recovery.py`](../../../src/impodo/web/presenters/comparison_recovery.py) |
 | Local recovery routes | [`target.py`](../../../src/impodo/web/routers/target.py) |
@@ -180,6 +199,12 @@ count.
 Target reads must use the narrow Odoo 19 read connector. No generic method call
 and no write method belongs in this stage.
 
+Synchronous summary rendering, execution-preview construction, and fallback
+comparison rendering must run outside the event loop. The full execution
+preview counts row dispositions in one pass. These containment rules keep the
+health and progress endpoints responsive, but do not weaken the existing full
+snapshot validation at load submission.
+
 Workbook creation may load the complete eligible prepared set once because the
 XLSX output contains one review row per decision. It may also load the complete
 frozen normalization effect ledger once to explain those cells. Keep both
@@ -192,6 +217,7 @@ contact Odoo while writing them.
 ## Verification
 
 - [`tests/application/workspace/review/test_preflight.py`](../../../tests/application/workspace/review/test_preflight.py)
+- [`tests/application/workspace/review/test_preflight_jobs.py`](../../../tests/application/workspace/review/test_preflight_jobs.py)
 - [`tests/domain/preflight/test_review_workbook.py`](../../../tests/domain/preflight/test_review_workbook.py)
 - [`tests/performance/test_preflight_scale.py`](../../../tests/performance/test_preflight_scale.py)
 - [`tests/integration/artifacts/test_reporting_cli.py`](../../../tests/integration/artifacts/test_reporting_cli.py)

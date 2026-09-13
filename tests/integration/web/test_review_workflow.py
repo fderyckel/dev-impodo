@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from threading import Event
+import time
+
+from impodo.application.preflight_jobs import PreflightJobManager
+
 from tests.support.browser_scenarios import (
     ConnectorAuthenticationError,
     ConnectorTransportError,
@@ -17,6 +22,82 @@ from tests.support.browser_scenarios import (
 
 
 class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
+    def test_background_comparison_returns_progress_without_duplicate_work(
+        self,
+    ) -> None:
+        context = self.app.state.context
+        workspace_state, _schema = self._registered_remote_schema_workspace()
+        manager = PreflightJobManager()
+        context.preflight_jobs = manager
+        started = Event()
+        release = Event()
+
+        def compare(_workspace_id, *, reader, actor, progress):
+            self.assertEqual(actor, context.actor)
+            self.assertIsNotNone(reader)
+            progress("READING")
+            started.set()
+            release.wait(timeout=1)
+            return SimpleNamespace(
+                run_id="50000000-0000-4000-8000-000000000001"
+            )
+
+        try:
+            with (
+                patch.object(context.preflight, "compare", side_effect=compare),
+                patch.object(context.execution, "current_preview", return_value=None),
+                patch(
+                    "impodo.web.routers.preflight._rebind_remote_read_access",
+                    return_value=None,
+                ),
+            ):
+                started_response = self.client.post(
+                    f"/workspaces/{workspace_state.workspace_id}/summary/compare",
+                    data={
+                        "csrf_token": self.csrf,
+                        "read_api_key": "replacement-read-key",
+                        "read_api_key_storage": "session",
+                    },
+                    headers=POST_HEADERS,
+                    follow_redirects=False,
+                )
+                self.assertEqual(started_response.status_code, 303)
+                self.assertIn("/preflight/", started_response.headers["location"])
+                self.assertTrue(started.wait(timeout=2))
+
+                progress_page = self.client.get(started_response.headers["location"])
+                repeated = self.client.post(
+                    f"/workspaces/{workspace_state.workspace_id}/summary/compare",
+                    data={"csrf_token": self.csrf},
+                    headers=POST_HEADERS,
+                    follow_redirects=False,
+                )
+                self.assertEqual(progress_page.status_code, 200)
+                self.assertIn("data-preflight-job", progress_page.text)
+                self.assertEqual(
+                    repeated.headers["location"],
+                    started_response.headers["location"],
+                )
+                release.set()
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    status = self.client.get(
+                        f"{started_response.headers['location']}/status"
+                    ).json()
+                    if status["status"] == "SUCCEEDED":
+                        break
+                    time.sleep(0.005)
+                else:
+                    self.fail("background comparison did not finish")
+                self.assertEqual(
+                    status["redirect_url"],
+                    f"/workspaces/{workspace_state.workspace_id}/load/review",
+                )
+        finally:
+            release.set()
+            manager.shutdown()
+            context.preflight_jobs = None
+
     def test_summary_reconnects_missing_remote_key_without_losing_schema(
         self,
     ) -> None:

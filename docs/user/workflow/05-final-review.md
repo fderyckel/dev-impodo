@@ -21,13 +21,26 @@ Use a reachable Odoo 19 target with the approved read access.
 
 1. Open **Final review**.
 2. Select **Compare with Odoo**.
-3. Review totals for **New in Odoo**, **Different from Odoo**, **Already
+3. Follow the comparison progress page while Impodo verifies the setup, reads
+   Odoo, compares records, builds the review, and saves it. You may leave and
+   reopen the page while the current Impodo session remains open.
+4. Review totals for **New in Odoo**, **Different from Odoo**, **Already
    matches**, **Needs attention**, and **Set aside**.
-4. Inspect field-level differences and relationship resolutions.
-5. Resolve every ambiguous or blocked row upstream, then prepare and compare
+5. Inspect field-level differences and relationship resolutions.
+6. Resolve every ambiguous or blocked row upstream, then prepare and compare
    again.
-6. Download the workbook when you need to review the proposed load in Excel or
+7. Download the workbook when you need to review the proposed load in Excel or
    keep a durable rehearsal record.
+
+The progress page reports elapsed time during work that has no honest row
+percentage. Delayed progress updates do not start another comparison. Selecting
+**Compare with Odoo** again while the same workspace already has an active
+comparison returns to that attempt.
+
+If Impodo closes before the comparison is saved, the previously current review
+remains unchanged. Reopen **Final review** and compare again. A completed report
+is published atomically, so an interrupted attempt cannot make a partial review
+current.
 
 The workbook opens with **Review overview**, which tells you what will happen,
 whether anything needs attention, and what you should do next. Use **Needs

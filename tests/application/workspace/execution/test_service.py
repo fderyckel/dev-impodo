@@ -775,6 +775,10 @@ class ExecutionServiceTests(unittest.TestCase):
         assert preview is not None
         self.assertFalse(preview.can_load)
         self.assertIn("TARGET_NUMERIC_PRECISION_LOSS", preview.scope_error)
+        self.assertEqual(
+            preview.scope_error_code,
+            "TARGET_NUMERIC_PRECISION_LOSS",
+        )
         self.assertIn("0.003", preview.scope_error)
         self.assertIsNone(journal.run)
 

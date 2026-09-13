@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Comparing with Odoo · Impodo{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/job-polling.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+  {% set active = job.status.value in ('QUEUED', 'RUNNING') %}
+  <div
+    class="preparation-progress-page"
+    data-preflight-job
+    data-status-url="/workspaces/{{ job.workspace_id }}/preflight/{{ job.job_id }}/status"
+    aria-busy="{{ 'true' if active else 'false' }}"
+  >
+    <section class="page-heading">
+      <div>
+        <p class="eyebrow">Stage 5 of 6 · Final review</p>
+        <h1>Comparing {{ job.migration_project_name }} with Odoo</h1>
+        <p>You can leave this page and return while the read-only comparison continues.</p>
+      </div>
+      <span class="status {% if job.status.value == 'FAILED' %}blocked{% elif active %}review{% else %}ready{% endif %}" data-preflight-state>
+        {% if job.status.value == 'SUCCEEDED' %}Ready{% elif job.status.value == 'FAILED' %}Needs attention{% else %}In progress{% endif %}
+      </span>
+    </section>
+
+    <section class="form-card preparation-progress-card" aria-labelledby="preflight-progress-title">
+      <div class="preparation-progress-heading">
+        <div>
+          <p class="eyebrow">Current step</p>
+          <h2 id="preflight-progress-title" data-preflight-message>{{ job.message }}</h2>
+        </div>
+        <span class="activity-spinner" aria-hidden="true" data-preflight-spinner {% if not active %}hidden{% endif %}></span>
+      </div>
+      <progress max="100" value="{{ job.progress_percent }}" data-preflight-progress>{{ job.progress_percent }}%</progress>
+      <div class="preparation-progress-numbers">
+        <strong data-preflight-percent>{{ job.progress_percent }}%</strong>
+        <span data-preflight-heartbeat>Progress updated just now.</span>
+      </div>
+      <p class="muted">This step only reads Odoo and saves a new local comparison. It does not create or update Odoo records.</p>
+    </section>
+
+    <section class="next-action-card blocked" data-preflight-failed {% if job.status.value != 'FAILED' %}hidden{% endif %}>
+      <div>
+        <p class="eyebrow">Comparison needs attention</p>
+        <h2 data-preflight-failure-title>{{ recovery.title if recovery else 'Impodo could not complete the comparison' }}</h2>
+        <p data-preflight-failure>{{ recovery.message if recovery else 'Your previously saved comparison is unchanged.' }}</p>
+        <p data-preflight-failure-code {% if not recovery or not recovery.support_code %}hidden{% endif %}>Support code: <code>{{ recovery.support_code if recovery else '' }}</code></p>
+      </div>
+      <div class="next-action-buttons">
+        {% if recovery and recovery.action_kind == 'credential' %}
+          <a class="button primary" href="/workspaces/{{ job.workspace_id }}/summary">Return to final review</a>
+        {% elif recovery and recovery.action_kind == 'retry' %}
+          <form method="post" action="/workspaces/{{ job.workspace_id }}/summary/compare">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button primary" type="submit">{{ recovery.action_label }}</button>
+          </form>
+        {% elif recovery and recovery.action_href %}
+          <a class="button primary" data-preflight-failure-action href="{{ recovery.action_href }}">{{ recovery.action_label }}</a>
+        {% else %}
+          <a class="button primary" href="/workspaces/{{ job.workspace_id }}/summary">Return to final review</a>
+        {% endif %}
+        <a class="button secondary" href="/workspaces/{{ job.workspace_id }}/summary">View saved review</a>
+      </div>
+    </section>
+
+    <section class="next-action-card ready" data-preflight-complete {% if job.status.value != 'SUCCEEDED' %}hidden{% endif %}>
+      <div>
+        <p class="eyebrow">Comparison saved</p>
+        <h2 data-preflight-complete-message>{{ job.completion_message or 'The final review is ready.' }}</h2>
+        <p>The saved review will open automatically. Use the button if it does not.</p>
+      </div>
+      <a class="button primary" data-preflight-continue href="{{ job.redirect_url or ('/workspaces/' ~ job.workspace_id ~ '/summary') }}">Open final review</a>
+    </section>
+
+    <div class="preparation-progress-actions" data-preflight-active {% if not active %}hidden{% endif %}>
+      <a class="button secondary" href="/projects">Work on another data project</a>
+    </div>
+
+    <details class="technical-details form-card">
+      <summary>Support details</summary>
+      <p>Attempt {{ job.attempt }} · Job <code>{{ job.job_id }}</code></p>
+    </details>
+  </div>
+{% endblock %}

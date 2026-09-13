@@ -56,6 +56,7 @@ from ..application.workspace_data_version_source_service import (
     WorkspaceDataVersionSourceService,
 )
 from ..application.workspace.preparation.preparation_service import PreparationService
+from ..application.preflight_jobs import PreflightJobManager
 from impodo.web.composition.preparation_job_manager import (
     PreparationJobManager,
 )
@@ -217,6 +218,7 @@ class WebContext:
     resolution: ResolutionService
     normalization: NormalizationService
     preflight: PreflightService
+    preflight_jobs: PreflightJobManager | None
     execution: ExecutionService
     transfer_execution: TransferExecutionService
     load_jobs: LoadJobManager | None

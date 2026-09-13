@@ -1,6 +1,116 @@
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
+  const preflightJob = document.querySelector("[data-preflight-job]");
+  if (preflightJob) {
+    const statusUrl = preflightJob.dataset.statusUrl;
+    const state = preflightJob.querySelector("[data-preflight-state]");
+    const message = preflightJob.querySelector("[data-preflight-message]");
+    const progress = preflightJob.querySelector("[data-preflight-progress]");
+    const percent = preflightJob.querySelector("[data-preflight-percent]");
+    const heartbeat = preflightJob.querySelector("[data-preflight-heartbeat]");
+    const spinner = preflightJob.querySelector("[data-preflight-spinner]");
+    const activeActions = preflightJob.querySelector("[data-preflight-active]");
+    const failed = preflightJob.querySelector("[data-preflight-failed]");
+    const failure = preflightJob.querySelector("[data-preflight-failure]");
+    const failureTitle = preflightJob.querySelector("[data-preflight-failure-title]");
+    const failureCode = preflightJob.querySelector("[data-preflight-failure-code]");
+    const failureAction = preflightJob.querySelector("[data-preflight-failure-action]");
+    const complete = preflightJob.querySelector("[data-preflight-complete]");
+    const completeMessage = preflightJob.querySelector("[data-preflight-complete-message]");
+    const continueLink = preflightJob.querySelector("[data-preflight-continue]");
+    let pollTimer;
+    let heartbeatTimer;
+    let lastUpdatedAt = new Date();
+    let active = true;
+    let updatesPaused = false;
+
+    const updateHeartbeat = () => {
+      if (!heartbeat) return;
+      const seconds = Math.max(
+        0,
+        Math.floor((Date.now() - lastUpdatedAt.getTime()) / 1000)
+      );
+      heartbeat.textContent = updatesPaused
+        ? "Progress updates paused — reconnecting…"
+        : active
+          ? `This step has been active for ${seconds.toLocaleString()} seconds.`
+          : "The comparison result is saved.";
+    };
+
+    const showPreflightStatus = (job) => {
+      active = job.status === "QUEUED" || job.status === "RUNNING";
+      lastUpdatedAt = new Date(job.updated_at);
+      if (Number.isNaN(lastUpdatedAt.getTime())) lastUpdatedAt = new Date();
+      if (message) message.textContent = job.message;
+      if (progress) progress.value = job.progress_percent;
+      if (percent) percent.textContent = `${job.progress_percent}%`;
+      if (spinner) spinner.hidden = !active;
+      if (activeActions) activeActions.hidden = !active;
+      preflightJob.setAttribute("aria-busy", active ? "true" : "false");
+      if (state) {
+        state.classList.remove("ready", "review", "blocked");
+        state.textContent = active
+          ? "In progress"
+          : job.status === "SUCCEEDED"
+            ? "Ready"
+            : "Needs attention";
+        state.classList.add(
+          active ? "review" : job.status === "SUCCEEDED" ? "ready" : "blocked"
+        );
+      }
+      if (job.status === "FAILED") {
+        if (failed) failed.hidden = false;
+        if (failureTitle) failureTitle.textContent = job.failure_title;
+        if (failure) failure.textContent = job.failure_message;
+        if (failureCode) {
+          failureCode.hidden = !job.failure_code;
+          const code = failureCode.querySelector("code");
+          if (code) code.textContent = job.failure_code;
+        }
+        if (failureAction && job.failure_action_href) {
+          failureAction.href = job.failure_action_href;
+          failureAction.textContent = job.failure_action_label;
+        }
+      } else if (job.status === "SUCCEEDED") {
+        if (complete) complete.hidden = false;
+        if (completeMessage) completeMessage.textContent = job.completion_message;
+        if (continueLink && job.redirect_url) continueLink.href = job.redirect_url;
+        if (job.redirect_url) {
+          window.setTimeout(() => window.location.assign(job.redirect_url), 700);
+        }
+      }
+      updateHeartbeat();
+      return active;
+    };
+
+    const pollPreflight = async () => {
+      try {
+        const response = await fetch(statusUrl, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error("Progress is temporarily unavailable");
+        updatesPaused = false;
+        window.impodoServerRecovery?.noteResponsive?.();
+        if (showPreflightStatus(await response.json())) {
+          pollTimer = window.setTimeout(pollPreflight, 750);
+        }
+      } catch {
+        updatesPaused = true;
+        updateHeartbeat();
+        pollTimer = window.setTimeout(pollPreflight, 1500);
+      }
+    };
+
+    heartbeatTimer = window.setInterval(updateHeartbeat, 1000);
+    if (statusUrl) pollPreflight();
+    window.addEventListener("pagehide", () => {
+      window.clearTimeout(pollTimer);
+      window.clearInterval(heartbeatTimer);
+    });
+  }
+
   const preparationJob = document.querySelector("[data-preparation-job]");
   if (preparationJob) {
     const statusUrl = preparationJob.dataset.statusUrl;

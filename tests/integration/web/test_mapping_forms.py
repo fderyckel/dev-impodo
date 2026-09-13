@@ -1014,6 +1014,11 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIn("window.sessionStorage.setItem", script)
         self.assertIn("payload.partial_save === true", save_recovery_script)
         self.assertIn("updateMappingVersionFields(payload)", save_recovery_script)
+        self.assertIn("receiptDeadline", save_recovery_script)
+        self.assertIn(
+            "await wait(Math.min(receiptPollMs, remainingMs))",
+            save_recovery_script,
+        )
         self.assertIn("[data-matching-order-form]", order_script)
         self.assertIn('button[value^="move_up:"]', order_script)
         self.assertIn("dataTransfer.effectAllowed", order_script)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -182,6 +183,7 @@ class ExecutionPreview:
     api_scope: OdooApiScope
     deferred_create_count: int
     scope_error: str = ""
+    scope_error_code: str = ""
     credential_refresh_required: bool = False
     dependency_summary: ExecutionDependencySummary = field(
         default_factory=ExecutionDependencySummary
@@ -258,30 +260,23 @@ class ExecutionService:
             snapshot,
             current_read_credential_binding=current_read_credential_binding,
         )
+        dataset_counts: dict[str, Counter[str]] = {}
+        for row in snapshot.rows:
+            dataset_counts.setdefault(row.dataset, Counter())[row.disposition] += 1
+        snapshot_error = _execution_snapshot_error(workspace_state, snapshot)
+        scope_error = credential_error or snapshot_error
         return ExecutionPreview(
             snapshot=snapshot,
             datasets=tuple(
                 ExecutionDatasetPreview(
                     dataset=dataset.dataset,
                     target_model=dataset.target_model,
-                    create_count=sum(
-                        row.dataset == dataset.dataset
-                        and row.disposition == "CREATE"
-                        for row in snapshot.rows
-                    ),
-                    update_count=sum(
-                        row.dataset == dataset.dataset
-                        and row.disposition == "UPDATE"
-                        for row in snapshot.rows
-                    ),
-                    unchanged_count=sum(
-                        row.dataset == dataset.dataset
-                        and row.disposition == "UNCHANGED"
-                        for row in snapshot.rows
-                    ),
+                    create_count=dataset_counts[dataset.dataset]["CREATE"],
+                    update_count=dataset_counts[dataset.dataset]["UPDATE"],
+                    unchanged_count=dataset_counts[dataset.dataset]["UNCHANGED"],
                 )
                 for dataset in snapshot.datasets
-                if any(row.dataset == dataset.dataset for row in snapshot.rows)
+                if dataset.dataset in dataset_counts
             ),
             current_run=current,
             api_scope=api_scope,
@@ -289,13 +284,8 @@ class ExecutionService:
                 snapshot,
                 create_batch_rows=DEFAULT_CREATE_BATCH_ROWS,
             ),
-            scope_error=(
-                credential_error
-                or _execution_snapshot_error(
-                    workspace_state,
-                    snapshot,
-                )
-            ),
+            scope_error=scope_error,
+            scope_error_code=_execution_scope_error_code(scope_error),
             credential_refresh_required=bool(credential_error),
             dependency_summary=_execution_dependency_summary(snapshot),
             blocker_summary=_execution_blocker_summary(snapshot),
@@ -3081,6 +3071,16 @@ def _execution_snapshot_error(
                     "business key"
                 )
     return ""
+
+
+def _execution_scope_error_code(message: str) -> str:
+    """Return one stable support code carried by a controlled scope message."""
+
+    marker = "Support code: "
+    if marker not in message:
+        return ""
+    code = message.rsplit(marker, 1)[1].strip().removesuffix(".")
+    return code if code.replace("_", "").isalnum() else ""
 
 
 def _unrepresentable_decimal(

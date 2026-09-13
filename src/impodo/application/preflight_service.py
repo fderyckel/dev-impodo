@@ -85,6 +85,14 @@ ReadinessReader = Callable[
     [PreflightRequirementPlan],
     tuple[MetadataSnapshot, RecordSnapshot],
 ]
+PreflightProgress = Callable[[str], None]
+
+
+def _report_progress(progress: PreflightProgress | None, phase: str) -> None:
+    """Publish one coarse phase without making progress reporting mandatory."""
+
+    if progress is not None:
+        progress(phase)
 
 
 class PreflightService:
@@ -396,6 +404,7 @@ class PreflightService:
         *,
         reader: ReadinessReader,
         actor: Actor,
+        progress: PreflightProgress | None = None,
     ) -> ReadinessReport:
         """Compare approved rows without invoking preparation or source loading.
 
@@ -406,6 +415,7 @@ class PreflightService:
         database publication removes the otherwise orphaned manifest.
         """
 
+        _report_progress(progress, "VERIFYING")
         self.authorization.require(
             actor,
             Capability.PREFLIGHT_RUN,
@@ -417,6 +427,7 @@ class PreflightService:
                 workspace_state,
                 reader=reader,
                 actor=actor,
+                progress=progress,
             )
         frozen = self._load_frozen_input(workspace_id)
         requirements = plan_preflight_requirements(
@@ -429,6 +440,7 @@ class PreflightService:
                 "An Odoo record read could not be narrowed safely. "
                 "Odoo was not contacted.",
             )
+        _report_progress(progress, "READING")
         metadata, records = reader(requirements)
         metadata, records = bind_snapshot_hashes(metadata, records)
         _validate_snapshot_projection(
@@ -451,6 +463,7 @@ class PreflightService:
                 OdooReadFailureCode.SCHEMA_EVIDENCE_STALE,
                 "Readiness data came from a different Odoo target",
             )
+        _report_progress(progress, "COMPARING")
         result = self.engine.run(
             frozen.plan,
             frozen.prepared,
@@ -463,6 +476,7 @@ class PreflightService:
                 OdooReadFailureCode.RESPONSE_INCOMPLETE,
                 "Odoo snapshot evidence is incomplete",
             )
+        _report_progress(progress, "BUILDING")
         run_id = str(uuid4())
         execution_snapshot = build_execution_snapshot(
             preflight_run_id=run_id,
@@ -515,6 +529,7 @@ class PreflightService:
         decision_rows = iter(report.rows)
         report = replace(report, rows=())
         del frozen, requirements, result
+        _report_progress(progress, "PUBLISHING")
         try:
             self.artifacts.write_report(
                 workspace_id,
@@ -614,6 +629,7 @@ class PreflightService:
         *,
         reader: ReadinessReader,
         actor: Actor,
+        progress: PreflightProgress | None = None,
     ) -> ReadinessReport:
         """Publish a read-only pinned comparison without portable Odoo IDs."""
 
@@ -621,6 +637,7 @@ class PreflightService:
             raise ReadinessError(
                 "Protected Odoo comparison support is unavailable. Odoo was not contacted."
             )
+        _report_progress(progress, "VERIFYING")
         frozen = self._load_frozen_input(workspace_state.workspace_id)
         selection = self.sources.get_mapping_source_selection(
             workspace_state.workspace_id
@@ -630,6 +647,7 @@ class PreflightService:
                 "Refresh the captured Odoo records before comparing. Odoo was not contacted."
             )
         run_id = str(uuid4())
+        _report_progress(progress, "READING")
         publication = build_odoo_comparison_publication(
             workspace_state=workspace_state,
             frozen=frozen,
@@ -643,6 +661,7 @@ class PreflightService:
             actor=actor,
             run_id=run_id,
         )
+        _report_progress(progress, "PUBLISHING")
         try:
             self.artifacts.write_report(
                 workspace_state.workspace_id,
