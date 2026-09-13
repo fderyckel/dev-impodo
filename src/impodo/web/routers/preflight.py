@@ -170,6 +170,8 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         )
         verified_read_identity = None
         completed_without_load = False
+        preview = None
+        run = None
 
         def reader(requirements):
             return _read_readiness_snapshots(
@@ -234,13 +236,15 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                             PreflightPhase(phase)
                         ),
                     )
-                    preview = context.execution.current_preview(workspace_id)
-                    run = context.migration_runs.get(
-                        access_context.migration_run_id,
-                        actor=context.actor,
-                    )
                     completed_without_load = False
+                    preview = None
+                    run = None
                     if access_context.recipe_application_id is not None:
+                        preview = context.execution.current_preview(workspace_id)
+                        run = context.migration_runs.get(
+                            access_context.migration_run_id,
+                            actor=context.actor,
+                        )
                         publish_compared_application(
                             context,
                             access_context.recipe_application_id,
@@ -248,6 +252,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                         )
                     if (
                         access_context.recipe_application_id is not None
+                        and run is not None
                         and run.purpose is MigrationRunPurpose.TEST
                         and preview is not None
                         and preview.can_complete_without_load
@@ -321,15 +326,15 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 reader=reader,
                 actor=context.actor,
             )
-            preview = await run_in_threadpool(
-                context.execution.current_preview,
-                workspace_id,
-            )
-            run = context.migration_runs.get(
-                access_context.migration_run_id,
-                actor=context.actor,
-            )
             if access_context.recipe_application_id is not None:
+                preview = await run_in_threadpool(
+                    context.execution.current_preview,
+                    workspace_id,
+                )
+                run = context.migration_runs.get(
+                    access_context.migration_run_id,
+                    actor=context.actor,
+                )
                 await run_in_threadpool(
                     publish_compared_application,
                     context,
@@ -338,6 +343,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 )
             if (
                 access_context.recipe_application_id is not None
+                and run is not None
                 and run.purpose is MigrationRunPurpose.TEST
                 and preview is not None
                 and preview.can_complete_without_load
@@ -422,18 +428,40 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     )
     async def preflight_progress(request: Request, workspace_id: str, job_id: str):
         require_session(request)
-        return _render_preflight_progress(
-            request,
-            _get_preflight_job(context, workspace_id, job_id),
-        )
+        try:
+            job = _get_preflight_job(context, workspace_id, job_id)
+        except HTTPException as error:
+            if error.status_code != 404:
+                raise
+            _flash(
+                request,
+                "That comparison attempt ended with the previous Impodo session. "
+                "The last complete review is unchanged; it is safe to compare again.",
+            )
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/summary",
+                status_code=303,
+            )
+        return _render_preflight_progress(request, job)
 
     @router.get("/workspaces/{workspace_id}/preflight/{job_id}/status")
     async def preflight_status(request: Request, workspace_id: str, job_id: str):
         require_session(request)
-        return JSONResponse(
-            _preflight_job_payload(
-                _get_preflight_job(context, workspace_id, job_id)
+        try:
+            job = _get_preflight_job(context, workspace_id, job_id)
+        except HTTPException as error:
+            if error.status_code != 404:
+                raise
+            return JSONResponse(
+                {
+                    "status": "INTERRUPTED",
+                    "message": "The previous Impodo session ended.",
+                    "redirect_url": f"/workspaces/{workspace_id}/summary",
+                },
+                status_code=410,
             )
+        return JSONResponse(
+            _preflight_job_payload(job)
         )
 
     @router.get("/workspaces/{workspace_id}/summary/manifest")

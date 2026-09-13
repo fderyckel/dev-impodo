@@ -90,6 +90,13 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
+        if (response.status === 410) {
+          const interrupted = await response.json();
+          if (interrupted.redirect_url) {
+            window.location.assign(interrupted.redirect_url);
+            return;
+          }
+        }
         if (!response.ok) throw new Error("Progress is temporarily unavailable");
         updatesPaused = false;
         window.impodoServerRecovery?.noteResponsive?.();

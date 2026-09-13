@@ -411,7 +411,17 @@
         <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh?return_to=hierarchy">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <div class="actions">
-            <button class="button primary" type="submit">Show available Odoo record types</button>
+            {% if read_credential_prompt and not read_credential_prompt.available %}
+              <button
+                class="button primary"
+                type="button"
+                data-open-read-credential
+                data-read-credential-resume="submit"
+                data-read-credential-resume-action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh?return_to=hierarchy"
+              >Enter key and show Odoo record types</button>
+            {% else %}
+              <button class="button primary" type="submit">Show available Odoo record types</button>
+            {% endif %}
             <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Review the Odoo connection</a>
           </div>
         </form>
@@ -552,7 +562,17 @@
           <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="actions">
-              <button class="button primary" type="submit">Show available Odoo record types</button>
+              {% if read_credential_prompt and not read_credential_prompt.available %}
+                <button
+                  class="button primary"
+                  type="button"
+                  data-open-read-credential
+                  data-read-credential-resume="submit"
+                  data-read-credential-resume-action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh"
+                >Enter key and show Odoo record types</button>
+              {% else %}
+                <button class="button primary" type="submit">Show available Odoo record types</button>
+              {% endif %}
               <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Review the Odoo connection</a>
             </div>
           </form>

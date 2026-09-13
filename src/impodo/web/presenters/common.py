@@ -67,6 +67,7 @@ def _render(
                 f"workspaces/{workspace_state.workspace_id}/"
                 "target/read-credential/quick"
             ),
+            "available": credential_status.available,
             "auto_open": explicitly_required or prompt_error is not None,
             "error": prompt_error,
             "required": (

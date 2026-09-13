@@ -779,6 +779,7 @@ class ExecutionServiceTests(unittest.TestCase):
             preview.scope_error_code,
             "TARGET_NUMERIC_PRECISION_LOSS",
         )
+        self.assertIn("at least 3 decimal places", preview.scope_error)
         self.assertIn("0.003", preview.scope_error)
         self.assertIsNone(journal.run)
 

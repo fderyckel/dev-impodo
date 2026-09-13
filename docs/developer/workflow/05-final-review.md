@@ -205,6 +205,12 @@ preview counts row dispositions in one pass. These containment rules keep the
 health and progress endpoints responsive, but do not weaken the existing full
 snapshot validation at load submission.
 
+An ordinary Authoring comparison does not materialize the full execution
+preview again after publication. The browser loads it when **Check changes**
+opens. The post-comparison preview remains required for a Recipe Test
+application because that path can prove that no load is needed and complete
+through read-back automatically.
+
 Workbook creation may load the complete eligible prepared set once because the
 XLSX output contains one review row per decision. It may also load the complete
 frozen normalization effect ledger once to explain those cells. Keep both

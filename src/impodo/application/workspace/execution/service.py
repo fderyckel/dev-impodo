@@ -2859,10 +2859,24 @@ def _execution_snapshot_error(
             key=lambda item: (-len(item[1]), item[0]),
         )[0]
         examples = ", ".join(str(value) for value in values[:3])
+        required_decimal_places = max(
+            (
+                _required_decimal_places(value)
+                for value in values
+                if value.is_finite()
+            ),
+            default=digits[1],
+        )
+        precision_guidance = (
+            f" These values need at least {required_decimal_places} decimal places."
+            if required_decimal_places > digits[1]
+            else " These values exceed the target numeric precision."
+        )
         return (
             f"{model}.{field}: {len(values):,} prepared value(s) cannot be "
             f"represented at Odoo precision ({digits[0]}, {digits[1]}) without "
-            "changing them. Change the Odoo precision or approve an explicit "
+            f"changing them.{precision_guidance} Change the Odoo precision or "
+            "approve an explicit "
             f"rounding or conversion rule, then compare again. Examples: {examples}. "
             "Support code: TARGET_NUMERIC_PRECISION_LOSS."
         )
@@ -3107,6 +3121,12 @@ def _unrepresentable_decimal(
     if integral_digits > precision - scale:
         return number
     return None
+
+
+def _required_decimal_places(value: Decimal) -> int:
+    """Return significant fractional places after removing trailing zeros."""
+
+    return max(0, -value.normalize().as_tuple().exponent)
 
 
 def _execution_dependency_summary(

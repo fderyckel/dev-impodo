@@ -25,6 +25,30 @@
     {% endif %}
   </div>
 
+  {% if not is_recipe_run_setup and read_credential_prompt and not read_credential_prompt.available %}
+    <section class="next-action-card attention" id="odoo-read-key">
+      <div>
+        <p class="eyebrow">Before Impodo reads Odoo</p>
+        <h2>Enter the read-only Odoo key</h2>
+        <p>
+          Impodo needs this key to show the available Odoo record types and fields.
+          You can keep it in Windows Credential Manager or only for this Impodo session;
+          it is never saved in the project data.
+        </p>
+      </div>
+      <div class="next-action-buttons">
+        <button
+          class="button primary"
+          type="button"
+          data-open-read-credential
+          data-read-credential-resume="submit"
+          data-read-credential-resume-action="/workspaces/{{ workspace_id }}/schema/models/refresh"
+        >Enter key and show Odoo data</button>
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/target">Review connection &amp; credentials</a>
+      </div>
+    </section>
+  {% endif %}
+
   {% if schema and not schema.pending_refresh and schema.origin.value != 'LOCAL_MANUAL' and not is_recipe_run_setup and workspace_state.source_mode.value == 'ODOO' and not selection %}
     <section class="next-action-card {% if schema_credential_current %}ready{% else %}attention{% endif %}" id="schema-next-action">
       <div>

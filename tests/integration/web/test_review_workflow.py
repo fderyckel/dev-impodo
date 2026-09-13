@@ -45,7 +45,11 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         try:
             with (
                 patch.object(context.preflight, "compare", side_effect=compare),
-                patch.object(context.execution, "current_preview", return_value=None),
+                patch.object(
+                    context.execution,
+                    "current_preview",
+                    return_value=None,
+                ) as current_preview,
                 patch(
                     "impodo.web.routers.preflight._rebind_remote_read_access",
                     return_value=None,
@@ -92,6 +96,23 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 self.assertEqual(
                     status["redirect_url"],
                     f"/workspaces/{workspace_state.workspace_id}/load/review",
+                )
+                current_preview.assert_not_called()
+                missing_id = "60000000-0000-4000-8000-000000000001"
+                interrupted_page = self.client.get(
+                    f"/workspaces/{workspace_state.workspace_id}/preflight/"
+                    f"{missing_id}",
+                    follow_redirects=False,
+                )
+                interrupted_status = self.client.get(
+                    f"/workspaces/{workspace_state.workspace_id}/preflight/"
+                    f"{missing_id}/status"
+                )
+                self.assertEqual(interrupted_page.status_code, 303)
+                self.assertEqual(interrupted_status.status_code, 410)
+                self.assertEqual(
+                    interrupted_status.json()["redirect_url"],
+                    f"/workspaces/{workspace_state.workspace_id}/summary",
                 )
         finally:
             release.set()

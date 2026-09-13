@@ -127,6 +127,48 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertNotIn("The Odoo connection is ready.", forgotten_page.text)
         self.assertEqual(self.secrets.values, {})
 
+        stage_two = self.client.get(f"/workspaces/{workspace_id}/schema")
+        self.assertEqual(stage_two.status_code, 200, stage_two.text)
+        self.assertIn('id="odoo-read-key"', stage_two.text)
+        self.assertIn("Enter key and show Odoo data", stage_two.text)
+        self.assertIn('data-read-credential-resume="submit"', stage_two.text)
+        self.assertIn(
+            'data-read-credential-resume-action="'
+            f'/workspaces/{workspace_id}/schema/models/refresh"',
+            stage_two.text,
+        )
+        self.assertIn("Review connection &amp; credentials", stage_two.text)
+
+        context = self.app.state.context
+        context.sources.sources.save_source_selection(
+            workspace_id,
+            SourceSelection(
+                selection_id=str(uuid4()),
+                version=1,
+                data_version_id=_workspace_data_version_id(
+                    context,
+                    workspace_id,
+                ),
+                created_at=datetime.now(timezone.utc),
+                created_by=context.actor.identity.display_name,
+                datasets=(),
+                content_hash="sha256:" + "d" * 64,
+            ),
+            actor=context.actor,
+        )
+        hierarchy_page = self.client.get(
+            f"/workspaces/{workspace_id}/derived-entities"
+            "#hierarchy-extraction"
+        )
+        self.assertEqual(hierarchy_page.status_code, 200, hierarchy_page.text)
+        self.assertIn("Enter key and show Odoo record types", hierarchy_page.text)
+        self.assertIn(
+            'data-read-credential-resume-action="'
+            f'/workspaces/{workspace_id}/derived-entities/models/refresh?'
+            'return_to=hierarchy"',
+            hierarchy_page.text,
+        )
+
         changed = self.client.post(
             f"/workspaces/{workspace_id}/target",
             data={

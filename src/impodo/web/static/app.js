@@ -73,6 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const openReadCredentialDialog = ({
     message = "",
     resume = "stay",
+    resumeAction = "",
     trigger = null,
   } = {}) => {
     if (!readCredentialDialog || !readCredentialForm) {
@@ -80,6 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     readCredentialReturnFocus = trigger || document.activeElement;
     readCredentialDialog.dataset.resume = resume;
+    readCredentialDialog.dataset.resumeAction = resumeAction;
     if (message) {
       showReadCredentialError(message);
     }
@@ -95,7 +97,11 @@ document.addEventListener("DOMContentLoaded", () => {
     "[data-open-read-credential]"
   )) {
     trigger.addEventListener("click", () => {
-      openReadCredentialDialog({ trigger });
+      openReadCredentialDialog({
+        resume: trigger.dataset.readCredentialResume || "stay",
+        resumeAction: trigger.dataset.readCredentialResumeAction || "",
+        trigger,
+      });
     });
   }
   for (const close of readCredentialDialog?.querySelectorAll(
@@ -181,6 +187,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (readCredentialDialog?.dataset.autoOpen === "true") {
     openReadCredentialDialog({
       resume: readCredentialDialog.dataset.resume || "stay",
+      resumeAction: readCredentialDialog.dataset.resumeAction || "",
     });
   }
 
