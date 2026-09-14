@@ -10,14 +10,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from ...domain.errors import ReadinessError
 from ...domain.reconciliation import ReconciliationRunStatus
 from impodo.application.workspace.execution.job_models import LoadJob
+from impodo.application.workspace.navigation import WorkspaceNavigationFacts
 from impodo.application.workspace.preparation.job_models import PreparationJob
-from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceState, WorkspaceStatus
 from impodo.application.workspace.views import WorkspaceOwnerView
-from ..context import WebContext
 from ..workspace_journeys import (
     WorkspaceJourney,
     classify_workspace_journey,
@@ -220,7 +218,7 @@ _TEMPLATE_LOCATION = {
 
 
 def build_workspace_navigation(
-    context: WebContext,
+    facts: WorkspaceNavigationFacts,
     workspace_state: WorkspaceState,
     template_name: str,
     *,
@@ -233,7 +231,7 @@ def build_workspace_navigation(
     """Return the one user journey allowed by canonical workspace ownership."""
 
     navigation = _build_authoring_workspace_navigation(
-        context,
+        facts,
         workspace_state,
         template_name,
         current_path=current_path,
@@ -265,7 +263,7 @@ def build_workspace_navigation(
 
 
 def _build_authoring_workspace_navigation(
-    context: WebContext,
+    facts: WorkspaceNavigationFacts,
     workspace_state: WorkspaceState,
     template_name: str,
     *,
@@ -274,7 +272,7 @@ def _build_authoring_workspace_navigation(
 ) -> WorkspaceNavigation:
     """Build the source-mode-specific Authoring evidence projection."""
 
-    current_workspace_state = context.queries.get(workspace_state.workspace_id)
+    current_workspace_state = workspace_state
     navigation_name = migration_project_name or current_workspace_state.name
     viewed_stage_id, viewed_page_label = _TEMPLATE_LOCATION.get(
         template_name,
@@ -320,103 +318,67 @@ def _build_authoring_workspace_navigation(
         # Cross-instance transfers advance only through separately bound source
         # and destination evidence. Legacy same-database pinned-update evidence
         # must not make transfer stages look available.
-        model_catalog = context.queries.get_odoo_model_catalog(
-            current_workspace_state.workspace_id
+        model_catalog_present = facts.odoo_model_catalog_present
+        schema_present = facts.schema_present
+        schema_attention = facts.schema_attention
+        capture_plans_complete = schema_present and (
+            set(facts.capture_models) == set(facts.schema_models)
         )
-        schema = context.queries.get_odoo_schema_catalog(
-            current_workspace_state.workspace_id
-        )
-        schema_attention = bool(schema and schema.pending_refresh)
-        capture_selections = (
-            context.queries.get_current_odoo_capture_selections(
-                current_workspace_state.workspace_id
-            )
-            if schema is not None
-            else ()
-        )
-        capture_plans_complete = bool(schema) and {
-            item.model for item in capture_selections
-        } == {item.name for item in schema.models}
-        try:
-            frozen_source = context.queries.get_source_selection(
-                current_workspace_state.workspace_id
-            )
-        except WorkspaceError:
-            frozen_source = None
+        frozen_source_hash = facts.source_selection_hash
         workspace_id = current_workspace_state.workspace_id
         select_complete = capture_plans_complete and not schema_attention
         destination_match_ready = bool(
-            frozen_source is not None
-            and schema is not None
+            frozen_source_hash
+            and schema_present
             and current_workspace_state.destination_match_ready(
-                source_selection_hash=frozen_source.content_hash,
-                source_schema_hash=schema.content_hash,
+                source_selection_hash=frozen_source_hash,
+                source_schema_hash=facts.schema_content_hash,
             )
         )
         transfer_order_ready = bool(
-            frozen_source is not None
-            and schema is not None
+            frozen_source_hash
+            and schema_present
             and current_workspace_state.transfer_order_ready(
-                source_selection_hash=frozen_source.content_hash,
-                source_schema_hash=schema.content_hash,
+                source_selection_hash=frozen_source_hash,
+                source_schema_hash=facts.schema_content_hash,
             )
         )
         transfer_review_current = bool(
-            frozen_source is not None
-            and schema is not None
+            frozen_source_hash
+            and schema_present
             and current_workspace_state.transfer_review_current(
-                source_selection_hash=frozen_source.content_hash,
-                source_schema_hash=schema.content_hash,
+                source_selection_hash=frozen_source_hash,
+                source_schema_hash=facts.schema_content_hash,
             )
         )
         transfer_review_approved = bool(
-            frozen_source is not None
-            and schema is not None
+            frozen_source_hash
+            and schema_present
             and current_workspace_state.transfer_review_approved(
-                source_selection_hash=frozen_source.content_hash,
-                source_schema_hash=schema.content_hash,
+                source_selection_hash=frozen_source_hash,
+                source_schema_hash=facts.schema_content_hash,
             )
         )
         transfer_preflight_current = bool(
-            frozen_source is not None
-            and schema is not None
+            frozen_source_hash
+            and schema_present
             and current_workspace_state.transfer_preflight_current(
-                source_selection_hash=frozen_source.content_hash,
-                source_schema_hash=schema.content_hash,
+                source_selection_hash=frozen_source_hash,
+                source_schema_hash=facts.schema_content_hash,
             )
         )
         transfer_preflight_ready = bool(
-            frozen_source is not None
-            and schema is not None
+            frozen_source_hash
+            and schema_present
             and current_workspace_state.transfer_preflight_ready(
-                source_selection_hash=frozen_source.content_hash,
-                source_schema_hash=schema.content_hash,
+                source_selection_hash=frozen_source_hash,
+                source_schema_hash=facts.schema_content_hash,
             )
         )
-        try:
-            transfer_execution_reader = getattr(context, "execution", None)
-            transfer_reconciliation_reader = getattr(
-                context,
-                "reconciliation",
-                None,
-            )
-            transfer_run = (
-                transfer_execution_reader.current_transfer_run(workspace_id)
-                if transfer_execution_reader is not None
-                else None
-            )
-            transfer_reconciliation = (
-                transfer_reconciliation_reader.current(workspace_id)
-                if transfer_run is not None
-                and transfer_reconciliation_reader is not None
-                else None
-            )
-        except WorkspaceError:
-            transfer_run = None
-            transfer_reconciliation = None
+        transfer_run_id = facts.transfer_execution_run_id
+        transfer_reconciliation_status = facts.transfer_reconciliation_status
         transfer_verified = bool(
-            transfer_reconciliation is not None
-            and transfer_reconciliation.status is ReconciliationRunStatus.VERIFIED
+            transfer_reconciliation_status == ReconciliationRunStatus.VERIFIED.value
         )
         if template_name == "workspace_target.html":
             viewed_stage_id = "connection"
@@ -424,12 +386,12 @@ def _build_authoring_workspace_navigation(
         elif template_name == "workspace_odoo_capture_selection.html":
             viewed_stage_id = (
                 "download"
-                if select_complete or frozen_source is not None
+                if select_complete or frozen_source_hash
                 else "select"
             )
             viewed_page_label = (
                 "Freeze source datasets"
-                if select_complete or frozen_source is not None
+                if select_complete or frozen_source_hash
                 else "Define capture plans"
             )
         elif template_name == "workspace_odoo_capture_progress.html":
@@ -483,8 +445,8 @@ def _build_authoring_workspace_navigation(
                         "Choose record types and fields",
                         "/schema",
                         complete=(
-                            model_catalog is not None
-                            and schema is not None
+                            model_catalog_present
+                            and schema_present
                             and not schema_attention
                         ),
                         attention=schema_attention,
@@ -500,7 +462,7 @@ def _build_authoring_workspace_navigation(
                             complete=capture_plans_complete,
                         ),
                     )
-                    if schema is not None
+                    if schema_present
                     else ()
                 ),
             ),
@@ -510,17 +472,17 @@ def _build_authoring_workspace_navigation(
                 label="Download and freeze",
                 href=(
                     f"/workspaces/{workspace_id}/sources"
-                    if select_complete or frozen_source is not None
+                    if select_complete or frozen_source_hash
                     else None
                 ),
                 status=(
                     "complete"
-                    if frozen_source is not None
+                    if frozen_source_hash
                     else ("current" if select_complete else "locked")
                 ),
                 status_label=(
                     "Download complete"
-                    if frozen_source is not None
+                    if frozen_source_hash
                     else (
                         "Ready to download"
                         if select_complete
@@ -533,7 +495,7 @@ def _build_authoring_workspace_navigation(
                         "odoo-capture",
                         "Freeze source datasets",
                         "/sources#current-capture",
-                        complete=frozen_source is not None,
+                        complete=bool(frozen_source_hash),
                     ),
                 )
                 if capture_plans_complete
@@ -545,20 +507,20 @@ def _build_authoring_workspace_navigation(
                 label="Connect destination Odoo",
                 href=(
                     f"/workspaces/{workspace_id}/transfer-destination"
-                    if frozen_source is not None
+                    if frozen_source_hash
                     else None
                 ),
                 status=(
                     "complete"
                     if current_workspace_state.destination_verified
-                    else ("current" if frozen_source is not None else "locked")
+                    else ("current" if frozen_source_hash else "locked")
                 ),
                 status_label=(
                     "Connected"
                     if current_workspace_state.destination_verified
                     else (
                         "Current"
-                        if frozen_source is not None
+                        if frozen_source_hash
                         else "Download source first"
                     )
                 ),
@@ -571,7 +533,7 @@ def _build_authoring_workspace_navigation(
                         complete=current_workspace_state.destination_verified,
                     ),
                 )
-                if frozen_source is not None
+                if frozen_source_hash
                 else (),
             ),
             WorkflowStage(
@@ -581,7 +543,7 @@ def _build_authoring_workspace_navigation(
                 href=(
                     f"/workspaces/{workspace_id}/destination-matching"
                     if current_workspace_state.destination_verified
-                    and frozen_source is not None
+                    and frozen_source_hash
                     else None
                 ),
                 status=(
@@ -594,7 +556,7 @@ def _build_authoring_workspace_navigation(
                         else (
                             "current"
                             if current_workspace_state.destination_verified
-                            and frozen_source is not None
+                            and frozen_source_hash
                             else "locked"
                         )
                     )
@@ -609,7 +571,7 @@ def _build_authoring_workspace_navigation(
                         else (
                             "Current"
                             if current_workspace_state.destination_verified
-                            and frozen_source is not None
+                            and frozen_source_hash
                             else "Destination required"
                         )
                     )
@@ -628,7 +590,7 @@ def _build_authoring_workspace_navigation(
                     ),
                 )
                 if current_workspace_state.destination_verified
-                and frozen_source is not None
+                and frozen_source_hash
                 else (),
             ),
             WorkflowStage(
@@ -741,7 +703,7 @@ def _build_authoring_workspace_navigation(
                 label="Load destination Odoo",
                 href=(
                     f"/workspaces/{workspace_id}/transfer-load/outcome"
-                    if transfer_run is not None
+                    if transfer_run_id
                     else (
                         f"/workspaces/{workspace_id}/transfer-load"
                         if transfer_preflight_ready
@@ -757,7 +719,7 @@ def _build_authoring_workspace_navigation(
                     if transfer_verified
                     else (
                         "attention"
-                        if transfer_run is not None
+                        if transfer_run_id
                         or (
                             transfer_preflight_current
                             and not transfer_preflight_ready
@@ -770,7 +732,7 @@ def _build_authoring_workspace_navigation(
                     if transfer_verified
                     else (
                         "Verify saved load outcome"
-                        if transfer_run is not None
+                        if transfer_run_id
                         else (
                             "Ready to prepare and load"
                             if transfer_preflight_ready
@@ -806,13 +768,13 @@ def _build_authoring_workspace_navigation(
                             "transfer-load",
                             "Prepare and load destination",
                             "/transfer-load",
-                            complete=transfer_run is not None,
+                            complete=bool(transfer_run_id),
                             attention=(
-                                transfer_run is not None and not transfer_verified
+                                bool(transfer_run_id) and not transfer_verified
                             ),
                         ),
                     )
-                    if transfer_preflight_ready or transfer_run is not None
+                    if transfer_preflight_ready or transfer_run_id
                     else ()
                 )
                 + (
@@ -826,7 +788,7 @@ def _build_authoring_workspace_navigation(
                             attention=not transfer_verified,
                         ),
                     )
-                    if transfer_run is not None
+                    if transfer_run_id
                     else ()
                 )
                 if transfer_review_approved
@@ -843,19 +805,12 @@ def _build_authoring_workspace_navigation(
         )
 
     workspace_id = current_workspace_state.workspace_id
-    try:
-        source_selection = context.queries.get_source_selection(workspace_id)
-        source_configurations = context.queries.get_source_configurations(workspace_id)
-        derived_plan = context.queries.get_derived_entity_plan(workspace_id)
-    except WorkspaceError:
-        source_selection = None
-        source_configurations = ()
-        derived_plan = None
     sources_confirmed = bool(current_workspace_state.source_files) and (
-        len(source_configurations) == len(current_workspace_state.source_files)
-        and all(item.selected_table_keys for item in source_configurations)
+        facts.source_configuration_count == len(current_workspace_state.source_files)
+        and facts.selected_source_configuration_count
+        == facts.source_configuration_count
     )
-    source_complete = source_selection is not None
+    source_complete = facts.source_complete
     stages: list[WorkflowStage] = [
         _stage(
             workspace_id,
@@ -893,7 +848,7 @@ def _build_authoring_workspace_navigation(
                     "derived-entities",
                     "Separate combined information",
                     "/derived-entities",
-                    complete=bool(derived_plan and derived_plan.rules),
+                    complete=facts.derived_rules_present,
                     optional=True,
                 ),
             ),
@@ -910,10 +865,8 @@ def _build_authoring_workspace_navigation(
             migration_project_name=navigation_name,
         )
 
-    schema = context.queries.get_odoo_schema_catalog(workspace_id)
-    governance = context.queries.get_schema_governance(workspace_id)
-    schema_complete = schema is not None and governance is not None
-    schema_attention = bool(schema and schema.pending_refresh)
+    schema_complete = facts.schema_complete
+    schema_attention = facts.schema_attention
     stages.append(
         _stage(
             workspace_id,
@@ -960,18 +913,7 @@ def _build_authoring_workspace_navigation(
             migration_project_name=navigation_name,
         )
 
-    revision = context.queries.get_mapping_revision(workspace_id)
-    submission = (
-        context.queries.get_mapping_submission(workspace_id, revision.version)
-        if revision is not None
-        else None
-    )
-    mapping_complete = bool(
-        revision is not None
-        and submission is not None
-        and submission.mapping_id == revision.mapping_id
-        and submission.mapping_content_hash == revision.definition.content_hash
-    )
+    mapping_complete = facts.mapping_complete
     stages.append(
         _stage(
             workspace_id,
@@ -1010,12 +952,8 @@ def _build_authoring_workspace_navigation(
             migration_project_name=navigation_name,
         )
 
-    active_job = (
-        context.preparation_jobs.active(workspace_id)
-        if context.preparation_jobs is not None
-        else None
-    )
-    if active_job is not None:
+    active_job_id = facts.active_preparation_job_id
+    if active_job_id:
         stages.append(
             _stage(
                 workspace_id,
@@ -1037,7 +975,7 @@ def _build_authoring_workspace_navigation(
                         label="Preparation progress",
                         href=(
                             f"/workspaces/{workspace_id}/preparation/"
-                            f"{active_job.job_id}"
+                            f"{active_job_id}"
                         ),
                         status="current",
                         status_label="In progress",
@@ -1055,24 +993,31 @@ def _build_authoring_workspace_navigation(
             migration_project_name=navigation_name,
         )
 
-    staging = context.preflight.current_staging(workspace_id)
-    resolution = context.resolution.current_summary(workspace_id) if staging else None
-    quality = context.quality.current_summary(workspace_id) if staging else None
-    if quality is not None and quality.staging_run_id != staging.run_id:
-        quality = None
-    normalization = context.normalization.current_summary(workspace_id) if quality else None
-    if normalization is not None and (
-        normalization.staging_run_id != staging.run_id
-        or normalization.quality_run_id != quality.run_id
-    ):
-        normalization = None
-    preparation_complete = bool(normalization and normalization.frozen)
+    staging_run_id = facts.staging_run_id
+    resolution_status = (
+        facts.resolution_status
+        if facts.resolution_staging_run_id == staging_run_id
+        else ""
+    )
+    quality_run_id = (
+        facts.quality_run_id
+        if facts.quality_staging_run_id == staging_run_id
+        else ""
+    )
+    normalization_current = bool(
+        quality_run_id
+        and facts.normalization_staging_run_id == staging_run_id
+        and facts.normalization_quality_run_id == quality_run_id
+    )
+    preparation_complete = bool(
+        normalization_current and facts.normalization_frozen
+    )
     preparation_attention = bool(
-        resolution and resolution.status in {"BLOCKED", "REVIEW_REQUIRED"}
+        resolution_status in {"BLOCKED", "REVIEW_REQUIRED"}
     ) or bool(
-        normalization
-        and not normalization.frozen
-        and normalization.decisions_left
+        normalization_current
+        and not facts.normalization_frozen
+        and facts.normalization_decisions_left
     )
     preparation_status = (
         "complete"
@@ -1090,7 +1035,7 @@ def _build_authoring_workspace_navigation(
             "prepare",
             "Start preparation",
             "/prepare",
-            complete=staging is not None,
+            complete=bool(staging_run_id),
         )
     ]
     if template_name == "workspace_preparation_progress.html" and current_path:
@@ -1103,26 +1048,26 @@ def _build_authoring_workspace_navigation(
                 status_label="Saved attempt",
             )
         )
-    if resolution is not None:
+    if resolution_status:
         preparation_pages.append(
             _page(
                 workspace_id,
                 "resolution",
                 "Review possible duplicates",
                 "/resolution",
-                complete=resolution.status == "FROZEN",
-                attention=resolution.status in {"BLOCKED", "REVIEW_REQUIRED"},
+                complete=resolution_status == "FROZEN",
+                attention=resolution_status in {"BLOCKED", "REVIEW_REQUIRED"},
             )
         )
-    if normalization is not None:
+    if normalization_current:
         preparation_pages.append(
             _page(
                 workspace_id,
                 "normalization",
                 "Approve prepared data",
                 "/normalization",
-                complete=normalization.frozen,
-                attention=bool(normalization.decisions_left),
+                complete=facts.normalization_frozen,
+                attention=bool(facts.normalization_decisions_left),
             )
         )
     stages.append(
@@ -1148,9 +1093,10 @@ def _build_authoring_workspace_navigation(
             migration_project_name=navigation_name,
         )
 
-    report = context.preflight.current_report(workspace_id)
-    review_complete = bool(report and report.status == "READY")
-    review_attention = bool(report and report.status != "READY")
+    review_complete = facts.preflight_status == "READY"
+    review_attention = bool(
+        facts.preflight_status and facts.preflight_status != "READY"
+    )
     review_status = (
         "complete"
         if review_complete
@@ -1195,33 +1141,24 @@ def _build_authoring_workspace_navigation(
 
     load_status = "current"
     load_label = "Current"
-    active_load_job = (
-        context.load_jobs.active(workspace_id)
-        if context.load_jobs is not None
-        else None
-    )
-    try:
-        preview = context.execution.current_preview(workspace_id)
-    except (ReadinessError, WorkspaceError):
-        preview = None
+    active_load_job_id = facts.active_load_job_id
+    preview = facts.execution_preview
+    if preview is None:
         load_status = "attention"
         load_label = "Needs attention"
     reconciliation = None
-    if active_load_job is not None:
+    if active_load_job_id:
         load_label = "In progress"
     elif preview is not None:
-        if preview.snapshot.write_count == 0:
+        if preview.write_count == 0 and not preview.scope_error:
             load_status = "complete"
             load_label = "No changes needed"
-        elif preview.current_run is not None:
-            reconciliation = context.reconciliation.current(workspace_id)
-            if (
-                reconciliation is not None
-                and reconciliation.status is ReconciliationRunStatus.VERIFIED
-            ):
+        elif preview.current_run_id:
+            reconciliation = preview.state.reconciliation_status
+            if reconciliation == ReconciliationRunStatus.VERIFIED.value:
                 load_status = "complete"
                 load_label = "Complete"
-            elif reconciliation is not None:
+            elif reconciliation:
                 load_status = "attention"
                 load_label = "Needs attention"
             else:
@@ -1237,13 +1174,13 @@ def _build_authoring_workspace_navigation(
         complete=preview is not None,
         attention=preview is not None and not preview.can_load,
     )
-    if active_load_job is not None:
+    if active_load_job_id:
         confirm_page = WorkflowPage(
             page_id="load-confirm",
             label="Confirm and load",
             href=(
                 f"/workspaces/{workspace_id}/load/progress/"
-                f"{active_load_job.job_id}"
+                f"{active_load_job_id}"
             ),
             status="current",
             status_label="In progress",
@@ -1255,7 +1192,7 @@ def _build_authoring_workspace_navigation(
             status="locked",
             status_label="Not ready",
         )
-    elif preview is not None and preview.current_run is not None:
+    elif preview is not None and preview.current_run_id:
         confirm_page = WorkflowPage(
             page_id="load-confirm",
             label="Confirm and load",
@@ -1269,12 +1206,10 @@ def _build_authoring_workspace_navigation(
             "Verify result",
             "/load/outcome",
             complete=(
-                reconciliation is not None
-                and reconciliation.status is ReconciliationRunStatus.VERIFIED
+                reconciliation == ReconciliationRunStatus.VERIFIED.value
             ),
             attention=(
-                reconciliation is None
-                or reconciliation.status is not ReconciliationRunStatus.VERIFIED
+                reconciliation != ReconciliationRunStatus.VERIFIED.value
             ),
         )
     else:

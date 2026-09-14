@@ -1,6 +1,30 @@
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
+  const fetchStatus = async (url, options) => {
+    const response = await fetch(url, options);
+    window.impodoServerRecovery?.noteResponse?.(response);
+    if (response.ok) {
+      response.clone().json().then((payload) => {
+        if (!["QUEUED", "RUNNING"].includes(payload?.status)) {
+          window.impodoServerRecovery?.endOperation?.({ outcomeKnown: true });
+        }
+      }).catch(() => {});
+    }
+    return response;
+  };
+
+  const trackedJob = document.querySelector(
+    "[data-preflight-job], [data-preparation-job], [data-odoo-capture-job], " +
+      "[data-load-job], [data-integrated-run-review], [data-recipe-run-job]"
+  );
+  if (trackedJob) {
+    window.impodoServerRecovery?.beginOperation?.({
+      label: "This background step",
+      mutation: true,
+    });
+  }
+
   const preflightJob = document.querySelector("[data-preflight-job]");
   if (preflightJob) {
     const statusUrl = preflightJob.dataset.statusUrl;
@@ -86,7 +110,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const pollPreflight = async () => {
       try {
-        const response = await fetch(statusUrl, {
+        const response = await fetchStatus(statusUrl, {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
@@ -204,7 +228,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const pollPreparation = async () => {
       try {
-        const response = await fetch(statusUrl, {
+        const response = await fetchStatus(statusUrl, {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
@@ -290,7 +314,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const pollOdooCapture = async () => {
       try {
-        const response = await fetch(statusUrl, {
+        const response = await fetchStatus(statusUrl, {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
@@ -419,7 +443,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const pollLoad = async () => {
       try {
-        const response = await fetch(statusUrl, {
+        const response = await fetchStatus(statusUrl, {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
@@ -445,7 +469,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const pollIntegratedRun = async () => {
       try {
-        const response = await fetch(statusUrl, {
+        const response = await fetchStatus(statusUrl, {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
@@ -582,7 +606,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const pollRecipeRun = async () => {
       try {
-        const response = await fetch(statusUrl, {
+        const response = await fetchStatus(statusUrl, {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });

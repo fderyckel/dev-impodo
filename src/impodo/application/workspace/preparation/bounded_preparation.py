@@ -1,4 +1,11 @@
-"""Bounded direct-dataset orchestration for 100,000-row Stage-E preparation."""
+"""Bounded direct-dataset orchestration for 100,000-row Stage-E preparation.
+
+This module publishes canonical prepared rows only for an unchanged direct
+selection of physical datasets.  It prefers a columnar transformation program
+when available and keeps a bounded Python adaptation path for smaller inputs.
+Both paths create the same session evidence, quality inputs, and control-total
+results rather than creating different interpretations of the source data.
+"""
 
 from __future__ import annotations
 
@@ -139,7 +146,12 @@ def direct_preparation_row_limit(
     effective_selection: SourceSelection,
     source_snapshots: Iterable[SourceSnapshot],
 ) -> int:
-    """Return 100k only for the mandatory verified columnar production path."""
+    """Choose the safe evaluation ceiling for the verified source representation.
+
+    A valid frozen snapshot permits the 100,000-row columnar limit.  Missing
+    or malformed evidence falls back to the smaller browser-evaluator limit so
+    a caller cannot treat an uncertain source as safely scalable.
+    """
 
     try:
         decisions = compile_columnar_transformation_programs(
@@ -186,7 +198,13 @@ def prepare_bounded_direct_session(
     batch_progress: Callable[[int, int], None] | None = None,
     columnar_batch_size: int = DEFAULT_COLUMNAR_TRANSFORMATION_BATCH_ROWS,
 ) -> BoundedDirectPreparation:
-    """Transform direct selected sources into one READY durable session."""
+    """Transform one direct selection into a READY durable preparation session.
+
+    The mapping, source selection, schema, reference bundle, and every source
+    snapshot must describe the same workspace state.  The method streams work
+    in bounded batches, publishes canonical rows and impact facts, and cleans
+    up an incomplete session if a source or transformation step fails.
+    """
 
     if not supports_bounded_direct_preparation(
         physical_selection,
@@ -347,6 +365,8 @@ def prepare_bounded_direct_session(
                 raise ReadinessError("Frozen source evidence is incomplete")
             columnar = columnar_by_id[effective.dataset_id]
             if columnar.support is ColumnarSupport.SUPPORTED:
+                # The native projection remains the preferred path because it
+                # avoids materialising large transformed result sets in Python.
                 if snapshot is None:
                     raise ReadinessError(
                         "Supported direct preparation requires its frozen "

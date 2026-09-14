@@ -148,6 +148,7 @@ from ..adapters.duckdb.normalization_repository import NormalizationRepository
 from ..adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
 from ..adapters.duckdb.preflight_repository import PreflightRepository
 from ..adapters.duckdb.execution_repository import ExecutionRepository
+from ..adapters.duckdb.navigation_repository import WorkspaceNavigationRepository
 from ..adapters.duckdb.reconciliation_repository import ReconciliationRepository
 from ..adapters.duckdb.recipe_compilation_repository import (
     RecipeCompilationRepository,
@@ -218,6 +219,7 @@ from impodo.application.workspace.access import (
     WorkspaceAccessService,
 )
 from impodo.application.workspace.views import WorkspaceOwnerViewService
+from impodo.application.workspace.navigation import WorkspaceNavigationQueryService
 from impodo.application.shared.secrets import SecretStore, SecretStoreError
 from .context import (
     BrowserReadinessReader,
@@ -1003,6 +1005,12 @@ def create_local_app(
         workspace_views=WorkspaceOwnerViewService(
             foundation_repository,
             workspace_access,
+        ),
+        navigation=WorkspaceNavigationQueryService(
+            WorkspaceNavigationRepository(database),
+            execution,
+            preparation_jobs=preparation_jobs,
+            load_jobs=load_jobs,
         ),
         migration_projects=migration_projects,
         data_versions=data_versions,

@@ -36,6 +36,7 @@ from ...domain.preflight.reports import (
 from impodo.domain.shared.models import canonical_json_text, target_identity_hash
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.application.workspace.execution.navigation import ExecutionPreviewSummary
 from .constants import PREFLIGHT_ROW_BATCH_SIZE
 from .database import DuckDbWorkspaceDatabase
 from .workspace_state_repository import WorkspaceStateRepository
@@ -155,6 +156,7 @@ class PreflightRepository(DuckDbRepository):
         metadata_snapshot: MetadataSnapshot,
         record_snapshot: RecordSnapshot,
         actor: Actor,
+        execution_summary: ExecutionPreviewSummary | None = None,
     ) -> None:
         """Atomically publish a report, rows, snapshots, pointer, and audit event.
 
@@ -182,6 +184,12 @@ class PreflightRepository(DuckDbRepository):
             or decision_count < 0
         ):
             raise WorkspaceError("Readiness snapshot evidence is invalid")
+        if execution_summary is not None and (
+            execution_summary.preflight_run_id != canonical_run_id
+            or execution_summary.target_hash != report.target_hash
+            or execution_summary.comparison_status != report.status
+        ):
+            raise WorkspaceError("Execution preview projection is invalid")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
@@ -403,6 +411,43 @@ class PreflightRepository(DuckDbRepository):
                         ],
                     ],
                 )
+                if execution_summary is not None:
+                    connection.execute(
+                        """
+                        INSERT INTO preflight_execution_projection (
+                            run_id, snapshot_hash, snapshot_root_hash,
+                            comparison_status, create_count, update_count,
+                            unchanged_count, blocked_count, ambiguous_count,
+                            relationship_blocker_count, target_hash,
+                            target_odoo_version, read_credential_binding_hash,
+                            read_principal_hash, read_permission_hash,
+                            read_context_hash, execution_shape_ready,
+                            contract_version
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        )
+                        """,
+                        [
+                            canonical_run_id,
+                            execution_summary.snapshot_hash,
+                            execution_summary.snapshot_root_hash,
+                            execution_summary.comparison_status,
+                            execution_summary.create_count,
+                            execution_summary.update_count,
+                            execution_summary.unchanged_count,
+                            execution_summary.blocked_count,
+                            execution_summary.ambiguous_count,
+                            execution_summary.relationship_blocker_count,
+                            execution_summary.target_hash,
+                            execution_summary.target_odoo_version,
+                            execution_summary.read_credential_binding_hash,
+                            execution_summary.read_principal_hash,
+                            execution_summary.read_permission_hash,
+                            execution_summary.read_context_hash,
+                            execution_summary.execution_shape_ready,
+                            execution_summary.contract_version,
+                        ],
+                    )
                 stored = connection.execute(
                     """
                     SELECT

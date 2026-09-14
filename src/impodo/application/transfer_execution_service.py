@@ -1,4 +1,10 @@
-"""Compile and publish the confirmed Odoo-to-Odoo Stage 8B load input."""
+"""Compile and publish the confirmed Odoo-to-Odoo Stage 8B load input.
+
+Stage 8B turns the final read-only transfer evidence into one exact execution
+snapshot.  Staging is still not a write decision.  A separate confirmation
+passes the saved snapshot to the shared journalled loader, which rechecks the
+destination before it contacts Odoo.
+"""
 
 from __future__ import annotations
 
@@ -65,7 +71,13 @@ class TransferExecutionSourceRepository(Protocol):
 
 
 class TransferExecutionService:
-    """Build one protected-value execution snapshot and invoke the shared loader."""
+    """Build one protected-value snapshot and use the shared transfer loader.
+
+    This service owns the seam between the approved transfer review and normal
+    execution.  It verifies that all source, destination, and preflight
+    evidence belongs together, but it does not create a writer or perform a
+    target write while compiling or staging.
+    """
 
     def __init__(
         self,
@@ -91,7 +103,12 @@ class TransferExecutionService:
         *,
         actor: Actor,
     ) -> ExecutionSnapshot:
-        """Compile exact frozen values after the final destination read."""
+        """Compile exact frozen values after the final destination read.
+
+        Every input must match the current approved transfer package.  The
+        result contains protected source relationship evidence and is suitable
+        only for the immediately following Stage 8B confirmation.
+        """
 
         if workspace.source_mode is not SourceMode.ODOO:
             raise WorkspaceError("Stage 8B requires a frozen Odoo source")
@@ -118,6 +135,8 @@ class TransferExecutionService:
                 "The final destination read no longer matches the approved transfer"
             )
 
+        # Snapshot bytes and protected Odoo-origin evidence are read separately
+        # because neither representation is allowed to stand in for the other.
         snapshots = self.sources.get_current_source_snapshots(workspace.workspace_id)
         snapshot_by_dataset = {item.dataset_id: item for item in snapshots}
         dataset_by_id = {item.dataset_id: item for item in selection.datasets}
@@ -183,7 +202,12 @@ class TransferExecutionService:
         schema: OdooSchemaCatalog,
         snapshot: ExecutionSnapshot,
     ) -> ExecutionSnapshot:
-        """Publish the exact no-write preview used by final confirmation."""
+        """Publish the exact no-write preview used by final confirmation.
+
+        A staged preview is discarded if no journal is created.  Once a load
+        journal exists it remains the recovery authority, even if the browser
+        retries this action.
+        """
 
         report = workspace.transfer_preflight_report
         package = workspace.transfer_review_package
@@ -220,7 +244,12 @@ class TransferExecutionService:
         selection: SourceSelection,
         schema: OdooSchemaCatalog,
     ) -> ExecutionSnapshot | None:
-        """Load a staged 8B preview only while every approval remains current."""
+        """Return the staged preview only while every approval remains current.
+
+        This query deliberately returns ``None`` for a stale or unreadable
+        artifact.  Callers must return to review rather than infer that an old
+        preview can be repaired.
+        """
 
         report = workspace.transfer_preflight_report
         package = workspace.transfer_review_package
@@ -264,7 +293,12 @@ class TransferExecutionService:
         write_identity: OdooWriteIdentity,
         progress=None,
     ) -> ExecutionRun:
-        """Execute the exact staged snapshot through the shared journalled writer."""
+        """Execute the exact staged snapshot through the shared journalled writer.
+
+        The shared service records intent before transport and verifies the
+        destination identity again.  If no journal was created, this method
+        removes the staged artifact so it cannot appear as an active preview.
+        """
 
         snapshot = ExecutionSnapshot.from_json(snapshot.to_json())
         try:
@@ -282,6 +316,8 @@ class TransferExecutionService:
                 progress=progress,
             )
         except Exception:
+            # Retain staging once journalled: it is part of the exact recovery
+            # boundary for an interrupted transfer.
             if self.execution.current_transfer_run(workspace.workspace_id) is None:
                 self.artifacts.delete_report(
                     workspace.workspace_id,
@@ -305,7 +341,12 @@ class TransferExecutionService:
         write_identity: OdooWriteIdentity,
         progress=None,
     ) -> ExecutionRun:
-        """Resume an interrupted transfer without replacing its journal."""
+        """Resume an interrupted transfer without replacing its journal.
+
+        The caller supplies the recovery read-back tied to this run.  The
+        shared execution service decides which rows are safe to retry and
+        preserves the original journal and deterministic create identities.
+        """
 
         snapshot = ExecutionSnapshot.from_json(snapshot.to_json())
         return self.execution.resume_transfer(
@@ -338,7 +379,13 @@ def compile_transfer_execution_snapshot(
     source_snapshots: Mapping[str, SourceSnapshot],
     source_manifest_hashes: Mapping[str, str],
 ) -> ExecutionSnapshot:
-    """Turn generic scalar and relation evidence into the shared write contract."""
+    """Turn generic scalar and relation evidence into the shared write contract.
+
+    The function fails closed unless every reviewed dataset has exactly one
+    selected snapshot, source-origin set, destination match, and preflight
+    entry.  It produces an in-memory snapshot; ``stage`` is responsible for
+    making that snapshot the browser's current no-write preview.
+    """
 
     selected_by_id = {item.dataset_id: item for item in selection.datasets}
     reviewed_by_id = {item.dataset_id: item for item in package.datasets}

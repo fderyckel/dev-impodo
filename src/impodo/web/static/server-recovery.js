@@ -2,9 +2,7 @@
 
 document.addEventListener("DOMContentLoaded", () => {
   const banner = document.querySelector("[data-server-recovery]");
-  if (!banner) {
-    return;
-  }
+  if (!banner) return;
 
   const title = banner.querySelector("[data-server-recovery-title]");
   const message = banner.querySelector("[data-server-recovery-message]");
@@ -12,174 +10,243 @@ document.addEventListener("DOMContentLoaded", () => {
   const help = banner.querySelector("[data-server-recovery-help]");
   const disconnectedHelp = help?.textContent.trim() || "";
   const healthUrl = banner.dataset.healthUrl || "/health";
-  const failureLimit = Math.max(
-    2,
-    Number.parseInt(banner.dataset.failureLimit || "3", 10) || 3
-  );
   const intervalMs = Math.max(
     1000,
     Number.parseInt(banner.dataset.heartbeatIntervalMs || "4000", 10) || 4000
   );
   const timeoutMs = Math.max(
-    500,
-    Number.parseInt(banner.dataset.heartbeatTimeoutMs || "2000", 10) || 2000
+    1000,
+    Number.parseInt(banner.dataset.heartbeatTimeoutMs || "4000", 10) || 4000
   );
-  let consecutiveFailures = 0;
-  let disconnected = false;
-  let sessionEnded = false;
+  const delayedMs = Math.max(
+    5000,
+    Number.parseInt(banner.dataset.delayedAfterMs || "20000", 10) || 20000
+  );
+  const disconnectedMs = Math.max(
+    delayedMs,
+    Number.parseInt(banner.dataset.disconnectedAfterMs || "45000", 10) || 45000
+  );
+
+  const now = () => performance.now();
+  let connectivity = "CONNECTED";
+  let operation = "IDLE";
+  let operationStartedAt = 0;
+  let operationLabel = "This step";
+  let mutationPending = false;
+  let lastResponseAt = now();
+  let lastSuccessAt = lastResponseAt;
+  let lastNetworkFailureAt = 0;
   let activeRequest = null;
   let nextCheck = null;
   let recoveredNotice = null;
+  let waitForVisibleCheck = false;
+  let visibleCheckAfter = 0;
 
-  const schedule = () => {
-    window.clearTimeout(nextCheck);
-    if (sessionEnded) {
-      return;
-    }
-    nextCheck = window.setTimeout(() => void checkHealth(), intervalMs);
-  };
-
-  const showDisconnected = () => {
-    if (disconnected || sessionEnded) {
-      return;
-    }
-    disconnected = true;
-    banner.classList.remove("success");
-    banner.classList.add("error");
-    if (title) {
-      title.textContent = "Impodo is not responding";
-    }
-    if (message) {
-      message.textContent =
-        "Keep this tab open while Impodo tries to reconnect. Your saved work is unchanged, and unsaved entries remain on this page.";
-    }
-    if (retry) {
-      retry.hidden = false;
-    }
-    if (help) {
-      help.textContent = disconnectedHelp;
-    }
-    banner.hidden = false;
-    document.dispatchEvent(new CustomEvent("impodo:server-disconnected"));
+  const setBannerKind = (kind) => {
+    banner.classList.remove("success", "warning", "error");
+    banner.classList.add(kind);
+    banner.setAttribute("role", kind === "error" ? "alert" : "status");
+    banner.setAttribute("aria-live", kind === "error" ? "assertive" : "polite");
   };
 
   const showSessionEnded = () => {
-    if (sessionEnded) {
-      return;
-    }
-    sessionEnded = true;
-    disconnected = false;
-    banner.classList.remove("success");
-    banner.classList.add("error");
-    if (title) {
-      title.textContent = "This Impodo session has ended";
-    }
+    if (connectivity === "SESSION_ENDED") return;
+    connectivity = "SESSION_ENDED";
+    operation = mutationPending ? "OUTCOME_UNKNOWN" : operation;
+    setBannerKind("error");
+    if (title) title.textContent = "This Impodo session has ended";
     if (message) {
       message.textContent =
-        "Impodo is still running, but this tab can no longer use it. Your saved work is unchanged, and unsaved entries remain on this page.";
+        "Impodo is running, but this tab can no longer use it. Check the outcome before repeating an action.";
     }
-    if (retry) {
-      retry.hidden = true;
-    }
+    if (retry) retry.hidden = true;
     if (help) {
       help.textContent =
-        "Use the most recently opened Impodo tab. If there is none, restart Impodo once. Copy any unsaved entries from this page before closing it.";
+        "Use the most recently opened Impodo tab. Copy unsaved entries before closing this one.";
     }
     banner.hidden = false;
     document.dispatchEvent(new CustomEvent("impodo:session-ended"));
   };
 
-  const showRecovered = () => {
-    if (!disconnected || sessionEnded) {
-      return;
+  const showDisconnected = () => {
+    if (connectivity !== "DISCONNECTED") {
+      connectivity = "DISCONNECTED";
+      operation = mutationPending ? "OUTCOME_UNKNOWN" : operation;
+      document.dispatchEvent(new CustomEvent("impodo:server-disconnected"));
     }
-    disconnected = false;
-    banner.classList.remove("error");
-    banner.classList.add("success");
-    if (title) {
-      title.textContent = "Impodo is responding again";
+    setBannerKind("error");
+    if (title) title.textContent = "Connection to Impodo was interrupted";
+    if (message) {
+      message.textContent = mutationPending
+        ? "The last action's outcome is unknown. Keep this tab open and check its outcome before trying again."
+        : "Keep this tab open while Impodo reconnects. Saved work is unchanged.";
     }
+    if (retry) retry.hidden = false;
+    if (help) help.textContent = disconnectedHelp;
+    banner.hidden = false;
+  };
+
+  const showOutcomeUnknown = () => {
+    setBannerKind("warning");
+    if (title) title.textContent = "Check the last action";
     if (message) {
       message.textContent =
-        "Review this page and any save outcome before repeating your last action.";
+        "Impodo is responding, but the last action's outcome is unknown. Check its result before trying again.";
     }
-    if (retry) {
-      retry.hidden = false;
+    if (retry) retry.hidden = true;
+    if (help) help.textContent = "Do not repeat the action until its result is clear.";
+    banner.hidden = false;
+  };
+
+  const showDelayed = () => {
+    operation = "DELAYED";
+    setBannerKind("warning");
+    if (title) title.textContent = "Impodo is still working";
+    if (message) {
+      message.textContent = `${operationLabel} is taking longer than usual. Keep this tab open.`;
     }
-    if (help) {
-      help.textContent = disconnectedHelp;
-    }
+    if (retry) retry.hidden = true;
+    if (help) help.textContent = "Progress responses still confirm that Impodo is available.";
+    banner.hidden = false;
+  };
+
+  const showRecovered = () => {
+    const wasDisconnected = connectivity === "DISCONNECTED";
+    connectivity = "CONNECTED";
+    if (!wasDisconnected) return;
+    setBannerKind("success");
+    if (title) title.textContent = "Impodo is responding again";
+    if (message) message.textContent = "Check the outcome before repeating your last action.";
+    if (retry) retry.hidden = false;
+    if (help) help.textContent = "Impodo answered the latest connection check.";
     banner.hidden = false;
     document.dispatchEvent(new CustomEvent("impodo:server-reconnected"));
     window.clearTimeout(recoveredNotice);
-    recoveredNotice = window.setTimeout(() => {
-      if (!disconnected) {
-        banner.hidden = true;
-      }
-    }, 5000);
+    recoveredNotice = window.setTimeout(() => render(), 5000);
+  };
+
+  const render = () => {
+    if (connectivity === "SESSION_ENDED") return;
+    if (
+      !waitForVisibleCheck &&
+      lastNetworkFailureAt > lastResponseAt &&
+      now() - lastResponseAt >= disconnectedMs
+    ) {
+      showDisconnected();
+      return;
+    }
+    if (operation === "OUTCOME_UNKNOWN") {
+      showOutcomeUnknown();
+      return;
+    }
+    if (
+      (operation === "BUSY" || operation === "DELAYED") &&
+      now() - operationStartedAt >= delayedMs
+    ) {
+      showDelayed();
+      return;
+    }
+    if (connectivity === "CONNECTED") banner.hidden = true;
+  };
+
+  const noteResponse = (response, { successful = response?.ok } = {}) => {
+    if (connectivity === "SESSION_ENDED") return false;
+    if (response?.status === 401) {
+      showSessionEnded();
+      return false;
+    }
+    lastResponseAt = now();
+    if (successful) lastSuccessAt = lastResponseAt;
+    showRecovered();
+    render();
+    return true;
   };
 
   const noteResponsive = () => {
-    consecutiveFailures = 0;
+    if (connectivity === "SESSION_ENDED") return;
+    lastResponseAt = now();
+    lastSuccessAt = lastResponseAt;
     showRecovered();
+    render();
+  };
+
+  const beginOperation = ({ label = "This step", mutation = false } = {}) => {
+    operation = "BUSY";
+    operationStartedAt = now();
+    operationLabel = label;
+    mutationPending = Boolean(mutation);
+    render();
+  };
+
+  const endOperation = ({ outcomeKnown = true } = {}) => {
+    operation = outcomeKnown ? "IDLE" : mutationPending ? "OUTCOME_UNKNOWN" : "IDLE";
+    mutationPending = false;
+    render();
+  };
+
+  const schedule = () => {
+    window.clearTimeout(nextCheck);
+    if (connectivity !== "SESSION_ENDED") {
+      nextCheck = window.setTimeout(() => void checkHealth(), intervalMs);
+    }
   };
 
   const checkHealth = async () => {
-    if (activeRequest) {
-      schedule();
-      return;
-    }
+    if (activeRequest) return schedule();
+    const checkStartedAt = now();
     const controller = new AbortController();
     activeRequest = controller;
     const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(healthUrl, {
-        method: "GET",
         headers: { Accept: "application/json" },
         cache: "no-store",
         credentials: "same-origin",
         signal: controller.signal,
       });
-      if (response.status === 401) {
-        showSessionEnded();
+      const payload = response.ok
+        ? await response.json().catch(() => null)
+        : null;
+      if (!noteResponse(response, { successful: payload?.status === "ok" })) {
         return;
       }
-      let payload = null;
-      try {
-        payload = await response.json();
-      } catch (_error) {
-        payload = null;
-      }
-      if (!response.ok || payload?.status !== "ok") {
-        throw new Error("Health check failed");
-      }
-      noteResponsive();
     } catch (_error) {
-      consecutiveFailures += 1;
-      if (consecutiveFailures >= failureLimit) {
-        showDisconnected();
-      }
+      lastNetworkFailureAt = now();
     } finally {
+      if (checkStartedAt >= visibleCheckAfter) waitForVisibleCheck = false;
       window.clearTimeout(timeout);
-      if (activeRequest === controller) {
-        activeRequest = null;
-      }
+      if (activeRequest === controller) activeRequest = null;
+      render();
       schedule();
     }
   };
 
-  retry?.addEventListener("click", () => {
-    window.clearTimeout(nextCheck);
-    activeRequest?.abort();
-    activeRequest = null;
+  document.addEventListener("impodo:operation-started", (event) => {
+    beginOperation(event.detail || {});
+  });
+  document.addEventListener("impodo:operation-finished", (event) => {
+    endOperation(event.detail || {});
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    visibleCheckAfter = now();
+    waitForVisibleCheck = true;
     void checkHealth();
   });
+  retry?.addEventListener("click", () => void checkHealth());
   window.addEventListener("pagehide", () => {
     window.clearTimeout(nextCheck);
     window.clearTimeout(recoveredNotice);
     activeRequest?.abort();
   });
 
-  window.impodoServerRecovery = { checkNow: checkHealth, noteResponsive };
+  window.impodoServerRecovery = {
+    beginOperation,
+    checkNow: checkHealth,
+    endOperation,
+    noteResponse,
+    noteResponsive,
+    state: () => ({ connectivity, operation, lastResponseAt, lastSuccessAt }),
+  };
   schedule();
 });

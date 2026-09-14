@@ -21,6 +21,7 @@
     {% block page_styles %}{% endblock %}
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
     <script src="{{ url_for('static', path='/server-recovery.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/operation-state.js') }}" defer></script>
     {% block page_scripts %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
@@ -207,15 +208,16 @@
             class="notice error server-recovery-banner"
             data-server-recovery
             data-health-url="/health"
-            data-failure-limit="3"
             data-heartbeat-interval-ms="4000"
-            data-heartbeat-timeout-ms="2000"
-            role="alert"
-            aria-live="assertive"
+            data-heartbeat-timeout-ms="4000"
+            data-delayed-after-ms="20000"
+            data-disconnected-after-ms="45000"
+            role="status"
+            aria-live="polite"
             tabindex="-1"
             hidden
           >
-            <strong data-server-recovery-title>Impodo is not responding</strong>
+            <strong data-server-recovery-title>Connection to Impodo was interrupted</strong>
             <p data-server-recovery-message>
               Keep this tab open while Impodo tries to reconnect. Your saved
               work is unchanged, and unsaved entries remain on this page.

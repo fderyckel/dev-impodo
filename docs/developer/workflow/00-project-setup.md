@@ -36,12 +36,16 @@ files available and presents the normal retry action.
 `WorkspaceAccessService` provides the verified Project-owned lineage for one
 workspace through one registry read. `WorkspaceOwnerViewService` uses that
 lineage to give presenters explicit Project, MigrationWorkspace, DataVersion,
-MigrationRun, source-package, and run-target objects.
+MigrationRun, and run-target objects. Its foundation adapter reads those
+owners and the optional target setup through one registry connection. The
+source package remains in the separate DataVersion store and is read only by
+pages that own source detail.
 `WorkspaceAccessMiddleware` now resolves and binds that lineage before every
-authenticated workspace route. Workspace application services reuse the same
-context for exact capability checks, and background Odoo jobs receive it as an
-immutable worker packet. Preparation, Odoo-capture, and load progress requests
-reuse that verified packet, so a progress page does not reopen a worker-held
+authenticated workspace route. The bounded registry resolution runs in the
+thread pool, then workspace application services reuse the same context for
+exact capability checks. Background Odoo jobs receive it as an immutable
+worker packet. Preparation, Odoo-capture, and load progress requests reuse
+that verified packet, so a progress page does not reopen a worker-held
 registry or add another Project lookup.
 
 The New project form records Project name, migration purpose, source mode, and
@@ -161,7 +165,8 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | Run target setup | [`MigrationRunTargetSetupService`](../../../src/impodo/domain/run/setup.py) |
 | Optional compilation and publication | [`RecipeCompiler.compile_workspace`](../../../src/impodo/application/recipe_compilation_service.py), [`RecipePublicationService`](../../../src/impodo/application/recipe_publication_service.py) |
 | Odoo connection boundary | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
-| Navigation | [`build_workspace_navigation`](../../../src/impodo/web/presenters/navigation.py) |
+| Bounded navigation query | [`WorkspaceNavigationQueryService`](../../../src/impodo/application/workspace/navigation.py) and [`WorkspaceNavigationRepository`](../../../src/impodo/adapters/duckdb/navigation_repository.py) |
+| Navigation presentation | [`build_workspace_navigation`](../../../src/impodo/web/presenters/navigation.py) |
 | Data-manager concept registry | [`ConceptHelp`](../../../src/impodo/web/presenters/concepts.py) |
 | Read-only Concepts route | [`concepts.py`](../../../src/impodo/web/routers/concepts.py) |
 | Browser composition | [`app.py`](../../../src/impodo/web/app.py) |
@@ -173,6 +178,8 @@ therefore use one reviewed registry without adding a database or N+1 path.
 - [`tests/application/workspace/test_access.py`](../../../tests/application/workspace/test_access.py)
 - [`tests/architecture/test_canonical_ownership.py`](../../../tests/architecture/test_canonical_ownership.py)
 - [`tests/integration/duckdb/test_workspace_evidence.py`](../../../tests/integration/duckdb/test_workspace_evidence.py)
+- [`tests/integration/duckdb/test_navigation_repository.py`](../../../tests/integration/duckdb/test_navigation_repository.py)
+- [`tests/architecture/test_workspace_navigation_boundaries.py`](../../../tests/architecture/test_workspace_navigation_boundaries.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/integration/web/test_concept_help.py`](../../../tests/integration/web/test_concept_help.py)
 - [`tests/integration/protected_evidence/test_project_security.py`](../../../tests/integration/protected_evidence/test_project_security.py)

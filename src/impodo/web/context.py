@@ -99,6 +99,7 @@ from impodo.domain.execution.odoo_scope import OdooApiScope
 from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateService
 from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.application.workspace.views import WorkspaceOwnerViewService
+from impodo.application.workspace.navigation import WorkspaceNavigationQueryService
 from ..application.data_version.service import DataVersionService
 from ..application.project.service import MigrationProjectService
 from ..application.run.service import MigrationRunService
@@ -185,6 +186,7 @@ class WebContext:
     unavailable_projects: tuple[UnavailableProjectSummary, ...]
     workspace_access: WorkspaceAccessService
     workspace_views: WorkspaceOwnerViewService
+    navigation: WorkspaceNavigationQueryService
     migration_projects: MigrationProjectService
     data_versions: DataVersionService
     migration_runs: MigrationRunService

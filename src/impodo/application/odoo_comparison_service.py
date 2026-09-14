@@ -1,4 +1,10 @@
-"""Build one bounded, read-only comparison for pinned Odoo source rows."""
+"""Build one bounded, read-only comparison for pinned Odoo source rows.
+
+This comparison serves completed-load correction rather than ordinary matching.
+It reads only the protected source IDs and approved writable fields captured by
+the earlier Odoo source workflow.  The browser receives bounded readiness
+facts; source values and numeric Odoo IDs remain in protected evidence.
+"""
 
 from __future__ import annotations
 
@@ -94,7 +100,13 @@ def build_odoo_comparison_publication(
     actor: Actor,
     run_id: str,
 ) -> OdooComparisonPublication:
-    """Verify protected origins, read exact IDs in chunks, and classify rows."""
+    """Verify protected origins, read exact IDs in chunks, and classify rows.
+
+    The caller publishes the returned bundle atomically with its current
+    pointer.  This function does not mutate a workspace.  It fails if the
+    source capture, frozen prepared input, live schema, or requested record set
+    no longer agree.
+    """
 
     dataset_mapping, dataset, binding = _pinned_context(frozen, selection)
     manifest, origin_batches = _protected_origins(
@@ -131,6 +143,8 @@ def build_odoo_comparison_publication(
             }
         )
     ).hexdigest()
+    # Build one closed read plan from protected evidence.  No caller-supplied
+    # model, method, field, or numeric identifier reaches the Odoo reader.
     metadata_requests = (MetadataRequest(binding.model, fields),)
     record_requests = plan_pinned_record_requests(
         binding.model,
@@ -206,6 +220,8 @@ def build_odoo_comparison_publication(
     if protected.logical_hash != "sha256:" + sha256(artifact_bytes).hexdigest():
         raise ReadinessError("Protected Odoo comparison hash is invalid")
 
+    # The portable report proves the read scope but intentionally carries no
+    # record values.  Protected comparison evidence retains those details.
     redacted = RecordSnapshot(
         fingerprint=records.fingerprint,
         records={name: () for name in records.records},

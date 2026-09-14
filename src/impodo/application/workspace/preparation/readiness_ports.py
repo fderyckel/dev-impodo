@@ -12,6 +12,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Protocol
 
 from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.application.workspace.execution.navigation import ExecutionPreviewSummary
 from impodo.domain.cutover.governance import DryRun
 from impodo.domain.derived_value_artifact import DerivedValueArtifact
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
@@ -570,6 +571,7 @@ class PreflightRepository(Protocol):
         metadata_snapshot: MetadataSnapshot,
         record_snapshot: RecordSnapshot,
         actor: Actor,
+        execution_summary: ExecutionPreviewSummary | None = None,
     ) -> None:
         """Atomically store header, streamed rows, snapshots, pointer, and audit."""
         ...

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from time import perf_counter
 
 from fastapi import Request
 
@@ -36,6 +37,8 @@ def _render(
         if context.get("support_error") is None:
             context["support_error"] = support_error
     workspace_state = context.get("workspace_state")
+    supplied_navigation_facts = context.pop("_workspace_navigation_facts", None)
+    supplied_navigation_read_ms = context.pop("_navigation_read_ms", None)
     application = request.app.state.context
     prompt_error = request.session.pop("read_credential_error", None)
     if (
@@ -82,20 +85,32 @@ def _render(
             "status_label": credential_status.label,
         }
     workspace_view = None
+    timings: dict[str, float] = {}
     if isinstance(workspace_state, WorkspaceState) and (
         "workspace_navigation" not in context or "migration_context" not in context
     ):
+        started = perf_counter()
         workspace_view = application.workspace_views.get(
             workspace_state.workspace_id,
             actor=application.actor,
         )
+        timings["owner_read"] = (perf_counter() - started) * 1000
     if (
         isinstance(workspace_state, WorkspaceState)
         and "workspace_navigation" not in context
     ):
         assert workspace_view is not None
+        if supplied_navigation_facts is None:
+            started = perf_counter()
+            navigation_facts = application.navigation.get(workspace_state)
+            timings["navigation_read"] = (perf_counter() - started) * 1000
+        else:
+            navigation_facts = supplied_navigation_facts
+            if supplied_navigation_read_ms is not None:
+                timings["navigation_read"] = float(supplied_navigation_read_ms)
+        started = perf_counter()
         context["workspace_navigation"] = build_workspace_navigation(
-            application,
+            navigation_facts,
             workspace_state,
             template_name,
             current_path=request.url.path,
@@ -104,6 +119,7 @@ def _render(
             run_setup_complete=context.get("activation_complete"),
             fresh_data_complete=context.get("fresh_data_complete"),
         )
+        timings["navigation_present"] = (perf_counter() - started) * 1000
     if (
         isinstance(workspace_state, WorkspaceState)
         and workspace_state.status is WorkspaceStatus.DRAFT
@@ -141,12 +157,20 @@ def _render(
         "concepts_by_slug": CONCEPTS_BY_SLUG,
         **context,
     }
-    return request.app.state.templates.TemplateResponse(
+    started = perf_counter()
+    response = request.app.state.templates.TemplateResponse(
         request=request,
         name=template_name,
         context=values,
         status_code=status_code,
     )
+    timings["template_render"] = (perf_counter() - started) * 1000
+    if timings:
+        response.headers["Server-Timing"] = ", ".join(
+            f"{name};dur={duration:.3f}"
+            for name, duration in timings.items()
+        )
+    return response
 
 
 def _plain_ui_error(message: str) -> tuple[str, str | None]:

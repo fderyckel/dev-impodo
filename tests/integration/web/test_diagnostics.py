@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from http.cookiejar import CookieJar
 from io import BytesIO
 import json
+import os
 from pathlib import Path
 import shutil
 import socket
@@ -46,6 +47,7 @@ from impodo.web.server_supervisor import (
     ClosedConnectionSafeH11Protocol,
     ServerChildSettings,
     ServerSupervisionResult,
+    _open_child_diagnostic_recorder,
     bind_loopback_listener,
     listener_is_owned_loopback,
     spawn_server_process,
@@ -158,13 +160,43 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
         self.assertEqual(record["event"], "server_process_started")
         self.assertEqual(record["port"], 60572)
 
+    def test_process_local_log_is_allowlisted_and_included_in_bundle(self) -> None:
+        with _diagnostic_test_directory("impodo-process-log") as directory:
+            recorder = LocalDiagnosticRecorder(
+                directory,
+                log_name=f"{DIAGNOSTIC_LOG_NAME}.process-1234",
+            )
+            recorder.record_lifecycle("application_started", port=60572)
+            recorder.close()
+
+            payload = create_diagnostic_bundle(
+                directory,
+                build_contract=PROCESS_BUILD_CONTRACT,
+            )
+            with ZipFile(BytesIO(payload)) as archive:
+                records = [
+                    json.loads(line)
+                    for line in archive.read("diagnostics.jsonl")
+                    .decode("utf-8")
+                    .splitlines()
+                ]
+
+        self.assertEqual(records[0]["event"], "application_started")
+
+    def test_process_local_log_name_rejects_unbounded_paths(self) -> None:
+        with _diagnostic_test_directory("impodo-process-log-name") as directory:
+            with self.assertRaisesRegex(ValueError, "log name is invalid"):
+                LocalDiagnosticRecorder(directory, log_name="../private.jsonl")
+
     def test_server_timing_parser_ignores_unknown_or_malformed_metrics(self) -> None:
         self.assertEqual(
             parse_server_timing(
-                "workspace_read;dur=12.5, secret;dur=999, "
+                "access_context;dur=2.5, workspace_read;dur=12.5, "
+                "secret;dur=999, "
                 "render;desc=template;dur=4.0, total;dur=not-a-number"
             ),
             {
+                "access_context": 2.5,
                 "workspace_read": 12.5,
                 "render": 4.0,
             },
@@ -746,6 +778,21 @@ class ClosedConnectionSafeH11ProtocolTests(unittest.TestCase):
 
 
 class ServerSupervisorTests(unittest.TestCase):
+    def test_child_diagnostics_fall_back_to_a_process_local_log(self) -> None:
+        fallback = Mock()
+        with patch(
+            "impodo.web.server_supervisor.LocalDiagnosticRecorder",
+            side_effect=(OSError("shared log unavailable"), fallback),
+        ) as recorder_type:
+            recorder = _open_child_diagnostic_recorder(Path("diagnostics"))
+
+        self.assertIs(recorder, fallback)
+        self.assertEqual(recorder_type.call_count, 2)
+        self.assertEqual(
+            recorder_type.call_args_list[1].kwargs["log_name"],
+            f"{DIAGNOSTIC_LOG_NAME}.process-{os.getpid()}",
+        )
+
     def test_spawned_server_reuses_listener_and_session_after_restart(self) -> None:
         with _diagnostic_test_directory("impodo-spawn-restart") as directory:
             listener = bind_loopback_listener(0)

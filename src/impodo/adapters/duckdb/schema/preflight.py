@@ -57,5 +57,26 @@ def create_preflight_schema(connection: duckdb.DuckDBPyConnection) -> None:
             detail VARCHAR NOT NULL,
             PRIMARY KEY (run_id, event_type)
         );
+
+        CREATE TABLE IF NOT EXISTS preflight_execution_projection (
+            run_id VARCHAR PRIMARY KEY,
+            snapshot_hash VARCHAR NOT NULL,
+            snapshot_root_hash VARCHAR NOT NULL,
+            comparison_status VARCHAR NOT NULL,
+            create_count BIGINT NOT NULL,
+            update_count BIGINT NOT NULL,
+            unchanged_count BIGINT NOT NULL,
+            blocked_count BIGINT NOT NULL,
+            ambiguous_count BIGINT NOT NULL,
+            relationship_blocker_count BIGINT NOT NULL,
+            target_hash VARCHAR NOT NULL,
+            target_odoo_version VARCHAR NOT NULL,
+            read_credential_binding_hash VARCHAR NOT NULL,
+            read_principal_hash VARCHAR NOT NULL,
+            read_permission_hash VARCHAR NOT NULL,
+            read_context_hash VARCHAR NOT NULL,
+            execution_shape_ready BOOLEAN NOT NULL,
+            contract_version INTEGER NOT NULL
+        );
         """
     )

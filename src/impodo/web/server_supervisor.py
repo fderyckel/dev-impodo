@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import multiprocessing
+import os
 from pathlib import Path
 import socket
 from typing import Callable, Protocol
@@ -246,13 +247,7 @@ def _serve_child_process(
     settings: ServerChildSettings,
     restart_attempt: int,
 ) -> None:
-    diagnostics = None
-    if settings.diagnostics_root is not None:
-        try:
-            diagnostics = LocalDiagnosticRecorder(settings.diagnostics_root)
-        except OSError:
-            # Optional support evidence must not make the local server fail.
-            diagnostics = None
+    diagnostics = _open_child_diagnostic_recorder(settings.diagnostics_root)
     port = listener.getsockname()[1]
     stop_reason = "server_returned"
     if diagnostics is not None:
@@ -307,6 +302,26 @@ def _serve_child_process(
                 restart_attempt=restart_attempt,
             )
             diagnostics.close()
+
+
+def _open_child_diagnostic_recorder(
+    diagnostics_root: Path | None,
+) -> LocalDiagnosticRecorder | None:
+    """Keep child diagnostics when a stale shared file blocks initialization."""
+
+    if diagnostics_root is None:
+        return None
+    try:
+        return LocalDiagnosticRecorder(diagnostics_root)
+    except OSError:
+        try:
+            return LocalDiagnosticRecorder(
+                diagnostics_root,
+                log_name=f"impodo.jsonl.process-{os.getpid()}",
+            )
+        except OSError:
+            # Optional support evidence must not make the local server fail.
+            return None
 
 
 def record_launcher_event(

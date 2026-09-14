@@ -171,6 +171,58 @@ _ODOO_CAPTURE_MANIFEST_CURRENT_COLUMNS = (
     "dataset_id",
     "manifest_id",
 )
+_NORMALIZATION_RUN_COLUMNS = (
+    "run_id",
+    "content_hash",
+    "staging_run_id",
+    "staging_content_hash",
+    "quality_run_id",
+    "quality_content_hash",
+    "mapping_hash",
+    "schema_hash",
+    "policy_hash",
+    "retention_context_hash",
+    "eligible_dataset_hash",
+    "contract_version",
+    "evaluator_version",
+    "status",
+    "lifecycle_version",
+    "published_at",
+    "published_by",
+    "eligible_record_count",
+    "changed_record_count",
+    "automatic_group_count",
+    "decision_group_count",
+    "set_aside_record_count",
+    "evaluation_json",
+    "dry_run_json",
+    "effective_dataset_run_id",
+    "effective_dataset_hash",
+    "retired_at",
+    "retired_reason",
+    "successor_run_id",
+    "reviewed_group_count",
+)
+_PREFLIGHT_EXECUTION_PROJECTION_COLUMNS = (
+    "run_id",
+    "snapshot_hash",
+    "snapshot_root_hash",
+    "comparison_status",
+    "create_count",
+    "update_count",
+    "unchanged_count",
+    "blocked_count",
+    "ambiguous_count",
+    "relationship_blocker_count",
+    "target_hash",
+    "target_odoo_version",
+    "read_credential_binding_hash",
+    "read_principal_hash",
+    "read_permission_hash",
+    "read_context_hash",
+    "execution_shape_ready",
+    "contract_version",
+)
 _SCHEMA_MIGRATION_COLUMNS = SCHEMA_MIGRATION_COLUMNS
 _WORKSPACE_ENGINE_TABLES = frozenset(
     {
@@ -192,7 +244,8 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "odoo_capture_manifest_current", "odoo_capture_manifest_revision",
         "odoo_capture_selection_current", "odoo_capture_selection_revision",
         "odoo_model_catalog", "odoo_schema_catalog", "preflight_current",
-        "preflight_dataset", "preflight_decision", "preflight_target_snapshot",
+        "preflight_dataset", "preflight_decision", "preflight_execution_projection",
+        "preflight_target_snapshot",
         "preflight_transition", "preparation_direct_identity",
         "preparation_identity_group", "preparation_impact_row", "preparation_lineage",
         "preparation_normalization_finding", "preparation_normalization_group_seed",
@@ -728,7 +781,8 @@ class WorkspaceEngineSchemaMixin:
                 effective_dataset_hash VARCHAR,
                 retired_at VARCHAR,
                 retired_reason VARCHAR,
-                successor_run_id VARCHAR
+                successor_run_id VARCHAR,
+                reviewed_group_count BIGINT NOT NULL
             );
 
             CREATE TABLE normalization_effect (
@@ -978,6 +1032,11 @@ class WorkspaceEngineSchemaMixin:
             (
                 "odoo_capture_manifest_current",
                 _ODOO_CAPTURE_MANIFEST_CURRENT_COLUMNS,
+            ),
+            ("normalization_run", _NORMALIZATION_RUN_COLUMNS),
+            (
+                "preflight_execution_projection",
+                _PREFLIGHT_EXECUTION_PROJECTION_COLUMNS,
             ),
         ):
             try:
@@ -1331,6 +1390,44 @@ def _upgrade_workspace_engine_v13_to_v14(
     )
 
 
+def _upgrade_workspace_engine_v14_to_v15(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add the bounded execution projection used by workflow navigation."""
+
+    connection.execute(
+        """
+        ALTER TABLE normalization_run
+            ADD COLUMN reviewed_group_count BIGINT DEFAULT 0;
+        UPDATE normalization_run
+           SET reviewed_group_count = coalesce(
+               json_array_length(dry_run_json, '$.group_decisions'), 0
+           );
+
+        CREATE TABLE preflight_execution_projection (
+            run_id VARCHAR PRIMARY KEY,
+            snapshot_hash VARCHAR NOT NULL,
+            snapshot_root_hash VARCHAR NOT NULL,
+            comparison_status VARCHAR NOT NULL,
+            create_count BIGINT NOT NULL,
+            update_count BIGINT NOT NULL,
+            unchanged_count BIGINT NOT NULL,
+            blocked_count BIGINT NOT NULL,
+            ambiguous_count BIGINT NOT NULL,
+            relationship_blocker_count BIGINT NOT NULL,
+            target_hash VARCHAR NOT NULL,
+            target_odoo_version VARCHAR NOT NULL,
+            read_credential_binding_hash VARCHAR NOT NULL,
+            read_principal_hash VARCHAR NOT NULL,
+            read_permission_hash VARCHAR NOT NULL,
+            read_context_hash VARCHAR NOT NULL,
+            execution_shape_ready BOOLEAN NOT NULL,
+            contract_version INTEGER NOT NULL
+        );
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -1383,5 +1480,9 @@ WORKSPACE_ENGINE_UPGRADES = {
     13: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v13-to-v14-reconciliation-history",
         apply=_upgrade_workspace_engine_v13_to_v14,
+    ),
+    14: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v14-to-v15-navigation-projection",
+        apply=_upgrade_workspace_engine_v14_to_v15,
     ),
 }

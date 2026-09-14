@@ -1,4 +1,10 @@
-"""Compile reusable Recipe meaning into one fresh application workspace."""
+"""Compile reusable Recipe meaning into one fresh application workspace.
+
+The compiler rebinds a published Recipe to the selected delivery and current
+target evidence.  It may create fresh application-owned authoring evidence,
+but it must not copy source rows, numeric Odoo IDs, or mutable authoring state
+from the Recipe's original workspace.
+"""
 
 from __future__ import annotations
 
@@ -106,7 +112,12 @@ from impodo.domain.recipe.value_rules import (
 
 
 class RecipeApplicationCompiler:
-    """Provide deterministic, side-effect-bounded Recipe compiler helpers."""
+    """Rebind a Recipe while keeping its published meaning immutable.
+
+    Its helpers classify incompatible source, target, reference, and quality
+    evidence as issues.  Materialization methods create only evidence owned by
+    the new application workspace; they never revise the protected Recipe.
+    """
 
     @staticmethod
     def _parameter_values(definitions, supplied):
@@ -120,6 +131,13 @@ class RecipeApplicationCompiler:
         return normalize_recipe_control_values(definitions, supplied)
 
     def _source_assessment(self, definition, selection, overrides):
+        """Match each logical Recipe input to one current physical source column.
+
+        A saved override may resolve a changed heading, but it must still name
+        a column in the current selected table.  Unused new data remains
+        informational so a delivery can contain extra tables or columns.
+        """
+
         issues = []
         bindings: dict[str, str] = {}
         candidates: dict[str, tuple[tuple[str, str], ...]] = {}
@@ -128,6 +146,8 @@ class RecipeApplicationCompiler:
         for required in dict(definition["source_shape"]).get("datasets", ()):
             logical_dataset = str(required["logical_dataset_id"])
             logical_name = str(required["logical_name"])
+            # Older Recipes use the logical name; newer run intake uses this
+            # stable storage name.  Both identify the same declared input.
             accepted_name = logical_dataset_storage_name(logical_dataset)
             matches = [
                 dataset
@@ -180,6 +200,12 @@ class RecipeApplicationCompiler:
         return bindings, candidates, issues
 
     def _target_assessment(self, definition, schema):
+        """Compare the Recipe target contract with current Odoo evidence.
+
+        The assessment reports incompatibilities and supported create defaults.
+        It does not modify the captured schema, Recipe, or browser mapping.
+        """
+
         issues = []
         contract = dict(definition["odoo_target_contract"])
         target_contract_version = int(
@@ -488,6 +514,8 @@ class RecipeApplicationCompiler:
 
 
     def _reference_issues(self, definition, project_id):
+        """Require each Recipe reference dependency at its published content hash."""
+
         required = tuple(dict(definition["reference_dependencies"]).get("references", ()))
         if not required:
             return []
@@ -573,6 +601,8 @@ class RecipeApplicationCompiler:
         return tuple(sorted(rules, key=lambda item: item.rule_id))
 
     def _materialize_governance(self, project_id, definition, *, actor):
+        """Create application-owned key governance only when it is not current."""
+
         keys = tuple(
             BusinessKeyDefinition(
                 key_id=f"recipe:{item['model']}:{':'.join(item['ordered_fields'])}:{':'.join(item.get('scope_fields', ())) or 'global'}",
@@ -602,6 +632,8 @@ class RecipeApplicationCompiler:
         *,
         actor,
     ):
+        """Recreate portable derived-source rules for the current selection."""
+
         semantic_rules = tuple(
             dict(definition["source_preparation"]).get("rules", ())
         )
@@ -896,6 +928,13 @@ class RecipeApplicationCompiler:
         references,
         target_default_fields=(),
     ):
+        """Materialize fresh mapping datasets from logical Recipe rules.
+
+        Physical keys, controlled values, references, and supported Odoo
+        defaults belong to the new application.  The mapping retains the
+        Recipe's allowed structure but does not reuse its original revision.
+        """
+
         reference_by_logical = {}
         if references:
             by_name = {item.name: item for item in references.datasets}
@@ -1017,6 +1056,8 @@ class RecipeApplicationCompiler:
         )
 
     def _field(self, item, bindings, references):
+        """Bind one portable scalar rule to current source and reference keys."""
+
         provider = dict(item["provider"])
         source_ids = tuple(bindings[str(value)] for value in provider.get("source_column_ids", ()))
         reference = None
@@ -1107,6 +1148,8 @@ class RecipeApplicationCompiler:
         )
 
     def _identity(self, item, bindings):
+        """Bind one portable business-key component to current source columns."""
+
         resolver = dict(item["resolver"]) if item.get("resolver") else None
         return IdentityComponentMapping(
             source_column_keys=tuple(bindings[str(value)] for value in item.get("source_column_ids", ())),
@@ -1117,6 +1160,8 @@ class RecipeApplicationCompiler:
         )
 
     def _relationship(self, item, bindings):
+        """Bind one portable relationship rule without carrying target record IDs."""
+
         resolver_payload = {
             "origin": (
                 item.get("origin")
@@ -1180,6 +1225,8 @@ class RecipeApplicationCompiler:
         )
 
     def _resolver(self, payload, bindings):
+        """Convert a portable relation resolver into current physical key bindings."""
+
         return RelationshipResolver(
             origin=ResolverOrigin(str(payload["origin"])),
             dataset_id=(bindings[str(payload["target_dataset_id"])] if payload.get("target_dataset_id") else None),

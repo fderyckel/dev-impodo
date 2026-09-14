@@ -1,4 +1,10 @@
-"""Review and publish exact Project-level integrated Test qualification."""
+"""Review and publish exact Project-level integrated Test qualification.
+
+Qualification combines the current verified evidence from every application in
+one Test run.  It is not Production authority: selecting a qualified plan only
+records a rollout candidate and leaves the later Production workflow to apply
+its separate gates.
+"""
 
 from __future__ import annotations
 
@@ -80,7 +86,13 @@ class IntegratedQualificationReview:
 
 
 class WorkspaceIntegratedQualificationEvidenceReader:
-    """Read each selected workspace once without contacting Odoo."""
+    """Read each selected workspace once without contacting Odoo.
+
+    This reader proves that each application used the Recipe-bound mapping,
+    preparation, comparison, execution, and reconciliation evidence.  It
+    reports the first missing boundary as a qualification issue rather than
+    repairing workspace state during a Project-level review.
+    """
 
     def __init__(
         self,
@@ -111,6 +123,8 @@ class WorkspaceIntegratedQualificationEvidenceReader:
         ApplicationQualificationEvidence | None,
         tuple[CutoverQualificationIssue, ...],
     ]:
+        """Return one exact qualification record or recovery issues for an app."""
+
         workspace_id = application.workspace_id
         issues: list[CutoverQualificationIssue] = []
         revision = self.mappings.get_mapping_revision(workspace_id)
@@ -379,7 +393,12 @@ class WorkspaceIntegratedQualificationEvidenceReader:
 
 
 class CutoverPlanService:
-    """Own exact Project qualification and rollout-candidate selection."""
+    """Own exact Project qualification and rollout-candidate selection.
+
+    The service reads a Test run in saved dependency order and combines its
+    application evidence into an immutable qualification.  It never contacts
+    Odoo, reruns an application, or grants Production execution authority.
+    """
 
     def __init__(
         self,
@@ -405,6 +424,13 @@ class CutoverPlanService:
         *,
         actor: Actor,
     ) -> IntegratedQualificationReview:
+        """Classify whether the current Test run can be qualified.
+
+        A review is read-only.  It verifies current evidence from every
+        application and preserves the run's declared dependency order so a
+        downstream success cannot qualify before its upstream proof exists.
+        """
+
         project_id = require_uuid(project_id, "project_id")
         migration_run_id = require_uuid(migration_run_id, "migration_run_id")
         self.authorization.require(
@@ -485,6 +511,8 @@ class CutoverPlanService:
                     recovery_action="Accept a complete Test DataVersion and start a new run.",
                 )
             )
+        # Evidence is read once per isolated workspace.  This Project-level
+        # review deliberately does not reopen a workspace or call Odoo.
         evidence = []
         for application in ordered_applications:
             item, application_issues = self.evidence_reader.read(
@@ -585,6 +613,13 @@ class CutoverPlanService:
         actor: Actor,
         fault: FaultInjector | None = None,
     ) -> CutoverPlanQualification:
+        """Persist the reviewed immutable qualification for the expected evidence.
+
+        The submitted evidence hash prevents a browser confirmation from
+        qualifying an earlier review after any application has changed.  A
+        retry with the same operation ID resumes the same qualification only.
+        """
+
         project_id = require_uuid(project_id, "project_id")
         migration_run_id = require_uuid(migration_run_id, "migration_run_id")
         operation_id = require_uuid(operation_id, "operation_id")
@@ -649,6 +684,13 @@ class CutoverPlanService:
         operation_id: str,
         actor: Actor,
     ) -> ProjectCutoverSelection:
+        """Select one qualified Test plan as the Project rollout candidate.
+
+        Selection is a Project record, not a Production run or an Odoo write.
+        It requires the exact current qualification so a superseded Test result
+        cannot become the candidate for later rollout.
+        """
+
         project_id = require_uuid(project_id, "project_id")
         qualification_id = require_uuid(qualification_id, "qualification_id")
         operation_id = require_uuid(operation_id, "operation_id")

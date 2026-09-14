@@ -10,6 +10,10 @@ from impodo.domain.project.foundation import (
     require_uuid,
 )
 from ...domain.workspace.models import MigrationWorkspace
+from ...domain.data_version.models import DataVersion
+from ...domain.project.models import MigrationProject
+from ...domain.run.models import MigrationRun
+from impodo.domain.run.setup import MigrationRunTargetSetup
 from impodo.application.workspace.access import WorkspaceAccessContext
 
 
@@ -20,6 +24,70 @@ class FoundationWorkspaceRecords:
         workspace = self._get_workspace_registry(workspace_id)
         self.database.ensure_workspace_store(workspace)
         return workspace
+
+    def get_workspace_owner_records(
+        self,
+        context: WorkspaceAccessContext,
+    ) -> tuple[
+        MigrationProject,
+        MigrationWorkspace,
+        DataVersion,
+        MigrationRun,
+        MigrationRunTargetSetup | None,
+    ]:
+        """Load canonical page owners and target setup through one connection."""
+
+        with self.database.connect(self.registry_path) as connection:
+            project_row = self._exact_row(
+                connection,
+                table="migration_project",
+                id_column="project_id",
+                identity=context.project_id,
+                expected_kind="MIGRATION_PROJECT",
+            )
+            workspace_row = self._exact_row(
+                connection,
+                table="migration_workspace",
+                id_column="workspace_id",
+                identity=context.workspace_id,
+                expected_kind="MIGRATION_WORKSPACE",
+            )
+            data_version_row = self._exact_row(
+                connection,
+                table="data_version",
+                id_column="data_version_id",
+                identity=context.data_version_id,
+                expected_kind="DATA_VERSION",
+            )
+            run_row = self._exact_row(
+                connection,
+                table="migration_run",
+                id_column="migration_run_id",
+                identity=context.migration_run_id,
+                expected_kind="MIGRATION_RUN",
+            )
+            target_row = connection.execute(
+                "SELECT * FROM migration_run_target_setup "
+                "WHERE migration_run_id = ?",
+                [context.migration_run_id],
+            ).fetchone()
+            target_columns = (
+                [item[0] for item in connection.description]
+                if target_row is not None
+                else []
+            )
+        project = self._project_from_row(project_row)
+        workspace = self._workspace_from_row(workspace_row)
+        data_version = self._data_version_from_row(data_version_row)
+        run = self._run_from_row(run_row)
+        target_setup = (
+            self._target_setup_from_row(
+                dict(zip(target_columns, target_row, strict=True))
+            )
+            if target_row is not None
+            else None
+        )
+        return project, workspace, data_version, run, target_setup
 
     def _get_workspace_registry(self, workspace_id: str) -> MigrationWorkspace:
         workspace_id = require_uuid(workspace_id, "workspace_id")

@@ -183,6 +183,19 @@ class PreflightPublicationTests(unittest.TestCase):
                     to_json=lambda: "{}",
                     semantic_hash="sha256:" + "9" * 64,
                     root_hash="sha256:" + "a" * 64,
+                    preflight_run_id=report.run_id,
+                    target_hash=report.target_hash,
+                    preflight_result_hash=report.result_hash,
+                    counts={},
+                    relationship_plan=SimpleNamespace(
+                        blocker_count=0,
+                        blockers=(),
+                    ),
+                    target_odoo_version="19.0",
+                    read_credential_binding_hash="",
+                    read_principal_hash="",
+                    read_permission_hash="",
+                    read_context_hash="",
                 ),
             ),
             self.assertRaisesRegex(WorkspaceError, "injected persistence failure"),
@@ -214,6 +227,16 @@ class PreflightPublicationTests(unittest.TestCase):
             phases,
             ["VERIFYING", "READING", "COMPARING", "BUILDING", "PUBLISHING"],
         )
+        execution_summary = (
+            repositories[6]
+            .save_readiness_report.call_args.kwargs["execution_summary"]
+        )
+        self.assertEqual(execution_summary.preflight_run_id, report.run_id)
+        self.assertEqual(
+            execution_summary.snapshot_hash,
+            "sha256:" + "9" * 64,
+        )
+        self.assertEqual(execution_summary.comparison_status, report.status)
 
     def test_report_cleanup_removes_empty_unpublished_run_directory(self) -> None:
         workspace_id = str(uuid4())

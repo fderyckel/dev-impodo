@@ -105,10 +105,15 @@ def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_current")
     connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_review_row")
     connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_review")
+    connection.execute("DROP TABLE IF EXISTS preflight_execution_projection")
     connection.execute("DROP TABLE IF EXISTS test_run_parameter_values")
     connection.execute("DROP TABLE IF EXISTS test_run_setup_binding")
     connection.execute("DROP TABLE schema_migration")
     tables = {str(row[0]) for row in connection.execute("SHOW TABLES").fetchall()}
+    if "normalization_run" in tables:
+        connection.execute(
+            "ALTER TABLE normalization_run DROP COLUMN reviewed_group_count"
+        )
     if "workspace_projection_cache" in tables:
         connection.execute("ALTER TABLE recipe_quality_seed DROP COLUMN mapping_definition_json")
         for column in (
@@ -424,6 +429,11 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         13,
                         14,
                         "workspace-engine-v13-to-v14-reconciliation-history",
+                    ),
+                    (
+                        14,
+                        15,
+                        "workspace-engine-v14-to-v15-navigation-projection",
                     ),
                 ],
             )

@@ -25,6 +25,7 @@ from ...domain.run.models import (
     MigrationRunPurpose,
     MigrationRunState,
 )
+from impodo.domain.run.setup import MigrationRunTargetSetup, OdooConnectionMode
 from ...domain.serialization import canonical_json
 from ...domain.workspace.models import (
     MigrationWorkspace,
@@ -267,6 +268,24 @@ class FoundationRecordCodecs:
     @classmethod
     def _run_from_row(cls, value: Mapping[str, object]) -> MigrationRun:
         return cls._run_from_dict(value)
+
+    @staticmethod
+    def _target_setup_from_row(
+        value: Mapping[str, object],
+    ) -> MigrationRunTargetSetup:
+        return MigrationRunTargetSetup(
+            migration_run_id=str(value["migration_run_id"]),
+            project_id=str(value["project_id"]),
+            revision=int(value["revision"]),
+            connection_mode=OdooConnectionMode(str(value["connection_mode"])),
+            base_url=str(value["base_url"]),
+            database=str(value["database"]),
+            intended_applications=tuple(
+                str(item)
+                for item in json.loads(str(value["intended_applications_json"]))
+            ),
+            updated_at=datetime.fromisoformat(str(value["updated_at"])),
+        )
 
     @staticmethod
     def _workspace_values(value: MigrationWorkspace) -> list[object]:

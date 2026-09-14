@@ -740,8 +740,12 @@ def _render_mapping_field_catalog(
 
 
 def _set_mapping_server_timing(response, **metrics: float) -> None:
-    response.headers["Server-Timing"] = ", ".join(
+    timing = ", ".join(
         f"{name};dur={max(0.0, value):.1f}" for name, value in metrics.items()
+    )
+    existing = response.headers.get("Server-Timing", "")
+    response.headers["Server-Timing"] = (
+        f"{existing}, {timing}" if existing else timing
     )
 
 

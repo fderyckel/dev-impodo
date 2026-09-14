@@ -46,6 +46,13 @@ Both paths call the same comparison service and publication transaction.
 `PreflightService` freezes the input bindings, plans metadata and record
 requests, captures the target fingerprint and snapshot, performs offline
 classification, and publishes the report and execution snapshot atomically.
+For file-source comparisons, the same publication transaction stores an
+`ExecutionPreviewSummary`. This scalar projection contains only the current
+preflight identifier, snapshot and target bindings, disposition totals,
+blocker totals, credential identity hashes, and execution-shape readiness.
+Shared navigation reads this projection; it never opens the execution snapshot
+or comparison manifest. The projection is display-only and cannot authorize a
+load.
 For a nullable self-referencing identity scope, `plan_preflight_requirements`
 builds one exact name-and-lineage domain expression for each prepared record.
 The expression ends with an unset parent at the root, and the planner batches
@@ -131,6 +138,8 @@ meaning before a new comparison can use the replacement credential generation.
 | Role | Code |
 | --- | --- |
 | Comparison orchestration | [`PreflightService`](../../../src/impodo/application/preflight_service.py) |
+| Compact execution projection | [`navigation.py`](../../../src/impodo/application/workspace/execution/navigation.py) and [`PreflightRepository`](../../../src/impodo/adapters/duckdb/preflight_repository.py) |
+| Bounded shared navigation | [`WorkspaceNavigationQueryService`](../../../src/impodo/application/workspace/navigation.py) and [`WorkspaceNavigationRepository`](../../../src/impodo/adapters/duckdb/navigation_repository.py) |
 | Background comparison control | [`preflight_jobs.py`](../../../src/impodo/application/preflight_jobs.py) |
 | Bounded requirement planning | [`planner.py`](../../../src/impodo/domain/execution/planner.py) |
 | Protected Odoo comparison | [`odoo_comparison_service.py`](../../../src/impodo/application/odoo_comparison_service.py) |
@@ -199,11 +208,13 @@ count.
 Target reads must use the narrow Odoo 19 read connector. No generic method call
 and no write method belongs in this stage.
 
-Synchronous summary rendering, execution-preview construction, and fallback
-comparison rendering must run outside the event loop. The full execution
-preview counts row dispositions in one pass. These containment rules keep the
-health and progress endpoints responsive, but do not weaken the existing full
-snapshot validation at load submission.
+Synchronous summary rendering, full execution-preview construction, and
+fallback comparison rendering must run outside the event loop. Overview runs
+its complete owner, navigation, and template build in the bounded thread pool.
+Shared navigation uses only compact relational facts; full execution-preview
+construction remains on the owning load pages. These containment rules keep
+health and progress endpoints responsive without weakening the full snapshot
+validation at load submission.
 
 An ordinary Authoring comparison does not materialize the full execution
 preview again after publication. The browser loads it when **Check changes**
@@ -231,6 +242,8 @@ contact Odoo while writing them.
 - [`tests/integration/odoo/test_connectors.py`](../../../tests/integration/odoo/test_connectors.py)
 - [`tests/application/workspace/review/test_odoo_comparison.py`](../../../tests/application/workspace/review/test_odoo_comparison.py)
 - [`tests/integration/web/test_review_workflow.py`](../../../tests/integration/web/test_review_workflow.py)
+- [`tests/integration/duckdb/test_navigation_repository.py`](../../../tests/integration/duckdb/test_navigation_repository.py)
+- [`tests/architecture/test_workspace_navigation_boundaries.py`](../../../tests/architecture/test_workspace_navigation_boundaries.py)
 - [Recipe comparison and shared-key recovery](../../../tests/integration/web/test_recipe_comparison_recovery.py)
 - [Nullable hierarchy matching and order](../../../tests/domain/preparation/test_target_first_relationships.py)
 

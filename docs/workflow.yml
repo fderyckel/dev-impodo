@@ -55,6 +55,8 @@ stages:
       - src/impodo/application/shared/artifacts.py::DataVersionSourceArtifactStore
       - src/impodo/application/shared/artifacts.py::WorkspaceArtifactStore
       - src/impodo/application/workspace/views.py::WorkspaceOwnerViewService
+      - src/impodo/application/workspace/navigation.py::WorkspaceNavigationQueryService
+      - src/impodo/adapters/duckdb/navigation_repository.py::WorkspaceNavigationRepository
       - src/impodo/domain/workspace/workbench.py::WorkspaceStateService
       - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.register
       - src/impodo/web/source_file_commands.py::accept_source_uploads
@@ -70,6 +72,8 @@ stages:
       - tests/architecture/test_canonical_ownership.py
       - tests/integration/duckdb/test_forward_upgrades.py
       - tests/integration/duckdb/test_workspace_evidence.py
+      - tests/integration/duckdb/test_navigation_repository.py
+      - tests/architecture/test_workspace_navigation_boundaries.py
       - tests/integration/protected_evidence/test_project_security.py
       - tests/domain/recipe/test_representative_shapes.py
       - tests/application/workspace/test_odoo_connection.py
@@ -454,6 +458,9 @@ stages:
       - src/impodo/application/preflight_jobs.py::PreflightJobManager
       - src/impodo/application/preflight_service.py::PreflightService
       - src/impodo/application/preflight_service.py::PreflightService.compare
+      - src/impodo/application/workspace/execution/navigation.py::ExecutionPreviewSummary
+      - src/impodo/application/workspace/navigation.py::WorkspaceNavigationQueryService
+      - src/impodo/adapters/duckdb/navigation_repository.py::WorkspaceNavigationRepository
       - src/impodo/application/preflight_service.py::PreflightService.review_workbook_evidence
       - src/impodo/domain/execution/planner.py::plan_preflight_requirements
       - src/impodo/application/odoo_comparison_service.py::build_odoo_comparison_publication
@@ -471,6 +478,8 @@ stages:
       - tests/integration/odoo/test_connectors.py
       - tests/application/workspace/review/test_odoo_comparison.py
       - tests/integration/web/test_review_workflow.py
+      - tests/integration/duckdb/test_navigation_repository.py
+      - tests/architecture/test_workspace_navigation_boundaries.py
       - tests/integration/web/test_recipe_comparison_recovery.py
       - tests/domain/preparation/test_target_first_relationships.py
     contracts:

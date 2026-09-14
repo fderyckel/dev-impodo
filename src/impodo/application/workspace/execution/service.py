@@ -34,6 +34,7 @@ from impodo.domain.shared.models import (
     OdooWriteIdentity,
     canonical_json_text,
     portable_value,
+    target_identity_hash,
     target_record_binding_hash,
 )
 from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
@@ -56,6 +57,7 @@ from impodo.domain.workspace.workbench import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.application.preflight_service import PreflightService
+from impodo.application.workspace.execution.navigation import ExecutionNavigationState
 
 
 DEFAULT_CREATE_BATCH_ROWS = 10
@@ -219,6 +221,31 @@ class ExecutionPreview:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ExecutionNavigationPreview:
+    """Bounded load-stage state that never materializes execution rows."""
+
+    state: ExecutionNavigationState
+    scope_error: str = ""
+
+    @property
+    def write_count(self) -> int:
+        return self.state.summary.write_count
+
+    @property
+    def current_run_id(self) -> str:
+        return self.state.execution_run_id
+
+    @property
+    def can_load(self) -> bool:
+        return bool(
+            self.write_count
+            and not self.current_run_id
+            and not self.scope_error
+            and not self.state.summary.has_attention
+        )
+
+
 class ExecutionService:
     """Validate, journal, and execute a reviewed disposable-target load."""
 
@@ -290,6 +317,59 @@ class ExecutionService:
             dependency_summary=_execution_dependency_summary(snapshot),
             blocker_summary=_execution_blocker_summary(snapshot),
         )
+
+    def navigation_preview(
+        self,
+        state: ExecutionNavigationState,
+        *,
+        workspace_state: WorkspaceState,
+    ) -> ExecutionNavigationPreview:
+        """Validate a bounded projection against the current target context."""
+
+        summary = state.summary
+        expected_target = target_identity_hash(
+            connection_mode=(
+                workspace_state.odoo_connection_mode.value
+                if workspace_state.odoo_connection_mode is not None
+                else ""
+            ),
+            base_url=workspace_state.odoo_base_url,
+            database=workspace_state.odoo_database,
+        )
+        scope_error = ""
+        if workspace_state.odoo_connection_mode not in {
+            OdooConnectionMode.LOCAL,
+            OdooConnectionMode.REMOTE,
+        }:
+            scope_error = "Configure the exact Odoo load target first"
+        elif summary.target_hash != expected_target:
+            scope_error = "The Odoo target changed; compare again"
+        elif not summary.execution_shape_ready:
+            scope_error = "The reviewed load shape needs attention"
+        elif workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE:
+            current_binding = (
+                self.current_read_credential_binding(workspace_state)
+                if self.current_read_credential_binding is not None
+                else None
+            )
+            identity_evidence = (
+                summary.read_credential_binding_hash,
+                summary.read_principal_hash,
+                summary.read_permission_hash,
+                summary.read_context_hash,
+            )
+            if current_binding is not None and not all(
+                _SHA256.fullmatch(value) for value in identity_evidence
+            ):
+                scope_error = "Refresh the remote Odoo schema and compare again"
+            elif current_binding is not None and not current_binding:
+                scope_error = "Enter the current Odoo read key and compare again"
+            elif (
+                current_binding is not None
+                and current_binding != summary.read_credential_binding_hash
+            ):
+                scope_error = "The Odoo read key changed; compare again"
+        return ExecutionNavigationPreview(state=state, scope_error=scope_error)
 
     def execute(
         self,

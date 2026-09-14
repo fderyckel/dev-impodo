@@ -86,8 +86,9 @@ One MigrationRun owns the mutable Odoo target choice used during setup. A
 successful target capture replaces that draft choice with an immutable
 `TargetBinding`; neither value belongs to an individual workspace. Workspace
 pages receive an explicit `WorkspaceOwnerView` containing the Project,
-MigrationWorkspace, DataVersion, MigrationRun, source package, and optional
-run target setup.
+MigrationWorkspace, DataVersion, MigrationRun, and optional run target setup.
+Source-package detail remains in the separate DataVersion store and is loaded
+only by pages that own source detail.
 
 ## Optional Recipe publication
 

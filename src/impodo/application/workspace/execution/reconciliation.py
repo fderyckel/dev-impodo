@@ -1,4 +1,10 @@
-"""Read completed practical loads back from Odoo and classify fallout."""
+"""Read completed practical loads back from Odoo and classify fallout.
+
+Reconciliation proves the target state with a read-only Odoo scope after an
+execution journal has stopped changing.  It publishes a new immutable result
+without editing the journal, so a failed or stale recheck cannot disguise the
+outcome of the original load.
+"""
 
 from __future__ import annotations
 
@@ -92,7 +98,13 @@ class ReconciliationSchemaReader(Protocol):
 
 @dataclass(slots=True)
 class ReconciliationService:
-    """Bind a read-back result to one immutable execution journal."""
+    """Bind a bounded read-back result to one immutable execution journal.
+
+    The service reads only the identifiers and fields frozen by the reviewed
+    execution snapshot.  Final verification may publish compact browser-safe
+    evidence and a protected difference artifact, but recovery assessment
+    returns an ephemeral report for the execution service to use.
+    """
 
     preflight: PreflightService
     execution: ReconciliationExecutionRepository
@@ -102,6 +114,8 @@ class ReconciliationService:
     schemas: ReconciliationSchemaReader | None = None
 
     def current(self, workspace_id: str) -> ReconciliationRun | None:
+        """Return the latest published result for the current execution run."""
+
         run = self.execution.get_current_run(workspace_id)
         if run is None:
             return None
@@ -118,6 +132,13 @@ class ReconciliationService:
         write_credential_binding_hash: str = "",
         refresh: bool = False,
     ) -> ReconciliationRun:
+        """Verify one completed run and publish a replacement result when needed.
+
+        The run, reviewed snapshot, write identity, target, and reader scope
+        must still agree.  A normal call reuses an existing result; ``refresh``
+        deliberately creates a new immutable re-verification instead.
+        """
+
         self.authorization.require(
             actor,
             Capability.EXPORT_PLAN_EXECUTE,
@@ -200,6 +221,8 @@ class ReconciliationService:
                     detail=candidate.manifest,
                 )
         except Exception:
+            # The protected detail file has no current-pointer meaning until
+            # its matching compact result is durable, so compensate on failure.
             if candidate is not None:
                 try:
                     self.evidence.delete(report)
@@ -236,6 +259,8 @@ class ReconciliationService:
         *,
         actor: Actor,
     ) -> ReconciliationDetailArtifact | None:
+        """Open protected difference details only for the current published run."""
+
         report = self.current(workspace_id)
         reconciliation_id = getattr(report, "reconciliation_id", "")
         if report is None or not reconciliation_id or self.evidence is None:
@@ -299,7 +324,11 @@ class ReconciliationService:
         write_identity: OdooWriteIdentity | None = None,
         write_credential_binding_hash: str = "",
     ) -> ReconciliationRun:
-        """Read an interrupted run without publishing final reconciliation."""
+        """Read an interrupted run without publishing final reconciliation.
+
+        The returned report is intentionally ephemeral.  ``ExecutionService``
+        alone binds it to a journal before a safe retry can begin.
+        """
 
         self.authorization.require(
             actor,

@@ -1,4 +1,11 @@
-"""Compile current workspace authoring evidence into portable Recipe meaning."""
+"""Compile current workspace authoring evidence into portable Recipe meaning.
+
+This module reads the authoring workspace without changing it.  It accepts only
+evidence that the data manager has already confirmed, then removes delivery-
+and workspace-specific details before a Recipe can be published.  A caller
+receives structured blockers instead of a partial Recipe when an input is
+missing, stale, or cannot safely be reused.
+"""
 
 from __future__ import annotations
 
@@ -146,7 +153,13 @@ class _RecipeDraftBlocked(Exception):
 
 
 class RecipeCompiler:
-    """Compile one eligible workspace into portable Recipe meaning."""
+    """Read one eligible authoring workspace and produce reusable Recipe meaning.
+
+    The compiler is a readiness check, not a publication command.  It requires
+    submitted matching evidence, compatible Odoo governance, and reusable
+    preparation and quality rules.  It never creates a Recipe, changes the
+    workspace, or converts a blocked draft into evidence.
+    """
 
     def __init__(
         self,
@@ -170,7 +183,12 @@ class RecipeCompiler:
         self,
         workspace_id: str,
     ) -> tuple[CompiledRecipeDefinition | None, tuple[RecipeDraftIssue, ...]]:
-        """Compile one workspace without requiring or creating a Recipe shell."""
+        """Return portable meaning or actionable readiness blockers.
+
+        The caller can use this result to decide whether publication is
+        available.  This query does not require, reserve, or create a Recipe
+        shell, so retrying it cannot change authoring state.
+        """
 
         return self._compile(workspace_id)
 
@@ -178,6 +196,8 @@ class RecipeCompiler:
         self,
         workspace_id: str,
     ) -> tuple[CompiledRecipeDefinition | None, tuple[RecipeDraftIssue, ...]]:
+        """Check every immutable input before constructing a portable payload."""
+
         selection = self.sources.get_mapping_source_selection(workspace_id)
         if selection is None:
             return None, (
@@ -291,6 +311,7 @@ class RecipeCompiler:
                 ),
             )
         try:
+            # A Recipe may describe reusable rules, but never a pinned Odoo ID.
             parameter_definitions = (
                 self.parameters.get_parameter_definitions(workspace_id)
                 if self.parameters is not None
@@ -353,6 +374,8 @@ class RecipeCompiler:
         references: ReferenceBundle | None,
         parameter_definitions: RecipeParameterDefinitions,
     ) -> CompiledRecipeDefinition:
+        """Translate verified authoring evidence into delivery-independent fields."""
+
         combined_by_id = {
             item.dataset_id: item
             for item in (*base_selection.datasets, *selection.datasets)
@@ -476,6 +499,8 @@ class RecipeCompiler:
         dict[str, str],
         dict[tuple[str, str], str],
     ]:
+        """Replace physical dataset and column identities with logical Recipe IDs."""
+
         datasets = tuple(sorted(source_datasets, key=lambda item: item.name.casefold()))
         dataset_ids: dict[str, str] = {}
         logical_ids: set[str] = set()
@@ -509,6 +534,8 @@ class RecipeCompiler:
         columns: Mapping[tuple[str, str], str],
         reference_ids: Mapping[str, str],
     ) -> dict[str, object]:
+        """Translate submitted matching rules without retaining local bindings."""
+
         result: list[dict[str, object]] = []
         for dataset in sorted(mappings, key=lambda item: dataset_ids[item.dataset_id]):
             logical_dataset = self._dataset(dataset.dataset_id, dataset_ids)
@@ -862,6 +889,8 @@ class RecipeCompiler:
         columns,
         reference_ids,
     ):
+        """Keep only quality rules that remain meaningful for a fresh delivery."""
+
         del columns
         by_name = {item.name: item for item in source_datasets}
         mapping_by_id = {item.dataset_id: item for item in mappings}
@@ -925,6 +954,8 @@ class RecipeCompiler:
         }
 
     def _target(self, mappings, schema, governance, dataset_ids):
+        """Capture reusable Odoo requirements without target-instance facts."""
+
         del dataset_ids
         schema_models = {item.name: item for item in schema.models}
         major_match = re.match(r"([0-9]+)", schema.odoo_version)
@@ -1278,6 +1309,8 @@ class RecipeCompiler:
         )
 
     def _references(self, bundle):
+        """Record portable reference dependencies and their verified content hashes."""
+
         if bundle is None:
             return [], {}
         payload = []
@@ -1306,6 +1339,8 @@ class RecipeCompiler:
         )
 
     def _preparation(self, plan, dataset_ids, columns, datasets):
+        """Translate reusable derived-source rules into logical input identities."""
+
         if plan is None:
             return {"rules": []}
         by_name = {item.name: item.dataset_id for item in datasets}

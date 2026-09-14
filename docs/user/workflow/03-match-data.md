@@ -539,12 +539,18 @@ workflow actions. They are also announced to assistive technology.
 
 ![A stale fictional editor keeps its formula and offers Copy my edits and Reload saved version after a conflict.](../../images/user/11c-mapping-save-conflict.png)
 
-### If Impodo stops responding
+### If a step takes longer or the connection is interrupted
 
-While an Impodo page is open, the browser checks that the local Impodo server
-is still responding. After three consecutive failed checks, the page shows
-**Impodo is not responding**. Keep the tab open. Your saved work is unchanged,
-and unsaved entries remain on the page.
+While an Impodo page is open, the browser tracks the current Impodo action and
+checks that the local server answers. If a known action lasts about 20 seconds,
+the page shows the amber message **Impodo is still working**. Keep the tab open
+and do not repeat the action. This message does not mean that Impodo stopped.
+
+The red **Connection to Impodo was interrupted** message appears only after at
+least 45 seconds without an authenticated Impodo response and after a recent
+connection check failed or timed out. A progress response, a normal page
+response, or even an Impodo error response proves that the server answered and
+prevents that disconnected classification.
 
 Your authenticated browser session remains valid while the same Impodo
 launcher is running. It does not expire after a fixed period while you are
@@ -555,8 +561,10 @@ before closing it.
 
 Impodo tries one automatic server restart on the same local address. If the
 banner changes to **Impodo is responding again**, review the page and any save
-outcome before repeating the action. Impodo never repeats a save automatically.
-Use **Try again** to request an immediate health check.
+outcome before repeating the action. If a submitted action lost its response,
+the page continues to show **Check the last action** until its outcome is known.
+Impodo never repeats a save automatically. Use **Try again** to request an
+immediate connection check.
 
 If the server does not recover, restart Impodo normally. After it opens, select
 **Create diagnostic bundle** in the page footer before trying the action again.
@@ -564,7 +572,12 @@ The downloaded ZIP contains bounded operational timings, process events, and
 version information. It does not contain source rows, formula contents,
 credentials, tokens, request bodies, headers, complete URLs, or query strings.
 
-![The authenticated Match data page keeps the fictional edit visible while the Impodo is not responding banner offers Try again.](../../images/user/11d-impodo-not-responding.png)
+The following earlier screen shows where the recovery banner and **Try again**
+action appear while fictional unsaved edits remain visible. Current versions
+use the red heading **Connection to Impodo was interrupted** only after the
+longer disconnected check described above.
+
+![The authenticated Match data page preserves a fictional edit while the recovery banner offers Try again.](../../images/user/11d-impodo-not-responding.png)
 
 ## What makes this work stale
 

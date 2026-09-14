@@ -77,6 +77,7 @@ from .workspace.preparation.readiness_ports import (
     PreflightStagingRepository,
     PreflightWorkspaceRepository,
 )
+from .workspace.execution.navigation import build_execution_preview_summary
 
 MANIFEST_NAME = "impodo_preflight_manifest.json"
 EXECUTION_SNAPSHOT_NAME = "impodo_execution_snapshot.json"
@@ -525,6 +526,14 @@ class PreflightService:
             report,
             manifest_hash="sha256:" + sha256(manifest_content).hexdigest(),
         )
+        execution_summary = build_execution_preview_summary(
+            report,
+            execution_snapshot,
+            execution_shape_ready=(
+                execution_snapshot.target_odoo_version.startswith("19.")
+                and not execution_snapshot.relationship_plan.blockers
+            ),
+        )
         decision_count = len(report.rows)
         decision_rows = iter(report.rows)
         report = replace(report, rows=())
@@ -550,6 +559,7 @@ class PreflightService:
                 decision_count=decision_count,
                 metadata_snapshot=metadata,
                 record_snapshot=records,
+                execution_summary=execution_summary,
                 actor=actor,
             )
         except Exception:

@@ -52,7 +52,12 @@ DEFAULT_MAX_DIAGNOSTIC_LINE_BYTES = 64 * 1024
 _SAFE_SERVER_TIMINGS = frozenset(
     {
         "queue_wait",
+        "access_context",
         "workspace_read",
+        "owner_read",
+        "navigation_read",
+        "navigation_present",
+        "template_render",
         "view_build",
         "projection",
         "render",
@@ -99,10 +104,20 @@ class _ConcurrentRotatingFileHandler(RotatingFileHandler):
     ) -> None:
         primary_path = Path(filename)
         primary_path.touch(mode=0o600, exist_ok=True)
-        self._fallback_filename = os.path.abspath(
-            primary_path.parent / DIAGNOSTIC_FALLBACK_LOG_NAME
+        fallback_name = (
+            DIAGNOSTIC_FALLBACK_LOG_NAME
+            if primary_path.name == DIAGNOSTIC_LOG_NAME
+            else f"{primary_path.name}.concurrent"
         )
-        self.lock_path = primary_path.parent / DIAGNOSTIC_LOCK_NAME
+        self._fallback_filename = os.path.abspath(
+            primary_path.parent / fallback_name
+        )
+        lock_name = (
+            DIAGNOSTIC_LOCK_NAME
+            if primary_path.name == DIAGNOSTIC_LOG_NAME
+            else f".{primary_path.name}.lock"
+        )
+        self.lock_path = primary_path.parent / lock_name
         self._process_lock_stream = None
         super().__init__(
             primary_path,
@@ -247,6 +262,7 @@ class LocalDiagnosticRecorder:
         max_bytes: int = DEFAULT_MAX_LOG_BYTES,
         backup_count: int = DEFAULT_BACKUP_COUNT,
         slow_request_seconds: float = DEFAULT_SLOW_REQUEST_SECONDS,
+        log_name: str = DIAGNOSTIC_LOG_NAME,
     ) -> None:
         if max_bytes <= 0:
             raise ValueError("Diagnostic log size must be positive")
@@ -254,10 +270,15 @@ class LocalDiagnosticRecorder:
             raise ValueError("Diagnostic backup count must be positive")
         if slow_request_seconds <= 0:
             raise ValueError("Slow-request threshold must be positive")
+        if log_name != DIAGNOSTIC_LOG_NAME and not re.fullmatch(
+            rf"{re.escape(DIAGNOSTIC_LOG_NAME)}\.process-[1-9][0-9]*",
+            log_name,
+        ):
+            raise ValueError("Diagnostic log name is invalid")
 
         resolved_directory = Path(directory)
         resolved_directory.mkdir(parents=True, exist_ok=True)
-        self.path = resolved_directory / DIAGNOSTIC_LOG_NAME
+        self.path = resolved_directory / log_name
         self.slow_request_seconds = float(slow_request_seconds)
         self._lock = Lock()
         self._closed = False

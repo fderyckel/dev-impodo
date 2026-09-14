@@ -242,12 +242,13 @@ class NormalizationRepository(DuckDbRepository):
                         evaluator_version, status, lifecycle_version,
                         published_at, published_by, eligible_record_count,
                         changed_record_count, automatic_group_count,
-                        decision_group_count, set_aside_record_count,
+                        decision_group_count, reviewed_group_count,
+                        set_aside_record_count,
                         evaluation_json, dry_run_json,
                         effective_dataset_run_id, effective_dataset_hash,
                         retired_at,
                         retired_reason, successor_run_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
                     """,
                     [
                         run_id,
@@ -271,6 +272,7 @@ class NormalizationRepository(DuckDbRepository):
                         changed_record_count,
                         automatic_group_count,
                         decision_group_count,
+                        0,
                         set_aside_count,
                         self._normalization_evaluation_header(evaluation),
                         dry_run.to_json(),
@@ -860,8 +862,9 @@ class NormalizationRepository(DuckDbRepository):
                    run.status, run.lifecycle_version, run.published_at,
                    run.published_by, run.eligible_record_count,
                    run.changed_record_count, run.automatic_group_count,
-                   run.decision_group_count, run.set_aside_record_count,
-                   run.dry_run_json, run.effective_dataset_run_id,
+                   run.decision_group_count, run.reviewed_group_count,
+                   run.set_aside_record_count, run.dry_run_json,
+                   run.effective_dataset_run_id,
                    run.effective_dataset_hash
               FROM normalization_run AS run
               {where}
@@ -873,11 +876,13 @@ class NormalizationRepository(DuckDbRepository):
         row: Sequence[object],
     ) -> NormalizationRunSummary:
         try:
-            dry_run = DryRun.from_json(str(row[16]))
+            dry_run = DryRun.from_json(str(row[17]))
         except (TypeError, ValueError) as error:
             raise WorkspaceError(
                 "Stored prepared review decision is invalid"
             ) from error
+        if int(row[15]) != len(dry_run.group_decisions):
+            raise WorkspaceError("Stored prepared review decision count is invalid")
         return NormalizationRunSummary(
             run_id=str(row[0]),
             workspace_id=workspace_id,
@@ -895,13 +900,13 @@ class NormalizationRepository(DuckDbRepository):
             changed_record_count=int(row[12]),
             automatic_group_count=int(row[13]),
             decision_group_count=int(row[14]),
-            reviewed_group_count=len(dry_run.group_decisions),
-            set_aside_record_count=int(row[15]),
+            reviewed_group_count=int(row[15]),
+            set_aside_record_count=int(row[16]),
             effective_dataset_run_id=(
-                str(row[17]) if len(row) > 17 and row[17] is not None else None
+                str(row[18]) if len(row) > 18 and row[18] is not None else None
             ),
             effective_dataset_hash=(
-                str(row[18]) if len(row) > 18 and row[18] is not None else None
+                str(row[19]) if len(row) > 19 and row[19] is not None else None
             ),
         )
 
@@ -934,13 +939,15 @@ class NormalizationRepository(DuckDbRepository):
         updated = connection.execute(
             """
             UPDATE normalization_run
-               SET status = ?, lifecycle_version = ?, dry_run_json = ?
+               SET status = ?, lifecycle_version = ?,
+                   reviewed_group_count = ?, dry_run_json = ?
              WHERE run_id = ? AND lifecycle_version = ?
             RETURNING run_id
             """,
             [
                 dry_run.status.value,
                 next_version,
+                len(dry_run.group_decisions),
                 dry_run.to_json(),
                 run_id,
                 expected_version,

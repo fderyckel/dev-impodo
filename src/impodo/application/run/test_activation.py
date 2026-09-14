@@ -1,4 +1,10 @@
-"""Restart-safe provisioning and activation of integrated Test runs."""
+"""Restart-safe provisioning and activation of integrated Test runs.
+
+One Project-owned Test run binds selected Recipe revisions, one accepted Test
+delivery, and one reviewed Odoo target.  Its application workspaces receive
+fresh, isolated evidence.  They do not inherit authoring workspaces or gain
+authority to change the run's shared target evidence.
+"""
 
 from __future__ import annotations
 
@@ -40,7 +46,13 @@ from .review import RunReviewUseCase
 
 
 class TestRunActivationUseCase:
-    """Own Test run reservation, activation, and isolated-workspace publication."""
+    """Own Test run reservation, activation, and isolated-workspace publication.
+
+    Both commands are restart-safe under the caller's operation ID.  The
+    service validates the complete run plan before provisioning, then lets the
+    materializer create each application workspace without duplicating the
+    Project run or its target binding on retry.
+    """
 
     def __init__(
         self,
@@ -77,7 +89,13 @@ class TestRunActivationUseCase:
         control_values: Mapping[str, Mapping[str, str]] | None = None,
         fault: FaultInjector | None = None,
     ) -> IntegratedRunBundle:
-        """Provision and materialize one restart-safe multi-Recipe Test run."""
+        """Provision and materialize one restart-safe multi-Recipe Test run.
+
+        This creates a new run from an already reviewed Test delivery and Odoo
+        target.  It captures only the models and references required by the
+        selected Recipe revisions, then creates isolated application workspaces
+        and their Project-level CutoverPlan binding in the same operation.
+        """
 
         project_id = require_uuid(project_id, "project_id")
         operation_id = require_uuid(operation_id, "operation_id")
@@ -196,6 +214,8 @@ class TestRunActivationUseCase:
             self._materializer.plan(item, run=run, target=target, now=now)
             for item in review.applications
         )
+        # Bind retries to the exact selected Recipes, delivery, controls, and
+        # target evidence.  One operation ID must never provision new meaning.
         request_hash = content_hash(
             {
                 "control_values": control_values or {},
@@ -262,7 +282,13 @@ class TestRunActivationUseCase:
         control_values: Mapping[str, Mapping[str, str]] | None = None,
         progress: Callable[[int, int, str], None] | None = None,
     ) -> IntegratedRunBundle:
-        """Activate one fresh Test setup and create isolated Recipe work areas."""
+        """Activate one fresh Test setup and create isolated Recipe work areas.
+
+        Activation reuses the setup run rather than creating another Test run.
+        It accepts only the setup's selected Recipes, accepted delivery, and
+        reviewed target evidence.  A resumed activation verifies its stored
+        bindings before materializing any missing application workspaces.
+        """
 
         project_id = require_uuid(project_id, "project_id")
         operation_id = require_uuid(operation_id, "operation_id")
@@ -495,6 +521,8 @@ class TestRunActivationUseCase:
         operation_id: str,
         actor: Actor,
     ) -> None:
+        """Bind the materialized Test run to its exact Project CutoverPlan."""
+
         self._cutover_plans.ensure_for_run(
             project_id=committed.run.project_id,
             migration_run_id=committed.run.migration_run_id,

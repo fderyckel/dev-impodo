@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from time import perf_counter
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
@@ -45,20 +47,37 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/overview", response_class=HTMLResponse)
     async def workspace_overview(request: Request, workspace_id: str):
         require_session(request)
-        workspace = context.queries.get(workspace_id)
-        if workspace.status is not WorkspaceStatus.REGISTERED:
-            setup_page = (
-                "files" if workspace.source_mode is SourceMode.FILE else "target"
+        queued_at = perf_counter()
+
+        def render_overview():
+            queue_wait_ms = (perf_counter() - queued_at) * 1000
+            navigation_started = perf_counter()
+            snapshot = context.navigation.get_for_workspace(workspace_id)
+            navigation_read_ms = (perf_counter() - navigation_started) * 1000
+            workspace = snapshot.workspace_state
+            if workspace.status is not WorkspaceStatus.REGISTERED:
+                setup_page = (
+                    "files" if workspace.source_mode is SourceMode.FILE else "target"
+                )
+                return RedirectResponse(
+                    f"/workspaces/{workspace.workspace_id}/{setup_page}",
+                    status_code=303,
+                )
+            response = _render(
+                request,
+                "workspace_overview.html",
+                workspace_state=workspace,
+                _workspace_navigation_facts=snapshot.facts,
+                _navigation_read_ms=navigation_read_ms,
             )
-            return RedirectResponse(
-                f"/workspaces/{workspace.workspace_id}/{setup_page}",
-                status_code=303,
+            existing = response.headers.get("Server-Timing", "")
+            queue_timing = f"queue_wait;dur={queue_wait_ms:.3f}"
+            response.headers["Server-Timing"] = (
+                f"{existing}, {queue_timing}" if existing else queue_timing
             )
-        return _render(
-            request,
-            "workspace_overview.html",
-            workspace_state=workspace,
-        )
+            return response
+
+        return await run_in_threadpool(render_overview)
 
     @router.get("/workspaces/{workspace_id}/files", response_class=HTMLResponse)
     async def workspace_files_form(request: Request, workspace_id: str):

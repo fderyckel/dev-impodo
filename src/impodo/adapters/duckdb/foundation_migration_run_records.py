@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-import json
-
 from impodo.domain.shared.access import Actor
 from ...domain.serialization import canonical_json
 from impodo.domain.project.foundation import (
@@ -13,7 +10,7 @@ from impodo.domain.project.foundation import (
     require_uuid,
 )
 from ...domain.run.models import MigrationRun
-from impodo.domain.run.setup import MigrationRunTargetSetup, OdooConnectionMode
+from impodo.domain.run.setup import MigrationRunTargetSetup
 
 
 class FoundationMigrationRunRecords:
@@ -68,20 +65,7 @@ class FoundationMigrationRunRecords:
             )
         if row is None:
             return None
-        value = dict(zip(columns, row, strict=True))
-        return MigrationRunTargetSetup(
-            migration_run_id=str(value["migration_run_id"]),
-            project_id=str(value["project_id"]),
-            revision=int(value["revision"]),
-            connection_mode=OdooConnectionMode(str(value["connection_mode"])),
-            base_url=str(value["base_url"]),
-            database=str(value["database"]),
-            intended_applications=tuple(
-                str(item)
-                for item in json.loads(str(value["intended_applications_json"]))
-            ),
-            updated_at=datetime.fromisoformat(str(value["updated_at"])),
-        )
+        return self._target_setup_from_row(dict(zip(columns, row, strict=True)))
 
     def replace_migration_run_target_setup(
         self,

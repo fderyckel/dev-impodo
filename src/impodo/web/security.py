@@ -11,9 +11,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from hmac import compare_digest
+from time import perf_counter
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, status
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import PlainTextResponse, Response
 
@@ -142,27 +144,32 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
             or request.session.get("authenticated") is not True
         ):
             return await call_next(request)
-        try:
+        access_started = perf_counter()
+
+        def resolve_access() -> WorkspaceAccessContext:
             trusted_context = (
                 self.trusted_context_resolver(request.url.path, workspace_id)
                 if self.trusted_context_resolver is not None
                 else None
             )
             if trusted_context is None:
-                context = self.access.resolve(
+                return self.access.resolve(
                     workspace_id,
                     actor=self.actor(),
                     capability=Capability.PROJECT_VIEW,
                 )
-            else:
-                with bind_workspace_access_context(trusted_context):
-                    context = self.access.resolve(
-                        workspace_id,
-                        actor=self.actor(),
-                        capability=Capability.PROJECT_VIEW,
-                    )
+            with bind_workspace_access_context(trusted_context):
+                return self.access.resolve(
+                    workspace_id,
+                    actor=self.actor(),
+                    capability=Capability.PROJECT_VIEW,
+                )
+
+        try:
+            context = await run_in_threadpool(resolve_access)
         except (AuthorizationError, MigrationFoundationError):
             return PlainTextResponse("Workspace not found", status_code=404)
+        access_context_ms = (perf_counter() - access_started) * 1000
         request.state.workspace_access_context = context
         with bind_workspace_access_context(context):
             try:
@@ -173,6 +180,13 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
             except (AuthorizationError, MigrationFoundationError):
                 return PlainTextResponse("Workspace not found", status_code=404)
             response = await call_next(request)
+        existing_timing = response.headers.get("Server-Timing", "")
+        access_timing = f"access_context;dur={access_context_ms:.3f}"
+        response.headers["Server-Timing"] = (
+            f"{existing_timing}, {access_timing}"
+            if existing_timing
+            else access_timing
+        )
         body_iterator = getattr(response, "body_iterator", None)
         if body_iterator is None:
             return response

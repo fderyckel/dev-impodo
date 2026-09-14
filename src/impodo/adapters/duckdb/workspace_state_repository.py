@@ -86,7 +86,25 @@ class WorkspaceStateRepository(DuckDbRepository):
             raise WorkspaceStateNotFoundError("MigrationWorkspace engine not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
-        return self._get_workspace_unresolved(workspace_id)
+            row = connection.execute(
+                "SELECT * FROM workspace_projection_cache"
+            ).fetchone()
+            if row is None:
+                raise WorkspaceStateNotFoundError("MigrationWorkspace engine not found")
+            columns = [item[0] for item in connection.description]
+            source_rows = connection.execute(
+                """
+                SELECT file_id, display_name, stored_name, size_bytes, sha256,
+                       received_at
+                  FROM source_file
+                 ORDER BY received_at, file_id
+                """
+            ).fetchall()
+        return _workspace_from_rows(
+            dict(zip(columns, row, strict=True)),
+            source_rows,
+            workspace_id=workspace_id,
+        )
 
     def assert_workspace_mutable(self, workspace_id: str) -> None:
         """Reject changes to a locally closed workspace-engine state."""

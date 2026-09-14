@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime
-from types import SimpleNamespace
 import unittest
 from uuid import uuid4
 
 from impodo.application.transfer_review_service import TransferReviewService
 from impodo.application.transfer_preflight_service import TransferPreflightService
+from impodo.application.workspace.navigation import WorkspaceNavigationFacts
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.workspace.transfer_review import TransferReviewApproval
 from impodo.web.presenters.navigation import build_workspace_navigation
@@ -27,11 +27,8 @@ from tests.application.workspace.test_transfer_preflight import _fresh
 class TransferOrderNavigationTests(unittest.TestCase):
     def test_stage_six_completion_unlocks_the_next_work_boundary(self) -> None:
         workspace, selection, schema = _stage_six_state()
-        queries = _Queries(workspace, selection, schema)
-        context = SimpleNamespace(queries=queries)
-
         navigation = build_workspace_navigation(
-            context,
+            _facts(workspace, selection, schema),
             workspace,
             "workspace_transfer_order.html",
         )
@@ -77,10 +74,8 @@ class TransferOrderNavigationTests(unittest.TestCase):
             transfer_review_package=package,
             transfer_review_approval=approval,
         )
-        context = SimpleNamespace(queries=_Queries(workspace, selection, schema))
-
         navigation = build_workspace_navigation(
-            context,
+            _facts(workspace, selection, schema),
             workspace,
             "workspace_transfer_review.html",
         )
@@ -132,10 +127,8 @@ class TransferOrderNavigationTests(unittest.TestCase):
             recorded_by=LOCAL_ACTOR.identity,
         )
         workspace = replace(workspace, transfer_preflight_report=report)
-        context = SimpleNamespace(queries=_Queries(workspace, selection, schema))
-
         navigation = build_workspace_navigation(
-            context,
+            _facts(workspace, selection, schema),
             workspace,
             "workspace_transfer_preflight.html",
         )
@@ -172,26 +165,14 @@ def _stage_six_state():
     return workspace, selection, schema
 
 
-class _Queries:
-    def __init__(self, workspace, selection, schema) -> None:
-        self.workspace = workspace
-        self.selection = selection
-        self.schema = schema
-
-    def get(self, _workspace_id):
-        return self.workspace
-
-    def get_odoo_model_catalog(self, _workspace_id):
-        return None
-
-    def get_odoo_schema_catalog(self, _workspace_id):
-        return self.schema
-
-    def get_current_odoo_capture_selections(self, _workspace_id):
-        return ()
-
-    def get_source_selection(self, _workspace_id):
-        return self.selection
+def _facts(workspace, selection, schema) -> WorkspaceNavigationFacts:
+    return WorkspaceNavigationFacts(
+        workspace_id=workspace.workspace_id,
+        source_selection_hash=selection.content_hash,
+        schema_present=True,
+        schema_content_hash=schema.content_hash,
+        schema_models=tuple(item.name for item in schema.models),
+    )
 
 
 if __name__ == "__main__":

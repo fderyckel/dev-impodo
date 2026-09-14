@@ -22,7 +22,7 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
                 ).fetchone(),
                 (SCHEMA_GENERATION, SCHEMA_VERSION),
             )
-            self.assertEqual(SCHEMA_VERSION, 14)
+            self.assertEqual(SCHEMA_VERSION, 15)
             tables = {
                 item[0] for item in connection.execute("SHOW TABLES").fetchall()
             }
@@ -38,6 +38,7 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
             self.assertIn("mapping_row_inclusion_review", tables)
             self.assertIn("mapping_row_inclusion_review_row", tables)
             self.assertIn("mapping_row_inclusion_confirmation", tables)
+            self.assertIn("preflight_execution_projection", tables)
             self.assertNotIn("workspace_state", tables)
             self.assertNotIn("project_schema_migration", tables)
             audit_columns = tuple(
@@ -48,6 +49,42 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
             )
             self.assertIn("workspace_revision", audit_columns)
             self.assertNotIn("project_revision", audit_columns)
+            normalization_columns = tuple(
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info('normalization_run')"
+                ).fetchall()
+            )
+            self.assertIn("reviewed_group_count", normalization_columns)
+            projection_columns = tuple(
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info('preflight_execution_projection')"
+                ).fetchall()
+            )
+            self.assertEqual(
+                projection_columns,
+                (
+                    "run_id",
+                    "snapshot_hash",
+                    "snapshot_root_hash",
+                    "comparison_status",
+                    "create_count",
+                    "update_count",
+                    "unchanged_count",
+                    "blocked_count",
+                    "ambiguous_count",
+                    "relationship_blocker_count",
+                    "target_hash",
+                    "target_odoo_version",
+                    "read_credential_binding_hash",
+                    "read_principal_hash",
+                    "read_permission_hash",
+                    "read_context_hash",
+                    "execution_shape_ready",
+                    "contract_version",
+                ),
+            )
         finally:
             connection.close()
 

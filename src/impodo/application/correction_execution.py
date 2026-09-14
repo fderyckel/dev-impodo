@@ -1,4 +1,10 @@
-"""Confirm, execute, and verify sparse completed-load corrections."""
+"""Confirm, execute, and verify sparse completed-load corrections.
+
+Corrections are the protected exception to ordinary authoring execution.  The
+service can change only the exact target IDs and fields captured by the
+approved correction plan.  It rereads those values before journalling and
+again after transport, so a changed target never receives an inferred retry.
+"""
 
 from __future__ import annotations
 
@@ -94,7 +100,13 @@ class CorrectionExecutionResult:
 
 @dataclass(slots=True)
 class CorrectionExecutionService:
-    """Use exact protected IDs and bounded Odoo calls for confirmed corrections."""
+    """Use exact protected IDs and bounded Odoo calls for confirmed corrections.
+
+    The completed workspace owns confirmation and correction-origin evidence.
+    The successor workspace owns the revised mapping and prepared data.  This
+    service connects them without exposing numeric Odoo IDs to the browser or
+    allowing a correction to alter another model.
+    """
 
     bindings: CorrectionBindingRepository
     protected_store: CorrectionProtectedStore
@@ -112,6 +124,13 @@ class CorrectionExecutionService:
         write_identity: OdooWriteIdentity,
         actor: Actor,
     ) -> tuple[CorrectionConfirmation, CorrectionBinding]:
+        """Store an explicit approval bound to the current correction plan.
+
+        Confirmation creates protected evidence but does not write to Odoo.
+        A later execution must prove that the plan, credential binding, and
+        target values are still current.
+        """
+
         self.authorization.require(
             actor, Capability.EXPORT_PLAN_APPROVE, project_id=plan.project_id
         )
@@ -155,6 +174,14 @@ class CorrectionExecutionService:
         writer: OdooWriteExecutor,
         actor: Actor,
     ) -> CorrectionExecutionResult:
+        """Apply one confirmed sparse correction and immediately read it back.
+
+        Before journalling, the service verifies every previously confirmed
+        value at its exact protected ID.  It stops later batches after a
+        rejected or unknown response, then publishes reconciliation evidence
+        for the completed attempt.
+        """
+
         self.authorization.require(
             actor, Capability.EXPORT_PLAN_EXECUTE, project_id=plan.project_id
         )
@@ -179,6 +206,8 @@ class CorrectionExecutionService:
             raise CorrectionPlanError(
                 "Correction connection is not bound to the confirmed scope"
             )
+        # A stale plan must fail before the journal and first write.  The
+        # correction cannot rediscover a similar business key as a substitute.
         before = self._read_exact(snapshot, reader)
         if not self._confirmed_values_are_current(snapshot, before):
             self.bindings.invalidate_plan(
@@ -192,6 +221,8 @@ class CorrectionExecutionService:
                 "Odoo changed after confirmation; review the correction again"
             )
 
+        # Persist the exact intended IDs before transport for the same
+        # interruption and audit guarantees as an ordinary load.
         run = self._new_run(snapshot, actor)
         self.execution.start_run(
             snapshot.workspace_id,
