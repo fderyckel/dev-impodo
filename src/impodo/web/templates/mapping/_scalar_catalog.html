@@ -40,7 +40,8 @@
                   {% set mapping = row.mapping %}
                   {% set disposition = row.disposition %}
                   {% set formula_issue = formula_authoring_issues_by_dataset.get(view.source.dataset_id, {}).get(row.metadata.name) %}
-                  {% set recommended_source = row.recommended_source_column if not disposition else none %}
+                  {# A saved omission is a choice; only prefill recommendations for new mappings. #}
+                  {% set recommended_source = row.recommended_source_column if not disposition and not view.mapping else none %}
                   {% set value_source = mapping.value_source.value if mapping else ('source' if recommended_source else '') %}
                   <tr
                     data-scalar-mapping-row

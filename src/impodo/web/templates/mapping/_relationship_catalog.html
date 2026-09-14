@@ -65,7 +65,9 @@
                       {% endif %}
                     </div>
                   {% endif %}
-                  {% set relation_value_source = mapping.value_source.value if mapping else ('source' if row.recommended_source_columns else '') %}
+                  {# Reopening a saved mapping must not silently add suggested links. #}
+                  {% set recommended_sources = row.recommended_source_columns if not view.mapping else () %}
+                  {% set relation_value_source = mapping.value_source.value if mapping else ('source' if recommended_sources else '') %}
                   <label>
                     Fill this linked field using
                     <select name="relation_value_source_{{ dataset_index }}_{{ relation_index }}" data-relation-value-source>
@@ -134,7 +136,7 @@
                     <label>
                       Use value(s) from
                       <select name="relation_source_{{ dataset_index }}_{{ relation_index }}" multiple size="{{ [view.source.columns|length, 5]|min }}" data-lazy-source-column>
-                        {% set selected_relation_sources = mapping.source_column_keys if mapping else (row.recommended_source_columns or ()) %}
+                        {% set selected_relation_sources = mapping.source_column_keys if mapping else (recommended_sources or ()) %}
                         {% for selected_source in selected_relation_sources %}
                           {% set column = view.source_by_key.get(selected_source) %}
                           {% if column %}<option value="{{ column.stable_key }}" selected>{{ column.source_name }}</option>{% endif %}
