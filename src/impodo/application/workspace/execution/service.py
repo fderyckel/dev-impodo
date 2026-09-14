@@ -66,6 +66,7 @@ MAX_VISIBLE_LOAD_GROUPS = 5
 MAX_VISIBLE_GROUP_DATASETS = 3
 MAX_VISIBLE_BLOCKER_GROUPS = 5
 MAX_VISIBLE_BLOCKER_DATASETS = 3
+MAX_PROGRESS_ROWS_BETWEEN_UPDATES = 25
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 ReadCredentialBindingProvider = Callable[[WorkspaceState], str]
 
@@ -936,12 +937,35 @@ class ExecutionService:
             for row in snapshot.rows
         }
         create_batch_rows = validated_create_batch_rows(run.batch_rows or 0)
-        report_progress = progress or (lambda _run: None)
-        report_progress(run)
+        progress_sink = progress
+        if progress_sink is not None:
+            progress_sink(run)
 
         recorded: dict[str, ExecutionRowAttempt] = {
             item.row_id: item for item in run.rows
         }
+        progress_rows_since_publish = 0
+        progress_row_interval = min(
+            create_batch_rows,
+            MAX_PROGRESS_ROWS_BETWEEN_UPDATES,
+        )
+
+        def publish_progress(
+            *,
+            changed_rows: int = 0,
+            force: bool = False,
+        ) -> None:
+            """Publish bounded UI progress without rebuilding the run per row."""
+
+            nonlocal progress_rows_since_publish
+            if progress_sink is None:
+                return
+            progress_rows_since_publish += max(0, int(changed_rows))
+            if not force and progress_rows_since_publish < progress_row_interval:
+                return
+            progress_sink(replace(run, rows=tuple(recorded.values())))
+            progress_rows_since_publish = 0
+
         source_cache: dict[tuple[str, str, str, str], int] = {
             (
                 row.dataset,
@@ -1013,7 +1037,7 @@ class ExecutionService:
                         else "Not attempted after an Odoo rejection"
                     ),
                 )
-                report_progress(replace(run, rows=tuple(recorded.values())))
+                publish_progress(changed_rows=len(dataset_rows))
                 continue
             try:
                 self._ensure_projected_receipts(
@@ -1037,7 +1061,7 @@ class ExecutionService:
                     recorded,
                     str(error),
                 )
-                report_progress(replace(run, rows=tuple(recorded.values())))
+                publish_progress(changed_rows=len(dataset_rows))
                 continue
             creates = tuple(
                 row
@@ -1098,7 +1122,7 @@ class ExecutionService:
                             workspace_id, run.run_id, (outcome,)
                         )
                         recorded[row.row_id] = outcome
-                        report_progress(replace(run, rows=tuple(recorded.values())))
+                        publish_progress(changed_rows=1)
                     else:
                         prepared_rows.append((row, values, deferred))
                 if not prepared_rows:
@@ -1130,7 +1154,6 @@ class ExecutionService:
                         batch=next_transport_batch,
                     )
                     next_transport_batch += 1
-                    report_progress(replace(run, rows=tuple(recorded.values())))
                     try:
                         values = tuple(item[1] for item in prepared_group)
                         if (
@@ -1161,7 +1184,10 @@ class ExecutionService:
                             workspace_id, run.run_id, outcomes
                         )
                         recorded.update({item.row_id: item for item in outcomes})
-                        report_progress(replace(run, rows=tuple(recorded.values())))
+                        publish_progress(
+                            changed_rows=len(outcomes),
+                            force=True,
+                        )
                         stop_after_unknown = True
                         break
                     except OdooWriteRejected as error:
@@ -1177,7 +1203,10 @@ class ExecutionService:
                             workspace_id, run.run_id, outcomes
                         )
                         recorded.update({item.row_id: item for item in outcomes})
-                        report_progress(replace(run, rows=tuple(recorded.values())))
+                        publish_progress(
+                            changed_rows=len(outcomes),
+                            force=True,
+                        )
                         stop_after_rejection = True
                         break
                     outcomes = []
@@ -1224,7 +1253,7 @@ class ExecutionService:
                         workspace_id, run.run_id, outcomes
                     )
                     recorded.update({item.row_id: item for item in outcomes})
-                    report_progress(replace(run, rows=tuple(recorded.values())))
+                    publish_progress(changed_rows=len(outcomes))
                 if stop_after_unknown or stop_after_rejection:
                     break
 
@@ -1241,7 +1270,7 @@ class ExecutionService:
                             else "Not attempted after an Odoo rejection"
                         ),
                     )
-                    report_progress(replace(run, rows=tuple(recorded.values())))
+                    publish_progress(changed_rows=1)
                     continue
                 try:
                     self._require_dependency_receipts(
@@ -1282,7 +1311,6 @@ class ExecutionService:
                         known_ids={row.row_id: record_id},
                     )
                     next_transport_batch += 1
-                    report_progress(replace(run, rows=tuple(recorded.values())))
                     try:
                         executor.update_row(row.target_model, record_id, values)
                     except OdooWriteOutcomeUnknown as error:
@@ -1307,9 +1335,16 @@ class ExecutionService:
                         )
                 self.journal.record_outcomes(workspace_id, run.run_id, (outcome,))
                 recorded[row.row_id] = outcome
-                report_progress(replace(run, rows=tuple(recorded.values())))
+                publish_progress(
+                    changed_rows=1,
+                    force=stop_after_unknown or stop_after_rejection,
+                )
 
         if not stop_after_unknown and not stop_after_rejection:
+            # Preserve the visible boundary between first-pass writes and
+            # relationship completion even when the final create batch is
+            # smaller than the configured transport batch.
+            publish_progress(force=True)
             completion_stopped, next_transport_batch = self._apply_deferred_relationships(
                 workspace_id,
                 run.run_id,
@@ -1322,12 +1357,10 @@ class ExecutionService:
                 identity_cache,
                 executor,
                 next_transport_batch=next_transport_batch,
-                progress=lambda: report_progress(
-                    replace(run, rows=tuple(recorded.values()))
-                ),
+                progress=lambda: publish_progress(changed_rows=1),
             )
             stop_after_unknown = completion_stopped
-            report_progress(replace(run, rows=tuple(recorded.values())))
+            publish_progress(force=True)
 
         remaining = tuple(
             row
@@ -1346,7 +1379,7 @@ class ExecutionService:
                 recorded,
                 "Not attempted because an earlier dependency did not complete",
             )
-            report_progress(replace(run, rows=tuple(recorded.values())))
+            publish_progress(changed_rows=len(remaining), force=True)
         statuses = {item.status for item in recorded.values()}
         final_status = (
             ExecutionRunStatus.OUTCOME_UNKNOWN
@@ -1369,7 +1402,8 @@ class ExecutionService:
             final_status,
             actor=actor,
         )
-        report_progress(completed_run)
+        if progress_sink is not None:
+            progress_sink(completed_run)
         return completed_run
 
     @staticmethod
@@ -2313,6 +2347,23 @@ class ExecutionService:
             )
         if isinstance(value, LogicalReference) and value.origin == "incoming":
             if not intent.incoming_projection_field:
+                referenced = by_source.get(
+                    (value.dataset, _portable_key(value.key))
+                )
+                if (
+                    referenced is not None
+                    and referenced.disposition in {"UPDATE", "UNCHANGED"}
+                ):
+                    identifier = self._relation_reference_id(
+                        value,
+                        intent,
+                        metadata,
+                        by_source,
+                        source_cache,
+                        identity_cache,
+                        executor,
+                    )
+                    return f"{intent.field}/.id", str(identifier)
                 return (
                     f"{intent.field}/id",
                     self._relation_external_id(intent, by_source),

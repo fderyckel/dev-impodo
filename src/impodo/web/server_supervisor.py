@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging.config
 import multiprocessing
 import os
 from pathlib import Path
@@ -247,6 +248,9 @@ def _serve_child_process(
     settings: ServerChildSettings,
     restart_attempt: int,
 ) -> None:
+    # Uvicorn's logging configuration closes existing handlers, including the
+    # recorder's process lock. Configure logging before opening diagnostics.
+    logging.config.dictConfig(uvicorn.config.LOGGING_CONFIG)
     diagnostics = _open_child_diagnostic_recorder(settings.diagnostics_root)
     port = listener.getsockname()[1]
     stop_reason = "server_returned"
@@ -271,6 +275,7 @@ def _serve_child_process(
             host="127.0.0.1",
             port=port,
             http=ClosedConnectionSafeH11Protocol,
+            log_config=None,
             access_log=False,
             proxy_headers=False,
             server_header=False,

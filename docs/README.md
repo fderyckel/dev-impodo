@@ -73,6 +73,9 @@ applies those rules when documentation is created or rewritten.
 
 ## Plans
 
+- [Maintainable code and focused execution services](plans/maintainable-code-and-execution-services.md)
+  — the proposed coding practices, automated checks, and staged execution
+  refactor for preserving clear ownership as the project grows.
 - [End-to-end trial and scenario qualification](plans/end-to-end-trial-and-scenario-qualification.md)
   — the proposed shared capability for interactive supplied-data trials and
   deterministic background scenarios across file, local Odoo, remote Odoo,

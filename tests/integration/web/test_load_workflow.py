@@ -81,6 +81,90 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("CORRECTION_ORIGIN_NOT_PUBLISHED", page.text)
         self.assertIn("verified", page.text.casefold())
 
+    def test_unknown_readback_uses_disjoint_counts_and_precise_message(self) -> None:
+        context = self.app.state.context
+        workspace_state = self.workspaces.create(
+            name="Read-back needs attention",
+            source_system="Other",
+        )
+        current_run = SimpleNamespace(
+            run_id="11111111-1111-4111-8111-111111111111",
+            rows=(),
+            committed_count=2,
+            failed_count=0,
+            blocked_count=1,
+            partially_applied_count=0,
+            unknown_count=0,
+        )
+        preview = SimpleNamespace(
+            snapshot=SimpleNamespace(
+                counts={"CREATE": 2, "UPDATE": 1, "UNCHANGED": 0},
+                target_database="migration",
+                target_odoo_version="19.0",
+                semantic_hash="sha256:" + "a" * 64,
+                target_hash="sha256:" + "b" * 64,
+            ),
+            datasets=(),
+            current_run=current_run,
+            can_load=False,
+        )
+
+        def row(status, execution_status, source_row, odoo_id=None):
+            return SimpleNamespace(
+                dataset="products",
+                source_row=source_row,
+                target_model="product.template",
+                operation="UPDATE",
+                execution_status=execution_status,
+                status=SimpleNamespace(value=status),
+                odoo_id=odoo_id,
+                differing_fields=(),
+                message="Saved diagnostic message",
+                retry_safe=False,
+            )
+
+        reconciliation = SimpleNamespace(
+            status=SimpleNamespace(value="OUTCOME_UNKNOWN"),
+            rows=(
+                row("VERIFIED", "COMMITTED", 1, 41),
+                row("NOT_WRITTEN", "BLOCKED", 2),
+                row("OUTCOME_UNKNOWN", "COMMITTED", 3, 43),
+            ),
+            verified_count=1,
+            fallout_count=2,
+            unknown_count=1,
+            retry_safe_count=0,
+        )
+
+        with (
+            patch.object(
+                type(context.execution),
+                "current_preview",
+                return_value=preview,
+            ),
+            patch.object(
+                type(context.reconciliation),
+                "current",
+                return_value=reconciliation,
+            ),
+            patch.object(
+                type(context.reconciliation),
+                "current_detail_available",
+                return_value=False,
+            ),
+        ):
+            page = self.client.get(
+                f"/workspaces/{workspace_state.workspace_id}/load/outcome"
+            )
+
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("1 verified", page.text)
+        self.assertIn("1 need review", page.text)
+        self.assertIn("1 verification unknown", page.text)
+        self.assertIn("1 not written", page.text)
+        self.assertNotIn("re-matched uncertain writes", page.text)
+        self.assertIn("could not verify every saved outcome", page.text)
+
     def test_load_receipt_rows_offer_twenty_or_fifty_with_pagination(self) -> None:
         context = self.app.state.context
         workspace_state = self.workspaces.create(

@@ -29,6 +29,7 @@ from ...application.workspace.execution.load_jobs import (
     LoadJobStateError,
 )
 from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS
 from impodo.domain.execution.odoo_readback import OdooReadbackError
 from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
 from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
@@ -434,6 +435,7 @@ def build_execution_router(
             fallout_groups=fallout_groups,
             reconciliation_summary=reconciliation_summary,
             load_step=step,
+            max_batch_rows=MAX_CREATE_BATCH_ROWS,
             load_row_page=load_row_page,
             load_row_page_size_options=tuple(
                 {
@@ -1249,12 +1251,18 @@ def _fallout_groups(report, reason_counts: Counter[tuple[str, str]]):
 
 def _reconciliation_summary(report):
     statuses = Counter(row.status.value for row in report.rows)
+    unknown_count = statuses["OUTCOME_UNKNOWN"]
     return SimpleNamespace(
         accepted_count=sum(row.odoo_id is not None for row in report.rows),
         different_count=statuses["DIFFERENT"],
         missing_count=statuses["MISSING"],
         not_written_count=(statuses["NOT_WRITTEN"] + statuses["NOT_APPLIED"]),
-        unknown_count=statuses["OUTCOME_UNKNOWN"],
+        unknown_count=unknown_count,
+        known_review_count=report.fallout_count - unknown_count,
+        uncertain_write_count=sum(
+            row.execution_status in {"IN_FLIGHT", "OUTCOME_UNKNOWN"}
+            for row in report.rows
+        ),
         affected_field_count=sum(len(row.differing_fields) for row in report.rows),
     )
 

@@ -341,6 +341,14 @@ def _record_matches_lookup(
             and type(actual[0]) is int
         ):
             actual = actual[0]
-        if actual != expected:
+        if not _lookup_values_equal(actual, expected):
             return False
     return True
+
+
+def _lookup_values_equal(actual: object, expected: object) -> bool:
+    """Compare an Odoo search value with its exact reviewed domain value."""
+
+    if expected is None and actual is False:
+        return True
+    return actual == expected

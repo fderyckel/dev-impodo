@@ -263,6 +263,71 @@ class RowInclusionReviewRepositoryTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
 
+    def test_multiple_batches_preserve_rows_and_rollback_failed_publication(self) -> None:
+        identity = RowInclusionReviewIdentity(
+            physical_selection_hash="sha256:" + "1" * 64,
+            source_selection_hash="sha256:" + "2" * 64,
+            mapping_content_hash="sha256:" + "3" * 64,
+            schema_hash="sha256:" + "4" * 64,
+            derived_plan_hash=None,
+        )
+        sentence = "Include a row when Status is exactly 30."
+        rows = tuple(
+            RowInclusionReviewRow(
+                "dataset:products", "Products", index + 1,
+                (RowInclusionSourceValue(
+                    "column:status", "Statut café", f'null "30"\n{index}',
+                ),),
+                RowInclusionReviewOutcome.INCLUDED,
+                sentence,
+            )
+            for index in range(2_005)
+        )
+        report = RowInclusionReviewReport(
+            identity=identity,
+            datasets=(RowInclusionDatasetReview(
+                "dataset:products", "Products", len(rows), len(rows), 0, 0,
+                sentence,
+            ),),
+            rows=rows,
+        )
+        snapshot = self.repository.replace_current_review(
+            self.workspace_id, report, actor=LOCAL_ACTOR,
+        )
+        # Read across both full-batch boundaries and the final partial batch.
+        for start in (0, 995, 1_995):
+            page = self.repository.get_review_page(
+                self.workspace_id, snapshot.snapshot_hash,
+                RowInclusionReviewFilter(), page_size=20,
+                after=start - 1 if start else None,
+            )
+            self.assertEqual(page.rows, rows[start:start + 20])
+            self.assertEqual(page.matching_count, len(rows))
+
+        changed = replace(
+            report,
+            identity=replace(identity, mapping_content_hash="sha256:" + "9" * 64),
+        )
+        with self.assertRaisesRegex(WorkspaceError, "receipt is not pending"):
+            self.repository.replace_current_review(
+                self.workspace_id, changed, actor=LOCAL_ACTOR,
+                operation_id=str(uuid4()),
+            )
+        with self.database._connect(
+            self.database.workspace_directory(self.workspace_id)
+            / "workspace-engine.duckdb"
+        ) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM mapping_row_inclusion_review_row"
+                ).fetchone()[0],
+                len(rows),
+            )
+        self.assertEqual(
+            self.repository.get_current_review(self.workspace_id, identity),
+            snapshot,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

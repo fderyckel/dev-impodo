@@ -1918,6 +1918,71 @@ class ExecutionServiceTests(unittest.TestCase):
             "50",
         )
 
+    def test_remote_create_uses_crosswalk_id_for_incoming_unchanged_row(self):
+        snapshot = _snapshot()
+        category = replace(
+            snapshot.rows[0],
+            disposition="UNCHANGED",
+            target_match_count=1,
+            target_binding_hash=target_record_binding_hash(
+                "product.category",
+                50,
+            ),
+            proposed_external_id="",
+            fields=(),
+        )
+        relationship_snapshot = _with_plan(
+            replace(
+                snapshot,
+                datasets=snapshot.datasets[:2],
+                rows=(category, snapshot.rows[1]),
+                counts={
+                    "CREATE": 1,
+                    "UPDATE": 0,
+                    "UNCHANGED": 1,
+                    "AMBIGUOUS": 0,
+                    "BLOCKED": 0,
+                },
+            )
+        )
+        service, _journal = self._service(
+            relationship_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(execution_api_scope(relationship_snapshot).semantic_hash)
+
+        preview = service.current_preview(relationship_snapshot.workspace_id)
+
+        assert preview is not None
+        self.assertTrue(preview.can_load, preview.scope_error)
+        run = service.execute(
+            relationship_snapshot.workspace_id,
+            expected_snapshot_hash=relationship_snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(run.committed_count, 1)
+        self.assertEqual(
+            executor.loads,
+            [
+                (
+                    "product.template",
+                    (
+                        {
+                            "categ_id/.id": "50",
+                            "default_code": "P1",
+                            "name": "Product",
+                        },
+                    ),
+                    (snapshot.rows[1].proposed_external_id,),
+                )
+            ],
+        )
+        self.assertEqual(executor.single_lookup_count, 0)
+        self.assertEqual(len(executor.bulk_lookups), 1)
+
     def test_configured_create_batch_size_reuses_existing_relation_lookup(
         self,
     ):
@@ -1962,6 +2027,7 @@ class ExecutionServiceTests(unittest.TestCase):
         for batch_rows, expected_sizes in (
             (10, [10, 10, 10, 10, 10, 1]),
             (50, [50, 1]),
+            (100, [51]),
         ):
             with self.subTest(batch_rows=batch_rows):
                 service, journal = self._service(
@@ -2000,7 +2066,7 @@ class ExecutionServiceTests(unittest.TestCase):
         snapshot = _snapshot()
         executor = _Executor(execution_api_scope(snapshot).semantic_hash)
 
-        for batch_rows in (0, 51, "ten", True):
+        for batch_rows in (0, 1001, "ten", True):
             with self.subTest(batch_rows=batch_rows):
                 service, journal = self._service(snapshot)
                 with self.assertRaisesRegex(
@@ -2189,6 +2255,105 @@ class ExecutionServiceTests(unittest.TestCase):
                 ),
             ],
         )
+
+    def test_remote_hierarchy_links_new_child_to_unchanged_root(self):
+        snapshot = _snapshot()
+        root = replace(
+            snapshot.rows[0],
+            source_identity=("ROOT",),
+            business_identity=("Root",),
+            business_scope=(None,),
+            disposition="UNCHANGED",
+            target_match_count=1,
+            target_binding_hash=target_record_binding_hash(
+                "product.category",
+                50,
+            ),
+            proposed_external_id="",
+            fields=(),
+        )
+        child = _row(
+            dataset="categories",
+            model="product.category",
+            source_row=3,
+            source_identity=("CHILD",),
+            business_identity=("Child",),
+            disposition="CREATE",
+            fields=(
+                FieldIntent("name", "SET_VALUE", "Child"),
+                FieldIntent(
+                    "parent_id",
+                    "SET_VALUE",
+                    LogicalReference(
+                        origin="incoming",
+                        key=("ROOT",),
+                        dataset="categories",
+                    ),
+                    kind="relation",
+                    relation_operation="replace",
+                    related_model="product.category",
+                    related_identity_fields=("name",),
+                    related_scope_fields=("parent_id",),
+                    dependency_strength="hard",
+                ),
+            ),
+        )
+        child = replace(
+            child,
+            business_scope=(
+                BusinessReference(
+                    "product.category",
+                    ("Root",),
+                    (None,),
+                ),
+            ),
+        )
+        remote_snapshot = _with_plan(
+            replace(
+                snapshot,
+                datasets=(
+                    replace(
+                        snapshot.datasets[0],
+                        dependencies=("categories",),
+                        scope_fields=("parent_id",),
+                    ),
+                ),
+                rows=(root, child),
+                counts={
+                    "CREATE": 1,
+                    "UPDATE": 0,
+                    "UNCHANGED": 1,
+                    "AMBIGUOUS": 0,
+                    "BLOCKED": 0,
+                },
+            )
+        )
+        service, _journal = self._service(
+            remote_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(execution_api_scope(remote_snapshot).semantic_hash)
+
+        run = service.execute(
+            remote_snapshot.workspace_id,
+            expected_snapshot_hash=remote_snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(
+            executor.loads,
+            [
+                (
+                    "product.category",
+                    ({"name": "Child", "parent_id/.id": "50"},),
+                    (child.proposed_external_id,),
+                )
+            ],
+        )
+        self.assertEqual(executor.single_lookup_count, 0)
+        self.assertEqual(len(executor.bulk_lookups), 1)
 
     def test_remote_unresolved_target_relation_has_actionable_scope_error(self):
         snapshot = _snapshot()
@@ -3093,6 +3258,25 @@ class Json2WriteExecutorTests(unittest.TestCase):
         self.assertEqual(payload["ids"], [41, 42, 43])
         self.assertEqual(payload["vals"], {"customer_rank": 1})
 
+    def test_stronger_target_can_use_more_than_fifty_create_rows(self):
+        def transport(_url, _headers, body, _timeout, _method):
+            payload = json.loads(body)
+            return 200, list(range(1, len(payload["vals_list"]) + 1))
+
+        executor = Json2WriteExecutor(
+            self.executor.config,
+            self.scope,
+            transport=transport,
+        )
+        rows = tuple(
+            {"name": f"Contact {index}"}
+            for index in range(51)
+        )
+
+        identifiers = executor.create_rows("res.partner", rows)
+
+        self.assertEqual(len(identifiers), 51)
+
     def test_bulk_lookup_uses_one_bounded_or_query_and_returns_positional_matches(self):
         calls = []
 
@@ -3200,7 +3384,7 @@ class Json2WriteExecutorTests(unittest.TestCase):
         with self.assertRaises(OdooWriteRejected):
             self.executor.create_rows(
                 "res.partner",
-                tuple({"name": f"Contact {index}"} for index in range(51)),
+                tuple({"name": f"Contact {index}"} for index in range(1001)),
             )
 
     def test_native_update_sends_one_exact_id_and_reviewed_scalar_values(self):

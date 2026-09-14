@@ -315,7 +315,18 @@
         try {
           payload = await readMutationReceipt(operation.operationId);
         } catch (_error) {
-          return showUnknownOutcome(operation);
+          const remainingMs = receiptDeadline - Date.now();
+          if (remainingMs <= 0) {
+            return showUnknownOutcome(operation);
+          }
+          unresolvedOperation = operation;
+          if (saveStatus) {
+            saveStatus.textContent =
+              "Still waiting for the save outcome. Reconnecting...";
+            saveStatus.classList.remove("unsaved");
+          }
+          await wait(Math.min(receiptPollMs, remainingMs));
+          continue;
         }
         if (!payload.operation_id) {
           payload.operation_id = operation.operationId;

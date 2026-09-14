@@ -43,6 +43,14 @@ in bounded model pages. Every key must still be unique and must produce the
 same opaque binding. A missing, ambiguous, or retargeted key sends the data
 manager back to **Check changes** before the first Odoo write.
 
+When a remote create refers to another incoming row, execution chooses the
+relationship identity from that row's reviewed disposition. A newly created
+dependency uses its deterministic External ID after the create receipt is
+journalled. An existing dependency classified as `UPDATE` or `UNCHANGED` uses
+the numeric ID from the already validated runtime crosswalk. This choice adds
+no lookup request and does not place a numeric Odoo ID in the portable
+execution snapshot.
+
 For Odoo-to-Odoo creates, execution also bulk-checks every reviewed business
 key immediately before journaling. If any key classified as new now exists,
 the transfer stops with no journal and no write. New rows carry deterministic
@@ -157,6 +165,10 @@ model, identity, and exact requested field scope. Rows for the same model but
 different field sets are read in separate bounded groups. It proves final
 scalar and relationship values, publishes new immutable evidence, and never
 edits the execution journal.
+
+Odoo serializes an unset many-to-one value as `false`. Exact-key read-back
+treats that value as equal to the reviewed empty value while retaining strict
+comparison for booleans, numeric values, text, and populated relationships.
 
 Workspace schema version 14 permits multiple immutable reconciliation rows for
 one execution run. The execution's current-result pointer moves only after a

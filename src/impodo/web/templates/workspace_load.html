@@ -273,8 +273,8 @@
           <summary>Advanced settings</summary>
           <label>
             Records per Odoo batch
-            <input type="number" name="batch_rows" min="1" max="50" step="1" value="10" required>
-            <small>Keep 10 unless support recommends another value. This changes request size, not the total records loaded.</small>
+            <input type="number" name="batch_rows" min="1" max="{{ max_batch_rows }}" step="1" value="10" required>
+            <small>Use 10 for constrained hosted servers. A tested self-hosted server can use a larger value. This changes request size, not the total records loaded.</small>
           </label>
         </details>
         <div class="button-row">
@@ -314,16 +314,23 @@
           <h2 id="load-result-title">
             {% if reconciliation.status.value == 'FALLOUT' %}
               Odoo accepted {{ reconciliation_summary.accepted_count }} written record{{ 's' if reconciliation_summary.accepted_count != 1 else '' }}, but {{ reconciliation.fallout_count }} need review
-            {% else %}
+            {% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}
               {{ reconciliation.verified_count }} verified &middot;
-              {{ reconciliation.fallout_count }} need review &middot;
-              {{ reconciliation.unknown_count }} unknown
+              {{ reconciliation_summary.known_review_count }} need review &middot;
+              {{ reconciliation.unknown_count }} verification unknown
+            {% else %}
+              {{ reconciliation.verified_count }} verified in Odoo
             {% endif %}
           </h2>
           {% if reconciliation.status.value == 'VERIFIED' %}
             <p>Odoo now matches every field in the confirmed load review. Records needing no change are included in the verified total.</p>
           {% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}
-            <p>Impodo re-matched uncertain writes where possible. Do not load this review again; the remaining unknown outcomes still need investigation.</p>
+            {% if reconciliation_summary.uncertain_write_count %}
+              <p>Impodo re-matched uncertain writes where possible. Do not load this review again; the remaining unknown outcomes still need investigation.</p>
+            {% else %}
+              <p>Impodo could not verify every saved outcome against Odoo. Do not load this review again; the unknown outcomes still need investigation.</p>
+            {% endif %}
+            <p><strong>{{ reconciliation_summary.different_count }} different &middot; {{ reconciliation_summary.missing_count }} missing &middot; {{ reconciliation_summary.not_written_count }} not written &middot; {{ reconciliation_summary.unknown_count }} unknown.</strong></p>
           {% else %}
             {% if reconciliation_summary.missing_count == 0 and reconciliation_summary.not_written_count == 0 and reconciliation_summary.unknown_count == 0 %}
               <p>These records were not rejected. Odoo accepted the write, then returned a different final value in {{ reconciliation_summary.affected_field_count }} field{{ 's' if reconciliation_summary.affected_field_count != 1 else '' }}.</p>

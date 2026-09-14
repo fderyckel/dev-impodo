@@ -32,6 +32,7 @@ from impodo.domain.shared.models import (
     Classification,
     FieldDifference,
     LogicalReference,
+    canonical_json_bytes,
 )
 from impodo.domain.execution.planner import plan_metadata_requests, plan_record_requests
 from impodo.adapters.artifacts.profile_loader import load_profile
@@ -83,6 +84,28 @@ def _execution_fixture():
 
 
 class ExecutionSnapshotTests(unittest.TestCase):
+    def test_semantic_hash_is_memoized_for_immutable_snapshot(self) -> None:
+        frozen, result = _execution_fixture()
+        snapshot = replace(
+            build_execution_snapshot(
+                preflight_run_id=str(uuid4()),
+                frozen=frozen,
+                result=result,
+            )
+        )
+
+        with patch(
+            "impodo.domain.execution_snapshot.canonical_json_bytes",
+            wraps=canonical_json_bytes,
+        ) as canonicalize:
+            first = snapshot.semantic_hash
+            calls_after_first_access = canonicalize.call_count
+            second = snapshot.semantic_hash
+
+        self.assertEqual(first, second)
+        self.assertGreater(calls_after_first_access, 0)
+        self.assertEqual(canonicalize.call_count, calls_after_first_access)
+
     def test_snapshot_binds_remote_read_generation_and_probe_evidence(self) -> None:
         frozen, result = _execution_fixture()
         frozen.captured_schema = SimpleNamespace(

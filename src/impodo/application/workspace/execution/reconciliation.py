@@ -618,7 +618,7 @@ class ReconciliationService:
         by_source: Mapping[tuple[str, str], ExecutionRow],
         resolved_ids: Mapping[str, int],
         reader: OdooReadbackReader,
-    ) -> dict[tuple[str, tuple[tuple[str, str, Any], ...]], int | None]:
+    ) -> dict[tuple[str, tuple[tuple[str, str, Any], ...]], tuple[int, ...]]:
         """Resolve every relationship key in bounded model batches."""
 
         requested: dict[
@@ -654,7 +654,7 @@ class ReconciliationService:
 
         cache: dict[
             tuple[str, tuple[tuple[str, str, Any], ...]],
-            int | None,
+            tuple[int, ...],
         ] = {}
         for model, lookups_by_domain in requested.items():
             items = tuple(lookups_by_domain.items())
@@ -673,8 +673,8 @@ class ReconciliationService:
                     results,
                     strict=True,
                 ):
-                    cache[(model, domain)] = (
-                        matches[0].odoo_id if len(matches) == 1 else None
+                    cache[(model, domain)] = tuple(
+                        match.odoo_id for match in matches
                     )
         return cache
 
@@ -781,7 +781,7 @@ class ReconciliationService:
         resolved_ids: Mapping[str, int],
         identity_cache: dict[
             tuple[str, tuple[tuple[str, str, Any], ...]],
-            int | None,
+            tuple[int, ...],
         ],
         *,
         difference_sink: list[ReconciliationFieldDifference] | None = None,
@@ -939,7 +939,7 @@ class ReconciliationService:
         resolved_ids: Mapping[str, int],
         identity_cache: dict[
             tuple[str, tuple[tuple[str, str, Any], ...]],
-            int | None,
+            tuple[int, ...],
         ],
     ) -> Any:
         if intent.action == "SET_NULL":
@@ -980,7 +980,7 @@ class ReconciliationService:
         resolved_ids: Mapping[str, int],
         identity_cache: dict[
             tuple[str, tuple[tuple[str, str, Any], ...]],
-            int | None,
+            tuple[int, ...],
         ],
     ) -> int:
         if isinstance(value, LogicalReference) and value.origin == "incoming":
@@ -1023,16 +1023,24 @@ class ReconciliationService:
         domain: tuple[tuple[str, str, Any], ...],
         cache: dict[
             tuple[str, tuple[tuple[str, str, Any], ...]],
-            int | None,
+            tuple[int, ...],
         ],
     ) -> int:
         cache_key = (model, domain)
-        identifier = cache.get(cache_key)
-        if identifier is None:
+        identifiers = cache.get(cache_key)
+        if identifiers is None:
             raise WorkspaceError(
-                "A related Odoo business key no longer matches one record"
+                "A related Odoo business key could not be checked"
             )
-        return identifier
+        if not identifiers:
+            raise WorkspaceError(
+                "A related Odoo business key no longer matches any record"
+            )
+        if len(identifiers) > 1:
+            raise WorkspaceError(
+                "A related Odoo business key now matches more than one record"
+            )
+        return identifiers[0]
 
 
 def _require_matching_write_identity(

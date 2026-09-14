@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import unittest
+from unittest.mock import patch
 
 from impodo.adapters.odoo.connectors import (
     Json2Config,
@@ -647,6 +648,28 @@ class Json2ConnectorTests(unittest.TestCase):
                 [MetadataRequest("x.model", ("name",))]
             )
         self.assertNotIn("super-secret-token", str(caught.exception))
+
+    def test_default_transport_does_not_reserialize_bounded_response(self) -> None:
+        connector = Json2ReadConnector(self.config())
+
+        with (
+            patch(
+                "impodo.adapters.odoo.connectors._urllib_transport",
+                return_value=(200, {"rows": [1, 2, 3]}),
+            ),
+            patch(
+                "impodo.adapters.odoo.connectors.canonical_json_bytes",
+                side_effect=AssertionError("response was reserialized"),
+            ),
+        ):
+            status, payload = connector._request_url(
+                "https://odoo.example.test/web/version",
+                method="GET",
+                body=None,
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, {"rows": [1, 2, 3]})
 
     def test_connector_has_no_public_write_or_generic_rpc_surface(self) -> None:
         public = {

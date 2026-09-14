@@ -354,43 +354,51 @@ def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJ
         ExecutionRowStatus.COMMITTED,
         ExecutionRowStatus.PARTIALLY_APPLIED,
     }
-    relationship_pending_count = sum(
-        row.status is ExecutionRowStatus.PARTIALLY_APPLIED for row in run.rows
-    )
-    completed_rows = sum(
-        row.status
-        not in {
-            ExecutionRowStatus.PLANNED,
-            ExecutionRowStatus.IN_FLIGHT,
-            ExecutionRowStatus.RETRY_READY,
-            ExecutionRowStatus.PARTIALLY_APPLIED,
-        }
-        for row in run.rows
-    )
-    created_count = sum(
-        row.operation == "CREATE" and row.status in committed for row in run.rows
-    )
-    updated_count = sum(
-        row.operation == "UPDATE" and row.status is ExecutionRowStatus.COMMITTED
-        for row in run.rows
-    )
+    unfinished_statuses = {
+        ExecutionRowStatus.PLANNED,
+        ExecutionRowStatus.IN_FLIGHT,
+        ExecutionRowStatus.RETRY_READY,
+    }
+    incomplete_statuses = unfinished_statuses | {
+        ExecutionRowStatus.PARTIALLY_APPLIED,
+    }
     attention_statuses = {
         ExecutionRowStatus.FAILED,
         ExecutionRowStatus.BLOCKED,
         ExecutionRowStatus.OUTCOME_UNKNOWN,
     }
-    attention_count = sum(row.status in attention_statuses for row in run.rows)
+    relationship_pending_count = 0
+    completed_rows = 0
+    created_count = 0
+    updated_count = 0
+    attention_count = 0
+    unfinished_first_pass = 0
+    scheduled_component_set: set[int] = set()
+    active_components: set[int] = set()
+    # Progress used to scan the complete journal independently for every
+    # counter.  Keep one pass so even a deliberately coarse progress snapshot
+    # has linear work with a small constant.
+    for row in run.rows:
+        status = row.status
+        component = getattr(row, "schedule_component", -1)
+        if status is ExecutionRowStatus.PARTIALLY_APPLIED:
+            relationship_pending_count += 1
+        if status not in incomplete_statuses:
+            completed_rows += 1
+        if row.operation == "CREATE" and status in committed:
+            created_count += 1
+        if row.operation == "UPDATE" and status is ExecutionRowStatus.COMMITTED:
+            updated_count += 1
+        if status in attention_statuses:
+            attention_count += 1
+        if status in unfinished_statuses:
+            unfinished_first_pass += 1
+        if component >= 0:
+            scheduled_component_set.add(component)
+            if status in unfinished_statuses:
+                active_components.add(component)
     if run.status is not ExecutionRunStatus.RUNNING:
         attention_count += relationship_pending_count
-    unfinished_first_pass = sum(
-        row.status
-        in {
-            ExecutionRowStatus.PLANNED,
-            ExecutionRowStatus.IN_FLIGHT,
-            ExecutionRowStatus.RETRY_READY,
-        }
-        for row in run.rows
-    )
     effective_phase = (
         LoadPhase.RELATIONSHIPS
         if phase is LoadPhase.WRITING
@@ -420,27 +428,8 @@ def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJ
             89,
             82 + round(7 * max(0.0, min(1.0, relationship_fraction))),
         )
-    scheduled_components = tuple(
-        sorted(
-            {
-                getattr(row, "schedule_component", -1)
-                for row in run.rows
-                if getattr(row, "schedule_component", -1) >= 0
-            }
-        )
-    )
+    scheduled_components = tuple(sorted(scheduled_component_set))
     group_count = max(job.load_group_count, len(scheduled_components))
-    active_components = {
-        getattr(row, "schedule_component", -1)
-        for row in run.rows
-        if getattr(row, "schedule_component", -1) >= 0
-        and row.status
-        in {
-            ExecutionRowStatus.PLANNED,
-            ExecutionRowStatus.IN_FLIGHT,
-            ExecutionRowStatus.RETRY_READY,
-        }
-    }
     if active_components:
         active_component = min(active_components)
         group_number = scheduled_components.index(active_component) + 1

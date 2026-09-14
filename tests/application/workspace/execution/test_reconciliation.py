@@ -215,6 +215,23 @@ def _run(snapshot, statuses=None):
 
 
 class ReconciliationServiceTests(unittest.TestCase):
+    def test_related_key_lookup_distinguishes_missing_and_ambiguous(self):
+        domain = (("name", "=", "Category"),)
+        key = ("product.category", domain)
+
+        with self.assertRaisesRegex(WorkspaceError, "matches any record"):
+            ReconciliationService._find_unique(
+                "product.category",
+                domain,
+                {key: ()},
+            )
+        with self.assertRaisesRegex(WorkspaceError, "more than one record"):
+            ReconciliationService._find_unique(
+                "product.category",
+                domain,
+                {key: (41, 42)},
+            )
+
     def _service(self, snapshot, run):
         results = _Results()
         service = ReconciliationService(
@@ -1058,6 +1075,35 @@ class Json2ReadbackReaderTests(unittest.TestCase):
         )
         self.assertEqual(tuple(item[0].odoo_id for item in results), (41, 42))
         self.assertEqual(results[0][0].values, {"name": "First"})
+
+    def test_matches_odoo_false_to_reviewed_empty_many2one_scope(self):
+        def transport(url, headers, body, timeout, method):
+            del headers, timeout, method
+            payload = json.loads(body)
+            self.calls.append((url, payload))
+            return 200, [
+                {
+                    "id": 42,
+                    "company_id": False,
+                    "ref": "ROOT",
+                }
+            ]
+
+        reader = replace(self.reader, transport=transport)
+        results = reader.find_records_many(
+            "res.partner",
+            (
+                ReadbackLookup(
+                    (("ref", "=", "ROOT"), ("company_id", "=", None)),
+                ),
+            ),
+        )
+
+        self.assertEqual(tuple(item.odoo_id for item in results[0]), (42,))
+        self.assertEqual(
+            self.calls[-1][1]["domain"],
+            ["&", ["ref", "=", "ROOT"], ["company_id", "=", None]],
+        )
 
     def test_rejects_an_unrequested_record(self):
         def transport(*_args):

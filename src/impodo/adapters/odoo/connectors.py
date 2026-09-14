@@ -394,6 +394,7 @@ class Json2ReadConnector:
         """
 
         self._config = config
+        self._transport_bounds_response_bytes = transport is None
         self._transport = transport or (
             lambda url, headers, body, timeout, method: _urllib_transport(
                 url,
@@ -1025,7 +1026,16 @@ class Json2ReadConnector:
                     self._config.timeout_seconds,
                     method,
                 )
-                if len(canonical_json_bytes(payload)) > self._config.max_response_bytes:
+                # The production transport already bounds the raw body before
+                # parsing it.  Re-serializing a large parsed response here was
+                # both less accurate and expensive.  Keep the canonicalized
+                # guard for injected transports, whose byte handling is
+                # intentionally unknown.
+                if (
+                    not self._transport_bounds_response_bytes
+                    and len(canonical_json_bytes(payload))
+                    > self._config.max_response_bytes
+                ):
                     raise ConnectorIncompleteResultError(
                         "JSON-2 response exceeds the safe limit"
                     )

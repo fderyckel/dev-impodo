@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import tempfile
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.domain.shared.access import LOCAL_ACTOR
@@ -206,6 +207,78 @@ class ExecutionRepositoryTests(unittest.TestCase):
                 """
             ).fetchall()
         self.assertEqual(events, [("ODOO_LOAD_STARTED",), ("ODOO_LOAD_FINISHED",)])
+
+    def test_hot_write_transitions_validate_full_schema_once(self) -> None:
+        run = self._run()
+        self.repository.start_run(
+            self.workspace_state.workspace_id,
+            run,
+            actor=LOCAL_ACTOR,
+        )
+        original = self.repository._ensure_workspace_database_schema
+
+        with patch.object(
+            self.repository,
+            "_ensure_workspace_database_schema",
+            wraps=original,
+        ) as validate_schema:
+            create = self._start_batch(
+                run,
+                (run.rows[0],),
+                phase="CREATE",
+                batch=0,
+            )[0]
+            self.repository.record_outcomes(
+                self.workspace_state.workspace_id,
+                run.run_id,
+                (
+                    replace(
+                        create,
+                        status=ExecutionRowStatus.COMMITTED,
+                        odoo_id=42,
+                    ),
+                ),
+            )
+
+        self.assertEqual(validate_schema.call_count, 1)
+
+    def test_cached_schema_does_not_bypass_closed_workspace_guard(self) -> None:
+        run = self._run()
+        self.repository.start_run(
+            self.workspace_state.workspace_id,
+            run,
+            actor=LOCAL_ACTOR,
+        )
+        create = self._start_batch(
+            run,
+            (run.rows[0],),
+            phase="CREATE",
+            batch=0,
+        )[0]
+        path = (
+            self.workspace_states.workspace_directory(
+                self.workspace_state.workspace_id
+            )
+            / "workspace-engine.duckdb"
+        )
+        with self.workspace_states._connect(path) as connection:
+            connection.execute(
+                "UPDATE workspace_projection_cache SET status = 'CLOSED' "
+                "WHERE singleton_id = 1"
+            )
+
+        with self.assertRaisesRegex(WorkspaceError, "closed and read-only"):
+            self.repository.record_outcomes(
+                self.workspace_state.workspace_id,
+                run.run_id,
+                (
+                    replace(
+                        create,
+                        status=ExecutionRowStatus.COMMITTED,
+                        odoo_id=42,
+                    ),
+                ),
+            )
 
     def test_correction_run_uses_exact_update_ids_without_preflight_pointer(self):
         run = self._run()

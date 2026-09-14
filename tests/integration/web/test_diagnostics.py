@@ -680,7 +680,7 @@ class ApplicationRequestDiagnosticTests(unittest.TestCase):
                 )
                 projects = client.get("/projects")
                 self.assertIn("/static/server-recovery.js", projects.text)
-                self.assertIn("Impodo is not responding", projects.text)
+                self.assertIn("data-server-recovery-title", projects.text)
                 self.assertIn("Create diagnostic bundle", projects.text)
                 health = client.get("/health")
                 csrf_token = _csrf(projects.text)
@@ -873,6 +873,27 @@ class ServerSupervisorTests(unittest.TestCase):
                 second.join(timeout=30)
                 self.assertFalse(second.is_alive())
                 self.assertEqual(second.exitcode, 0)
+                records = [
+                    json.loads(line)
+                    for line in (
+                        directory / "diagnostics" / DIAGNOSTIC_LOG_NAME
+                    ).read_text(encoding="utf-8").splitlines()
+                ]
+                for child in children:
+                    child_records = [
+                        record for record in records
+                        if record.get("process_id") == child.pid
+                    ]
+                    events = {record["event"] for record in child_records}
+                    self.assertTrue(
+                        {
+                            "application_started",
+                            "request_completed",
+                            "application_stopped",
+                            "server_process_stopped",
+                        }.issubset(events),
+                        events,
+                    )
             finally:
                 for child in children:
                     if child.is_alive():

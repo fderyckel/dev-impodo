@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 import re
+from threading import RLock
 from typing import Sequence
 from uuid import UUID
 
@@ -30,6 +32,37 @@ class ExecutionRepository(DuckDbRepository):
 
     def __init__(self, database: DuckDbWorkspaceDatabase) -> None:
         super().__init__(database)
+        self._validated_execution_schema_paths: set[Path] = set()
+        self._execution_schema_lock = RLock()
+
+    def _ensure_execution_schema_once(
+        self,
+        database_path: Path,
+        connection,
+    ) -> None:
+        """Fully validate a workspace schema once per repository lifetime.
+
+        The application owns these databases exclusively while it is running.
+        Repeating SHOW TABLES and every PRAGMA column check before both halves
+        of every Odoo write adds substantial local work without strengthening
+        the per-call durability boundary.
+        """
+
+        with self._execution_schema_lock:
+            if database_path in self._validated_execution_schema_paths:
+                return
+            self._ensure_workspace_database_schema(connection)
+            self._validated_execution_schema_paths.add(database_path)
+
+    @staticmethod
+    def _assert_mutable_connection(connection) -> None:
+        row = connection.execute(
+            "SELECT status FROM workspace_projection_cache WHERE singleton_id = 1"
+        ).fetchone()
+        if row is None:
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        if str(row[0]) == "CLOSED":
+            raise WorkspaceError("This MigrationWorkspace is closed and read-only")
 
     def start_run(
         self,
@@ -228,7 +261,6 @@ class ExecutionRepository(DuckDbRepository):
 
         if not rows:
             return
-        self._assert_workspace_mutable(workspace_id)
         try:
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
@@ -248,9 +280,10 @@ class ExecutionRepository(DuckDbRepository):
             raise WorkspaceError("Execution outcome is invalid")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_workspace_database_schema(connection)
+            self._ensure_execution_schema_once(database_path, connection)
             connection.begin()
             try:
+                self._assert_mutable_connection(connection)
                 run_status = connection.execute(
                     "SELECT status FROM execution_run WHERE run_id = ?",
                     [canonical_run_id],
@@ -383,7 +416,6 @@ class ExecutionRepository(DuckDbRepository):
 
         if not rows:
             raise WorkspaceError("Execution transport batch is empty")
-        self._assert_workspace_mutable(workspace_id)
         try:
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
@@ -408,9 +440,10 @@ class ExecutionRepository(DuckDbRepository):
             raise WorkspaceError("Execution transport batch is invalid")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect(database_path) as connection:
-            self._ensure_workspace_database_schema(connection)
+            self._ensure_execution_schema_once(database_path, connection)
             connection.begin()
             try:
+                self._assert_mutable_connection(connection)
                 run_status = connection.execute(
                     "SELECT status FROM execution_run WHERE run_id = ?",
                     [canonical_run_id],

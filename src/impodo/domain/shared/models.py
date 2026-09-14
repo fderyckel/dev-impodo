@@ -370,6 +370,12 @@ class PreflightResult:
     reference_resolutions: tuple[ReferenceResolution, ...]
     issues: tuple[Issue, ...]
     metadata_coverage: tuple[Mapping[str, Any], ...] = ()
+    _semantic_hash_cache: str = field(
+        default="",
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def counts(self) -> dict[str, int]:
@@ -388,8 +394,13 @@ class PreflightResult:
     def semantic_hash(self) -> str:
         """Hash the complete portable result payload excluding the hash itself."""
 
+        cached = self._semantic_hash_cache
+        if cached:
+            return cached
         payload = self.to_portable_dict(include_hash=False)
-        return "sha256:" + sha256(canonical_json_bytes(payload)).hexdigest()
+        value = "sha256:" + sha256(canonical_json_bytes(payload)).hexdigest()
+        object.__setattr__(self, "_semantic_hash_cache", value)
+        return value
 
     def to_portable_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
         """Serialize the result deterministically for manifests and hashing.

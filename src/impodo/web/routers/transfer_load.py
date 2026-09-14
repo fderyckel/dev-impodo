@@ -25,7 +25,10 @@ from impodo.application.workspace.execution.service import (
     validated_create_batch_rows,
 )
 from impodo.domain.errors import ReadinessError
-from impodo.domain.execution.models import ExecutionRunStatus
+from impodo.domain.execution.models import (
+    ExecutionRunStatus,
+    MAX_CREATE_BATCH_ROWS,
+)
 from impodo.domain.execution.odoo_readback import OdooReadbackError
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.shared.access import AuthorizationError, Capability
@@ -248,6 +251,7 @@ def _render_transfer(
         transfer_preflight_current=current_preflight,
         transfer_snapshot=snapshot,
         transfer_run=run,
+        max_batch_rows=MAX_CREATE_BATCH_ROWS,
         reconciliation=reconciliation,
         transfer_dataset_rows=_dataset_rows(package, run, reconciliation),
         destination_credential_status=get_target_credential_status(

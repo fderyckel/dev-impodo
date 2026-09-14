@@ -24,7 +24,21 @@ from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
+from .constants import DUCKDB_JSON_BATCH_MAX_BYTES
 from .repository import DuckDbRepository
+from .serialization import iter_encoded_json_batches
+
+
+_ROW_JSON_STRUCTURE = canonical_json([{
+    "ordinal": "BIGINT",
+    "dataset_id": "VARCHAR",
+    "dataset_name": "VARCHAR",
+    "source_row": "BIGINT",
+    "values_json": "VARCHAR",
+    "outcome": "VARCHAR",
+    "rule_sentence": "VARCHAR",
+    "message": "VARCHAR",
+}])
 
 
 class RowInclusionReviewRepository(DuckDbRepository):
@@ -494,37 +508,42 @@ class RowInclusionReviewRepository(DuckDbRepository):
 
     @staticmethod
     def _insert_rows(connection, snapshot_hash: str, rows) -> None:
-        batch = []
-        for ordinal, row in enumerate(rows):
-            batch.append(
-                [
-                    snapshot_hash,
-                    ordinal,
-                    row.dataset_id,
-                    row.dataset_name,
-                    row.source_row,
-                    canonical_json([asdict_value(item) for item in row.values]),
-                    row.outcome.value,
-                    row.rule_sentence,
-                    row.message,
-                ]
-            )
-            if len(batch) == 1_000:
-                connection.executemany(
-                    """
-                    INSERT INTO mapping_row_inclusion_review_row
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    batch,
-                )
-                batch.clear()
-        if batch:
-            connection.executemany(
+        """Insert bounded JSON batches within the caller's transaction."""
+
+        transport_rows = (
+            {
+                "ordinal": ordinal,
+                "dataset_id": row.dataset_id,
+                "dataset_name": row.dataset_name,
+                "source_row": row.source_row,
+                "values_json": canonical_json([
+                    asdict_value(item) for item in row.values
+                ]),
+                "outcome": row.outcome.value,
+                "rule_sentence": row.rule_sentence,
+                "message": row.message,
+            }
+            for ordinal, row in enumerate(rows)
+        )
+        for batch in iter_encoded_json_batches(
+            transport_rows,
+            max_rows=1_000,
+            max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+        ):
+            connection.execute(
                 """
-                INSERT INTO mapping_row_inclusion_review_row
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO mapping_row_inclusion_review_row (
+                    snapshot_hash, ordinal, dataset_id, dataset_name,
+                    source_row, values_json, outcome, rule_sentence, message
+                )
+                SELECT ?, item.ordinal, item.dataset_id, item.dataset_name,
+                       item.source_row, item.values_json, item.outcome,
+                       item.rule_sentence, item.message
+                  FROM (
+                    SELECT unnest(from_json_strict(CAST(? AS JSON), ?)) AS item
+                  )
                 """,
-                batch,
+                [snapshot_hash, batch.payload, _ROW_JSON_STRUCTURE],
             )
 
     @staticmethod

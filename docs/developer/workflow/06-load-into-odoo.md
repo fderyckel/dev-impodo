@@ -236,6 +236,13 @@ hash proves that a still-unique key did not silently retarget to a different
 Odoo record. Numeric Odoo IDs remain runtime-only. Failure returns to **Check
 changes** without creating a run or sending an Odoo write.
 
+For a remote many-to-one import, `ExecutionService` uses the dependency row's
+reviewed disposition to choose the import identity. A `CREATE` dependency uses
+its deterministic External ID after the receipt barrier. An `UPDATE` or
+`UNCHANGED` dependency uses its ID from the same prevalidated runtime
+crosswalk. This branch performs a dictionary lookup and does not add an Odoo
+request, a row hash, or persisted execution evidence.
+
 The accepted [scalable relationship dependency
 plan](../../plans/scalable-relationship-dependency-planning.md) now provides
 immutable row-edge and schedule evidence, exact cycle classification, bounded

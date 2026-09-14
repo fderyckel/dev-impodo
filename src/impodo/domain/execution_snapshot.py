@@ -283,6 +283,12 @@ class ExecutionSnapshot:
     read_context_hash: str = ""
     readable_models: tuple[str, ...] = ()
     contract_version: int = EXECUTION_SNAPSHOT_VERSION
+    _semantic_hash_cache: str = dataclass_field(
+        default="",
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def write_count(self) -> int:
@@ -370,9 +376,17 @@ class ExecutionSnapshot:
 
     @property
     def semantic_hash(self) -> str:
-        return "sha256:" + sha256(
+        cached = self._semantic_hash_cache
+        if cached:
+            return cached
+        value = "sha256:" + sha256(
             canonical_json_bytes(self.portable_dict(include_hash=False))
         ).hexdigest()
+        # ExecutionSnapshot is an immutable value object.  Memoizing its
+        # digest avoids rebuilding and canonicalizing a multi-megabyte object
+        # graph every time a page checks the same published evidence.
+        object.__setattr__(self, "_semantic_hash_cache", value)
+        return value
 
     def to_json(self) -> str:
         return canonical_json_bytes(self.portable_dict()).decode("utf-8")

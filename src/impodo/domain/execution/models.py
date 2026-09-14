@@ -11,7 +11,11 @@ import re
 from impodo.domain.shared.models import canonical_json_bytes
 
 
-MAX_CREATE_BATCH_ROWS = 50
+# This is a defensive process-level ceiling, not a recommended Odoo request
+# size.  The operator chooses the effective size for each load; constrained
+# hosted targets can remain at 10 while stronger/self-hosted targets can use a
+# larger batch without requiring a code change.
+MAX_CREATE_BATCH_ROWS = 1_000
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 

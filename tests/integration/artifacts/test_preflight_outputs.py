@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 import yaml
 
@@ -284,6 +285,21 @@ class PreflightClassificationTests(unittest.TestCase):
         self.assertNotIn("odoo_id", text)
         self.assertNotIn('"id":100', text)
         self.assertNotIn('"id":300', text)
+
+    def test_semantic_hash_is_memoized_for_immutable_result(self) -> None:
+        result = replace(self.result)
+
+        with patch(
+            "impodo.domain.shared.models.canonical_json_bytes",
+            wraps=canonical_json_bytes,
+        ) as canonicalize:
+            first = result.semantic_hash
+            calls_after_first_access = canonicalize.call_count
+            second = result.semantic_hash
+
+        self.assertEqual(first, second)
+        self.assertGreater(calls_after_first_access, 0)
+        self.assertEqual(canonicalize.call_count, calls_after_first_access)
 
     def test_repeated_run_is_byte_deterministic(self) -> None:
         first = canonical_json_bytes(self.result.to_portable_dict())
