@@ -25,6 +25,25 @@ MARKER = "__IMPODO_LOCAL_ODOO_JSON__"
 
 
 class LocalOdooMetadataReaderTests(unittest.TestCase):
+    def test_local_version_evidence_uses_the_shared_policy(self) -> None:
+        for version, info, allowed in (
+            ("19.0", [19, 0, 0, "final", 0, ""], True),
+            ("19.4", [19, 4, 0, "final", 0, ""], True),
+            ("19.5a1", [19, 5, 0, "alpha", 1, ""], True),
+            ("20.0", [20, 0, 0, "final", 0, ""], False),
+            ("19.0", [20, 0, 0, "final", 0, ""], False),
+            ("19.0", None, False),
+            ("unknown", [19, 0, 0, "final", 0, ""], False),
+        ):
+            with self.subTest(version=version, info=info):
+                payload = {"database": "odoo19_local", "version": version, "version_info": info}
+                reader = LocalOdooMetadataReader(runner=lambda *_: _result(payload))
+                if allowed:
+                    self.assertEqual(reader.get_target_fingerprint(self.workspace_state, self.profile).odoo_version, version)
+                else:
+                    with self.assertRaises(LocalOdooReaderError):
+                        reader.get_target_fingerprint(self.workspace_state, self.profile)
+
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")

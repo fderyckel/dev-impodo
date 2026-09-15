@@ -1577,6 +1577,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         bom_line_count: int,
         column_count: int,
         mapped_field_count: int,
+        dataset_names: tuple[str, str] = ("products", "bom_lines"),
     ) -> tuple[str, str, int]:
         """Create two direct datasets with a real Product/BOM resolver."""
 
@@ -1691,8 +1692,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         selection = self.context.sources.freeze_selection(
             registered_workspace_state.workspace_id,
             dataset_names={
-                (sources[0].file_id, "csv"): "products",
-                (sources[1].file_id, "csv"): "bom_lines",
+                (sources[0].file_id, "csv"): dataset_names[0],
+                (sources[1].file_id, "csv"): dataset_names[1],
             },
             actor=self.context.actor,
         )
@@ -1702,8 +1703,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             actor=self.context.actor,
         )
         datasets = {item.name: item for item in selection.datasets}
-        products = datasets["products"]
-        bom_lines = datasets["bom_lines"]
+        products = datasets[dataset_names[0]]
+        bom_lines = datasets[dataset_names[1]]
 
         product_fields = tuple(
             ScalarFieldMapping(
@@ -2352,6 +2353,51 @@ class BoundedPreparationParityTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def test_custom_model_quality_uses_verified_mapping_without_full_row_scan(self) -> None:
+        """Prove equivalent checks and fewer reads without recognizing a model."""
+
+        from impodo.domain.preparation.quality import QualityError
+
+        with patch(__name__ + "._target_model", return_value="x_custom.record"):
+            workspace_id, _, _ = PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self, row_count=7, column_count=5, mapped_field_count=5,
+            )
+        original = quality_module.build_bounded_quality_run
+        calls = []
+
+        def compare_quality_routes(**kwargs):
+            rows = kwargs["staging"].rows
+            original_iter = type(rows).__iter__
+            scanned = []
+
+            def count_rows(instance):
+                for row in original_iter(instance):
+                    scanned.append(row.row_id)
+                    yield row
+
+            with patch.object(type(rows), "__iter__", count_rows):
+                legacy = original(**{**kwargs, "definition": None})
+            self.assertEqual(len(scanned), 7)
+            with patch.object(type(rows), "__iter__", side_effect=AssertionError("full row scan")):
+                current = original(**kwargs)
+                for changes in (
+                    {"definition": replace(kwargs["definition"], mapping_id="stale-mapping")},
+                    {"staging": replace(kwargs["staging"], validated_content_hash=None)},
+                    {"published_staging_content_hash": "sha256:" + "e" * 64},
+                ):
+                    with self.assertRaises(QualityError):
+                        original(**{**kwargs, **changes})
+            self.assertEqual(tuple(current.row_results), tuple(legacy.row_results))
+            self.assertEqual(tuple(current.source_accounting), tuple(legacy.source_accounting))
+            self.assertEqual(current.issues, legacy.issues)
+            self.assertEqual(current.quarantine, legacy.quarantine)
+            calls.append(current)
+            return current
+
+        with patch.object(quality_module, "build_bounded_quality_run", compare_quality_routes):
+            self.context.preparation.prepare(workspace_id, actor=self.context.actor)
+        self.assertEqual(len(calls), 1)
+
     def test_mixed_dataset_storage_recovers_without_materialized_fallback(self) -> None:
         """Retry a failed mixed run and preserve the complete quality evidence."""
 
@@ -2397,8 +2443,19 @@ class BoundedPreparationParityTests(unittest.TestCase):
             )
 
         database_path = service.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        quality_builder = quality_module.build_bounded_quality_run
+
+        def indexed_quality_only(**kwargs):
+            # Both storage formats must use the same narrow quality route.
+            with patch.object(
+                type(kwargs["staging"].rows), "__iter__",
+                side_effect=AssertionError("quality reconstructed complete canonical rows"),
+            ):
+                return quality_builder(**kwargs)
+
         with (
             patch.object(bounded_preparation_module, "compile_columnar_transformation_programs", select_storage),
+            patch.object(quality_module, "build_bounded_quality_run", indexed_quality_only),
             patch.object(preparation_capability, "MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT", 10),
             patch.object(quality_module, "evaluate_quality", side_effect=AssertionError("whole-run quality fallback")),
             patch.object(normalization_module, "evaluate_normalization", side_effect=AssertionError("whole-run normalization fallback")),
@@ -2492,6 +2549,8 @@ class BoundedPreparationParityTests(unittest.TestCase):
 
         quality_transport_batches: dict[str, list[int]] = {
             "quality_rows": [],
+            "issues": [],
+            "quarantine": [],
             "source_entries": [],
             "source_links": [],
         }
@@ -2500,7 +2559,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
         def count_quality_batches(*args, **kwargs):
             for batch in original_quality_batches(*args, **kwargs):
                 keys = set(json.loads(batch.payload)[0])
-                if "effective_disposition" in keys:
+                if "issue_json" in keys:
+                    family = "issues"
+                elif "entry_json" in keys:
+                    family = "quarantine"
+                elif "effective_disposition" in keys:
                     family = "quality_rows"
                 elif "physical_dataset_id" in keys:
                     family = "source_entries"
@@ -2513,6 +2576,8 @@ class BoundedPreparationParityTests(unittest.TestCase):
 
         preparation_transport_batches: dict[str, list[int]] = {
             "canonical_rows": [],
+            "canonical_updates": [],
+            "issue_overlays": [],
             "identities": [],
             "lineage": [],
             "physical_rows": [],
@@ -2525,7 +2590,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
         def count_preparation_batches(*args, **kwargs):
             for batch in original_impact_batches(*args, **kwargs):
                 keys = set(json.loads(batch.payload)[0])
-                if "row_json" in keys:
+                if "finalized_duplicate" in keys:
+                    family = "canonical_updates"
+                elif "issue_json" in keys:
+                    family = "issue_overlays"
+                elif "row_json" in keys:
                     family = "canonical_rows"
                 elif "impact_json" in keys:
                     family = "impacts"
@@ -2592,6 +2661,8 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(quality_transport_batches["source_links"], [])
         canonical_batches = preparation_transport_batches["canonical_rows"]
         self.assertEqual(canonical_batches, [])
+        self.assertEqual(sum(preparation_transport_batches["canonical_updates"]), 2)
+        self.assertEqual(sum(preparation_transport_batches["issue_overlays"]), 2)
         for family in ("identities", "lineage", "physical_rows"):
             self.assertEqual(preparation_transport_batches[family], [])
         impact_batches = preparation_transport_batches["impacts"]

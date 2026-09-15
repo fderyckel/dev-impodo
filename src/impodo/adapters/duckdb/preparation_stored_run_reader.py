@@ -293,6 +293,26 @@ class PreparationStoredRunReader:
                 encoded = str(row_text)
                 if not encoded:
                     raise WorkspaceError("Stored direct preparation row is invalid")
+                # Verify canonical meaning at the publication boundary. Later
+                # quality checks can then use narrow facts without relying on
+                # a second full-row traversal to discover malformed evidence.
+                try:
+                    canonical = CanonicalRow.from_dict(json.loads(encoded))
+                except (AttributeError, TypeError, ValueError, KeyError) as error:
+                    raise WorkspaceError(
+                        "Stored direct preparation row is invalid"
+                    ) from error
+                if (
+                    canonical.row_id != str(row_id)
+                    or canonical.dataset != str(dataset)
+                    or canonical.source_row != int(source_row)
+                    or canonical.target_model != str(target_model)
+                    or canonical.disposition.value != str(disposition)
+                    or canonical.lineage.mapping_hash != bindings.mapping_hash
+                    or canonical.lineage.schema_hash != bindings.schema_hash
+                    or canonical.lineage.source_selection_hash != bindings.source_selection_hash
+                ):
+                    raise WorkspaceError("Stored direct preparation row bindings changed")
                 hasher.add_encoded_array_item(encoded)
                 expected_ordinal += 1
         hasher.end_array()

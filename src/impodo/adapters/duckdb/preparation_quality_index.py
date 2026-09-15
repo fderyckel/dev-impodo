@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import json
 
 from ...domain.staging.preparation_session import (
-    PreparationSessionStatus,
+    PreparationSessionStatus, PreparedCanonicalProjection,
 )
+from ...domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.workspace.errors import WorkspaceError
 from .constants import (
     PREPARATION_SESSION_ROW_BATCH_SIZE,
 )
+from .preparation_identity_group_quality import iter_identity_group_findings
 
 
 class PreparationQualityIndex:
@@ -501,6 +504,55 @@ class PreparationQualityIndex:
             except Exception:
                 connection.rollback()
                 raise
+
+    def _identity_group_findings(self, workspace_id, session_id, unsafe_row_ids, propagating_datasets):
+        """Keep the projection and work-queue connection local to lazy findings."""
+
+        canonical_session_id = self._session_id(session_id)
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        with self._connect_prepared(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            yield from iter_identity_group_findings(
+                connection, canonical_session_id, unsafe_row_ids, propagating_datasets,
+                native_projections=self._native_hybrid_dependency_projections(
+                    connection, workspace_id, canonical_session_id,
+                ),
+            )
+
+    def _native_hybrid_dependency_projections(self, connection, workspace_id, session_id):
+        """Rebuild native hybrid facts from verified relationship columns only."""
+
+        raw = connection.execute("""
+            SELECT projection.projection_json, manifest.manifest_json
+              FROM canonical_prepared_projection AS projection
+              JOIN prepared_snapshot_manifest AS manifest
+                ON manifest.content_hash = projection.prepared_snapshot_hash
+               AND manifest.dataset_id = projection.dataset_id
+             WHERE projection.run_id = ? AND EXISTS (
+                 SELECT 1 FROM canonical_staging_row AS row
+                  WHERE row.run_id = projection.run_id AND row.row_json = ''
+                    AND row.ordinal >= projection.ordinal_start
+                    AND row.ordinal < projection.ordinal_start + projection.row_count
+             ) ORDER BY projection.ordinal_start
+        """, [session_id]).fetchall()
+        for projection_json, snapshot_json in raw:
+            projection = PreparedCanonicalProjection.from_portable_dict(json.loads(str(projection_json)))
+            if not any(relationship.resolver_origin == "target_then_dataset"
+                       for relationship in projection.program.relationships):
+                continue
+            snapshot = PreparedSnapshot.from_json(str(snapshot_json))
+            if (snapshot.workspace_id != workspace_id or snapshot.dataset_id != projection.dataset_id
+                or snapshot.row_count != projection.row_count
+                or snapshot.transformation_program_hash != projection.program.content_hash
+                or snapshot.mapping_hash != projection.program.mapping_content_hash
+                or snapshot.schema_hash != projection.program.schema_hash):
+                raise WorkspaceError("Prepared canonical projection metadata changed")
+            if self._artifacts is None:
+                raise WorkspaceError("Prepared relationship artifacts are unavailable")
+            with self._artifacts.materialize_prepared_snapshot(
+                workspace_id, snapshot.parquet_storage_key, expected_sha256=snapshot.parquet_sha256,
+            ) as path:
+                yield projection, path
 
     def _iter_quality_index_batches(
         self,

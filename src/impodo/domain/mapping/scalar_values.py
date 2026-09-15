@@ -8,6 +8,7 @@ import re
 from typing import Any, Callable, Mapping
 
 from impodo.domain.recipe.value_rules import (
+    CompiledArithmeticFormula,
     MAX_RULE_OUTPUT_LENGTH,
     ScalarRuleError,
     ScalarTransformPolicy,
@@ -63,6 +64,7 @@ def evaluate_scalar_mapping_value(
     *,
     source_values_by_ordinal: Mapping[int, Any] | None = None,
     source_values_by_key: Mapping[str, Any] | None = None,
+    arithmetic_formula: CompiledArithmeticFormula | None = None,
     text_step_observer: Callable[[int, bool, bool], None] | None = None,
     selection_rule_observer: Callable[[int, bool, bool, bool], None]
     | None = None,
@@ -81,18 +83,32 @@ def evaluate_scalar_mapping_value(
             mapping,
             source_values_by_key or {},
         )
+    formula_context = None
+    if mapping.transform.formula.strip():
+        ordinals = source_values_by_ordinal or {}
+        if (
+            arithmetic_formula is not None
+            and arithmetic_formula.expression == mapping.transform.formula
+        ):
+            formula_context = {"value": selected_value}
+            for name in arithmetic_formula.input_names:
+                if name.startswith("column_") and name[7:].isdigit():
+                    ordinal = int(name[7:])
+                    if ordinal in ordinals:
+                        formula_context[name] = ordinals[ordinal]
+        else:
+            formula_context = {
+                "value": selected_value,
+                **{
+                    f"column_{ordinal}": value
+                    for ordinal, value in sorted(ordinals.items())
+                },
+            }
     return canonicalize_scalar_value(
         mapping,
         selected_value,
-        formula_context={
-            "value": selected_value,
-            **{
-                f"column_{ordinal}": value
-                for ordinal, value in sorted(
-                    (source_values_by_ordinal or {}).items()
-                )
-            },
-        },
+        formula_context=formula_context,
+        arithmetic_formula=arithmetic_formula,
         text_step_observer=text_step_observer,
     )
 
@@ -142,6 +158,7 @@ def canonicalize_scalar_value(
     raw_source_value: Any,
     *,
     formula_context: Mapping[str, Any] | None = None,
+    arithmetic_formula: CompiledArithmeticFormula | None = None,
     text_step_observer: Callable[[int, bool, bool], None] | None = None,
 ) -> str | int | Decimal | bool | date | datetime | None:
     """Apply one browser-authored value provider and transformation policy."""
@@ -186,6 +203,7 @@ def canonicalize_scalar_value(
                 raw_value,
                 mapping.transform,
                 formula_context=rule_context,
+                arithmetic_formula=arithmetic_formula,
                 text_step_observer=text_step_observer,
             )
         except ScalarRuleError as error:

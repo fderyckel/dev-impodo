@@ -15,6 +15,7 @@ from impodo.adapters.odoo.connectors import (
 from impodo.domain.odoo.contracts import (
     ConnectorAuthorizationError,
     ConnectorConfigurationError,
+    ConnectorError,
     ConnectorIncompleteResultError,
     ConnectorTransportError,
     MetadataRequest,
@@ -23,6 +24,38 @@ from impodo.domain.odoo.contracts import (
 
 
 class Json2ConnectorTests(unittest.TestCase):
+    def test_version_tuple_is_checked_without_changing_fingerprint_shape(self):
+        for version, info in (("19.0", [19, 0, 0, "final", 0, ""]),
+                              ("19.0+e", [19, 0, 0, "final", 0, "+e"]),
+                              ("19.0+e", [19, 0, 0, "final", 0, "e"]),
+                              ("19.5a1", [19, 5, 0, "alpha", 1, ""])):
+            with self.subTest(version=version):
+                connector = Json2ReadConnector(self.config(), transport=lambda *_: (
+                    200, {"version": version, "version_info": info},
+                ))
+                fingerprint = connector.get_target_fingerprint()
+                self.assertEqual(fingerprint.odoo_version, version)
+                self.assertEqual(set(fingerprint.portable_dict()), {
+                    "target_hash", "connection_mode", "database", "odoo_version",
+                    "snapshot_timestamp", "module_versions",
+                })
+
+    def test_invalid_version_evidence_stops_before_business_reads(self):
+        for payload in ({"version": "19.0", "version_info": [20, 0, 0, "final", 0, ""]},
+                        {"version": "19.0", "version_info": None},
+                        {"version": "19.garbage"}):
+            with self.subTest(payload=payload):
+                calls = []
+
+                def transport(url, *_):
+                    calls.append(url)
+                    return 200, payload
+
+                connector = Json2ReadConnector(self.config(), transport=transport)
+                with self.assertRaisesRegex(ConnectorError, "version evidence is invalid"):
+                    connector.get_records([RecordRequest("res.partner", ("name",))])
+                self.assertEqual(calls, ["https://odoo.example.test/web/version"])
+
     def config(self, **overrides):
         values = {
             "base_url": "https://odoo.example.test",

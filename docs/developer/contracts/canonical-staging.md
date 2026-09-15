@@ -86,6 +86,17 @@ bound evidence. Readers reject an unsupported version or malformed hash. They
 also reject mismatched row lineage, duplicate row IDs, incomplete accounting,
 inconsistent blocking status, numeric Odoo IDs, or a changed content hash.
 
+New native prepared projections use `PreparedCanonicalProjection` contract 4.
+Their symbolic references use the same sorted properties and omission of empty
+optional metadata as the canonical Python serializer. Constant references read
+their prepared literal columns in the declared business-key order.
+
+Readers also support projection contract 3 and reconstruct its original
+reference bytes. Historical projected rows may have a different property order
+and retain empty optional metadata. Readers verify the original stored hash
+without rewriting that evidence. Changing a saved projection's version cannot
+authorize a new content hash; unsupported projection versions are rejected.
+
 Mapping preview and full evaluation must share the same scalar-provider,
 formula, transformation, parsing, and validation semantics. Client-side
 feedback remains advisory until the server publishes checked evidence.

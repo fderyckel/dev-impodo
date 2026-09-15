@@ -1,4 +1,8 @@
-"""Possible-duplicate review routes for Slice 6 effective data."""
+"""Review possible duplicates and field choices before preparing effective data.
+
+Routes delegate saved decisions to the resolution service and enqueue renewed
+preparation after confirmation so downstream evidence reflects those choices.
+"""
 
 from __future__ import annotations
 

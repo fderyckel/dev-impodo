@@ -220,4 +220,4 @@ cancellation, lineage, and both navigation variants.
 - [Project lifecycle contract](../contracts/project-lifecycle.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
 - [Related-table authoring](../../user/guides/related-tables.md)
-- [Multi-column hierarchy design](../../plans/multi-column-hierarchical-related-records.md)
+- [Related-table authoring guide](../../user/guides/related-tables.md)

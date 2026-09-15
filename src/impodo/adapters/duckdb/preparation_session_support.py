@@ -111,6 +111,8 @@ class PreparationSessionViewRepository(Protocol):
 
     def _bounded_relationship_findings(self, *args, **kwargs): ...
 
+    def _identity_group_findings(self, *args, **kwargs): ...
+
     def _iter_quality_index_batches(self, *args, **kwargs): ...
 
     def _iter_accounting_index_batches(self, *args, **kwargs): ...
@@ -248,6 +250,13 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
             self._session_id,
             unsafe_row_ids,
             propagating_datasets,
+        )
+
+    def bounded_identity_group_findings(self, unsafe_row_ids, propagating_datasets):
+        """Project symbolic identities and keep readiness propagation durable."""
+
+        return self._repository._identity_group_findings(
+            self._workspace_id, self._session_id, unsafe_row_ids, propagating_datasets,
         )
 
     def iter_quality_index_batches(self, connection, batch_size: int):

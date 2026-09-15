@@ -56,6 +56,11 @@ from ..mapping.row_inclusion_review import (
 )
 from ..mapping.source_conditions import SourceConditionValueError
 from ..mapping.descriptions import transformation_rule_summary
+from ..recipe.value_rules import (
+    CompiledArithmeticFormula,
+    FormulaValidationError,
+    compile_arithmetic_formula,
+)
 from impodo.domain.shared.models import (
     InvalidPreparedValue,
     Issue,
@@ -152,6 +157,7 @@ class _ScalarFieldPlan:
     field: ScalarFieldMapping
     source_label: str
     rules: str
+    arithmetic_formula: CompiledArithmeticFormula | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -971,6 +977,7 @@ def _compile_dataset_evaluation_plan(
                 else labels.get(field.source_column_key or "") or "Constant value"
             ),
             rules=transformation_rule_summary(field),
+            arithmetic_formula=_compile_scalar_arithmetic(field, effective),
         )
         for index, field in enumerate(mapping.fields)
         if field.value_source is not ScalarValueSource.ODOO_DEFAULT
@@ -987,6 +994,23 @@ def _compile_dataset_evaluation_plan(
         relationship_values=relationship_values,
         scalar_fields=scalar_fields,
     )
+
+
+def _compile_scalar_arithmetic(
+    field: ScalarFieldMapping,
+    effective: SourceDataset,
+) -> CompiledArithmeticFormula | None:
+    """Bind arithmetic once while retaining row-level errors for invalid rules."""
+
+    if not field.transform.formula.strip():
+        return None
+    try:
+        return compile_arithmetic_formula(
+            field.transform.formula,
+            allowed_names={f"column_{column.ordinal}" for column in effective.columns},
+        )
+    except FormulaValidationError:
+        return None
 
 
 def _compile_identity_impact(
@@ -1575,6 +1599,7 @@ def _apply_scalar_mappings(
                 scalar_input,
                 source_values_by_ordinal=source_values_by_ordinal,
                 source_values_by_key=source_values,
+                arithmetic_formula=field_plan.arithmetic_formula,
                 text_step_observer=(
                     (
                         lambda step_index, matched, changed, configured=rules_by_step: (

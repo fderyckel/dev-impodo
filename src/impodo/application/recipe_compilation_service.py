@@ -14,6 +14,7 @@ import re
 from typing import Mapping, Protocol
 import unicodedata
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from ..domain.coverage import ReferenceBundle
@@ -958,8 +959,8 @@ class RecipeCompiler:
 
         del dataset_ids
         schema_models = {item.name: item for item in schema.models}
-        major_match = re.match(r"([0-9]+)", schema.odoo_version)
-        if major_match is None:
+        version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.RECIPE)
+        if not version_decision.allowed:
             raise _RecipeDraftBlocked(
                 self._issue(
                     "ODOO_VERSION_EVIDENCE_INVALID",
@@ -969,7 +970,8 @@ class RecipeCompiler:
                     support_reference=schema.odoo_version,
                 )
             )
-        odoo_major_version = int(major_match.group(1))
+        odoo_major_version = version_decision.version.major
+        assert odoo_major_version is not None
         field_roles: dict[tuple[str, str], set[str]] = {}
         write_fields: dict[str, set[str]] = {}
         selection_codes: dict[tuple[str, str], set[str]] = {}

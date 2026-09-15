@@ -6,7 +6,7 @@ import duckdb
 
 
 def create_advanced_coverage_schema(connection: duckdb.DuckDBPyConnection) -> None:
-    """Create immutable Slice 6 evidence relations and current pointers."""
+    """Create coverage and resolution evidence tables and current pointers."""
 
     connection.execute(
         """

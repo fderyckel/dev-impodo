@@ -850,9 +850,9 @@ Run the focused Mapping package with:
 ## Related documentation
 
 - [User guide: Match data](../../user/workflow/03-match-data.md)
-- [Approved plan: smart Match data ordering and early Odoo refinement](../../plans/smart-match-data-ordering.md)
+- [Remaining Match data ordering qualification](../../plans/smart-match-data-ordering.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
 - [Canonical staging contract](../contracts/canonical-staging.md)
 - [Optional Recipe publication contract](../contracts/recipe-lifecycle.md)
-- [Multi-column hierarchy design](../../plans/multi-column-hierarchical-related-records.md)
-- [Source-row inclusion design](../../plans/source-row-inclusion-rules.md)
+- [Related-table authoring guide](../../user/guides/related-tables.md)
+- [Row-inclusion visual qualification and native parity](../../plans/source-row-inclusion-rules.md)

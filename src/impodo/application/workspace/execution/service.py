@@ -10,6 +10,7 @@ import re
 from typing import Any, Callable, Mapping, Protocol, Sequence
 from uuid import uuid4
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.execution.models import (
     ExecutionRowAttempt,
@@ -76,6 +77,11 @@ class ExecutionWorkspaceRepository(Protocol):
 
 
 class ExecutionJournalRepository(Protocol):
+    def close_interrupted_run_for_recomparison(
+        self, workspace_id: str, expected_run: ExecutionRun,
+        expected_preflight_run_id: str, *, actor: Actor,
+    ) -> ExecutionRun: ...
+
     def start_run(
         self,
         workspace_id: str,
@@ -194,6 +200,7 @@ class ExecutionPreview:
     blocker_summary: ExecutionBlockerSummary = field(
         default_factory=ExecutionBlockerSummary
     )
+    prior_interrupted_run: ExecutionRun | None = None
 
     @property
     def can_load(self) -> bool:
@@ -282,6 +289,9 @@ class ExecutionService:
             else None
         )
         current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
+        prior = self.journal.get_current_run(workspace_id) if current is None else None
+        if prior is not None and prior.status is not ExecutionRunStatus.RUNNING:
+            prior = None
         api_scope = execution_api_scope(snapshot)
         credential_error = _read_credential_snapshot_error(
             workspace_state,
@@ -317,6 +327,7 @@ class ExecutionService:
             credential_refresh_required=bool(credential_error),
             dependency_summary=_execution_dependency_summary(snapshot),
             blocker_summary=_execution_blocker_summary(snapshot),
+            prior_interrupted_run=prior,
         )
 
     def navigation_preview(
@@ -371,6 +382,82 @@ class ExecutionService:
             ):
                 scope_error = "The Odoo read key changed; compare again"
         return ExecutionNavigationPreview(state=state, scope_error=scope_error)
+
+    def close_interrupted_run_for_recomparison(
+        self,
+        workspace_id: str,
+        *,
+        expected_execution_run_id: str,
+        expected_snapshot_hash: str,
+        read_identity: OdooReadIdentity,
+        read_credential_binding_hash: str,
+        write_identity: OdooWriteIdentity,
+        write_credential_binding_hash: str,
+        actor: Actor,
+    ) -> ExecutionRun:
+        """Release an interrupted create load after an explicitly reviewed fresh comparison.
+
+        Keep every original row and receipt. Closing the old attempt does not
+        certify its outcome or write to Odoo; the new comparison owns any work
+        subsequently confirmed by the operator.
+        """
+        self.authorization.require(actor, Capability.EXPORT_PLAN_EXECUTE, workspace_id=workspace_id)
+        workspace = self.workspaces.get(workspace_id)
+        if workspace.source_mode is SourceMode.ODOO:
+            raise WorkspaceError("Use the transfer recovery action for an Odoo-to-Odoo load")
+        preview = self.current_preview(workspace_id)
+        run = self.journal.get_current_run(workspace_id)
+        if (
+            preview is None or preview.snapshot.semantic_hash != expected_snapshot_hash
+            or not preview.can_load or run is None
+            or run.run_id != expected_execution_run_id
+            or run.status is not ExecutionRunStatus.RUNNING
+            or run.snapshot_hash == expected_snapshot_hash
+        ):
+            raise WorkspaceError("The interrupted load or fresh comparison is no longer current")
+        _validate_read_identity(preview, read_identity, read_credential_binding_hash, required=True)
+        _validate_write_identity(preview, write_identity, write_credential_binding_hash, required=True)
+        if (
+            run.target_hash != preview.snapshot.target_hash
+            or run.target_database != preview.snapshot.target_database
+            or write_credential_binding_hash != run.write_credential_binding_hash
+            or write_identity.principal_hash != run.write_principal_hash
+            or read_identity.principal_hash != write_identity.principal_hash
+            or read_identity.context_hash != write_identity.context_hash
+        ):
+            raise WorkspaceError("Fresh recovery requires the original loading key and principal on the same target")
+        original = self.preflight.execution_snapshot(workspace_id, run.preflight_run_id)
+        def identity(row):
+            # Preparation trace hashes include mapping and schema lineage, so
+            # rebuilding the approved review changes them. Match the source
+            # row and business keys, then check the exact saved Odoo receipts.
+            return (row.dataset, row.source_row, row.target_model,
+                    _portable_key(row.source_identity), _portable_key(row.business_identity),
+                    _portable_key(row.business_scope))
+        fresh = {identity(row): row for row in preview.snapshot.rows}
+        if len(fresh) != len(preview.snapshot.rows) or set(fresh) != {identity(row) for row in original.rows}:
+            raise WorkspaceError("Fresh recovery must account for the same original prepared rows and identities")
+        original_by_id = {row.row_id: row for row in original.rows}
+        for attempt in run.rows:
+            row = original_by_id.get(attempt.row_id)
+            if row is None or row.disposition != "CREATE" or attempt.operation != "CREATE":
+                raise WorkspaceError("Fresh recovery supports interrupted create loads only")
+            compared = fresh[identity(row)]
+            if compared.disposition not in {"CREATE", "UPDATE", "UNCHANGED"} or compared.target_match_count != (
+                0 if compared.disposition == "CREATE" else 1
+            ):
+                raise WorkspaceError("Fresh recovery requires an unambiguous current Odoo comparison")
+            if attempt.odoo_id is not None and compared.target_binding_hash != target_record_binding_hash(
+                attempt.target_model, attempt.odoo_id
+            ):
+                raise WorkspaceError("Fresh comparison no longer matches an original Odoo receipt")
+            if attempt.status in {ExecutionRowStatus.COMMITTED, ExecutionRowStatus.PARTIALLY_APPLIED} and (
+                attempt.odoo_id is None or compared.disposition == "CREATE"
+            ):
+                raise WorkspaceError("An originally accepted Odoo record is missing from the fresh comparison")
+        return self.journal.close_interrupted_run_for_recomparison(
+            workspace_id, run, preview.snapshot.preflight_run_id, actor=actor,
+        )
 
     def execute(
         self,
@@ -669,6 +756,10 @@ class ExecutionService:
         snapshot = self.preflight.current_execution_snapshot(workspace_id)
         if snapshot is None:
             raise WorkspaceError("The interrupted load preview is no longer current")
+        if not assess_odoo_operation(
+            snapshot.target_odoo_version, OdooOperation.RECOVER,
+        ).allowed:
+            raise WorkspaceError("The schema-bound load path requires Odoo 19")
         run = self.journal.get_run(workspace_id, expected_execution_run_id)
         current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
         if (
@@ -807,7 +898,9 @@ class ExecutionService:
             current_run=run,
             api_scope=execution_api_scope(snapshot),
             deferred_create_count=0,
-            scope_error=_execution_snapshot_error(destination_workspace, snapshot),
+            scope_error=_execution_snapshot_error(
+                destination_workspace, snapshot, operation=OdooOperation.RECOVER,
+            ),
         )
         if preview.scope_error:
             raise WorkspaceError(preview.scope_error)
@@ -2865,6 +2958,8 @@ def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
 def _execution_snapshot_error(
     workspace_state: WorkspaceState,
     snapshot: ExecutionSnapshot,
+    *,
+    operation: OdooOperation = OdooOperation.WRITE,
 ) -> str:
     """Explain an execution-shape problem before the user can press Load."""
 
@@ -2873,7 +2968,7 @@ def _execution_snapshot_error(
         OdooConnectionMode.REMOTE,
     }:
         return "Configure the exact Odoo load target first"
-    if not snapshot.target_odoo_version.startswith("19."):
+    if not assess_odoo_operation(snapshot.target_odoo_version, operation).allowed:
         return "The schema-bound load path requires Odoo 19"
     plan = snapshot.relationship_plan
     scheduled_rows = tuple(

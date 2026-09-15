@@ -21,6 +21,7 @@ import re
 from typing import Iterable, Mapping, Protocol
 from uuid import uuid4
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from ..domain.schema.governance import (
@@ -237,7 +238,9 @@ class SchemaWorkspaceService:
             raise WorkspaceError(
                 "Odoo model database does not match the project"
             )
-        if not snapshot.fingerprint.odoo_version.startswith("19."):
+        if not assess_odoo_operation(
+            snapshot.fingerprint.odoo_version, OdooOperation.CAPTURE_SCHEMA,
+        ).allowed:
             raise WorkspaceError("Odoo model discovery requires Odoo 19")
         if set(snapshot.records) != {"ir.model"}:
             raise WorkspaceError(
@@ -753,7 +756,9 @@ class SchemaWorkspaceService:
             raise WorkspaceError(
                 "Odoo schema database does not match the project"
             )
-        if not snapshot.fingerprint.odoo_version.startswith("19."):
+        if not assess_odoo_operation(
+            snapshot.fingerprint.odoo_version, OdooOperation.CAPTURE_SCHEMA,
+        ).allowed:
             raise WorkspaceError("Odoo schema capture requires Odoo 19")
         identity_hashes = _validate_read_identity(
             workspace_state,
@@ -852,7 +857,9 @@ class SchemaWorkspaceService:
             )
         if snapshot.fingerprint.database != workspace_state.odoo_database:
             raise WorkspaceError("Odoo schema database does not match the project")
-        if not snapshot.fingerprint.odoo_version.startswith("19."):
+        if not assess_odoo_operation(
+            snapshot.fingerprint.odoo_version, OdooOperation.CAPTURE_SCHEMA,
+        ).allowed:
             raise WorkspaceError("Odoo schema capture requires Odoo 19")
         identity_hashes = _validate_read_identity(
             workspace_state,

@@ -1,0 +1,25 @@
+{
+  "contract_version": 1,
+  "repository": "https://github.com/odoo/odoo.git",
+  "targets": {
+    "baseline": {
+      "commit": "157874aad3aebef5bc9268de6e17530641107e31",
+      "reported_version": "19.0",
+      "python_lock": "requirements-windows-py312-baseline.txt",
+      "purpose": "Odoo 19 regression baseline",
+      "database": "impodo_scenario_v19_baseline",
+      "http_port": 18019,
+      "postgres_port": 55419
+    },
+    "preview": {
+      "commit": "f582f290ae4e775d0f4fe477ab9d5131f9e48598",
+      "reported_version": "19.5a1",
+      "python_lock": "requirements-windows-py312-preview.txt",
+      "purpose": "Odoo 20 investigation; not final Odoo 20 qualification",
+      "database": "impodo_scenario_v20_preview",
+      "http_port": 18020,
+      "postgres_port": 55420
+    }
+  },
+  "modules": ["base", "contacts", "product", "mrp"]
+}

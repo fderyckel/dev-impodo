@@ -366,6 +366,7 @@ def prepare_rule_text(
     policy: ScalarTransformPolicy,
     *,
     formula_context: Mapping[str, Any] | None = None,
+    arithmetic_formula: CompiledArithmeticFormula | None = None,
     text_step_observer: Callable[[int, bool, bool], None] | None = None,
 ) -> str | None:
     """Apply formula, normalization, replacement, and casing to raw input."""
@@ -375,7 +376,12 @@ def prepare_rule_text(
         context = dict(formula_context or {})
         context.setdefault("value", raw_value)
         try:
-            value = evaluate_formula(policy.formula, context)
+            value = (
+                arithmetic_formula.evaluate(context)
+                if arithmetic_formula is not None
+                and arithmetic_formula.expression == policy.formula
+                else evaluate_formula(policy.formula, context)
+            )
         except (ArithmeticError, TypeError, ValueError) as error:
             raise ScalarRuleError(
                 "SOURCE_FORMULA_INVALID",
@@ -525,12 +531,135 @@ def validate_scalar_value(
 def evaluate_formula(expression: str, context: Mapping[str, Any]) -> Any:
     """Evaluate a validated expression against one bounded row context."""
 
+    arithmetic = compile_arithmetic_formula(expression, allowed_names=set(context))
+    if arithmetic is not None:
+        return arithmetic.evaluate(context)
     parsed = validate_formula(expression, allowed_names=set(context))
     prepared = {name: _formula_value(value) for name, value in context.items()}
     result = _eval_node(parsed.body, prepared)
     if len(str(result)) > MAX_RULE_TEXT_LENGTH:
         raise ValueError("formula result is too long")
     return result
+
+
+@dataclass(frozen=True, slots=True)
+class _ArithmeticInstruction:
+    operation: str
+    argument: str | int | Decimal | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledArithmeticFormula:
+    """Reuse validated arithmetic instructions on bounded Python row inputs.
+
+    Instructions preserve left-to-right evaluation, Decimal context behavior,
+    string addition, and the safe evaluator's numeric coercion. They contain
+    no source values and do not select a native execution engine.
+    """
+
+    expression: str
+    input_names: tuple[str, ...]
+    instructions: tuple[_ArithmeticInstruction, ...]
+
+    def evaluate(self, context: Mapping[str, Any]) -> Any:
+        """Calculate one result using only the source inputs it references."""
+
+        prepared = {
+            name: _formula_value(context[name]) for name in self.input_names
+        }
+        stack: list[Any] = []
+        for instruction in self.instructions:
+            operation = instruction.operation
+            if operation == "source":
+                stack.append(prepared[instruction.argument])
+            elif operation == "constant":
+                stack.append(instruction.argument)
+            elif operation == "positive":
+                stack[-1] = _number(stack[-1])
+            elif operation == "negative":
+                stack[-1] = -_number(stack[-1])
+            else:
+                right = stack.pop()
+                left = stack.pop()
+                if operation == "add" and isinstance(left, str) and isinstance(right, str):
+                    stack.append(left + right)
+                else:
+                    stack.append(
+                        _ARITHMETIC_OPERATIONS[operation](_number(left), _number(right))
+                    )
+        result = stack[0]
+        if len(str(result)) > MAX_RULE_TEXT_LENGTH:
+            raise ValueError("formula result is too long")
+        return result
+
+
+_ARITHMETIC_OPERATIONS = {
+    "add": operator.add,
+    "subtract": operator.sub,
+    "multiply": operator.mul,
+    "divide": operator.truediv,
+}
+_ARITHMETIC_NODE_OPERATIONS = {
+    ast.Add: "add",
+    ast.Sub: "subtract",
+    ast.Mult: "multiply",
+    ast.Div: "divide",
+}
+
+
+def compile_arithmetic_formula(
+    expression: str,
+    *,
+    allowed_names: set[str],
+) -> CompiledArithmeticFormula | None:
+    """Compile qualified arithmetic; return None for other safe expressions.
+
+    Structural errors retain the shared parser's reasons and positions. A
+    caller can keep a compiled result for a whole dataset or reuse the bounded
+    cache when evaluating individual previews. No Python code is generated.
+    """
+
+    return _compile_arithmetic_formula(expression, tuple(sorted(allowed_names)))
+
+
+@lru_cache(maxsize=256)
+def _compile_arithmetic_formula(
+    expression: str,
+    allowed_names: tuple[str, ...],
+) -> CompiledArithmeticFormula | None:
+    parsed = validate_formula(expression, allowed_names=set(allowed_names))
+    instructions: list[_ArithmeticInstruction] = []
+    inputs: set[str] = set()
+
+    def lower(node: ast.AST) -> bool:
+        if isinstance(node, ast.Name):
+            inputs.add(node.id)
+            instructions.append(_ArithmeticInstruction("source", node.id))
+        elif isinstance(node, ast.Constant) and type(node.value) in {int, float}:
+            instructions.append(
+                _ArithmeticInstruction("constant", _formula_value(node.value))
+            )
+        elif isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            if not lower(node.operand):
+                return False
+            instructions.append(
+                _ArithmeticInstruction(
+                    "positive" if isinstance(node.op, ast.UAdd) else "negative"
+                )
+            )
+        elif isinstance(node, ast.BinOp) and type(node.op) in _ARITHMETIC_NODE_OPERATIONS:
+            if not lower(node.left) or not lower(node.right):
+                return False
+            instructions.append(
+                _ArithmeticInstruction(_ARITHMETIC_NODE_OPERATIONS[type(node.op)])
+            )
+        else:
+            return False
+        return True
+
+    if not lower(parsed.body):
+        return None
+    return CompiledArithmeticFormula(expression, tuple(sorted(inputs)), tuple(instructions))
 
 
 def _replace_text(value: str, step: TextTransformStep) -> str:

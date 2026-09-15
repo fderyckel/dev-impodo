@@ -3,6 +3,7 @@ from __future__ import annotations
 from tests.support.paths import REPOSITORY_ROOT
 
 from io import BytesIO
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -20,6 +21,8 @@ from impodo.adapters.odoo.local_stack import (
     probe_local_stack,
     read_odoo_config,
     start_local_stack,
+    _probe_odoo,
+    _start_odoo,
 )
 
 
@@ -27,6 +30,38 @@ ROOT = REPOSITORY_ROOT
 
 
 class LocalStackConfigurationTests(unittest.TestCase):
+    def test_readiness_checks_structured_evidence_and_disabled_versions(self) -> None:
+        profile = read_odoo_config(self.config)
+        for version, info, allowed in (
+            ("19.4", [19, 4, 0, "final", 0, ""], True),
+            ("20.0", [20, 0, 0, "final", 0, ""], False),
+            ("19.0", [20, 0, 0, "final", 0, ""], False),
+            ("19.0", None, False),
+        ):
+            with self.subTest(version=version, info=info):
+                response = BytesIO(json.dumps({"result": {
+                    "server_version": version, "server_version_info": info,
+                }}).encode())
+                with patch("impodo.adapters.odoo.local_stack._open_loopback", return_value=response):
+                    check = _probe_odoo(profile)
+                self.assertEqual(check.level, ReadinessLevel.READY if allowed else ReadinessLevel.ERROR)
+                self.assertEqual(check.version_blocked, not allowed)
+
+    def test_startup_stops_owned_process_on_version_reason_independent_of_message(self) -> None:
+        profile = read_odoo_config(self.config)
+        process = MagicMock()
+        process.poll.return_value = None
+        blocked = LocalStackCheck("odoo", "Odoo server", ReadinessLevel.ERROR,
+                                  "Version evidence conflicts.", version_blocked=True)
+        with (
+            patch("impodo.adapters.odoo.local_stack.subprocess.Popen", return_value=process),
+            patch("impodo.adapters.odoo.local_stack._probe_odoo", return_value=blocked),
+            patch("impodo.adapters.odoo.local_stack._stop_owned_odoo") as stop,
+        ):
+            with self.assertRaisesRegex(LocalStackError, "newly launched process was stopped"):
+                _start_odoo(profile)
+        stop.assert_called_once_with(process)
+
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")

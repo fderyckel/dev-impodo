@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.shared.access import Actor
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.cutover.models import (
@@ -78,11 +79,12 @@ class ProductionRunReviewUseCase:
                     tuple(item.recipe_id for item in plan.selected_revisions),
                 )
             )
-        try:
-            odoo_major = int(str(target_schema.odoo_version).split(".", 1)[0])
-        except ValueError:
-            odoo_major = -1
-        if odoo_major != 19 or target_schema.origin.value != "LIVE_API":
+        if (
+            not assess_odoo_operation(
+                target_schema.odoo_version, OdooOperation.PRODUCTION,
+            ).allowed
+            or target_schema.origin.value != "LIVE_API"
+        ):
             issues.append(
                 blocking_run_issue(
                     "PRODUCTION_TARGET_EVIDENCE_UNSUPPORTED",

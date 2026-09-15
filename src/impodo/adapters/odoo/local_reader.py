@@ -31,6 +31,11 @@ from impodo.domain.odoo.contracts import (
     RecordRequest,
     RecordSnapshot,
 )
+from impodo.domain.odoo.compatibility import (
+    OdooOperation,
+    assess_odoo_operation,
+    recognize_odoo_version,
+)
 from impodo.domain.mapping.create_field_policy import CREATE_DEFAULT_TYPES
 from impodo.adapters.odoo.local_stack import LocalStackProfile
 from impodo.domain.shared.models import (
@@ -504,9 +509,15 @@ class LocalOdooMetadataReader:
             raise LocalOdooReaderError(
                 "The local Odoo shell opened a different database."
             )
-        if not version.startswith("19."):
+        observed = recognize_odoo_version(
+            payload.get("version"),
+            **({"version_info": payload["version_info"]} if "version_info" in payload else {}),
+        )
+        decision = assess_odoo_operation(observed, OdooOperation.CAPTURE_SCHEMA)
+        if not decision.allowed:
             raise LocalOdooReaderError(
-                f"Local schema capture requires Odoo 19; received {version or 'unknown'}."
+                f"Local schema capture requires Odoo 19; received {version or 'unknown'}. "
+                f"Version check: {decision.reason}; version_info: {payload.get('version_info')!r}."
             )
         assert workspace_state.odoo_connection_mode is not None
         return TargetFingerprint(
@@ -656,6 +667,7 @@ def _fingerprint_script() -> str:
 payload = {
     "database": env.cr.dbname,
     "version": release.version,
+    "version_info": release.version_info,
 }
 """
     )
@@ -672,6 +684,7 @@ records = env["ir.model"].sudo().search_read(
 payload = {{
     "database": env.cr.dbname,
     "version": release.version,
+    "version_info": release.version_info,
     "records": records,
 }}
 """
@@ -718,6 +731,7 @@ for model_name in requested_models:
 payload = {{
     "database": env.cr.dbname,
     "version": release.version,
+    "version_info": release.version_info,
     "models": captured_models,
 }}
 """
@@ -799,6 +813,7 @@ for request in record_requests:
 payload = {{
     "database": env.cr.dbname,
     "version": release.version,
+    "version_info": release.version_info,
     "models": captured_models,
     "records": captured_records,
 }}

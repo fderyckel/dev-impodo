@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Protocol
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.odoo.contracts import MetadataSnapshot
 from ..domain.odoo_capture import (
@@ -695,7 +696,9 @@ def _require_live_schema(
         or live.fingerprint.target_hash != request.expected_connection_target_hash
         or live.fingerprint.connection_mode != stored.connection_mode
         or live.fingerprint.database != stored.database
-        or not live.fingerprint.odoo_version.startswith("19.")
+        or not assess_odoo_operation(
+            live.fingerprint.odoo_version, OdooOperation.CAPTURE_SOURCE,
+        ).allowed
         or set(live.models) != set(request.schema_model_names)
     ):
         raise OdooSourceCaptureConsistencyError(

@@ -8,8 +8,12 @@ status: proposed
 
 ## Decision summary
 
-**Status:** Proposal dated 2026-09-15. Odoo 20 support has not been implemented
-or qualified by this work.
+**Status:** Phases 1 and 2 are implemented as of 2026-09-15. The Odoo 19
+baseline and isolated prerelease lab are recorded in the
+[Phase 1 report](../testing/odoo-compatibility-phase1.md). The shared version
+policy and its validation are recorded in the
+[Phase 2 report](../testing/odoo-compatibility-phase2.md). Phases 3 through 5
+remain proposed. Odoo 20 support has not been enabled or qualified.
 
 **Reader:** Impodo maintainers deciding how to implement, test, and release
 dual-version support.
@@ -83,12 +87,13 @@ Odoo 22, with the SaaS transition identified as 21.1. Dual support therefore
 does not require an emergency protocol migration. Impodo already uses JSON-2.
 [Official deprecation change](https://mergebot.odoo.com/odoo/documentation/pull/16765).
 
-## Current implementation and required changes
+## Baseline implementation and required changes
 
-The current integration has useful boundaries, but support is more widely
-encoded than the connection screen suggests.
+Phase 1 found version assumptions across the integration. Phase 2 centralizes
+the runtime gates below; version-specific policies and execution compatibility
+evidence remain later work.
 
-| Area | Current evidence | Proposed change |
+| Area | Phase 1 evidence | Proposed change |
 | --- | --- | --- |
 | Remote API | `Json2ReadConnector` provides named reads and identity probes. `Json2WriteExecutor` provides scoped writes. | Share these adapters between versions and test their request and response contracts on each release. |
 | Local access | Local schema reads execute through the selected Odoo installation. Local readiness and fingerprint checks require a version starting with `19.`. | Reuse the shared version policy and qualify each installation's shell and readiness paths. |
@@ -409,7 +414,7 @@ changes them:
 - The source and transfer responsibilities described in
   [Load into Odoo](../developer/workflow/06-load-into-odoo.md).
 
-## Proposal validation
+## Original proposal validation
 
 This proposal is grounded in the working-tree implementation and the official
 upstream sources linked above. It identifies planned behavior separately from
@@ -422,7 +427,7 @@ documentation-quality and code-documentation test modules, and
 documentation skill's older test-module path was resolved to that location.
 
 No Odoo server was contacted, no live migration was run, and no runtime
-compatibility claim was validated by this documentation task. Browser tests,
+compatibility claim was validated during the original proposal drafting. Browser tests,
 screenshots, and the live Odoo matrix belong to the implementation slices.
 The installed architecture advisor was unavailable because its Windows
 preflight could not start; the proposal therefore has no independent advisor

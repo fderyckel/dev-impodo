@@ -1,4 +1,11 @@
-"""Compile browser mapping definitions into shared runtime semantics."""
+"""Translate browser mappings into the shared migration-plan contract.
+
+This boundary preserves target fields, identities, relationship resolvers, and
+captured required-on-create constraints for preparation and preflight. Scalar
+fields refer to synthetic values produced by mapping evaluation. Native
+transformation support is decided separately in ``columnar_transformation``.
+Compilation reads metadata only; it does not evaluate rows or contact Odoo.
+"""
 
 from __future__ import annotations
 from typing import Collection, Mapping

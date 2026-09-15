@@ -1,0 +1,10 @@
+{
+  "contract_version": 1,
+  "evidence_kind": "SYNTHETIC_REGRESSION_FIXTURE",
+  "impodo_revision": "1e03a8c0524e803a90ceadc25cfdac9d6cb9f030",
+  "source_policy_hash": "sha256:403be4a671a9e2a25ddee994ff0c337e0b271438a7ae47a60d68f5be3572ac01",
+  "reference_policy_hash": "sha256:462e13bfba360a4c4ddc1124a8ed3426fad99755bb6d62f98305d6ecf1fe5a11",
+  "connection_hash": "sha256:6ed7abb7eae6a43977264bfecfbcb4073768155750b27e72884859279879347c",
+  "record_snapshot_hash": "sha256:821bcf4d63005278f9b409a05d3a93440f9d5f48ee8657ded20aeb566eb7f587",
+  "record_snapshot_file_sha256": "55793b97cf286ec3d24e70d8e95a75c6999745282c09f35bc182d0a0ce3ba1ad"
+}

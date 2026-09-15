@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.project.foundation import require_uuid
@@ -50,11 +51,7 @@ class RunTargetEvidenceUseCase:
             raise self._planning_error(
                 "Capture authenticated Odoo 19 evidence in the authoring workspace first"
             )
-        try:
-            major = int(str(schema.odoo_version).split(".", 1)[0])
-        except ValueError:
-            major = -1
-        if major != 19:
+        if not assess_odoo_operation(schema.odoo_version, OdooOperation.RECIPE).allowed:
             raise self._planning_error(
                 "The selected target evidence is not from Odoo 19"
             )

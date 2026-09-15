@@ -1,14 +1,16 @@
 """Compile browser mappings into backend-neutral columnar programs.
 
-This module is the semantic boundary between browser-authored mapping policy
-and a future native execution adapter.  It deliberately has no Polars import:
-the program describes ordered providers, expressions, conversions, checks,
-identity work, lineage, impact accounting, and set/global requirements using
-portable domain contracts only.
+The compiler describes what each dataset's mapping must do: select values,
+apply ordered expressions and conversions, check results, preserve identities
+and lineage, and account for transformation impacts and set/global work.
+It inspects mapping and source-selection metadata, without reading source rows
+or importing an execution engine.
 
-Slice 3 does not select or execute a new production backend.  Unsupported
-semantics produce deterministic whole-dataset fallback reasons so Slice 4 can
-route a dataset before reading any row and can never fall back per cell.
+Preparation uses these capability decisions to route each complete dataset.
+Supported programs run through the Polars transformation adapter; unsupported
+semantics produce stable, path-specific reasons to use the bounded Python
+evaluator. A fallback decision contains no partial native program, so callers
+cannot silently mix native and Python field evaluation within a dataset.
 """
 
 from __future__ import annotations
@@ -831,7 +833,13 @@ class ColumnarTransformationProgram:
 
 @dataclass(frozen=True, slots=True)
 class ColumnarCompilationDecision:
-    """A deterministic supported program or a whole-dataset fallback."""
+    """Bind one dataset to a complete native program or explicit fallback.
+
+    Supported decisions contain a program and no fallback reasons. Unsupported
+    decisions contain reasons and no program. Preparation consumes this result
+    together with source-snapshot and full-pipeline admission checks; compiler
+    support alone does not establish a safe row limit for the entire run.
+    """
 
     dataset_id: str
     dataset_name: str
@@ -898,9 +906,11 @@ def compile_columnar_transformation_programs(
 ) -> tuple[ColumnarCompilationDecision, ...]:
     """Compile every mapped dataset without inspecting any source row value.
 
-    Omitted ``dataset_kinds`` mean direct datasets, which is the bounded scope
-    of Slices 3–6.  Callers that already know a dataset is related, derived, or
-    structural must pass that role and receive an explicit oracle fallback.
+    Omitted ``dataset_kinds`` mean direct datasets, the supported native scope.
+    Callers that know a dataset is related, derived, or structural must pass
+    that role so the compiler returns an explicit Python-evaluator fallback.
+    Mapping and selection hashes must agree, and the mapping must cover every
+    frozen dataset exactly once. Results are ordered by dataset identifier.
     """
 
     if definition.source_selection_hash != selection.content_hash:

@@ -48,21 +48,139 @@ identity uniqueness, complete source accounting, and relationship checks still
 apply. Mixed storage therefore does not require whole-run materialization or
 an increase to its 25,000-source-row safety limit.
 
+Admission records each dataset's actual compiler reasons and required source
+snapshot. Mixed native and Python routes are reported as `MIXED_BOUNDED`.
+The report contains table identifiers and rule paths, without source values
+or formula text. Compilation decisions are reused by the capacity check.
+
+The [quality dependency rules](../../../src/impodo/domain/preparation/quality.py)
+use `incoming_identity_group_fields` to derive possible complete-group dependencies
+from the mapping's identity and scope components. It applies equally to
+standard and custom models. Direct incoming groups now use the existing
+50,000-row direct route. They no longer require the 25,000-row materialized
+route solely because an incoming parent supplies their identity or scope.
+Advanced rules and non-direct preparation retain their separate limits.
+
+The [DuckDB group-quality adapter](../../../src/impodo/adapters/duckdb/preparation_identity_group_quality.py)
+projects only identity, scope, and
+reference values from stored canonical JSON in bounded pages. It joins these
+facts to the existing direct source-identity index. Parent keys are counted
+before matching, so duplicate keys do not multiply the join. DuckDB builds
+temporary forward readiness arcs and reverse arcs for unique incoming identity
+parents. A recursive distinct traversal propagates unsafe records. Warning
+destinations receive findings but do not become propagation steps unless they
+were already unsafe. Findings are read in bounded pages; application issue
+accumulation still uses the existing compact exceptions and needs separate
+error-heavy publication qualification.
+
+These temporary facts are rebuilt from immutable evidence on each attempt.
+An interrupted calculation rolls back without changing canonical rows or
+requiring a storage migration. Native evaluation of relational identities
+remains unsupported; those datasets still use bounded Python transformation.
+For native hybrid lookups, the adapter reads relationship columns from the
+hash-verified prepared artifact using canonical reference serialization. It
+rebuilds those facts rather than trusting a historical edge index that may
+contain the incoming key instead of the canonical matching key. Other native
+incoming links reuse the existing direct edges.
+New native projections use
+[`PreparedCanonicalProjection`](../../../src/impodo/domain/staging/preparation_session.py)
+contract 4. Incoming,
+target, and hybrid references now match the canonical Python serializer's exact
+bytes, including sorted properties and omission of empty optional metadata.
+The [native DuckDB projector](../../../src/impodo/adapters/duckdb/native_prepared_projection.py)
+reads constant choices from the prepared literal columns. This keeps its query
+valid when a linked record is supplied by
+the same business key for every row.
+
+Readers preserve projection contract 3's original reference encoding and verify
+its stored content hash. Existing evidence is not migrated or rewritten. The
+projection version selects serialization independently of the compiled program
+hash. Tests reopen a finalized historical run, verify its complete original
+hash, and reject a changed projection version against that hash. Native
+relational identity evaluation remains a separate qualification gate.
+
+Canonical publication parses and validates each row while hashing it. It
+checks the row's coordinates, model, disposition, and mapping, schema, and
+source-selection bindings against the stored index and session. Quality can
+then use the exact mapping to select ordinary or complete-group checks,
+without reconstructing all rows again. This decision requires matching
+mapping identity, source selection, schema, and published staging hash.
+Calls without the mapping retain the row-based compatibility check.
+
 `resolution.py` applies explicit merge/separate and field-correction decisions
 through `ResolutionService`. `normalization.py` handles reviewable value groups
 through `NormalizationService`. Both publish new evidence rather than mutating
 the frozen source.
+
+### Columnar compilation and execution
+
+Preparation separates mapping meaning from the engine that evaluates it.
+`compile_browser_mapping` produces the shared target, identity, and relationship
+semantics in `CompiledMigrationPlan`. Independently,
+`compile_columnar_transformation_programs` inspects the mapping and frozen
+source-selection metadata to describe native transformation work. Neither
+compiler reads source rows or contacts Odoo.
+
+For example, a rule that reads a source column, trims whitespace, converts the
+result to an integer, and requires a value becomes an ordered portable program.
+The program also describes validation, identities, lineage, transformation
+impacts, and requirements for work across rows. Its content hash binds those
+semantics without importing Polars into the domain layer.
+
+Each `ColumnarCompilationDecision` contains either a complete supported program
+or explicit fallback reasons. A formula, unsupported conversion, or another
+unsupported operation routes the whole dataset to the bounded Python evaluator
+before transformation begins. Preparation does not switch between native and
+Python evaluation for individual fields or cells.
+
+`PolarsTransformationAdapter` already implements the application-owned
+`ColumnarTransformationPort`. It converts supported programs to native Polars
+expressions, scans verified source Parquet, and writes a prepared snapshot
+candidate. Preparation verifies and publishes that artifact and consumes its
+bounded results. The shared Python evaluator supplies reference behavior for
+parity tests as well as the supported fallback route.
+
+Common arithmetic on the Python route now reuses a validated
+`CompiledArithmeticFormula` instead of walking the AST for every row. The
+safe parser admits numeric constants, source names, unary signs, addition,
+subtraction, multiplication, and division to this instruction program. Browser
+preparation compiles each formula once per dataset and builds a context from
+only its referenced source columns. Profiles and previews reuse a bounded
+cache. Final conversion, explicit rounding, value-choice bypasses, errors,
+and transformation observations still pass through the shared scalar rules.
+
+This is Python execution, so compiler diagnostics continue to report
+`COLUMNAR_FORMULA_UNSUPPORTED` for native preparation. Functions, conditionals,
+comparisons, and modulo retain the safe AST evaluator. Invalid formulas retain
+row-level failures. The arithmetic instructions do not use binary floating
+point or fix Decimal precision to a native storage scale. See the
+[implementation diagnostics](../../plans/preparation-efficiency-and-storage.md)
+for the local measurement and remaining native qualification.
+
+Compiler support does not by itself admit a run to the high-volume route.
+Full-pipeline admission also checks snapshots, dataset shape, and downstream
+quality and normalization capabilities. The current limits are 100,000 physical
+rows for qualified exact-snapshot, single-dataset native preparation, 50,000
+for current direct Python-fallback or relationship routes, and 25,000 for
+derived or materialized routes. Extending qualification belongs to the
+[remaining scale work](../../plans/remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
 
 ## Code references
 
 | Role | Code |
 | --- | --- |
 | Preparation orchestration | [`PreparationService`](../../../src/impodo/application/workspace/preparation/preparation_service.py) |
+| Dataset capability compiler | [`compile_columnar_transformation_programs`](../../../src/impodo/domain/compiler/columnar_transformation.py) |
+| Native execution contract | [`ColumnarTransformationPort`](../../../src/impodo/application/workspace/preparation/columnar_transformation_port.py) |
+| Native transformation implementation | [`PolarsTransformationAdapter`](../../../src/impodo/adapters/polars_transformation.py) |
+| Compiled bounded arithmetic | [`CompiledArithmeticFormula`](../../../src/impodo/domain/recipe/value_rules.py) |
 | Background jobs | [`PreparationJobManager`](../../../src/impodo/web/composition/preparation_job_manager.py) |
 | Process build contract | [`ApplicationBuildContract`](../../../src/impodo/application/shared/build_contract.py) |
 | Project-only worker wiring | [`create_preparation_worker`](../../../src/impodo/web/composition/preparation_worker.py) |
 | Quality publication | [`QualityService`](../../../src/impodo/application/workspace/preparation/quality_service.py) |
 | Quality indexes across direct datasets | [`PreparationQualityIndex`](../../../src/impodo/adapters/duckdb/preparation_quality_index.py) |
+| Admission and dataset route diagnostics | [`compile_preparation_capability`](../../../src/impodo/application/workspace/preparation/preparation_capability.py) |
+| Canonical publication validation | [`PreparationStoredRunReader`](../../../src/impodo/adapters/duckdb/preparation_stored_run_reader.py) |
 | Entity resolution | [`ResolutionService`](../../../src/impodo/application/workspace/preparation/resolution_service.py) |
 | Normalization decisions | [`NormalizationService`](../../../src/impodo/application/workspace/preparation/normalization_service.py) |
 | Canonical hierarchy materialization | [`evaluate_browser_mapping`](../../../src/impodo/domain/staging/evaluator.py) |
@@ -91,10 +209,11 @@ remain required, and partially blank composite parent keys remain invalid.
 
 When an incoming record supplies part of a dependent row's target identity,
 `evaluate_quality` treats the parent and its dependent rows as one update
-group. An unsafe component therefore quarantines the parent BoM and its other
-component rows without creating a run-level blocker. The bounded route defers
-identity-linked groups to the authoritative evaluator so it cannot publish a
-partial group result.
+group. For example, an unsafe order line sets aside its incoming order and
+the other lines in that group under the default quarantine policy. The direct
+bounded route preserves these same findings and dispositions, including
+nested groups, multiple parent roles, and cycles. Ordinary linked fields keep
+their forward dependency and do not set aside their lookup record.
 
 For `odoo_pinned_update`, `PreparationService` verifies the one current
 protected manifest and bounded origin sidecar against the source binding and
@@ -155,13 +274,21 @@ lineage parity before being called an optimization.
 
 ## Verification
 
+- [`tests/application/workspace/preparation/test_capability.py`](../../../tests/application/workspace/preparation/test_capability.py)
+- [`tests/domain/recipe/test_columnar_compiler.py`](../../../tests/domain/recipe/test_columnar_compiler.py)
+- [`tests/domain/recipe/test_arithmetic_formula.py`](../../../tests/domain/recipe/test_arithmetic_formula.py)
+- [`tests/domain/preparation/test_browser_arithmetic_formula.py`](../../../tests/domain/preparation/test_browser_arithmetic_formula.py)
+- [`tests/integration/columnar/test_polars_transformation.py`](../../../tests/integration/columnar/test_polars_transformation.py)
 - [`tests/application/workspace/preparation/test_jobs.py`](../../../tests/application/workspace/preparation/test_jobs.py)
 - [`tests/architecture/test_build_contract.py`](../../../tests/architecture/test_build_contract.py)
 - [`tests/architecture/test_workspace_schema_contract.py`](../../../tests/architecture/test_workspace_schema_contract.py)
 - [`tests/integration/duckdb/test_preparation_session.py`](../../../tests/integration/duckdb/test_preparation_session.py)
+- [`tests/integration/duckdb/test_identity_group_quality.py`](../../../tests/integration/duckdb/test_identity_group_quality.py)
+- [`tests/integration/duckdb/test_native_reference_serialization.py`](../../../tests/integration/duckdb/test_native_reference_serialization.py)
 - [`tests/domain/preparation/test_quality.py`](../../../tests/domain/preparation/test_quality.py)
 - [`tests/domain/preparation/test_normalization.py`](../../../tests/domain/preparation/test_normalization.py)
 - [`tests/performance/test_preparation_scale.py`](../../../tests/performance/test_preparation_scale.py)
+- [`tests/performance/test_preparation_identity_groups.py`](../../../tests/performance/test_preparation_identity_groups.py)
 - [`tests/integration/web/test_preparation_workflow.py`](../../../tests/integration/web/test_preparation_workflow.py)
 - [`tests/application/workspace/preparation/test_readiness.py`](../../../tests/application/workspace/preparation/test_readiness.py)
 - [`tests/integration/artifacts/test_source_snapshot_io.py`](../../../tests/integration/artifacts/test_source_snapshot_io.py)

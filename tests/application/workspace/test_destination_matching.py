@@ -33,6 +33,7 @@ from impodo.domain.workspace.contracts import (
     SourceSelection,
 )
 from impodo.domain.workspace.destination_matching import DestinationMatchPlan
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     SourceMode,
@@ -61,6 +62,25 @@ class _SourceValues:
 
 
 class DestinationMatchingTests(unittest.TestCase):
+    def test_different_or_unknown_source_major_blocks_matching(self) -> None:
+        for source_version in ("20.0", "unknown", "19.garbage"):
+            with self.subTest(source_version=source_version):
+                with self.assertRaisesRegex(WorkspaceError, "same major version"):
+                    DestinationMatchingService(self.source_values).check(
+                        self.workspace,
+                        self.selection,
+                        replace(self.schema, odoo_version=source_version),
+                        (
+                            DestinationMatchKeyChoice(self.product.dataset_id, "product-code"),
+                            DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+                        ),
+                        api_key="destination-secret",
+                        credential_binding_hash=BINDING_HASH,
+                        read_identity=_identity(self.workspace),
+                        reader=_destination_reader(self.workspace),
+                        recorded_by="Data manager",
+                    )
+
     def setUp(self) -> None:
         self.now = datetime.now(UTC)
         self.workspace = _workspace(self.now)

@@ -23,8 +23,9 @@ The baseline protects four kinds of evidence:
 4. Repository decomposition does not introduce unbounded registry, workspace,
    or Odoo access.
 
-The [completed remediation record](../plans/code-organization-remediation.md)
-explains how these gates and the current structure were delivered.
+Git history retains the completed remediation phases. The current
+[code-organization guide](../architecture/code-organization.md) describes the
+resulting structure and dependency rules.
 
 ## Architecture inventory
 

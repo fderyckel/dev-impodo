@@ -14,6 +14,7 @@ from dataclasses import replace
 from hashlib import sha256
 from uuid import uuid4
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.application.shared.artifacts import (
     ArtifactStoreError,
     WorkspaceArtifactStore,
@@ -530,7 +531,9 @@ class PreflightService:
             report,
             execution_snapshot,
             execution_shape_ready=(
-                execution_snapshot.target_odoo_version.startswith("19.")
+                assess_odoo_operation(
+                    execution_snapshot.target_odoo_version, OdooOperation.WRITE,
+                ).allowed
                 and not execution_snapshot.relationship_plan.blockers
             ),
         )

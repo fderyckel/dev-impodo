@@ -1,10 +1,12 @@
-"""Bounded direct-dataset orchestration for 100,000-row Stage-E preparation.
+"""Prepare direct datasets within the admitted route's row and memory limits.
 
 This module publishes canonical prepared rows only for an unchanged direct
-selection of physical datasets.  It prefers a columnar transformation program
-when available and keeps a bounded Python adaptation path for smaller inputs.
-Both paths create the same session evidence, quality inputs, and control-total
-results rather than creating different interpretations of the source data.
+selection of physical datasets. It compiles dataset-wide capability decisions
+before transforming rows, routes supported programs through the columnar port,
+and uses the bounded Python evaluator for unsupported mappings. The 100,000-row
+limit applies only to the qualified exact-snapshot, single-dataset native route.
+Both paths preserve the same session evidence, quality inputs, and control
+totals. Full-pipeline admission also checks downstream preparation capabilities.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from impodo.application.shared.artifacts import GovernedArtifactStores, Artifact
 from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from impodo.domain.compiler.columnar_transformation import (
+    ColumnarCompilationDecision,
     ColumnarCompilationError,
     ColumnarSupport,
     ColumnarTransformationProgram,
@@ -145,6 +148,8 @@ def direct_preparation_row_limit(
     definition: MappingDefinition,
     effective_selection: SourceSelection,
     source_snapshots: Iterable[SourceSnapshot],
+    *,
+    compilation: tuple[ColumnarCompilationDecision, ...] | None = None,
 ) -> int:
     """Choose the safe evaluation ceiling for the verified source representation.
 
@@ -154,9 +159,8 @@ def direct_preparation_row_limit(
     """
 
     try:
-        decisions = compile_columnar_transformation_programs(
-            definition,
-            effective_selection,
+        decisions = compilation if compilation is not None else (
+            compile_columnar_transformation_programs(definition, effective_selection)
         )
     except ColumnarCompilationError:
         return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT

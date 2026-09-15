@@ -1,4 +1,9 @@
-"""Compilation of governed authoring contracts into runtime semantics."""
+"""Compile governed authoring contracts without reading rows or running engines.
+
+Browser mappings and profiles share ``CompiledMigrationPlan`` for downstream
+target semantics. The columnar compiler separately describes supported browser
+transformations and records whole-dataset fallback decisions for preparation.
+"""
 
 from .columnar_transformation import (
     COLUMNAR_CAPABILITY_MATRIX,

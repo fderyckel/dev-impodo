@@ -62,7 +62,7 @@
         <p>This is the exact create-and-update set from the latest completed comparison. Nothing is written from this page.</p>
       </div>
       {% if preview.current_run %}
-        <span class="status review">Load already recorded</span>
+        <span class="status review">{{ 'Interrupted load' if interrupted_load else 'Load already recorded' }}</span>
       {% elif preview.can_load %}
         <span class="status ready">Ready for confirmation</span>
       {% else %}
@@ -187,11 +187,11 @@
     {% if preview.current_run %}
       <section class="next-action-card review" aria-labelledby="review-outcome-title">
         <div>
-          <p class="eyebrow">Load already recorded</p>
-          <h2 id="review-outcome-title">Continue with the saved result</h2>
-          <p>This reviewed preview cannot be loaded again. Verify the durable Odoo outcome instead.</p>
+          <p class="eyebrow">{{ 'Interrupted load' if interrupted_load else 'Load already recorded' }}</p>
+          <h2 id="review-outcome-title">{{ 'Continue the interrupted load' if interrupted_load else 'Continue with the saved result' }}</h2>
+          <p>{% if interrupted_load %}Impodo stopped before this load finished. Open recovery to check Odoo and continue the remaining work. The totals above describe the original review.{% else %}This reviewed preview cannot be loaded again. Verify the durable Odoo outcome instead.{% endif %}</p>
         </div>
-        <a class="button primary" href="/workspaces/{{ workspace_id }}/load/outcome">View verification result</a>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/load/outcome">{{ 'Review interrupted load' if interrupted_load else 'View verification result' }}</a>
       </section>
     {% elif preview.can_load %}
       <section class="next-action-card ready" aria-labelledby="review-complete-title">
@@ -248,6 +248,9 @@
       <div>
         <p class="eyebrow">Explicit confirmation</p>
         <h2 id="confirm-load-title">Load {{ preview.snapshot.write_count }} record{{ 's' if preview.snapshot.write_count != 1 else '' }} into {{ preview.snapshot.target_database }}</h2>
+        {% if preview.prior_interrupted_run %}
+          <p>An earlier upload was interrupted. Before loading this fresh comparison, Impodo checks its saved receipts and closes the earlier attempt. Its original records and receipts remain saved.</p>
+        {% endif %}
         {% if preview.deferred_create_count %}
           <p>{{ preview.deferred_create_count }} new {{ 'records need' if preview.deferred_create_count != 1 else 'record needs' }} a second relationship step. Impodo creates the records first, then sets those relationships after the related records exist.</p>
         {% elif dependency_summary and dependency_summary.total_group_count %}
@@ -260,6 +263,9 @@
       <form method="post" action="/workspaces/{{ workspace_id }}/load" data-load-confirmation-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="snapshot_hash" value="{{ preview.snapshot.semantic_hash }}">
+        {% if preview.prior_interrupted_run %}
+          <input type="hidden" name="prior_execution_run_id" value="{{ preview.prior_interrupted_run.run_id }}">
+        {% endif %}
         <label>
           Odoo write API key
           <input type="password" name="write_api_key" autocomplete="current-password" {% if not has_stored_write_key %}required{% endif %}>
@@ -289,11 +295,11 @@
     <div class="page-heading">
       <div>
         <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load &middot; Verify result{% else %}Stage 6 of 6 &middot; Verify result{% endif %}</p>
-        <h1>Verify the Odoo result</h1>
-        <p>The API receipt is saved. Verification checks the actual Odoo records before this load is considered complete.</p>
+        <h1>{{ 'Continue the interrupted Odoo load' if interrupted_load else 'Verify the Odoo result' }}</h1>
+        <p>{% if interrupted_load %}The saved upload is unfinished. Impodo must check the actual Odoo records before continuing.{% else %}The API receipt is saved. Verification checks the actual Odoo records before this load is considered complete.{% endif %}</p>
       </div>
       <span class="status {% if reconciliation and reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}">
-        {% if not reconciliation %}Verification required{% elif reconciliation.status.value == 'VERIFIED' %}Verified in Odoo{% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}Outcome needs checking{% else %}Verified with fallout{% endif %}
+        {% if interrupted_load %}Interrupted load{% elif not reconciliation %}Verification required{% elif reconciliation.status.value == 'VERIFIED' %}Verified in Odoo{% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}Outcome needs checking{% else %}Verified with fallout{% endif %}
       </span>
     </div>
 
@@ -307,7 +313,31 @@
       </section>
     {% endif %}
 
-    {% if reconciliation %}
+    {% if interrupted_load %}
+      <section class="next-action-card review" aria-labelledby="load-recovery-title">
+        <div>
+          <p class="eyebrow">Interrupted load</p>
+          <h2 id="load-recovery-title">Check Odoo and continue the remaining work</h2>
+          <p><strong>{{ preview.current_run.committed_count }} accepted &middot;
+            {{ preview.current_run.planned_count + preview.current_run.retry_ready_count }} waiting to load &middot;
+            {{ preview.current_run.in_flight_count + preview.current_run.unknown_count }} uncertain &middot;
+            {{ preview.current_run.partially_applied_count }} partially applied.</strong></p>
+          <p>Impodo first checks the saved results and uncertain requests against Odoo. It then continues the same load in the reviewed order, keeps verified records, and verifies the final result.</p>
+          <p>This action can write the remaining records. If earlier records changed or an uncertain request cannot be resolved safely, recovery stops for review.</p>
+        </div>
+        {% if has_stored_write_key %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/load/recover">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="execution_run_id" value="{{ preview.current_run.run_id }}">
+            <input type="hidden" name="snapshot_hash" value="{{ preview.snapshot.semantic_hash }}">
+            <p>Uses the original saved loading key and batch size.</p>
+            <button class="button primary" type="submit">Assess and resume interrupted load</button>
+          </form>
+        {% else %}
+          <p>The original saved loading key is unavailable. Recovery requires its original credential binding; contact support before changing credentials or starting another load.</p>
+        {% endif %}
+      </section>
+    {% elif reconciliation %}
       <section class="next-action-card {% if reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}" aria-labelledby="load-result-title">
         <div>
           <p class="eyebrow">Odoo read-back complete</p>

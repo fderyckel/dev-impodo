@@ -17,6 +17,12 @@ The current data-version target must be configured. A file-source data version
 also needs frozen source tables. Know the intended Odoo business records and
 agree stable business keys with the functional owner.
 
+Impodo currently supports Odoo 19. If the connected server reports an unknown
+or conflicting version, resolve that connection check before capturing its
+details. Odoo 20 support is being prepared and is not enabled yet. A Recipe
+applies only to its authored Odoo major version, and an Odoo source and
+destination must use the same major version.
+
 When you connect a Remote Odoo target, enter the API key that Impodo should
 use for checking. You can keep it for checking only, or select **Use this key
 for checking and loading** when the same Odoo account is approved to write.

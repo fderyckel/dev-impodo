@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import replace
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -10,6 +11,14 @@ from impodo.application.workspace.preparation.preparation_capability import (
     compile_preparation_capability,
 )
 from impodo.domain.errors import ReadinessError
+from impodo.domain.mapping.contracts import (
+    DatasetMapping, IdentityComponentMapping, MappingDefinition, MappingTargetMode,
+    ReferenceKeyMapping, RelationshipMapping, RelationshipResolver, ResolverOrigin,
+    ScalarFieldMapping,
+)
+from impodo.application.workspace.preparation import preparation_capability as capability_module
+from impodo.application.workspace.preparation import bounded_preparation as bounded_module
+from impodo.domain.recipe.value_rules import ScalarTransformPolicy
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
@@ -23,6 +32,113 @@ from impodo.domain.workspace.contracts import (
 
 
 class PreparationCapabilityTests(unittest.TestCase):
+    def test_dataset_routes_share_one_compilation_and_explain_mixed_storage(self) -> None:
+        selection = _selection((3, 8), names=("documents", "details"))
+        definition = _definition(selection)
+        child = replace(definition.datasets[1], fields=(ScalarFieldMapping(
+            target_field="x_amount", source_column_key="column:1", value_type="decimal",
+            transform=ScalarTransformPolicy(formula="value / 1000"),
+        ),))
+        definition = replace(definition, datasets=(definition.datasets[0], child))
+        snapshots = (SimpleNamespace(dataset_id=item.dataset_id) for item in selection.datasets)
+        with (
+            patch.object(capability_module, "compile_columnar_transformation_programs", wraps=capability_module.compile_columnar_transformation_programs) as compiler,
+            patch.object(capability_module, "validate_snapshot_for_dataset"),
+            patch.object(bounded_module, "validate_snapshot_for_dataset"),
+        ):
+            manifest = compile_preparation_capability(
+                definition=definition, physical_selection=selection, effective_selection=selection,
+                source_snapshots=snapshots, derived_plan=None, current_ruleset=None, reference_bundle=None,
+            )
+        self.assertEqual(compiler.call_count, 1)
+        self.assertEqual(tuple(item.behavior for item in manifest.datasets), (
+            PreparationRouteBehavior.NATIVE_COLUMNAR, PreparationRouteBehavior.BOUNDED_PYTHON,
+        ))
+        transformation = next(item for item in manifest.stages if item.stage == "transformation")
+        self.assertEqual(transformation.behavior, PreparationRouteBehavior.MIXED_BOUNDED)
+        self.assertEqual(manifest.supported_rows, 50_000)
+
+    def test_incoming_identity_uses_direct_limit_and_retains_small_run_fallback(self) -> None:
+        for row_count in (25_000, 25_001, 50_000, 50_001):
+            selection = _selection((row_count,))
+            definition = _definition(selection)
+            dataset = replace(definition.datasets[0], target_scope=(IdentityComponentMapping(
+                source_column_keys=("column:1",), target_fields=("ancestor",),
+                resolver=RelationshipResolver(origin=ResolverOrigin.DATASET, dataset_id=selection.datasets[0].dataset_id),
+            ),))
+            manifest = _manifest(replace(definition, datasets=(dataset,)), selection)
+            self.assertEqual(manifest.admitted, row_count <= 50_000)
+            self.assertEqual(manifest.permits_materialized_fallback, row_count == 25_000)
+
+    def test_incoming_identity_limit_is_generic_and_checked_before_rows(self) -> None:
+        for model, role in (
+            ("sale.order.line", "target_identity"),
+            ("account.move.line", "target_scope"),
+            ("x_custom.child", "target_scope"),
+        ):
+            with self.subTest(model=model, role=role):
+                selection = _selection((2_000, 24_000), names=("parents", "children"))
+                definition = _definition(selection)
+                child = definition.datasets[1]
+                component = IdentityComponentMapping(
+                    source_column_keys=("column:1",), target_fields=("x_parent",),
+                    resolver=RelationshipResolver(
+                        origin=ResolverOrigin.DATASET,
+                        dataset_id=selection.datasets[0].dataset_id,
+                    ),
+                )
+                child = replace(child, target_model=model, **{role: (component,)})
+                definition = replace(definition, datasets=(definition.datasets[0], child))
+                manifest = _manifest(definition, selection)
+
+                self.assertTrue(manifest.admitted)
+                self.assertEqual(manifest.supported_rows, 50_000)
+                quality = next(item for item in manifest.stages if item.stage == "quality")
+                self.assertNotIn("INCOMING_IDENTITY_GROUP_MATERIALIZES", quality.reason_codes)
+                self.assertEqual(manifest.datasets[1].incoming_identity_fields, ("x_parent",))
+                self.assertFalse(manifest.permits_materialized_fallback)
+                manifest.require_supported()
+
+    def test_ordinary_incoming_link_does_not_select_identity_group_limit(self) -> None:
+        selection = _selection((2_000, 24_000), names=("parents", "children"))
+        definition = _definition(selection)
+        child = replace(definition.datasets[1], relationships=(RelationshipMapping(
+            target_field="x_parent", kind="many2one", source_column_keys=("column:1",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.DATASET, dataset_id=selection.datasets[0].dataset_id,
+            ),
+        ),))
+        manifest = _manifest(replace(definition, datasets=(definition.datasets[0], child)), selection)
+        self.assertTrue(manifest.admitted)
+        self.assertEqual(manifest.supported_rows, 50_000)
+
+    def test_target_catalog_identity_keeps_bounded_route(self) -> None:
+        selection = _selection((26_000,))
+        definition = _definition(selection)
+        dataset = replace(definition.datasets[0], target_scope=(IdentityComponentMapping(
+            source_column_keys=("column:1",), target_fields=("x_parent",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.TARGET_CATALOG, model="x_parent",
+                key_mappings=(ReferenceKeyMapping("column:1", "code"),),
+            ),
+        ),))
+        manifest = _manifest(replace(definition, datasets=(dataset,)), selection)
+        self.assertTrue(manifest.admitted)
+
+    def test_formula_route_reports_its_dataset_and_rule_without_values(self) -> None:
+        selection = _selection((3, 8), names=("documents", "details"))
+        definition = _definition(selection)
+        child = replace(definition.datasets[1], fields=(ScalarFieldMapping(
+            target_field="x_amount", source_column_key="column:1", value_type="decimal",
+            transform=ScalarTransformPolicy(formula="value / 1000"),
+        ),))
+        manifest = _manifest(replace(definition, datasets=(definition.datasets[0], child)), selection)
+        details = next(item for item in manifest.datasets if item.dataset_name == "details")
+        self.assertEqual(details.behavior, PreparationRouteBehavior.BOUNDED_PYTHON)
+        self.assertIn("COLUMNAR_FORMULA_UNSUPPORTED", details.reason_codes)
+        self.assertIn("/fields/x_amount/transform/formula", details.rule_paths)
+        self.assertNotIn("value / 1000", str(manifest.to_portable_dict()))
+
     def test_single_native_dataset_admits_the_existing_columnar_limit(self) -> None:
         selection = _selection((100_000,))
 
@@ -240,15 +356,30 @@ def _definition(
     selection: SourceSelection,
     *,
     related: bool = False,
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        content_hash="sha256:" + "c" * 64,
+) -> MappingDefinition:
+    return MappingDefinition(
+        mapping_id="mapping:capability",
         schema_hash="sha256:" + "d" * 64,
         source_selection_hash=selection.content_hash,
         datasets=tuple(
-            SimpleNamespace(
-                relationships=(("parent_id",) if related and index == 0 else ()),
+            DatasetMapping(
+                dataset_id=dataset.dataset_id, target_model="x_record",
+                mode=MappingTargetMode.UPSERT,
+                source_identity_column_keys=("column:1",),
+                target_identity=(IdentityComponentMapping(("column:1",), ("code",)),),
+                fields=(ScalarFieldMapping("code", "column:1"),),
+                relationships=((RelationshipMapping(
+                    target_field="parent_id", kind="many2one", source_column_keys=("column:1",),
+                    resolver=RelationshipResolver(origin=ResolverOrigin.DATASET, dataset_id=dataset.dataset_id),
+                ),) if related and index == 0 else ()),
             )
-            for index, _dataset in enumerate(selection.datasets)
+            for index, dataset in enumerate(selection.datasets)
         ),
+    )
+
+
+def _manifest(definition: MappingDefinition, selection: SourceSelection):
+    return compile_preparation_capability(
+        definition=definition, physical_selection=selection, effective_selection=selection,
+        source_snapshots=(), derived_plan=None, current_ruleset=None, reference_bundle=None,
     )

@@ -145,17 +145,36 @@ def _render_normalization(
         item for item in items
         if not selected_status or item["status"] == selected_status
     )
+    requested_page = _positive_query_int(
+        request.query_params.get("page"), default=1,
+    )
+    set_aside_page = None
+    if selected_status == "set_aside":
+        set_aside_page = context.queries.get_quality_review_page(
+            workspace_id,
+            summary.quality_run_id,
+            status="quarantined",
+            dataset="",
+            page=requested_page,
+            page_size=NORMALIZATION_GROUPS_PER_PAGE,
+        )
     page_count = max(
         1,
         (len(matching) + NORMALIZATION_GROUPS_PER_PAGE - 1)
         // NORMALIZATION_GROUPS_PER_PAGE,
     )
     page = min(
-        _positive_query_int(request.query_params.get("page"), default=1),
+        requested_page,
         page_count,
     )
     start = (page - 1) * NORMALIZATION_GROUPS_PER_PAGE
     page_items = matching[start : start + NORMALIZATION_GROUPS_PER_PAGE]
+    matching_count = len(matching)
+    if set_aside_page is not None:
+        page = set_aside_page.page
+        page_count = set_aside_page.page_count
+        matching_count = set_aside_page.matching_count
+        page_items = ()
     return _render(
         request,
         "workspace_normalization.html",
@@ -163,10 +182,13 @@ def _render_normalization(
         normalization=summary,
         dry_run=dry_run,
         review_items=page_items,
+        set_aside_page=set_aside_page,
+        set_aside_row_start=(page - 1) * NORMALIZATION_GROUPS_PER_PAGE + 1,
+        set_aside_row_end=min(page * NORMALIZATION_GROUPS_PER_PAGE, matching_count),
         rejected_items=tuple(
             item for item in items if item["decision"] == "REJECTED"
         ),
-        review_matching_count=len(matching),
+        review_matching_count=matching_count,
         review_status=selected_status,
         review_page=page,
         review_page_count=page_count,

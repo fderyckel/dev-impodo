@@ -29,7 +29,7 @@ from ...application.workspace.execution.load_jobs import (
     LoadJobStateError,
 )
 from impodo.domain.odoo.contracts import ConnectorError
-from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS
+from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS, ExecutionRunStatus
 from impodo.domain.execution.odoo_readback import OdooReadbackError
 from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
 from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
@@ -309,6 +309,8 @@ def build_execution_router(
             )
         if step == "confirm" and preview.current_run is not None:
             step = "outcome"
+        if step == "outcome" and preview.current_run is None:
+            step = "review"
         try:
             has_stored_write_key = bool(
                 get_target_credential(
@@ -435,6 +437,11 @@ def build_execution_router(
             fallout_detail_available=fallout_detail_available,
             fallout_groups=fallout_groups,
             reconciliation_summary=reconciliation_summary,
+            interrupted_load=(
+                preview.current_run is not None
+                and getattr(preview.current_run, "status", None)
+                is ExecutionRunStatus.RUNNING
+            ),
             load_step=step,
             max_batch_rows=MAX_CREATE_BATCH_ROWS,
             load_row_page=load_row_page,
@@ -645,8 +652,10 @@ def build_execution_router(
         require_session(request)
         return JSONResponse(_job_payload(_get_job(context, workspace_id, job_id)))
 
+    @router.post("/workspaces/{workspace_id}/load/recover")
     @router.post("/workspaces/{workspace_id}/load")
     async def load_into_odoo(request: Request, workspace_id: str):
+        recovering = request.url.path.endswith("/recover")
         form = await request.form()
         _secure_form(
             request,
@@ -654,7 +663,12 @@ def build_execution_router(
             {
                 "csrf_token",
                 "snapshot_hash",
+                "execution_run_id",
+            } if recovering else {
+                "csrf_token",
+                "snapshot_hash",
                 "batch_rows",
+                "prior_execution_run_id",
                 "write_api_key",
                 "remember_write_api_key",
                 "api_key",
@@ -696,7 +710,10 @@ def build_execution_router(
                     workspace_id,
                     actor=context.actor,
                 )
-            batch_rows = validated_create_batch_rows(_text(form, "batch_rows"))
+            batch_rows = (
+                None if recovering
+                else validated_create_batch_rows(_text(form, "batch_rows"))
+            )
             with _diagnostic_load_stage(
                 diagnostic_recorder,
                 "submission_preview",
@@ -712,6 +729,20 @@ def build_execution_router(
             snapshot_hash = _text(form, "snapshot_hash")
             if snapshot_hash != preview.snapshot.semantic_hash:
                 raise WorkspaceError("The load preview changed. Review it again.")
+            recovery_run_id = _text(form, "execution_run_id") if recovering else ""
+            prior_run_id = _text(form, "prior_execution_run_id") if not recovering else ""
+            prior_run = getattr(preview, "prior_interrupted_run", None)
+            if not recovering and (
+                (prior_run is not None and prior_run.run_id != prior_run_id)
+                or (prior_run_id and prior_run is None)
+            ):
+                raise WorkspaceError("Review the interrupted prior load before confirming this fresh comparison")
+            if recovering and (
+                preview.current_run is None
+                or preview.current_run.run_id != recovery_run_id
+                or preview.current_run.status is not ExecutionRunStatus.RUNNING
+            ):
+                raise WorkspaceError("The interrupted Odoo load is no longer current")
             with _diagnostic_load_stage(
                 diagnostic_recorder,
                 "submission_credentials",
@@ -743,10 +774,27 @@ def build_execution_router(
                     credential_owner,
                     TargetCredentialRole.WRITE,
                 )
+                if prior_run_id and (
+                    submitted_key or saved_write_credential is None
+                    or saved_write_credential.binding_hash != prior_run.write_credential_binding_hash
+                ):
+                    raise WorkspaceError("Fresh recovery requires the original saved loading key")
                 if not submitted_key and saved_write_credential is None:
                     raise SecretStoreError(
-                        "Enter an Odoo API key approved for loading on this "
-                        "exact target"
+                        "Recovery requires the original saved loading key. "
+                        "Its credential binding must match the interrupted load."
+                        if recovering else
+                        "Enter an Odoo API key approved for loading on this exact target"
+                    )
+                if (
+                    recovering
+                    and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+                    and saved_write_credential.binding_hash
+                    != preview.current_run.write_credential_binding_hash
+                ):
+                    raise WorkspaceError(
+                        "The saved loading key changed after interruption. "
+                        "Recovery requires the original credential binding."
                     )
                 api_key = (
                     submitted_key
@@ -773,6 +821,38 @@ def build_execution_router(
                 if authorized_workspace != access_context:
                     raise MigrationConflictError(
                         "The authorized workspace changed before the load began"
+                    )
+                if recovering or prior_run_id:
+                    current_preview = context.execution.current_preview(workspace_id)
+                    current_state = context.queries.get(workspace_id)
+                    current_credential = get_target_credential(
+                        context.secret_store,
+                        credential_owner,
+                        TargetCredentialRole.WRITE,
+                    )
+                    current_run = (
+                        current_preview.current_run if recovering and current_preview is not None
+                        else getattr(current_preview, "prior_interrupted_run", None)
+                    )
+                    if (
+                        current_state.revision != workspace_state.revision
+                        or current_preview is None
+                        or current_preview.scope_error
+                        or current_preview.snapshot.semantic_hash != snapshot_hash
+                        or current_run is None
+                        or current_run.run_id != (recovery_run_id or prior_run_id)
+                        or current_run.status
+                        is not ExecutionRunStatus.RUNNING
+                        or current_credential is None
+                        or current_credential.binding_hash
+                        != saved_write_credential.binding_hash
+                    ):
+                        raise WorkspaceError(
+                            "The interrupted load, preview, or loading key changed "
+                            "before recovery began"
+                        )
+                    context.cutover_plans.assert_application_can_execute(
+                        workspace_id, actor=context.actor,
                     )
                 with _diagnostic_load_stage(
                     diagnostic_recorder,
@@ -827,28 +907,70 @@ def build_execution_router(
                         write_credential_generation=write_credential.binding_hash,
                         actor=context.actor,
                     )
+                if prior_run_id:
+                    with _diagnostic_load_stage(diagnostic_recorder, "close_prior_interrupted_load"):
+                        context.execution.close_interrupted_run_for_recomparison(
+                            workspace_id,
+                            expected_execution_run_id=prior_run_id,
+                            expected_snapshot_hash=snapshot_hash,
+                            read_identity=read_identity,
+                            read_credential_binding_hash=read_credential_binding_hash,
+                            write_identity=write_identity,
+                            write_credential_binding_hash=write_credential.binding_hash,
+                            actor=context.actor,
+                        )
+                if recovering:
+                    with _diagnostic_load_stage(diagnostic_recorder, "recovery_readback"):
+                        recovery_reader = context.readback_reader_factory(
+                            workspace_state, api_key, preview.api_scope,
+                        )
+                        recovery = context.reconciliation.assess_recovery(
+                            workspace_id,
+                            expected_execution_run_id=recovery_run_id,
+                            reader=recovery_reader,
+                            actor=context.actor,
+                            write_identity=write_identity,
+                            write_credential_binding_hash=(
+                                write_credential.binding_hash
+                                if write_identity is not None else ""
+                            ),
+                        )
+                with _diagnostic_load_stage(diagnostic_recorder, "write"):
                     executor = context.write_executor_factory(
                         workspace_state,
                         api_key,
                         preview.api_scope,
                     )
-                with _diagnostic_load_stage(diagnostic_recorder, "write"):
-                    run = context.execution.execute(
-                        workspace_id,
-                        expected_snapshot_hash=snapshot_hash,
-                        executor=executor,
-                        actor=context.actor,
-                        batch_rows=batch_rows,
-                        read_identity=read_identity,
-                        read_credential_binding_hash=read_credential_binding_hash,
-                        write_identity=write_identity,
-                        write_credential_binding_hash=(
-                            write_credential.binding_hash
-                            if write_identity is not None
-                            else ""
-                        ),
-                        progress=report_writing,
-                    )
+                    if recovering:
+                        run = context.execution.resume(
+                            workspace_id,
+                            expected_execution_run_id=recovery_run_id,
+                            recovery=recovery,
+                            executor=executor,
+                            actor=context.actor,
+                            write_identity=write_identity,
+                            write_credential_binding_hash=(
+                                write_credential.binding_hash
+                                if write_identity is not None else ""
+                            ),
+                            progress=report_writing,
+                        )
+                    else:
+                        run = context.execution.execute(
+                            workspace_id,
+                            expected_snapshot_hash=snapshot_hash,
+                            executor=executor,
+                            actor=context.actor,
+                            batch_rows=batch_rows,
+                            read_identity=read_identity,
+                            read_credential_binding_hash=read_credential_binding_hash,
+                            write_identity=write_identity,
+                            write_credential_binding_hash=(
+                                write_credential.binding_hash
+                                if write_identity is not None else ""
+                            ),
+                            progress=report_writing,
+                        )
                 report_verifying(run)
                 try:
                     with _diagnostic_load_stage(diagnostic_recorder, "verification"):
@@ -949,7 +1071,7 @@ def build_execution_router(
                 render,
                 request,
                 workspace_id,
-                step="confirm",
+                step="outcome" if recovering else "confirm",
                 error=str(error),
                 status_code=422,
             )

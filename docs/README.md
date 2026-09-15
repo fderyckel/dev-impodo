@@ -73,49 +73,43 @@ applies those rules when documentation is created or rewritten.
 
 ## Plans
 
-- [Odoo 19 and Odoo 20 support](plans/odoo-19-and-20-support.md)
-  — the proposed shared integration, version-specific policies, Recipe
-  qualification, and staged release plan for supporting both Odoo versions.
+Plans retain unfinished delivery and qualification work. Current behavior lives
+in the architecture, contracts, and paired workflow pages; completed delivery
+records remain in Git history.
+
+- [Impodo remaining work](plans/remaining-work.md) is the broad roadmap and
+  records the deferred tracks and current row limits.
+- [Odoo 19 and Odoo 20 support](plans/odoo-19-and-20-support.md) proposes shared
+  integration, version-specific policies, and qualification for both versions.
 - [Maintainable code and focused execution services](plans/maintainable-code-and-execution-services.md)
-  — the proposed coding practices, automated checks, and staged execution
-  refactor for preserving clear ownership as the project grows.
+  proposes coding practices, automated checks, and a focused execution refactor.
 - [End-to-end trial and scenario qualification](plans/end-to-end-trial-and-scenario-qualification.md)
-  — the proposed shared capability for interactive supplied-data trials and
-  deterministic background scenarios across file, local Odoo, remote Odoo,
-  and bounded Odoo-source paths.
+  retains full lifecycle integration, browser and remote acceptance, Odoo-source
+  scenarios, recovery, and scheduling beyond the implemented profile runner.
 - [VM deployment with DuckDB and managed workers](plans/vm-deployment-duckdb-worker-management.md)
-  — the proposed internal VM deployment, Microsoft Entra sign-in, retained
-  local files, bounded preparation-worker coordination, recovery, and pilot
-  acceptance plan.
-- [Scalable relationship dependency planning and execution](plans/scalable-relationship-dependency-planning.md)
-  — the proposed generic dataset and row dependency planner for hierarchies,
-  Product relationships, BOM-shaped migrations, cycle handling, bounded Odoo
-  calls, recovery, and scale qualification.
-- [Smart Match data ordering and early Odoo refinement](plans/smart-match-data-ordering.md)
-  — the implemented local Stage 3 work queue and persisted user-controlled
-  table order, plus the planned explicit read-only Odoo refinement.
-- [Impodo remaining work](plans/remaining-work.md) — the broad forward-looking
-  delivery roadmap.
-- [Combine source columns into one Odoo field](plans/concatenate-source-columns-matching-rule.md)
-  — the implemented design record for the guided, reusable matching rule that
-  joins two to five source columns without changing the accepted workbook.
-- [Include only matching source rows](plans/source-row-inclusion-rules.md) —
-  the proposed reusable dataset rule that keeps complete source evidence while
-  preventing non-matching rows from reaching preparation or Odoo.
-- [Recipe runs in three pages](plans/recipe-run-three-page-ui-refactor.md) —
-  the approved plan for applying an existing Recipe to fresh data and an Odoo
-  target without repeating the six authoring stages.
-- [Build hierarchical related records from separate source columns](plans/multi-column-hierarchical-related-records.md) —
-  the implemented, model-neutral Stage 1 hierarchy extraction and Stage 3
-  self-parent and consumer matching design, including explicit fixed-parent
-  and blank-path decisions.
-- [Accept hierarchy roots and preserve parent-before-child load order](plans/hierarchy-root-null-scope-and-load-order.md)
-  — the proposed corrective design for explicit null root scope, exact Odoo
-  matching, dependency ordering, durable parent receipts, and recovery of
-  affected workspaces.
-- The separate browser-language proposal is active design work. Completed
-  delivery history belongs in Git history; current behavior belongs in the
-  architecture, contracts, and paired workflow pages.
+  proposes internal VM deployment, Entra sign-in, durable worker coordination,
+  resource controls, recovery, and pilot acceptance.
+- [Windows relationship qualification](plans/scalable-relationship-dependency-planning.md)
+  retains the clean Windows repeat and outstanding visual evidence for the
+  implemented planner and executor at 25,000 scheduled records.
+- [Match data ordering qualification](plans/smart-match-data-ordering.md)
+  retains documentation, visual, and performance checks for the implemented
+  queue, custom ordering, and explicit live Odoo refinement.
+- [Row-inclusion follow-up](plans/source-row-inclusion-rules.md) retains visual
+  qualification and native parity beyond the implemented bounded evaluator.
+- [Three-page Production journey](plans/recipe-run-three-page-ui-refactor.md)
+  retains Production UI completion and guidance beyond the implemented Test flow.
+- [Hierarchy-root qualification](plans/hierarchy-root-null-scope-and-load-order.md)
+  retains local and remote acceptance and grouped dependency explanations.
+- [macOS save qualification](plans/resilient-match-data-saving.md) retains
+  separate-editor concurrency, responsiveness, and restart evidence.
+- [Workflow responsiveness qualification](plans/responsive-workflow-liveness-and-navigation.md)
+  retains platform p95 measurements and any justified navigation follow-up.
+- [Final review recovery and performance](plans/responsive-final-review-comparison.md)
+  retains durable attempts, the remaining detailed compact preview, and measured
+  publication qualification.
+- [Known-fallout repair](plans/load-fallout-source-cell-workbook.md) proposes
+  confirmed exact-record repairs after an execution with known differences.
 
 ## Guides, runbooks, and quality
 
@@ -156,6 +150,11 @@ setup, CLI, release, and acceptance procedures live under
   and connector cases.
 - [Acceptance and test strategy](testing/acceptance.md) — test layers, golden
   slice, determinism checks, and acceptance traceability.
+- [Odoo dual-support Phase 2 policy](testing/odoo-compatibility-phase2.md)
+  records shared version decisions, preserved Odoo 19 behavior, and verification.
+- [Odoo dual-support Phase 1 baseline](testing/odoo-compatibility-phase1.md)
+  — pinned local Odoo builds, live Odoo 19 scenario evidence, preserved policy
+  hashes, and the version and storage inventory for implementation.
 - [Code-organization regression baseline](testing/code-organization-phase0-baseline.md)
   — reproducible import, fixed-order, atomic-operation, bounded-I/O, browser,
   and test-organization gates for the implemented architecture.

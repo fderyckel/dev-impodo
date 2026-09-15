@@ -111,16 +111,74 @@
   <section class="form-card" id="review-groups" aria-labelledby="review-groups-title">
     <div class="page-heading compact">
       <div>
-        <p class="eyebrow">Prepared changes</p>
+        <p class="eyebrow">{% if review_status == 'set_aside' %}Prepared records{% else %}Prepared changes{% endif %}</p>
         <h2 id="review-groups-title">
-          {% if review_status == 'pending' %}Decisions left{% elif review_status == 'reviewed' %}Reviewed changes{% elif review_status == 'automatic' %}Routine preparation{% elif review_status == 'set_aside' %}Changes to set-aside records{% else %}All changes and findings{% endif %}
+          {% if review_status == 'pending' %}Decisions left{% elif review_status == 'reviewed' %}Reviewed changes{% elif review_status == 'automatic' %}Routine preparation{% elif review_status == 'set_aside' %}Set-aside records{% else %}All changes and findings{% endif %}
         </h2>
-        <p>Similar changes are grouped so you can review them once.</p>
+        {% if review_status == 'set_aside' %}
+          <p>These records were kept out of the Odoo comparison. Review each record's findings and next step below.</p>
+          {% if set_aside_page.matching_count %}<p class="muted">Records {{ set_aside_row_start }}-{{ set_aside_row_end }} of {{ set_aside_page.matching_count }}</p>{% endif %}
+        {% else %}
+          <p>Similar changes are grouped so you can review them once.</p>
+        {% endif %}
       </div>
       {% if review_status %}<a class="button secondary small" href="/workspaces/{{ workspace_id }}/normalization#review-groups">Clear filter</a>{% endif %}
     </div>
 
-    {% if review_items %}
+    {% if review_status == 'set_aside' %}
+      {% if set_aside_page.items %}
+        <div class="table-scroll" data-normalization-table-scroll>
+          <table class="data-table readiness-row-table">
+            <thead><tr><th>Table</th><th>Source row</th><th>Record</th><th>Why it was set aside</th><th>Next step</th></tr></thead>
+            <tbody>
+              {% for item in set_aside_page.items %}
+                {% set row = item.row %}
+                <tr data-normalization-set-aside-row>
+                  <td>{{ row.dataset.replace('_', ' ')|title }}</td>
+                  <td>{{ row.source_row }}</td>
+                  <th>{{ row.record_label }}<small class="row-field"><span class="status blocked">Not included</span></small></th>
+                  <td>
+                    {% for issue in item.issues %}
+                      <p>
+                        {{ issue.message }}
+                        {% if issue.affected_fields %}<small class="row-field">Fields: {{ issue.affected_fields|join(', ') }}</small>{% endif %}
+                        <small class="row-field">
+                          {% if issue.policy.value == 'QUARANTINE' %}This check set the record aside for correction.
+                          {% elif issue.policy.value == 'EXCLUDE' %}This check excluded the record.
+                          {% elif issue.policy.value == 'WARNING' %}Additional finding; this warning did not exclude the record.
+                          {% endif %}
+                        </small>
+                      </p>
+                    {% else %}
+                      {% if row.effective_disposition.value == 'EXCLUDED' %}
+                        Excluded during preparation by the row-selection rules.
+                      {% else %}
+                        Set aside during preparation. No detailed finding was saved for this record.
+                      {% endif %}
+                    {% endfor %}
+                  </td>
+                  <td>
+                    {% for owner in item.issues|map(attribute='owner_label')|unique %}{% if owner %}<strong class="row-field">{{ owner }}</strong>{% endif %}{% endfor %}
+                    <p>{{ item.correction_route or "Review the source and rules, then prepare the data again." }}</p>
+                    <a class="button secondary small" href="/workspaces/{{ workspace_id }}/mapping">Review field and row rules</a>
+                    <details class="technical-details">
+                      <summary>Support details</summary>
+                      <code>{{ row.effective_disposition.value }} - {{ row.row_id }}</code>
+                      {% for issue in item.issues %}<small class="row-field"><code>{{ issue.reason_code }} - {{ issue.rule_id }}</code></small>{% endfor %}
+                    </details>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state compact">
+          <h3>No set-aside records</h3>
+          <p>No records were set aside in this prepared review.</p>
+        </div>
+      {% endif %}
+    {% elif review_items %}
       <div class="table-scroll" data-normalization-table-scroll>
         <table class="data-table readiness-row-table">
           <thead><tr><th>What Impodo prepared</th><th>Records</th><th>Examples</th><th>Decision</th></tr></thead>
@@ -186,18 +244,19 @@
           </tbody>
         </table>
       </div>
-      {% if review_page_count > 1 %}
-        <nav class="readiness-pagination" aria-label="Prepared-change pages">
-          {% if review_previous_url %}<a class="button secondary" href="{{ review_previous_url }}#review-groups">Previous</a>{% endif %}
-          <span class="muted">Page {{ review_page }} of {{ review_page_count }}</span>
-          {% if review_next_url %}<a class="button secondary" href="{{ review_next_url }}#review-groups">Next</a>{% endif %}
-        </nav>
-      {% endif %}
     {% else %}
       <div class="empty-state compact">
         <h3>No changes in this view</h3>
         <p>Choose another summary card or clear the filter.</p>
       </div>
+    {% endif %}
+
+    {% if review_page_count > 1 %}
+      <nav class="readiness-pagination" aria-label="{% if review_status == 'set_aside' %}Set-aside record pages{% else %}Prepared-change pages{% endif %}">
+        {% if review_previous_url %}<a class="button secondary" href="{{ review_previous_url }}#review-groups">Previous</a>{% endif %}
+        <span class="muted">Page {{ review_page }} of {{ review_page_count }}</span>
+        {% if review_next_url %}<a class="button secondary" href="{{ review_next_url }}#review-groups">Next</a>{% endif %}
+      </nav>
     {% endif %}
 
     <details class="technical-details">

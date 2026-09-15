@@ -149,6 +149,63 @@ class ExecutionRepositoryTests(unittest.TestCase):
         )
         return started
 
+    def _fresh_recomparison(self) -> str:
+        preflight_id = str(uuid4())
+        path = self.repository.workspace_directory(self.workspace_state.workspace_id) / "workspace-engine.duckdb"
+        with self.repository._connect(path) as connection:
+            connection.execute("""
+                INSERT INTO readiness_run (
+                    run_id, mapping_id, mapping_version, mapping_content_hash,
+                    target_hash, staging_run_id, staging_content_hash,
+                    quality_run_id, quality_content_hash, checked_at, checked_by, report_json
+                )
+                SELECT ?, mapping_id, mapping_version, mapping_content_hash,
+                       target_hash, staging_run_id, staging_content_hash,
+                       quality_run_id, quality_content_hash, checked_at,
+                       checked_by, report_json
+                  FROM readiness_run WHERE run_id = ?
+            """, [preflight_id, self.preflight_id])
+            connection.execute("UPDATE preflight_current SET run_id = ?", [preflight_id])
+        return preflight_id
+
+    def test_close_for_recomparison_preserves_rows_and_prevents_old_worker_writes(self) -> None:
+        run = self._run()
+        self.repository.start_run(self.workspace_state.workspace_id, run, actor=LOCAL_ACTOR)
+        started = self._start_batch(run, (run.rows[0],), phase="CREATE", batch=0)
+        self.repository.record_outcomes(self.workspace_state.workspace_id, run.run_id,
+            (replace(started[0], status=ExecutionRowStatus.COMMITTED, odoo_id=71),))
+        expected = self.repository.get_run(self.workspace_state.workspace_id, run.run_id)
+        fresh = self._fresh_recomparison()
+        closed = self.repository.close_interrupted_run_for_recomparison(
+            self.workspace_state.workspace_id, expected, fresh, actor=LOCAL_ACTOR)
+        self.assertEqual(closed.status, ExecutionRunStatus.OUTCOME_UNKNOWN)
+        self.assertEqual(closed.rows, expected.rows)
+        self.assertIsNotNone(closed.completed_at)
+        with self.assertRaisesRegex(WorkspaceError, "not active"):
+            self._start_batch(run, (run.rows[1],), phase="UPDATE", batch=1)
+        new = replace(self._run(), preflight_run_id=fresh, snapshot_hash="sha256:" + "3" * 64)
+        self.repository.start_run(self.workspace_state.workspace_id, new, actor=LOCAL_ACTOR)
+        self.assertEqual(self.repository.get_run(self.workspace_state.workspace_id, run.run_id).rows, expected.rows)
+
+    def test_close_for_recomparison_rejects_rows_changed_after_assessment(self) -> None:
+        run = self._run()
+        self.repository.start_run(self.workspace_state.workspace_id, run, actor=LOCAL_ACTOR)
+        fresh = self._fresh_recomparison()
+        self._start_batch(run, (run.rows[0],), phase="CREATE", batch=0)
+        with self.assertRaisesRegex(WorkspaceError, "changed before"):
+            self.repository.close_interrupted_run_for_recomparison(
+                self.workspace_state.workspace_id, run, fresh, actor=LOCAL_ACTOR)
+        self.assertEqual(self.repository.get_run(self.workspace_state.workspace_id, run.run_id).status,
+                         ExecutionRunStatus.RUNNING)
+
+    def test_close_for_recomparison_requires_a_current_different_comparison(self) -> None:
+        run = self._run()
+        self.repository.start_run(self.workspace_state.workspace_id, run, actor=LOCAL_ACTOR)
+        for preflight_id in (self.preflight_id, str(uuid4())):
+            with self.subTest(preflight_id=preflight_id), self.assertRaisesRegex(WorkspaceError, "changed before"):
+                self.repository.close_interrupted_run_for_recomparison(
+                    self.workspace_state.workspace_id, run, preflight_id, actor=LOCAL_ACTOR)
+
     def test_journals_every_row_and_reloads_terminal_result(self) -> None:
         run = self._run()
         self.repository.start_run(

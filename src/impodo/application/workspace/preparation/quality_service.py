@@ -303,6 +303,7 @@ class QualityService:
                                 physical_rows=physical_rows,
                                 ruleset=ruleset,
                                 published_staging_content_hash=staging.content_hash,
+                                definition=revision.definition,
                             )
                         )
                     except BoundedQualityUnsupported as error:

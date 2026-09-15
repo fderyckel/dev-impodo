@@ -71,6 +71,14 @@ before governance is saved.
 
 ## Contract invariants
 
+Connection and capture checks use the shared operation policy in
+[`domain/odoo/compatibility.py`](../../../src/impodo/domain/odoo/compatibility.py).
+The adapters cross-check structured version information when Odoo provides it.
+Unknown, malformed, or contradictory evidence cannot authorize capture. Odoo
+19 retains its existing acceptance rules; Odoo 20 remains disabled. See the
+[Phase 2 report](../../testing/odoo-compatibility-phase2.md) for the accepted
+version forms and the distinction between acceptance and live qualification.
+
 Target evidence is either verified `LIVE_API` capture or an unverified
 `LOCAL_MANUAL` draft. A manual draft may support mapping work but cannot
 authorize mapping submission. Abstract and transient models are excluded, and

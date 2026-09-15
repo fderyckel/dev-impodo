@@ -299,6 +299,5 @@ those commands and their exact preservation limits.
 - [Architecture overview](overview.md)
 - [Python code map](python-code-map.md)
 - [Code-organization regression baseline](../testing/code-organization-phase0-baseline.md)
-- [Completed remediation delivery record](../plans/code-organization-remediation.md)
 - [Architecture decisions](../decisions/README.md)
 - [Project lifecycle contract](../developer/contracts/project-lifecycle.md)

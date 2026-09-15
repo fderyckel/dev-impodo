@@ -1,0 +1,676 @@
+{
+  "description": "Fictional native projection contract 3 evidence captured before serializer version 4. Preserve exact replay bytes and hashes.",
+  "cases": [
+    {
+      "origin": "target_catalog",
+      "projection": {
+        "contract_version": 3,
+        "dataset_id": "dataset:0123456789abcdef01234567",
+        "dataset": "products",
+        "ordinal_start": 0,
+        "row_count": 1,
+        "mode": "upsert",
+        "source_hash": "sha256:5f99b57af2bb11b16bb757b3ba63e0f42ab6ccea8e04211d67524b68f68f809c",
+        "physical_dataset_id": "dataset:0123456789abcdef01234567",
+        "field_sources": {},
+        "set_based_projection": true,
+        "program": {
+          "dataset_id": "dataset:0123456789abcdef01234567",
+          "dataset_name": "products",
+          "target_model": "x_custom.document",
+          "target_mode": "upsert",
+          "mapping_content_hash": "sha256:ae3f7eb7180da61f0471b06208d79d55c499c1e30c960df0185549712b286863",
+          "source_selection_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "schema_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "inputs": [
+            {
+              "stable_key": "product.id",
+              "ordinal": 1,
+              "source_name": "id",
+              "candidate_type": "string"
+            },
+            {
+              "stable_key": "product.sku",
+              "ordinal": 2,
+              "source_name": "sku",
+              "candidate_type": "string"
+            },
+            {
+              "stable_key": "product.scope",
+              "ordinal": 3,
+              "source_name": "scope",
+              "candidate_type": "string"
+            },
+            {
+              "stable_key": "product.category",
+              "ordinal": 10,
+              "source_name": "category",
+              "candidate_type": "string"
+            }
+          ],
+          "source_identity": [
+            {
+              "role": "source_identity",
+              "source_columns": [
+                {
+                  "stable_key": "product.id",
+                  "ordinal": 1,
+                  "source_name": "id",
+                  "candidate_type": "string"
+                }
+              ],
+              "source_label": "id",
+              "target_fields": [],
+              "value_type": "string",
+              "normalization_steps": [
+                {
+                  "operation": "trim",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "empty_as_null",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                }
+              ],
+              "required": true,
+              "failure_code": "SOURCE_IDENTITY_INVALID",
+              "literal_values": []
+            }
+          ],
+          "target_identity": [
+            {
+              "role": "target_identity",
+              "source_columns": [
+                {
+                  "stable_key": "product.sku",
+                  "ordinal": 2,
+                  "source_name": "sku",
+                  "candidate_type": "string"
+                }
+              ],
+              "source_label": "sku",
+              "target_fields": [
+                "default_code"
+              ],
+              "value_type": "string",
+              "normalization_steps": [
+                {
+                  "operation": "trim",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "collapse_whitespace",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "empty_as_null",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "parse_string",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                }
+              ],
+              "required": true,
+              "failure_code": "SOURCE_IDENTITY_INVALID",
+              "literal_values": []
+            }
+          ],
+          "target_scope": [
+            {
+              "role": "target_scope",
+              "source_columns": [
+                {
+                  "stable_key": "product.scope",
+                  "ordinal": 3,
+                  "source_name": "scope",
+                  "candidate_type": "string"
+                }
+              ],
+              "source_label": "scope",
+              "target_fields": [
+                "company_code"
+              ],
+              "value_type": "string",
+              "normalization_steps": [
+                {
+                  "operation": "trim",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "collapse_whitespace",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "empty_as_null",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "parse_string",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                }
+              ],
+              "required": true,
+              "failure_code": "SOURCE_IDENTITY_INVALID",
+              "literal_values": []
+            }
+          ],
+          "scalar_fields": [],
+          "relationships": [
+            {
+              "target_field": "x_choice",
+              "parent_dataset_id": "",
+              "parent_dataset_name": "",
+              "key": {
+                "role": "relationship",
+                "source_columns": [
+                  {
+                    "stable_key": "product.category",
+                    "ordinal": 10,
+                    "source_name": "category",
+                    "candidate_type": "string"
+                  },
+                  {
+                    "stable_key": "product.scope",
+                    "ordinal": 3,
+                    "source_name": "scope",
+                    "candidate_type": "string"
+                  }
+                ],
+                "source_label": "category + scope",
+                "target_fields": [
+                  "name",
+                  "company_code"
+                ],
+                "value_type": "string",
+                "normalization_steps": [
+                  {
+                    "operation": "trim",
+                    "text": null,
+                    "replacement": null,
+                    "integer": null,
+                    "flag": null,
+                    "character_class": null,
+                    "segment_location": null,
+                    "segment_length": null,
+                    "error_code": null
+                  },
+                  {
+                    "operation": "empty_as_null",
+                    "text": null,
+                    "replacement": null,
+                    "integer": null,
+                    "flag": null,
+                    "character_class": null,
+                    "segment_location": null,
+                    "segment_length": null,
+                    "error_code": null
+                  },
+                  {
+                    "operation": "parse_string",
+                    "text": null,
+                    "replacement": null,
+                    "integer": null,
+                    "flag": null,
+                    "character_class": null,
+                    "segment_location": null,
+                    "segment_length": null,
+                    "error_code": null
+                  }
+                ],
+                "required": false,
+                "failure_code": "SOURCE_REQUIRED_VALUE_MISSING",
+                "literal_values": []
+              },
+              "compare": true,
+              "validate_only": false,
+              "required": false,
+              "required_on_create": false,
+              "on_missing": "error",
+              "on_ambiguous": "error",
+              "operation": "replace",
+              "null_policy": "distinct",
+              "resolver_origin": "target_catalog",
+              "related_model": "x_custom.category",
+              "target_key_fields": [
+                "name"
+              ],
+              "target_scope_fields": [
+                "company_code"
+              ],
+              "target_value_mappings": [
+                [
+                  "Retail",
+                  "Consumer"
+                ]
+              ]
+            }
+          ],
+          "set_requirements": [
+            {
+              "operation": "duplicate_identity_grouping",
+              "target_field": null,
+              "name": null
+            }
+          ],
+          "preserve_source_row": true,
+          "preserve_source_order": true,
+          "sparse_transformation_impacts": true,
+          "contract_version": 6,
+          "compiler_version": 8
+        },
+        "program_hash": "sha256:9cf45adb2e8c119ea367660ca6d135ba3f1f4cd8abaff66334d5763cb7d49591"
+      },
+      "encoded_row": "{\"dataset\":\"products\",\"disposition\":\"CANDIDATE\",\"issues\":[],\"lineage\":{\"dataset\":\"products\",\"derived_plan_hash\":null,\"field_sources\":{},\"mapping_hash\":\"sha256:ae3f7eb7180da61f0471b06208d79d55c499c1e30c960df0185549712b286863\",\"physical_dataset_id\":\"dataset:0123456789abcdef01234567\",\"physical_source_rows\":[2],\"schema_hash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"source_hash\":\"sha256:5f99b57af2bb11b16bb757b3ba63e0f42ab6ccea8e04211d67524b68f68f809c\",\"source_row\":2,\"source_selection_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"proposed_values\":{},\"references\":{\"x_choice\":{\"key\":[\"Consumer\"],\"origin\":\"target\",\"scope\":[\"BE\"],\"model\":\"x_custom.category\",\"target_fields\":[\"name\"],\"target_scope_fields\":[\"company_code\"]}},\"row_id\":\"sha256:a71682cbbe77dfa95122e01d55626f18c417686dd243d7e1152c8d856b6f0257\",\"source_identity\":[\"P-1\"],\"source_row\":2,\"target_identity\":[\"SKU 1\"],\"target_model\":\"x_custom.document\",\"target_scope\":[\"BE\"]}",
+      "encoded_row_sha256": "sha256:01e8a18f0a0a2cdb71830246d6c42559d9a148b50ad9828789531fda6c37c409"
+    },
+    {
+      "origin": "target_then_dataset",
+      "projection": {
+        "contract_version": 3,
+        "dataset_id": "dataset:0123456789abcdef01234567",
+        "dataset": "products",
+        "ordinal_start": 0,
+        "row_count": 1,
+        "mode": "upsert",
+        "source_hash": "sha256:5f99b57af2bb11b16bb757b3ba63e0f42ab6ccea8e04211d67524b68f68f809c",
+        "physical_dataset_id": "dataset:0123456789abcdef01234567",
+        "field_sources": {},
+        "set_based_projection": true,
+        "program": {
+          "dataset_id": "dataset:0123456789abcdef01234567",
+          "dataset_name": "products",
+          "target_model": "x_custom.document",
+          "target_mode": "upsert",
+          "mapping_content_hash": "sha256:c095fbd2e02ee86a3f0c16f23bf5e3b1c99d57438394d1edba32e807acec5e71",
+          "source_selection_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "schema_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "inputs": [
+            {
+              "stable_key": "product.id",
+              "ordinal": 1,
+              "source_name": "id",
+              "candidate_type": "string"
+            },
+            {
+              "stable_key": "product.sku",
+              "ordinal": 2,
+              "source_name": "sku",
+              "candidate_type": "string"
+            },
+            {
+              "stable_key": "product.scope",
+              "ordinal": 3,
+              "source_name": "scope",
+              "candidate_type": "string"
+            },
+            {
+              "stable_key": "product.category",
+              "ordinal": 10,
+              "source_name": "category",
+              "candidate_type": "string"
+            }
+          ],
+          "source_identity": [
+            {
+              "role": "source_identity",
+              "source_columns": [
+                {
+                  "stable_key": "product.id",
+                  "ordinal": 1,
+                  "source_name": "id",
+                  "candidate_type": "string"
+                }
+              ],
+              "source_label": "id",
+              "target_fields": [],
+              "value_type": "string",
+              "normalization_steps": [
+                {
+                  "operation": "trim",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "empty_as_null",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                }
+              ],
+              "required": true,
+              "failure_code": "SOURCE_IDENTITY_INVALID",
+              "literal_values": []
+            }
+          ],
+          "target_identity": [
+            {
+              "role": "target_identity",
+              "source_columns": [
+                {
+                  "stable_key": "product.sku",
+                  "ordinal": 2,
+                  "source_name": "sku",
+                  "candidate_type": "string"
+                }
+              ],
+              "source_label": "sku",
+              "target_fields": [
+                "default_code"
+              ],
+              "value_type": "string",
+              "normalization_steps": [
+                {
+                  "operation": "trim",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "collapse_whitespace",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "empty_as_null",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "parse_string",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                }
+              ],
+              "required": true,
+              "failure_code": "SOURCE_IDENTITY_INVALID",
+              "literal_values": []
+            }
+          ],
+          "target_scope": [
+            {
+              "role": "target_scope",
+              "source_columns": [
+                {
+                  "stable_key": "product.scope",
+                  "ordinal": 3,
+                  "source_name": "scope",
+                  "candidate_type": "string"
+                }
+              ],
+              "source_label": "scope",
+              "target_fields": [
+                "company_code"
+              ],
+              "value_type": "string",
+              "normalization_steps": [
+                {
+                  "operation": "trim",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "collapse_whitespace",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "empty_as_null",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                },
+                {
+                  "operation": "parse_string",
+                  "text": null,
+                  "replacement": null,
+                  "integer": null,
+                  "flag": null,
+                  "character_class": null,
+                  "segment_location": null,
+                  "segment_length": null,
+                  "error_code": null
+                }
+              ],
+              "required": true,
+              "failure_code": "SOURCE_IDENTITY_INVALID",
+              "literal_values": []
+            }
+          ],
+          "scalar_fields": [],
+          "relationships": [
+            {
+              "target_field": "x_choice",
+              "parent_dataset_id": "dataset:0123456789abcdef01234567",
+              "parent_dataset_name": "products",
+              "key": {
+                "role": "relationship",
+                "source_columns": [
+                  {
+                    "stable_key": "product.category",
+                    "ordinal": 10,
+                    "source_name": "category",
+                    "candidate_type": "string"
+                  },
+                  {
+                    "stable_key": "product.scope",
+                    "ordinal": 3,
+                    "source_name": "scope",
+                    "candidate_type": "string"
+                  }
+                ],
+                "source_label": "category + scope",
+                "target_fields": [
+                  "name",
+                  "company_code"
+                ],
+                "value_type": "string",
+                "normalization_steps": [
+                  {
+                    "operation": "trim",
+                    "text": null,
+                    "replacement": null,
+                    "integer": null,
+                    "flag": null,
+                    "character_class": null,
+                    "segment_location": null,
+                    "segment_length": null,
+                    "error_code": null
+                  },
+                  {
+                    "operation": "empty_as_null",
+                    "text": null,
+                    "replacement": null,
+                    "integer": null,
+                    "flag": null,
+                    "character_class": null,
+                    "segment_location": null,
+                    "segment_length": null,
+                    "error_code": null
+                  },
+                  {
+                    "operation": "parse_string",
+                    "text": null,
+                    "replacement": null,
+                    "integer": null,
+                    "flag": null,
+                    "character_class": null,
+                    "segment_location": null,
+                    "segment_length": null,
+                    "error_code": null
+                  }
+                ],
+                "required": false,
+                "failure_code": "SOURCE_REQUIRED_VALUE_MISSING",
+                "literal_values": []
+              },
+              "compare": true,
+              "validate_only": false,
+              "required": false,
+              "required_on_create": false,
+              "on_missing": "error",
+              "on_ambiguous": "error",
+              "operation": "replace",
+              "null_policy": "distinct",
+              "resolver_origin": "target_then_dataset",
+              "related_model": "x_custom.category",
+              "target_key_fields": [
+                "name"
+              ],
+              "target_scope_fields": [
+                "company_code"
+              ],
+              "target_value_mappings": [
+                [
+                  "Retail",
+                  "Consumer"
+                ]
+              ]
+            }
+          ],
+          "set_requirements": [
+            {
+              "operation": "duplicate_identity_grouping",
+              "target_field": null,
+              "name": null
+            },
+            {
+              "operation": "relationship_resolution",
+              "target_field": "x_choice",
+              "name": "products"
+            }
+          ],
+          "preserve_source_row": true,
+          "preserve_source_order": true,
+          "sparse_transformation_impacts": true,
+          "contract_version": 6,
+          "compiler_version": 8
+        },
+        "program_hash": "sha256:a4da6978f30880719e81f306af22134450f02c8222a3dad79d52eefe1bc13fcf"
+      },
+      "encoded_row": "{\"dataset\":\"products\",\"disposition\":\"CANDIDATE\",\"issues\":[],\"lineage\":{\"dataset\":\"products\",\"derived_plan_hash\":null,\"field_sources\":{},\"mapping_hash\":\"sha256:c095fbd2e02ee86a3f0c16f23bf5e3b1c99d57438394d1edba32e807acec5e71\",\"physical_dataset_id\":\"dataset:0123456789abcdef01234567\",\"physical_source_rows\":[2],\"schema_hash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"source_hash\":\"sha256:5f99b57af2bb11b16bb757b3ba63e0f42ab6ccea8e04211d67524b68f68f809c\",\"source_row\":2,\"source_selection_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"proposed_values\":{},\"references\":{\"x_choice\":{\"key\":[\"Consumer\"],\"origin\":\"target_then_incoming\",\"scope\":[\"BE\"],\"model\":\"x_custom.category\",\"target_fields\":[\"name\"],\"target_scope_fields\":[\"company_code\"],\"dataset\":\"products\",\"incoming_key\":[\"Retail\",\"BE\"]}},\"row_id\":\"sha256:c46e22a1ee8dac813901df7171af9665491db79c07c4e5c140f4e380de54f48a\",\"source_identity\":[\"P-1\"],\"source_row\":2,\"target_identity\":[\"SKU 1\"],\"target_model\":\"x_custom.document\",\"target_scope\":[\"BE\"]}",
+      "encoded_row_sha256": "sha256:2c10a61ed082fc36148bd4c0bf36abad4748ca47c5938931f668ac50902a7876"
+    }
+  ]
+}

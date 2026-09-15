@@ -24,6 +24,7 @@ import re
 from typing import Protocol, Sequence
 from uuid import UUID
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.run.setup import OdooConnectionMode, validate_odoo_base_url
 from impodo.domain.shared.models import target_identity_hash
@@ -201,7 +202,9 @@ class WorkspaceState:
             == transfer_destination_identity_hash(self)
             and self.destination_verified_credential_binding_hash
             and self.destination_verified_read_principal_hash
-            and self.destination_verified_odoo_version.startswith("19.")
+            and assess_odoo_operation(
+                self.destination_verified_odoo_version, OdooOperation.CONNECT,
+            ).allowed
             and self.destination_verified_at is not None
         )
 
@@ -728,7 +731,7 @@ class WorkspaceStateService:
             raise WorkspaceStateError(
                 "The checked Odoo destination no longer matches the saved destination"
             )
-        if not odoo_version.startswith("19."):
+        if not assess_odoo_operation(odoo_version, OdooOperation.CONNECT).allowed:
             raise WorkspaceStateError("The destination must run Odoo 19")
         updated = replace(
             workspace,

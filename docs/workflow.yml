@@ -132,7 +132,6 @@ stages:
       - docs/developer/contracts/evidence-lifecycle.md
     references:
       - docs/user/guides/related-tables.md
-      - docs/plans/multi-column-hierarchical-related-records.md
 
   - id: integrated-test
     order: 7
@@ -401,7 +400,6 @@ stages:
       - docs/developer/contracts/canonical-staging.md
     references:
       - docs/plans/smart-match-data-ordering.md
-      - docs/plans/multi-column-hierarchical-related-records.md
       - docs/plans/source-row-inclusion-rules.md
 
   - id: prepare
@@ -425,17 +423,30 @@ stages:
       - src/impodo/application/shared/build_contract.py::ApplicationBuildContract
       - src/impodo/application/workspace/preparation/quality_service.py::QualityService
       - src/impodo/adapters/duckdb/preparation_quality_index.py::PreparationQualityIndex
+      - src/impodo/adapters/duckdb/preparation_identity_group_quality.py::iter_identity_group_findings
+      - src/impodo/domain/staging/preparation_session.py::PreparedCanonicalProjection
+      - src/impodo/adapters/duckdb/native_prepared_projection.py::projected_encoded_rows_sql
+      - src/impodo/domain/preparation/quality.py::quality_dependency_references
+      - src/impodo/application/workspace/preparation/preparation_capability.py::compile_preparation_capability
+      - src/impodo/adapters/duckdb/preparation_stored_run_reader.py::PreparationStoredRunReader
       - src/impodo/application/workspace/preparation/resolution_service.py::ResolutionService
       - src/impodo/application/workspace/preparation/normalization_service.py::NormalizationService
       - src/impodo/domain/staging/evaluator.py::evaluate_browser_mapping
+      - src/impodo/domain/recipe/value_rules.py::compile_arithmetic_formula
       - src/impodo/domain/preparation/staging_contracts.py::canonical_row_from_inclusion_decision
     tests:
       - tests/application/workspace/preparation/test_jobs.py
       - tests/architecture/test_build_contract.py
       - tests/architecture/test_workspace_schema_contract.py
       - tests/integration/duckdb/test_preparation_session.py
+      - tests/application/workspace/preparation/test_capability.py
+      - tests/integration/duckdb/test_identity_group_quality.py
+      - tests/integration/duckdb/test_native_reference_serialization.py
+      - tests/performance/test_preparation_identity_groups.py
       - tests/performance/test_preparation_scale.py
       - tests/domain/preparation/test_quality.py
+      - tests/domain/recipe/test_arithmetic_formula.py
+      - tests/domain/preparation/test_browser_arithmetic_formula.py
       - tests/domain/preparation/test_normalization.py
       - tests/integration/web/test_preparation_workflow.py
       - tests/application/workspace/preparation/test_readiness.py
@@ -560,6 +571,7 @@ stages:
       - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.save_transfer_preflight_report
     tests:
       - tests/application/workspace/execution/test_service.py
+      - tests/application/workspace/execution/test_recomparison.py
       - tests/integration/web/test_execution.py
       - tests/integration/duckdb/test_execution_repository.py
       - tests/application/workspace/execution/test_load_jobs.py
@@ -571,6 +583,7 @@ stages:
       - tests/application/workspace/execution/test_reconciliation.py
       - tests/integration/odoo/test_readback_retries.py
       - tests/integration/web/test_load_workflow.py
+      - tests/integration/web/test_load_recovery.py
       - tests/integration/web/test_correction_workflow.py
       - tests/application/test_correction_jobs.py
       - tests/application/test_correction_orchestration.py

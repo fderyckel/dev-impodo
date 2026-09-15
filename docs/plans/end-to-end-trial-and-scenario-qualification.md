@@ -2,10 +2,10 @@
 
 ## Status and decision
 
-**Status:** Approved; phased implementation started, 2026-09-04.
+**Status:** Approved; remaining lifecycle and qualification work reviewed 2026-09-15.
 
-This proposal asks Impodo to add one shared end-to-end execution capability
-with two controlled ways to use it:
+Complete the shared end-to-end execution capability with two controlled ways
+to use it:
 
 1. A data manager can run an interactive trial with supplied files or a
    bounded Odoo source selection.
@@ -16,36 +16,19 @@ The shared scenario contract and local file-to-Odoo first slice are approved.
 Do not interpret that decision as approval for unbounded Odoo graph capture,
 Odoo-to-Odoo writes, Production writes, or unattended use of customer data.
 
-## Implementation status
+## Current baseline and remaining scope
 
-The first current slice includes the strict versioned definition, contained
-fixture and target-projection loader, secret rejection, compact result
-contract, `impodo-cli scenario validate`, and `impodo-cli scenario run`.
-The committed offline Contact canary runs the production profile compiler,
-source preparation, request planning, snapshot adapter, and comparison engine.
+The [scenario qualification runbook](../developer/runbooks/scenario-qualification.md)
+owns the implemented definition contract, CLI, profile-driven Contact,
+Product, and bill-of-material execution, retained journals, and remote HTTPS
+entry point. Completed implementation detail belongs there and in Git history.
 
-Explicitly confirmed Contact, Product, and bill-of-material scenarios can
-write to a literal-loopback Odoo 19 database in the `impodo_scenario_`
-namespace. They perform a fresh
-pre-write comparison, retain the execution snapshot and journal before
-transport, call the existing scoped writer and reconciliation service,
-assert an independent target projection, and require the expected repeat
-comparison. A lost-response integration proves that retained evidence blocks
-a blind second write. The Product scenario derives a distinct Unit dataset
-from Product and bill-of-material fixtures, normalizes `G` and `g` to `g`, and
-creates a missing `PCE` through the normal migration path.
-
-The runner now accepts remote HTTPS definitions when they pin the exact target
-identity hash. The edu-ucaps Product and bill-of-material definitions are
-registered and validate without credentials. They have not yet completed a
-live remote run, so remote acceptance evidence remains pending.
-
-This current slice remains profile-driven and does not yet create the normal
-Project, Data version, Recipe application, or workspace records. Target
-provisioning and independent seed attestation, automatic recovery entry, a
-real browser journey, automatic remote cleanup, bounded Odoo-source capture
-scenarios, Odoo-to-Odoo scenario qualification, and scheduling remain
-planned. Phase 1 therefore has not reached its full exit criteria.
+The runner still needs the normal Project, Data version, Recipe application,
+and workspace lifecycle, target provisioning and independent seed attestation,
+automatic recovery entry, a real browser journey, retained live remote
+acceptance, automatic remote cleanup, bounded Odoo-source scenarios,
+Odoo-to-Odoo qualification, and scheduling. The local lifecycle phase has not
+reached its full exit criteria.
 
 ## Why this is the right capability
 
@@ -119,7 +102,7 @@ requested path as already available.
 
 | Path | Current position | Proposed scenario result |
 | --- | --- | --- |
-| Files to a local disposable Odoo | The browser can prepare, compare, load, and reconcile. A current profile-driven Contact scenario uses the shared writer and reconciliation services and proves an unchanged repeat, but it does not yet create the normal Project lifecycle. | Automate the complete Project/Data version/Recipe/workspace path and add Product and bill-of-material coverage. |
+| Files to a local disposable Odoo | The browser can prepare, compare, load, and reconcile. Current profile-driven Contact, Product, and BOM scenarios use shared writer and reconciliation services, but do not yet create the normal Project lifecycle. | Automate the complete Project/Data version/Recipe/workspace path and qualify the existing Product and bill-of-material fixtures through it. |
 | Files to a remote disposable Odoo | The governed load path exists. The opt-in representative runner exercises production services, but it is not the complete browser journey. | Reuse the shared scenario contract and retain remote acceptance evidence. |
 | Odoo source to a different local or remote Odoo | Bounded capture, transformation, destination matching, transfer ordering, review, Stage 8A preflight, and explicitly confirmed Stage 8B loading and read-back exist. | Add a disposable-target scenario that proves the no-write gates, confirmed transfer, relationship order, and verified read-back. |
 | Odoo source updated in the same Odoo database | Bounded capture and offline comparison exist. Guarded update execution remains deferred. | Add an update-only scenario after the protected same-instance update contract is implemented. |
@@ -492,37 +475,25 @@ tests concurrency.
 
 ## Delivery plan
 
-### Phase 0: define the contract and baseline
+### Complete the local scenario lifecycle
 
-Create the versioned scenario definition, expectation, result, status, and
-test-only authorization contracts. Record the existing P4 runner output as a
-baseline and identify which steps use normal production services and which
-steps remain harness-specific.
+Extend the existing profile-driven CLI and orchestrator to create and use the
+normal Project, Data version, Recipe application or reviewed mapping, and
+workspace records. Reuse the current preparation, comparison, scoped writer,
+reconciliation, and independent repeat-comparison expectations.
 
-This phase exits when invalid definitions, embedded secrets, unapproved write
-policies, unexpected database names, and mutable fixture references fail
-before a Project or Odoo connection is created.
+Add target provisioning and independent seed attestation and an explicit
+recovery entry that consumes retained evidence. A deliberate expected blocker
+must produce zero writes, and an unexpected result must retain actionable
+private evidence from a fresh process.
 
-### Phase 1: complete one file-to-local scenario
+### Qualify Product and bill-of-material lifecycle coverage
 
-Implement the CLI and application orchestrator for a Contact fixture against
-a resettable local Odoo 19 target. Drive normal source acceptance, Recipe
-application or reviewed mapping, preparation, comparison, load,
-reconciliation, and repeat comparison.
-
-This phase exits when the scenario passes from a fresh process, a deliberate
-expected blocker passes with zero writes, and an unexpected result fails with
-actionable retained evidence.
-
-### Phase 2: add Product and bill-of-material coverage
-
-Add the multi-Recipe or multi-dataset fixture with Products, bill-of-material
-headers, and component lines. Measure dependency planning, relationship
-resolution, worker recovery, Odoo request counts, and repeat idempotence at a
-small reviewable size before adding a scale variant.
-
-This phase exits when reversed file order does not change the dependency-safe
-write result and every relationship is verified from Odoo read-back.
+Reuse the existing Product and BOM fixtures through the full lifecycle. Measure
+multi-Recipe or multi-dataset dependency planning, relationship resolution,
+worker recovery, bounded Odoo request counts, and repeat idempotence at a small
+reviewable size before adding a scale variant. Reversed file order must preserve
+the dependency-safe result, and read-back must verify every relationship.
 
 ### Phase 3: add browser and remote acceptance lanes
 

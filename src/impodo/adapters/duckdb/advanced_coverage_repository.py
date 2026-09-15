@@ -1,4 +1,8 @@
-"""DuckDB persistence for Slice 6 scope, references, and resolution evidence."""
+"""Persist coverage scope, reference bundles, and reviewed resolution evidence.
+
+Immutable revisions retain the source and mapping bindings behind each result;
+separate current pointers select the evidence used by workspace preparation.
+"""
 
 from __future__ import annotations
 

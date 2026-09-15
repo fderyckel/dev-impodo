@@ -668,6 +668,61 @@ class ExecutionRepository(DuckDbRepository):
                 connection.rollback()
                 raise
 
+    def close_interrupted_run_for_recomparison(
+        self, workspace_id: str, expected_run: ExecutionRun,
+        expected_preflight_run_id: str, *, actor: Actor,
+    ) -> ExecutionRun:
+        """Close a superseded attempt atomically, preserving its row evidence."""
+        self._assert_workspace_mutable(workspace_id)
+        run_id = str(UUID(expected_run.run_id))
+        preflight_id = str(UUID(expected_preflight_run_id))
+        if expected_run.workspace_id != workspace_id or expected_run.status is not ExecutionRunStatus.RUNNING:
+            raise WorkspaceError("The interrupted load is no longer current")
+        path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        with self._connect(path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            connection.begin()
+            try:
+                current = connection.execute("""
+                    SELECT run.run_id, run.status, run.snapshot_hash, run.preflight_run_id
+                      FROM execution_current AS current
+                      JOIN execution_run AS run ON run.run_id = current.run_id
+                     WHERE current.singleton_id = 1
+                """).fetchone()
+                preflight = connection.execute("""
+                    SELECT readiness.run_id, readiness.target_hash
+                      FROM preflight_current AS current
+                      JOIN readiness_run AS readiness ON readiness.run_id = current.run_id
+                     WHERE current.singleton_id = 1
+                """).fetchone()
+                rows = connection.execute(
+                    "SELECT row_json FROM execution_row WHERE run_id = ? ORDER BY ordinal", [run_id],
+                ).fetchall()
+                if (
+                    current != (run_id, "RUNNING", expected_run.snapshot_hash, expected_run.preflight_run_id)
+                    or preflight != (preflight_id, expected_run.target_hash)
+                    or preflight_id == expected_run.preflight_run_id
+                    or tuple(ExecutionRowAttempt.from_json(str(row[0])) for row in rows) != expected_run.rows
+                ):
+                    raise WorkspaceError("The interrupted load or fresh comparison changed before it could be closed")
+                connection.execute("""
+                    UPDATE execution_run SET status = 'OUTCOME_UNKNOWN', completed_at = ? WHERE run_id = ?
+                """, [datetime.now(timezone.utc).isoformat(), run_id])
+                self._insert_workspace_audit(
+                    connection, revision=self._workspace_revision(connection),
+                    event_type="ODOO_LOAD_CLOSED_FOR_RECOMPARISON",
+                    detail=f"run {run_id}: retained original rows and receipts; fresh comparison {preflight_id}",
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        result = self.get_run(workspace_id, run_id)
+        if result is None:
+            raise WorkspaceError("The closed load could not be reloaded")
+        return result
+
     def finish_run(
         self,
         workspace_id: str,

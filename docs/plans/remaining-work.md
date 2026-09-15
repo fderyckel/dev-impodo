@@ -2,31 +2,44 @@
 
 ## Status and authority
 
-**Status:** Active roadmap, updated 2026-09-10.
+**Status:** Active roadmap, updated 2026-09-15.
 
-This is the broad forward-looking roadmap. An approved detailed delivery plan
-may live beside it while that work remains unfinished. The current detailed
-plans are [Recipe runs in three pages](recipe-run-three-page-ui-refactor.md),
-the proposed [scalable relationship dependency
-planner](scalable-relationship-dependency-planning.md), the approved [smart
-Match data ordering and early Odoo
-refinement](smart-match-data-ordering.md), and the proposed [end-to-end trial
-and scenario qualification
-capability](end-to-end-trial-and-scenario-qualification.md).
-Completed behavior belongs in architecture, contracts, user and developer
-documentation. Point-in-time implementation evidence belongs in
-`docs/testing/` and Git history.
+This is the broad forward-looking roadmap. Detailed plans remain beside it
+while delivery or qualification is unfinished. The [documentation index](../README.md#plans)
+lists those plans and their remaining scope.
 
-Finishing an item means removing its delivery detail from this file after the
-current documentation and evidence have been updated. Completed plan files do
-not remain in this directory as an archive.
+Completed behavior belongs in architecture, contracts, and user and developer
+workflow documentation. Point-in-time evidence belongs in `docs/testing/` and
+Git history. Remove completed delivery detail and retire completed plans after
+those current references have been verified.
+
+## Remaining delivery and qualification
+
+- Complete the [three-page Production journey](recipe-run-three-page-ui-refactor.md)
+  and its user guidance. The Test journey is implemented.
+- Complete the [Windows relationship repeat](scalable-relationship-dependency-planning.md)
+  at 25,000 scheduled records. The planner, bounded execution, recovery, and
+  macOS qualification are implemented.
+- Finish [Match data ordering qualification](smart-match-data-ordering.md) and
+  [row-inclusion visual and native follow-up](source-row-inclusion-rules.md).
+- Qualify [macOS saves](resilient-match-data-saving.md),
+  [workflow responsiveness](responsive-workflow-liveness-and-navigation.md), and
+  [hierarchy-root loading](hierarchy-root-null-scope-and-load-order.md), including
+  the remaining grouped dependency explanations.
+- Complete [comparison recovery and performance work](responsive-final-review-comparison.md)
+  and design [exact-record repair for known fallout](load-fallout-source-cell-workbook.md).
+- Extend [scenario qualification](end-to-end-trial-and-scenario-qualification.md)
+  through the full lifecycle and remaining target and browser lanes.
+
+Each detailed plan retains its own status and prerequisites. Listing a
+proposal here does not activate a deferred track or authorize external writes.
 
 ## Current implemented boundary
 
-Impodo supports a Project-first local or remote Odoo 19 workflow. A Project may
-contain no Recipe or several Project-scoped Recipes. The Project owns complete
-DataVersion source packages, Authoring, Test, and Production runs, workspaces,
-and its CutoverPlan. A Recipe owns immutable reusable rule revisions.
+The [architecture overview](../architecture/overview.md) owns the current
+Project, Data version, Recipe, run, and workspace model. The
+[Prepare data developer workflow](../developer/workflow/04-prepare-data.md#columnar-compilation-and-execution)
+owns the implemented compiler and native Polars execution boundary.
 
 The current preparation limits are:
 
@@ -37,12 +50,6 @@ The current preparation limits are:
 - 25,000 physical rows for current derived or materialized routes.
 
 This roadmap does not raise, remove, or reinterpret those limits.
-
-Recognized older versions of the current Project registry, DataVersion,
-MigrationWorkspace reference, and workspace-engine generations upgrade
-forward transactionally before use. Retired generations and newer unknown
-versions remain fail-closed. This implemented release boundary is not a
-deferred roadmap item.
 
 ## Deferred tracks
 
@@ -62,11 +69,9 @@ The unfinished outcome is a bounded Product/BOM workflow for approximately
 production, logical projection, relationship accounting, and dependency
 propagation without whole-run Python collections.
 
-The [scalable relationship dependency
-plan](scalable-relationship-dependency-planning.md) defines the proposed
-execution-planning, cycle, recovery, request-count, and BOM qualification work.
-Its proposed status does not activate this deferred track or raise a current
-row limit.
+The [relationship qualification plan](scalable-relationship-dependency-planning.md)
+retains the Windows repeat at the current 25,000-row boundary. Completing that
+repeat does not activate this deferred high-volume track or raise a row limit.
 
 Before raising any limit, the release evidence must prove:
 

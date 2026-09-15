@@ -16,6 +16,7 @@ from ..application.odoo_read_failures import (
     OdooReadFailureCode,
     classify_odoo_read_failure,
 )
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.shared.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from ..application.odoo_connection_service import OdooConnectionPurpose
 from impodo.domain.workspace.workbench import WorkspaceState
@@ -210,7 +211,7 @@ class RemoteConnectionStatusService:
                 checked_at=_now(),
                 support_code="REMOTE_TARGET_MISMATCH",
             )
-        elif not fingerprint.odoo_version.startswith("19."):
+        elif not assess_odoo_operation(fingerprint.odoo_version, OdooOperation.CONNECT).allowed:
             reported = fingerprint.odoo_version or "unknown"
             message = (
                 "Impodo could not confirm that this target runs Odoo 19."

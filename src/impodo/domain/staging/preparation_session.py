@@ -79,7 +79,11 @@ class CanonicalPreparedSessionRow:
 
 @dataclass(frozen=True, slots=True)
 class PreparedCanonicalProjection:
-    """Versioned recipe for reconstructing direct canonical value rows."""
+    """Reconstruct native rows using their saved reference encoding.
+
+    Contract 3 preserves historical reference bytes. Contract 4 emits the
+    canonical property order and omits empty optional reference metadata.
+    """
 
     dataset_id: str
     dataset: str
@@ -91,7 +95,7 @@ class PreparedCanonicalProjection:
     field_sources: Mapping[str, tuple[str, ...]]
     program: ColumnarTransformationProgram
     set_based_projection: bool = False
-    contract_version: int = 3
+    contract_version: int = 4
 
     def __post_init__(self) -> None:
         if (
@@ -101,7 +105,8 @@ class PreparedCanonicalProjection:
             or self.physical_dataset_id != self.dataset_id
             or self.ordinal_start < 0
             or self.row_count < 0
-            or self.contract_version != 3
+            or type(self.contract_version) is not int
+            or self.contract_version not in {3, 4}
         ):
             raise ValueError("Prepared canonical projection is invalid")
 
@@ -152,7 +157,7 @@ class PreparedCanonicalProjection:
             },
             program=program,
             set_based_projection=bool(payload.get("set_based_projection", False)),
-            contract_version=int(payload["contract_version"]),
+            contract_version=payload.get("contract_version"),
         )
 
 

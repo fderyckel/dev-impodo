@@ -34,6 +34,7 @@ from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from impodo.domain.mapping.create_field_policy import supports_create_default_capture
+from impodo.domain.odoo.compatibility import OdooVersionProblem, recognize_odoo_version
 from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
@@ -428,7 +429,17 @@ class Json2ReadConnector:
                 body=None,
             )
             if status == 200 and isinstance(payload, dict):
-                version = str(payload.get("version", "unknown"))
+                observed = recognize_odoo_version(
+                    payload.get("version", "unknown"),
+                    **({"version_info": payload["version_info"]} if "version_info" in payload else {}),
+                )
+                if observed.problem not in {None, OdooVersionProblem.UNKNOWN}:
+                    raise ConnectorError(
+                        f"Odoo version evidence is invalid ({observed.problem.value}); "
+                        f"reported version: {observed.raw!r}; "
+                        f"version_info: {payload.get('version_info')!r}"
+                    )
+                version = observed.raw or "unknown"
         except ConnectorTransportError:
             limitations.append("Odoo version endpoint unavailable")
 

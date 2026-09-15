@@ -15,6 +15,7 @@ import json
 from typing import overload
 
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.mapping.contracts import MappingDefinition
 from impodo.domain.workspace.workbench import WorkspaceState
 from impodo.domain.preparation.quality import (
     MANDATORY_QUALITY_FAMILIES,
@@ -42,6 +43,7 @@ from impodo.domain.preparation.quality import (
     _setup_issue,
     quality_identity_key,
     retention_context_hash,
+    incoming_identity_group_fields,
 )
 from impodo.domain.shared.models import canonical_json_bytes, portable_value
 from impodo.domain.preparation.staging_contracts import (
@@ -402,8 +404,14 @@ def build_bounded_quality_run(
     physical_rows: Mapping[str, tuple[int, ...]],
     ruleset: QualityRuleSet,
     published_staging_content_hash: str,
+    definition: MappingDefinition | None = None,
 ) -> StoredQualityRun:
-    """Return lazy evidence for direct rows and compact mapping findings."""
+    """Return lazy evidence for direct rows and compact mapping findings.
+
+    An exact mapping bound to validated staging identifies incoming identity
+    groups without reconstructing every canonical row. Calls
+    without that evidence retain the complete row-based compatibility check.
+    """
 
     if staging.workspace_id != workspace_state.workspace_id or ruleset.workspace_id != workspace_state.workspace_id:
         raise QualityError("Quality evidence belongs to another workspace")
@@ -424,20 +432,33 @@ def build_bounded_quality_run(
         or any(rule.source is not QualityRuleSource.MAPPING_DERIVED for rule in ruleset.rules)
     ):
         raise BoundedQualityUnsupported
-    # An unsafe record can set aside the incoming parent record that forms its
-    # business identity. That complete-group rule needs the full identity graph;
-    # use the authoritative evaluator rather than publishing a partial result.
-    if any(
-        reference.origin == "incoming" and reference.dataset
-        for row in staging.rows
-        for reference in _identity_logical_references(row)
-    ):
-        raise BoundedQualityUnsupported
-
+    if definition is not None:
+        if (
+            definition.content_hash != staging.mapping_hash
+            or definition.mapping_id != staging.mapping_id
+            or definition.schema_hash != staging.schema_hash
+            or definition.source_selection_hash != staging.source_selection_hash
+            or staging.validated_content_hash != published_staging_content_hash
+            or not staging.validated_content_hash
+        ):
+            raise QualityError("The mapping does not match the verified prepared evidence")
+        needs_identity_groups = any(
+            incoming_identity_group_fields(dataset) for dataset in definition.datasets
+        )
+    else:
+        needs_identity_groups = any(
+            reference.origin == "incoming" and reference.dataset
+            for row in staging.rows
+            for reference in _identity_logical_references(row)
+        )
+    # Group semantics require a verified direct index and its group adapter.
+    # Other stored sequences retain the authoritative compatibility route.
     index_builder = getattr(staging.rows, "bounded_quality_index", None)
     if callable(index_builder):
         index = index_builder(physical_rows)
         if index is not None:
+            if needs_identity_groups and not callable(getattr(staging.rows, "bounded_identity_group_findings", None)):
+                raise BoundedQualityUnsupported
             return _build_indexed_quality_run(
                 workspace_state=workspace_state,
                 staging=staging,
@@ -446,7 +467,10 @@ def build_bounded_quality_run(
                     published_staging_content_hash
                 ),
                 index=index,
+                include_identity_groups=needs_identity_groups,
             )
+    if needs_identity_groups:
+        raise BoundedQualityUnsupported
     if len(physical_rows) != 1:
         raise BoundedQualityUnsupported
 
@@ -776,6 +800,7 @@ def _build_indexed_quality_run(
     ruleset: QualityRuleSet,
     published_staging_content_hash: str,
     index: Mapping[str, object],
+    include_identity_groups: bool = False,
 ) -> StoredQualityRun:
     """Build default-plus-exception evidence from set-validated row facts."""
 
@@ -939,11 +964,11 @@ def _build_indexed_quality_run(
         issue_map[issue.issue_id] = issue
         row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
-    relationship_finder = getattr(
-        staging.rows,
-        "bounded_relationship_findings",
-        None,
+    finder_name = (
+        "bounded_identity_group_findings" if include_identity_groups
+        else "bounded_relationship_findings"
     )
+    relationship_finder = getattr(staging.rows, finder_name, None)
     if callable(relationship_finder):
         unsafe_dispositions = {
             QualityDisposition.BLOCKED,
@@ -977,6 +1002,11 @@ def _build_indexed_quality_run(
             "The linked incoming record is missing, ambiguous or set aside. "
             "This dependent record was also set aside."
         )
+        group_message = (
+            "A dependent record that uses this incoming identity is missing, "
+            "ambiguous or set aside. This record and its dependent group were "
+            "also set aside."
+        )
         for raw in relationship_finder(
             initially_unsafe,
             propagating_datasets,
@@ -989,7 +1019,7 @@ def _build_indexed_quality_run(
                 disposition,
                 physical_id,
                 physical_row,
-                _resolution_state,
+                resolution_state,
             ) = raw
             row = register(
                 row_id,
@@ -1004,12 +1034,16 @@ def _build_indexed_quality_run(
             )
             if rule is None:
                 continue
+            reason = (
+                "INCOMING_IDENTITY_GROUP_NOT_READY" if resolution_state == "IDENTITY_GROUP"
+                else "INCOMING_RELATIONSHIP_NOT_READY"
+            )
             issue = _quality_issue(
                 workspace_state,
                 rule,
                 row,
-                "INCOMING_RELATIONSHIP_NOT_READY",
-                relationship_message,
+                reason,
+                group_message if resolution_state == "IDENTITY_GROUP" else relationship_message,
                 (),
                 policy=rule.outcome,
             )

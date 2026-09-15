@@ -337,6 +337,38 @@ def append_clean_native_projection(
     )
 
 
+def projected_hybrid_dependency_rows_sql(projection: PreparedCanonicalProjection) -> str:
+    """Project native forward dependencies using the canonical reference key.
+
+    Historical direct edge indexes may contain the incoming key for a hybrid
+    choice. The quality contract uses its canonical key. Read only relationship
+    columns, with the same reference serialization used by canonical replay.
+    """
+
+    references = _references_json(projection, _layout(projection.program))
+    items = []
+    for relationship in projection.program.relationships:
+        if not relationship.parent_dataset_name:
+            continue
+        pointer = "/" + relationship.target_field.replace("~", "~0").replace("/", "~1") + "/key"
+        items.append(
+            "struct_pack("
+            f"parent_dataset := {_literal(relationship.parent_dataset_name)}, "
+            f"key_json := json_extract({references}, {_literal(pointer)}))"
+        )
+    if not items:
+        raise ValueError("The projection has no incoming dependency")
+    ordinal = f"{projection.ordinal_start} + {_identifier(PREPARED_ORDINAL_COLUMN)}"
+    return f"""
+        SELECT {ordinal} AS child, item.parent_dataset,
+               'sha256:' || sha256(CAST(json_object(
+                   'dataset', item.parent_dataset, 'source_identity', item.key_json
+               ) AS VARCHAR)) AS identity_hash, FALSE AS identity_group
+          FROM read_parquet(?), UNNEST([{', '.join(items)}]) AS dependency(item)
+         WHERE item.key_json IS NOT NULL
+    """
+
+
 def projected_encoded_rows_sql(
     projection: PreparedCanonicalProjection,
 ) -> str:
@@ -587,31 +619,46 @@ def _references_json(
             key_width = len(relationship.target_key_fields)
             target_key = _json_array_values(values[:key_width])
             scope = _json_array_values(values[key_width:])
-            arguments = [
-                f"'key', {target_key}",
+            properties = [
+                ("key", target_key),
                 (
-                    "'origin', 'target'"
-                    if relationship.resolver_origin == "target_catalog"
-                    else "'origin', 'target_then_incoming'"
+                    "origin",
+                    _literal(
+                        "target"
+                        if relationship.resolver_origin == "target_catalog"
+                        else "target_then_incoming"
+                    ),
                 ),
-                f"'scope', {scope}",
-                f"'model', {_literal(relationship.related_model or '')}",
+                ("scope", scope),
+                ("model", _literal(relationship.related_model or "")),
+                ("target_fields", _string_array_json(relationship.target_key_fields)),
                 (
-                    "'target_fields', "
-                    f"{_string_array_json(relationship.target_key_fields)}"
-                ),
-                (
-                    "'target_scope_fields', "
-                    f"{_string_array_json(relationship.target_scope_fields)}"
+                    "target_scope_fields",
+                    _string_array_json(relationship.target_scope_fields),
                 ),
             ]
             if relationship.resolver_origin == "target_then_dataset":
-                arguments.extend(
+                properties.extend(
                     (
-                        f"'dataset', {_literal(relationship.parent_dataset_name)}",
-                        f"'incoming_key', {incoming_key}",
+                        ("dataset", _literal(relationship.parent_dataset_name)),
+                        ("incoming_key", incoming_key),
                     )
                 )
+            if projection.contract_version >= 4:
+                # Contract 3 retains its historical insertion order and empty
+                # metadata arrays. New rows match portable_value followed by
+                # canonical_json_bytes without re-encoding complete records.
+                omitted = set()
+                if not relationship.target_key_fields:
+                    omitted.add("target_fields")
+                if not relationship.target_scope_fields:
+                    omitted.add("target_scope_fields")
+                properties = [
+                    (name, value)
+                    for name, value in sorted(properties)
+                    if name not in omitted
+                ]
+            arguments = [f"{_literal(name)}, {value}" for name, value in properties]
             reference = f"json_object({', '.join(arguments)})"
         value = f"CASE WHEN {all_null} THEN NULL ELSE {reference} END"
         fields.append((relationship.target_field, value))
@@ -810,6 +857,7 @@ def _identity_layout(
     result = []
     mappings_by_component = tuple(target_value_mappings)
     for component_index, component in enumerate(components):
+        value_count = len(component.source_columns) or len(component.literal_values)
         conversion = next(
             (
                 step.operation
@@ -831,7 +879,7 @@ def _identity_layout(
                 ),
                 value_type=component.value_type,
             )
-            for source_index, _source in enumerate(component.source_columns)
+            for source_index in range(value_count)
         )
         component_mappings = (
             tuple(mappings_by_component[component_index])
@@ -849,7 +897,7 @@ def _identity_layout(
                     ),
                     value_type=component.value_type,
                 )
-                for source_index, _source in enumerate(component.source_columns)
+                for source_index in range(value_count)
             )
             if component_mappings
             else ()

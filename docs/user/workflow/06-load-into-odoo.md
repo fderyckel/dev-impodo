@@ -224,10 +224,9 @@ for a fresh comparison. You still control the mappings, included rows, and
 optional relationships. This check derives safety from those choices rather
 than imposing a Product- or BOM-specific workflow.
 
-Qualification of larger, multi-level BOM migrations remains part of the
-[scalable relationship dependency plan](../../plans/scalable-relationship-dependency-planning.md).
-The current related-data limit does not increase until that qualification is
-complete.
+Larger, multi-level BOM migrations remain part of the
+[deferred scale qualification](../../plans/remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
+The current related-data limit stays in place while that work remains open.
 
 ## What Complete means
 
@@ -270,8 +269,24 @@ an unrelated duplicate. If the saved outcome is terminal rather than
 interrupted, use **Verify what happened in Odoo**; do not submit the transfer
 again.
 
-For prepared-data loads, retry only through the recorded recovery path. On
-both paths, Impodo verifies every earlier group of records. If a created record
+For a prepared-data load interrupted when Impodo or your computer stopped,
+open **Review interrupted load**, then select **Assess and resume interrupted
+load**. The page shows accepted records, records waiting to load, uncertain
+requests, and partially applied records. The action first reads Odoo, then
+continues the remaining work with the original saved loading key and batch
+size. It verifies the final result automatically. Keep the workspace and its
+matching rules intact while recovering; the original preview totals do not
+show how many records remain.
+
+If Odoo access changed and you keep the new access, refresh the Odoo fields,
+confirm the prepared review, and compare again. **Confirm and load** then
+explains that an earlier upload was interrupted. Its load action checks the
+saved receipts and closes the earlier attempt before loading the fresh
+comparison. The original records and receipts remain saved.
+
+![Interrupted prepared-data load with saved counts and an explicit assessment and resume action.](../../images/user/18b-load-recovery.png)
+
+On both paths, Impodo verifies every earlier group of records. If a created record
 is waiting for an optional relationship, recovery writes only the relationship
 fields that were already reviewed. A changed target, ambiguous record, missing
 receipt, changed key, or changed loading identity stops recovery and requires

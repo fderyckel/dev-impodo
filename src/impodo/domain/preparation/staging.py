@@ -94,9 +94,9 @@ class StagingRunSummary:
 
 
 class CanonicalStagingRepository(Protocol):
-    """Storage seam shared by browser evaluation and future ETL adapters.
+    """Publish canonical preparation evidence independently of storage layout.
 
-    Stage-E application code publishes portable evidence through this port;
+    Preparation application code publishes portable evidence through this port;
     the storage adapter owns run IDs, lifecycle status, and hash verification.
     """
 
@@ -115,7 +115,7 @@ class CanonicalStagingRepository(Protocol):
         self,
         workspace_id: str,
     ) -> StagingRunSummary | None:
-        """Return the project's current published Stage-E summary."""
+        """Return the workspace's current published preparation summary."""
         ...
 
     def get_canonical_staging_run(

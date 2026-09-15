@@ -24,6 +24,12 @@ from typing import Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
+from impodo.domain.odoo.compatibility import (
+    OdooOperation,
+    assess_odoo_operation,
+    recognize_odoo_version,
+)
+
 
 MAX_CONFIG_BYTES = 1024 * 1024
 MAX_VERSION_RESPONSE_BYTES = 64 * 1024
@@ -74,6 +80,7 @@ class LocalStackCheck:
     level: ReadinessLevel
     message: str
     detail: str = ""
+    version_blocked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -942,7 +949,7 @@ def _start_odoo(profile: LocalStackProfile) -> ProcessHandle:
             return process
         if (
             odoo.level is ReadinessLevel.ERROR
-            and odoo.message.startswith("Expected Odoo 19")
+            and odoo.version_blocked
         ):
             try:
                 _stop_owned_odoo(process)
@@ -1283,7 +1290,11 @@ def _probe_odoo(profile: LocalStackProfile) -> LocalStackCheck:
         )
     try:
         version_payload = json.loads(payload.decode("utf-8"))
-        version = str(version_payload["result"]["server_version"])
+        result = version_payload["result"]
+        observed = recognize_odoo_version(
+            result["server_version"],
+            **({"version_info": result["server_version_info"]} if "server_version_info" in result else {}),
+        )
     except (KeyError, TypeError, UnicodeError, ValueError):
         return LocalStackCheck(
             key="odoo",
@@ -1291,12 +1302,16 @@ def _probe_odoo(profile: LocalStackProfile) -> LocalStackCheck:
             level=ReadinessLevel.ERROR,
             message="The HTTP listener did not return a valid Odoo response.",
         )
-    if not version.startswith("19."):
+    version = observed.raw
+    decision = assess_odoo_operation(observed, OdooOperation.CONNECT)
+    if not decision.allowed:
         return LocalStackCheck(
             key="odoo",
             label="Odoo server",
             level=ReadinessLevel.ERROR,
             message=f"Expected Odoo 19, received Odoo {version}.",
+            detail=decision.reason,
+            version_blocked=True,
         )
     return LocalStackCheck(
         key="odoo",

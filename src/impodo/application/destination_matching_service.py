@@ -7,6 +7,11 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Mapping, Protocol, Sequence
 
+from impodo.domain.odoo.compatibility import (
+    OdooOperation,
+    assess_odoo_operation,
+    same_odoo_major,
+)
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
@@ -273,10 +278,16 @@ class DestinationMatchingService:
             if (
                 not snapshot.complete
                 or snapshot.fingerprint.target_hash != expected_target_hash
-                or not snapshot.fingerprint.odoo_version.startswith("19.")
+                or not assess_odoo_operation(
+                    snapshot.fingerprint.odoo_version, OdooOperation.COMPARE,
+                ).allowed
             ):
                 raise WorkspaceError(
                     "The destination matching read returned a different Odoo target"
+                )
+            if not same_odoo_major(source_schema.odoo_version, snapshot.fingerprint.odoo_version):
+                raise WorkspaceError(
+                    "Odoo source and destination matching requires the same major version"
                 )
 
         model_results: list[DestinationModelMatch] = []

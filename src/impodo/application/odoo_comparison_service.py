@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Callable, Iterable
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.shared.access import Actor
 from impodo.domain.correction import (
     CorrectionCandidate,
@@ -416,7 +417,7 @@ def _validate_live_binding(
     if (
         fingerprint.target_hash != binding.connection_target_hash
         or fingerprint.database != workspace_state.odoo_database
-        or not fingerprint.odoo_version.startswith("19.")
+        or not assess_odoo_operation(fingerprint.odoo_version, OdooOperation.COMPARE).allowed
     ):
         raise ReadinessError(
             "The Odoo target changed. Refresh the captured records before comparing."

@@ -1,4 +1,9 @@
-"""Compile validated YAML profile documents into runtime semantics."""
+"""Adapt validated YAML profiles to the shared migration-plan contract.
+
+The compiler preserves validated dataset semantics and binds their authoring
+origin hash. It performs no source I/O or transformation execution, allowing
+profile and browser authoring to share downstream preparation and preflight.
+"""
 
 from __future__ import annotations
 

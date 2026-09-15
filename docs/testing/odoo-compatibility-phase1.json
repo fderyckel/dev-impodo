@@ -1,0 +1,447 @@
+{
+  "architecture_checks": {
+    "combined_focused_documentation_and_architecture_test_count": 31,
+    "failures": 4,
+    "unchanged_by_phase1": [
+      "stale production import inventory baseline",
+      "fallout_workbook_service imports adapters.artifacts.fallout_workbook",
+      "_scalar_catalog.html exceeds 600 lines",
+      "mapping-editor.js and mapping-value-rules.js exceed static module limit"
+    ]
+  },
+  "automated_tests": {
+    "existing_odoo_adapter_tests": 87,
+    "focused_failures": 0,
+    "focused_recipe_transfer_execution_scenario_tests": 62,
+    "new_baseline_and_lab_tests": 10
+  },
+  "baseline_scenarios": [
+    {
+      "completed_at": "2026-09-15T10:23:58.109295+00:00",
+      "execution": {
+        "actual": {
+          "committed": 1,
+          "failed": 0,
+          "outcome_unknown": 0,
+          "partially_applied": 0
+        },
+        "expected": {
+          "committed": 1,
+          "failed": 0,
+          "outcome_unknown": 0,
+          "partially_applied": 0
+        },
+        "snapshot_hash": "sha256:554235852901cb97d42cd6316d3ce298df7cdfa64ef7d3bdf8261e37628b74e7"
+      },
+      "expectation_hash": "sha256:dff4972cea7f13f23b3ad5f6359dd08874854b8e10706a10eceaea7e1d62d81e",
+      "first_comparison": {
+        "actual": {
+          "AMBIGUOUS": 0,
+          "BLOCKED": 0,
+          "CREATE": 1,
+          "UNCHANGED": 0,
+          "UPDATE": 0
+        },
+        "expected": {
+          "AMBIGUOUS": 0,
+          "BLOCKED": 0,
+          "CREATE": 1,
+          "UNCHANGED": 0,
+          "UPDATE": 0
+        },
+        "preflight_hash": "sha256:485e61567405b7b2d4ebcbdbc1c5fce1e3f92364dd9eeaed09b1c4b56b583d05"
+      },
+      "fixture_hash": "sha256:b781f30440129b5e317ec5309060d8366a8a3c30c71c2739898a2fb753239d48",
+      "phase_seconds": {
+        "execution": 0.171199,
+        "first_comparison": 0.116291,
+        "preparation": 0.003381,
+        "reconciliation": 0.032465,
+        "repeat_comparison": 0.11028,
+        "target_projection": 0.058892
+      },
+      "preparation": {
+        "prepared_rows": 1,
+        "source_issues": 0
+      },
+      "reconciliation": {
+        "actual": {
+          "fallout": 0,
+          "outcome_unknown": 0,
+          "verified": 1
+        },
+        "expected": {
+          "fallout": 0,
+          "outcome_unknown": 0,
+          "verified": 1
+        },
+        "result_hash": "sha256:5f5184197dcebddcec063d2d440f3252424bc70878f1a6943386a538540b2721"
+      },
+      "repeat_comparison": {
+        "actual": {
+          "AMBIGUOUS": 0,
+          "BLOCKED": 0,
+          "CREATE": 0,
+          "UNCHANGED": 1,
+          "UPDATE": 0
+        },
+        "expected": {
+          "AMBIGUOUS": 0,
+          "BLOCKED": 0,
+          "CREATE": 0,
+          "UNCHANGED": 1,
+          "UPDATE": 0
+        }
+      },
+      "result_file_sha256": "7bbf59b54067b7823cfa1bc24476011567b5d93cdb746b0558096c3d534d85f1",
+      "scenario_hash": "sha256:279e2a0cc6a6e3c4d3aaf3a9ffbb53a19e0275ba27d29169656f85493adc258c",
+      "scenario_id": "contact-round-trip-v1",
+      "started_at": "2026-09-15T10:23:57.616522+00:00",
+      "status": "PASSED",
+      "target_projection": {
+        "difference_count": 0,
+        "expected_records": 1,
+        "verified_records": 1
+      },
+      "write_attempt_count": 1
+    },
+    {
+      "completed_at": "2026-09-15T10:24:00.703851+00:00",
+      "execution": {
+        "actual": {
+          "committed": 9,
+          "failed": 0,
+          "outcome_unknown": 0,
+          "partially_applied": 0
+        },
+        "expected": {
+          "committed": 9,
+          "failed": 0,
+          "outcome_unknown": 0,
+          "partially_applied": 0
+        },
+        "snapshot_hash": "sha256:20ac63cf2d3892117281f283ce50e403ea897914d2b57d29dce9e1d1c9872b13"
+      },
+      "expectation_hash": "sha256:a40b61fc7d1b9ab0c7e93298ae530160dce947024912f505ec99969274501258",
+      "first_comparison": {
+        "actual": {
+          "AMBIGUOUS": 0,
+          "BLOCKED": 0,
+          "CREATE": 9,
+          "UNCHANGED": 1,
+          "UPDATE": 0
+        },
+        "expected": {
+          "AMBIGUOUS": 0,
+          "BLOCKED": 0,
+          "CREATE": 9,
+          "UNCHANGED": 1,
+          "UPDATE": 0
+        },
+        "preflight_hash": "sha256:aa36259e045400a65ac8f164ffef33d6c9af256b7c9c7f31fc5763b404d470db"
+      },
+      "fixture_hash": "sha256:c389a76f8b82c7bb4bd18a5b5822198e9bea5c52ee52f4977627ca83bc629698",
+      "phase_seconds": {
+        "execution": 0.685426,
+        "first_comparison": 0.366051,
+        "preparation": 0.032319,
+        "reconciliation": 0.137778,
+        "repeat_comparison": 0.412335,
+        "target_projection": 0.174261
+      },
+      "preparation": {
+        "prepared_rows": 10,
+        "source_issues": 0
+      },
+      "reconciliation": {
+        "actual": {
+          "fallout": 0,
+          "outcome_unknown": 0,
+          "verified": 10
+        },
+        "expected": {
+          "fallout": 0,
+          "outcome_unknown": 0,
+          "verified": 10
+        },
+        "result_hash": "sha256:788fc7f8639c9d8c4dbc2c072bc12183d70db49732d5b12cb75fb34ef2217edc"
+      },
+      "repeat_comparison": {
+        "actual": {
+          "AMBIGUOUS": 0,
+          "BLOCKED": 0,
+          "CREATE": 0,
+          "UNCHANGED": 10,
+          "UPDATE": 0
+        },
+        "expected": {
+          "AMBIGUOUS": 0,
+          "BLOCKED": 0,
+          "CREATE": 0,
+          "UNCHANGED": 10,
+          "UPDATE": 0
+        }
+      },
+      "result_file_sha256": "d79c81353e423d98012bd1a4cd60d5acb632783f02e2371ce8011aa0cd73ae75",
+      "scenario_hash": "sha256:80dfa1ef691de1a5166144c13e21202c73a0d2570d4a7f93e12e0f85cd4b979d",
+      "scenario_id": "product-bom-headers-round-trip-v1",
+      "started_at": "2026-09-15T10:23:58.900677+00:00",
+      "status": "PASSED",
+      "target_projection": {
+        "difference_count": 0,
+        "expected_records": 10,
+        "verified_records": 10
+      },
+      "write_attempt_count": 9
+    },
+    {
+      "completed_at": "2026-09-15T10:24:02.787104+00:00",
+      "execution": {
+        "actual": {
+          "committed": 6,
+          "failed": 0,
+          "outcome_unknown": 0,
+          "partially_applied": 0
+        },
+        "expected": {
+          "committed": 6,
+          "failed": 0,
+          "outcome_unknown": 0,
+          "partially_applied": 0
+        },
+        "snapshot_hash": "sha256:43aa1997999f005e205c8152c05172330eeb84cd4b826452fba69c40cb2a51db"
+      },
+      "expectation_hash": "sha256:5579b9f49ca2c832eb6b05bf184e763ecea448eb5b87e1113ff8d26ed3f51736",
+      "first_comparison": {
+        "actual": {
+          "AMBIGUOUS": 0,
+          "BLOCKED": 0,
+          "CREATE": 6,
+          "UNCHANGED": 0,
+          "UPDATE": 0
+        },
+        "expected": {
+          "AMBIGUOUS": 0,
+          "BLOCKED": 0,
+          "CREATE": 6,
+          "UNCHANGED": 0,
+          "UPDATE": 0
+        },
+        "preflight_hash": "sha256:0b70dfd60576a2c9b7cd13337bd3fa51be64ea0e870924e61ac52a9a07b4aabb"
+      },
+      "fixture_hash": "sha256:b75a3020e1e5bcbd25a8a56b6f8feafecabbc6b61d2ef93ef52b56e655efc8ee",
+      "phase_seconds": {
+        "execution": 0.436279,
+        "first_comparison": 0.301677,
+        "preparation": 0.010775,
+        "reconciliation": 0.096994,
+        "repeat_comparison": 0.276615,
+        "target_projection": 0.172797
+      },
+      "preparation": {
+        "prepared_rows": 6,
+        "source_issues": 0
+      },
+      "reconciliation": {
+        "actual": {
+          "fallout": 0,
+          "outcome_unknown": 0,
+          "verified": 6
+        },
+        "expected": {
+          "fallout": 0,
+          "outcome_unknown": 0,
+          "verified": 6
+        },
+        "result_hash": "sha256:30dc37f2c95af3366f268e3b262df916064e619470cdd5126a2f4de487696060"
+      },
+      "repeat_comparison": {
+        "actual": {
+          "AMBIGUOUS": 0,
+          "BLOCKED": 0,
+          "CREATE": 0,
+          "UNCHANGED": 6,
+          "UPDATE": 0
+        },
+        "expected": {
+          "AMBIGUOUS": 0,
+          "BLOCKED": 0,
+          "CREATE": 0,
+          "UNCHANGED": 6,
+          "UPDATE": 0
+        }
+      },
+      "result_file_sha256": "5bbb1d0f58df35389b434f36999c7760b91fd4b0d7e187bbb146faacd3cb544e",
+      "scenario_hash": "sha256:05a67a6699c6d086abd178499d0a14ff576753f9a301284eae88ce346fcf11ad",
+      "scenario_id": "bom-lines-round-trip-v1",
+      "started_at": "2026-09-15T10:24:01.487997+00:00",
+      "status": "PASSED",
+      "target_projection": {
+        "difference_count": 0,
+        "expected_records": 6,
+        "verified_records": 6
+      },
+      "write_attempt_count": 6
+    }
+  ],
+  "contract_version": 1,
+  "evidence_scope": "Local Windows Community baseline and preview preparation; not a release qualification",
+  "impodo_revision": "1e03a8c0524e803a90ceadc25cfdac9d6cb9f030",
+  "impodo_working_tree_clean": false,
+  "recorded_at": "2026-09-15T10:25:30.711044+00:00",
+  "targets": {
+    "baseline": {
+      "commit": "157874aad3aebef5bc9268de6e17530641107e31",
+      "edition": "Community",
+      "http_version_observed": {
+        "version": "19.0",
+        "version_info": [
+          19,
+          0,
+          0,
+          "final",
+          0,
+          ""
+        ]
+      },
+      "metadata_file_sha256": "3b505792936a26f66952026412adb5caf3ae206519a9e7d87dde4b02e077f58c",
+      "model_field_counts": {
+        "mrp.bom": 42,
+        "mrp.bom.line": 22,
+        "product.category": 32,
+        "product.template": 114,
+        "res.partner": 115,
+        "uom.uom": 18
+      },
+      "module_versions": {
+        "api_doc": "19.0.1.0",
+        "auth_passkey": "19.0.1.1",
+        "auth_passkey_portal": "19.0.1.0",
+        "auth_signup": "19.0.1.0",
+        "auth_totp": "19.0.1.0",
+        "auth_totp_mail": "19.0.1.0",
+        "auth_totp_portal": "19.0.1.0",
+        "barcodes": "19.0.2.0",
+        "barcodes_gs1_nomenclature": "19.0.1.0",
+        "base": "19.0.1.3",
+        "base_import": "19.0.2.0",
+        "base_import_module": "19.0.1.0",
+        "base_install_request": "19.0.1.0",
+        "base_setup": "19.0.1.0",
+        "bus": "19.0.1.0",
+        "contacts": "19.0.1.0",
+        "digest": "19.0.1.1",
+        "google_gmail": "19.0.1.2",
+        "html_editor": "19.0.1.0",
+        "http_routing": "19.0.1.0",
+        "iap": "19.0.1.1",
+        "iap_mail": "19.0.1.0",
+        "mail": "19.0.1.19",
+        "mail_bot": "19.0.1.2",
+        "microsoft_outlook": "19.0.1.1",
+        "mrp": "19.0.2.0",
+        "partner_autocomplete": "19.0.1.1",
+        "phone_validation": "19.0.2.1",
+        "portal": "19.0.1.0",
+        "privacy_lookup": "19.0.1.0",
+        "product": "19.0.1.2",
+        "resource": "19.0.1.1",
+        "resource_mail": "19.0.1.0",
+        "rpc": "19.0.1.0",
+        "sms": "19.0.3.0",
+        "snailmail": "19.0.0.4",
+        "stock": "19.0.1.1",
+        "stock_sms": "19.0.1.0",
+        "uom": "19.0.1.0",
+        "web": "19.0.1.0",
+        "web_tour": "19.0.1.0",
+        "web_unsplash": "19.0.1.1"
+      },
+      "postgres_version": "postgres (PostgreSQL) 17.6",
+      "python_version": "Python 3.12.10",
+      "reported_version": "19.0",
+      "requirements_sha256": "8b1ecb82c2b6bc8e5e39932e03b5d1aa3b442524f68bd2913a4121df17cae523",
+      "resolved_requirements_sha256": "c9a66e31d678edc7221eddcc9d3cd3f273470d5880c4dae15111b02c88bdddd6",
+      "services_running_at_completion": false
+    },
+    "preview": {
+      "commit": "f582f290ae4e775d0f4fe477ab9d5131f9e48598",
+      "edition": "Community",
+      "http_version_observed": {
+        "version": "19.5a1",
+        "version_info": [
+          19,
+          5,
+          0,
+          "alpha",
+          1,
+          ""
+        ]
+      },
+      "metadata_file_sha256": "3b298480c032fdcb2f0360c5506e41bb99e26b53886b794823c019df1aa16ee7",
+      "model_field_counts": {
+        "mrp.bom": 45,
+        "mrp.bom.line": 24,
+        "product.category": 32,
+        "product.template": 120,
+        "res.partner": 119,
+        "uom.uom": 17
+      },
+      "module_versions": {
+        "api_doc": "19.5.1.0",
+        "auth_passkey": "19.5.1.1",
+        "auth_passkey_portal": "19.5.1.0",
+        "auth_signup": "19.5.1.0",
+        "auth_totp": "19.5.1.0",
+        "auth_totp_mail": "19.5.1.0",
+        "auth_totp_portal": "19.5.1.0",
+        "barcodes": "19.5.2.0",
+        "barcodes_gs1_nomenclature": "19.5.1.0",
+        "base": "19.5.1.3",
+        "base_address_extended": "19.5.1.1",
+        "base_import": "19.5.2.0",
+        "base_import_module": "19.5.1.0",
+        "base_install_request": "19.5.1.0",
+        "base_report_wkhtmltox": "19.5.1.0",
+        "base_setup": "19.5.1.0",
+        "bus": "19.5.1.0",
+        "contacts": "19.5.1.0",
+        "digest": "19.5.1.1",
+        "google_gmail": "19.5.1.2",
+        "html_editor": "19.5.1.0",
+        "http_routing": "19.5.1.0",
+        "iap": "19.5.1.1",
+        "iap_mail": "19.5.1.0",
+        "mail": "19.5.1.19",
+        "mail_bot": "19.5.1.2",
+        "mail_plugin": "19.5.1.0",
+        "microsoft_outlook": "19.5.1.1",
+        "mrp": "19.5.2.0",
+        "mysubscription": "19.5.1.0",
+        "partner_autocomplete": "19.5.1.1",
+        "phone_validation": "19.5.2.1",
+        "portal": "19.5.1.0",
+        "portal_discuss": "19.5.1.0",
+        "privacy_lookup": "19.5.1.0",
+        "product": "19.5.1.2",
+        "resource": "19.5.1.1",
+        "resource_mail": "19.5.1.0",
+        "rpc": "19.5.1.0",
+        "sms": "19.5.3.0",
+        "stock": "19.5.1.1",
+        "stock_sms": "19.5.1.0",
+        "uom": "19.5.1.0",
+        "web": "19.5.1.0",
+        "web_hierarchy": "19.5.1.0",
+        "web_tour": "19.5.1.0",
+        "web_unsplash": "19.5.1.1"
+      },
+      "postgres_version": "postgres (PostgreSQL) 17.6",
+      "python_version": "Python 3.12.10",
+      "reported_version": "19.5a1",
+      "requirements_sha256": "58553495fe5b67c48581a34b6b259311c5b6a9cec777c0af5343c3140f716727",
+      "resolved_requirements_sha256": "799c679b32ed769d964cbe9506a3e836e501f5d676fa91babc8155b2b3a3ddd1",
+      "services_running_at_completion": false
+    }
+  }
+}

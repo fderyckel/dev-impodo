@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from starlette.concurrency import run_in_threadpool
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.application.odoo_read_failures import (
     OdooReadCredentialMissingError,
     OdooReadFailureCode,
@@ -405,10 +406,8 @@ def _governed_preflight_reference_request(
         ),
         None,
     )
-    try:
-        odoo_major_version = int(str(schema.odoo_version).split(".", 1)[0])
-    except ValueError:
-        odoo_major_version = -1
+    version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.COMPARE)
+    odoo_major_version = version_decision.version.major if version_decision.allowed else -1
     return GovernedReferenceRequest(
         parent_model=reference.parent_model,
         relationship_field=reference.relationship_field,
@@ -1052,10 +1051,8 @@ def _relationship_value_choices(
         else ("name" if "name" in available_fields else key_field)
     )
     requested_fields = tuple(dict.fromkeys((key_field, display_field)))
-    try:
-        odoo_major_version = int(str(schema.odoo_version).split(".", 1)[0])
-    except ValueError:
-        odoo_major_version = -1
+    version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.COMPARE)
+    odoo_major_version = version_decision.version.major if version_decision.allowed else -1
     reference_request = GovernedReferenceRequest(
         parent_model=parent_model,
         relationship_field=field.name,
@@ -1244,11 +1241,9 @@ def _capture_recipe_supporting_values(
         raise WorkspaceError(
             "Capture the live Odoo details before checking supporting values"
         )
-    try:
-        odoo_major_version = int(str(schema.odoo_version).split(".", 1)[0])
-    except ValueError:
-        odoo_major_version = -1
-    if odoo_major_version != 19:
+    version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.RECIPE)
+    odoo_major_version = version_decision.version.major if version_decision.allowed else -1
+    if not version_decision.allowed:
         raise WorkspaceError("This Recipe run requires current Odoo 19 details")
 
     models = {item.name: item for item in schema.models}

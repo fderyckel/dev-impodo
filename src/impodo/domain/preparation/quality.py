@@ -18,6 +18,7 @@ import json
 from typing import AbstractSet, Any, Iterable, Mapping, Sequence
 
 from impodo.domain.shared.models import LogicalReference, canonical_json_bytes, portable_value
+from impodo.domain.mapping.contracts import DatasetMapping, ResolverOrigin
 from impodo.domain.workspace.workbench import WorkspaceState
 from impodo.domain.resolution import EffectiveDataset
 from impodo.domain.coverage import ReferenceBundle
@@ -35,6 +36,24 @@ MANDATORY_QUALITY_FAMILIES = (
     "RELATIONSHIP_READINESS",
     "IDENTITY_COLLISION",
 )
+
+
+def incoming_identity_group_fields(dataset: DatasetMapping) -> tuple[str, ...]:
+    """Identify mapped fields whose incoming parent requires group checks.
+
+    Ordinary linked fields do not form a group. This structural decision uses
+    only the authored identity and scope; it never depends on a model name.
+    A nullable component remains a possible dependency until values are read.
+    """
+
+    return tuple(sorted({
+        field
+        for component in (*dataset.target_identity, *dataset.target_scope)
+        if component.resolver is not None
+        and component.resolver.origin is ResolverOrigin.DATASET
+        and component.resolver.dataset_id
+        for field in component.target_fields
+    }))
 
 
 class QualityError(ValueError):
@@ -1939,7 +1958,7 @@ def _run_quality_issue(
     )
 
 
-def _logical_references(row: CanonicalRow) -> tuple[LogicalReference, ...]:
+def _nested_logical_references(values: Iterable[object]) -> tuple[LogicalReference, ...]:
     found: list[LogicalReference] = []
 
     def collect(value: object) -> None:
@@ -1949,9 +1968,40 @@ def _logical_references(row: CanonicalRow) -> tuple[LogicalReference, ...]:
             for item in value:
                 collect(item)
 
-    for value in (*row.target_identity, *row.target_scope, *row.references.values()):
+    for value in values:
         collect(value)
     return tuple(found)
+
+
+def quality_dependency_references(
+    target_identity: tuple[object, ...],
+    target_scope: tuple[object, ...],
+    references: Mapping[str, object],
+) -> tuple[tuple[LogicalReference, bool], ...]:
+    """Describe readiness links and which ones keep an incoming group together.
+
+    Every symbolic link can require parent readiness. Only an incoming link
+    in identity or scope propagates an unsafe child back to its parent.
+    """
+
+    return (
+        tuple(
+            (reference, reference.origin == "incoming")
+            for reference in _nested_logical_references((*target_identity, *target_scope))
+        )
+        + tuple(
+            (reference, False)
+            for reference in _nested_logical_references(references.values())
+        )
+    )
+
+
+def _logical_references(row: CanonicalRow) -> tuple[LogicalReference, ...]:
+    return tuple(
+        reference for reference, _identity_group in quality_dependency_references(
+            row.target_identity, row.target_scope, row.references,
+        )
+    )
 
 
 def _identity_logical_references(row: CanonicalRow) -> tuple[LogicalReference, ...]:
@@ -1962,18 +2012,7 @@ def _identity_logical_references(row: CanonicalRow) -> tuple[LogicalReference, .
     remain one-way dependencies and therefore do not set aside lookup records.
     """
 
-    found: list[LogicalReference] = []
-
-    def collect(value: object) -> None:
-        if isinstance(value, LogicalReference):
-            found.append(value)
-        elif isinstance(value, tuple):
-            for item in value:
-                collect(item)
-
-    for value in (*row.target_identity, *row.target_scope):
-        collect(value)
-    return tuple(found)
+    return _nested_logical_references((*row.target_identity, *row.target_scope))
 
 
 def _owner_label(workspace_state: WorkspaceState, role: QualityOwnerRole) -> str:

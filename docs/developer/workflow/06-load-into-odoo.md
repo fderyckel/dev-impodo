@@ -243,14 +243,14 @@ its deterministic External ID after the receipt barrier. An `UPDATE` or
 crosswalk. This branch performs a dictionary lookup and does not add an Odoo
 request, a row hash, or persisted execution evidence.
 
-The accepted [scalable relationship dependency
-plan](../../plans/scalable-relationship-dependency-planning.md) now provides
-immutable row-edge and schedule evidence, exact cycle classification, bounded
-crosswalk revalidation, receipt-gated component execution, and read-back-gated
-component recovery. The browser now derives bounded progressive guidance from
-that same snapshot. The current 25,000-row Product/BOM macOS qualification and
-the bounded Odoo 19 generated-variant execution probe pass; clean Windows and
-browser-evidence gates remain.
+The implemented relationship planner publishes immutable row edges and
+schedules with exact cycle classification. Execution revalidates bounded
+crosswalks, requires receipts before releasing dependent components, and uses
+read-back to govern recovery. The browser derives bounded progressive guidance
+from that same snapshot. The current 25,000-row Product/BOM macOS qualification
+and bounded Odoo 19 generated-variant probe pass. The
+[remaining relationship qualification](../../plans/scalable-relationship-dependency-planning.md)
+covers the clean Windows repeat and outstanding browser evidence.
 
 ## Browser guidance and progress
 
@@ -362,6 +362,40 @@ It verifies all earlier committed components first and revalidates the target
 crosswalk before transport resumes. Transfer creates repeat their absence
 check and retain their original External IDs.
 
+For prepared-data workspaces, `POST /workspaces/{workspace_id}/load/recover`
+exposes **Assess and resume interrupted load** when the saved run is `RUNNING`
+and no local load job is active. The form binds the execution run and snapshot;
+it cannot replace credentials or batch size. The shared load worker checks
+workspace access, cutover eligibility, production authority, and the original
+saved loading-key binding. It checks the current preview again when queued
+work starts and assesses read-back before constructing the writer. It resumes
+the same journal and uses the normal automatic verification and completion
+publication. Duplicate submissions return the existing progress page.
+The browser contract is covered by
+[`test_load_recovery.py`](../../../tests/integration/web/test_load_recovery.py).
+
+When an operator keeps changed Odoo access, the original snapshot cannot
+authorize continuation. After refreshing schema and access, confirming the
+prepared review, and comparing again, the application boundary
+`ExecutionService.close_interrupted_run_for_recomparison` can close an
+interrupted create load. It requires the original loading key and principal,
+the same prepared rows and business identities, unique current matches, and
+matching original Odoo receipts. The journal transaction checks that neither
+the comparison nor any journal row changed. It retains every original row,
+receipt, and identity binding and records the old attempt as `OUTCOME_UNKNOWN`;
+it does not certify success or write to Odoo. A separately confirmed new load
+uses the fresh comparison. This boundary is covered by
+[`test_recomparison.py`](../../../tests/application/workspace/execution/test_recomparison.py)
+and the journal integration tests.
+
+The fresh **Confirm and load** form identifies any prior interrupted run with
+`prior_execution_run_id`. The shared worker checks the current preview, run,
+workspace revision, saved loading key, and execution authority before calling
+the closing boundary. It closes the prior run before constructing the writer
+and starting the new journal. A missing or stale prior-run confirmation stops
+the request before a load job starts. Browser tests cover this ordering and
+ensure an unsafe receipt check cannot reach the writer.
+
 Deferred relationships are applied only after their dependencies exist. A
 partial relationship outcome remains explicit and recoverable through the
 journal.
@@ -422,6 +456,7 @@ qualify another remote topology.
 ## Verification
 
 - [`tests/application/workspace/execution/test_service.py`](../../../tests/application/workspace/execution/test_service.py)
+- [`tests/application/workspace/execution/test_recomparison.py`](../../../tests/application/workspace/execution/test_recomparison.py)
 - [`tests/integration/web/test_execution.py`](../../../tests/integration/web/test_execution.py)
 - [`tests/integration/duckdb/test_execution_repository.py`](../../../tests/integration/duckdb/test_execution_repository.py)
 - [`tests/application/workspace/execution/test_load_jobs.py`](../../../tests/application/workspace/execution/test_load_jobs.py)
@@ -463,5 +498,5 @@ Odoo 19 target.
 - [Acceptance and test strategy](../../testing/acceptance.md)
 - [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)
-- [Proposed scalable relationship dependency plan](../../plans/scalable-relationship-dependency-planning.md)
-- [Proposed source-cell fallout workbook](../../plans/load-fallout-source-cell-workbook.md)
+- [Remaining Windows relationship qualification](../../plans/scalable-relationship-dependency-planning.md)
+- [Proposed exact-record repair for known fallout](../../plans/load-fallout-source-cell-workbook.md)

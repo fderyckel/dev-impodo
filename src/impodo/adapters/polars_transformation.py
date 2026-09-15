@@ -1,9 +1,15 @@
 """Execute supported direct transformation programs with native Polars.
 
-The adapter scans one hash-verified source Parquet snapshot, evaluates only
-domain-compiled native expressions, and yields bounded ``PreparedRecord`` and
-sparse transformation-impact batches.  It never calls Python from a Polars
-expression, materializes the complete dataset, or changes row order.
+Preparation supplies a supported domain program and a hash-verified source
+Parquet snapshot. The adapter translates that program into native Polars
+expressions and writes a prepared Parquet candidate. The application owns
+verification and publication of that candidate as immutable evidence.
+
+Readers expose bounded batches and sparse transformation impacts; callers can
+request ``PreparedRecord`` objects when needed. Native expressions do not call
+Python row or cell functions. Execution preserves row order and avoids
+materializing the complete dataset. Unsupported mapping semantics are routed
+by preparation before this adapter runs.
 """
 
 from __future__ import annotations

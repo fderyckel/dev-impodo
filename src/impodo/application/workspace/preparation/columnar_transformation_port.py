@@ -1,8 +1,10 @@
 """Application port for bounded native transformation execution.
 
 Preparation owns the decision to transform a verified source snapshot.  This
-port keeps the optional Polars implementation outside that application
-decision while preserving the bounded batch and immutable-artifact contract.
+port separates that application decision from the Polars implementation while
+preserving the bounded batch and immutable-artifact contract. The domain
+compiler supplies the complete supported program; the application verifies
+and publishes the candidate returned by the adapter.
 """
 
 from __future__ import annotations

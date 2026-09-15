@@ -13,6 +13,7 @@ import unicodedata
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityRule,
@@ -219,10 +220,14 @@ class RecipeApplicationCompiler:
                     "Publish a new Recipe revision with the current editor.",
                 )
             ]
-        try:
-            actual_major = int(str(schema.odoo_version).split(".", 1)[0])
-        except ValueError:
-            actual_major = -1
+        version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.RECIPE)
+        actual_major = version_decision.version.major
+        if not version_decision.allowed:
+            issues.append(self._block(
+                "RECIPE_TARGET_VERSION_UNSUPPORTED",
+                "The connected Odoo version is not enabled for Recipes.",
+                "Use a supported Odoo target and capture its fields again.",
+            ))
         if actual_major != int(contract["odoo_major_version"]):
             issues.append(self._block("RECIPE_TARGET_VERSION_INCOMPATIBLE", "The connected Odoo major version does not match this Recipe.", "Choose a compatible Odoo server or publish and retest a new Recipe revision."))
         actual_models = {item.name: item for item in schema.models}

@@ -14,6 +14,12 @@ from typing import Iterable
 from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.mapping.contracts import MappingDefinition
+from impodo.domain.compiler.columnar_transformation import (
+    ColumnarCompilationDecision, ColumnarCompilationError, ColumnarSupport,
+    compile_columnar_transformation_programs,
+)
+from impodo.application.data_version.source_snapshots import validate_snapshot_for_dataset
+from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
@@ -25,6 +31,7 @@ from impodo.domain.preparation.quality import (
     QualityRuleFamily,
     QualityRuleSet,
     QualityRuleSource,
+    incoming_identity_group_fields,
 )
 from impodo.domain.workspace.contracts import SourceSelection
 from impodo.domain.errors import ReadinessError
@@ -39,6 +46,7 @@ class PreparationRouteBehavior(str, Enum):
 
     NATIVE_COLUMNAR = "NATIVE_COLUMNAR"
     BOUNDED_PYTHON = "BOUNDED_PYTHON"
+    MIXED_BOUNDED = "MIXED_BOUNDED"
     BOUNDED_DURABLE = "BOUNDED_DURABLE"
     BOUNDED_RUNTIME_GUARDED = "BOUNDED_RUNTIME_GUARDED"
     MATERIALIZING = "MATERIALIZING"
@@ -72,12 +80,37 @@ class PreparationStageCapability:
 
 
 @dataclass(frozen=True, slots=True)
+class PreparationDatasetCapability:
+    """Describe one table's route without including source values or formulas."""
+
+    dataset_id: str
+    dataset_name: str
+    behavior: PreparationRouteBehavior
+    reason_codes: tuple[str, ...] = ()
+    rule_paths: tuple[str, ...] = ()
+    incoming_identity_fields: tuple[str, ...] = ()
+
+    def to_portable_dict(self) -> dict[str, object]:
+        """Expose reproducible route reasons for support and benchmarks."""
+
+        return {
+            "dataset_id": self.dataset_id,
+            "dataset_name": self.dataset_name,
+            "behavior": self.behavior.value,
+            "reason_codes": list(self.reason_codes),
+            "rule_paths": list(self.rule_paths),
+            "incoming_identity_fields": list(self.incoming_identity_fields),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class PreparationCapabilityManifest:
     """Run-wide preparation admission derived from all required stages."""
 
     physical_rows: int
     supported_rows: int
     stages: tuple[PreparationStageCapability, ...]
+    datasets: tuple[PreparationDatasetCapability, ...] = ()
 
     @property
     def admitted(self) -> bool:
@@ -125,6 +158,7 @@ class PreparationCapabilityManifest:
             "admitted": self.admitted,
             "permits_materialized_fallback": self.permits_materialized_fallback,
             "stages": [item.to_portable_dict() for item in self.stages],
+            "datasets": [item.to_portable_dict() for item in self.datasets],
         }
 
 
@@ -146,23 +180,42 @@ def compile_preparation_capability(
         effective_selection,
         derived_plan,
     )
+    snapshots = tuple(source_snapshots)
+    compilation: tuple[ColumnarCompilationDecision, ...] | None = None
+    if direct:
+        try:
+            compilation = compile_columnar_transformation_programs(definition, effective_selection)
+        except ColumnarCompilationError:
+            pass  # The existing conservative route still handles compiler refusal.
+    dataset_routes = _dataset_capabilities(
+        definition, effective_selection, snapshots, compilation, direct=direct,
+    )
     if direct:
         transformation_limit = direct_preparation_row_limit(
             definition,
             effective_selection,
-            source_snapshots,
+            snapshots,
+            compilation=compilation,
         )
         native = (
             transformation_limit
             == COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
         )
+        mixed = len({item.behavior for item in dataset_routes}) > 1
+        if mixed:
+            transformation_behavior = PreparationRouteBehavior.MIXED_BOUNDED
+            canonical_reasons = (
+                "PREPARED_SNAPSHOT_VALUE_PROJECTION", "ROW_JSON_COMPATIBILITY_PATH",
+            )
+        elif native:
+            transformation_behavior = PreparationRouteBehavior.NATIVE_COLUMNAR
+            canonical_reasons = ("PREPARED_SNAPSHOT_VALUE_PROJECTION",)
+        else:
+            transformation_behavior = PreparationRouteBehavior.BOUNDED_PYTHON
+            canonical_reasons = ("ROW_JSON_COMPATIBILITY_PATH",)
         transformation = PreparationStageCapability(
             stage="transformation",
-            behavior=(
-                PreparationRouteBehavior.NATIVE_COLUMNAR
-                if native
-                else PreparationRouteBehavior.BOUNDED_PYTHON
-            ),
+            behavior=transformation_behavior,
             supported_rows=transformation_limit,
             reason_codes=() if native else ("COLUMNAR_MAPPING_UNSUPPORTED",),
         )
@@ -170,11 +223,7 @@ def compile_preparation_capability(
             stage="canonical_adaptation",
             behavior=PreparationRouteBehavior.BOUNDED_DURABLE,
             supported_rows=transformation_limit,
-            reason_codes=(
-                "PREPARED_SNAPSHOT_VALUE_PROJECTION"
-                if native
-                else "ROW_JSON_COMPATIBILITY_PATH",
-            ),
+            reason_codes=canonical_reasons,
         )
     else:
         transformation_limit = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
@@ -299,7 +348,54 @@ def compile_preparation_capability(
         physical_rows=physical_rows,
         supported_rows=supported_rows,
         stages=stages,
+        datasets=dataset_routes,
     )
+
+
+def _dataset_capabilities(
+    definition: MappingDefinition,
+    selection: SourceSelection,
+    snapshots: tuple[SourceSnapshot, ...],
+    compilation: tuple[ColumnarCompilationDecision, ...] | None,
+    *,
+    direct: bool,
+) -> tuple[PreparationDatasetCapability, ...]:
+    """Report actual per-table choices while preserving the run's lower limit."""
+
+    decisions = {item.dataset_id: item for item in compilation or ()}
+    mappings = {item.dataset_id: item for item in definition.datasets}
+    source_snapshots = {item.dataset_id: item for item in snapshots}
+    duplicate_snapshots = len(source_snapshots) != len(snapshots)
+    routes = []
+    for dataset in sorted(selection.datasets, key=lambda item: item.dataset_id):
+        decision = decisions.get(dataset.dataset_id)
+        behavior = PreparationRouteBehavior.BOUNDED_PYTHON
+        paths: tuple[str, ...] = ()
+        if not direct:
+            behavior = PreparationRouteBehavior.MATERIALIZING
+            reasons = ("DERIVED_OR_NON_DIRECT_DATASET",)
+        elif decision is None:
+            reasons = ("COLUMNAR_MAPPING_UNSUPPORTED",)
+        else:
+            reasons = tuple(sorted({item.code for item in decision.fallback_reasons}))
+            paths = tuple(sorted({item.path for item in decision.fallback_reasons}))
+            if decision.support is ColumnarSupport.SUPPORTED:
+                snapshot = source_snapshots.get(dataset.dataset_id)
+                try:
+                    if snapshot is None or duplicate_snapshots:
+                        raise SourceLoadError("A unique source snapshot is required")
+                    validate_snapshot_for_dataset(selection, dataset, snapshot)
+                except SourceLoadError:
+                    reasons = ("SOURCE_SNAPSHOT_UNAVAILABLE",)
+                else:
+                    behavior = PreparationRouteBehavior.NATIVE_COLUMNAR
+        authored = mappings.get(dataset.dataset_id)
+        routes.append(PreparationDatasetCapability(
+            dataset_id=dataset.dataset_id, dataset_name=dataset.name,
+            behavior=behavior, reason_codes=reasons, rule_paths=paths,
+            incoming_identity_fields=(incoming_identity_group_fields(authored) if authored else ()),
+        ))
+    return tuple(routes)
 
 
 def _bounded_quality_reasons(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Mapping
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.workspace.reference_keys import (
     GovernedReferenceRequest,
     ReferencePolicyDenial,
@@ -447,12 +448,10 @@ def _validate_resolver(
             resolver_scope_fields,
         )
     )
-    try:
-        odoo_major_version = int(
-            str(context.schema_catalog.odoo_version).split(".", 1)[0]
-        )
-    except ValueError:
-        odoo_major_version = -1
+    version_decision = assess_odoo_operation(
+        context.schema_catalog.odoo_version, OdooOperation.COMPARE,
+    )
+    odoo_major_version = version_decision.version.major if version_decision.allowed else -1
     reference_decision = authorize_governed_reference(
         GovernedReferenceRequest(
             parent_model=dataset.target_model,

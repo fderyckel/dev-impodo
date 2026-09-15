@@ -5,6 +5,7 @@ from tests.support.paths import REPOSITORY_ROOT
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -26,6 +27,7 @@ from impodo.domain.staging.preparation_session import (
     PreparationSessionBindings,
 )
 from impodo.domain.staging.canonical_projection import (
+    canonical_prepared_session_row,
     canonical_quality_identity_key,
     canonical_quality_record_label,
 )
@@ -35,6 +37,7 @@ from impodo.domain.staging.transformation_impact import (
 )
 from impodo.domain.shared.models import LogicalReference, PreparedRecord, canonical_json_bytes
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStatus
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
     QualityRuleFamily,
@@ -96,6 +99,50 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_publication_validates_canonical_payload_before_narrow_checks(self) -> None:
+        """Indexed checks must never inherit malformed or mismatched records."""
+
+        for corruption in ("syntax", "shape", "issue_shape", "coordinate", "mapping"):
+            with self.subTest(corruption=corruption):
+                session = self.repository.begin_direct_session(
+                    self.workspace_state.workspace_id, self.bindings, actor=LOCAL_ACTOR,
+                )
+                row = canonical_prepared_session_row(
+                    dataset="contacts", source_row=2, target_model="res.partner",
+                    source_identity=("C1",), target_identity=("C1",), target_scope=(),
+                    scalar_values={"name": "Contact"}, references={}, issues=(), ordinal=0,
+                    mode="upsert", source_hash=SOURCE_HASH,
+                    source_selection_hash=SELECTION_HASH, mapping_hash=MAPPING_HASH,
+                    schema_hash=SCHEMA_HASH, field_sources={"name": ("column:name",)},
+                    physical_dataset_id="dataset:contacts",
+                )
+                payload = json.loads(row.row_json)
+                if corruption == "shape":
+                    payload = []
+                elif corruption == "issue_shape":
+                    payload["issues"] = [None]
+                elif corruption == "coordinate":
+                    payload["source_row"] = 999
+                elif corruption == "mapping":
+                    payload["lineage"]["mapping_hash"] = "sha256:" + "a" * 64
+                invalid_json = "{" if corruption == "syntax" else json.dumps(payload)
+                self.repository.append_direct_rows(
+                    self.workspace_state.workspace_id, session.session_id,
+                    (replace(row, row_json=invalid_json),),
+                )
+                with self.assertRaisesRegex(WorkspaceError, "preparation row"):
+                    self.repository.finalize_direct_session(
+                        self.workspace_state.workspace_id, session.session_id,
+                        dataset_evidence={"contacts": ("dataset:contacts", StagingDatasetRole.DIRECT, 1, "res.partner")},
+                        run_issues=(), control_totals=(),
+                        impact_report=TransformationImpactReport(
+                            mapping_content_hash=MAPPING_HASH, evaluated_count=0,
+                            changed_count=0, fallback_count=0, null_count=0,
+                            invalid_count=0, provided_count=0, unchanged_count=0,
+                            rows=(), detail_limit=0,
+                        ),
+                    )
 
     def test_quality_index_rejects_mixed_storage_within_one_dataset(self) -> None:
         """Different dataset formats must not excuse missing values in a table."""

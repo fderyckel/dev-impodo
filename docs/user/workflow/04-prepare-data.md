@@ -67,6 +67,11 @@ Impodo has a frozen, fully accounted prepared result for the current source,
 schema, and mapping evidence. **Final review** becomes available for the
 current file data version.
 
+This preparation update preserves complete saved results. You can review a
+current saved preparation in the same workspace without creating a replacement
+project or selecting your source again. Changed source data, schema, or field
+matches still require a fresh preparation.
+
 ## What changes and what does not
 
 Preparation saves protected prepared-data evidence. It does not call Odoo, change
@@ -86,6 +91,17 @@ percentage shows the last step reached; waiting will not resume it. After the
 cause has been corrected, return to **Prepare data** in the same workspace
 and start a fresh attempt. You can keep your accepted source data and saved
 field matches.
+
+Direct parent-and-child tables can now use the preparation route for up to
+50,000 source rows in the selection. This includes document lines, hierarchies,
+and BoM components whose matching rules use an incoming parent as part of
+their identity. Impodo still checks the complete group together.
+
+Additional business checks or rules that build a table from other tables may
+require a lower limit. If your selection exceeds the supported route, Impodo
+stops before preparing the rows and reports that limit. Use a source selection within it.
+Restarting the same oversized selection will not change the limit. Your saved
+field matches remain available.
 
 For a Recipe run, return to **Review and load** after preparation stops or you
 reopen Impodo. If the Recipe already has a complete, current saved result,
