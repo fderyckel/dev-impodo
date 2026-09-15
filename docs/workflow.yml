@@ -299,6 +299,7 @@ stages:
       - tests/integration/duckdb/test_workspace.py
       - tests/integration/odoo/test_local_reader.py
       - tests/integration/web/test_target_workflow.py
+      - tests/integration/web/test_schema_capture_recovery.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
 
@@ -423,6 +424,7 @@ stages:
       - src/impodo/web/composition/preparation_job_manager.py::PreparationJobManager
       - src/impodo/application/shared/build_contract.py::ApplicationBuildContract
       - src/impodo/application/workspace/preparation/quality_service.py::QualityService
+      - src/impodo/adapters/duckdb/preparation_quality_index.py::PreparationQualityIndex
       - src/impodo/application/workspace/preparation/resolution_service.py::ResolutionService
       - src/impodo/application/workspace/preparation/normalization_service.py::NormalizationService
       - src/impodo/domain/staging/evaluator.py::evaluate_browser_mapping
@@ -432,6 +434,7 @@ stages:
       - tests/architecture/test_build_contract.py
       - tests/architecture/test_workspace_schema_contract.py
       - tests/integration/duckdb/test_preparation_session.py
+      - tests/performance/test_preparation_scale.py
       - tests/domain/preparation/test_quality.py
       - tests/domain/preparation/test_normalization.py
       - tests/integration/web/test_preparation_workflow.py

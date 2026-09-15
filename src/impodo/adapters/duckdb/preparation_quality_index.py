@@ -168,10 +168,28 @@ class PreparationQualityIndex:
             row_count = int(header[0])
             if (
                 row_count == 0
-                or int(header[1]) not in {0, row_count}
                 or int(header[2]) != row_count
             ):
                 return None
+            if int(header[1]) not in {0, row_count}:
+                # Storage is selected for each dataset. A run can contain both
+                # prepared-value projections and stored JSON rows. The reader
+                # verifies projection bindings before this index is built;
+                # reject inconsistent storage within a dataset, not between them.
+                mixed_dataset = connection.execute(
+                    """
+                    SELECT 1
+                      FROM canonical_staging_row
+                     WHERE run_id = ?
+                     GROUP BY dataset
+                    HAVING COUNT(*) FILTER (WHERE row_json = '')
+                           NOT IN (0, COUNT(*))
+                     LIMIT 1
+                    """,
+                    [session_id],
+                ).fetchone()
+                if mixed_dataset is not None:
+                    return None
             invalid_order = connection.execute(
                 """
                 SELECT 1

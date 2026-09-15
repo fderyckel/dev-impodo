@@ -106,6 +106,16 @@ value is unique; the later comparison checks current target evidence.
 
 ## Needs attention
 
+If your Odoo choices were saved but their details could not load, select
+**Try loading details again**. When the saved record-type list needs fresh
+access verification, Impodo refreshes it once and retries your saved choices.
+You do not need to select those choices again or start a new project. If the
+check finds changed details or access, review the result before selecting
+**Use updated Odoo details**.
+
+If access changes again during that retry, Impodo stops and keeps the current
+details. Check the read user and company access before retrying.
+
 Do not continue when the wrong database, model, inherited field, or business
 key is shown. Refresh the available record types or select **Check for Odoo
 changes**. When Impodo finds a change, review it before selecting **Use updated

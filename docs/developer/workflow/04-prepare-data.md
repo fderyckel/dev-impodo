@@ -40,6 +40,14 @@ writer.
 mapping, writes bounded staging batches, publishes quality/accounting evidence,
 and records the preparation session.
 
+Each direct dataset may use either a prepared-value projection or stored
+canonical JSON. `PreparationQualityIndex._bounded_quality_index` accepts both
+formats in the same run. It rejects a dataset whose rows mix those formats,
+while the canonical reader verifies projection bindings and values. Row order,
+identity uniqueness, complete source accounting, and relationship checks still
+apply. Mixed storage therefore does not require whole-run materialization or
+an increase to its 25,000-source-row safety limit.
+
 `resolution.py` applies explicit merge/separate and field-correction decisions
 through `ResolutionService`. `normalization.py` handles reviewable value groups
 through `NormalizationService`. Both publish new evidence rather than mutating
@@ -54,6 +62,7 @@ the frozen source.
 | Process build contract | [`ApplicationBuildContract`](../../../src/impodo/application/shared/build_contract.py) |
 | Project-only worker wiring | [`create_preparation_worker`](../../../src/impodo/web/composition/preparation_worker.py) |
 | Quality publication | [`QualityService`](../../../src/impodo/application/workspace/preparation/quality_service.py) |
+| Quality indexes across direct datasets | [`PreparationQualityIndex`](../../../src/impodo/adapters/duckdb/preparation_quality_index.py) |
 | Entity resolution | [`ResolutionService`](../../../src/impodo/application/workspace/preparation/resolution_service.py) |
 | Normalization decisions | [`NormalizationService`](../../../src/impodo/application/workspace/preparation/normalization_service.py) |
 | Canonical hierarchy materialization | [`evaluate_browser_mapping`](../../../src/impodo/domain/staging/evaluator.py) |
@@ -123,6 +132,13 @@ A changed application build or incompatible workspace contract is deterministic
 for the running process. The operator must restart Impodo or follow the
 workspace compatibility action. Retrying the same job cannot repair either
 condition.
+
+After installing a preparation fix, restart Impodo and start preparation from
+the same workspace's saved, confirmed mapping. A fresh attempt rebuilds the
+session indexes removed by failure cleanup. It must not promote the failed
+session or treat its published staging rows as a complete quality result.
+The last progress percentage records the failed phase; it does not mean the
+worker is still running.
 
 Use stage-level transactions and idempotent publication. Never repair a result
 by editing DuckDB rows directly.

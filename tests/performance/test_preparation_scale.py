@@ -2352,6 +2352,98 @@ class BoundedPreparationParityTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def test_mixed_dataset_storage_recovers_without_materialized_fallback(self) -> None:
+        """Retry a failed mixed run and preserve the complete quality evidence."""
+
+        from impodo.domain.compiler.columnar_transformation import (
+            ColumnarFallbackReason, ColumnarOperationKind, ColumnarSupport,
+        )
+        from impodo.application.workspace.preparation import preparation_capability
+        from impodo.application.workspace.preparation.bounded_quality import (
+            BoundedQualityUnsupported,
+        )
+
+        workspace_id, _, _ = (
+            PreparationWorkflowScaleTests._prepare_related_product_bom_project_and_evidence(
+                self, product_count=3, bom_line_count=8,
+                column_count=5, mapped_field_count=5,
+            )
+        )
+        service = self.context.preparation
+        workspace = service.workspaces.get(workspace_id)
+        revision = service.mappings.get_mapping_revision(workspace_id)
+        physical = service.sources.get_source_selection(workspace_id)
+        effective = service.sources.get_mapping_source_selection(workspace_id)
+        assert revision is not None and physical is not None and effective is not None
+        expected = preparation_module.stage_browser_mapping(
+            workspace, revision.definition, physical, effective, None,
+            service.sources.get_source_catalogs(workspace_id), self.artifacts,
+        )
+        compile_programs = bounded_preparation_module.compile_columnar_transformation_programs
+
+        def select_storage(*args, **kwargs):
+            # Reproduce a run whose line mapping requires the row compatibility
+            # path while its parent dataset uses a prepared-value projection.
+            return tuple(
+                replace(
+                    decision, support=ColumnarSupport.PYTHON_FALLBACK, program=None,
+                    fallback_reasons=(ColumnarFallbackReason(
+                        code="TEST_ROW_COMPATIBILITY", message="Exercise stored row values",
+                        path="datasets.bom_lines", operation=ColumnarOperationKind.READ_SOURCE,
+                    ),),
+                )
+                if decision.dataset_name == "bom_lines" else decision
+                for decision in compile_programs(*args, **kwargs)
+            )
+
+        database_path = service.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        with (
+            patch.object(bounded_preparation_module, "compile_columnar_transformation_programs", select_storage),
+            patch.object(preparation_capability, "MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT", 10),
+            patch.object(quality_module, "evaluate_quality", side_effect=AssertionError("whole-run quality fallback")),
+            patch.object(normalization_module, "evaluate_normalization", side_effect=AssertionError("whole-run normalization fallback")),
+        ):
+            with (
+                patch.object(quality_module, "build_bounded_quality_run", side_effect=BoundedQualityUnsupported),
+                self.assertRaisesRegex(ReadinessError, "Whole-run fallback is disabled"),
+            ):
+                service.prepare(workspace_id, actor=self.context.actor)
+            self.assertIsNone(service.quality.current_summary(workspace_id))
+            with service.staging._connect(database_path) as connection:
+                self.assertEqual(
+                    connection.execute("SELECT status FROM preparation_session").fetchall(),
+                    [("FAILED",)],
+                )
+
+            result = service.prepare(workspace_id, actor=self.context.actor)
+            repeated = service.prepare(workspace_id, actor=self.context.actor)
+
+        staging = service.staging.get_current_staging_summary(workspace_id)
+        ruleset = service.quality.current_ruleset(workspace_id)
+        quality = service.quality.current_run(workspace_id)
+        assert staging is not None and ruleset is not None and quality is not None
+        self.assertEqual(staging.content_hash, expected.canonical_run.content_hash)
+        expected_quality = evaluate_quality(
+            workspace_state=workspace, staging=expected.canonical_run,
+            physical_rows=dict(expected.physical_rows), ruleset=ruleset,
+            published_staging_content_hash=staging.content_hash,
+        )
+        self.assertEqual(quality.to_json(), expected_quality.to_json())
+        self.assertEqual(result.content_hash, repeated.content_hash)
+        self.assertEqual(service.mappings.get_mapping_revision(workspace_id), revision)
+        self.assertEqual(service.sources.get_source_selection(workspace_id), physical)
+        with service.staging._connect(database_path) as connection:
+            shapes = connection.execute(
+                "SELECT dataset, COUNT(*), COUNT(*) FILTER (WHERE row_json = '') "
+                "FROM canonical_staging_row WHERE run_id = ? GROUP BY dataset ORDER BY dataset",
+                [staging.run_id],
+            ).fetchall()
+            statuses = connection.execute(
+                "SELECT status, COUNT(*) FROM preparation_session GROUP BY status ORDER BY status"
+            ).fetchall()
+        self.assertEqual(shapes, [("bom_lines", 8, 0), ("products", 3, 3)])
+        self.assertEqual(statuses, [("FAILED", 1), ("PUBLISHED", 2)])
+
     def test_direct_session_matches_materialized_canonical_evidence(self) -> None:
         workspace_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(

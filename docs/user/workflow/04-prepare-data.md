@@ -81,6 +81,12 @@ Investigate blocked rows, unresolved relationships, unexpected quarantine,
 count differences, or a stopped background job. A cancelled or failed attempt
 may be retried only after its recorded outcome is understood.
 
+**Preparation stopped** means the attempt has ended unsuccessfully. Its
+percentage shows the last step reached; waiting will not resume it. After the
+cause has been corrected, return to **Prepare data** in the same workspace
+and start a fresh attempt. You can keep your accepted source data and saved
+field matches.
+
 For a Recipe run, return to **Review and load** after preparation stops or you
 reopen Impodo. If the Recipe already has a complete, current saved result,
 Impodo offers its review without preparing the rows again. See
@@ -89,6 +95,8 @@ Impodo offers its review without preparing the rows again. See
 If Impodo reports that it was updated while preparation was starting, restart
 Impodo. The stopped attempt did not open the workspace or contact Odoo. Do not
 repeat the same attempt from the old browser session.
+Save edits in your open tabs before restarting, then reopen the same project
+and workspace. You do not need to create a new project to use a preparation fix.
 
 ## What makes this work stale
 

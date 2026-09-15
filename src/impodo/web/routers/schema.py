@@ -40,13 +40,14 @@ from impodo.domain.project.foundation import MigrationFoundationError
 from ...domain.recipe.models import RecipeError
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaOrigin
-from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.errors import OdooModelCatalogRefreshRequired, WorkspaceError
 from impodo.domain.workspace.workbench import (
     SourceMode,
     WorkspaceState,
     WorkspaceStateError,
 )
 from ..context import WebContext
+from ..composition.page_reads import run_page_read
 from ..run_urls import RunSetupKind
 from ..forms import (
     _checked,
@@ -70,6 +71,7 @@ from impodo.web.composition.target_readers import (
     _capture_recipe_supporting_values,
     _missing_schema_reader_message,
     _refresh_model_catalog,
+    _refresh_model_catalog_sync,
     _selected_local_profile,
 )
 
@@ -93,18 +95,9 @@ def _capture_selected_schema_sync(
 ) -> OdooSchemaCatalog:
     """Synchronous core used by both request and background-job boundaries."""
 
-    snapshot, read_credential_binding_hash, read_identity, local_profile = (
-        _read_selected_schema_sync(context, workspace_state)
+    return _load_selected_schema_sync(
+        context, workspace_state, check_for_changes=False
     )
-    schema = context.schema_workspace.capture(
-        workspace_state.workspace_id,
-        snapshot,
-        read_credential_binding_hash=read_credential_binding_hash,
-        read_identity=read_identity,
-        actor=context.actor,
-    )
-    _mark_local_metadata_ready(context, workspace_state, schema, local_profile)
-    return schema
 
 
 async def _check_selected_schema(
@@ -126,18 +119,52 @@ def _check_selected_schema_sync(
 ) -> OdooSchemaCatalog:
     """Synchronous core used by both request and background-job boundaries."""
 
-    snapshot, read_credential_binding_hash, read_identity, local_profile = (
-        _read_selected_schema_sync(context, workspace_state)
+    return _load_selected_schema_sync(
+        context, workspace_state, check_for_changes=True
     )
-    schema = context.schema_workspace.check_refresh(
-        workspace_state.workspace_id,
-        snapshot,
-        read_credential_binding_hash=read_credential_binding_hash,
-        read_identity=read_identity,
-        actor=context.actor,
+
+
+def _load_selected_schema_sync(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+    *,
+    check_for_changes: bool,
+) -> OdooSchemaCatalog:
+    """Refresh stale discovery once, then recheck fields under fresh access.
+
+    Only the service's stale-discovery signal permits the retry. Fresh reads
+    must pass the same validation, and an existing live schema still follows
+    the candidate-review path before dependent work can be retired.
+    """
+
+    save_schema = (
+        context.schema_workspace.check_refresh
+        if check_for_changes
+        else context.schema_workspace.capture
     )
-    _mark_local_metadata_ready(context, workspace_state, schema, local_profile)
-    return schema
+    for attempt in range(2):
+        snapshot, credential_binding, read_identity, local_profile = (
+            _read_selected_schema_sync(context, workspace_state)
+        )
+        try:
+            schema = save_schema(
+                workspace_state.workspace_id,
+                snapshot,
+                read_credential_binding_hash=credential_binding,
+                read_identity=read_identity,
+                actor=context.actor,
+            )
+        except OdooModelCatalogRefreshRequired as error:
+            if attempt:
+                raise WorkspaceError(
+                    "Odoo access changed again while loading the details. "
+                    "Check the read user and company access, then try loading again."
+                ) from error
+            _refresh_model_catalog_sync(context, workspace_state)
+        else:
+            _mark_local_metadata_ready(context, workspace_state, schema, local_profile)
+            return schema
+    raise AssertionError("Schema capture must succeed or fail within two attempts")
 
 
 def _read_selected_schema_sync(
@@ -235,6 +262,11 @@ def build_schema_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/schema", response_class=HTMLResponse)
     async def workspace_schema(request: Request, workspace_id: str):
         require_session(request)
+        return await run_page_read(render_schema, request, workspace_id)
+
+    def render_schema(request: Request, workspace_id: str):
+        """Render saved Odoo details within one database-scoped worker."""
+
         workspace_state = context.queries.get(workspace_id)
         test_setup = context.run_setups.setup_binding_for_workspace(
             workspace_id,

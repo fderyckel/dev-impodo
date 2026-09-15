@@ -145,7 +145,26 @@ boundary. Local draft capture is a deliberate development path and may not be
 presented as live Odoo evidence. Connector failures must retain the upstream
 cause instead of being reduced to a generic browser status.
 
+When field capture detects that the saved model catalogue belongs to older
+read access, `SchemaWorkspaceService` raises
+`OdooModelCatalogRefreshRequired`. The schema reader refreshes model discovery
+once and repeats the field read with fresh identity verification. Both the
+browser request and Recipe background job use this recovery. Model discovery
+keeps the selected scope and current schema evidence. An existing live schema
+still uses candidate comparison and explicit confirmation of changes.
+
+Only this stale-catalogue failure triggers recovery. Authentication, transport,
+target, and field-validation failures retain their normal handling. If access
+changes again during the retry, the operation stops and retains the current
+schema and saved choices.
+
 ## Odoo 19 and performance
+
+Opening `/workspaces/{workspace_id}/schema` renders saved evidence through
+`run_page_read`. The worker retains database handles for that page read and
+closes them before returning. This avoids repeated database opens and keeps
+the event loop responsive to other requests. Opening the page does not call
+Odoo or refresh evidence; capture and change checks remain explicit actions.
 
 Read capability is explicit and narrow: model catalogue, metadata, target
 fingerprint, and planned record requests. Batch metadata and record reads by
@@ -158,6 +177,10 @@ model, plus the bounded constraint batch. Candidate comparison and confirmation
 run locally. Confirmation does not call Odoo again and introduces no per-field
 or per-row requests.
 
+A stale-catalogue recovery adds at most one model-discovery read and one repeat
+of the bounded field check. A normal field check adds no model-discovery call.
+The model-discovery read and its persistence run in the synchronous worker.
+
 Odoo 19 inherited fields and dynamic selections must come from the connected
 database. Do not hard-code a standard-only catalogue when custom modules are in
 scope.
@@ -168,6 +191,7 @@ scope.
 - [`tests/integration/odoo/test_local_reader.py`](../../../tests/integration/odoo/test_local_reader.py)
 - [`tests/application/workspace/test_odoo_connection.py`](../../../tests/application/workspace/test_odoo_connection.py)
 - [`tests/integration/web/test_target_workflow.py`](../../../tests/integration/web/test_target_workflow.py)
+- [`tests/integration/web/test_schema_capture_recovery.py`](../../../tests/integration/web/test_schema_capture_recovery.py)
 
 Verify inherited fields, selection normalization, business-key revisioning,
 read-only capability, batched requests, invalidation, and both source modes.

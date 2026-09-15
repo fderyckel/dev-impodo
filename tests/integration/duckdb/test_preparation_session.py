@@ -97,6 +97,53 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def test_quality_index_rejects_mixed_storage_within_one_dataset(self) -> None:
+        """Different dataset formats must not excuse missing values in a table."""
+
+        session = self.repository.begin_direct_session(
+            self.workspace_state.workspace_id, self.bindings, actor=LOCAL_ACTOR,
+        )
+        rows = []
+        for ordinal in range(2):
+            source_row = ordinal + 2
+            record = PreparedRecord(
+                dataset="contacts", source_row=source_row,
+                target_model="res.partner", source_identity=(str(ordinal),),
+                target_identity=(str(ordinal),), target_scope=(),
+                scalar_values={"name": "Contact"}, references={},
+            )
+            canonical = canonical_row_from_prepared(
+                record, mode="upsert", source_hash=SOURCE_HASH,
+                source_selection_hash=SELECTION_HASH, mapping_hash=MAPPING_HASH,
+                schema_hash=SCHEMA_HASH, derived_plan_hash=None,
+                field_sources={}, physical_dataset_id="dataset:contacts",
+                physical_source_rows=(source_row,),
+            )
+            rows.append(CanonicalPreparedSessionRow(
+                row_id=canonical.row_id, ordinal=ordinal, dataset="contacts",
+                source_row=source_row, target_model="res.partner",
+                disposition=canonical.disposition,
+                source_identity=canonical.source_identity,
+                row_json=canonical_json_bytes(canonical.to_portable_dict()).decode("utf-8"),
+                physical_sources={"dataset:contacts": (source_row,)},
+            ))
+        self.repository.append_direct_rows(
+            self.workspace_state.workspace_id, session.session_id, rows,
+        )
+        physical_rows = {"dataset:contacts": (2, 3)}
+        self.assertIsNotNone(self.repository._bounded_quality_index(
+            self.workspace_state.workspace_id, session.session_id, physical_rows,
+        ))
+        database_path = self.repository.workspace_directory(self.workspace_state.workspace_id) / "workspace-engine.duckdb"
+        with self.repository._connect(database_path) as connection:
+            connection.execute(
+                "UPDATE canonical_staging_row SET row_json = '' WHERE run_id = ? AND ordinal = 0",
+                [session.session_id],
+            )
+        self.assertIsNone(self.repository._bounded_quality_index(
+            self.workspace_state.workspace_id, session.session_id, physical_rows,
+        ))
+
     def test_direct_rows_finalize_in_place_and_failed_pending_run_is_removed(
         self,
     ) -> None:

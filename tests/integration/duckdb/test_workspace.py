@@ -71,7 +71,7 @@ from impodo.domain.workspace.contracts import (
     SchemaModel,
     SchemaOrigin,
 )
-from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.errors import OdooModelCatalogRefreshRequired, WorkspaceError
 from tests.support.workspace_access import workspace_access_service
 
 
@@ -345,7 +345,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
 
-        with self.assertRaisesRegex(WorkspaceError, "credential changed"):
+        with self.assertRaisesRegex(OdooModelCatalogRefreshRequired, "credential changed"):
             self.schemas.capture(
                 self.workspace_state.workspace_id,
                 _metadata_snapshot(),
@@ -684,17 +684,20 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
 
-        with self.assertRaisesRegex(WorkspaceError, "access verification is out of date"):
-            self.schemas.capture(
-                self.workspace_state.workspace_id,
-                _metadata_snapshot(),
-                read_credential_binding_hash="sha256:" + "8" * 64,
-                read_identity=_read_identity(
-                    ("res.partner",),
-                    principal_digit="7",
-                ),
-                actor=LOCAL_ACTOR,
-            )
+        for identity in (
+            _read_identity(("res.partner",), principal_digit="7"),
+            replace(_read_identity(("res.partner",)), context_hash="sha256:" + "7" * 64),
+        ):
+            with self.subTest(identity=identity), self.assertRaisesRegex(
+                OdooModelCatalogRefreshRequired, "access verification is out of date"
+            ):
+                self.schemas.capture(
+                    self.workspace_state.workspace_id,
+                    _metadata_snapshot(),
+                    read_credential_binding_hash="sha256:" + "8" * 64,
+                    read_identity=identity,
+                    actor=LOCAL_ACTOR,
+                )
 
     def test_odoo_source_captures_eligibility_schema_before_source_freeze(
         self,

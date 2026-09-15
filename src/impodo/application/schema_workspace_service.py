@@ -47,7 +47,7 @@ from impodo.domain.workspace.contracts import (
     SchemaOrigin,
     SourceSelection,
 )
-from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.errors import OdooModelCatalogRefreshRequired, WorkspaceError
 from ..domain.serialization import content_hash
 
 
@@ -767,7 +767,7 @@ class SchemaWorkspaceService:
                     discovered.read_credential_binding_hash
                     != read_credential_binding_hash
                 ):
-                    raise WorkspaceError(
+                    raise OdooModelCatalogRefreshRequired(
                         "The Odoo read credential changed; refresh the model "
                         "catalogue before capturing schema"
                     )
@@ -777,7 +777,7 @@ class SchemaWorkspaceService:
                 or discovered.read_context_hash
                 != identity_hashes["read_context_hash"]
             ):
-                raise WorkspaceError(
+                raise OdooModelCatalogRefreshRequired(
                     "The saved Odoo access verification is out of date, or the "
                     "reader or company access changed; refresh the model catalogue "
                     "before capturing the Odoo fields"

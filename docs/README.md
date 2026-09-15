@@ -73,6 +73,9 @@ applies those rules when documentation is created or rewritten.
 
 ## Plans
 
+- [Odoo 19 and Odoo 20 support](plans/odoo-19-and-20-support.md)
+  — the proposed shared integration, version-specific policies, Recipe
+  qualification, and staged release plan for supporting both Odoo versions.
 - [Maintainable code and focused execution services](plans/maintainable-code-and-execution-services.md)
   — the proposed coding practices, automated checks, and staged execution
   refactor for preserving clear ownership as the project grows.

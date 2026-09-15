@@ -13,6 +13,10 @@ class WorkspaceError(WorkspaceStateError):
     """Raised for expected stale, conflicting, or incomplete workspace state."""
 
 
+class OdooModelCatalogRefreshRequired(WorkspaceError):
+    """Field capture needs fresh model discovery under the current read access."""
+
+
 class WorkspaceDatabaseBusyError(WorkspaceError):
     """Raised when another Impodo process temporarily owns the project store."""
 

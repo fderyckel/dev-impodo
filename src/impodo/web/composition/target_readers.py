@@ -252,6 +252,17 @@ async def _refresh_model_catalog(
 ) -> OdooModelCatalog:
     """Refresh persistent model choices through the configured read-only target."""
 
+    return await run_in_threadpool(
+        _refresh_model_catalog_sync, context, workspace_state
+    )
+
+
+def _refresh_model_catalog_sync(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+) -> OdooModelCatalog:
+    """Read and publish model discovery within one synchronous worker."""
+
     local_profile = _selected_local_profile(context, workspace_state)
     credential = get_target_credential(
         context.secret_store,
@@ -259,8 +270,7 @@ async def _refresh_model_catalog(
         TargetCredentialRole.READ,
     )
     if local_profile is not None and credential is None:
-        snapshot = await run_in_threadpool(
-            context.local_odoo_reader.get_model_catalog,
+        snapshot = context.local_odoo_reader.get_model_catalog(
             workspace_state,
             local_profile,
         )
@@ -269,14 +279,12 @@ async def _refresh_model_catalog(
     else:
         if credential is None:
             raise WorkspaceError(_missing_schema_reader_message(workspace_state))
-        read_identity = await run_in_threadpool(
-            context.read_identity_probe,
+        read_identity = context.read_identity_probe(
             workspace_state,
             credential.secret,
             ("ir.model",),
         )
-        snapshot = await run_in_threadpool(
-            context.model_catalog_reader,
+        snapshot = context.model_catalog_reader(
             workspace_state,
             credential.secret,
         )
