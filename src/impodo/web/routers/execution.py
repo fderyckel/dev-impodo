@@ -45,6 +45,7 @@ from impodo.domain.workspace.workbench import (
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.application.workspace.access import WorkspaceAccessContext
+from ..composition.page_reads import run_page_read
 from ..constants import DEFAULT_LOAD_ROWS_PER_PAGE, LOAD_ROW_PAGE_SIZES
 from ..context import WebContext
 from ..diagnostics import LocalDiagnosticRecorder
@@ -579,10 +580,10 @@ def build_execution_router(
                 _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        preview = await run_in_threadpool(
-            context.execution.current_preview,
-            workspace_id,
-        )
+        return await run_page_read(render_outcome, request, workspace_id)
+
+    def render_outcome(request: Request, workspace_id: str):
+        preview = context.execution.current_preview(workspace_id)
         if preview is None:
             return RedirectResponse(
                 f"/workspaces/{workspace_id}/summary",
@@ -593,8 +594,7 @@ def build_execution_router(
                 f"/workspaces/{workspace_id}/load/review",
                 status_code=303,
             )
-        return await run_in_threadpool(
-            render,
+        return render(
             request,
             workspace_id,
             step="outcome",

@@ -1207,6 +1207,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (constantControls) {
         constantControls.hidden = mode !== "constant_existing";
       }
+      if (businessKey) businessKey.required = mode === "constant_existing";
+      syncComponents();
     };
     const syncComponents = () => {
       const option = businessKey?.selectedOptions[0];
@@ -1223,7 +1225,15 @@ document.addEventListener("DOMContentLoaded", () => {
         component.style.display = active ? "" : "none";
         const input = component.querySelector("[data-constant-component-value]");
         const label = component.querySelector("[data-constant-component-label]");
-        if (input) input.disabled = !active;
+        if (input) {
+          input.disabled = !active;
+          input.required = active && provider?.value === "constant_existing";
+          input.setCustomValidity(
+            input.required && !input.value.trim()
+              ? `Enter ${fields[slot]} or choose an existing Odoo record.`
+              : ""
+          );
+        }
         if (label && active) label.textContent = fields[slot];
       }
     };
@@ -1246,6 +1256,18 @@ document.addEventListener("DOMContentLoaded", () => {
       choice.replaceChildren(placeholder, ...options);
     };
 
+    for (const input of row.querySelectorAll(
+      "[data-constant-business-key], [data-constant-component-value]"
+    )) {
+      input.addEventListener("invalid", () => {
+        let parent = row;
+        while (parent) {
+          if (parent instanceof HTMLDetailsElement) parent.open = true;
+          parent = parent.parentElement;
+        }
+      });
+      input.addEventListener("input", syncComponents);
+    }
     provider?.addEventListener("change", syncProvider);
     businessKey?.addEventListener("change", syncComponents);
     search?.addEventListener("input", renderChoices);
@@ -1304,10 +1326,12 @@ document.addEventListener("DOMContentLoaded", () => {
           renderChoices();
           if (status) {
             status.textContent = loadedChoices.length
-              ? `${loadedChoices.length.toLocaleString()} unambiguous existing record(s) available.`
+              ? `${loadedChoices.length.toLocaleString()} unambiguous existing record(s) available. Choose a record to fill the matching value.`
               : "No unambiguous existing record matches this rule.";
           }
         } catch (error) {
+          loadedChoices = [];
+          renderChoices();
           if (status) {
             status.textContent =
               error instanceof Error
@@ -1318,7 +1342,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     );
     syncProvider();
-    syncComponents();
   };
 
   for (const row of document.querySelectorAll("[data-relation-mapping-row]")) {

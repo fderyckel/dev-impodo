@@ -539,6 +539,22 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertEqual(mapping.constant_reference.key_values[0].value, "PCE")
         self.assertTrue(mapping.required_on_create)
 
+        for value in ("", "   "):
+            incomplete = FormData(
+                (name, value if name == "relation_constant_component_0_0_0" else item)
+                for name, item in form.multi_items()
+            )
+            with self.subTest(value=value), self.assertRaisesRegex(
+                ValueError,
+                'Enter name for "Product Unit of Measure" in "BOMs"',
+            ):
+                _mapping_datasets_from_form(
+                    incomplete,
+                    SimpleNamespace(datasets=(source,)),
+                    schema,
+                    SimpleNamespace(business_keys=(key,)),
+                )
+
     def test_generated_record_link_is_preserved_by_the_mapping_form(self) -> None:
         file_binding = FileSourceBinding(
             file_id="file:test",

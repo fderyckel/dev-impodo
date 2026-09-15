@@ -303,6 +303,17 @@ of Measure. Expand **Product Unit of Measure**, then:
    in the order shown.
 5. Review the summary, then select **Save progress** and **Check matches**.
 
+Loading the choices does not select a record. Choose a record from the list,
+or type its exact matching values in the boxes above. If a required matching
+value is blank, **Save progress** opens the card and highlights the missing
+value.
+
+If Odoo choices cannot load, your entered values remain on the page. Complete
+the matching values and select **Save progress** before leaving the editor.
+If Impodo reports that the Odoo destination, read user, or company access no
+longer matches the last field check, return to **Odoo data** to check the
+connection and fields before continuing with **Check matches**.
+
 Impodo stores the portable business-key values, not the Odoo database ID. It
 resolves that key again against the current target during preparation and
 final review. If no record matches, or if several records match, Impodo stops

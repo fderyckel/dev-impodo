@@ -64,6 +64,7 @@ from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
+from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
@@ -105,6 +106,11 @@ def build_sources_router(context: WebContext) -> APIRouter:
         """
 
         require_session(request)
+        return await run_page_read(render_sources, request, workspace_id)
+
+    def render_sources(request: Request, workspace_id: str):
+        """Read source choices and render within one database-scoped worker."""
+
         workspace_state = context.queries.get(workspace_id)
         if workspace_state.status is not WorkspaceStatus.REGISTERED:
             setup_page = (

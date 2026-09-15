@@ -1509,14 +1509,25 @@ def _read_supporting_lookup_batches(
         credential.secret,
         relation_models,
     )
-    if (
-        identity.target_hash != schema.connection_target_hash
-        or identity.principal_hash != schema.read_principal_hash
-        or identity.context_hash != schema.read_context_hash
-        or tuple(sorted(identity.readable_models)) != relation_models
-    ):
+    if identity.target_hash != schema.connection_target_hash:
         raise WorkspaceError(
-            "The Odoo target, reader, access context, or supporting-record access changed; check Odoo again"
+            "The Odoo destination does not match the last field check. "
+            "Check the connection and fields in Odoo data again."
+        )
+    if identity.principal_hash != schema.read_principal_hash:
+        raise WorkspaceError(
+            "The Odoo read user does not match the last field check. "
+            "Check the connection and fields in Odoo data again."
+        )
+    if identity.context_hash != schema.read_context_hash:
+        raise WorkspaceError(
+            "The Odoo company access context does not match the last field check. "
+            "Check the connection and fields in Odoo data again."
+        )
+    if tuple(sorted(identity.readable_models)) != relation_models:
+        raise WorkspaceError(
+            "The Odoo read user cannot read every linked model needed for these choices. "
+            "Check read access and the fields in Odoo data again."
         )
     connector = Json2ReadConnector(
         _target_json2_config(workspace_state, credential.secret)

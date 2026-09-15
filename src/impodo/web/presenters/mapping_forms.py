@@ -798,7 +798,8 @@ def _mapping_datasets_from_form(
                 )
                 if business_key is None or business_key.model != metadata.relation:
                     raise ValueError(
-                        "Choose how the existing linked record is identified"
+                        f'Choose a matching rule for "{metadata.label}" '
+                        f'in "{source_dataset.name}" before saving.'
                     )
                 component_fields = (
                     *business_key.key_fields,
@@ -814,6 +815,19 @@ def _mapping_datasets_from_form(
                     )
                     for slot in range(len(component_fields))
                 )
+                missing_fields = tuple(
+                    field
+                    for field, value in zip(
+                        component_fields, component_values, strict=True
+                    )
+                    if not value.strip()
+                )
+                if missing_fields:
+                    raise ValueError(
+                        f'Enter {", ".join(missing_fields)} for "{metadata.label}" '
+                        f'in "{source_dataset.name}", or choose an existing '
+                        "Odoo record, before saving."
+                    )
                 key_width = len(business_key.key_fields)
                 relationships.append(
                     RelationshipMapping(

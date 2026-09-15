@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 import unittest
@@ -516,6 +517,33 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         self.assertEqual(connector.record_requests[0].model, "res.country")
         self.assertEqual(connector.record_requests[0].limit, 2001)
         self.assertEqual(access.permission_hash, "sha256:" + "8" * 64)
+
+    def test_supporting_lookup_identifies_access_mismatch_before_reading_records(self) -> None:
+        context = self._context()
+        context.readiness_reader = None
+        identity = context.read_identity_probe(
+            self.workspace_state, self.first.secret, ("res.country",)
+        )
+        for changes, message in (
+            ({"target_hash": "sha256:" + "5" * 64}, "Odoo destination"),
+            ({"principal_hash": "sha256:" + "6" * 64}, "Odoo read user"),
+            ({"context_hash": "sha256:" + "7" * 64}, "Odoo company access context"),
+            ({"readable_models": ()}, "cannot read every linked model"),
+        ):
+            with self.subTest(changes=changes), patch(
+                "impodo.web.composition.target_readers.Json2ReadConnector"
+            ) as connector:
+                context.read_identity_probe = lambda *_args: replace(identity, **changes)
+                with self.assertRaisesRegex(WorkspaceError, message) as raised:
+                    _read_supporting_lookup_snapshots(
+                        context,
+                        self.workspace_state,
+                        self.schema,
+                        relation_model="res.country",
+                        requested_fields=("code", "name"),
+                    )
+                self.assertIn("Odoo data again", str(raised.exception))
+                connector.assert_not_called()
 
 
 class RecipeSupportingValueBatchTests(unittest.TestCase):

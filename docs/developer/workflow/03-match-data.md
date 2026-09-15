@@ -48,6 +48,17 @@ governed business key and scope without a source-column binding or numeric
 Odoo ID. The `constant_relationship` value-choice request reuses the bounded
 read-only relationship lookup and returns only portable values and labels.
 
+The browser requires each key and scope value while the constant provider is
+selected. A blank or whitespace-only value opens its enclosing cards and
+receives a correction beside that input. The server also rejects incomplete
+constant references before changing the working draft; its error identifies
+the dataset, linked field, and missing components. Loading choices does not
+select a record. A failed lookup clears the displayed choices while retaining
+entered matching values. The remote supporting reader distinguishes target,
+principal, company-context, and model-access mismatches before reading records.
+These checks require the operator to check Odoo data again; they do not refresh
+schema evidence or change mappings automatically.
+
 `MappingWorkspaceService` separates a mutable working draft from immutable
 revision, validation, and submission evidence. Domain validation checks scalar
 providers, conversions, identities, relationships, write scope, and coverage.
@@ -812,6 +823,12 @@ For constant existing relationships, verify strict v14 compatibility, closed
 v15 provider shapes, governed key and scope order, browser save without a
 source column, row/native parity, one distinct request for 10,000 rows, Recipe
 application without source binding, and source-free workbook lineage.
+The browser regression in
+[`test_constant_relationship_editor.py`](../../../tests/e2e/test_constant_relationship_editor.py)
+also checks missing values, collapsed cards, lookup failure, provider changes,
+and preservation through catalogue row replacement. Run it with Playwright
+installed using `python -m unittest tests.e2e.test_constant_relationship_editor`.
+It uses fictional data and intercepts all browser requests.
 Also verify formula authoring success and failure, CSRF and current-dataset
 checks, formula-free responses, saved invalid-draft recovery, and authoritative
 server rejection when the browser guard is bypassed.

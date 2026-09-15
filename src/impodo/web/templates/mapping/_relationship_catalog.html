@@ -125,7 +125,7 @@
                           </select>
                         </label>
                         <button class="button secondary compact" type="button" data-check-constant-record>Check this record</button>
-                        <small data-constant-choice-status>
+                        <small data-constant-choice-status role="status" aria-live="polite">
                           {% if row.constant_component_values %}{{ row.constant_component_values|join(' · ') }} will be used for all {{ view.source.row_count }} {{ view.source.name }} rows.{% else %}Impodo stores only the portable business key, never the Odoo database ID.{% endif %}
                         </small>
                       </div>

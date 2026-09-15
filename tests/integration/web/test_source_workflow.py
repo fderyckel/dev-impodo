@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import patch
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from tests.support.browser_scenarios import (
     BytesIO,
     MANIFEST_NAME,
@@ -83,8 +85,24 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             expected_revision=current.revision,
         )
 
-        source_page = self.client.get(f"/workspaces/{workspace_state.workspace_id}/sources")
+        get_workspace = context.queries.get
+
+        def read_workspace_in_worker(workspace_id):
+            with self.assertRaises(RuntimeError):
+                asyncio.get_running_loop()
+            return get_workspace(workspace_id)
+
+        with (
+            patch.object(
+                type(context.queries), "get", side_effect=read_workspace_in_worker
+            ),
+            collect_duckdb_request_timings() as timings,
+        ):
+            source_page = self.client.get(
+                f"/workspaces/{workspace_state.workspace_id}/sources"
+            )
         self.assertEqual(source_page.status_code, 200)
+        self.assertLessEqual(timings.connection_count, 8)
         self.assertEqual(
             source_page.text.count("data-source-file-remove-form"),
             1,

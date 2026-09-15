@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from io import BytesIO
 from openpyxl import load_workbook
 from time import sleep
@@ -1440,6 +1441,25 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(
             relationship.constant_reference.key_values[0].value,
             "PCE",
+        )
+        incomplete = json.loads(saved.request.content)
+        for entry in incomplete["entries"]:
+            if entry[0] == "relation_constant_component_0_0_0":
+                entry[1] = "   "
+            elif entry[0] == "expected_working_draft_version":
+                entry[1] = str(working.version)
+        rejected = self.client.post(
+            f"/workspaces/{workspace_id}/mapping/save",
+            json=incomplete,
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+        self.assertEqual(rejected.status_code, 422, rejected.text)
+        self.assertEqual(rejected.json()["failure_code"], "MAPPING_INPUT_INVALID")
+        self.assertIn("Enter name", rejected.json()["detail"])
+        self.assertIn(dataset.name, rejected.json()["detail"])
+        self.assertEqual(
+            context.mapping_workspace.mappings.get_mapping_working_draft(workspace_id),
+            working,
         )
         schema = context.queries.get_odoo_schema_catalog(workspace_id)
         governance = context.queries.get_schema_governance(workspace_id)

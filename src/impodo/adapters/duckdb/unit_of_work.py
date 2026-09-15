@@ -8,8 +8,9 @@ always closes the short-lived connection.
 
 from __future__ import annotations
 
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from pathlib import Path
+from threading import local
 import time
 from typing import Callable, Iterator
 
@@ -42,8 +43,34 @@ _DATABASE_BUSY_MESSAGE = (
 )
 
 
+_read_databases = local()
+
+
+@contextmanager
+def retain_databases_for_read() -> Iterator[None]:
+    """Keep database instances open for one synchronous page read.
+
+    Each repository still gets a fresh connection and independent transaction.
+    Only the expensive database opening is shared, on the calling thread, until
+    this scope exits. Do not span awaits, background work, or remote calls with
+    this scope: closing it promptly releases the files for other processes.
+    """
+
+    if getattr(_read_databases, "connections", None) is not None:
+        yield
+        return
+    with ExitStack() as stack:
+        _read_databases.connections = {}
+        _read_databases.stack = stack
+        try:
+            yield
+        finally:
+            del _read_databases.connections
+            del _read_databases.stack
+
+
 class DuckDbConnectionFactory:
-    """Open consistently hardened short-lived DuckDB connections."""
+    """Open hardened connections with explicitly bounded lifetimes."""
 
     def __init__(
         self,
@@ -68,7 +95,7 @@ class DuckDbConnectionFactory:
         preserve_insertion_order: bool | None = None,
         enable_external_access: bool | None = None,
     ) -> Iterator[duckdb.DuckDBPyConnection]:
-        """Yield one hardened connection and close it on every exit path."""
+        """Close each connection on exit, retaining only scoped database owners."""
 
         config = dict(DUCKDB_CONFIG)
         if memory_limit is not None:
@@ -81,7 +108,15 @@ class DuckDbConnectionFactory:
             ).casefold()
         if enable_external_access is not None:
             config["enable_external_access"] = str(enable_external_access).casefold()
-        connection = self._connect_with_lock_wait(path, config)
+        retained = getattr(_read_databases, "connections", None)
+        if retained is None:
+            connection = self._connect_with_lock_wait(path, config)
+        else:
+            key = (path.resolve(), tuple(sorted(config.items())))
+            if key not in retained:
+                retained[key] = self._connect_with_lock_wait(path, config)
+                _read_databases.stack.callback(retained[key].close)
+            connection = retained[key].cursor()
         try:
             yield connection
         finally:
