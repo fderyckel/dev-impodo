@@ -22,7 +22,9 @@ ROOT = Path(__file__).resolve().parents[1]
 LOCK_FILE = ROOT / "requirements.windows-py312.lock"
 SECRETS_BASELINE = ROOT / ".secrets.baseline"
 DEFAULT_OUTPUT_ROOT = ROOT / "dist" / "internal"
-WORK_ROOT = ROOT / "var" / "internal-release-work"
+# Windows test fixtures create several nested UUID directories below the source.
+# Keep release staging shallow so those paths remain under the legacy MAX_PATH limit.
+WORK_ROOT = ROOT / "var" / "r"
 REQUIRED_PYTHON = (3, 12)
 REQUIRED_RELEASE_TOOLS = {
     "build": "1.5.0",
@@ -82,7 +84,7 @@ def build_internal_release(output_root: Path) -> Path:
     if destination.exists():
         raise ReleaseGateError(f"release bundle already exists: {destination}")
 
-    work = (WORK_ROOT / release_id).resolve()
+    work = (WORK_ROOT / short_revision).resolve()
     _require_relative_to(work, WORK_ROOT.resolve(), "release work directory")
     if work.exists():
         raise ReleaseGateError(
