@@ -124,6 +124,12 @@ def build_internal_release(output_root: Path) -> Path:
     tests_output = _run_tests(command_environment, source)
     (bundle / "tests.txt").write_text(tests_output, encoding="utf-8", newline="\n")
 
+    # PYTHONPATH exposes the materialized source to tests. Leaving it on pip's
+    # path makes source metadata look like an installed distribution, so pip
+    # skips the wheel and never creates its console launchers.
+    release_environment = command_environment.copy()
+    release_environment.pop("PYTHONPATH", None)
+
     _run(
         sys.executable,
         "-m",
@@ -133,7 +139,7 @@ def build_internal_release(output_root: Path) -> Path:
         str(bundle),
         str(source),
         cwd=source,
-        environment=command_environment,
+        environment=release_environment,
     )
     wheels = tuple(bundle.glob("impodo-*.whl"))
     if len(wheels) != 1:
@@ -146,7 +152,7 @@ def build_internal_release(output_root: Path) -> Path:
         "-m",
         "venv",
         str(runtime),
-        environment=command_environment,
+        environment=release_environment,
     )
     runtime_python = runtime / "Scripts" / "python.exe"
     if not runtime_python.is_file():
@@ -160,7 +166,7 @@ def build_internal_release(output_root: Path) -> Path:
         "--only-binary=:all:",
         "--requirement",
         str(release_lock),
-        environment=command_environment,
+        environment=release_environment,
     )
     _run(
         str(runtime_python),
@@ -169,7 +175,7 @@ def build_internal_release(output_root: Path) -> Path:
         "install",
         "--no-deps",
         str(wheel),
-        environment=command_environment,
+        environment=release_environment,
     )
     if not (runtime / "Scripts" / "impodo.exe").is_file():
         raise ReleaseGateError("the clean runtime did not install impodo.exe")
@@ -180,7 +186,7 @@ def build_internal_release(output_root: Path) -> Path:
         str(runtime_cli),
         "--help",
         capture=True,
-        environment=command_environment,
+        environment=release_environment,
     )
 
     audit_path = bundle / "dependency-audit.json"
@@ -194,7 +200,7 @@ def build_internal_release(output_root: Path) -> Path:
         "--progress-spinner=off",
         "--format=json",
         f"--output={audit_path}",
-        environment=command_environment,
+        environment=release_environment,
     )
 
     sbom_path = bundle / "sbom.cdx.json"
@@ -208,7 +214,7 @@ def build_internal_release(output_root: Path) -> Path:
         "--output-format=JSON",
         "--validate",
         f"--output-file={sbom_path}",
-        environment=command_environment,
+        environment=release_environment,
     )
 
     shutil.copy2(source / "scripts" / "install-internal-release.ps1", bundle)
