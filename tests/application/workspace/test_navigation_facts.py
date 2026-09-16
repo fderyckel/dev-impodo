@@ -141,6 +141,8 @@ class ExecutionNavigationPreviewTests(unittest.TestCase):
         self.assertTrue(preview.can_load)
         self.assertEqual(preview.write_count, 2)
         self.assertEqual(preview.scope_error, "")
+        self.assertIsNone(preview.current_run)
+        self.assertFalse(preview.credential_refresh_required)
 
         changed_workspace = WorkspaceState(
             workspace_id=workspace.workspace_id,

@@ -1816,6 +1816,19 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
                 self.assertIn(f">{size}</a>", first_page.text)
             self.assertIn("ROW-0020", first_page.text)
             self.assertNotIn("ROW-0021", first_page.text)
+            self.assertIn(
+                'href="?status=attention#readiness-rows"',
+                first_page.text,
+            )
+            for status in ("create", "update", "unchanged"):
+                self.assertIn(
+                    f'href="?status={status}#readiness-rows"',
+                    first_page.text,
+                )
+            self.assertIn(
+                'href="?quality_status=quarantined#quality-rows"',
+                first_page.text,
+            )
             next_match = re.search(
                 r'href="([^"]+)" data-readiness-next',
                 first_page.text,

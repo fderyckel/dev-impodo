@@ -235,6 +235,7 @@ class ExecutionNavigationPreview:
 
     state: ExecutionNavigationState
     scope_error: str = ""
+    credential_refresh_required: bool = False
 
     @property
     def write_count(self) -> int:
@@ -243,6 +244,12 @@ class ExecutionNavigationPreview:
     @property
     def current_run_id(self) -> str:
         return self.state.execution_run_id
+
+    @property
+    def current_run(self) -> str | None:
+        """Expose the current run truthiness used by the review page."""
+
+        return self.current_run_id or None
 
     @property
     def can_load(self) -> bool:
@@ -349,6 +356,7 @@ class ExecutionService:
             database=workspace_state.odoo_database,
         )
         scope_error = ""
+        credential_refresh_required = False
         if workspace_state.odoo_connection_mode not in {
             OdooConnectionMode.LOCAL,
             OdooConnectionMode.REMOTE,
@@ -374,14 +382,21 @@ class ExecutionService:
                 _SHA256.fullmatch(value) for value in identity_evidence
             ):
                 scope_error = "Refresh the remote Odoo schema and compare again"
+                credential_refresh_required = True
             elif current_binding is not None and not current_binding:
                 scope_error = "Enter the current Odoo read key and compare again"
+                credential_refresh_required = True
             elif (
                 current_binding is not None
                 and current_binding != summary.read_credential_binding_hash
             ):
                 scope_error = "The Odoo read key changed; compare again"
-        return ExecutionNavigationPreview(state=state, scope_error=scope_error)
+                credential_refresh_required = True
+        return ExecutionNavigationPreview(
+            state=state,
+            scope_error=scope_error,
+            credential_refresh_required=credential_refresh_required,
+        )
 
     def close_interrupted_run_for_recomparison(
         self,

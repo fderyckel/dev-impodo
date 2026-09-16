@@ -547,7 +547,14 @@ class PreflightRepository(DuckDbRepository):
             raise WorkspaceError("Readiness page request is invalid")
         clauses = ["run_id = ?"]
         parameters: list[object] = [canonical_run_id]
-        if status:
+        if status == "attention":
+            clauses.append("status IN ('needs_review', 'blocked')")
+        elif status in {"create", "update", "unchanged"}:
+            clauses.append(
+                "json_extract_string(decision_json, '$.classification') = ?"
+            )
+            parameters.append(status.upper())
+        elif status:
             clauses.append("status = ?")
             parameters.append(status)
         if dataset:

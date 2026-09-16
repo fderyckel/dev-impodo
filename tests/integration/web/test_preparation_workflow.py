@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+
 from tests.support.browser_scenarios import (
     CanonicalControlTotal,
     DatasetMapping,
@@ -60,6 +62,8 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 "current_report",
                 return_value=None,
             ),
+            patch.object(context.execution, "current_preview") as current_preview,
+            collect_duckdb_request_timings() as timings,
         ):
             page = self.client.get(f"/workspaces/{workspace_id}/summary")
 
@@ -72,6 +76,9 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("<summary>Support details</summary>", page.text)
         self.assertNotIn("<details open", page.text)
         self.assertNotIn("canonical_staging", page.text)
+        current_preview.assert_not_called()
+        self.assertGreater(timings.connection_count, 0)
+        self.assertLessEqual(timings.connection_count, 8)
         server_timing = page.headers.get("server-timing", "")
         for phase in (
             "summary_context",

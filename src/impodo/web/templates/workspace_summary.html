@@ -101,22 +101,22 @@
 
   {% if quality %}
     <section class="readiness-cards quality-cards" aria-label="Data quality overview">
-      <a class="readiness-card ready{% if quality_status == 'ready' %} selected{% endif %}" href="?quality_status=ready#quality-rows">
+      <a class="readiness-card ready{% if quality_status == 'ready' %} selected{% endif %}" href="?quality_status=ready#quality-rows" {% if quality_status == 'ready' %}aria-current="true"{% endif %}>
         <span>Included in preparation</span>
         <strong>{{ quality.ready_count }}</strong>
         <small>Ready for prepared-data review</small>
       </a>
-      <a class="readiness-card review{% if quality_status == 'review' %} selected{% endif %}" href="?quality_status=review#quality-rows">
+      <a class="readiness-card review{% if quality_status == 'review' %} selected{% endif %}" href="?quality_status=review#quality-rows" {% if quality_status == 'review' %}aria-current="true"{% endif %}>
         <span>Needs a decision</span>
         <strong>{{ quality.review_count }}</strong>
         <small>A business decision is needed</small>
       </a>
-      <a class="readiness-card blocked{% if quality_status == 'quarantined' %} selected{% endif %}" href="?quality_status=quarantined#quality-rows">
+      <a class="readiness-card blocked{% if quality_status == 'quarantined' %} selected{% endif %}" href="?quality_status=quarantined#quality-rows" {% if quality_status == 'quarantined' %}aria-current="true"{% endif %}>
         <span>Set aside</span>
         <strong>{{ quality.quarantined_count + quality.excluded_count }}</strong>
         <small>Kept out of the Odoo check</small>
       </a>
-      <a class="readiness-card blocked{% if quality_status == 'blocked' %} selected{% endif %}" href="?quality_status=blocked#quality-rows">
+      <a class="readiness-card blocked{% if quality_status == 'blocked' %} selected{% endif %}" href="?quality_status=blocked#quality-rows" {% if quality_status == 'blocked' %}aria-current="true"{% endif %}>
         <span>Needs correction</span>
         <strong>{{ quality.blocked_count }}</strong>
         <small>The project cannot continue yet</small>
@@ -406,28 +406,28 @@
 
     <section class="readiness-cards comparison-cards" aria-label="Odoo comparison overview">
       {% if not odoo_source %}
-      <div class="readiness-card ready">
+      <a class="readiness-card ready{% if status_filter == 'create' %} selected{% endif %}" href="?status=create#readiness-rows" {% if status_filter == 'create' %}aria-current="true"{% endif %}>
         <span>New in Odoo</span>
         <strong>{{ readiness.create_count }}</strong>
         <small>Ready to create later</small>
-      </div>
+      </a>
       {% endif %}
-      <div class="readiness-card ready">
+      <a class="readiness-card ready{% if status_filter == 'update' %} selected{% endif %}" href="?status=update#readiness-rows" {% if status_filter == 'update' %}aria-current="true"{% endif %}>
         <span>{% if odoo_source %}Ready to update{% else %}Different from Odoo{% endif %}</span>
         <strong>{{ readiness.update_count }}</strong>
         <small>{% if odoo_source %}Safe for a later load{% else %}Prepared values differ{% endif %}</small>
-      </div>
-      <div class="readiness-card ready">
+      </a>
+      <a class="readiness-card ready{% if status_filter == 'unchanged' %} selected{% endif %}" href="?status=unchanged#readiness-rows" {% if status_filter == 'unchanged' %}aria-current="true"{% endif %}>
         <span>Already matches</span>
         <strong>{{ readiness.unchanged_count }}</strong>
         <small>No change is needed</small>
-      </div>
-      <a class="readiness-card review" href="#readiness-rows">
+      </a>
+      <a class="readiness-card review{% if status_filter == 'attention' %} selected{% endif %}" href="?status=attention#readiness-rows" {% if status_filter == 'attention' %}aria-current="true"{% endif %}>
         <span>{% if odoo_source %}Needs refresh{% else %}Needs attention{% endif %}</span>
         <strong>{{ readiness.attention_count }}</strong>
         <small>{% if odoo_source %}Odoo changed since capture{% else %}A decision or correction is needed{% endif %}</small>
       </a>
-      <a class="readiness-card blocked" href="#quality-rows">
+      <a class="readiness-card blocked{% if quality_status == 'quarantined' %} selected{% endif %}" href="?quality_status=quarantined#quality-rows" {% if quality_status == 'quarantined' %}aria-current="true"{% endif %}>
         <span>Set aside</span>
         <strong>{{ quality.quarantined_count + quality.excluded_count if quality else 0 }}</strong>
         <small>Not sent to comparison</small>
@@ -477,7 +477,7 @@
         <div>
           <p class="eyebrow">Checked rows</p>
           <h2>
-            {% if status_filter == 'ready' %}Ready{% elif status_filter == 'needs_review' %}Needs a decision{% elif status_filter == 'blocked' %}Needs correction{% else %}All results{% endif %}
+            {% if status_filter == 'ready' %}Ready{% elif status_filter == 'create' %}New in Odoo{% elif status_filter == 'update' %}{% if odoo_source %}Ready to update{% else %}Different from Odoo{% endif %}{% elif status_filter == 'unchanged' %}Already matches{% elif status_filter == 'attention' %}Needs attention{% elif status_filter == 'needs_review' %}Needs a decision{% elif status_filter == 'blocked' %}Needs correction{% else %}All results{% endif %}
             {% if dataset_filter %} · {{ dataset_filter.replace('_', ' ')|title }}{% endif %}
           </h2>
         </div>
@@ -561,8 +561,8 @@
           {% else %}
             <h2 id="final-review-complete-title">Continue to Load into Odoo</h2>
             <p>
-              {{ load_preview.snapshot.counts.get('CREATE', 0) }} new &middot;
-              {{ load_preview.snapshot.counts.get('UPDATE', 0) }} changed &middot;
+              {{ load_preview.state.summary.create_count }} new &middot;
+              {{ load_preview.state.summary.update_count }} changed &middot;
               {{ readiness.attention_count }} needing attention.
               The next page is read-only; nothing will be written yet.
             </p>

@@ -38,7 +38,7 @@ from ..serialization import content_hash, portable
 
 
 COLUMNAR_PROGRAM_CONTRACT_VERSION = 6
-COLUMNAR_COMPILER_VERSION = 8
+COLUMNAR_COMPILER_VERSION = 9
 
 
 def _optional_string(value: object) -> str | None:
@@ -127,6 +127,7 @@ class ColumnarOperationKind(StrEnum):
     SOURCE_IDENTITY_NORMALIZATION = "source_identity_normalization"
     TARGET_IDENTITY_NORMALIZATION = "target_identity_normalization"
     IDENTITY_RESOLVER = "identity_resolver"
+    UNSUPPORTED_IDENTITY_RESOLVER = "unsupported_identity_resolver"
     RELATIONSHIP_POLICY = "relationship_policy"
     RELATIONSHIP_KEY_NORMALIZATION = "relationship_key_normalization"
     RELATIONSHIP_RESOLUTION = "relationship_resolution"
@@ -283,10 +284,11 @@ COLUMNAR_CAPABILITY_MATRIX = (
     ),
     _native(ColumnarOperationKind.SOURCE_IDENTITY_NORMALIZATION),
     _native(ColumnarOperationKind.TARGET_IDENTITY_NORMALIZATION),
+    _native(ColumnarOperationKind.IDENTITY_RESOLVER),
     _oracle(
-        ColumnarOperationKind.IDENTITY_RESOLVER,
+        ColumnarOperationKind.UNSUPPORTED_IDENTITY_RESOLVER,
         "COLUMNAR_IDENTITY_RESOLVER_UNSUPPORTED",
-        "Relational identity and scope components still require the Python oracle.",
+        "This relational identity or scope shape still requires the Python oracle.",
     ),
     _oracle(
         ColumnarOperationKind.RELATIONSHIP_POLICY,
@@ -489,6 +491,37 @@ class ColumnarRelationshipProgram:
 
 
 @dataclass(frozen=True, slots=True)
+class ColumnarIdentityResolverProgram:
+    """Resolve one target identity or scope component symbolically."""
+
+    role: str
+    component_index: int
+    target_field: str
+    parent_dataset_id: str = ""
+    parent_dataset_name: str = ""
+    resolver_origin: str = "dataset"
+    related_model: str | None = None
+    target_key_fields: tuple[str, ...] = ()
+    target_scope_fields: tuple[str, ...] = ()
+    target_value_mappings: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.role not in {"target_identity", "target_scope"}:
+            raise ValueError("Columnar identity resolver role is invalid")
+        if self.component_index < 0 or not self.target_field:
+            raise ValueError("Columnar identity resolver location is invalid")
+        if self.resolver_origin not in {
+            "dataset",
+            "target_catalog",
+            "target_then_dataset",
+        }:
+            raise ValueError("Columnar identity resolver origin is invalid")
+
+    def to_portable_dict(self) -> dict[str, object]:
+        return cast(dict[str, object], portable(asdict(self)))
+
+
+@dataclass(frozen=True, slots=True)
 class ColumnarSetRequirement:
     """One set/global fact computed after native row-local expressions."""
 
@@ -553,6 +586,7 @@ class ColumnarTransformationProgram:
     scalar_fields: tuple[ColumnarScalarFieldProgram, ...]
     relationships: tuple[ColumnarRelationshipProgram, ...]
     set_requirements: tuple[ColumnarSetRequirement, ...]
+    identity_resolvers: tuple[ColumnarIdentityResolverProgram, ...] = ()
     preserve_source_row: bool = True
     preserve_source_order: bool = True
     sparse_transformation_impacts: bool = True
@@ -560,7 +594,10 @@ class ColumnarTransformationProgram:
     compiler_version: int = COLUMNAR_COMPILER_VERSION
 
     def to_portable_dict(self) -> dict[str, object]:
-        return cast(dict[str, object], portable(asdict(self)))
+        payload = cast(dict[str, object], portable(asdict(self)))
+        if self.compiler_version < 9:
+            payload.pop("identity_resolvers", None)
+        return payload
 
     @classmethod
     def from_portable_dict(
@@ -768,6 +805,37 @@ class ColumnarTransformationProgram:
                 ),
             )
 
+        def identity_resolver(value: object) -> ColumnarIdentityResolverProgram:
+            item = cast(Mapping[str, object], value)
+            return ColumnarIdentityResolverProgram(
+                role=str(item["role"]),
+                component_index=int(cast(int, item["component_index"])),
+                target_field=str(item["target_field"]),
+                parent_dataset_id=str(item.get("parent_dataset_id", "")),
+                parent_dataset_name=str(item.get("parent_dataset_name", "")),
+                resolver_origin=str(item.get("resolver_origin", "dataset")),
+                related_model=_optional_string(item.get("related_model")),
+                target_key_fields=tuple(
+                    str(field)
+                    for field in cast(
+                        Sequence[object], item.get("target_key_fields", ())
+                    )
+                ),
+                target_scope_fields=tuple(
+                    str(field)
+                    for field in cast(
+                        Sequence[object], item.get("target_scope_fields", ())
+                    )
+                ),
+                target_value_mappings=tuple(
+                    (str(pair[0]), str(pair[1]))
+                    for pair in cast(
+                        Sequence[Sequence[object]],
+                        item.get("target_value_mappings", ()),
+                    )
+                ),
+            )
+
         def set_requirement(value: object) -> ColumnarSetRequirement:
             item = cast(Mapping[str, object], value)
             return ColumnarSetRequirement(
@@ -811,6 +879,12 @@ class ColumnarTransformationProgram:
             set_requirements=tuple(
                 set_requirement(item)
                 for item in cast(Sequence[object], payload["set_requirements"])
+            ),
+            identity_resolvers=tuple(
+                identity_resolver(item)
+                for item in cast(
+                    Sequence[object], payload.get("identity_resolvers", ())
+                )
             ),
             preserve_source_row=bool(payload.get("preserve_source_row", True)),
             preserve_source_order=bool(payload.get("preserve_source_order", True)),
@@ -991,13 +1065,29 @@ def _compile_dataset(
         _source_identity_component(key, columns, draft, index)
         for index, key in enumerate(authored.source_identity_column_keys)
     )
-    target_identity = tuple(
-        _identity_component(component, "target_identity", columns, draft, index)
+    compiled_target_identity = tuple(
+        _identity_component(
+            component, "target_identity", columns, draft, index,
+            definition=definition, datasets=datasets,
+        )
         for index, component in enumerate(authored.target_identity)
     )
-    target_scope = tuple(
-        _identity_component(component, "target_scope", columns, draft, index)
+    compiled_target_scope = tuple(
+        _identity_component(
+            component, "target_scope", columns, draft, index,
+            definition=definition, datasets=datasets,
+        )
         for index, component in enumerate(authored.target_scope)
+    )
+    target_identity = tuple(item[0] for item in compiled_target_identity)
+    target_scope = tuple(item[0] for item in compiled_target_scope)
+    identity_resolvers = tuple(
+        resolver
+        for _component, resolver in (
+            *compiled_target_identity,
+            *compiled_target_scope,
+        )
+        if resolver is not None
     )
 
     scalar_fields: list[ColumnarScalarFieldProgram] = []
@@ -1273,6 +1363,7 @@ def _compile_dataset(
         scalar_fields=tuple(scalar_fields),
         relationships=tuple(relationships),
         set_requirements=tuple(set_requirements),
+        identity_resolvers=identity_resolvers,
     )
     return ColumnarCompilationDecision(
         dataset_id=source.dataset_id,
@@ -1313,19 +1404,94 @@ def _identity_component(
     columns: Mapping[str, object],
     draft: _CompilationDraft,
     index: int,
-) -> ColumnarIdentityComponentProgram:
+    *,
+    definition: MappingDefinition,
+    datasets: Mapping[str, object],
+) -> tuple[
+    ColumnarIdentityComponentProgram,
+    ColumnarIdentityResolverProgram | None,
+]:
     path = f"/{role}/{index}"
     inputs = tuple(
         _require_column(key, columns, draft)
         for key in component.source_column_keys
     )
     draft.use(ColumnarOperationKind.TARGET_IDENTITY_NORMALIZATION, path)
+    resolver_program = None
     if component.resolver is not None:
+        resolver = component.resolver
+        parent_id = resolver.dataset_id
+        uses_incoming = resolver.origin in {
+            ResolverOrigin.DATASET,
+            ResolverOrigin.TARGET_THEN_DATASET,
+        }
+        parent_mapping = next(
+            (
+                item
+                for item in definition.datasets
+                if parent_id is not None and item.dataset_id == parent_id
+            ),
+            None,
+        )
+        parent_source = datasets.get(parent_id) if parent_id is not None else None
+        target_mappings = (*resolver.key_mappings, *resolver.scope_mappings)
+        target_source_keys = tuple(
+            item.source_column_key for item in target_mappings
+        )
+        target_key_fields = tuple(
+            item.target_field for item in resolver.key_mappings
+        )
+        target_scope_fields = tuple(
+            item.target_field for item in resolver.scope_mappings
+        )
+        target_supported = (
+            resolver.origin
+            in {ResolverOrigin.TARGET_CATALOG, ResolverOrigin.TARGET_THEN_DATASET}
+            and resolver.model is not None
+            and bool(target_key_fields)
+            and target_source_keys == component.source_column_keys
+            and resolver.dataset_projection_field is None
+        )
+        incoming_supported = (
+            not uses_incoming
+            or (
+                parent_id is not None
+                and parent_mapping is not None
+                and parent_source is not None
+            )
+        )
+        supported = incoming_supported and (
+            resolver.origin is ResolverOrigin.DATASET or target_supported
+        )
         draft.use(
-            ColumnarOperationKind.IDENTITY_RESOLVER,
+            (
+                ColumnarOperationKind.IDENTITY_RESOLVER
+                if supported
+                else ColumnarOperationKind.UNSUPPORTED_IDENTITY_RESOLVER
+            ),
             f"{path}/resolver",
             target_field=(component.target_fields[0] if component.target_fields else None),
         )
+        if supported:
+            resolver_program = ColumnarIdentityResolverProgram(
+                role=role,
+                component_index=index,
+                target_field=component.target_fields[0],
+                parent_dataset_id=parent_id or "",
+                parent_dataset_name=(
+                    str(getattr(parent_source, "name"))
+                    if parent_source is not None
+                    else ""
+                ),
+                resolver_origin=resolver.origin.value,
+                related_model=resolver.model,
+                target_key_fields=target_key_fields,
+                target_scope_fields=target_scope_fields,
+                target_value_mappings=tuple(
+                    (item.source_value, item.target_value)
+                    for item in resolver.value_mappings
+                ),
+            )
         conversion_steps: tuple[ColumnarExpressionStep, ...] = ()
     else:
         conversion = _conversion_operation(
@@ -1348,14 +1514,21 @@ def _identity_component(
         value_type=component.value_type,
         normalization_steps=(
             ColumnarExpressionStep(ColumnarOperationKind.TRIM),
-            ColumnarExpressionStep(ColumnarOperationKind.COLLAPSE_WHITESPACE),
+            *((
+                ColumnarExpressionStep(ColumnarOperationKind.COLLAPSE_WHITESPACE),
+            ) if component.resolver is None else ()),
             ColumnarExpressionStep(ColumnarOperationKind.EMPTY_AS_NULL),
             *conversion_steps,
         ),
         required=(
             component.null_policy is not IdentityNullPolicy.EXPLICIT_SCOPE_NULL
         ),
-    )
+        failure_code=(
+            "SOURCE_REQUIRED_VALUE_MISSING"
+            if component.resolver is not None
+            else "SOURCE_IDENTITY_INVALID"
+        ),
+    ), resolver_program
 
 
 def _scalar_field_program(
@@ -1840,6 +2013,7 @@ __all__ = [
     "ColumnarExpressionStep",
     "ColumnarFallbackReason",
     "ColumnarIdentityComponentProgram",
+    "ColumnarIdentityResolverProgram",
     "ColumnarInputColumn",
     "ColumnarOperationKind",
     "ColumnarScalarFieldProgram",

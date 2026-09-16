@@ -3,10 +3,10 @@
 from __future__ import annotations
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from starlette.concurrency import run_in_threadpool
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
+from ..composition.page_reads import run_page_read
 from ..presenters.summary import _render_summary
 
 
@@ -33,7 +33,7 @@ def build_summary_router(context: WebContext) -> APIRouter:
                     f"/workspaces/{workspace_id}/preparation/{active.job_id}",
                     status_code=303,
                 )
-        return await run_in_threadpool(
+        return await run_page_read(
             _render_summary,
             request,
             context,

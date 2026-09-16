@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import unittest
 
 from impodo.web.presenters.summary import (
@@ -47,6 +48,32 @@ class PreparationLimitCopyTests(unittest.TestCase):
         )
         self.assertNotIn("DuckDB", message)
         self.assertNotIn("Parquet", message)
+
+
+class SummaryCardLinkContractTests(unittest.TestCase):
+    def test_each_card_targets_its_matching_filtered_row_section(self) -> None:
+        template_path = (
+            Path(__file__).resolve().parents[3]
+            / "src"
+            / "impodo"
+            / "web"
+            / "templates"
+            / "workspace_summary.html"
+        )
+        template = template_path.read_text(encoding="utf-8")
+
+        self.assertEqual(template.count('id="quality-rows"'), 1)
+        self.assertEqual(template.count('id="readiness-rows"'), 1)
+        for status in ("ready", "review", "quarantined", "blocked"):
+            self.assertIn(
+                f'href="?quality_status={status}#quality-rows"',
+                template,
+            )
+        for status in ("create", "update", "unchanged", "attention"):
+            self.assertIn(
+                f'href="?status={status}#readiness-rows"',
+                template,
+            )
 
 
 if __name__ == "__main__":

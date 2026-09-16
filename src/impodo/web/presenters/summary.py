@@ -20,7 +20,6 @@ from ...application.odoo_read_failures import (
 from ...application.workspace.preparation.preparation_capability import (
     compile_preparation_capability,
 )
-from ...domain.errors import ReadinessError
 from ...domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
@@ -29,7 +28,6 @@ from ...domain.staging.scale import (
 from impodo.adapters.odoo.local_stack import LocalStackError, LocalStackStatus
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, SourceMode
 from impodo.adapters.artifacts.reporting import WORKBOOK_NAME
-from impodo.domain.workspace.errors import WorkspaceError
 from ..constants import (
     DEFAULT_SUMMARY_ROWS_PER_PAGE,
     NORMALIZATION_GROUPS_PER_PAGE,
@@ -225,7 +223,10 @@ def _render_summary(
     session_error = request.session.pop("summary_error", None)
     if error is None and isinstance(session_error, str):
         error = session_error
-    workspace_state = context.queries.get(workspace_id)
+    navigation_started = perf_counter()
+    navigation_snapshot = context.navigation.get_for_workspace(workspace_id)
+    navigation_read_ms = (perf_counter() - navigation_started) * 1000
+    workspace_state = navigation_snapshot.workspace_state
     credential_owner = context.target_credential_workspace(
         workspace_id,
         workspace_state=workspace_state,
@@ -347,12 +348,7 @@ def _render_summary(
     )
     summary_readiness_ms = (perf_counter() - readiness_started) * 1000
     execution_started = perf_counter()
-    try:
-        load_preview = context.execution.current_preview(workspace_id)
-    except (ReadinessError, WorkspaceError):
-        # Historical or manually repaired preflight evidence may predate the
-        # execution artifact. It can still be reviewed and compared again.
-        load_preview = None
+    load_preview = navigation_snapshot.facts.execution_preview
     summary_execution_ms = (perf_counter() - execution_started) * 1000
     quality_status = request.query_params.get("quality_status", "").strip()
     if quality_status not in {"", "ready", "review", "quarantined", "blocked"}:
@@ -393,7 +389,16 @@ def _render_summary(
             )
     summary_quality_page_ms = (perf_counter() - quality_page_started) * 1000
     status_filter = request.query_params.get("status", "").strip()
-    if status_filter not in {"", "ready", "needs_review", "blocked"}:
+    if status_filter not in {
+        "",
+        "ready",
+        "create",
+        "update",
+        "unchanged",
+        "attention",
+        "needs_review",
+        "blocked",
+    }:
         status_filter = ""
     dataset_filter = request.query_params.get("dataset", "").strip()
     available_datasets = {
@@ -557,6 +562,8 @@ def _render_summary(
         ),
         error=error,
         status_code=status_code,
+        _workspace_navigation_facts=navigation_snapshot.facts,
+        _navigation_read_ms=navigation_read_ms,
     )
     summary_render_ms = (perf_counter() - render_started) * 1000
     _append_summary_server_timing(

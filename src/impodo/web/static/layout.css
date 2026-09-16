@@ -108,6 +108,17 @@ body.sidebar-collapsed .app-shell {
   background: var(--surface);
 }
 
+@media (min-width: 861px) {
+  .site-sidebar {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    max-height: 100vh;
+    max-height: 100dvh;
+    overflow-y: auto;
+  }
+}
+
 .sidebar-heading {
   display: flex;
   align-items: center;
