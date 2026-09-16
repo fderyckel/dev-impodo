@@ -185,6 +185,7 @@ class PreparationJobRegistryTests(unittest.TestCase):
             get_application=lambda current_id: application,
             list_issues=lambda current_id: (default_review,),
             get_bundle=lambda run_id: SimpleNamespace(
+                run=SimpleNamespace(purpose=MigrationRunPurpose.AUTHORING),
                 applications=(application,),
                 requirement_plan=SimpleNamespace(application_order=("recipe",)),
             ),
@@ -220,6 +221,7 @@ class PreparationJobRegistryTests(unittest.TestCase):
             status=RecipeApplicationStatus.EXECUTED,
         )
         repository.get_bundle = lambda run_id: SimpleNamespace(
+            run=SimpleNamespace(purpose=MigrationRunPurpose.AUTHORING),
             applications=(application, earlier),
             requirement_plan=SimpleNamespace(application_order=("earlier-recipe", "recipe")),
         )

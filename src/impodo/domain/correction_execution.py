@@ -24,6 +24,8 @@ from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.models import portable_value, target_record_binding_hash
 
 CORRECTION_EXECUTION_SNAPSHOT_CONTRACT = "correction-execution-snapshot-v1"
+# Keep exact-ID correction writes small even when ordinary create batches grow.
+MAX_CORRECTION_BATCH_ROWS = 50
 
 
 @dataclass(frozen=True, slots=True)

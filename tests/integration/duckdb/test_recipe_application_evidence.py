@@ -150,10 +150,9 @@ class RecipeApplicationEvidenceTests(TestCase):
                 self.definition, datasets=(replace(self.definition.datasets[0], control_expectations=(MappingControlExpectation("total", "2"),)),),
             ))
 
-    def test_upgrade_keeps_old_checks_but_requires_a_baseline_for_new_choices(self):
+    def test_legacy_seed_keeps_old_checks_but_requires_a_baseline_for_new_choices(self):
         self.save_seed()
-        self.connection.execute("ALTER TABLE recipe_quality_seed DROP COLUMN mapping_definition_json")
-        self.connection.execute("UPDATE schema_version SET version = 9")
+        self.connection.execute("UPDATE recipe_quality_seed SET mapping_definition_json = NULL")
         self.assertEqual(self.repository.get_quality_seed(self.workspace_id, self.definition.content_hash), (self.rule,))
         self.repository.assert_mapping_adaptation(self.workspace_id, self.definition)
         with self.assertRaisesRegex(WorkspaceError, "no saved Recipe mapping baseline"):

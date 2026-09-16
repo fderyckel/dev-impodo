@@ -29,10 +29,12 @@ from impodo.domain.correction import (
     CorrectionPlan,
     CorrectionPlanError,
 )
-from impodo.domain.correction_execution import CorrectionExecutionSnapshot
+from impodo.domain.correction_execution import (
+    MAX_CORRECTION_BATCH_ROWS,
+    CorrectionExecutionSnapshot,
+)
 from impodo.domain.correction_origin import ProtectedCorrectionArtifactReference
 from impodo.domain.execution.models import (
-    MAX_CREATE_BATCH_ROWS,
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
@@ -425,7 +427,7 @@ class CorrectionExecutionService:
             preflight_run_id=snapshot.snapshot_id,
             target_hash=snapshot.target_hash,
             target_database=snapshot.target_database,
-            batch_rows=MAX_CREATE_BATCH_ROWS,
+            batch_rows=MAX_CORRECTION_BATCH_ROWS,
             status=ExecutionRunStatus.RUNNING,
             started_at=datetime.now(UTC),
             started_by=actor.identity.display_name,
@@ -450,8 +452,8 @@ class CorrectionExecutionService:
             ).append(index)
         for key in sorted(grouped):
             indexes = grouped[key]
-            for start in range(0, len(indexes), MAX_CREATE_BATCH_ROWS):
-                yield tuple(indexes[start : start + MAX_CREATE_BATCH_ROWS])
+            for start in range(0, len(indexes), MAX_CORRECTION_BATCH_ROWS):
+                yield tuple(indexes[start : start + MAX_CORRECTION_BATCH_ROWS])
 
     def _reconcile(self, snapshot, run, reader, actor):
         current = self._read_exact(snapshot, reader)

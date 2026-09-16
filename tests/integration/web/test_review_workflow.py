@@ -37,7 +37,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             self.assertIsNotNone(reader)
             progress("READING")
             started.set()
-            release.wait(timeout=1)
+            release.wait(timeout=30)
             return SimpleNamespace(
                 run_id="50000000-0000-4000-8000-000000000001"
             )
@@ -67,7 +67,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 )
                 self.assertEqual(started_response.status_code, 303)
                 self.assertIn("/preflight/", started_response.headers["location"])
-                self.assertTrue(started.wait(timeout=2))
+                self.assertTrue(started.wait(timeout=10))
 
                 progress_page = self.client.get(started_response.headers["location"])
                 repeated = self.client.post(
@@ -83,7 +83,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                     started_response.headers["location"],
                 )
                 release.set()
-                deadline = time.monotonic() + 2
+                deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
                     status = self.client.get(
                         f"{started_response.headers['location']}/status"

@@ -18,7 +18,6 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-import resource
 import sys
 import tempfile
 from time import perf_counter
@@ -27,6 +26,10 @@ from urllib.parse import quote, urlparse
 from uuid import uuid4
 
 import polars as pl
+import psutil
+
+if sys.platform != "win32":
+    import resource
 
 from impodo.adapters.odoo.connectors import (
     Json2Config,
@@ -793,8 +796,11 @@ def _scalar_candidates(dataset: str, count: int, field: str = "active"):
 
 
 def _rss_mib() -> float:
-    raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    bytes_value = raw if sys.platform == "darwin" else raw * 1024
+    if sys.platform == "win32":
+        bytes_value = psutil.Process().memory_info().peak_wset
+    else:
+        raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        bytes_value = raw if sys.platform == "darwin" else raw * 1024
     return round(bytes_value / (1024 * 1024), 3)
 
 

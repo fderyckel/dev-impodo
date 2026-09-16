@@ -413,8 +413,11 @@ def _materialize_source_revision(revision: str, source: Path, work: Path) -> Non
     """Extract only Git-tracked bytes for the exact revision being promoted."""
 
     archive = work / "source.zip"
+    # Git's Windows checkout conversion also affects archive output unless disabled.
     _run(
         "git",
+        "-c",
+        "core.autocrlf=false",
         "archive",
         "--format=zip",
         f"--output={archive}",

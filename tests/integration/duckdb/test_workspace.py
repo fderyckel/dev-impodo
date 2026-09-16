@@ -1357,7 +1357,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             [1],
         )
 
-        with self.assertRaisesRegex(WorkspaceError, "modified"):
+        with self.assertRaisesRegex(WorkspaceError, "out of date"):
             self.mappings.check_definition(
                 self.workspace_state.workspace_id,
                 datasets=(mapping,),
@@ -1574,7 +1574,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             first,
         )
 
-        with self.assertRaisesRegex(WorkspaceError, "modified"):
+        with self.assertRaisesRegex(WorkspaceError, "out of date"):
             self.mappings.save_working_draft(
                 self.workspace_state.workspace_id,
                 datasets=(incomplete,),

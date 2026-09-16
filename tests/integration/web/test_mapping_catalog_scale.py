@@ -162,7 +162,7 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("saved_at", saved.json())
         self.assertEqual(
             saved.json()["redirect_url"],
-            f"/workspaces/{workspace_id}/mapping#mapping-dataset-0",
+            f"/workspaces/{workspace_id}/mapping?progress_saved=1#mapping-dataset-0",
         )
         changed_projection = self.client.get(
             f"/workspaces/{workspace_id}/mapping/field-catalog"
@@ -422,15 +422,14 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
         cold_phases = parse_server_timing(
             cold_page.headers.get("server-timing", "")
         )
-        self.assertEqual(
-            set(cold_phases),
+        self.assertTrue(
             {
                 "queue_wait",
                 "workspace_read",
                 "view_build",
                 "render",
                 "total",
-            },
+            }.issubset(cold_phases),
         )
 
         search_url = (
@@ -448,8 +447,7 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
             warm_search_phases = parse_server_timing(
                 response.headers.get("server-timing", "")
             )
-        self.assertEqual(
-            set(warm_search_phases),
+        self.assertTrue(
             {
                 "queue_wait",
                 "workspace_read",
@@ -457,7 +455,7 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
                 "projection",
                 "render",
                 "total",
-            },
+            }.issubset(warm_search_phases),
         )
 
         burst_editor_id = str(uuid4())

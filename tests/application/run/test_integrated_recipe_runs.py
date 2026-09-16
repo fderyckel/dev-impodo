@@ -3512,7 +3512,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         self.assertEqual(uploaded.headers["location"], setup_location)
 
         uploaded_page = self.client.get(setup_location)
-        self.assertIn("Added 1 fresh file to this Test run.", uploaded_page.text)
+        self.assertIn("Added 1 fresh file to this run.", uploaded_page.text)
         self.assertIn("wrong.csv", uploaded_page.text)
         self.assertIn("Check files and match tables", uploaded_page.text)
         remove_action = re.search(

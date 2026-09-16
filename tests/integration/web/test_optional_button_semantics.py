@@ -99,15 +99,12 @@ class OptionalButtonSemanticsTests(unittest.TestCase):
             )
 
     def test_matching_review_workbook_actions_use_secondary_buttons(self) -> None:
-        template = (
-            ROOT
-            / "src"
-            / "impodo"
-            / "web"
-            / "templates"
-            / "mapping"
-            / "page.html"
-        ).read_text(encoding="utf-8")
+        mapping_templates = ROOT / "src" / "impodo" / "web" / "templates" / "mapping"
+        page = (mapping_templates / "page.html").read_text(encoding="utf-8")
+        self.assertIn('mapping/_matching_review_workbook.html', page)
+        template = (mapping_templates / "_matching_review_workbook.html").read_text(
+            encoding="utf-8"
+        )
 
         for label in (
             "Download matching review workbook",

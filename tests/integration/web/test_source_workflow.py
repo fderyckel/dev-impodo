@@ -1002,7 +1002,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertNotIn("New in Odoo", comparison_page.text)
         self.assertNotIn("Create review workbook", comparison_page.text)
         self.assertIn("Load destination Odoo", comparison_page.text)
-        self.assertIn("Not yet available", comparison_page.text)
+        self.assertIn("Run read-only preflight", comparison_page.text)
         report = self.app.state.context.preflight.current_report(workspace_id)
         self.assertIsNotNone(report)
         assert report is not None
