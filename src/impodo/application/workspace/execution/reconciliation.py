@@ -52,7 +52,12 @@ from impodo.domain.execution.odoo_readback import (
     ReadbackRecord,
 )
 from impodo.domain.workspace.errors import WorkspaceError
-from .service import _identity_domain, _portable_key, execution_api_scope
+from .service import (
+    _identity_domain,
+    _portable_key,
+    _targeted_recovery_row_ids,
+    execution_api_scope,
+)
 from impodo.application.preflight_service import PreflightService
 
 
@@ -329,6 +334,7 @@ class ReconciliationService:
         actor: Actor,
         write_identity: OdooWriteIdentity | None = None,
         write_credential_binding_hash: str = "",
+        targeted: bool = False,
     ) -> ReconciliationRun:
         """Read an interrupted run without publishing final reconciliation.
 
@@ -375,6 +381,10 @@ class ReconciliationService:
             actor,
             write_identity=write_identity,
             write_credential_binding_hash=write_credential_binding_hash,
+            row_ids=(
+                _targeted_recovery_row_ids(snapshot, run)
+                if targeted else None
+            ),
         )
         return ReconciliationRun.from_json(report.to_json())
 
@@ -389,6 +399,7 @@ class ReconciliationService:
         write_credential_binding_hash: str,
         difference_sink: list[ReconciliationFieldDifference] | None = None,
         target_digits: Mapping[tuple[str, str], tuple[int, int]] | None = None,
+        row_ids: frozenset[str] | None = None,
     ) -> ReconciliationRun:
         rows = {
             row.row_id: row
@@ -398,6 +409,9 @@ class ReconciliationService:
         attempts = {item.row_id: item for item in run.rows}
         if set(rows) != set(attempts):
             raise WorkspaceError("The saved load rows do not match the preview")
+        checked_row_ids = row_ids if row_ids is not None else frozenset(rows)
+        if not checked_row_ids.issubset(rows):
+            raise WorkspaceError("Recovery selected a row outside the preview")
         metadata = {item.dataset: item for item in snapshot.datasets}
         by_source = {
             (row.dataset, _portable_key(row.source_identity)): row
@@ -410,7 +424,9 @@ class ReconciliationService:
             for item in run.rows
             if item.odoo_id is not None
         }
-        self._read_committed(rows, attempts, actual_by_row, reader)
+        self._read_committed(
+            rows, attempts, actual_by_row, reader, checked_row_ids,
+        )
         uncertain_matches = self._match_uncertain(
             rows,
             attempts,
@@ -426,6 +442,7 @@ class ReconciliationService:
             attempts,
             resolved_ids,
             reader,
+            checked_row_ids,
         )
 
         identity_cache = self._preload_reference_ids(
@@ -443,6 +460,8 @@ class ReconciliationService:
                 key=lambda item: item.source_row,
             )
             for row in dataset_rows:
+                if row.row_id not in checked_row_ids:
+                    continue
                 outcome = self._row_outcome(
                     row,
                     attempts[row.row_id],
@@ -465,6 +484,16 @@ class ReconciliationService:
                         status=ReconciliationRowStatus.DIFFERENT,
                         differing_fields=("External ID",),
                         message=issue,
+                    )
+                elif (
+                    issue is not None
+                    and outcome.status is ReconciliationRowStatus.NOT_APPLIED
+                ):
+                    outcome = replace(
+                        outcome,
+                        status=ReconciliationRowStatus.OUTCOME_UNKNOWN,
+                        message=issue,
+                        retry_safe=False,
                     )
                 outcomes.append(outcome)
 
@@ -496,6 +525,9 @@ class ReconciliationService:
             verified_by=actor.identity.display_name,
             unchanged_count=int(snapshot.counts.get("UNCHANGED", 0)),
             rows=outcome_rows,
+            readback_scope=(
+                "RECOVERY_TARGETED" if row_ids is not None else "FULL"
+            ),
             verification_credential_binding_hash=(
                 write_credential_binding_hash
             ),
@@ -522,6 +554,7 @@ class ReconciliationService:
         attempts: Mapping[str, ExecutionRowAttempt],
         actual_by_row: dict[str, ReadbackRecord],
         reader: OdooReadbackReader,
+        checked_row_ids: frozenset[str],
     ) -> None:
         by_scope: dict[tuple[str, tuple[str, ...]], list[ExecutionRow]] = {}
         seen_ids: dict[str, set[int]] = {}
@@ -536,6 +569,8 @@ class ReconciliationService:
                 if attempt.odoo_id in model_ids:
                     raise WorkspaceError("Load rows refer to the same Odoo record")
                 model_ids.add(attempt.odoo_id)
+                if row_id not in checked_row_ids:
+                    continue
                 row = rows[row_id]
                 fields = tuple(
                     sorted(
@@ -852,12 +887,15 @@ class ReconciliationService:
         attempts: Mapping[str, ExecutionRowAttempt],
         resolved_ids: Mapping[str, int],
         reader: OdooReadbackReader,
+        checked_row_ids: frozenset[str],
     ) -> dict[str, str]:
         if not reader.imports_external_ids:
             return {}
 
-        expected: dict[str, tuple[str, str, int]] = {}
+        expected: dict[str, tuple[str, str, int | None]] = {}
         for row_id, row in rows.items():
+            if row_id not in checked_row_ids:
+                continue
             attempt = attempts[row_id]
             resolved_id = resolved_ids.get(row_id)
             if (
@@ -869,7 +907,13 @@ class ReconciliationService:
                     ExecutionRowStatus.OUTCOME_UNKNOWN,
                     ExecutionRowStatus.IN_FLIGHT,
                 }
-                and resolved_id is not None
+                and (
+                    resolved_id is not None
+                    or attempt.status in {
+                        ExecutionRowStatus.OUTCOME_UNKNOWN,
+                        ExecutionRowStatus.IN_FLIGHT,
+                    }
+                )
             ):
                 expected[row.proposed_external_id] = (
                     row_id,
@@ -888,12 +932,19 @@ class ReconciliationService:
         issues = {}
         for external_id, (row_id, model, odoo_id) in expected.items():
             binding = bindings.get(external_id)
-            if binding is None:
+            if binding is None and odoo_id is not None:
                 issues[row_id] = (
                     "Odoo matches the load preview, but its expected External ID "
                     "is missing"
                 )
-            elif binding.model != model or binding.odoo_id != odoo_id:
+            elif binding is not None and odoo_id is None:
+                issues[row_id] = (
+                    "The interrupted create has an External ID but no matching "
+                    "business key; its outcome remains uncertain"
+                )
+            elif binding is not None and (
+                binding.model != model or binding.odoo_id != odoo_id
+            ):
                 issues[row_id] = (
                     "Odoo matches the load preview, but its External ID points "
                     "to another model or record"

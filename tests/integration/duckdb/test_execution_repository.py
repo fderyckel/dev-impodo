@@ -674,6 +674,19 @@ class ExecutionRepositoryTests(unittest.TestCase):
             ),
         )
 
+        with self.assertRaisesRegex(WorkspaceError, "cannot be published"):
+            self.reconciliation.publish(
+                self.workspace_state.workspace_id,
+                replace(report, readback_scope="RECOVERY_TARGETED"),
+                actor=LOCAL_ACTOR,
+            )
+        with self.assertRaisesRegex(WorkspaceError, "does not cover every"):
+            self.reconciliation.publish(
+                self.workspace_state.workspace_id,
+                replace(report, rows=report.rows[:1]),
+                actor=LOCAL_ACTOR,
+            )
+
         manifest = ReconciliationDetailManifest(
             reconciliation_id=report.reconciliation_id,
             storage_name="fallout-detail.json",

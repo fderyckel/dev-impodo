@@ -929,6 +929,7 @@ def build_execution_router(
                             expected_execution_run_id=recovery_run_id,
                             reader=recovery_reader,
                             actor=context.actor,
+                            targeted=True,
                             write_identity=write_identity,
                             write_credential_binding_hash=(
                                 write_credential.binding_hash

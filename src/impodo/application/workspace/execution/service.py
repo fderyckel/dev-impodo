@@ -72,6 +72,87 @@ _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 ReadCredentialBindingProvider = Callable[[WorkspaceState], str]
 
 
+def _targeted_recovery_row_ids(
+    snapshot: ExecutionSnapshot,
+    run: ExecutionRun,
+) -> frozenset[str]:
+    """Keep all uncertain rows and the committed dependency frontier.
+
+    An omitted committed row retains its journal receipt. It is read again by
+    final reconciliation, before the load can be reported as verified.
+    """
+
+    snapshot_row_ids = {row.row_id for row in snapshot.rows}
+    rows = {
+        row.row_id: row
+        for row in snapshot.rows
+        if row.disposition in {"CREATE", "UPDATE"}
+    }
+    attempts = {item.row_id: item for item in run.rows}
+    if set(rows) != set(attempts):
+        raise WorkspaceError("The saved load rows do not match the preview")
+    for item in attempts.values():
+        if item.status is ExecutionRowStatus.COMMITTED and item.odoo_id is None:
+            raise WorkspaceError("A committed load row has no Odoo record")
+
+    by_model: dict[str, set[str]] = {}
+    by_dataset: dict[str, set[str]] = {}
+    for row_id, row in rows.items():
+        if attempts[row_id].status is ExecutionRowStatus.COMMITTED:
+            by_model.setdefault(row.target_model, set()).add(row_id)
+            by_dataset.setdefault(row.dataset, set()).add(row_id)
+    dataset_parents = {
+        item.dataset: item.dependencies for item in snapshot.datasets
+    }
+    completion_dependencies: dict[str, set[str]] = {}
+    for item in snapshot.relationship_plan.completions:
+        completion_dependencies.setdefault(item.row_id, set()).update(
+            item.dependency_row_ids
+        )
+
+    selected = {
+        row_id for row_id, item in attempts.items()
+        if item.status is not ExecutionRowStatus.COMMITTED
+    }
+    pending = list(selected)
+    expanded_models: set[str] = set()
+    expanded_datasets: set[str] = set()
+    while pending:
+        row_id = pending.pop()
+        row = rows[row_id]
+        related_ids = set(completion_dependencies.get(row_id, ()))
+        related_models: set[str] = set()
+        related_datasets = set(dataset_parents.get(row.dataset, ()))
+        for intent in row.fields:
+            related_ids.update(intent.dependency_row_ids)
+            if intent.kind == "relation" and intent.action == "SET_VALUE":
+                related_models.add(intent.related_model)
+                values = intent.value if isinstance(intent.value, tuple) else (intent.value,)
+                for value in values:
+                    if isinstance(value, LogicalReference) and value.origin == "incoming":
+                        if value.dataset:
+                            related_datasets.add(value.dataset)
+        for value in (*row.business_identity, *row.business_scope):
+            if isinstance(value, BusinessReference) and value.model:
+                related_models.add(value.model)
+            elif isinstance(value, LogicalReference) and value.origin == "incoming":
+                if value.dataset:
+                    related_datasets.add(value.dataset)
+        for model in related_models.difference(expanded_models):
+            related_ids.update(by_model.get(model, ()))
+            expanded_models.add(model)
+        for dataset in related_datasets.difference(expanded_datasets):
+            related_ids.update(by_dataset.get(dataset, ()))
+            expanded_datasets.add(dataset)
+        unknown_ids = related_ids.difference(snapshot_row_ids)
+        if unknown_ids:
+            raise WorkspaceError("A recovery dependency is missing from the preview")
+        new_ids = related_ids.intersection(rows).difference(selected)
+        selected.update(new_ids)
+        pending.extend(new_ids)
+    return frozenset(selected)
+
+
 class ExecutionWorkspaceRepository(Protocol):
     def get(self, workspace_id: str) -> WorkspaceState: ...
 
@@ -807,15 +888,18 @@ class ExecutionService:
             ),
         )
         recovery = ReconciliationRun.from_json(recovery.to_json())
+        recovery_hash = recovery.semantic_hash
         already_applied = (
             not run.in_flight_count
             and all(
-                item.recovery_hash == recovery.semantic_hash
+                item.recovery_hash == recovery_hash
                 for item in run.rows
             )
         )
         if not already_applied:
-            recovered = self._classify_recovery(snapshot, run, recovery)
+            recovered = self._classify_recovery(
+                snapshot, run, recovery, targeted=True,
+            )
             self.journal.record_recovery(
                 workspace_id,
                 run.run_id,
@@ -959,9 +1043,10 @@ class ExecutionService:
             )
 
         recovery = ReconciliationRun.from_json(recovery.to_json())
+        recovery_hash = recovery.semantic_hash
         already_applied = (
             not run.in_flight_count
-            and all(item.recovery_hash == recovery.semantic_hash for item in run.rows)
+            and all(item.recovery_hash == recovery_hash for item in run.rows)
         )
         recovered = (
             run.rows
@@ -1519,6 +1604,8 @@ class ExecutionService:
         snapshot: ExecutionSnapshot,
         run: ExecutionRun,
         recovery: ReconciliationRun,
+        *,
+        targeted: bool = False,
     ) -> tuple[ExecutionRowAttempt, ...]:
         """Turn one exact read-back into resumable journal states."""
 
@@ -1530,6 +1617,11 @@ class ExecutionService:
             or recovery.target_database != run.target_database
         ):
             raise WorkspaceError("The recovery report belongs to another load")
+        allowed_scopes = (
+            {"FULL", "RECOVERY_TARGETED"} if targeted else {"FULL"}
+        )
+        if recovery.readback_scope not in allowed_scopes:
+            raise WorkspaceError("The recovery report has an invalid read-back scope")
         expected_identity = (
             run.write_principal_hash,
             run.write_permission_hash,
@@ -1557,13 +1649,33 @@ class ExecutionService:
         outcomes = {item.row_id: item for item in recovery.rows}
         attempts = {item.row_id: item for item in run.rows}
         projected_requirements = _projected_receipt_requirements(snapshot)
-        if set(rows) != set(outcomes) or set(rows) != set(attempts):
+        required_ids = (
+            _targeted_recovery_row_ids(snapshot, run)
+            if targeted else frozenset(rows)
+        )
+        if (
+            set(rows) != set(attempts)
+            or not required_ids.issubset(outcomes)
+            or not set(outcomes).issubset(rows)
+            or (
+                recovery.readback_scope == "FULL"
+                and set(outcomes) != set(rows)
+            )
+        ):
             raise WorkspaceError("The recovery report does not cover every load row")
 
+        recovery_hash = recovery.semantic_hash
         recovered = []
         for row_id, attempt in attempts.items():
             row = rows[row_id]
-            outcome = outcomes[row_id]
+            outcome = outcomes.get(row_id)
+            if outcome is None:
+                # The immutable receipt is retained, with a full Odoo read
+                # still required by post-load reconciliation.
+                if attempt.status is not ExecutionRowStatus.COMMITTED:
+                    raise WorkspaceError("Recovery omitted an unfinished load row")
+                recovered.append(replace(attempt, recovery_hash=recovery_hash))
+                continue
             if outcome.execution_status != attempt.status.value:
                 raise WorkspaceError("The recovery report is stale")
             if outcome.target_model != attempt.target_model:
@@ -1691,7 +1803,7 @@ class ExecutionService:
                     status=status,
                     odoo_id=odoo_id,
                     safe_error=safe_error,
-                    recovery_hash=recovery.semantic_hash,
+                    recovery_hash=recovery_hash,
                 )
             )
         return tuple(recovered)

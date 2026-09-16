@@ -535,6 +535,7 @@ stages:
       - src/impodo/application/workspace/execution/service.py::ExecutionPreview
       - src/impodo/application/workspace/execution/service.py::ExecutionService.execute
       - src/impodo/application/workspace/execution/service.py::ExecutionService.resume
+      - src/impodo/application/workspace/execution/service.py::_targeted_recovery_row_ids
       - src/impodo/application/workspace/execution/service.py::ExecutionService.resume_transfer
       - src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager
       - src/impodo/application/workspace/execution/job_models.py::LoadJob

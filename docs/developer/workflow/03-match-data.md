@@ -72,6 +72,11 @@ inactive dataset editors preserve their existing policy, and `all_rows`
 rejects a populated condition payload. `mapping-row-inclusion.js` controls
 progressive disclosure only. Domain construction and semantic validation stay
 authoritative when JavaScript is absent or bypassed.
+The `not_in` text comparison accepts one to 500 distinct, comma-separated exact
+values in one condition. Both the row review evaluator and the native Polars
+preparation evaluator exclude matching values and fail closed on blank source
+values. Semantic validation rejects empty entries, duplicates, and nontext
+comparison types before a rule can be checked.
 
 After a semantically valid **Check matches**, `RowInclusionReviewService`
 reuses the bounded browser staging oracle. It publishes one immutable review

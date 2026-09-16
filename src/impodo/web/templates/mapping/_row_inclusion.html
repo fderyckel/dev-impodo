@@ -65,6 +65,7 @@
                   {% set selected_operator = condition.operator.value if condition else 'equals' %}
                   <option value="equals" {% if selected_operator == 'equals' %}selected{% endif %}>is exactly</option>
                   <option value="not_equals" {% if selected_operator == 'not_equals' %}selected{% endif %}>is not</option>
+                  <option value="not_in" {% if selected_operator == 'not_in' %}selected{% endif %}>is not one of (comma-separated list)</option>
                   <option value="equals_ignore_case" {% if selected_operator == 'equals_ignore_case' %}selected{% endif %}>is exactly, ignoring case</option>
                   <option value="contains" {% if selected_operator == 'contains' %}selected{% endif %}>contains</option>
                   <option value="starts_with" {% if selected_operator == 'starts_with' %}selected{% endif %}>starts with</option>
@@ -82,6 +83,7 @@
               <label data-row-inclusion-value-wrap>
                 Comparison value
                 <input type="text" name="row_inclusion_value_{{ dataset_index }}_{{ slot.index }}" value="{{ condition.comparison_value if condition and condition.comparison_value is not none else '' }}" maxlength="10000" data-row-inclusion-value>
+                <small>For "is not one of", separate exact values with commas.</small>
               </label>
               <label>
                 Compare as

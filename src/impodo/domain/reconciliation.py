@@ -104,6 +104,7 @@ class ReconciliationRun:
     verification_principal_hash: str = ""
     verification_permission_hash: str = ""
     verification_context_hash: str = ""
+    readback_scope: str = "FULL"
     contract_version: int = RECONCILIATION_CONTRACT_VERSION
 
     @property
@@ -165,6 +166,8 @@ class ReconciliationRun:
             "verification_context_hash": self.verification_context_hash,
             "rows": [item.portable_dict() for item in self.rows],
         }
+        if self.readback_scope != "FULL":
+            payload["readback_scope"] = self.readback_scope
         if include_hash:
             payload["semantic_hash"] = self.semantic_hash
         return payload
@@ -200,6 +203,7 @@ class ReconciliationRun:
             verification_context_hash=str(
                 payload["verification_context_hash"]
             ),
+            readback_scope=str(payload.get("readback_scope", "FULL")),
             rows=tuple(
                 ReconciliationRow.from_dict(dict(item))
                 for item in payload.get("rows", ())
@@ -212,8 +216,10 @@ class ReconciliationRun:
 
 
 def _validate_run(run: ReconciliationRun) -> None:
-    if run.unchanged_count < 0 or len({item.row_id for item in run.rows}) != len(
-        run.rows
+    if (
+        run.readback_scope not in {"FULL", "RECOVERY_TARGETED"}
+        or run.unchanged_count < 0
+        or len({item.row_id for item in run.rows}) != len(run.rows)
     ):
         raise ValueError("Reconciliation row accounting is invalid")
     if any(

@@ -6,6 +6,7 @@ from decimal import Decimal
 import json
 from types import SimpleNamespace
 import unittest
+from unittest.mock import PropertyMock, patch
 from uuid import uuid4
 
 from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
@@ -1487,11 +1488,19 @@ class ExecutionServiceTests(unittest.TestCase):
                 for index, row in enumerate(snapshot.rows)
             ),
         )
-        classified = service._classify_recovery(
-            snapshot,
-            interrupted,
-            recovery,
-        )
+        recovery_hash = recovery.semantic_hash
+        with patch.object(
+            ReconciliationRun,
+            "semantic_hash",
+            new_callable=PropertyMock,
+            return_value=recovery_hash,
+        ) as hash_property:
+            classified = service._classify_recovery(
+                snapshot,
+                interrupted,
+                recovery,
+            )
+        self.assertEqual(hash_property.call_count, 1)
         journal.record_recovery(
             snapshot.workspace_id,
             interrupted.run_id,

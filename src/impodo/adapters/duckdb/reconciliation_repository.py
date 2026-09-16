@@ -32,6 +32,8 @@ class ReconciliationRepository(DuckDbRepository):
             report = ReconciliationRun.from_json(report.to_json())
         except (KeyError, TypeError, ValueError) as error:
             raise WorkspaceError("Verification result is invalid") from error
+        if report.readback_scope != "FULL":
+            raise WorkspaceError("A targeted recovery assessment cannot be published as verification")
         try:
             reconciliation_id = str(UUID(report.reconciliation_id))
             execution_run_id = str(UUID(report.execution_run_id))
@@ -66,6 +68,17 @@ class ReconciliationRepository(DuckDbRepository):
                 ):
                     raise WorkspaceError(
                         "The load outcome changed before verification was saved"
+                    )
+                recorded_row_ids = {
+                    str(item[0])
+                    for item in connection.execute(
+                        "SELECT row_id FROM execution_row WHERE run_id = ?",
+                        [execution_run_id],
+                    ).fetchall()
+                }
+                if recorded_row_ids != {item.row_id for item in report.rows}:
+                    raise WorkspaceError(
+                        "Verification does not cover every written load row"
                     )
                 previous = connection.execute(
                     """

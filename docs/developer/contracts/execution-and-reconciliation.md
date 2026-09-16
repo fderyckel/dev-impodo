@@ -124,21 +124,29 @@ requires reconciliation. A caught unknown response remains
 An unexpected process exit can instead leave a `RUNNING` execution with one
 `IN_FLIGHT` batch. `ReconciliationService.assess_recovery` reads that immutable
 snapshot's exact model and field scopes without publishing a final
-reconciliation result. `ExecutionService.resume` accepts only that hash-bound
-report, the original target and write identity, and a still-current snapshot.
-It atomically binds every row to the recovery-report hash before another Odoo
-call can begin.
+reconciliation result. For prepared-data loads, the assessment accounts for
+every unfinished row and reads uncertain rows and the committed dependency
+frontier needed by the remaining writes. Its `RECOVERY_TARGETED` scope
+identifies the partial read. Committed rows outside that frontier retain
+journal receipts and remain unverified until
+final reconciliation. `ExecutionService.resume` recomputes the frontier and
+accepts only that hash-bound report, the original target and write identity,
+and a still-current snapshot. It atomically binds every row to the
+recovery-report hash before another Odoo call can begin.
 
 For an Odoo-to-Odoo transfer, `ExecutionService.resume_transfer` adds the
 current ready transfer preflight, exact staged snapshot, destination read identity,
 and `DESTINATION_TRANSFER` credential binding to those checks. Recovery must
 use the same destination key generation, principal, and company context as the
-interrupted run. Before a create can become retry-ready, execution repeats the
-bounded absence check for its frozen business key. Resumed creates keep their
-original deterministic External IDs.
+interrupted run. The transfer assessment covers every committed row and cannot
+use a targeted report. Before a create can become retry-ready, execution repeats
+the bounded absence check for its frozen business key. Resumed creates keep
+their original deterministic External IDs.
 
 Recovery may mark an interrupted create `RETRY_READY` only when business-key
-read-back found no matching record. It may accept a write as committed only
+read-back found no matching record. On a remote target, its External ID must
+also be absent; an External ID without a matching business key leaves the
+outcome unknown. Recovery may accept a write as committed only
 when read-back proves every intended final field. It may retain a created row
 as `PARTIALLY_APPLIED` only when all non-deferred fields match and the differing
 fields are contained by that row's frozen relationship-completion fields. A
@@ -146,8 +154,9 @@ created row whose required projected receipt is absent also remains partially
 applied. Resume re-reads the frozen projection from the already created source
 identifier; it never recreates the source or accepts a changed projected
 identifier. A
-completed earlier component that changed, an ambiguous match, a missing
-receipt, another target, or another principal stops resume. Known rejections
+committed dependency that changed, an ambiguous match, a missing
+receipt, another target, or another principal stops prepared-data resume. A
+changed earlier transfer component also stops transfer resume. Known rejections
 and terminal `OUTCOME_UNKNOWN` runs require a new **Check changes** result.
 
 Stage 8B automatically attempts read-back after a completed transfer and also
@@ -163,8 +172,12 @@ load.
 Final reconciliation uses a separate read capability and only the affected
 model, identity, and exact requested field scope. Rows for the same model but
 different field sets are read in separate bounded groups. It proves final
-scalar and relationship values, publishes new immutable evidence, and never
-edits the execution journal.
+scalar and relationship values for every written row, publishes new immutable
+evidence, and never edits the execution journal. The repository rejects a
+`RECOVERY_TARGETED` report and any report that omits a written row. A changed
+unrelated earlier row can be found after prepared-data continuation has written
+new rows; the resulting fallout needs attention and does not roll those writes
+back.
 
 Odoo serializes an unset many-to-one value as `false`. Exact-key read-back
 treats that value as equal to the reviewed empty value while retaining strict

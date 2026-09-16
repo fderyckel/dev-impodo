@@ -46,6 +46,7 @@ def source_condition_configuration_problems(
         SelectionConditionOperator.CONTAINS,
         SelectionConditionOperator.STARTS_WITH,
         SelectionConditionOperator.ENDS_WITH,
+        SelectionConditionOperator.NOT_IN,
     }
     ordered = {
         SelectionConditionOperator.LESS_THAN,
@@ -105,7 +106,18 @@ def source_condition_configuration_problems(
                 remediation="Choose a yes/no comparison.",
             )
         )
-    if comparison_value is not None:
+    if operator is SelectionConditionOperator.NOT_IN:
+        try:
+            parse_source_text_list(comparison_value)
+        except (TypeError, ValueError):
+            problems.append(
+                SourceConditionConfigurationProblem(
+                    kind="value",
+                    message="Enter one or more distinct values separated by commas.",
+                    remediation="Correct the list of exact source values.",
+                )
+            )
+    elif comparison_value is not None:
         try:
             parse_source_condition_value(comparison_value, value_type)
         except (InvalidOperation, TypeError, ValueError):
@@ -157,6 +169,9 @@ def source_condition_matches(
     if comparison_value is None:
         return False
 
+    if operator is SelectionConditionOperator.NOT_IN:
+        return str(raw_value) not in parse_source_text_list(comparison_value)
+
     if value_type == "string":
         left = str(raw_value)
         right = comparison_value
@@ -190,6 +205,19 @@ def source_condition_matches(
     if operator is SelectionConditionOperator.GREATER_THAN_OR_EQUAL:
         return left >= right
     return False
+
+
+def parse_source_text_list(value: str | None) -> tuple[str, ...]:
+    """Read a bounded list of exact text values for a source comparison."""
+
+    if value is None:
+        raise ValueError("A list of source values is required")
+    values = tuple(item.strip() for item in value.split(","))
+    if not 1 <= len(values) <= 500 or any(not item for item in values):
+        raise ValueError("Enter one to 500 nonblank source values")
+    if len(values) != len(set(values)):
+        raise ValueError("Source values in a list must be distinct")
+    return values
 
 
 def parse_source_condition_value(value: Any, value_type: str) -> Any:

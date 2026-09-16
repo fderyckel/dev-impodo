@@ -9,7 +9,7 @@ import unittest
 from uuid import uuid4
 
 from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
-from impodo.application.workspace.execution.service import execution_api_scope
+from impodo.application.workspace.execution.service import ExecutionService, execution_api_scope
 from impodo.application.workspace.execution.reconciliation import ReconciliationService
 from impodo.adapters.odoo.connectors import Json2Config
 from impodo.domain.execution.models import (
@@ -580,11 +580,13 @@ class ReconciliationServiceTests(unittest.TestCase):
             ),
         )
         service, results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.external_ids.pop(snapshot.rows[0].proposed_external_id)
 
         report = service.assess_recovery(
             snapshot.workspace_id,
             expected_execution_run_id=run.run_id,
-            reader=_Reader(execution_api_scope(snapshot).semantic_hash),
+            reader=reader,
             actor=LOCAL_ACTOR,
         )
 
@@ -598,6 +600,127 @@ class ReconciliationServiceTests(unittest.TestCase):
         )
         self.assertTrue(report.rows[0].retry_safe)
         self.assertIsNone(results.report)
+
+    def test_targeted_recovery_reads_parent_but_retains_unrelated_receipt(self):
+        snapshot = _snapshot()
+        run = _run(
+            snapshot,
+            (
+                ExecutionRowStatus.COMMITTED,
+                ExecutionRowStatus.IN_FLIGHT,
+                ExecutionRowStatus.COMMITTED,
+            ),
+        )
+        run = replace(
+            run,
+            status=ExecutionRunStatus.RUNNING,
+            completed_at=None,
+            rows=(
+                run.rows[0],
+                replace(
+                    run.rows[1],
+                    schedule_component=1,
+                    transport_page=0,
+                    transport_batch=1,
+                    transport_phase="CREATE",
+                ),
+                run.rows[2],
+            ),
+        )
+        service, results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.external_ids.pop(snapshot.rows[1].proposed_external_id)
+
+        report = service.assess_recovery(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+            targeted=True,
+        )
+
+        self.assertEqual(
+            tuple(item.row_id for item in report.rows),
+            (snapshot.rows[0].row_id, snapshot.rows[1].row_id),
+        )
+        self.assertEqual(report.readback_scope, "RECOVERY_TARGETED")
+        self.assertEqual(reader.reads, [("product.category", (10,), ("name",))])
+        self.assertIsNone(results.report)
+        recovered = ExecutionService._classify_recovery(
+            snapshot, run, report, targeted=True,
+        )
+        self.assertEqual(recovered[2].status, ExecutionRowStatus.COMMITTED)
+        self.assertEqual(recovered[2].odoo_id, 50)
+        self.assertEqual(recovered[2].recovery_hash, report.semantic_hash)
+        with self.assertRaisesRegex(WorkspaceError, "invalid read-back scope"):
+            ExecutionService._classify_recovery(snapshot, run, report)
+        with self.assertRaisesRegex(WorkspaceError, "does not cover"):
+            ExecutionService._classify_recovery(
+                snapshot, run, replace(report, readback_scope="FULL"), targeted=True,
+            )
+
+        missing_parent = replace(report, rows=report.rows[1:])
+        with self.assertRaisesRegex(WorkspaceError, "does not cover"):
+            ExecutionService._classify_recovery(
+                snapshot, run, missing_parent, targeted=True,
+            )
+
+        reader.records[("product.category", 10)] = {"name": "Changed"}
+        changed = service.assess_recovery(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+            targeted=True,
+        )
+        with self.assertRaisesRegex(WorkspaceError, "no longer matches Odoo"):
+            ExecutionService._classify_recovery(
+                snapshot, run, changed, targeted=True,
+            )
+
+        completed = _run(snapshot)
+        final_service, _final_results = self._service(snapshot, completed)
+        final_reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        final_reader.records[("res.partner", 50)] = {
+            "email": "changed@example.test"
+        }
+        final_report = final_service.reconcile(
+            snapshot.workspace_id,
+            expected_execution_run_id=completed.run_id,
+            reader=final_reader,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertIn(("res.partner", (50,), ("email",)), final_reader.reads)
+        self.assertEqual(final_report.rows[2].status, ReconciliationRowStatus.DIFFERENT)
+
+    def test_external_id_without_uncertain_business_key_blocks_retry(self):
+        snapshot = _snapshot()
+        run = _run(
+            snapshot,
+            (
+                ExecutionRowStatus.IN_FLIGHT,
+                ExecutionRowStatus.PLANNED,
+                ExecutionRowStatus.PLANNED,
+            ),
+        )
+        run = replace(run, status=ExecutionRunStatus.RUNNING, completed_at=None)
+        service, _results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+
+        report = service.assess_recovery(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+            targeted=True,
+        )
+
+        self.assertEqual(report.rows[0].status, ReconciliationRowStatus.OUTCOME_UNKNOWN)
+        self.assertFalse(report.rows[0].retry_safe)
+        with self.assertRaisesRegex(WorkspaceError, "not safe to resume"):
+            ExecutionService._classify_recovery(
+                snapshot, run, report, targeted=True,
+            )
 
     def test_recovery_resolves_relational_identity_from_receipt_and_exact_key(self):
         original = _snapshot()
@@ -658,6 +781,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         )
         service, results = self._service(snapshot, run)
         reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.external_ids.pop(line.proposed_external_id)
         reader.records[("mrp.bom", 10)] = {"code": "B1"}
         reader.references["product.product"] = {"P1": 20}
         reader.external_ids[parent.proposed_external_id] = ExternalIdBinding(
@@ -828,11 +952,13 @@ class ReconciliationServiceTests(unittest.TestCase):
             ),
         )
         service, _results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.external_ids.pop(snapshot.rows[0].proposed_external_id)
 
         report = service.reconcile(
             snapshot.workspace_id,
             expected_execution_run_id=run.run_id,
-            reader=_Reader(execution_api_scope(snapshot).semantic_hash),
+            reader=reader,
             actor=LOCAL_ACTOR,
         )
 

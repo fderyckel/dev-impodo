@@ -5,6 +5,10 @@ from types import SimpleNamespace
 import unittest
 from uuid import uuid4
 
+import polars as pl
+
+from impodo.adapters.polars_transformation import _selection_condition_expression
+
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     MappingDefinition,
@@ -19,7 +23,11 @@ from impodo.domain.compiler.columnar_transformation import (
     compile_columnar_transformation_program,
 )
 from impodo.domain.mapping.row_inclusion import row_is_included
-from impodo.domain.mapping.source_conditions import SourceConditionValueError
+from impodo.domain.mapping.source_conditions import (
+    SourceConditionValueError,
+    source_condition_configuration_problems,
+)
+from impodo.domain.source_snapshot import source_value_column
 from impodo.domain.mapping.validation.row_inclusion import (
     _validate_row_inclusion,
 )
@@ -65,6 +73,56 @@ class RowInclusionContractTests(unittest.TestCase):
             row_is_included(policy, {"column:status": " 30 "})
         )
         self.assertFalse(row_is_included(policy, {"column:status": None}))
+
+    def test_exact_list_excludes_only_named_nonblank_values_in_both_evaluators(
+        self,
+    ) -> None:
+        value = "BOM A, BOM B"
+        policy = RowInclusionPolicy(
+            mode=RowInclusionMode.MATCHING_ROWS,
+            conditions=(
+                _condition(
+                    source="column:bom",
+                    operator=SelectionConditionOperator.NOT_IN,
+                    value=value,
+                ),
+            ),
+        )
+        inputs = ("BOM A", "BOM B", "BOM C", "", None)
+        expected = (False, False, True, False, False)
+        self.assertEqual(
+            tuple(row_is_included(policy, {"column:bom": item}) for item in inputs),
+            expected,
+        )
+        column = source_value_column(1)
+        program = SimpleNamespace(
+            source=SimpleNamespace(ordinal=1),
+            operator="not_in",
+            comparison_value=value,
+            value_type="string",
+        )
+        actual = (
+            pl.DataFrame({column: inputs})
+            .select(_selection_condition_expression(program).alias("included"))
+            .get_column("included")
+            .to_list()
+        )
+        self.assertEqual(actual, list(expected))
+
+    def test_exact_list_rejects_ambiguous_or_nontext_configuration(self) -> None:
+        for value in ("", "BOM A,", "BOM A, BOM A"):
+            problems = source_condition_configuration_problems(
+                operator=SelectionConditionOperator.NOT_IN,
+                comparison_value=value,
+                value_type="string",
+            )
+            self.assertIn("value", {problem.kind for problem in problems})
+        problems = source_condition_configuration_problems(
+            operator=SelectionConditionOperator.NOT_IN,
+            comparison_value="1,2",
+            value_type="integer",
+        )
+        self.assertIn("operator", {problem.kind for problem in problems})
 
     def test_all_and_any_join_have_explicit_semantics(self) -> None:
         conditions = (

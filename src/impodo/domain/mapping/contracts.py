@@ -194,6 +194,7 @@ class SelectionConditionOperator(StrEnum):
     IS_NOT_BLANK = "is_not_blank"
     EQUALS = "equals"
     NOT_EQUALS = "not_equals"
+    NOT_IN = "not_in"
     EQUALS_IGNORE_CASE = "equals_ignore_case"
     CONTAINS = "contains"
     STARTS_WITH = "starts_with"

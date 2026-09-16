@@ -215,6 +215,7 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             self.assertTrue(finished["verification_complete"])
             self.assertEqual(self.events, ["assess", "writer", "resume", "verify"])
             mocks["execute"].assert_not_called()
+            self.assertTrue(mocks["assess"].call_args.kwargs["targeted"])
             for method in ("assess", "resume", "verify"):
                 kwargs = mocks[method].call_args.kwargs
                 self.assertEqual(kwargs["expected_execution_run_id"], self.run.run_id)

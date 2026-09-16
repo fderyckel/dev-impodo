@@ -325,6 +325,7 @@ def _condition_sentence(
     phrases = {
         SelectionConditionOperator.EQUALS: "is exactly",
         SelectionConditionOperator.NOT_EQUALS: "is not",
+        SelectionConditionOperator.NOT_IN: "is not one of",
         SelectionConditionOperator.EQUALS_IGNORE_CASE: "is exactly, ignoring case",
         SelectionConditionOperator.CONTAINS: "contains",
         SelectionConditionOperator.STARTS_WITH: "starts with",

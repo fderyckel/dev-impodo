@@ -39,6 +39,7 @@ from ..domain.compiler.columnar_transformation import (
 from ..domain.correction import CorrectionValueKind
 from ..domain.prepared_snapshot import PreparedSnapshot
 from ..domain.serialization import content_hash
+from ..domain.mapping.source_conditions import parse_source_text_list
 from ..domain.source_snapshot import (
     EncodedSourceCell,
     SOURCE_ROW_COLUMN,
@@ -1042,6 +1043,8 @@ def _selection_condition_expression(
         return (~blank) & (left == right)
     if operator == "not_equals":
         return (~blank) & (left != right)
+    if operator == "not_in":
+        return (~blank) & ~text.is_in(parse_source_text_list(comparison))
     if operator == "equals_ignore_case":
         return (~blank) & (text.str.to_lowercase() == comparison.lower())
     if operator == "contains":

@@ -134,6 +134,13 @@ Add up to eight conditions. With two or more conditions, choose whether
 **all** or **any** must match. The builder accepts guided comparisons only; it
 does not accept a formula, regular expression, SQL, or code.
 
+To leave out a known set of source records without replacing the accepted
+Data version, select the identifier column and **is not one of
+(comma-separated list)**. Enter each exact identifier once, separated by a
+comma, and compare as **Text**. For example, `BOM-A, BOM-B` includes rows for
+other BoMs and excludes rows for those two. Blank identifiers are not included.
+Review the included and excluded counts before confirming the rule.
+
 Select **Save progress**, then **Check matches**. The checked result reports
 **Rows checked**, **Included**, **Excluded by rule**, and **Could not be
 checked**. Select **Review rows** to filter the complete decision set by table,

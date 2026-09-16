@@ -124,7 +124,9 @@
                   {% for row in view.identity_rows %}
                     <div class="identity-match-row">
                       <div class="identity-field-name">
-                        <span class="identity-role">{{ "Company or site" if row.scope else "Record identifier" }}</span>
+                        <span class="identity-role">
+                          {% if not row.scope %}Record identifier{% elif row.metadata and row.metadata.relation == "res.company" %}Company or site{% elif row.relational %}Within{% else %}Matching scope{% endif %}
+                        </span>
                         <strong>{{ row.metadata.label if row.metadata else row.target_field }}</strong>
                       </div>
                       <label>

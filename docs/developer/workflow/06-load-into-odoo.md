@@ -349,18 +349,32 @@ Fail closed when any snapshot or scope hash differs. On
 require reconciliation before any new action. Do not convert a connection
 reset or wrapped HTTP 422 into a safe-to-retry failure.
 
-After a process interruption, `ReconciliationService.assess_recovery` checks
-all committed, in-flight, partially applied, and not-yet-started rows against
-the immutable schedule. `ExecutionService.resume` handles a prepared-data
-load, while `ExecutionService.resume_transfer` additionally requires the
-current transfer preflight, exact staged snapshot, original destination-key
-binding, and matching read and write identity. Each path reuses an already
-recorded recovery report after another restart or records a new report
-atomically. It retries only a create proven absent, an exact update whose
-reviewed fields still differ, or the frozen deferred fields of a created row.
-It verifies all earlier committed components first and revalidates the target
+After a process interruption, prepared-data recovery accounts for every
+unfinished row and reads uncertain rows and the committed rows on which the
+remaining work depends. It includes exact row dependencies, upstream datasets,
+and related models, so a relationship without
+an explicit row edge still brings its committed parent model into the check.
+The ephemeral report has `readback_scope=RECOVERY_TARGETED`; omitted committed
+rows retain their saved receipts and are never called verified by that report.
+`ExecutionService.resume` recomputes the required coverage before accepting it.
+It checks the uncertain create's External ID even when the business key is
+absent. An existing External ID with no matching key blocks the retry.
+
+`ExecutionService.resume_transfer` still requires a full recovery read-back,
+the current transfer preflight, exact staged snapshot, original destination-key
+binding, and matching read and write identity. Each path records the recovery
+report hash atomically before continuing the same journal. It retries only a
+create proven absent, an exact update whose reviewed fields still differ, or
+the frozen deferred fields of a created row. Both paths revalidate the target
 crosswalk before transport resumes. Transfer creates repeat their absence
 check and retain their original External IDs.
+
+After a prepared-data continuation, normal final reconciliation reads every
+written row, including committed rows omitted from targeted recovery. Only a
+full result can be published as verification. A changed unrelated earlier row
+may therefore be found after new writes; that result needs attention and does
+not roll those writes back. The targeted assessment is a continuation safety
+check, not evidence that the whole load has been verified.
 
 For prepared-data workspaces, `POST /workspaces/{workspace_id}/load/recover`
 exposes **Assess and resume interrupted load** when the saved run is `RUNNING`

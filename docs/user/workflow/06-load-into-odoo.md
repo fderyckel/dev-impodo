@@ -272,11 +272,12 @@ again.
 For a prepared-data load interrupted when Impodo or your computer stopped,
 open **Review interrupted load**, then select **Assess and resume interrupted
 load**. The page shows accepted records, records waiting to load, uncertain
-requests, and partially applied records. The action first reads Odoo, then
-continues the remaining work with the original saved loading key and batch
-size. It verifies the final result automatically. Keep the workspace and its
-matching rules intact while recovering; the original preview totals do not
-show how many records remain.
+requests, and partially applied records. Impodo checks uncertain requests and
+the earlier records that the remaining work depends on. It then continues the
+same saved load with the original loading key and batch size. Impodo reads all
+loaded records after the remaining work before it can report a verified result.
+Keep the workspace and its matching rules intact while recovering; the
+original preview totals do not show how many records remain.
 
 If Odoo access changed and you keep the new access, refresh the Odoo fields,
 confirm the prepared review, and compare again. **Confirm and load** then
@@ -286,11 +287,15 @@ comparison. The original records and receipts remain saved.
 
 ![Interrupted prepared-data load with saved counts and an explicit assessment and resume action.](../../images/user/18b-load-recovery.png)
 
-On both paths, Impodo verifies every earlier group of records. If a created record
-is waiting for an optional relationship, recovery writes only the relationship
-fields that were already reviewed. A changed target, ambiguous record, missing
-receipt, changed key, or changed loading identity stops recovery and requires
-a new review.
+For an Odoo-to-Odoo transfer, Impodo checks every earlier completed group before
+it continues. For a prepared-data load, it checks the earlier records needed by
+the remaining work. If a created record is waiting for an optional relationship,
+recovery writes only the relationship fields that were already reviewed. A
+changed required record, ambiguous record, missing receipt, changed key, or
+changed loading identity stops recovery and requires a new review. The final
+read-back can also find a change in an earlier record that was not needed to
+resume. In that case, the result needs attention; Impodo cannot undo the new
+Odoo writes automatically.
 
 If the load is complete but the newest verification shows fallout, do not
 reload the records. Use **Re-check Odoo now** after correcting Odoo or the
