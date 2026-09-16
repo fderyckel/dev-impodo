@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+import json
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -32,6 +33,7 @@ from impodo.web.composition.target_readers import (
     _capture_recipe_supporting_values,
     _read_readiness_snapshots,
     _read_supporting_lookup_snapshots,
+    _relationship_value_choices,
 )
 from impodo.application.run.odoo_requirements import (
     OdooCheckRelationshipRequirement,
@@ -46,6 +48,7 @@ from impodo.domain.workspace.contracts import (
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import StandardReferenceFieldContract
 from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
+from impodo.domain.schema.governance import BusinessKeyDefinition
 
 
 HASH = "sha256:" + "1" * 64
@@ -737,6 +740,119 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
             {item["relation_model"] for item in captures},
             {"res.country", "res.currency"},
         )
+
+
+class ScopedRelationshipChoiceTests(unittest.TestCase):
+    def test_same_calendar_name_is_selectable_by_company(self) -> None:
+        workspace = WorkspaceState(
+            workspace_id="calendar-choices",
+            name="Calendar choices",
+            source_system="CSV",
+            odoo_connection_mode=OdooConnectionMode.REMOTE,
+            odoo_base_url="https://test.example.test",
+            odoo_database="test",
+            intended_models=("mrp.workcenter", "resource.calendar"),
+        )
+        target_hash = target_identity_hash(
+            connection_mode="REMOTE",
+            base_url=workspace.odoo_base_url,
+            database=workspace.odoo_database,
+        )
+        relation = SchemaField(
+            name="resource_calendar_id", label="Working Hours",
+            type="many2one", required=False, readonly=False,
+            relation="resource.calendar", relation_field=None, selection=(),
+        )
+        calendar_fields = (
+            SchemaField(
+                name="name", label="Name", type="char", required=True,
+                readonly=False, relation=None, relation_field=None, selection=(),
+            ),
+            SchemaField(
+                name="company_id", label="Company", type="many2one",
+                required=False, readonly=False, relation="res.company",
+                relation_field=None, selection=(),
+            ),
+        )
+        schema = OdooSchemaCatalog(
+            workspace_id=workspace.workspace_id, policy_hash=HASH,
+            captured_at=datetime.now(timezone.utc), captured_by="Tester",
+            connection_mode="REMOTE", database="test", odoo_version="19.0",
+            models=(
+                SchemaModel("mrp.workcenter", "Work Center", (relation,)),
+                SchemaModel("resource.calendar", "Working Hours", calendar_fields),
+            ),
+            content_hash=HASH, origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash="credential", read_principal_hash="principal",
+            read_permission_hash="permission", read_context_hash="context",
+            connection_target_hash=target_hash,
+        )
+        fingerprint = TargetFingerprint(
+            target_hash=target_hash, connection_mode="REMOTE", database="test",
+            odoo_version="19.0", snapshot_timestamp="2026-09-17T00:00:00Z",
+        )
+        metadata = MetadataSnapshot(
+            fingerprint=fingerprint,
+            models={"resource.calendar": ModelMetadata(
+                "resource.calendar", "Working Hours", {
+                    "name": FieldMetadata("name", "char", required=True),
+                    "company_id": FieldMetadata(
+                        "company_id", "many2one", relation="res.company",
+                    ),
+                },
+            )},
+        )
+        records = RecordSnapshot(
+            fingerprint=fingerprint,
+            records={"resource.calendar": (
+                TargetRecord("resource.calendar", 1, {
+                    "name": "Standard 40 hours/week",
+                    "company_id": [1, "United Caps"],
+                }),
+                TargetRecord("resource.calendar", 3, {
+                    "name": "Standard 40 hours/week",
+                    "company_id": [2, "United Caps Wiltz"],
+                }),
+            )},
+            requested_fields={"resource.calendar": ("name", "company_id")},
+        )
+        captured = []
+        context = SimpleNamespace(
+            actor=LOCAL_ACTOR,
+            supporting_lookups=SimpleNamespace(
+                current=lambda *_args, **_kwargs: None,
+                capture=lambda *_args, **kwargs: (
+                    captured.append(kwargs) or SimpleNamespace(**kwargs)
+                ),
+            ),
+        )
+        access = SimpleNamespace(
+            credential_binding_hash="credential", principal_hash="principal",
+            permission_hash="permission", context_hash="context",
+        )
+        with patch(
+            "impodo.web.composition.target_readers._read_supporting_lookup_snapshots",
+            return_value=(metadata, records, access),
+        ):
+            choices, ambiguous, _checked_at, reused = _relationship_value_choices(
+                context, workspace, schema, "mrp.workcenter", relation,
+                BusinessKeyDefinition(
+                    key_id="calendar-within-company", model="resource.calendar",
+                    key_fields=("name",), scope_fields=("company_id",),
+                ),
+            )
+        self.assertFalse(reused)
+        self.assertEqual(ambiguous, ())
+        self.assertEqual(len(choices), 2)
+        self.assertEqual(
+            {tuple(json.loads(item["value"])) for item in choices},
+            {
+                ("Standard 40 hours/week", "United Caps"),
+                ("Standard 40 hours/week", "United Caps Wiltz"),
+            },
+        )
+        self.assertTrue(any("United Caps Wiltz" in item["label"] for item in choices))
+        self.assertEqual(captured[0]["scope_fields"], ("company_id",))
 
 
 if __name__ == "__main__":

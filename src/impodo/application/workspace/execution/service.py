@@ -2054,7 +2054,8 @@ class ExecutionService:
                     ):
                         if len(identifiers) != 1:
                             raise WorkspaceError(
-                                "The Odoo business key no longer matches exactly one record"
+                                f"The Odoo business key for {model} matched "
+                                f"{len(identifiers)} records; compare again"
                             )
                         identifier = identifiers[0]
                         expected = requirement["expected"]

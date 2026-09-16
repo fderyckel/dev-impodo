@@ -91,16 +91,29 @@ document.addEventListener("DOMContentLoaded", () => {
     businessKey?.addEventListener("change", syncComponents);
     search?.addEventListener("input", renderChoices);
     choice?.addEventListener("change", () => {
-      const first = row.querySelector("[data-constant-component-value]");
-      if (first && choice.value) {
-        first.value = choice.value;
-        first.dispatchEvent(new Event("input", { bubbles: true }));
-        if (status) {
-          const values = Array.from(
-            row.querySelectorAll(
-              "[data-constant-component-row]:not([hidden]) [data-constant-component-value]"
-            )
+      if (choice.value) {
+        const scoped = Boolean(
+          businessKey?.selectedOptions[0]?.dataset.scopeFields
+        );
+        let selectedComponents;
+        try {
+          selectedComponents = scoped ? JSON.parse(choice.value) : [choice.value];
+        } catch (_error) {
+          return;
+        }
+        if (!Array.isArray(selectedComponents)) return;
+        const inputs = Array.from(
+          row.querySelectorAll(
+            "[data-constant-component-row]:not([hidden]) [data-constant-component-value]"
           )
+        );
+        if (selectedComponents.length !== inputs.length) return;
+        inputs.forEach((input, index) => {
+          input.value = selectedComponents[index];
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        if (status) {
+          const values = inputs
             .map((component) => component.value.trim())
             .filter(Boolean);
           const rowCount = Number(chooser?.dataset.sourceRowCount || 0);

@@ -59,7 +59,11 @@ class ConstantRelationshipEditorTests(unittest.TestCase):
             return new Promise(() => {});
           };
         </script>"""
-        for name in ("mapping-save-recovery.js", "mapping-editor.js"):
+        for name in (
+            "mapping-save-recovery.js",
+            "mapping-editor.js",
+            "mapping-relation-row.js",
+        ):
             script = (REPOSITORY_ROOT / "src/impodo/web/static" / name).read_text(encoding="utf-8")
             html += f"<script>{script}</script>"
         self.page = self.browser.new_page()
@@ -148,6 +152,30 @@ class ConstantRelationshipEditorTests(unittest.TestCase):
         self.provider.select_option("constant_existing")
         self.key.select_option("")
         self.assertFalse(self.key.evaluate("select => select.checkValidity()"))
+        self.assertEqual(self.errors, [])
+
+    def test_scoped_choice_fills_name_and_company(self):
+        self.key.evaluate("""select => {
+          const option = new Option('Name within Company', 'key:scoped');
+          option.dataset.keyFields = 'name';
+          option.dataset.scopeFields = 'company_id';
+          select.append(option);
+        }""")
+        self.key.select_option("key:scoped")
+        self.page.evaluate("""window.choiceResult = {
+          ok: true,
+          target_choices: [{
+            value: '["Standard 40 hours/week","United Caps Wiltz"]',
+            label: 'Standard 40 hours/week (United Caps Wiltz)'
+          }]
+        }""")
+        self.row.locator("[data-check-constant-record]").click()
+        self.row.locator("[data-constant-existing-choice]").select_option(
+            '["Standard 40 hours/week","United Caps Wiltz"]'
+        )
+        values = self.row.locator("[data-constant-component-value]")
+        self.assertEqual(values.nth(0).input_value(), "Standard 40 hours/week")
+        self.assertEqual(values.nth(1).input_value(), "United Caps Wiltz")
         self.assertEqual(self.errors, [])
 
     def test_constant_value_survives_catalogue_row_replacement(self):

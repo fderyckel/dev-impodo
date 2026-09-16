@@ -1027,9 +1027,9 @@ def _relationship_value_choices(
         raise WorkspaceError(
             "Capture the live Odoo schema before loading existing choices"
         )
-    if len(key.key_fields) != 1 or key.scope_fields:
+    if len(key.key_fields) != 1:
         raise WorkspaceError(
-            "Quick matching currently supports one Odoo key without scope"
+            "Quick matching currently supports one Odoo key"
         )
     related_model = next(
         (item for item in schema.models if item.name == field.relation),
@@ -1050,7 +1050,9 @@ def _relationship_value_choices(
         and standard_key.scope_fields == key.scope_fields
         else ("name" if "name" in available_fields else key_field)
     )
-    requested_fields = tuple(dict.fromkeys((key_field, display_field)))
+    requested_fields = tuple(
+        dict.fromkeys((key_field, *key.scope_fields, display_field))
+    )
     version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.COMPARE)
     odoo_major_version = version_decision.version.major if version_decision.allowed else -1
     reference_request = GovernedReferenceRequest(
@@ -1177,11 +1179,15 @@ def _relationship_value_choices(
             "This Odoo model has too many records for quick matching"
         )
     by_key: dict[str, list[object]] = {}
+    identity_fields = (*key.key_fields, *key.scope_fields)
     for record in records:
-        raw_key = record.values.get(key_field)
-        if raw_key is None or str(raw_key).strip() == "":
+        components = tuple(
+            _portable_relationship_choice_component(record.values.get(name))
+            for name in identity_fields
+        )
+        if any(not component for component in components):
             continue
-        by_key.setdefault(str(raw_key), []).append(record)
+        by_key.setdefault(portable_supporting_value(components), []).append(record)
     ambiguous = tuple(
         sorted(
             (value for value, matches in by_key.items() if len(matches) != 1),
@@ -1192,9 +1198,19 @@ def _relationship_value_choices(
     for value, matches in by_key.items():
         if len(matches) != 1:
             continue
-        label_value = matches[0].values.get(display_field)
-        label = str(label_value or value)
-        if display_field != key_field and label != value:
+        label_value = _portable_relationship_choice_component(
+            matches[0].values.get(display_field)
+        )
+        label = label_value or value
+        if key.scope_fields:
+            scope = tuple(
+                _portable_relationship_choice_component(
+                    matches[0].values.get(name)
+                )
+                for name in key.scope_fields
+            )
+            label = f"{label} ({' / '.join(scope)})"
+        elif display_field != key_field and label != value:
             label = f"{label} ({value})"
         choices.append({"value": value, "label": label})
     captured_at = _snapshot_datetime(record_snapshot.fingerprint.snapshot_timestamp)
@@ -1227,6 +1243,20 @@ def _relationship_value_choices(
         stored.captured_at,
         False,
     )
+
+
+def _portable_relationship_choice_component(value: object) -> str:
+    """Use a related record's business label, never its local Odoo ID."""
+
+    if value is None or value is False:
+        return ""
+    if (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and isinstance(value[0], int)
+    ):
+        return str(value[1] or "").strip()
+    return str(value).strip()
 
 
 def _capture_recipe_supporting_values(
@@ -1390,8 +1420,11 @@ def _capture_recipe_supporting_values(
         by_key: dict[str, list[object]] = {}
         identity_fields = (*item.key_fields, *item.scope_fields)
         for record in records:
-            raw_values = tuple(record.values.get(name) for name in identity_fields)
-            if any(value is None or str(value).strip() == "" for value in raw_values):
+            raw_values = tuple(
+                _portable_relationship_choice_component(record.values.get(name))
+                for name in identity_fields
+            )
+            if any(not value for value in raw_values):
                 continue
             value = portable_supporting_value(raw_values)
             by_key.setdefault(value, []).append(record)

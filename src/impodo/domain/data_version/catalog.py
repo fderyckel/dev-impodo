@@ -76,12 +76,15 @@ class TargetCatalog:
         if index_key not in self._field_indexes:
             buckets: dict[tuple[Any, ...], list[TargetRecord]] = defaultdict(list)
             for record in self.records(model):
-                record_key = tuple(record.values.get(field) for field in fields)
+                record_key = tuple(
+                    _lookup_value(record.values.get(field)) for field in fields
+                )
                 buckets[record_key].append(record)
             self._field_indexes[index_key] = {
                 bucket_key: tuple(items) for bucket_key, items in buckets.items()
             }
-        return self._field_indexes[index_key].get(key, ())
+        normalized_key = tuple(_lookup_value(value) for value in key)
+        return self._field_indexes[index_key].get(normalized_key, ())
 
     def find_casefold_by_fields(
         self,
@@ -101,13 +104,14 @@ class TargetCatalog:
             buckets: dict[tuple[Any, ...], list[TargetRecord]] = defaultdict(list)
             for record in self.records(model):
                 record_key = tuple(
-                    _casefold_value(record.values.get(field)) for field in fields
+                    _casefold_value(_lookup_value(record.values.get(field)))
+                    for field in fields
                 )
                 buckets[record_key].append(record)
             self._casefold_field_indexes[index_key] = {
                 bucket_key: tuple(items) for bucket_key, items in buckets.items()
             }
-        folded = tuple(_casefold_value(value) for value in key)
+        folded = tuple(_casefold_value(_lookup_value(value)) for value in key)
         return self._casefold_field_indexes[index_key].get(folded, ())
 
     def reference_from_id(
@@ -139,8 +143,12 @@ class TargetCatalog:
             raise KeyError(f"{model} id {odoo_id} is absent from target catalog")
         return BusinessReference(
             model=model,
-            key=tuple(record.values.get(field) for field in identity_fields),
-            scope=tuple(record.values.get(field) for field in scope_fields),
+            key=tuple(
+                _lookup_value(record.values.get(field)) for field in identity_fields
+            ),
+            scope=tuple(
+                _lookup_value(record.values.get(field)) for field in scope_fields
+            ),
         )
 
 
@@ -167,6 +175,26 @@ def relation_id(value: Any) -> int | None:
 
 def _casefold_value(value: Any) -> Any:
     return value.casefold() if isinstance(value, str) else value
+
+
+def _lookup_value(value: Any) -> Any:
+    """Use the displayed business value of an Odoo many2one in a scoped key.
+
+    JSON-2 returns many2one values as ``[id, display_name]``. The numeric ID
+    belongs to one database, while a source scope such as Company contains the
+    displayed name. Other lists are made hashable without changing their values.
+    """
+
+    if (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and type(value[0]) is int
+        and isinstance(value[1], str)
+    ):
+        return value[1]
+    if isinstance(value, (list, tuple)):
+        return tuple(_lookup_value(item) for item in value)
+    return value
 
 
 def relation_ids(value: Any) -> tuple[int, ...]:

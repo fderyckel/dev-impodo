@@ -478,4 +478,16 @@ def _lookup_values_equal(actual: object, expected: object) -> bool:
 
     if expected is None and actual is False:
         return True
+    if (
+        isinstance(actual, (list, tuple))
+        and len(actual) == 2
+        and type(actual[0]) is int
+    ):
+        # JSON-2 returns a many2one as [id, display_name]. Reviewed
+        # business keys may carry the portable display name, while other
+        # exact lookups may carry the numeric ID.
+        if type(expected) is str:
+            return actual[1] == expected
+        if type(expected) is int:
+            return actual[0] == expected
     return actual == expected

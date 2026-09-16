@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 import logging.config
 import multiprocessing
@@ -243,6 +244,18 @@ def bind_loopback_listener(port: int) -> socket.socket | None:
         return None
 
 
+def _run_server(server: uvicorn.Server, listener: socket.socket) -> None:
+    """Avoid a Windows Proactor accept callback racing listener shutdown."""
+
+    if os.name == "nt":
+        asyncio.run(
+            server.serve(sockets=[listener]),
+            loop_factory=asyncio.SelectorEventLoop,
+        )
+    else:
+        server.run(sockets=[listener])
+
+
 def _serve_child_process(
     listener: socket.socket,
     settings: ServerChildSettings,
@@ -284,7 +297,7 @@ def _serve_child_process(
         )
         server = uvicorn.Server(config)
         app.state.server = server
-        server.run(sockets=[listener])
+        _run_server(server, listener)
     except BaseException as error:
         stop_reason = "unhandled_exception"
         if diagnostics is not None:

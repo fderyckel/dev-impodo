@@ -48,6 +48,7 @@ from impodo.web.server_supervisor import (
     ServerChildSettings,
     ServerSupervisionResult,
     _open_child_diagnostic_recorder,
+    _run_server,
     bind_loopback_listener,
     listener_is_owned_loopback,
     spawn_server_process,
@@ -778,6 +779,23 @@ class ClosedConnectionSafeH11ProtocolTests(unittest.TestCase):
 
 
 class ServerSupervisorTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows event loop only")
+    def test_windows_server_uses_selector_event_loop(self) -> None:
+        server = Mock()
+        observed_loops = []
+
+        async def serve(*, sockets):
+            self.assertEqual(sockets, [server.listener])
+            observed_loops.append(asyncio.get_running_loop())
+
+        server.listener = Mock()
+        server.serve.side_effect = serve
+        _run_server(server, server.listener)
+
+        self.assertEqual(len(observed_loops), 1)
+        self.assertIsInstance(observed_loops[0], asyncio.SelectorEventLoop)
+        server.run.assert_not_called()
+
     def test_child_diagnostics_fall_back_to_a_process_local_log(self) -> None:
         fallback = Mock()
         with patch(

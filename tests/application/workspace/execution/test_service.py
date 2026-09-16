@@ -3320,6 +3320,47 @@ class Json2WriteExecutorTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["limit"], 5)
         self.assertEqual(calls[0][1]["context"]["active_test"], False)
 
+    def test_bulk_lookup_matches_scoped_many2one_business_label(self):
+        def transport(_url, _headers, _body, _timeout, _method):
+            return 200, [
+                {
+                    "id": 1,
+                    "name": "Standard 40 hours/week",
+                    "company_id": [1, "United Caps"],
+                },
+                {
+                    "id": 3,
+                    "name": "Standard 40 hours/week",
+                    "company_id": [2, "United Caps Wiltz"],
+                },
+            ]
+
+        scope = OdooApiScope(
+            preview_hash=HASH,
+            models=(
+                OdooModelScope(
+                    "resource.calendar",
+                    lookup_fields=("company_id", "name"),
+                ),
+            ),
+        )
+        executor = Json2WriteExecutor(
+            self.executor.config,
+            scope,
+            transport=transport,
+        )
+
+        self.assertEqual(
+            executor.find_ids_many(
+                "resource.calendar",
+                ((
+                    ("name", "=", "Standard 40 hours/week"),
+                    ("company_id", "=", "United Caps Wiltz"),
+                ),),
+            ),
+            ((3,),),
+        )
+
     def test_generated_receipt_readback_is_exact_bounded_and_positional(self):
         calls = []
 

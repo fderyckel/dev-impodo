@@ -42,6 +42,56 @@ class CatalogTests(unittest.TestCase):
         )
         self.assertEqual(reference.key, ("KG",))
 
+    def test_same_named_calendars_match_with_company_scope(self) -> None:
+        model = "resource.calendar"
+        name = "Standard 40 hours/week"
+        catalog = TargetCatalog(
+            {
+                model: (
+                    TargetRecord(model, 1, {"name": name, "company_id": [1, "United Caps"]}),
+                    TargetRecord(
+                        model,
+                        3,
+                        {"name": name, "company_id": [2, "United Caps Wiltz"]},
+                    ),
+                    TargetRecord(
+                        model,
+                        4,
+                        {"name": name, "company_id": [4, "United Caps Hoboken"]},
+                    ),
+                )
+            }
+        )
+
+        self.assertEqual(
+            len(catalog.find_by_fields(model, ("name",), (name,))),
+            3,
+        )
+        self.assertEqual(
+            [record.odoo_id for record in catalog.find_by_fields(
+                model,
+                ("name", "company_id"),
+                (name, "United Caps Wiltz"),
+            )],
+            [3],
+        )
+        self.assertEqual(
+            [record.odoo_id for record in catalog.find_casefold_by_fields(
+                model,
+                ("name", "company_id"),
+                (name.upper(), "UNITED CAPS WILTZ"),
+            )],
+            [3],
+        )
+        reference = catalog.reference_from_id(
+            model,
+            [3, name],
+            ("name",),
+            ("company_id",),
+        )
+        self.assertEqual(reference.key, (name,))
+        self.assertEqual(reference.scope, ("United Caps Wiltz",))
+
 
 class MetadataValidationTests(unittest.TestCase):
     def setUp(self) -> None:
