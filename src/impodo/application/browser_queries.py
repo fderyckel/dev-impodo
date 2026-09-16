@@ -27,7 +27,11 @@ from ..domain.staging.transformation_impact import (
 )
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.workspace.workbench import WorkspaceState
-from impodo.domain.preparation.quality import QualityReviewPage, QualityRuleSet
+from impodo.domain.preparation.quality import (
+    QualityCollisionGroup,
+    QualityReviewPage,
+    QualityRuleSet,
+)
 from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooModelCatalog,
@@ -132,6 +136,9 @@ class QualityQueryRepository(Protocol):
         page: int,
         page_size: int,
     ) -> QualityReviewPage: ...
+    def get_quality_collision_groups(
+        self, workspace_id: str, run_id: str, row_ids: tuple[str, ...]
+    ) -> dict[str, QualityCollisionGroup]: ...
 
 
 class TransformationImpactQueryRepository(Protocol):
@@ -299,6 +306,13 @@ class BrowserQueryService:
             dataset=dataset,
             page=page,
             page_size=page_size,
+        )
+
+    def get_quality_collision_groups(
+        self, workspace_id: str, run_id: str, row_ids: tuple[str, ...]
+    ) -> dict[str, QualityCollisionGroup]:
+        return self._quality.get_quality_collision_groups(
+            workspace_id, run_id, row_ids
         )
 
     def get_transformation_impact_snapshot(

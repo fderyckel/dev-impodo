@@ -59,6 +59,7 @@ from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash
 from ..presenters.common import _render
+from ..presenters.navigation import build_preflight_workspace_navigation
 from ..presenters.comparison_recovery import comparison_recovery_view
 from ..presenters.summary import _render_summary
 from ..run_commands import (
@@ -674,6 +675,8 @@ def _render_preflight_progress(request: Request, job: PreflightJob):
             name=job.migration_project_name,
             registered_at=True,
         ),
+        workspace_navigation=build_preflight_workspace_navigation(job),
+        migration_context={"project_id": job.access_context.project_id},
         job=job,
         recovery=recovery,
     )

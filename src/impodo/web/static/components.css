@@ -713,6 +713,10 @@ label.checkbox input {
   margin: .4rem 0 0;
 }
 
+.server-recovery-banner .button[hidden] {
+  display: none;
+}
+
 .server-recovery-actions {
   display: flex;
   flex-wrap: wrap;

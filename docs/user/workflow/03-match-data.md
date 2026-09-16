@@ -554,8 +554,12 @@ workflow actions. They are also announced to assistive technology.
 
 While an Impodo page is open, the browser tracks the current Impodo action and
 checks that the local server answers. If a known action lasts about 20 seconds,
-the page shows the amber message **Impodo is still working**. Keep the tab open
-and do not repeat the action. This message does not mean that Impodo stopped.
+the page shows the amber message **Impodo is still working**. Select **Got it**
+to dismiss the message while Impodo continues the action. Do not start the
+action again. Keep the tab open for an action that is waiting for a page
+response. For a background job such as preparation, you can leave the page and
+return to check its progress. The amber message does not mean that Impodo
+stopped.
 
 The red **Connection to Impodo was interrupted** message appears only after at
 least 45 seconds without an authenticated Impodo response and after a recent
@@ -574,8 +578,9 @@ Impodo tries one automatic server restart on the same local address. If the
 banner changes to **Impodo is responding again**, review the page and any save
 outcome before repeating the action. If a submitted action lost its response,
 the page continues to show **Check the last action** until its outcome is known.
-Impodo never repeats a save automatically. Use **Try again** to request an
-immediate connection check.
+Impodo never repeats a save automatically. If the connection is interrupted,
+select **Check connection** to request an immediate connection check. This
+does not repeat the action.
 
 If the server does not recover, restart Impodo normally. After it opens, select
 **Create diagnostic bundle** in the page footer before trying the action again.
@@ -583,12 +588,11 @@ The downloaded ZIP contains bounded operational timings, process events, and
 version information. It does not contain source rows, formula contents,
 credentials, tokens, request bodies, headers, complete URLs, or query strings.
 
-The following earlier screen shows where the recovery banner and **Try again**
-action appear while fictional unsaved edits remain visible. Current versions
-use the red heading **Connection to Impodo was interrupted** only after the
-longer disconnected check described above.
+The following screen shows the connection warning on a fictional Match data
+page. **Check connection** checks whether Impodo responds; it does not repeat
+the unsaved action.
 
-![The authenticated Match data page preserves a fictional edit while the recovery banner offers Try again.](../../images/user/11d-impodo-not-responding.png)
+![The authenticated Match data page preserves a fictional edit while the interrupted-connection banner offers Check connection.](../../images/user/11d-impodo-not-responding.png)
 
 ## What makes this work stale
 

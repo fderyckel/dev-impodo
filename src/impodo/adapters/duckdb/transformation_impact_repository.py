@@ -8,6 +8,7 @@ from datetime import (
     datetime,
     timezone,
 )
+import json
 from typing import (
     Callable,
     Iterator,
@@ -30,6 +31,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 from .repository import DuckDbRepository
 
 
+_IMPACT_JSON_BATCH_CHARACTER_LIMIT = 2_000_000
 
 
 
@@ -116,42 +118,66 @@ class TransformationImpactRepository(DuckDbRepository):
             with self._connect(database_path) as connection:
                 self._ensure_workspace_database_schema(connection)
                 connection.begin()
-                batch: list[list[object]] = []
+                batch: list[dict[str, object]] = []
+                batch_characters = 0
                 ordinal = 0
 
                 def flush() -> None:
+                    nonlocal batch_characters
                     if not batch:
                         return
-                    connection.executemany(
+                    connection.execute(
                         """
                         INSERT INTO transformation_impact_row (
                             ordinal, dataset, source_row, source_column,
                             target_field, raw_value, proposed_value, rules,
                             outcome, message
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        )
+                        SELECT CAST(value->>'ordinal' AS BIGINT),
+                               value->>'dataset',
+                               CAST(value->>'source_row' AS BIGINT),
+                               value->>'source_column', value->>'target_field',
+                               value->>'raw_value', value->>'proposed_value',
+                               value->>'rules', value->>'outcome', value->>'message'
+                          FROM json_each(?)
                         """,
-                        batch,
+                        [json.dumps(batch, ensure_ascii=False, separators=(",", ":"))],
                     )
                     batch.clear()
+                    batch_characters = 0
 
                 def write_row(row: TransformationImpactRow) -> None:
-                    nonlocal ordinal
-                    batch.append(
-                        [
-                            ordinal,
-                            row.dataset,
-                            row.source_row,
-                            row.source_column,
-                            row.target_field,
-                            row.raw_value,
-                            row.proposed_value,
-                            row.rules,
-                            row.outcome,
-                            row.message,
-                        ]
+                    nonlocal batch_characters, ordinal
+                    row_characters = sum(
+                        len(value)
+                        for value in (
+                            row.dataset, row.source_column, row.target_field,
+                            row.raw_value, row.proposed_value, row.rules,
+                            row.outcome, row.message,
+                        )
                     )
+                    if batch and batch_characters + row_characters > (
+                        _IMPACT_JSON_BATCH_CHARACTER_LIMIT
+                    ):
+                        flush()
+                    batch.append({
+                        "ordinal": ordinal,
+                        "dataset": row.dataset,
+                        "source_row": row.source_row,
+                        "source_column": row.source_column,
+                        "target_field": row.target_field,
+                        "raw_value": row.raw_value,
+                        "proposed_value": row.proposed_value,
+                        "rules": row.rules,
+                        "outcome": row.outcome,
+                        "message": row.message,
+                    })
+                    batch_characters += row_characters
                     ordinal += 1
-                    if len(batch) >= TRANSFORMATION_IMPACT_ROW_BATCH_SIZE:
+                    if (
+                        len(batch) >= TRANSFORMATION_IMPACT_ROW_BATCH_SIZE
+                        or batch_characters >= _IMPACT_JSON_BATCH_CHARACTER_LIMIT
+                    ):
                         flush()
 
                 try:

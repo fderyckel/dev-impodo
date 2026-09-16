@@ -78,6 +78,10 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 )
                 self.assertEqual(progress_page.status_code, 200)
                 self.assertIn("data-preflight-job", progress_page.text)
+                self.assertIn('aria-label="Impodo workflow"', progress_page.text)
+                self.assertIn("Current data project", progress_page.text)
+                self.assertIn("Stage 5: Final review", progress_page.text)
+                self.assertIn("Comparison progress", progress_page.text)
                 self.assertEqual(
                     repeated.headers["location"],
                     started_response.headers["location"],

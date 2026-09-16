@@ -587,7 +587,7 @@ def prepare_bounded_direct_session(
                 run_issues.append(preparer.dataset_issue)
             row_count = 0
             included_row_count = 0
-            with _open_preparation_source(
+            with open_bounded_source(
                 workspace_state,
                 physical_selection,
                 physical,
@@ -975,7 +975,7 @@ def _cleanup_prepared_snapshot_orphans(
 
 
 @contextmanager
-def _open_preparation_source(
+def open_bounded_source(
     workspace_state: WorkspaceState,
     selection: SourceSelection,
     dataset: SourceDataset,

@@ -1,4 +1,4 @@
-{% set policy = view.mapping.row_inclusion if view.mapping else none %}
+{% set policy = view.row_inclusion_policy if view.row_inclusion_policy is defined else (view.mapping.row_inclusion if view.mapping else none) %}
 {% set policy_mode = policy.mode.value if policy else 'all_rows' %}
 <section class="mapping-row-inclusion" aria-labelledby="rows-to-use-{{ dataset_index }}" data-row-inclusion-editor>
   <div class="page-heading compact">
@@ -9,6 +9,13 @@
     </div>
     {% if not view.active and policy_mode == 'matching_rows' %}<span class="status needs_review">Rule saved</span>{% endif %}
   </div>
+
+  {% if collision_draft and view.active %}
+    <div class="notice {{ 'warning' if collision_draft.ready else 'info' }}" role="status">
+      <strong>{{ 'Unsaved collision exclusion' if collision_draft.ready else 'Collision suggestion unavailable' }}</strong>
+      <p>{{ collision_draft.message }}</p>
+    </div>
+  {% endif %}
 
   {% if view.active %}
     <fieldset class="row-inclusion-modes">

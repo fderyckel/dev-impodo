@@ -750,7 +750,7 @@ def _canonical_row_inclusion_decision(
     )
 
 
-def _row_inclusion_review_values(
+def row_inclusion_review_values(
     effective: SourceDataset,
     mapping: DatasetMapping,
     source_values: Mapping[str, object],
@@ -1127,7 +1127,7 @@ def _stage_table(
     row_decisions: list[_RowInclusionDecision] = []
     for row in table.rows:
         projected = transformer.project(row)
-        review_values = _row_inclusion_review_values(
+        review_values = row_inclusion_review_values(
             effective,
             mapping,
             projected.source_values,
@@ -1301,7 +1301,7 @@ def _stage_derived_table(
                 " / ".join(key_path[:-1]) if key_path[:-1] else None
             )
         source_values = MappingProxyType(dict(values))
-        review_values = _row_inclusion_review_values(
+        review_values = row_inclusion_review_values(
             effective,
             mapping,
             source_values,

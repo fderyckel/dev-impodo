@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from typing import Mapping
 
@@ -348,7 +349,11 @@ def _validate_scalar(
                 target_field=field_mapping.target_field,
             )
         )
-    if literal_required and field_mapping.literal_value is not None:
+    if (
+        literal_required
+        and field_mapping.literal_value is not None
+        and _literal_formula_can_run_without_row(field_mapping, columns)
+    ):
         try:
             proposed = canonicalize_scalar_value(
                 field_mapping,
@@ -430,6 +435,30 @@ def _validate_scalar(
                 target_field=field_mapping.target_field,
             )
         )
+
+
+def _literal_formula_can_run_without_row(
+    field_mapping: ScalarFieldMapping,
+    columns: Mapping[str, SourceColumnView],
+) -> bool:
+    """Defer literal output checks when a formula needs source-row columns."""
+
+    formula = field_mapping.transform.formula.strip()
+    if not formula:
+        return True
+    aliases = {
+        f"column_{getattr(column, 'ordinal', index + 1)}"
+        for index, column in enumerate(columns.values())
+    }
+    try:
+        parsed = validate_formula(formula, allowed_names=aliases)
+    except ValueError:
+        # The formula check reports the authoring error separately.
+        return False
+    return not any(
+        isinstance(node, ast.Name) and node.id in aliases
+        for node in ast.walk(parsed)
+    )
 
 
 def _validate_selection_rules(

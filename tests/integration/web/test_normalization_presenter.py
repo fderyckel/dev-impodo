@@ -8,6 +8,8 @@ from fastapi import Request
 from jinja2 import ChoiceLoader, DictLoader, Environment, FileSystemLoader
 
 from impodo.domain.preparation.quality import (
+    QualityCollisionGroup,
+    QualityCollisionMember,
     QualityDisposition,
     QualityIssue,
     QualityOutcomePolicy,
@@ -44,6 +46,8 @@ class NormalizationSetAsideTests(unittest.TestCase):
             ),
             0,
         )
+        self.context.queries.get_quality_collision_groups.return_value = {}
+        self.classification = "INTERNAL"
         self.templates = Environment(
             loader=ChoiceLoader([
                 DictLoader({"base.html": "{% block content %}{% endblock %}"}),
@@ -104,6 +108,9 @@ class NormalizationSetAsideTests(unittest.TestCase):
             **values,
             workspace_id="workspace",
             migration_context=SimpleNamespace(project_id="project"),
+            migration_project=SimpleNamespace(
+                data_classification=SimpleNamespace(value=self.classification)
+            ),
             workspace_navigation=SimpleNamespace(journey="AUTHORING"),
         )
         return html, values
@@ -189,6 +196,65 @@ class NormalizationSetAsideTests(unittest.TestCase):
         self.assertIsNone(values["set_aside_page"])
         self.assertIn("Routine preparation", html)
         self.assertIn("No changes in this view", html)
+
+    def test_collision_shows_actual_peers_and_guided_actions(self) -> None:
+        item = self._item()
+        self.context.queries.get_quality_review_page.return_value = QualityReviewPage(
+            items=(item,), matching_count=1, page=1, page_count=1,
+        )
+        self.context.queries.get_quality_collision_groups.return_value = {
+            item.row.row_id: QualityCollisionGroup(
+                dataset="contacts",
+                target_identity="RPEHD02",
+                target_scope="BI0290DBU003I04-1",
+                member_count=2,
+                members=(
+                    QualityCollisionMember(
+                        row_id=item.row.row_id,
+                        source_row=37,
+                        source_identity="5637257099",
+                        source_identity_value="5637257099",
+                        differing_values=(("product_qty", "0"),),
+                    ),
+                    QualityCollisionMember(
+                        row_id="sha256:" + "6" * 64,
+                        source_row=42,
+                        source_identity="5637257102",
+                        source_identity_value="5637257102",
+                        differing_values=(("product_qty", "1000"),),
+                    ),
+                ),
+            ),
+        }
+        self.context.queries.get_mapping_source_selection.return_value = SimpleNamespace(
+            datasets=(SimpleNamespace(
+                dataset_id="dataset-1", name="contacts",
+                columns=(SimpleNamespace(
+                    stable_key="recid-column", source_name="RecId"
+                ),),
+            ),)
+        )
+        self.context.queries.get_mapping_revision.return_value = SimpleNamespace(
+            definition=SimpleNamespace(datasets=(SimpleNamespace(
+                dataset_id="dataset-1",
+                source_identity_column_keys=("recid-column",),
+            ),))
+        )
+
+        html, _ = self._render()
+
+        self.assertIn("Inspect the 2 rows using this Odoo match", html)
+        self.assertIn("BI0290DBU003I04-1 / RPEHD02", html)
+        self.assertIn("5637257102", html)
+        self.assertIn("product_qty: 1000", html)
+        self.assertIn("Draft exclusion for this row", html)
+        self.assertIn("Review Odoo match", html)
+
+        self.classification = "RESTRICTED"
+        restricted_html, _ = self._render()
+        self.assertNotIn("5637257102", restricted_html)
+        self.assertNotIn("Draft exclusion for this row", restricted_html)
+        self.assertIn("Values are hidden for restricted data", restricted_html)
 
 
 if __name__ == "__main__":

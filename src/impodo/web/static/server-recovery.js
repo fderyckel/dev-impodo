@@ -6,7 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const title = banner.querySelector("[data-server-recovery-title]");
   const message = banner.querySelector("[data-server-recovery-message]");
-  const retry = banner.querySelector("[data-server-recovery-retry]");
+  const action = banner.querySelector("[data-server-recovery-action]");
   const help = banner.querySelector("[data-server-recovery-help]");
   const disconnectedHelp = help?.textContent.trim() || "";
   const healthUrl = banner.dataset.healthUrl || "/health";
@@ -32,6 +32,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let operation = "IDLE";
   let operationStartedAt = 0;
   let operationLabel = "This step";
+  let delayedAcknowledged = false;
   let mutationPending = false;
   let lastResponseAt = now();
   let lastSuccessAt = lastResponseAt;
@@ -59,7 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
       message.textContent =
         "Impodo is running, but this tab can no longer use it. Check the outcome before repeating an action.";
     }
-    if (retry) retry.hidden = true;
+    if (action) action.hidden = true;
     if (help) {
       help.textContent =
         "Use the most recently opened Impodo tab. Copy unsaved entries before closing this one.";
@@ -81,7 +82,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ? "The last action's outcome is unknown. Keep this tab open and check its outcome before trying again."
         : "Keep this tab open while Impodo reconnects. Saved work is unchanged.";
     }
-    if (retry) retry.hidden = false;
+    if (action) { action.hidden = false; action.textContent = "Check connection"; }
     if (help) help.textContent = disconnectedHelp;
     banner.hidden = false;
   };
@@ -93,20 +94,21 @@ document.addEventListener("DOMContentLoaded", () => {
       message.textContent =
         "Impodo is responding, but the last action's outcome is unknown. Check its result before trying again.";
     }
-    if (retry) retry.hidden = true;
+    if (action) action.hidden = true;
     if (help) help.textContent = "Do not repeat the action until its result is clear.";
     banner.hidden = false;
   };
 
   const showDelayed = () => {
     operation = "DELAYED";
+    if (delayedAcknowledged) { banner.hidden = true; return; }
     setBannerKind("warning");
     if (title) title.textContent = "Impodo is still working";
     if (message) {
-      message.textContent = `${operationLabel} is taking longer than usual. Keep this tab open.`;
+      message.textContent = `${operationLabel} is taking a while. Impodo is responding. The work is still in progress.`;
     }
-    if (retry) retry.hidden = true;
-    if (help) help.textContent = "Progress responses still confirm that Impodo is available.";
+    if (action) { action.hidden = false; action.textContent = "Got it"; }
+    if (help) help.textContent = "You do not need to start this step again.";
     banner.hidden = false;
   };
 
@@ -117,7 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setBannerKind("success");
     if (title) title.textContent = "Impodo is responding again";
     if (message) message.textContent = "Check the outcome before repeating your last action.";
-    if (retry) retry.hidden = false;
+    if (action) action.hidden = true;
     if (help) help.textContent = "Impodo answered the latest connection check.";
     banner.hidden = false;
     document.dispatchEvent(new CustomEvent("impodo:server-reconnected"));
@@ -172,6 +174,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const beginOperation = ({ label = "This step", mutation = false } = {}) => {
     operation = "BUSY";
+    delayedAcknowledged = false;
     operationStartedAt = now();
     operationLabel = label;
     mutationPending = Boolean(mutation);
@@ -233,7 +236,12 @@ document.addEventListener("DOMContentLoaded", () => {
     waitForVisibleCheck = true;
     void checkHealth();
   });
-  retry?.addEventListener("click", () => void checkHealth());
+  action?.addEventListener("click", () => {
+    if (operation === "DELAYED" && connectivity === "CONNECTED") {
+      delayedAcknowledged = true;
+      banner.hidden = true;
+    } else void checkHealth();
+  });
   window.addEventListener("pagehide", () => {
     window.clearTimeout(nextCheck);
     window.clearTimeout(recoveredNotice);

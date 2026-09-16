@@ -81,6 +81,10 @@ from ...domain.mapping.row_inclusion_review import (
     RowInclusionReviewOutcome,
 )
 from ...domain.staging.transformation_impact import TransformationImpactFilter
+from ...domain.staging.scale import (
+    BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+    MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
+)
 from ..constants import (
     TRANSFORMATION_IMPACT_OUTCOMES,
     TRANSFORMATION_IMPACT_PAGE_SIZE,
@@ -2022,18 +2026,30 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 SourceLoadError,
                 WorkspaceError,
                 ValueError,
-            ):
-                row_projection_error = (
-                    "Protected Odoo source values remain inside Impodo."
-                    if any(
-                        dataset.origin.value == "ODOO"
-                        for dataset in selection.datasets
+            ) as error:
+                if any(
+                    dataset.origin.value == "ODOO"
+                    for dataset in selection.datasets
+                ):
+                    row_projection_error = (
+                        "Protected Odoo source values remain inside Impodo."
                     )
-                    else (
+                elif isinstance(error, ReadinessError) and sum(
+                    item.row_count for item in selection.datasets
+                ) > MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT:
+                    row_projection_error = (
+                        "The matching workbook cannot include row-level detail "
+                        f"above {MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT:,} "
+                        "source rows yet. Where applicable, use the rows-to-use "
+                        "and rule-effects reviews for direct mappings up to "
+                        f"{BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:,} rows. "
+                        "The rest of this workbook remains available."
+                    )
+                else:
+                    row_projection_error = (
                         "Impodo could not produce the row preview for this "
                         "check. Review Needs attention and recreate the workbook."
                     )
-                )
 
             def write_workbook() -> None:
                 with context.artifacts.prepare_report(

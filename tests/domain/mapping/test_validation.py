@@ -1284,6 +1284,60 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         )
         self.assertNotEqual(definition.content_hash, changed.content_hash)
 
+    def test_fallback_arithmetic_using_another_source_column_is_checked_per_row(
+        self,
+    ) -> None:
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        fallback = replace(
+            company.fields[0],
+            value_source=ScalarValueSource.SOURCE_WITH_FALLBACK,
+            literal_value="0",
+            transform=ScalarTransformPolicy(formula="value / column_1 * 1000"),
+        )
+        changed = replace(
+            definition,
+            datasets=(replace(company, fields=(fallback,)), partner),
+        )
+
+        result = self.validator.validate(
+            changed,
+            self.selection,
+            self.schema,
+            self.governance,
+        )
+
+        self.assertEqual(result.status, MappingValidationStatus.VALID)
+        self.assertEqual(
+            evaluate_scalar_mapping_value(
+                fallback,
+                None,
+                source_values_by_ordinal={1: 1},
+            ),
+            "0",
+        )
+        invalid_literal = replace(
+            fallback,
+            literal_value="not a number",
+            transform=ScalarTransformPolicy(formula="value * 1000"),
+        )
+        invalid_result = self.validator.validate(
+            replace(
+                definition,
+                datasets=(
+                    replace(company, fields=(invalid_literal,)),
+                    partner,
+                ),
+            ),
+            self.selection,
+            self.schema,
+            self.governance,
+        )
+        self.assertIn(
+            "MAPPING_LITERAL_INVALID",
+            {issue.code for issue in invalid_result.issues},
+        )
+
     def test_source_choices_map_to_selection_keys_before_validation(self) -> None:
         mapping = ScalarFieldMapping(
             target_field="lang",

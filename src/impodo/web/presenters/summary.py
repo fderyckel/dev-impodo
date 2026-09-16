@@ -156,6 +156,51 @@ def _render_normalization(
             page=requested_page,
             page_size=NORMALIZATION_GROUPS_PER_PAGE,
         )
+    collision_groups = {}
+    collision_routes = {}
+    if set_aside_page is not None:
+        collision_items = tuple(
+            item for item in set_aside_page.items
+            if any(
+                issue.reason_code == "POST_TRANSFORM_IDENTITY_COLLISION"
+                for issue in item.issues
+            )
+        )
+        if collision_items:
+            collision_groups = context.queries.get_quality_collision_groups(
+                workspace_id,
+                summary.quality_run_id,
+                tuple(item.row.row_id for item in collision_items),
+            )
+            selection = context.queries.get_mapping_source_selection(workspace_id)
+            revision = context.queries.get_mapping_revision(workspace_id)
+            if selection is not None:
+                mapped = (
+                    {item.dataset_id: item for item in revision.definition.datasets}
+                    if revision is not None else {}
+                )
+                collision_routes = {
+                    dataset.name: {
+                        "index": index,
+                        "rows_url": (
+                            f"/workspaces/{workspace_id}/mapping"
+                            f"?mapping_dataset={index}#rows-to-use-{index}"
+                        ),
+                        "match_url": (
+                            f"/workspaces/{workspace_id}/mapping"
+                            f"?mapping_dataset={index}#target-identity-{index}"
+                        ),
+                        "source_key_fields": tuple(
+                            column.source_name
+                            for column in dataset.columns
+                            if column.stable_key in (
+                                mapped[dataset.dataset_id].source_identity_column_keys
+                                if dataset.dataset_id in mapped else ()
+                            )
+                        ),
+                    }
+                    for index, dataset in enumerate(selection.datasets)
+                }
     page_count = max(
         1,
         (len(matching) + NORMALIZATION_GROUPS_PER_PAGE - 1)
@@ -181,6 +226,8 @@ def _render_normalization(
         dry_run=dry_run,
         review_items=page_items,
         set_aside_page=set_aside_page,
+        collision_groups=collision_groups,
+        collision_routes=collision_routes,
         set_aside_row_start=(page - 1) * NORMALIZATION_GROUPS_PER_PAGE + 1,
         set_aside_row_end=min(page * NORMALIZATION_GROUPS_PER_PAGE, matching_count),
         rejected_items=tuple(

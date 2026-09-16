@@ -953,6 +953,28 @@ class QualityReviewPage:
     page_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class QualityCollisionMember:
+    """One prepared row sharing an Odoo match with another source row."""
+
+    row_id: str
+    source_row: int
+    source_identity: str
+    source_identity_value: str | None
+    differing_values: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class QualityCollisionGroup:
+    """Bounded, read-only explanation of one prepared identity collision."""
+
+    dataset: str
+    target_identity: str
+    target_scope: str
+    member_count: int
+    members: tuple[QualityCollisionMember, ...]
+
+
 def default_quality_ruleset(
     *,
     workspace_id: str,
@@ -2033,7 +2055,11 @@ def _correction_route(family: QualityRuleFamily) -> str:
     if family in {QualityRuleFamily.REQUIRED_IF, QualityRuleFamily.EXACTLY_ONE_OF, QualityRuleFamily.ORDERED_COMPARISON, QualityRuleFamily.EQUALITY, QualityRuleFamily.INEQUALITY}:
         return "Correct the source or change this guided data check, then check all rows again."
     if family is QualityRuleFamily.IDENTITY_COLLISION:
-        return "Correct the source identity or field match, then check all rows again."
+        return (
+            "Review the Odoo matching fields and which source rows to use, "
+            "then check all rows again. A distinct source ID alone does not "
+            "make the Odoo match unique."
+        )
     if family is QualityRuleFamily.RELATIONSHIP_READINESS:
         return "Correct the linked source record or field match, then check all rows again."
     return "Correct the source or field match, then check all rows again."

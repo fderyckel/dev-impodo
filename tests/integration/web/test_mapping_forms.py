@@ -5,11 +5,13 @@ from tests.support.paths import REPOSITORY_ROOT
 from datetime import UTC, datetime
 import json
 import unittest
+from unittest.mock import MagicMock
 from dataclasses import replace
 from types import SimpleNamespace
 from uuid import uuid4
 
 from jinja2 import Environment, FileSystemLoader
+from fastapi import Request
 from starlette.datastructures import FormData
 
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
@@ -21,6 +23,14 @@ from impodo.domain.mapping.contracts import (
     RelationshipValueSource,
     ResolverOrigin,
     RowInclusionPolicy,
+    RowInclusionMode,
+    RowInclusionJoin,
+    RowInclusionCondition,
+    SelectionConditionOperator,
+)
+from impodo.domain.preparation.quality import (
+    QualityCollisionGroup,
+    QualityCollisionMember,
 )
 from impodo.domain.mapping.validation.evidence import MappingValidationStatus
 from impodo.domain.mapping.validation.validator import MappingSemanticValidator
@@ -51,6 +61,7 @@ from impodo.web.presenters.mapping_forms import (
     _text_steps_from_form,
 )
 from impodo.web.presenters.mapping_view import (
+    _collision_exclusion_draft,
     _is_phone_field,
     _mapping_dataset_views,
     _matching_order_custom_warnings,
@@ -60,6 +71,100 @@ from impodo.web.presenters.mapping_view import (
 
 
 class OrderedTextStepFormTests(unittest.TestCase):
+    def test_collision_exclusion_prefills_but_does_not_save_mapping(self) -> None:
+        row_id = "sha256:" + "a" * 64
+        request = Request({
+            "type": "http",
+            "query_string": (
+                f"mapping_dataset=0&collision_run=quality-run&collision_exclude={row_id}"
+            ).encode(),
+        })
+        context = MagicMock()
+        context.normalization.current_summary.return_value = SimpleNamespace(
+            quality_run_id="quality-run"
+        )
+        context.queries.get_quality_collision_groups.return_value = {
+            row_id: QualityCollisionGroup(
+                dataset="lines", target_identity="P1", target_scope="B1",
+                member_count=2,
+                members=(QualityCollisionMember(
+                    row_id=row_id, source_row=7,
+                    source_identity="123", source_identity_value="123",
+                    differing_values=(),
+                ),),
+            )
+        }
+        selection = SimpleNamespace(datasets=(SimpleNamespace(
+            dataset_id="lines-id", name="lines",
+            columns=(SimpleNamespace(
+                stable_key="recid", source_name="RecId"
+            ),),
+        ),))
+        definition = SimpleNamespace(datasets=(SimpleNamespace(
+            dataset_id="lines-id",
+            source_identity_column_keys=("recid",),
+            row_inclusion=RowInclusionPolicy(),
+        ),))
+
+        overrides, notice = _collision_exclusion_draft(
+            request, context, "workspace", selection, definition, 0, False
+        )
+
+        policy = overrides["lines-id"]
+        self.assertEqual(policy.mode, RowInclusionMode.MATCHING_ROWS)
+        self.assertEqual(policy.conditions[0].source_column_key, "recid")
+        self.assertEqual(policy.conditions[0].operator, SelectionConditionOperator.NOT_EQUALS)
+        self.assertEqual(policy.conditions[0].comparison_value, "123")
+        self.assertTrue(notice["ready"])
+        self.assertIn("Draft only", notice["message"])
+        context.queries.get_quality_collision_groups.assert_called_once()
+
+    def test_collision_exclusion_does_not_rewrite_any_join_rule(self) -> None:
+        row_id = "sha256:" + "b" * 64
+        request = Request({
+            "type": "http",
+            "query_string": f"collision_run=quality-run&collision_exclude={row_id}".encode(),
+        })
+        context = MagicMock()
+        context.normalization.current_summary.return_value = SimpleNamespace(
+            quality_run_id="quality-run"
+        )
+        context.queries.get_quality_collision_groups.return_value = {
+            row_id: QualityCollisionGroup(
+                dataset="lines", target_identity="P1", target_scope="B1",
+                member_count=2,
+                members=(QualityCollisionMember(
+                    row_id=row_id, source_row=7,
+                    source_identity="123", source_identity_value="123",
+                    differing_values=(),
+                ),),
+            )
+        }
+        selection = SimpleNamespace(datasets=(SimpleNamespace(
+            dataset_id="lines-id", name="lines",
+            columns=(SimpleNamespace(stable_key="recid", source_name="RecId"),),
+        ),))
+        definition = SimpleNamespace(datasets=(SimpleNamespace(
+            dataset_id="lines-id", source_identity_column_keys=("recid",),
+            row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS,
+                join=RowInclusionJoin.ANY,
+                conditions=(RowInclusionCondition(
+                    condition_id=str(uuid4()), source_column_key="recid",
+                    operator=SelectionConditionOperator.EQUALS,
+                    comparison_value="456",
+                ),),
+            ),
+        ),))
+
+        overrides, notice = _collision_exclusion_draft(
+            request, context, "workspace", selection, definition, 0, False
+        )
+
+        self.assertEqual(overrides, {})
+        self.assertFalse(notice["ready"])
+        self.assertIn("cannot safely", notice["message"])
+
     def test_rows_to_use_starts_with_one_visible_condition(self) -> None:
         slots = _row_inclusion_slots("dataset:products", RowInclusionPolicy())
 

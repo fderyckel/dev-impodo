@@ -39,8 +39,11 @@ from ...domain.mapping.contracts import (
     MAX_ROW_INCLUSION_CONDITIONS,
     RelationshipValueSource,
     ResolverOrigin,
+    RowInclusionCondition,
+    RowInclusionJoin,
     RowInclusionMode,
     RowInclusionPolicy,
+    SelectionConditionOperator,
     ScalarFieldMapping,
     ScalarValueSource,
     relationship_target_fields,
@@ -345,6 +348,28 @@ def _render_mapping(
         if selection and schema
         else ()
     )
+    collision_overrides, collision_draft = _collision_exclusion_draft(
+        request,
+        context,
+        workspace_id,
+        selection,
+        active_definition,
+        active_dataset_index,
+        has_unvalidated_changes,
+    )
+    if collision_overrides:
+        dataset_views = tuple(
+            {
+                **view,
+                "row_inclusion_policy": collision_overrides[view["source"].dataset_id],
+                "row_inclusion_slots": _row_inclusion_slots(
+                    view["source"].dataset_id,
+                    collision_overrides[view["source"].dataset_id],
+                ),
+            }
+            if view["source"].dataset_id in collision_overrides else view
+            for view in dataset_views
+        )
     dataset_views = _ordered_mapping_dataset_views(
         dataset_views,
         matching_order,
@@ -517,6 +542,7 @@ def _render_mapping(
             formula_authoring_issues_by_dataset
         ),
         dataset_views=dataset_views,
+        collision_draft=collision_draft,
         matching_order=matching_order_view,
         warning_issues=warning_issues,
         readonly_field_recovery=readonly_field_recovery,
@@ -2635,6 +2661,133 @@ def _row_inclusion_slots(
         }
         for index in range(MAX_ROW_INCLUSION_CONDITIONS)
     )
+
+
+def _collision_exclusion_draft(
+    request,
+    context,
+    workspace_id,
+    selection,
+    definition,
+    active_dataset_index,
+    has_unvalidated_changes,
+):
+    """Prefill, but never save, one safe source-key exclusion from review."""
+
+    row_id = request.query_params.get("collision_exclude", "").strip()
+    run_id = request.query_params.get("collision_run", "").strip()
+    if not row_id and not run_id:
+        return {}, None
+    unavailable = {
+        "ready": False,
+        "message": (
+            "This collision suggestion is no longer current. Review the "
+            "saved Rows to use rule before changing it."
+        ),
+    }
+    if not row_id or not run_id or selection is None or definition is None:
+        return {}, unavailable
+    if has_unvalidated_changes:
+        return {}, {
+            "ready": False,
+            "message": (
+                "Save or discard the existing mapping draft before adding "
+                "a collision exclusion. No rule was changed."
+            ),
+        }
+    owner = context.workspace_views.get(workspace_id, actor=context.actor)
+    if owner.migration_project.data_classification.value == "RESTRICTED":
+        return {}, {
+            "ready": False,
+            "message": (
+                "Automatic row exclusions are not offered for restricted data. "
+                "Review the source-key rule manually."
+            ),
+        }
+    summary = context.normalization.current_summary(workspace_id)
+    if summary is None or summary.quality_run_id != run_id:
+        return {}, unavailable
+    try:
+        group = context.queries.get_quality_collision_groups(
+            workspace_id, run_id, (row_id,)
+        ).get(row_id)
+    except WorkspaceError:
+        return {}, unavailable
+    if group is None:
+        return {}, unavailable
+    member = next((item for item in group.members if item.row_id == row_id), None)
+    if member is None or member.source_identity_value is None:
+        return {}, unavailable
+    located = next(
+        (
+            (index, dataset)
+            for index, dataset in enumerate(selection.datasets)
+            if dataset.name == group.dataset
+        ),
+        None,
+    )
+    if located is None or located[0] != active_dataset_index:
+        return {}, unavailable
+    dataset_index, dataset = located
+    mapping = next(
+        (item for item in definition.datasets if item.dataset_id == dataset.dataset_id),
+        None,
+    )
+    if mapping is None or len(mapping.source_identity_column_keys) != 1:
+        return {}, unavailable
+    source_key = mapping.source_identity_column_keys[0]
+    column = next(
+        (item for item in dataset.columns if item.stable_key == source_key), None
+    )
+    if column is None:
+        return {}, unavailable
+    policy = mapping.row_inclusion
+    if policy.mode is RowInclusionMode.MATCHING_ROWS and (
+        policy.join is not RowInclusionJoin.ALL
+        or len(policy.conditions) >= MAX_ROW_INCLUSION_CONDITIONS
+    ):
+        return {}, {
+            "ready": False,
+            "message": (
+                "This table already has a Rows to use rule that cannot safely "
+                "accept an automatic exclusion. Review its conditions manually."
+            ),
+        }
+    if any(
+        item.source_column_key == source_key
+        and item.operator is SelectionConditionOperator.NOT_EQUALS
+        and item.comparison_value == member.source_identity_value
+        for item in policy.conditions
+    ):
+        return {}, {
+            "ready": False,
+            "message": "This source-key exclusion is already in the saved rule.",
+        }
+    condition = RowInclusionCondition(
+        condition_id=str(uuid5(
+            NAMESPACE_URL,
+            f"impodo:collision-exclusion:{dataset.dataset_id}:{row_id}",
+        )),
+        source_column_key=source_key,
+        operator=SelectionConditionOperator.NOT_EQUALS,
+        comparison_value=member.source_identity_value,
+        value_type="string",
+    )
+    draft = RowInclusionPolicy(
+        mode=RowInclusionMode.MATCHING_ROWS,
+        conditions=(*policy.conditions, condition),
+        join=RowInclusionJoin.ALL,
+    )
+    return {dataset.dataset_id: draft}, {
+        "ready": True,
+        "dataset_index": dataset_index,
+        "message": (
+            f"Draft only: include rows where {column.source_name} is not "
+            f"{member.source_identity_value}. Save progress, review the included "
+            "and excluded rows, and prepare again. This mapping rule can carry "
+            "into future runs if you publish it."
+        ),
+    }
 
 
 def _odoo_pinned_write_eligible(field) -> bool:

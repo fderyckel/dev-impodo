@@ -126,6 +126,7 @@
     </div>
 
     {% if review_status == 'set_aside' %}
+      {% set restricted = migration_project.data_classification.value == 'RESTRICTED' %}
       {% if set_aside_page.items %}
         <div class="table-scroll" data-normalization-table-scroll>
           <table class="data-table readiness-row-table">
@@ -156,11 +157,55 @@
                         Set aside during preparation. No detailed finding was saved for this record.
                       {% endif %}
                     {% endfor %}
+                    {% set collision = collision_groups.get(row.row_id) %}
+                    {% if collision %}
+                      <details class="technical-details" data-identity-collision>
+                        <summary>Inspect the {{ collision.member_count }} rows using this Odoo match</summary>
+                        {% if restricted %}
+                          <p>Values are hidden for restricted data. The source row numbers below still identify the affected records.</p>
+                        {% else %}
+                          <p><strong>Odoo match:</strong> {{ collision.target_scope }} / {{ collision.target_identity }}</p>
+                        {% endif %}
+                        <table class="data-table">
+                          <thead><tr><th>Source row</th><th>Unique source key</th><th>Prepared values that differ</th><th>Action</th></tr></thead>
+                          <tbody>
+                            {% for member in collision.members %}
+                              <tr>
+                                <td>{{ member.source_row }}</td>
+                                <td>{{ 'Hidden for restricted data' if restricted else member.source_identity }}</td>
+                                <td>
+                                  {% if restricted %}Hidden for restricted data
+                                  {% elif member.differing_values %}
+                                    {% for field, value in member.differing_values %}<small class="row-field">{{ field }}: {{ value }}</small>{% endfor %}
+                                  {% else %}No differing prepared values{% endif %}
+                                </td>
+                                <td>
+                                  {% set route = collision_routes.get(row.dataset) %}
+                                  {% if route and route.source_key_fields|length == 1 and member.source_identity_value and not restricted %}
+                                    <a class="button secondary small" href="/workspaces/{{ workspace_id }}/mapping?mapping_dataset={{ route.index }}&amp;collision_run={{ normalization.quality_run_id }}&amp;collision_exclude={{ member.row_id }}#rows-to-use-{{ route.index }}">Draft exclusion for this row</a>
+                                  {% else %}Review source key rule{% endif %}
+                                </td>
+                              </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                        {% if collision.member_count > collision.members|length %}<p>Showing {{ collision.members|length }} of {{ collision.member_count }} rows; review the full source before deciding.</p>{% endif %}
+                        <p>The source keys distinguish these rows in Impodo, but the Odoo match shown above does not. Do not include both until the match is unique.</p>
+                      </details>
+                    {% endif %}
                   </td>
                   <td>
                     {% for owner in item.issues|map(attribute='owner_label')|unique %}{% if owner %}<strong class="row-field">{{ owner }}</strong>{% endif %}{% endfor %}
                     <p>{{ item.correction_route or "Review the source and rules, then prepare the data again." }}</p>
-                    <a class="button secondary small" href="/workspaces/{{ workspace_id }}/mapping">Review field and row rules</a>
+                    {% set collision_route = collision_routes.get(row.dataset) %}
+                    {% if collision and collision_route %}
+                      <p>If a row should not be loaded, use <strong>Rows to use</strong> to exclude its unique source key, then review all included and excluded rows. This changes the saved mapping, not the source file, and may affect future runs.</p>
+                      <a class="button secondary small" href="{{ collision_route.rows_url }}">Review Rows to use</a>
+                      <p>If both rows are intended, choose a persistent, unique Odoo matching field. A source-only key cannot make the current Odoo match unique.</p>
+                      <a class="button secondary small" href="{{ collision_route.match_url }}">Review Odoo match</a>
+                    {% else %}
+                      <a class="button secondary small" href="/workspaces/{{ workspace_id }}/mapping">Review field and row rules</a>
+                    {% endif %}
                     <details class="technical-details">
                       <summary>Support details</summary>
                       <code>{{ row.effective_disposition.value }} - {{ row.row_id }}</code>

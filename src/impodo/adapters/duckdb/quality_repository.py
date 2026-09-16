@@ -29,6 +29,8 @@ from impodo.domain.preparation.quality import (
     QUALITY_EVALUATOR_VERSION,
     QUALITY_RULESET_CONTRACT_VERSION,
     QualityDisposition,
+    QualityCollisionGroup,
+    QualityCollisionMember,
     QualityIssue,
     QualityOutcomePolicy,
     QualityRuleSet,
@@ -102,6 +104,22 @@ _SOURCE_ACCOUNTING_LINK_JSON_STRUCTURE = """[{
     "accounting_ordinal":"BIGINT",
     "row_id":"VARCHAR"
 }]"""
+
+
+def _collision_display(value: object) -> str:
+    """Render a bounded identity/value label for a prepared review."""
+
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, dict):
+        if "key" in value:
+            return _collision_display(value["key"])
+        if "value" in value:
+            return _collision_display(value["value"])
+        return json.dumps(value, sort_keys=True, default=str)[:120]
+    if isinstance(value, (list, tuple)):
+        return " / ".join(_collision_display(item) for item in value)[:120]
+    return str(value)[:120]
 
 
 class QualityRepository(DuckDbRepository):
@@ -1024,6 +1042,144 @@ class QualityRepository(DuckDbRepository):
             page=current_page,
             page_count=page_count,
         )
+
+    def get_quality_collision_groups(
+        self,
+        workspace_id: str,
+        run_id: str,
+        row_ids: Sequence[str],
+    ) -> dict[str, QualityCollisionGroup]:
+        """Explain collision groups on one review page without loading the run."""
+
+        if not row_ids:
+            return {}
+        if len(row_ids) > 250:
+            raise WorkspaceError("Too many collision rows were requested")
+        try:
+            canonical_run_id = str(UUID(run_id))
+        except (ValueError, AttributeError) as error:
+            raise WorkspaceError("Quality run identifier is invalid") from error
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            current = connection.execute(
+                "SELECT staging_run_id FROM quality_run WHERE run_id = ?",
+                [canonical_run_id],
+            ).fetchone()
+            if current is None:
+                raise WorkspaceError("Quality run was not found")
+            staging_run_id = str(current[0])
+            placeholders = ", ".join("?" for _ in row_ids)
+            selected = connection.execute(
+                f"""
+                SELECT row_id, quality_identity_key
+                  FROM canonical_staging_row
+                 WHERE run_id = ? AND row_id IN ({placeholders})
+                   AND quality_identity_key IS NOT NULL
+                """,
+                [staging_run_id, *row_ids],
+            ).fetchall()
+            keys_by_row = {str(row_id): str(key) for row_id, key in selected}
+            keys = tuple(sorted(set(keys_by_row.values())))
+            if not keys:
+                return {}
+            key_placeholders = ", ".join("?" for _ in keys)
+            members = connection.execute(
+                f"""
+                SELECT quality_identity_key, row_id, source_row, row_json,
+                       COUNT(*) OVER (PARTITION BY quality_identity_key)
+                           AS member_count,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY quality_identity_key
+                           ORDER BY source_row, row_id
+                       ) AS member_number
+                  FROM canonical_staging_row
+                 WHERE run_id = ?
+                   AND quality_identity_key IN ({key_placeholders})
+                QUALIFY member_number <= 25
+                    OR row_id IN ({placeholders})
+                 ORDER BY quality_identity_key, source_row, member_number
+                """,
+                [staging_run_id, *keys, *row_ids],
+            ).fetchall()
+
+        grouped: dict[str, list[tuple[str, int, dict[str, object], int]]] = {}
+        for key, row_id, source_row, row_json, member_count, _number in members:
+            try:
+                payload = json.loads(str(row_json))
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            grouped.setdefault(str(key), []).append(
+                (str(row_id), int(source_row), payload, int(member_count))
+            )
+        by_key: dict[str, QualityCollisionGroup] = {}
+        for key, entries in grouped.items():
+            if len(entries) < 2:
+                continue
+            payloads = [payload for _id, _row, payload, _count in entries]
+            fields = sorted({
+                field
+                for payload in payloads
+                for section in ("proposed_values", "references")
+                for field in dict(payload.get(section, {}))
+            })
+            differing = tuple(
+                field for field in fields
+                if len({
+                    json.dumps(
+                        payload.get("proposed_values", {}).get(
+                            field, payload.get("references", {}).get(field)
+                        ),
+                        sort_keys=True,
+                        default=str,
+                    )
+                    for payload in payloads
+                }) > 1
+            )[:12]
+            first = payloads[0]
+            by_key[key] = QualityCollisionGroup(
+                dataset=str(first.get("dataset", "")),
+                target_identity=_collision_display(first.get("target_identity")),
+                target_scope=_collision_display(first.get("target_scope")),
+                member_count=entries[0][3],
+                members=tuple(
+                    QualityCollisionMember(
+                        row_id=row_id,
+                        source_row=source_row,
+                        source_identity=_collision_display(payload.get("source_identity")),
+                        source_identity_value=(
+                            str(payload["source_identity"][0])
+                            if isinstance(payload.get("source_identity"), list)
+                            and len(payload["source_identity"]) == 1
+                            and isinstance(payload["source_identity"][0], (str, int))
+                            and 0 < len(str(payload["source_identity"][0])) <= 10_000
+                            else None
+                        ),
+                        differing_values=tuple(
+                            (
+                                field,
+                                _collision_display(
+                                    payload.get("proposed_values", {}).get(
+                                        field,
+                                        payload.get("references", {}).get(field),
+                                    )
+                                ),
+                            )
+                            for field in differing
+                        ),
+                    )
+                    for row_id, source_row, payload, _count in entries
+                ),
+            )
+        return {
+            row_id: by_key[key]
+            for row_id, key in keys_by_row.items()
+            if key in by_key
+        }
+
     @staticmethod
     def _insert_quality_evidence(
         connection: duckdb.DuckDBPyConnection,

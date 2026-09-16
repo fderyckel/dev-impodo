@@ -692,14 +692,17 @@ The supervisor retains that secret across its one server-child restart, while
 a new launcher creates a new secret and rejects the earlier cookie.
 
 `server-recovery.js` starts a same-origin, no-store health request every four
-seconds and gives each request a two-second timeout. Three consecutive network,
-timeout, invalid-response, or server failures produce **Impodo is not
-responding**. A fully timed-out sequence is therefore visible within 18 seconds
-in an active tab. The script dispatches `impodo:server-disconnected`, which
+seconds and gives each request a four-second timeout. A known action still in
+progress after 20 seconds produces **Impodo is still working**. Its **Got it**
+button hides only that notice for the current action. The script shows
+**Connection to Impodo was interrupted** after at least 45 seconds without a
+server response and a recent failed or timed-out connection check. It then
+dispatches `impodo:server-disconnected`, which
 clears shared single-submit state and makes an in-flight Match data action show
 an unknown outcome beside its action buttons. It never repeats the mutation. A
 successful later health check shows **Impodo is responding again** and
-dispatches `impodo:server-reconnected`.
+dispatches `impodo:server-reconnected`. **Check connection** requests an
+immediate health check without repeating the action.
 
 An HTTP 401 proves that the server answered but the browser session is no
 longer valid. The script immediately shows **This Impodo session has ended**,

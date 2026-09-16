@@ -28,6 +28,10 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.application.workspace.preparation.preparation_service import (
     stage_browser_mapping,
 )
+from .bounded_direct_review import (
+    direct_transformation_impact,
+    uses_bounded_direct_review,
+)
 
 
 class TransformationImpactWorkspaceRepository(Protocol):
@@ -290,6 +294,21 @@ class TransformationImpactService:
         def evaluate(
             write_impact: Callable[[TransformationImpactRow], None],
         ) -> TransformationImpactReport:
+            if uses_bounded_direct_review(
+                context.physical_selection,
+                context.effective_selection,
+                context.plan,
+            ):
+                return direct_transformation_impact(
+                    context.workspace_state,
+                    context.revision.definition,
+                    context.physical_selection,
+                    context.effective_selection,
+                    catalogs,
+                    self.artifacts,
+                    source_snapshots,
+                    write_impact,
+                )
             staged = stage_browser_mapping(
                 context.workspace_state,
                 context.revision.definition,

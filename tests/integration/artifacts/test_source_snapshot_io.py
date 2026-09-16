@@ -5,9 +5,12 @@ from tests.support.paths import REPOSITORY_ROOT
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from io import BytesIO
+import os
 from pathlib import Path
+import psutil
 import re
 import tempfile
+from time import perf_counter
 import unittest
 from unittest.mock import patch
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -21,11 +24,21 @@ from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
 from impodo.adapters.duckdb.source_repository import SourceRepository
+from impodo.adapters.duckdb.row_inclusion_review_repository import (
+    RowInclusionReviewRepository,
+)
 from impodo.adapters.duckdb.staging_repository import StagingRepository
+from impodo.adapters.duckdb.transformation_impact_repository import (
+    TransformationImpactRepository,
+)
 from impodo.adapters.polars_transformation import PolarsTransformationAdapter
 from impodo.application.workspace.preparation.bounded_preparation import (
     direct_preparation_row_limit,
     prepare_bounded_direct_session,
+)
+from impodo.application.workspace.mapping.bounded_direct_review import (
+    direct_row_inclusion_review,
+    direct_transformation_impact,
 )
 from impodo.application.workspace.preparation.preparation_service import (
     stage_browser_mapping,
@@ -50,6 +63,7 @@ from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
 )
+from impodo.domain.staging.transformation_impact import TransformationImpactIdentity
 from impodo.application.data_version.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
@@ -439,6 +453,385 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
         self.assertEqual(bounded.run.reconciliation.excluded_rows, 1)
         self.assertEqual(bounded.run.datasets[0].input_rows_used, 2)
+
+    def test_direct_stage_three_reviews_match_materialized_evidence(self) -> None:
+        workspace_state, source_file, catalog = self._registered_csv(
+            b"Code,Name,Active\nC1, Alpha ,true\nC2,Beta,false\nC3, Gamma ,true\n"
+        )
+        selection = _selection_for(workspace_state, source_file, catalog)
+        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
+            workspace_state,
+            selection,
+            selection.datasets[0],
+            catalog,
+            source_file,
+        ).snapshot
+        definition = _direct_mapping(selection)
+        active = selection.datasets[0].columns[2]
+        mapping = replace(
+            definition.datasets[0],
+            row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS,
+                conditions=(
+                    RowInclusionCondition(
+                        condition_id=str(uuid4()),
+                        source_column_key=active.stable_key,
+                        operator=SelectionConditionOperator.EQUALS,
+                        comparison_value="true",
+                    ),
+                ),
+            ),
+            fields=(
+                replace(
+                    definition.datasets[0].fields[0],
+                    transform=ScalarTransformPolicy(trim=True),
+                ),
+            ),
+        )
+        definition = replace(definition, datasets=(mapping,))
+        materialized_impacts = []
+        materialized = stage_browser_mapping(
+            workspace_state,
+            definition,
+            selection,
+            selection,
+            None,
+            (catalog,),
+            self.artifacts,
+            source_snapshots=(snapshot,),
+            collect_transformation_impact=True,
+            transformation_detail_limit=0,
+            transformation_impact_sink=materialized_impacts.append,
+        )
+        direct_impacts = []
+        direct_report = direct_transformation_impact(
+            workspace_state,
+            definition,
+            selection,
+            selection,
+            (catalog,),
+            self.artifacts,
+            (snapshot,),
+            direct_impacts.append,
+        )
+        direct_rows = direct_row_inclusion_review(
+            workspace_state,
+            definition,
+            selection,
+            selection,
+            (catalog,),
+            self.artifacts,
+            (snapshot,),
+        )
+
+        self.assertEqual(direct_report, materialized.transformation_impact)
+        self.assertEqual(direct_impacts, materialized_impacts)
+        self.assertEqual(direct_rows, materialized.row_inclusion_review)
+        self.assertEqual(direct_rows.included_count, 2)
+        self.assertEqual(direct_rows.excluded_count, 1)
+
+    def test_direct_reviews_reconcile_multiple_physical_datasets(self) -> None:
+        workspace_state, source_file, catalog = self._registered_csv(
+            b"Code,Name,Active\nC1, Alpha ,true\nC2,Beta,false\n"
+        )
+        first_selection = _selection_for(workspace_state, source_file, catalog)
+        first, = first_selection.datasets
+        second = replace(
+            first,
+            dataset_id="dataset:" + uuid4().hex[:24],
+            name="second_customers",
+        )
+        selection = replace(
+            first_selection,
+            datasets=(first, second),
+            content_hash="sha256:" + "2" * 64,
+        )
+        publisher = SourceSnapshotPublisher(self.artifacts)
+        snapshots = tuple(
+            publisher.publish(workspace_state, selection, dataset, catalog, source_file).snapshot
+            for dataset in selection.datasets
+        )
+        definition = _direct_mapping(selection)
+        active = first.columns[2]
+        first_mapping = replace(
+            definition.datasets[0],
+            row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS,
+                conditions=(
+                    RowInclusionCondition(
+                        condition_id=str(uuid4()),
+                        source_column_key=active.stable_key,
+                        operator=SelectionConditionOperator.EQUALS,
+                        comparison_value="true",
+                    ),
+                ),
+            ),
+            fields=(replace(
+                definition.datasets[0].fields[0],
+                transform=ScalarTransformPolicy(trim=True),
+            ),),
+        )
+        second_mapping = replace(
+            first_mapping,
+            dataset_id=second.dataset_id,
+            row_inclusion=RowInclusionPolicy(),
+        )
+        definition = replace(
+            definition,
+            datasets=(first_mapping, second_mapping),
+        )
+        materialized_impacts = []
+        staged = stage_browser_mapping(
+            workspace_state,
+            definition,
+            selection,
+            selection,
+            None,
+            (catalog,),
+            self.artifacts,
+            source_snapshots=snapshots,
+            collect_transformation_impact=True,
+            transformation_detail_limit=0,
+            transformation_impact_sink=materialized_impacts.append,
+        )
+        direct_impacts = []
+        report = direct_transformation_impact(
+            workspace_state,
+            definition,
+            selection,
+            selection,
+            (catalog,),
+            self.artifacts,
+            snapshots,
+            direct_impacts.append,
+        )
+        review = direct_row_inclusion_review(
+            workspace_state,
+            definition,
+            selection,
+            selection,
+            (catalog,),
+            self.artifacts,
+            snapshots,
+        )
+
+        self.assertEqual(report, staged.transformation_impact)
+        self.assertEqual(direct_impacts, materialized_impacts)
+        self.assertEqual(review, staged.row_inclusion_review)
+        self.assertEqual(review.source_row_count, 2)
+
+    def test_direct_formula_effects_match_materialized_evidence(self) -> None:
+        workspace_state, source_file, catalog = self._registered_csv(
+            b"Code,Name,Active\nC1,1000,t\nC2,2500,t\n"
+        )
+        selection = _selection_for(workspace_state, source_file, catalog)
+        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
+            workspace_state,
+            selection,
+            selection.datasets[0],
+            catalog,
+            source_file,
+        ).snapshot
+        definition = _direct_mapping(selection)
+        mapping = replace(
+            definition.datasets[0],
+            fields=(replace(
+                definition.datasets[0].fields[0],
+                target_field="amount",
+                value_type="decimal",
+                transform=ScalarTransformPolicy(formula="value / 1000"),
+            ),),
+        )
+        definition = replace(definition, datasets=(mapping,))
+        materialized_rows = []
+        staged = stage_browser_mapping(
+            workspace_state,
+            definition,
+            selection,
+            selection,
+            None,
+            (catalog,),
+            self.artifacts,
+            source_snapshots=(snapshot,),
+            collect_transformation_impact=True,
+            transformation_detail_limit=0,
+            transformation_impact_sink=materialized_rows.append,
+        )
+        direct_rows = []
+        report = direct_transformation_impact(
+            workspace_state,
+            definition,
+            selection,
+            selection,
+            (catalog,),
+            self.artifacts,
+            (snapshot,),
+            direct_rows.append,
+        )
+
+        self.assertEqual(report, staged.transformation_impact)
+        self.assertEqual(direct_rows, materialized_rows)
+        self.assertEqual(report.changed_count, 2)
+
+    @unittest.skipUnless(
+        os.environ.get("IMPODO_RUN_BOUNDED_REVIEW_SCALE") == "1",
+        "50,000-row Stage-3 review qualification is opt-in",
+    )
+    def test_direct_formula_impact_scan_50_000_rows(self) -> None:
+        content = b"Code,Name,Active\n" + b"".join(
+            f"C{index:05d},1000,t\n".encode() for index in range(50_000)
+        )
+        workspace_state, source_file, catalog = self._registered_csv(content)
+        selection = _selection_for(workspace_state, source_file, catalog)
+        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
+            workspace_state,
+            selection,
+            selection.datasets[0],
+            catalog,
+            source_file,
+        ).snapshot
+        definition = _direct_mapping(selection)
+        mapping = replace(
+            definition.datasets[0],
+            fields=(replace(
+                definition.datasets[0].fields[0],
+                target_field="amount",
+                value_type="decimal",
+                transform=ScalarTransformPolicy(formula="value / 1000"),
+            ),),
+        )
+        definition = replace(definition, datasets=(mapping,))
+        impacts = 0
+
+        def count_impact(_row) -> None:
+            nonlocal impacts
+            impacts += 1
+
+        started = perf_counter()
+        report = direct_transformation_impact(
+            workspace_state,
+            definition,
+            selection,
+            selection,
+            (catalog,),
+            self.artifacts,
+            (snapshot,),
+            count_impact,
+        )
+        elapsed = perf_counter() - started
+        print(f"50,000-row formula scan: {elapsed:.2f}s", flush=True)
+        self.assertEqual(report.changed_count, 50_000)
+        self.assertEqual(impacts, 50_000)
+        self.assertLess(elapsed, 120)
+
+    @unittest.skipUnless(
+        os.environ.get("IMPODO_RUN_BOUNDED_REVIEW_SCALE") == "1",
+        "50,000-row Stage-3 review qualification is opt-in",
+    )
+    def test_direct_stage_three_reviews_publish_50_000_rows(self) -> None:
+        content = b"Code,Name,Active\n" + b"".join(
+            (
+                f"C{index:05d},"
+                "1000,"
+                f"{'f' if index % 10 == 1 else 't'}\n"
+            ).encode()
+            for index in range(50_000)
+        )
+        workspace_state, source_file, catalog = self._registered_csv(content)
+        selection = _selection_for(workspace_state, source_file, catalog)
+        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
+            workspace_state,
+            selection,
+            selection.datasets[0],
+            catalog,
+            source_file,
+        ).snapshot
+        definition = _direct_mapping(selection)
+        active = selection.datasets[0].columns[2]
+        mapping = replace(
+            definition.datasets[0],
+            row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS,
+                conditions=(
+                    RowInclusionCondition(
+                        condition_id=str(uuid4()),
+                        source_column_key=active.stable_key,
+                        operator=SelectionConditionOperator.EQUALS,
+                        comparison_value="t",
+                    ),
+                ),
+            ),
+            fields=(
+                replace(
+                    definition.datasets[0].fields[0],
+                    target_field="amount",
+                    value_type="decimal",
+                    transform=ScalarTransformPolicy(formula="value / 1000"),
+                ),
+            ),
+        )
+        definition = replace(definition, datasets=(mapping,))
+        identity = TransformationImpactIdentity(
+            physical_selection_hash=selection.content_hash,
+            source_selection_hash=selection.content_hash,
+            mapping_content_hash=definition.content_hash,
+            schema_hash=definition.schema_hash,
+            derived_plan_hash=None,
+        )
+        started = perf_counter()
+        impact_snapshot = TransformationImpactRepository(
+            self.database
+        ).replace_transformation_impact_snapshot(
+            workspace_state.workspace_id,
+            identity,
+            lambda sink: direct_transformation_impact(
+                workspace_state,
+                definition,
+                selection,
+                selection,
+                (catalog,),
+                self.artifacts,
+                (snapshot,),
+                sink,
+            ),
+            actor=LOCAL_ACTOR,
+        )
+        impact_seconds = perf_counter() - started
+        row_report = direct_row_inclusion_review(
+            workspace_state,
+            definition,
+            selection,
+            selection,
+            (catalog,),
+            self.artifacts,
+            (snapshot,),
+        )
+        review_scan_seconds = perf_counter() - started - impact_seconds
+        row_snapshot = RowInclusionReviewRepository(
+            self.database
+        ).replace_current_review(
+            workspace_state.workspace_id,
+            row_report,
+            actor=LOCAL_ACTOR,
+        )
+        elapsed = perf_counter() - started
+        memory = psutil.Process().memory_info()
+        peak_mib = getattr(memory, "peak_wset", memory.rss) / (1024 * 1024)
+        print(
+            f"50,000-row direct reviews: {elapsed:.2f}s "
+            f"(effects {impact_seconds:.2f}s, rows scan "
+            f"{review_scan_seconds:.2f}s, rows save "
+            f"{elapsed - impact_seconds - review_scan_seconds:.2f}s), "
+            f"process peak/observed {peak_mib:.1f} MiB",
+            flush=True,
+        )
+
+        self.assertEqual(impact_snapshot.report.changed_count, 45_000)
+        self.assertEqual(row_snapshot.source_row_count, 50_000)
+        self.assertEqual(row_snapshot.included_count, 45_000)
+        self.assertEqual(row_snapshot.excluded_count, 5_000)
+        self.assertLess(elapsed, 120)
+        self.assertLess(peak_mib, 900)
 
     def test_prepared_backed_projection_detects_artifact_corruption(self) -> None:
         workspace_state, source_file, catalog = self._registered_csv(

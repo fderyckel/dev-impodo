@@ -10,6 +10,10 @@ from impodo.application.workspace.mapping.transformation_impact import (
 from impodo.application.workspace.preparation.preparation_service import (
     stage_browser_mapping,
 )
+from .bounded_direct_review import (
+    direct_row_inclusion_review,
+    uses_bounded_direct_review,
+)
 from impodo.domain.mapping.contracts import DatasetMapping
 from impodo.domain.mapping.mutations import MappingVersionConflict
 from impodo.domain.mapping.row_inclusion_review import (
@@ -101,21 +105,36 @@ class RowInclusionReviewService:
             workspace_id=workspace_id,
         )
         context = self.checked_mapping.context(workspace_id)
-        staged = stage_browser_mapping(
-            context.workspace_state,
-            context.revision.definition,
+        catalogs = self.checked_mapping.sources.get_source_catalogs(workspace_id)
+        snapshots = self.checked_mapping.sources.get_current_source_snapshots(
+            workspace_id
+        )
+        if uses_bounded_direct_review(
             context.physical_selection,
             context.effective_selection,
             context.plan,
-            self.checked_mapping.sources.get_source_catalogs(workspace_id),
-            self.checked_mapping.artifacts,
-            source_snapshots=(
-                self.checked_mapping.sources.get_current_source_snapshots(
-                    workspace_id
-                )
-            ),
-        )
-        report = staged.row_inclusion_review
+        ):
+            report = direct_row_inclusion_review(
+                context.workspace_state,
+                context.revision.definition,
+                context.physical_selection,
+                context.effective_selection,
+                catalogs,
+                self.checked_mapping.artifacts,
+                snapshots,
+            )
+        else:
+            staged = stage_browser_mapping(
+                context.workspace_state,
+                context.revision.definition,
+                context.physical_selection,
+                context.effective_selection,
+                context.plan,
+                catalogs,
+                self.checked_mapping.artifacts,
+                source_snapshots=snapshots,
+            )
+            report = staged.row_inclusion_review
         if report is None:
             raise WorkspaceError("The checked mapping does not limit rows")
         working = self.checked_mapping.mappings.get_mapping_working_draft(

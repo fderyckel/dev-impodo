@@ -573,8 +573,10 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
             server = None
             thread = None
             disconnected = page.locator("[data-server-recovery]")
-            expect(disconnected).to_be_visible(timeout=22_000)
-            expect(disconnected).to_contain_text("Impodo is not responding")
+            expect(disconnected).to_be_visible(timeout=55_000)
+            expect(disconnected).to_contain_text(
+                "Connection to Impodo was interrupted"
+            )
             _capture(
                 page,
                 output_directory / "11d-impodo-not-responding.png",

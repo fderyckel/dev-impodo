@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from ...domain.reconciliation import ReconciliationRunStatus
+from impodo.application.preflight_jobs import PreflightJob
 from impodo.application.workspace.execution.job_models import LoadJob
 from impodo.application.workspace.navigation import WorkspaceNavigationFacts
 from impodo.application.workspace.preparation.job_models import PreparationJob
@@ -1617,6 +1618,82 @@ def build_preparation_workspace_navigation(job: PreparationJob) -> WorkspaceNavi
         project_id=job.workspace.project_id,
         migration_run_id=job.workspace.migration_run_id,
         run_purpose=job.workspace.migration_run_purpose.value,
+    )
+
+
+def build_preflight_workspace_navigation(job: PreflightJob) -> WorkspaceNavigation:
+    """Keep Stage-5 navigation visible while the comparison uses the workspace."""
+
+    workspace_id = job.workspace_id
+    summary_url = f"/workspaces/{workspace_id}/summary"
+    progress_url = f"/workspaces/{workspace_id}/preflight/{job.job_id}"
+    if job.active:
+        status, status_label = "current", "In progress"
+    elif job.status.value == "FAILED":
+        status, status_label = "attention", "Needs attention"
+    else:
+        status, status_label = "complete", "Complete"
+    prior_stages = tuple(
+        WorkflowStage(
+            stage_id=stage_id,
+            number=number,
+            label=label,
+            href=f"/workspaces/{workspace_id}/{suffix}",
+            status="complete",
+            status_label="Complete",
+        )
+        for stage_id, number, label, suffix in (
+            ("source", 1, "Source data", "sources"),
+            ("odoo", 2, "Odoo data", "schema"),
+            ("match", 3, "Match data", "mapping"),
+            ("prepare", 4, "Prepare data", "prepare"),
+        )
+    )
+    review_stage = WorkflowStage(
+        stage_id="review",
+        number=5,
+        label="Final review",
+        href=summary_url,
+        status=status,
+        status_label=status_label,
+        pages=(
+            WorkflowPage(
+                page_id="summary",
+                label="Review and compare",
+                href=summary_url,
+            ),
+            WorkflowPage(
+                page_id="preflight-progress",
+                label="Comparison progress",
+                href=progress_url,
+                status=status,
+                status_label=status_label,
+                current=True,
+            ),
+        ),
+        active=True,
+    )
+    navigation = WorkspaceNavigation(
+        workspace_id=workspace_id,
+        migration_project_name=job.migration_project_name,
+        registered=True,
+        setup_active=False,
+        setup_href=f"/workspaces/{workspace_id}/overview",
+        overview_href=f"/workspaces/{workspace_id}/overview",
+        overview_active=False,
+        current_stage_id="review",
+        current_stage_label="Final review",
+        viewed_stage_id="review",
+        viewed_page_label="Comparison progress",
+        stages=(*prior_stages, review_stage, *_locked_stages(workspace_id, after="review")),
+    )
+    if job.access_context.recipe_application_id is None:
+        return navigation
+    return _recipe_application_navigation(
+        navigation,
+        project_id=job.access_context.project_id,
+        migration_run_id=job.access_context.migration_run_id,
+        run_purpose=job.access_context.run_purpose or "TEST",
     )
 
 
