@@ -82,6 +82,13 @@ On the prepared workstation, run from inside the bundle:
 powershell.exe -ExecutionPolicy Bypass -File .\install-internal-release.ps1
 ```
 
+If the Windows `py` launcher is unavailable, pass the path to an approved
+64-bit Python 3.12 executable instead:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\install-internal-release.ps1 -PythonExecutable "C:\path\to\python.exe"
+```
+
 The installer verifies every listed artifact before creating a versioned
 environment under `%LOCALAPPDATA%\Impodo\app`. Dependencies are installed
 with `--require-hashes` and `--only-binary=:all:`, then the wheel is installed

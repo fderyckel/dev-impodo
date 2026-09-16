@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$BundleDirectory = $PSScriptRoot,
-    [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA "Impodo\app")
+    [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA "Impodo\app"),
+    [string]$PythonExecutable = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -81,9 +82,23 @@ foreach ($file in Get-ChildItem -LiteralPath $bundle -File) {
     }
 }
 
-$pythonVersion = py -3.12 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
-if ($LASTEXITCODE -ne 0 -or $pythonVersion.Trim() -ne "3.12") {
-    throw "An approved Python 3.12 runtime is required."
+if ($PythonExecutable) {
+    $pythonCommand = (Resolve-Path -LiteralPath $PythonExecutable).Path
+    if (-not (Test-Path -LiteralPath $pythonCommand -PathType Leaf)) {
+        throw "The selected Python executable is not a file."
+    }
+    $pythonArguments = @()
+} else {
+    $pythonLauncher = Get-Command py -ErrorAction SilentlyContinue
+    if ($null -eq $pythonLauncher) {
+        throw "Python launcher was not found; provide -PythonExecutable with a Python 3.12 path."
+    }
+    $pythonCommand = $pythonLauncher.Source
+    $pythonArguments = @("-3.12")
+}
+$pythonVersion = & $pythonCommand @pythonArguments -c "import struct, sys; print(f'{sys.version_info.major}.{sys.version_info.minor}', struct.calcsize('P') * 8)"
+if ($LASTEXITCODE -ne 0 -or $pythonVersion.Trim() -ne "3.12 64") {
+    throw "An approved 64-bit Python 3.12 runtime is required."
 }
 
 $resolvedInstallRoot = [IO.Path]::GetFullPath($InstallRoot)
@@ -101,7 +116,7 @@ if (-not $manifestArtifactNames.Contains($wheels[0].Name)) {
     throw "The Impodo wheel is not covered by the release manifest."
 }
 
-py -3.12 -m venv $target
+& $pythonCommand @pythonArguments -m venv $target
 if ($LASTEXITCODE -ne 0) {
     throw "Could not create the versioned Impodo environment."
 }

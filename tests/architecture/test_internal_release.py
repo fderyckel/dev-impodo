@@ -288,13 +288,69 @@ class InternalReleaseGateTests(unittest.TestCase):
             ROOT / "scripts" / "install-internal-release.ps1"
         ).read_text(encoding="utf-8")
         verify_offset = installer.index("Get-FileHash")
-        create_offset = installer.index("py -3.12 -m venv")
+        create_offset = installer.index("& $pythonCommand @pythonArguments -m venv")
         self.assertLess(verify_offset, create_offset)
+        self.assertIn("[string]$PythonExecutable", installer)
         self.assertIn("--require-hashes", installer)
         self.assertIn("--only-binary=:all:", installer)
         self.assertIn("The bundle contains an unlisted artifact", installer)
         self.assertIn("The Impodo wheel is not covered", installer)
         self.assertNotIn("Remove-Item", installer)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows release installer")
+    def test_internal_installer_accepts_an_explicit_python_executable(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:
+            bundle = Path(temporary) / "bundle"
+            bundle.mkdir()
+            shutil.copy2(
+                ROOT / "scripts" / "install-internal-release.ps1",
+                bundle / "install-internal-release.ps1",
+            )
+            for name in (
+                "requirements.windows-py312.lock",
+                "tests.txt",
+                "secret-scan.json",
+                "dependency-audit.json",
+                "sbom.cdx.json",
+                "impodo-0.0.0-py3-none-any.whl",
+            ):
+                (bundle / name).write_text("release evidence\n", encoding="utf-8")
+            release_id = "impodo-0.0.0-123456789abc"
+            manifest = _release_manifest(
+                release_id=release_id,
+                version="0.0.0",
+                revision="123456789abcdef",
+                artifacts=tuple(bundle.iterdir()),
+            )
+            (bundle / "release-manifest.json").write_text(
+                json.dumps(manifest), encoding="utf-8",
+            )
+            install_root = Path(temporary) / "install"
+            (install_root / release_id).mkdir(parents=True)
+
+            completed = subprocess.run(
+                (
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-File",
+                    str(bundle / "install-internal-release.ps1"),
+                    "-BundleDirectory",
+                    str(bundle),
+                    "-InstallRoot",
+                    str(install_root),
+                    "-PythonExecutable",
+                    sys.executable,
+                ),
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("The versioned installation already exists", completed.stderr)
 
     @unittest.skipUnless(sys.platform == "win32", "Windows release installer")
     def test_internal_installer_rejects_an_unlisted_artifact(self) -> None:
