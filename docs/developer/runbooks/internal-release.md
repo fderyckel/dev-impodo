@@ -65,8 +65,10 @@ A release bundle includes:
 - Its manifest records artifact sizes and SHA-256 hashes.
 
 The gate refuses a dirty worktree, inconsistent tooling, invalid lock, failed
-evidence step, or an existing destination. Inspect any retained work directory
-before retrying; do not delete evidence reflexively.
+evidence step, or an existing destination. When a gate fails, the release
+source at `.tmp/s` and the revision's work directory under `.tmp/r` remain for
+inspection. Review the failure and these retained files before clearing them
+for a retry. A successful promotion removes both staging directories.
 
 ## Accept and install a bundle
 

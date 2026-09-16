@@ -22,9 +22,10 @@ ROOT = Path(__file__).resolve().parents[1]
 LOCK_FILE = ROOT / "requirements.windows-py312.lock"
 SECRETS_BASELINE = ROOT / ".secrets.baseline"
 DEFAULT_OUTPUT_ROOT = ROOT / "dist" / "internal"
-# Windows test fixtures create several nested UUID directories below the source.
-# Keep release staging shallow so those paths remain under the legacy MAX_PATH limit.
-WORK_ROOT = ROOT / "var" / "r"
+# Windows test fixtures create nested UUID directories and long revision names.
+# Keep the materialized source shallow to stay under the legacy MAX_PATH limit.
+WORK_ROOT = ROOT / ".tmp" / "r"
+SOURCE_ROOT = ROOT / ".tmp" / "s"
 REQUIRED_PYTHON = (3, 12)
 REQUIRED_RELEASE_TOOLS = {
     "build": "1.5.0",
@@ -92,7 +93,12 @@ def build_internal_release(output_root: Path) -> Path:
         )
     bundle = work / "bundle"
     runtime = work / "runtime"
-    source = work / "source"
+    source = SOURCE_ROOT.resolve()
+    _require_relative_to(source, ROOT.resolve(), "release source directory")
+    if source.exists():
+        raise ReleaseGateError(
+            f"previous release source still exists; inspect it before retrying: {source}"
+        )
     temporary = work / "temp"
     bundle.mkdir(parents=True)
     temporary.mkdir()
@@ -223,6 +229,7 @@ def build_internal_release(output_root: Path) -> Path:
     destination_root.mkdir(parents=True, exist_ok=True)
     shutil.move(str(bundle), str(destination))
     _safe_remove_work_directory(work)
+    _safe_remove_source_directory(source)
     return destination
 
 
@@ -612,6 +619,15 @@ def _safe_remove_work_directory(work: Path) -> None:
     _require_relative_to(resolved, parent, "release work directory")
     if resolved == parent:
         raise ReleaseGateError("refusing to remove the release work root")
+    shutil.rmtree(resolved)
+
+
+def _safe_remove_source_directory(source: Path) -> None:
+    resolved = source.resolve()
+    parent = SOURCE_ROOT.parent.resolve()
+    _require_relative_to(resolved, parent, "release source directory")
+    if resolved == parent:
+        raise ReleaseGateError("refusing to remove the release source root")
     shutil.rmtree(resolved)
 
 

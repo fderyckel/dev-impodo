@@ -20,6 +20,7 @@ from scripts.internal_release import (
     _release_manifest,
     _require_locked_runtime_environment,
     _run_secret_gate,
+    _safe_remove_source_directory,
     _unexpected_secret_candidates,
     _validate_lock,
     _validate_wheel_contents,
@@ -30,6 +31,21 @@ ROOT = REPOSITORY_ROOT
 
 
 class InternalReleaseGateTests(unittest.TestCase):
+    def test_release_source_cleanup_stays_inside_staging_parent(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:
+            parent = Path(temporary)
+            source = parent / "s"
+            source.mkdir()
+            marker = source / "marker.txt"
+            marker.write_text("retained source", encoding="utf-8")
+
+            with patch("scripts.internal_release.SOURCE_ROOT", source):
+                with self.assertRaisesRegex(ReleaseGateError, "source root"):
+                    _safe_remove_source_directory(parent)
+                self.assertTrue(marker.exists())
+                _safe_remove_source_directory(source)
+                self.assertFalse(source.exists())
+
     def test_checked_in_windows_python_312_lock_is_complete(self) -> None:
         _validate_lock(LOCK_FILE)
 
