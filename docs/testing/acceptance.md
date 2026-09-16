@@ -40,6 +40,12 @@ normalization hashes, and repeat preparation after removing the source files.
 The previous committed route failed its comparable 25,000-row fixture before
 preparation, so these measurements do not establish a percentage speedup.
 
+On 2026-09-16, the release owner accepted the latest code for the 50,000-row
+internal release without repeating the scale fixture after the bounded direct
+review changes. The measurements above remain the quantitative evidence from
+the earlier revision; this acceptance is a release decision, not a new timing
+measurement of the latest revision.
+
 The internal release secret-scan baseline was refreshed after reviewing all
 74 detector candidates: 24 are recorded content, revision, or schema hashes;
 50 are fixed literals in test fixtures and test/benchmark launch settings.
