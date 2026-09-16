@@ -58,6 +58,7 @@ from ..domain.mapping.create_field_policy import (
     VerifiedCreateDefaultAction,
     decide_verified_create_default,
     evaluate_create_field,
+    required_create_hook_inputs,
 )
 from ..domain.recipe_applications import (
     RecipeApplicationError,
@@ -246,11 +247,22 @@ class RecipeApplicationCompiler:
             for dataset in dict(definition["mapping"]).get("datasets", ())
             for field in dataset.get("fields", ())
             if str(dict(field.get("provider", {})).get("kind")) != "ODOO_DEFAULT"
+            and not bool(field.get("validate_only"))
         }
         provider_fields.update(
             (str(dataset["target_model"]), str(field["target_field"]))
             for dataset in dict(definition["mapping"]).get("datasets", ())
             for field in dataset.get("relationships", ())
+            if not bool(field.get("validate_only"))
+        )
+        provider_fields.update(
+            (str(dataset["target_model"]), str(target_field))
+            for dataset in dict(definition["mapping"]).get("datasets", ())
+            for component in (
+                *dataset.get("target_identity", ()),
+                *dataset.get("target_scope", ()),
+            )
+            for target_field in component.get("target_fields", ())
         )
         dispositions = {
             (str(dataset["target_model"]), str(item["target_field"])): (
@@ -263,6 +275,42 @@ class RecipeApplicationCompiler:
         for required_model in contract.get("models", ()):
             model_name = str(required_model["model"])
             model = actual_models.get(model_name)
+            provided_for_model = {
+                field_name
+                for provider_model, field_name in provider_fields
+                if provider_model == model_name
+            }
+            hook_inputs = (
+                required_create_hook_inputs(model_name, provided_for_model)
+                if model_name in contract.get("approved_write_fields", {})
+                else ()
+            )
+            for input_field in sorted(hook_inputs):
+                field = (
+                    next(
+                        (item for item in model.fields if item.name == input_field),
+                        None,
+                    )
+                    if model is not None
+                    else None
+                )
+                if (
+                    input_field not in provided_for_model
+                    or field is None
+                    or field.readonly
+                    or field.type != "char"
+                ):
+                    issues.append(
+                        self._block(
+                            "RECIPE_CREATE_HOOK_INPUT_MISSING",
+                            (
+                                f"Creating {model_name} without resource_id "
+                                f"requires a writable {input_field} value."
+                            ),
+                            "Map Work Center Name in a new Recipe revision.",
+                            f"{model_name}.{input_field}",
+                        )
+                    )
             evidence_kind = str(
                 required_model.get(
                     "reference_evidence_kind",
@@ -441,6 +489,8 @@ class RecipeApplicationCompiler:
                         field,
                         provided=False,
                         handling=handling,
+                        target_model=model_name,
+                        odoo_version=schema.odoo_version,
                     )
                     if assessment.coverage is CreateFieldCoverage.DEFAULT_CONFIRMED:
                         continue

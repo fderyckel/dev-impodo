@@ -34,6 +34,7 @@ from .context import (
 from ..create_field_policy import (
     CreateFieldCoverage,
     evaluate_create_field,
+    required_create_hook_inputs,
 )
 from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 from .control_totals import _validate_control_totals
@@ -551,6 +552,8 @@ class MappingSemanticValidator:
                     metadata,
                     provided=False,
                     handling=disposition.handling,
+                    target_model=dataset.target_model,
+                    odoo_version=context.schema_catalog.odoo_version,
                 )
                 if assessment.coverage is CreateFieldCoverage.ODOO_MANAGED_INVALID:
                     issues.append(
@@ -613,12 +616,54 @@ class MappingSemanticValidator:
                 dataset.mode is not MappingTargetMode.REFERENCE
                 and not is_odoo_source
             ):
+                hook_payload_fields = {
+                    field_name
+                    for component in (*dataset.target_identity, *dataset.target_scope)
+                    for field_name in component.target_fields
+                }
+                hook_payload_fields.update(
+                    field.target_field
+                    for field in dataset.fields
+                    if field.value_source is not ScalarValueSource.ODOO_DEFAULT
+                    and not field.validate_only
+                )
+                hook_payload_fields.update(
+                    relation.target_field
+                    for relation in dataset.relationships
+                    if not relation.validate_only
+                )
+                for input_field in sorted(
+                    required_create_hook_inputs(dataset.target_model, hook_payload_fields)
+                ):
+                    input_metadata = fields.get(input_field)
+                    if (
+                        input_field not in hook_payload_fields
+                        or input_metadata is None
+                        or input_metadata.readonly
+                        or input_metadata.type != "char"
+                    ):
+                        issues.append(
+                            _issue(
+                                "MAPPING_CREATE_HOOK_INPUT_MISSING",
+                                f"{base}/target_model",
+                                (
+                                    f"Creating {dataset.target_model} without "
+                                    f"resource_id requires a writable {input_field} "
+                                    "value so Odoo can create its Resource."
+                                ),
+                                "Map Work Center Name from incoming data or provide a fixed value.",
+                                dataset=dataset,
+                                target_field=input_field,
+                            )
+                        )
                 for target_field in sorted(fields):
                     metadata = fields[target_field]
                     assessment = evaluate_create_field(
                         metadata,
                         provided=target_field in provided,
                         handling=None,
+                        target_model=dataset.target_model,
+                        odoo_version=context.schema_catalog.odoo_version,
                     )
                     if (
                         assessment.coverage

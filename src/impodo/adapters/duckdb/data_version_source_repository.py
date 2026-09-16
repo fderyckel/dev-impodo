@@ -61,8 +61,8 @@ class DataVersionOwnedSourceRepository(SourceRepository):
         actor: Actor,
     ) -> None:
         catalog_set = tuple(catalogs)
-        super().save_source_catalogs(workspace_id, catalog_set, actor=actor)
         current = self._draft_package(workspace_id)
+        super().save_source_catalogs(workspace_id, catalog_set, actor=actor)
         candidate = replace(
             current,
             revision=current.revision + 1,
@@ -80,8 +80,8 @@ class DataVersionOwnedSourceRepository(SourceRepository):
         *,
         actor: Actor,
     ) -> None:
-        super().save_source_catalog(workspace_id, catalog, actor=actor)
         current = self._draft_package(workspace_id)
+        super().save_source_catalog(workspace_id, catalog, actor=actor)
         catalogs = {item.file_id: item for item in current.catalogs}
         catalogs[catalog.file_id] = self._catalog(catalog)
         candidate = replace(
@@ -119,8 +119,8 @@ class DataVersionOwnedSourceRepository(SourceRepository):
         *,
         actor: Actor,
     ) -> None:
-        super().save_source_configuration(workspace_id, configuration, actor=actor)
         current = self._draft_package(workspace_id)
+        super().save_source_configuration(workspace_id, configuration, actor=actor)
         configurations = {
             item.file_id: item for item in current.configurations
         }

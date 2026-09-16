@@ -18,6 +18,7 @@ from ..mapping.contracts import (
     ScalarValueSource,
     relationship_target_fields,
 )
+from ..mapping.create_field_policy import required_create_hook_inputs
 from impodo.domain.recipe.profile import (
     DatasetSpec,
     FieldSpec,
@@ -97,6 +98,23 @@ def compile_browser_mapping(
     profile_datasets: list[DatasetSpec] = []
     for mapping in definition.datasets:
         source_dataset = datasets[mapping.dataset_id]
+        provided_fields = {
+            field_name
+            for component in (*mapping.target_identity, *mapping.target_scope)
+            for field_name in component.target_fields
+        }
+        provided_fields.update(
+            field.target_field
+            for field in mapping.fields
+            if field.value_source is not ScalarValueSource.ODOO_DEFAULT
+            and not field.validate_only
+        )
+        provided_fields.update(
+            relation.target_field
+            for relation in mapping.relationships
+            if not relation.validate_only
+        )
+        hook_inputs = required_create_hook_inputs(mapping.target_model, provided_fields)
         scalar_fields = {}
         for index, field in enumerate(mapping.fields):
             if field.value_source is ScalarValueSource.ODOO_DEFAULT:
@@ -105,7 +123,9 @@ def compile_browser_mapping(
                 source=synthetic_field(index),
                 type=field.value_type,
                 required=field.required,
-                required_on_create=field.required_on_create,
+                required_on_create=(
+                    field.required_on_create or field.target_field in hook_inputs
+                ),
                 compare=field.compare,
                 validate_only=field.validate_only,
                 normalize=NormalizationSpec(empty_as_null=True),

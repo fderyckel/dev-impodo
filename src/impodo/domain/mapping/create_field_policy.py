@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+
 from .contracts import TargetFieldHandling
 
 
@@ -28,7 +30,28 @@ CREATE_DEFAULT_TYPES = frozenset(
 # Increment when the automatic-versus-review decision changes. Recipe
 # application bindings include this value so a policy revision cannot be
 # mistaken for the earlier assessment.
-CREATE_DEFAULT_DECISION_POLICY_VERSION = 1
+CREATE_DEFAULT_DECISION_POLICY_VERSION = 2
+
+
+@dataclass(frozen=True, slots=True)
+class OdooCreateHookContract:
+    """Verified standard-Odoo behavior not expressed by fields_get/default_get."""
+
+    field_type: str
+    relation: str
+    required_inputs: tuple[str, ...]
+
+
+# ResourceMixin.create() creates the linked resource from vals.get('name') when
+# resource_id is omitted. Keep its captured field shape in the contract so a
+# changed target schema fails closed, and require the hook's input separately.
+_ODOO_19_CREATE_HOOKS = {
+    ("mrp.workcenter", "resource_id"): OdooCreateHookContract(
+        field_type="many2one",
+        relation="resource.resource",
+        required_inputs=("name",),
+    ),
+}
 
 
 class CreateFieldView(Protocol):
@@ -38,6 +61,7 @@ class CreateFieldView(Protocol):
     type: str
     required: bool
     readonly: bool
+    relation: str | None
     computed: bool | None
     related: bool | None
     company_dependent: bool | None
@@ -88,6 +112,8 @@ def evaluate_create_field(
     *,
     provided: bool,
     handling: TargetFieldHandling | None,
+    target_model: str | None = None,
+    odoo_version: str | None = None,
 ) -> CreateFieldAssessment:
     """Apply the shared conservative create-field policy."""
 
@@ -115,9 +141,19 @@ def evaluate_create_field(
     if handling is TargetFieldHandling.ODOO_MANAGED:
         return CreateFieldAssessment(
             CreateFieldCoverage.ODOO_MANAGED_CONFIRMED
-            if is_odoo_managed_candidate(field)
+            if is_odoo_managed_candidate(
+                field,
+                target_model=target_model,
+                odoo_version=odoo_version,
+            )
             else CreateFieldCoverage.ODOO_MANAGED_INVALID
         )
+    if is_odoo_create_hook_field(
+        field,
+        target_model=target_model,
+        odoo_version=odoo_version,
+    ):
+        return CreateFieldAssessment(CreateFieldCoverage.ODOO_MANAGED_CONFIRMED)
     if field.create_default_present:
         return CreateFieldAssessment(
             CreateFieldCoverage.DEFAULT_AVAILABLE,
@@ -126,13 +162,65 @@ def evaluate_create_field(
     return CreateFieldAssessment(CreateFieldCoverage.REQUIRED_VALUE_MISSING)
 
 
-def is_odoo_managed_candidate(field: CreateFieldView) -> bool:
-    """Return the narrow existing signal; callers still require confirmation."""
+def is_odoo_create_hook_field(
+    field: CreateFieldView,
+    *,
+    target_model: str | None,
+    odoo_version: str | None,
+) -> bool:
+    """Recognize a qualified standard Odoo create hook from captured fields."""
+
+    if not target_model or not odoo_version:
+        return False
+    decision = assess_odoo_operation(odoo_version, OdooOperation.WRITE)
+    expected = _ODOO_19_CREATE_HOOKS.get((target_model, field.name))
+    return bool(
+        decision.allowed
+        and expected is not None
+        and field.required
+        and not field.readonly
+        and (field.type, field.relation)
+        == (expected.field_type, expected.relation)
+    )
+
+
+def required_create_hook_inputs(
+    target_model: str,
+    provided_fields: set[str] | frozenset[str],
+) -> frozenset[str]:
+    """Return values needed when an omitted field is supplied by create().
+
+    A work center's resource.mixin create hook takes the new resource's name
+    from the work center name. That name is not marked required by fields_get.
+    This conservative requirement also applies if a future Odoo version stops
+    using the hook; that version's resource_id will be assessed separately.
+    """
+
+    return frozenset(
+        input_field
+        for (model, managed_field), contract in _ODOO_19_CREATE_HOOKS.items()
+        if model == target_model and managed_field not in provided_fields
+        for input_field in contract.required_inputs
+    )
+
+
+def is_odoo_managed_candidate(
+    field: CreateFieldView,
+    *,
+    target_model: str | None = None,
+    odoo_version: str | None = None,
+) -> bool:
+    """Recognize captured or qualified standard Odoo-managed behavior."""
 
     return bool(
         field.type in {"one2many", "many2many"}
         or field.computed is True
         or field.related is True
+        or is_odoo_create_hook_field(
+            field,
+            target_model=target_model,
+            odoo_version=odoo_version,
+        )
     )
 
 

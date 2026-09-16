@@ -36,6 +36,7 @@ from impodo.domain.mapping.contracts import (
 from impodo.domain.mapping.create_field_policy import (
     CreateFieldCoverage,
     evaluate_create_field,
+    is_odoo_managed_candidate,
     supports_create_default_capture,
 )
 from impodo.domain.mapping.artifacts import (
@@ -657,9 +658,11 @@ class MappingWorkspaceService:
             )
         if (
             handling is TargetFieldHandling.ODOO_MANAGED
-            and metadata.type not in {"one2many", "many2many"}
-            and metadata.computed is not True
-            and metadata.related is not True
+            and not is_odoo_managed_candidate(
+                metadata,
+                target_model=dataset.target_model,
+                odoo_version=schema.odoo_version,
+            )
         ):
             raise WorkspaceError(
                 "The captured Odoo details do not identify this field as Odoo-managed"
@@ -772,6 +775,8 @@ class MappingWorkspaceService:
                     field,
                     provided=field.name in supplied,
                     handling=None,
+                    target_model=dataset.target_model,
+                    odoo_version=schema.odoo_version,
                 )
                 if assessment.coverage is not CreateFieldCoverage.DEFAULT_AVAILABLE:
                     continue

@@ -743,7 +743,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 actor=context.actor,
             )
-        except SourceInspectionError as error:
+        except (SourceInspectionError, MigrationFoundationError) as error:
             return _render_file_sources(
                 request,
                 context,

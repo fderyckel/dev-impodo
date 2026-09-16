@@ -6,6 +6,7 @@ import asyncio
 from unittest.mock import patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.domain.project.foundation import MigrationFoundationError
 from tests.support.browser_scenarios import (
     BytesIO,
     MANIFEST_NAME,
@@ -1241,6 +1242,52 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Saved source tables", saved_page.text)
         self.assertIn("Tables ready for the next step", saved_page.text)
         self.assertNotIn('name="dataset_name_0"', saved_page.text)
+
+        saved_selection = context.queries.get_source_selection(workspace_id)
+        saved_catalogs = context.queries.get_source_catalogs(workspace_id)
+        self.assertIsNotNone(saved_selection)
+        source_page = self.client.get(f"/workspaces/{workspace_id}/sources")
+        self.assertEqual(source_page.status_code, 200)
+        self.assertNotIn("Check files again", source_page.text)
+        self.assertIn('class="source-review-fields" disabled', source_page.text)
+
+        with patch(
+            "impodo.application.data_version.source_worker.inspect_source_file_isolated",
+            side_effect=AssertionError("Saved files must not be reinspected"),
+        ):
+            rejected = self._post(
+                f"/workspaces/{workspace_id}/sources/inspect",
+                {"csrf_token": self.csrf},
+            )
+        self.assertEqual(rejected.status_code, 422)
+        self.assertIn("The tables for this Data version are already saved", rejected.text)
+        self.assertEqual(context.queries.get_source_selection(workspace_id), saved_selection)
+
+        rejected_preview = self._post(
+            f"/workspaces/{workspace_id}/sources/{catalog.file_id}/configure",
+            {
+                "csrf_token": self.csrf,
+                "action": "preview",
+                "encoding": "utf-8",
+                "delimiter": ",",
+                "header_row_0": "1",
+            },
+        )
+        self.assertEqual(rejected_preview.status_code, 422)
+        self.assertIn("The tables for this Data version are already saved", rejected_preview.text)
+        self.assertEqual(context.queries.get_source_selection(workspace_id), saved_selection)
+
+        with self.assertRaisesRegex(
+            MigrationFoundationError,
+            "Accepted DataVersion source evidence is immutable",
+        ):
+            context.sources.sources.save_source_catalogs(
+                workspace_id,
+                saved_catalogs,
+                actor=context.actor,
+            )
+        self.assertEqual(context.queries.get_source_selection(workspace_id), saved_selection)
+        self.assertEqual(context.queries.get_source_catalogs(workspace_id), saved_catalogs)
 
         hierarchy_page = self.client.get(
             f"/workspaces/{workspace_id}/derived-entities"

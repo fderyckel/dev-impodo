@@ -1754,6 +1754,142 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         )
         self.assertEqual(verified.status, MappingValidationStatus.VALID)
 
+    def test_workcenter_needs_name_even_though_odoo_creates_resource(self) -> None:
+        selection = replace(
+            self.selection,
+            datasets=(self.selection.datasets[0],),
+            content_hash="sha256:" + "a" * 64,
+        )
+        schema = replace(
+            self.schema,
+            models=(
+                SchemaModel(
+                    name="mrp.workcenter",
+                    label="Work Center",
+                    fields=(
+                        _field("code"),
+                        replace(_field("name"), related=True),
+                        _field(
+                            "resource_id",
+                            "many2one",
+                            required=True,
+                            relation="resource.resource",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        governance = SchemaGovernance(
+            governance_id="governance:workcenter",
+            version=1,
+            workspace_id=schema.workspace_id,
+            catalog_hash=schema.content_hash,
+            permitted_models=("mrp.workcenter",),
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="workcenter-code",
+                    model="mrp.workcenter",
+                    key_fields=("code",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+            recorded_at=NOW,
+            recorded_by="Test operator",
+        )
+        workcenter = DatasetMapping(
+            dataset_id="dataset:companies",
+            target_model="mrp.workcenter",
+            source_identity_column_keys=("company.code",),
+            target_identity=(
+                IdentityComponentMapping(
+                    source_column_keys=("company.code",),
+                    target_fields=("code",),
+                ),
+            ),
+        )
+        definition = MappingDefinition(
+            mapping_id="mapping:workcenter",
+            source_selection_hash=selection.content_hash,
+            schema_hash=governance.content_hash,
+            datasets=(workcenter,),
+        )
+
+        missing = self.validator.validate(definition, selection, schema, governance)
+        self.assertIn(
+            "MAPPING_CREATE_HOOK_INPUT_MISSING",
+            {issue.code for issue in missing.issues},
+        )
+        self.assertNotIn(
+            "MAPPING_REQUIRED_FIELD_UNMAPPED",
+            {issue.code for issue in missing.issues},
+        )
+
+        default_name = replace(
+            definition,
+            datasets=(
+                replace(
+                    workcenter,
+                    fields=(
+                        ScalarFieldMapping(
+                            target_field="name",
+                            value_source=ScalarValueSource.ODOO_DEFAULT,
+                            compare=False,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        default_result = self.validator.validate(
+            default_name, selection, schema, governance
+        )
+        self.assertIn(
+            "MAPPING_CREATE_HOOK_INPUT_MISSING",
+            {issue.code for issue in default_result.issues},
+        )
+
+        validate_only_name = replace(
+            definition,
+            datasets=(
+                replace(
+                    workcenter,
+                    fields=(
+                        ScalarFieldMapping(
+                            target_field="name",
+                            source_column_key="company.code",
+                            validate_only=True,
+                            compare=False,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        validate_only_result = self.validator.validate(
+            validate_only_name, selection, schema, governance
+        )
+        self.assertIn(
+            "MAPPING_CREATE_HOOK_INPUT_MISSING",
+            {issue.code for issue in validate_only_result.issues},
+        )
+
+        with_name = replace(
+            definition,
+            datasets=(
+                replace(
+                    workcenter,
+                    fields=(
+                        ScalarFieldMapping(
+                            target_field="name",
+                            source_column_key="company.code",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        valid = self.validator.validate(with_name, selection, schema, governance)
+        self.assertEqual(valid.status, MappingValidationStatus.VALID)
+        compiled = compile_browser_mapping(with_name, selection)
+        self.assertTrue(compiled.datasets[0].fields["name"].required_on_create)
+
     def test_required_field_can_be_explicitly_left_to_odoo(self) -> None:
         definition = _valid_definition(self.selection, self.governance)
         company, partner = definition.datasets

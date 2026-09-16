@@ -9,6 +9,7 @@ from impodo.domain.mapping.create_field_policy import (
     VerifiedCreateDefaultAction,
     decide_verified_create_default,
     evaluate_create_field,
+    required_create_hook_inputs,
     supports_create_default_capture,
 )
 from impodo.domain.workspace.contracts import SchemaField
@@ -127,6 +128,71 @@ class CreateFieldPolicyTests(unittest.TestCase):
             VerifiedCreateDefaultAction.APPLY_AUTOMATICALLY,
         )
         self.assertIn("exact target", decision.reason)
+
+    def test_workcenter_resource_is_created_by_odoo_when_name_is_supplied(self) -> None:
+        resource = replace(
+            self.field,
+            name="resource_id",
+            type="many2one",
+            relation="resource.resource",
+            selection=(),
+        )
+        for handling in (None, TargetFieldHandling.ODOO_MANAGED):
+            with self.subTest(handling=handling):
+                self.assertIs(
+                    evaluate_create_field(
+                        resource,
+                        provided=False,
+                        handling=handling,
+                        target_model="mrp.workcenter",
+                        odoo_version="19.0",
+                    ).coverage,
+                    CreateFieldCoverage.ODOO_MANAGED_CONFIRMED,
+                )
+        self.assertEqual(
+            required_create_hook_inputs("mrp.workcenter", {"code"}),
+            {"name"},
+        )
+        self.assertEqual(
+            required_create_hook_inputs("mrp.workcenter", {"resource_id"}),
+            set(),
+        )
+
+    def test_workcenter_resource_hook_fails_closed_on_wrong_schema_or_version(self) -> None:
+        resource = replace(
+            self.field,
+            name="resource_id",
+            type="many2one",
+            relation="resource.resource",
+            selection=(),
+        )
+        cases = (
+            (resource, "mrp.routing.workcenter", "19.0"),
+            (replace(resource, relation="res.users"), "mrp.workcenter", "19.0"),
+            (resource, "mrp.workcenter", "20.0"),
+        )
+        for field, model, version in cases:
+            with self.subTest(model=model, version=version, relation=field.relation):
+                self.assertIs(
+                    evaluate_create_field(
+                        field,
+                        provided=False,
+                        handling=None,
+                        target_model=model,
+                        odoo_version=version,
+                    ).coverage,
+                    CreateFieldCoverage.REQUIRED_VALUE_MISSING,
+                )
+        self.assertIs(
+            evaluate_create_field(
+                resource,
+                provided=False,
+                handling=TargetFieldHandling.ODOO_DEFAULT,
+                target_model="mrp.workcenter",
+                odoo_version="19.0",
+            ).coverage,
+            CreateFieldCoverage.DEFAULT_UNVERIFIED,
+        )
 
     def test_context_sensitive_defaults_retain_review(self) -> None:
         cases = (

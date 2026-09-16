@@ -61,7 +61,10 @@ from ...domain.matching_order import (
     MatchingOrderCheckStatus,
     live_matching_order_recommendation,
 )
-from ...domain.mapping.create_field_policy import supports_create_default_capture
+from ...domain.mapping.create_field_policy import (
+    is_odoo_managed_candidate,
+    supports_create_default_capture,
+)
 from impodo.domain.preparation.quality import (
     MAX_MANAGER_RULES_PER_DATASET,
     QualityOutcomePolicy,
@@ -1536,10 +1539,10 @@ def _mapping_issue_views(
                     issue.code == "MAPPING_REQUIRED_FIELD_UNMAPPED"
                     and dataset_index is not None
                     and field is not None
-                    and (
-                        field.type in {"one2many", "many2many"}
-                        or field.computed is True
-                        or field.related is True
+                    and is_odoo_managed_candidate(
+                        field,
+                        target_model=issue.target_model,
+                        odoo_version=schema.odoo_version,
                     )
                 ),
                 "has_value_provider": (

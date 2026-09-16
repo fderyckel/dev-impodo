@@ -70,6 +70,9 @@
         <button class="button secondary" type="submit">Add file</button>
       </form>
     {% endif %}
+    {% if selection %}
+      <p class="muted">These table choices are saved for this Data version. Start a new run to use different source files.</p>
+    {% else %}
     <form method="post" action="/workspaces/{{ workspace_id }}/sources/inspect" data-source-review-form data-single-submit>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
@@ -79,6 +82,7 @@
         </button>
       </div>
     </form>
+    {% endif %}
   </section>
 
   {% if not catalogs %}
@@ -116,6 +120,7 @@
       </div>
 
       <form method="post" action="/workspaces/{{ workspace_id }}/sources/{{ catalog.file_id }}/configure" data-source-review-form>
+        <fieldset class="source-review-fields" {% if selection %}disabled{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% if catalog.format == "CSV" %}
           <details class="technical-details" {% if catalog.warnings %}open{% endif %}>
@@ -357,6 +362,7 @@
             {% if not source_state.has_usable_table %}disabled{% endif %}
           >{% if configuration %}Update confirmation{% else %}Confirm this file{% endif %}</button>
         </div>
+        </fieldset>
       </form>
     </section>
   {% endfor %}

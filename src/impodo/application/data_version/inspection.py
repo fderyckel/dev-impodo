@@ -33,6 +33,7 @@ from impodo.domain.shared.access import Actor, Capability
 from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
 from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.domain.workspace.workbench import WorkspaceStateError, WorkspaceStatus, SourceFile
+from impodo.domain.workspace.contracts import SourceSelection
 from impodo.application.data_version.source_files import (
     MAX_CELL_STRING_LENGTH,
     MAX_SOURCE_COLUMNS,
@@ -244,6 +245,10 @@ class SourceCatalogRepository(Protocol):
         """Return current catalogs in registered source-file order."""
         ...
 
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None:
+        """Return saved table choices, if this DataVersion has any."""
+        ...
+
     def save_source_catalogs(
         self,
         workspace_id: str,
@@ -303,6 +308,7 @@ class SourceInspectionService:
             raise SourceInspectionError(
                 "Register the migration project before inspecting its sources"
             )
+        self._require_unselected(workspace_id)
 
         # Import here to keep multiprocessing bootstrapping independent of the
         # domain module import path.
@@ -354,6 +360,7 @@ class SourceInspectionService:
             raise SourceInspectionError(
                 "Register the migration project before configuring its sources"
             )
+        self._require_unselected(workspace_id)
         try:
             source_file = next(
                 item for item in workspace_state.source_files if item.file_id == file_id
@@ -384,6 +391,13 @@ class SourceInspectionService:
             actor=actor,
         )
         return catalog
+
+    def _require_unselected(self, workspace_id: str) -> None:
+        if self.sources.get_source_selection(workspace_id) is not None:
+            raise SourceInspectionError(
+                "The tables for this Data version are already saved. "
+                "Start a new run with a new Data version to check different files."
+            )
 
 
 def inspect_source_file(
