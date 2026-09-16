@@ -153,9 +153,11 @@ def direct_preparation_row_limit(
 ) -> int:
     """Choose the safe evaluation ceiling for the verified source representation.
 
-    A valid frozen snapshot permits the 100,000-row columnar limit.  Missing
-    or malformed evidence falls back to the smaller browser-evaluator limit so
-    a caller cannot treat an uncertain source as safely scalable.
+    A valid frozen snapshot permits the 100,000-row columnar limit for routes
+    qualified at that scale. Relational identity programs currently retain
+    the 50,000-row ceiling pending complete-route scale qualification, even
+    when clean rows use the set-based canonical projection. Missing or
+    malformed evidence uses the same conservative limit.
     """
 
     try:
@@ -165,6 +167,11 @@ def direct_preparation_row_limit(
     except ColumnarCompilationError:
         return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
     if any(item.support is not ColumnarSupport.SUPPORTED for item in decisions):
+        return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
+    if any(
+        item.program is not None and item.program.identity_resolvers
+        for item in decisions
+    ):
         return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
     snapshots = tuple(source_snapshots)
     snapshots_by_id = {item.dataset_id: item for item in snapshots}
@@ -523,7 +530,9 @@ def prepare_bounded_direct_session(
                                             {},
                                         ),
                                         physical_dataset_id=(physical.dataset_id),
-                                        encode_payload=False,
+                                        encode_payload=bool(
+                                            columnar.program.identity_resolvers
+                                        ),
                                     )
                                 )
                                 if len(pending_rows) == BOUNDED_SOURCE_BATCH_SIZE:

@@ -201,23 +201,44 @@ def compile_preparation_capability(
             transformation_limit
             == COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
         )
+        relational_identity_native = (
+            bool(dataset_routes)
+            and all(
+                item.behavior is PreparationRouteBehavior.NATIVE_COLUMNAR
+                for item in dataset_routes
+            )
+            and any(
+                item.program is not None and item.program.identity_resolvers
+                for item in compilation or ()
+            )
+        )
         mixed = len({item.behavior for item in dataset_routes}) > 1
         if mixed:
             transformation_behavior = PreparationRouteBehavior.MIXED_BOUNDED
             canonical_reasons = (
                 "PREPARED_SNAPSHOT_VALUE_PROJECTION", "ROW_JSON_COMPATIBILITY_PATH",
             )
-        elif native:
+        elif native or relational_identity_native:
             transformation_behavior = PreparationRouteBehavior.NATIVE_COLUMNAR
-            canonical_reasons = ("PREPARED_SNAPSHOT_VALUE_PROJECTION",)
+            canonical_reasons = (
+                "PREPARED_SNAPSHOT_VALUE_PROJECTION",
+            )
         else:
             transformation_behavior = PreparationRouteBehavior.BOUNDED_PYTHON
             canonical_reasons = ("ROW_JSON_COMPATIBILITY_PATH",)
+        if native:
+            transformation_reasons = ()
+        elif relational_identity_native:
+            transformation_reasons = (
+                "RELATIONAL_IDENTITY_SCALE_UNQUALIFIED",
+            )
+        else:
+            transformation_reasons = ("COLUMNAR_MAPPING_UNSUPPORTED",)
         transformation = PreparationStageCapability(
             stage="transformation",
             behavior=transformation_behavior,
             supported_rows=transformation_limit,
-            reason_codes=() if native else ("COLUMNAR_MAPPING_UNSUPPORTED",),
+            reason_codes=transformation_reasons,
         )
         canonical = PreparationStageCapability(
             stage="canonical_adaptation",

@@ -4,36 +4,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const {
     initializeLazySourceSelect,
   } = window.impodoMappingEditor;
+  const { displayPreviewValue, defaultTextStep } =
+    window.impodoMappingValueRuleHelpers;
 
-  const displayPreviewValue = (value) => {
-    if (value === null || value === undefined) {
-      return "(empty)";
-    }
-    if (value === "") {
-      return '""';
-    }
-    return String(value);
-  };
 
   const textStepPreset = (step) =>
     step.kind === "remove_separators_between_digits"
       ? "remove_separators_between_digits"
       : step.search_mode || "literal";
 
-  const defaultTextStep = (preset) => ({
-    kind:
-      preset === "remove_separators_between_digits"
-        ? "remove_separators_between_digits"
-        : "find_replace",
-    search_value: "",
-    replacement_value: "",
-    search_mode: ["starts_with", "ends_with", "pattern"].includes(preset)
-      ? preset
-      : "literal",
-    replace_all: !["starts_with", "ends_with"].includes(preset),
-    characters:
-      preset === "remove_separators_between_digits" ? " .-" : "",
-  });
 
   const internationalPhoneTextSteps = () => [
     {

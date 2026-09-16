@@ -1,0 +1,25 @@
+            <div class="field-catalog-tools">
+              <label>
+                Find a field
+                <input type="search" value="{{ view.field_query }}" data-scalar-field-search placeholder="For example: Sales Price or Barcode" autocomplete="off">
+              </label>
+              <button class="button secondary" type="button" data-field-search-submit>Search</button>
+              <label class="checkbox">
+                <input type="checkbox" data-show-mapped-scalars {% if view.mapped_only %}checked{% endif %}>
+                Show only matched fields
+              </label>
+              <p class="muted" data-scalar-field-count>
+                Showing {{ view.scalar_rows|length }} of {{ view.scalar_matching_total }} fields · {{ view.scalar_mapped_total }} matched
+              </p>
+            </div>
+            <div
+              class="scalar-table-scroll-top"
+              data-scalar-table-scroll-top
+              role="region"
+              tabindex="0"
+              aria-label="Scroll scalar target fields horizontally"
+              aria-controls="scalar-table-scroll-{{ dataset_index }}"
+              hidden
+            >
+              <div class="scalar-table-scroll-spacer" data-scalar-table-scroll-spacer aria-hidden="true"></div>
+            </div>

@@ -20,8 +20,8 @@ its acceptance gates; the full plan is not yet complete.
 | 1: Storage access and admission | Incoming identity groups are detected before transformation, and publication validates canonical records across both storage representations. The explicit consumer-port refactor remains open. |
 | 2: Narrow checks | Exact mapping and published-hash bindings allow indexed quality checks to skip the full-row identity scan. Broader value projections and bounded finding publication remain open. |
 | 3: Arithmetic | Common arithmetic now reuses compiled instructions on the bounded Python route. Native decimal formula qualification remains open. |
-| 4: Relational identity | Direct complete-group quality now uses narrow projections and a database-owned graph. Versioned native reference serialization preserves historical replay and qualifies new reference bytes. Native relational identity evaluation remains open. |
-| 5: Release | Focused regression verification passed. Full workflow measurements and release qualification remain open. |
+| 4: Relational identity | Direct complete-group quality uses narrow projections and a database-owned graph. Compiler v9 and Polars evaluate qualified incoming, target-catalog, and hybrid identity references; clean datasets now use exact set-based DuckDB canonical projection within the existing 50,000-row boundary. Larger complete-route scale remains open. |
+| 5: Release | Windows Python 3.12 worker measurements passed for 50,000-row custom document/entry and BoM fixtures. Full release qualification remains open. |
 
 First-delivery verification on 2026-09-15:
 
@@ -96,9 +96,10 @@ The group-quality portion of Step 4 now handles direct incoming identities
 and scopes within the existing 50,000-source-row direct limit. It removes the
 group-specific requirement for the 25,000-row materialized route. Advanced
 rules, reference-bundle resolution, non-direct preparation, and the general
-materialized fallback retain their separate budgets. Native relational
-identity transformation remains unsupported and continues to select bounded
-Python evaluation.
+materialized fallback retain their separate budgets. At the time of this
+delivery, native relational identity transformation still selected bounded
+Python evaluation. The later native relational identity delivery below
+replaces that fallback for qualified direct mappings.
 
 The domain supplies one extraction rule for dependency roles. The DuckDB
 adapter projects only identities, scopes, and ordinary references from
@@ -165,11 +166,11 @@ $env:IMPODO_RUN_PREPARATION_SCALE = '1'
 .\.venv\Scripts\python.exe -m unittest tests.performance.test_preparation_identity_groups -v
 ```
 
-The consumer-port refactor, full error-heavy finding publication, native
-relational identity evaluation, browser verification, and controlled workflow
-timing and peak-memory measurements remain open. This delivery uses fictional
-inputs and disposable stores and does not restart Impodo or alter live
-workspaces.
+The consumer-port refactor, full error-heavy finding publication, fully
+set-based relational identity projection, browser verification, and controlled
+workflow timing and peak-memory measurements remain open. This delivery uses
+fictional inputs and disposable stores and does not restart Impodo or alter
+live workspaces.
 
 ### Native reference serialization delivery, 2026-09-15
 
@@ -212,12 +213,122 @@ import from `fallout_workbook_service`. The five documentation architecture
 tests passed again, and documentation validation, the code documentation
 inventory, and whitespace checks passed.
 
-This delivery does not qualify native relational identity evaluation or raise
-processing limits. The consumer-port refactor, bounded error-heavy finding
-publication, native Decimal formulas, browser verification, and controlled
-complete-workflow time and memory measurements remain open. Browser controls
-and decisions do not change, so screenshots were not recaptured. Implementation
-and tests do not restart Impodo or access running user sessions.
+This serialization delivery did not itself qualify native relational identity
+evaluation or raise processing limits. The subsequent delivery below uses the
+qualified bytes while keeping the existing 50,000-row limit. The consumer-port
+refactor, bounded error-heavy finding publication, native Decimal formulas,
+browser verification, and controlled complete-workflow time and memory
+measurements remain open. Browser controls and decisions do not change, so
+screenshots were not recaptured. Implementation and tests do not restart Impodo
+or access running user sessions.
+
+### Native relational identity delivery, 2026-09-16
+
+Compiler v9 represents each qualified relational target-identity or target-scope
+component with model-neutral resolver metadata. Incoming, target-catalog, and
+target-then-incoming references support ordered composite keys and scope.
+Hybrid aliases apply only to the target key. An entirely blank optional
+relational scope remains a root, while a partially blank composite scope keeps
+the authoritative blocking issue. Reference key normalization trims outer
+whitespace without collapsing meaningful internal whitespace.
+
+The Polars adapter evaluates these components in bounded prepared batches and
+constructs the same `LogicalReference` values and issues as the Python oracle.
+Because DuckDB's clean set-based serializer does not yet encode relational
+identity components, capability admission retains the 50,000-row direct limit.
+These rows store their canonical payload so indexed complete-group quality can
+read identity and scope references. Other clean native rows keep the compact
+projection representation. The SQL serializer rejects relational identity
+programs rather than producing unqualified bytes.
+
+Compiler-v8 portable programs omit the new metadata and retain their prior
+content hashes. Unsupported resolver shapes retain
+`COLUMNAR_IDENTITY_RESOLVER_UNSUPPORTED`. No model, dataset, or field name
+selects the route.
+
+Focused compiler, capability, Polars, and serializer verification covers
+incoming, target-catalog, hybrid alias, composite key and scope, all-blank root,
+partially blank scope, internal whitespace, batches of 1, 17, and 1,000 rows,
+and historical compiler replay. Generic document, accounting, and custom-model
+service fixtures pass with whole-run transformation, quality, and normalization
+fallbacks disabled and with exact canonical and quality parity. The controlled
+26,001-row custom-model gate also passed. Its forced failure and two complete
+preparations finished in 175.736 seconds on the local Windows test runtime.
+This is qualification evidence for the existing limit, not a complete workflow
+benchmark.
+
+This delivery does not increase any processing limit. Fully set-based
+relational identity serialization was addressed in the next delivery below;
+the consumer-port refactor, bounded
+error-heavy finding publication, native Decimal formulas, browser verification,
+and complete-workflow time and peak-memory measurements remain open. Tests use
+disposable fictional workspaces and do not access Odoo or running user sessions.
+
+### Set-based relational identity delivery, 2026-09-16
+
+Clean compiler-v9 relational identities now use DuckDB set-based canonical
+projection. Identity and scope components serialize as one exact portable
+reference each, including target-catalog and hybrid alias keys, composite
+parts, and all-null optional roots. The SQL label expression preserves Python
+reference representation and rejects nonprintable values that require a
+different escape form. Rows with transformation issues select the bounded
+payload route for the whole dataset. Reviewed target aliases are applied after
+incoming-key normalization, preserving their exact bytes in Polars as in the
+Python evaluator.
+
+Complete-group quality rebuilds native identity and ordinary relationship
+dependencies from verified prepared columns. Incoming identity and scope links
+propagate unsafe children to their parents; hybrid lookup dependencies remain
+forward only. The adapter keeps the canonical matching key even when an older
+relationship-edge index contains an incoming key. Projection contract 3 and
+compiler-v8 hashes keep their historical representation.
+
+Exact Python/SQL row bytes passed for incoming, target-catalog, and hybrid
+identities across batch sizes 1, 17, and 5,000, including Unicode, punctuation,
+escaped characters, composite keys, aliases, and optional roots. A clean
+custom parent-and-child service fixture passed the forced-failure retry and
+two successful preparations, comparing complete canonical and quality results
+while retaining empty stored row payloads for the clean child dataset.
+Another clean custom-model fixture induced a child identity collision and
+verified that the native group facts produced the same parent propagation and
+quality results as the Python evaluator.
+The controlled 26,001-row clean custom-model fixture also passed: its forced
+failure and two complete preparations took 48.237 seconds (71.361 seconds for
+the entire test) on the local Windows runtime. This is a route qualification
+measurement for this fixture, not a general preparation-time guarantee.
+Identity-program admission remains at 50,000 rows. The 100,000-row
+complete-route qualification, browser check, error-heavy publication, and
+peak-memory measurements remain open. Tests use disposable fictional workspaces
+and do not touch Odoo or running sessions.
+
+### 50,000-row worker qualification, 2026-09-16
+
+The Python 3.12 Windows worker benchmark ran on disposable direct datasets:
+2,000 parents and 48,000 children. The custom `x_custom.document` / `x_custom.entry`
+fixture uses an incoming parent in both a child identity scope and an ordinary
+relationship. Three fresh processes produced identical staging, quality, and
+normalization hashes. First preparation took 51.5–59.3 seconds (56.1-second
+median), with a 421 MiB median peak worker working set. Repeat preparation
+after removing the source artifact took 61.9–64.7 seconds (62.9-second median),
+with a 390 MiB median peak. Both datasets used set-based canonical projection;
+workers exited and repeat attempts reused the immutable prepared snapshots.
+
+The BoM regression used the same 50,000-row source shape in one fresh process.
+First and repeat preparation took 44.9 and 31.5 seconds; worker peaks were
+415 and 385 MiB. This is a regression check, not a three-run median. The
+benchmark stores CPU, disk, and fixture hashes alongside these values. Its
+Windows output capture now decodes UTF-8 explicitly so a diagnostic character
+cannot hide the worker result.
+
+These measurements came from a dirty development worktree and are preliminary
+until the clean committed revision is rerun. An archived previous revision
+failed its 25,000-row parent/child benchmark with a mapping/source mismatch,
+so it provides no completed first/repeat timing or memory baseline. The
+proposed 30% speedup and no-memory-increase comparison cannot be evaluated
+against that revision. Release acceptance must record this limitation and
+judge the supported 50,000-row route using its exact-result tests, completed
+worker runs, and the existing 120-second / 900-MiB absolute worker probe
+budget. No 100,000-row relational identity admission is claimed.
 
 The data manager should be able to prepare related tables without choosing an
 internal evaluator or storage format. Examples include orders and their lines,

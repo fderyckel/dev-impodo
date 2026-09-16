@@ -100,7 +100,9 @@ class StaticAssetOwnershipTests(unittest.TestCase):
             "mapping/page.html": (
                 "/mapping-save-recovery.js",
                 "/mapping-editor.js",
+                "/mapping-relation-row.js",
                 "/mapping-formula-validation.js",
+                "/mapping-value-rule-helpers.js",
                 "/mapping-value-rules.js",
                 "/mapping-catalogs.js",
                 "/mapping.js",

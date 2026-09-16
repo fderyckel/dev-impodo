@@ -216,6 +216,26 @@ class ColumnarCompilerTests(unittest.TestCase):
         self.assertEqual(restored, first.program)
         self.assertEqual(restored.content_hash, first.program.content_hash)
 
+    def test_compiler_v8_portable_program_omits_new_resolver_metadata(self) -> None:
+        decision = compile_columnar_transformation_program(
+            _supported_definition(self.selection),
+            self.selection,
+            DATASET_ID,
+        )
+        assert decision.program is not None
+        legacy = replace(
+            decision.program,
+            compiler_version=8,
+            identity_resolvers=(),
+        )
+
+        payload = legacy.to_portable_dict()
+        restored = ColumnarTransformationProgram.from_portable_dict(payload)
+
+        self.assertNotIn("identity_resolvers", payload)
+        self.assertEqual(restored, legacy)
+        self.assertEqual(restored.content_hash, legacy.content_hash)
+
     def test_fallback_and_value_match_order_are_explicit(self) -> None:
         field = ScalarFieldMapping(
             target_field="name",
@@ -357,7 +377,7 @@ class ColumnarCompilerTests(unittest.TestCase):
                 self.assertIn(code, {item.code for item in first.fallback_reasons})
                 self.assertEqual(first.content_hash, second.content_hash)
 
-    def test_relationship_identity_resolver_and_non_direct_dataset_fallback(self) -> None:
+    def test_relationship_identity_resolver_is_native_but_non_direct_dataset_falls_back(self) -> None:
         resolver = RelationshipResolver(
             origin=ResolverOrigin.TARGET_CATALOG,
             model="res.category",
@@ -397,18 +417,27 @@ class ColumnarCompilerTests(unittest.TestCase):
             dataset_kind=ColumnarDatasetKind.RELATED_CHILD,
         )
 
-        self.assertEqual(direct.support, ColumnarSupport.PYTHON_FALLBACK)
-        self.assertEqual(
-            {item.code for item in direct.fallback_reasons},
-            {"COLUMNAR_IDENTITY_RESOLVER_UNSUPPORTED"},
+        self.assertEqual(direct.support, ColumnarSupport.SUPPORTED)
+        assert direct.program is not None
+        self.assertEqual(len(direct.program.identity_resolvers), 1)
+        native_resolver = direct.program.identity_resolvers[0]
+        self.assertEqual(native_resolver.role, "target_identity")
+        self.assertEqual(native_resolver.target_field, "category_id")
+        self.assertEqual(native_resolver.resolver_origin, "target_catalog")
+        self.assertEqual(native_resolver.related_model, "res.category")
+        self.assertEqual(native_resolver.target_key_fields, ("code",))
+        restored = ColumnarTransformationProgram.from_portable_dict(
+            direct.program.to_portable_dict()
         )
+        self.assertEqual(restored, direct.program)
+        self.assertEqual(restored.content_hash, direct.program.content_hash)
         self.assertEqual(related.support, ColumnarSupport.PYTHON_FALLBACK)
         self.assertEqual(
             {item.code for item in related.fallback_reasons},
             {"COLUMNAR_NON_DIRECT_DATASET_UNSUPPORTED"},
         )
 
-    def test_hierarchy_root_scope_keeps_the_identity_resolver_fallback(self) -> None:
+    def test_hierarchy_root_scope_compiles_nullable_native_reference(self) -> None:
         scope = IdentityComponentMapping(
             source_column_keys=("product.category",),
             target_fields=("parent_id",),
@@ -435,11 +464,67 @@ class ColumnarCompilerTests(unittest.TestCase):
             DATASET_ID,
         )
 
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+        self.assertFalse(decision.program.target_scope[0].required)
+        self.assertEqual(
+            decision.program.identity_resolvers[0].parent_dataset_name,
+            "products",
+        )
+
+    def test_unqualified_identity_resolver_keeps_stable_fallback_reason(self) -> None:
+        resolver = RelationshipResolver(
+            origin=ResolverOrigin.TARGET_CATALOG,
+            model="res.category",
+            key_mappings=(ReferenceKeyMapping("product.category", "code"),),
+            dataset_projection_field="id",
+        )
+        definition = _definition(
+            self.selection,
+            fields=(ScalarFieldMapping(
+                target_field="name",
+                source_column_key="product.name",
+            ),),
+            target_identity=(IdentityComponentMapping(
+                source_column_keys=("product.category",),
+                target_fields=("category_id",),
+                resolver=resolver,
+            ),),
+        )
+
+        decision = compile_columnar_transformation_program(
+            definition,
+            self.selection,
+            DATASET_ID,
+        )
+
         self.assertEqual(decision.support, ColumnarSupport.PYTHON_FALLBACK)
         self.assertEqual(
             {item.code for item in decision.fallback_reasons},
             {"COLUMNAR_IDENTITY_RESOLVER_UNSUPPORTED"},
         )
+
+    def test_non_string_relational_identity_keeps_authoritative_fallback(self) -> None:
+        definition = _definition(
+            self.selection,
+            fields=(ScalarFieldMapping(
+                target_field="name", source_column_key="product.name",
+            ),),
+            target_identity=(IdentityComponentMapping(
+                source_column_keys=("product.category",),
+                target_fields=("category_id",), value_type="integer",
+                resolver=RelationshipResolver(
+                    origin=ResolverOrigin.TARGET_CATALOG, model="res.category",
+                    key_mappings=(ReferenceKeyMapping("product.category", "code"),),
+                ),
+            ),),
+        )
+        decision = compile_columnar_transformation_program(
+            definition, self.selection, DATASET_ID,
+        )
+        self.assertEqual(decision.support, ColumnarSupport.PYTHON_FALLBACK)
+        self.assertEqual({item.code for item in decision.fallback_reasons},
+                         {"COLUMNAR_IDENTITY_RESOLVER_UNSUPPORTED"})
 
     def test_incoming_many2one_compiles_native_key_once_for_set_resolution(
         self,

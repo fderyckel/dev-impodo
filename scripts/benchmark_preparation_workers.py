@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bom-lines", type=int, default=80_000)
     parser.add_argument(
         "--workload",
-        choices=("products", "bom", "customers", "product-bom"),
+        choices=("products", "bom", "customers", "product-bom", "documents"),
         default="products",
     )
     parser.add_argument("--dirty", action="store_true")
@@ -93,16 +93,20 @@ def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "command": {
             "bom_lines": (
-                arguments.bom_lines if arguments.workload == "product-bom" else None
+                arguments.bom_lines if arguments.workload in {"product-bom", "documents"} else None
             ),
             "columns": arguments.columns,
             "dirty": arguments.dirty,
             "effect_fields": arguments.effect_fields,
             "mapped_fields": arguments.mapped_fields,
             "products": (
-                arguments.products if arguments.workload == "product-bom" else None
+                arguments.products if arguments.workload in {"product-bom", "documents"} else None
             ),
-            "rows": arguments.rows,
+            "rows": (
+                arguments.products + arguments.bom_lines
+                if arguments.workload in {"product-bom", "documents"}
+                else arguments.rows
+            ),
             "runs": arguments.runs,
             "workload": arguments.workload,
         },
@@ -206,6 +210,8 @@ def _run_once(
         env=environment,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=arguments.timeout_seconds,
         check=False,
     )
@@ -303,7 +309,7 @@ def _validate_arguments(arguments: argparse.Namespace) -> None:
         raise PreparationWorkerBenchmarkError(
             "Effect fields must be positive and exclude the identity field"
         )
-    if arguments.workload == "product-bom":
+    if arguments.workload in {"product-bom", "documents"}:
         if min(arguments.products, arguments.bom_lines) < 1:
             raise PreparationWorkerBenchmarkError(
                 "Related Product/BOM counts must be positive"

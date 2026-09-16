@@ -31,7 +31,9 @@ from impodo.domain.mapping.contracts import (
     ConstantReferenceComponent,
     DatasetMapping,
     IdentityComponentMapping,
+    IdentityNullPolicy,
     MappingDefinition,
+    ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
     RelationshipValueSource,
@@ -361,6 +363,143 @@ class PolarsTransformationParityTests(unittest.TestCase):
                     for record in batch.records
                 )
                 self.assertEqual(records, expected_records)
+
+    def test_relational_identities_match_python_oracle_across_batches(self) -> None:
+        resolvers = (
+            RelationshipResolver(
+                origin=ResolverOrigin.DATASET,
+                dataset_id=DATASET_ID,
+            ),
+            RelationshipResolver(
+                origin=ResolverOrigin.TARGET_CATALOG,
+                model="product.category",
+                key_mappings=(ReferenceKeyMapping("product.category", "code"),),
+                scope_mappings=(ReferenceKeyMapping("product.scope", "company_code"),),
+            ),
+            RelationshipResolver(
+                origin=ResolverOrigin.TARGET_THEN_DATASET,
+                dataset_id=DATASET_ID,
+                model="product.template",
+                key_mappings=(ReferenceKeyMapping("product.sku", "default_code"),),
+                value_mappings=(ValueMapping("SKU   1", "SKU-1"),),
+            ),
+        )
+        source_columns = (
+            ("product.category",),
+            ("product.category", "product.scope"),
+            ("product.sku",),
+        )
+        for resolver, columns in zip(resolvers, source_columns, strict=True):
+            with self.subTest(origin=resolver.origin.value):
+                prepared_root = self.root / resolver.origin.value
+                prepared_root.mkdir()
+                mapping = replace(
+                    self.definition.datasets[0],
+                    target_identity=(IdentityComponentMapping(
+                        source_column_keys=columns,
+                        target_fields=("relational_identity_id",),
+                        resolver=resolver,
+                    ),),
+                )
+                definition = replace(self.definition, datasets=(mapping,))
+                expected_records, _expected_report = _python_oracle(
+                    definition,
+                    self.selection,
+                    self.rows,
+                )
+                decision = compile_columnar_transformation_program(
+                    definition,
+                    self.selection,
+                    DATASET_ID,
+                )
+                self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+                assert decision.program is not None
+                self.assertEqual(len(decision.program.identity_resolvers), 1)
+                destination, prepared = _write_prepared_snapshot(
+                    prepared_root,
+                    self.path,
+                    self.snapshot,
+                    decision.program,
+                )
+                for chunk_size in (1, 17, POLARS_TRANSFORMATION_BATCH_ROWS):
+                    records = tuple(
+                        record
+                        for batch in iter_polars_prepared_batches(
+                            destination,
+                            prepared,
+                            self.snapshot,
+                            decision.program,
+                            batch_size=chunk_size,
+                        )
+                        for record in batch.records
+                    )
+                    self.assertEqual(records, expected_records)
+
+    def test_nullable_composite_relational_scope_matches_python_oracle(self) -> None:
+        mapping = replace(
+            self.definition.datasets[0],
+            target_scope=(IdentityComponentMapping(
+                source_column_keys=("product.category", "product.scope"),
+                target_fields=("parent_id",),
+                resolver=RelationshipResolver(
+                    origin=ResolverOrigin.DATASET,
+                    dataset_id=DATASET_ID,
+                ),
+                null_policy=IdentityNullPolicy.EXPLICIT_SCOPE_NULL,
+            ),),
+        )
+        definition = replace(self.definition, datasets=(mapping,))
+        rows = tuple(
+            replace(row, values={
+                **row.values,
+                "category": category,
+                "scope": scope,
+            })
+            for row, (category, scope) in zip(
+                self.rows,
+                ((None, None), (" Parent ", None), ("Parent", "BE"), (None, "BE")),
+                strict=True,
+            )
+        )
+        expected_records, _expected_report = _python_oracle(
+            definition,
+            self.selection,
+            rows,
+        )
+        nullable_root = self.root / "nullable"
+        nullable_root.mkdir()
+        source_path, snapshot = _write_snapshot(
+            nullable_root,
+            self.selection,
+            rows,
+        )
+        decision = compile_columnar_transformation_program(
+            definition,
+            self.selection,
+            DATASET_ID,
+        )
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+        destination, prepared = _write_prepared_snapshot(
+            nullable_root,
+            source_path,
+            snapshot,
+            decision.program,
+        )
+
+        records = tuple(
+            record
+            for batch in iter_polars_prepared_batches(
+                destination,
+                prepared,
+                snapshot,
+                decision.program,
+                batch_size=1,
+            )
+            for record in batch.records
+        )
+
+        self.assertEqual(records, expected_records)
 
     def test_constant_existing_relationship_matches_python_oracle(self) -> None:
         dataset_mapping = replace(

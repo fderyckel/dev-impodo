@@ -572,7 +572,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (Number.isNaN(lastUpdatedAt.getTime())) lastUpdatedAt = new Date();
       if (message) message.textContent = job.message;
       if (progress) progress.value = job.progress_percent;
-      if (percent) percent.textContent = `${job.progress_percent}%`;
+      if (percent) {
+        percent.textContent =
+          job.status === "FAILED" || job.status === "CANCELLED"
+            ? `Stopped at ${job.progress_percent}%`
+            : `${job.progress_percent}%`;
+      }
       if (units) units.textContent = formatUnits(job);
       if (spinner) spinner.hidden = !active;
       if (activeActions) activeActions.hidden = !active;

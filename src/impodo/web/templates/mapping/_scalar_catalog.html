@@ -6,31 +6,7 @@
             data-scalar-mapped-total="{{ view.scalar_mapped_total }}"
             data-scalar-page-size="{{ view.scalar_page_size }}"
           >
-            <div class="field-catalog-tools">
-              <label>
-                Find a field
-                <input type="search" value="{{ view.field_query }}" data-scalar-field-search placeholder="For example: Sales Price or Barcode" autocomplete="off">
-              </label>
-              <button class="button secondary" type="button" data-field-search-submit>Search</button>
-              <label class="checkbox">
-                <input type="checkbox" data-show-mapped-scalars {% if view.mapped_only %}checked{% endif %}>
-                Show only matched fields
-              </label>
-              <p class="muted" data-scalar-field-count>
-                Showing {{ view.scalar_rows|length }} of {{ view.scalar_matching_total }} fields · {{ view.scalar_mapped_total }} matched
-              </p>
-            </div>
-            <div
-              class="scalar-table-scroll-top"
-              data-scalar-table-scroll-top
-              role="region"
-              tabindex="0"
-              aria-label="Scroll scalar target fields horizontally"
-              aria-controls="scalar-table-scroll-{{ dataset_index }}"
-              hidden
-            >
-              <div class="scalar-table-scroll-spacer" data-scalar-table-scroll-spacer aria-hidden="true"></div>
-            </div>
+            {% include "mapping/_scalar_catalog_tools.html" %}
             <div class="table-scroll" id="scalar-table-scroll-{{ dataset_index }}" data-scalar-table-scroll>
               <table class="data-table mapping-table">
               <thead><tr><th>Use value from</th><th>Clean up (optional)</th><th>Odoo field</th><th>Support details</th><th>Preview</th><th>Check values (optional)</th></tr></thead>
@@ -607,21 +583,5 @@
               </tbody>
               </table>
             </div>
-            <nav class="field-catalog-navigation" aria-label="Odoo field display options" data-scalar-pagination>
-              <div class="field-page-size" aria-label="Number of fields shown per page">
-                <span>Show fields:</span>
-                {% for option in view.scalar_page_size_options %}
-                  <a
-                    class="field-count-button{% if option.size == view.scalar_page_size %} active{% endif %}"
-                    href="{{ option.url }}"
-                    {% if option.size == view.scalar_page_size %}aria-current="page"{% endif %}
-                  >{{ option.size }}</a>
-                {% endfor %}
-              </div>
-              <div class="field-pagination">
-                {% if view.scalar_previous_url %}<a class="button secondary" href="{{ view.scalar_previous_url }}">Previous</a>{% endif %}
-                <span class="muted">Page {{ view.scalar_page }} of {{ view.scalar_page_count }}</span>
-                {% if view.scalar_next_url %}<a class="button secondary" href="{{ view.scalar_next_url }}">Show more fields</a>{% endif %}
-              </div>
-            </nav>
+            {% include "mapping/_scalar_catalog_pagination.html" %}
           </div>

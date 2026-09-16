@@ -1,0 +1,148 @@
+.concepts-heading {
+  min-width: 0;
+  max-width: 880px;
+}
+
+.concepts-heading h1,
+.concept-model h2,
+.concept-page-example h2,
+.concept-card h2 {
+  overflow-wrap: anywhere;
+}
+
+.concept-model,
+.concept-page-example {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 1.5rem;
+}
+
+.concept-model-root {
+  display: grid;
+  justify-items: center;
+  width: 100%;
+  max-width: 360px;
+  min-width: 0;
+  margin: 0 auto 1.25rem;
+  border: 2px solid var(--brand);
+  border-radius: 6px;
+  background: var(--accent);
+  padding: 1rem;
+  text-align: center;
+}
+
+.concept-model-root strong {
+  font-size: 1.15rem;
+}
+
+.concept-model-root span,
+.concept-model-branches span {
+  color: var(--muted);
+}
+
+.concept-model-branches {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-width: 0;
+  gap: .75rem;
+}
+
+.concept-model-branches a {
+  display: grid;
+  min-width: 0;
+  gap: .2rem;
+  min-height: 110px;
+  align-content: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  padding: 1rem;
+  text-align: center;
+  text-decoration: none;
+}
+
+.concept-model-branches a:hover {
+  border-color: var(--impodo-grey);
+  background: var(--impodo-soft);
+}
+
+.concept-page-example h2 {
+  margin-top: 0;
+}
+
+.concept-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.concept-card {
+  min-width: 0;
+  max-width: 100%;
+  scroll-margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 1.5rem;
+}
+
+.concept-card:target,
+.concept-card:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 3px;
+}
+
+.concept-card h2 {
+  margin-top: 0;
+}
+
+.concept-card-details {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+  padding-top: .25rem;
+}
+
+@media (max-width: 860px) {
+  .concept-model-branches,
+  .concept-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .concept-model-branches a {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .concepts-page .page-shell {
+    width: calc(100% - 2rem);
+    max-width: calc(100vw - 2rem);
+  }
+
+  .concepts-heading h1 {
+    font-size: clamp(2.25rem, 11vw, 3.2rem);
+  }
+
+  .concept-model,
+  .concept-page-example,
+  .concept-card {
+    padding: 1rem;
+  }
+
+  .concept-help-dialog {
+    padding: 1rem;
+  }
+
+  .concept-help-dialog .dialog-actions,
+  .concept-help-dialog .dialog-actions form,
+  .concept-help-dialog .dialog-actions .button {
+    width: 100%;
+  }
+}

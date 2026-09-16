@@ -1259,7 +1259,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
         import psutil
 
-        related_product_bom = PREPARATION_SCALE_WORKLOAD == "product-bom"
+        related_product_bom = PREPARATION_SCALE_WORKLOAD in {"product-bom", "documents"}
         effective_rows = (
             PREPARATION_SCALE_PRODUCTS + PREPARATION_SCALE_BOM_LINES
             if related_product_bom
@@ -1279,6 +1279,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     bom_line_count=PREPARATION_SCALE_BOM_LINES,
                     column_count=PREPARATION_SCALE_COLUMNS,
                     mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
+                    dataset_names=("documents", "entries")
+                    if PREPARATION_SCALE_WORKLOAD == "documents"
+                    else ("products", "bom_lines"),
+                    generic_identity=PREPARATION_SCALE_WORKLOAD == "documents",
                 )
             )
         else:
@@ -1499,6 +1503,12 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             },
             prepared_modified,
         )
+        vectorization_report = vectorization_evidence()
+        if related_product_bom:
+            self.assertEqual(
+                vectorization_report["set_based_projection_datasets"],
+                2,
+            )
         print(
             "Background preparation probe: "
             f"rows={effective_rows:,}, "
@@ -1556,7 +1566,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 },
                 "schema_version": 1,
                 "source_reopened": False,
-                "vectorization_report": vectorization_evidence(),
+                "vectorization_report": vectorization_report,
                 "workers_exited": True,
                 "workload": PREPARATION_SCALE_WORKLOAD,
             }
@@ -1564,7 +1574,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 PREPARATION_WORKER_BENCHMARK_PREFIX
                 + json.dumps(result, separators=(",", ":"), sort_keys=True)
             )
-        if effective_rows == COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:
+        if effective_rows == COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT or (
+            related_product_bom and effective_rows == 50_000
+        ):
             self.assertLess(first_seconds, 120)
             self.assertLess(repeat_seconds, 120)
             self.assertLess(first_peak / (1024 * 1024), 900)
@@ -1578,6 +1590,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         column_count: int,
         mapped_field_count: int,
         dataset_names: tuple[str, str] = ("products", "bom_lines"),
+        generic_identity: bool = False,
     ) -> tuple[str, str, int]:
         """Create two direct datasets with a real Product/BOM resolver."""
 
@@ -1663,7 +1676,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_scale",
-            intended_models=("product.template", "mrp.bom.line"),
+            intended_models=("x_custom.document", "x_custom.entry")
+            if generic_identity else ("product.template", "mrp.bom.line"),
             status=WorkspaceStatus.REGISTERED,
             revision=workspace_state.revision + 1,
             updated_at=benchmark_now,
@@ -1758,7 +1772,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             datasets=(
                 DatasetMapping(
                     dataset_id=products.dataset_id,
-                    target_model="product.template",
+                    target_model=("x_custom.document" if generic_identity else "product.template"),
                     mode=MappingTargetMode.UPSERT,
                     source_identity_column_keys=(products.columns[0].stable_key,),
                     target_identity=(
@@ -1785,7 +1799,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 ),
                 DatasetMapping(
                     dataset_id=bom_lines.dataset_id,
-                    target_model="mrp.bom.line",
+                    target_model=("x_custom.entry" if generic_identity else "mrp.bom.line"),
                     mode=MappingTargetMode.UPSERT,
                     source_identity_column_keys=(
                         bom_lines.columns[0].stable_key,
@@ -1803,10 +1817,20 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                             ),
                         ),
                     ),
+                    target_scope=(
+                        IdentityComponentMapping(
+                            source_column_keys=(bom_lines.columns[2].stable_key,),
+                            target_fields=("x_document",),
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.DATASET,
+                                dataset_id=products.dataset_id,
+                            ),
+                        ),
+                    ) if generic_identity else (),
                     fields=bom_fields,
                     relationships=(
                         RelationshipMapping(
-                            target_field="product_id",
+                            target_field="x_document" if generic_identity else "product_id",
                             kind="many2one",
                             source_column_keys=(bom_lines.columns[2].stable_key,),
                             resolver=RelationshipResolver(

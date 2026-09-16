@@ -36,6 +36,8 @@ contract. A mismatch returns `IMPODO_BUILD_CHANGED` and requires an application
 restart; the browser must not offer a blind retry. The progress page renders
 from the same in-memory job snapshot. It therefore does not race either DuckDB
 writer.
+On terminal failure or cancellation, the progress label says **Stopped at**
+the last reached percentage, and the spinner and active actions disappear.
 `PreparationService` selects the supported preparation capability, compiles the
 mapping, writes bounded staging batches, publishes quality/accounting evidence,
 and records the preparation session.
@@ -62,9 +64,9 @@ route solely because an incoming parent supplies their identity or scope.
 Advanced rules and non-direct preparation retain their separate limits.
 
 The [DuckDB group-quality adapter](../../../src/impodo/adapters/duckdb/preparation_identity_group_quality.py)
-projects only identity, scope, and
-reference values from stored canonical JSON in bounded pages. It joins these
-facts to the existing direct source-identity index. Parent keys are counted
+projects only identity, scope, and reference values from stored canonical JSON
+in bounded pages, or from verified prepared columns for clean set-based rows.
+It joins these facts to the existing direct source-identity index. Parent keys are counted
 before matching, so duplicate keys do not multiply the join. DuckDB builds
 temporary forward readiness arcs and reverse arcs for unique incoming identity
 parents. A recursive distinct traversal propagates unsafe records. Warning
@@ -75,13 +77,19 @@ error-heavy publication qualification.
 
 These temporary facts are rebuilt from immutable evidence on each attempt.
 An interrupted calculation rolls back without changing canonical rows or
-requiring a storage migration. Native evaluation of relational identities
-remains unsupported; those datasets still use bounded Python transformation.
-For native hybrid lookups, the adapter reads relationship columns from the
-hash-verified prepared artifact using canonical reference serialization. It
-rebuilds those facts rather than trusting a historical edge index that may
-contain the incoming key instead of the canonical matching key. Other native
-incoming links reuse the existing direct edges.
+requiring a storage migration. Qualified direct relational identities now use
+compiler-v9 resolver metadata and bounded native Polars transformation.
+Incoming, target-catalog, and target-then-incoming identities preserve ordered
+composite keys, scope, aliases, and explicit null roots. Unsupported resolver
+shapes retain `COLUMNAR_IDENTITY_RESOLVER_UNSUPPORTED` and use the bounded
+Python route.
+For native hybrid lookups and relational identities, the adapter reads
+relationship, identity, and scope columns from the hash-verified prepared
+artifact using canonical reference serialization. It rebuilds those facts
+rather than trusting a historical edge index that may contain the incoming key
+instead of the canonical matching key. Only incoming identity or scope links
+propagate an unsafe child back to its parent; hybrid links remain forward
+dependencies. Other native incoming links reuse the existing direct edges.
 New native projections use
 [`PreparedCanonicalProjection`](../../../src/impodo/domain/staging/preparation_session.py)
 contract 4. Incoming,
@@ -96,8 +104,21 @@ Readers preserve projection contract 3's original reference encoding and verify
 its stored content hash. Existing evidence is not migrated or rewritten. The
 projection version selects serialization independently of the compiled program
 hash. Tests reopen a finalized historical run, verify its complete original
-hash, and reject a changed projection version against that hash. Native
-relational identity evaluation remains a separate qualification gate.
+hash, and reject a changed projection version against that hash. Compiler-v8
+portable programs omit the new resolver metadata and retain their original
+content hashes.
+
+Clean relational identity programs use set-based DuckDB canonical projection.
+Each resolved component becomes one portable logical reference; optional blank
+roots remain null. SQL emits exact canonical bytes, identity hashes, labels,
+and native identity-group dependencies. Nonprintable reference labels or rows
+with transformation issues use the bounded canonical-payload route for the
+entire dataset; the clean SQL plan never silently skips a row. Reviewed hybrid
+aliases are applied after incoming-key normalization so their exact target
+bytes survive. Compiler-v8 and projection-contract-3 historical artifacts
+retain their original serialization. Capability diagnostics report
+`RELATIONAL_IDENTITY_SCALE_UNQUALIFIED`; admission remains at 50,000 direct
+rows until a larger complete route is measured and qualified.
 
 Canonical publication parses and validates each row while hashing it. It
 checks the row's coordinates, model, disposition, and mapping, schema, and
@@ -128,7 +149,9 @@ impacts, and requirements for work across rows. Its content hash binds those
 semantics without importing Polars into the domain layer.
 
 Each `ColumnarCompilationDecision` contains either a complete supported program
-or explicit fallback reasons. A formula, unsupported conversion, or another
+or explicit fallback reasons. Qualified relational identity components carry
+an additive `ColumnarIdentityResolverProgram` bound to their role and component
+index. A formula, unsupported conversion, or another
 unsupported operation routes the whole dataset to the bounded Python evaluator
 before transformation begins. Preparation does not switch between native and
 Python evaluation for individual fields or cells.
@@ -161,8 +184,9 @@ Compiler support does not by itself admit a run to the high-volume route.
 Full-pipeline admission also checks snapshots, dataset shape, and downstream
 quality and normalization capabilities. The current limits are 100,000 physical
 rows for qualified exact-snapshot, single-dataset native preparation, 50,000
-for current direct Python-fallback or relationship routes, and 25,000 for
-derived or materialized routes. Extending qualification belongs to the
+for current direct Python-fallback, relationship, or native relational-identity
+routes pending scale qualification, and 25,000 for derived or materialized routes.
+Extending qualification belongs to the
 [remaining scale work](../../plans/remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
 
 ## Code references
@@ -173,6 +197,7 @@ derived or materialized routes. Extending qualification belongs to the
 | Dataset capability compiler | [`compile_columnar_transformation_programs`](../../../src/impodo/domain/compiler/columnar_transformation.py) |
 | Native execution contract | [`ColumnarTransformationPort`](../../../src/impodo/application/workspace/preparation/columnar_transformation_port.py) |
 | Native transformation implementation | [`PolarsTransformationAdapter`](../../../src/impodo/adapters/polars_transformation.py) |
+| Relational identity program | [`ColumnarIdentityResolverProgram`](../../../src/impodo/domain/compiler/columnar_transformation.py) |
 | Compiled bounded arithmetic | [`CompiledArithmeticFormula`](../../../src/impodo/domain/recipe/value_rules.py) |
 | Background jobs | [`PreparationJobManager`](../../../src/impodo/web/composition/preparation_job_manager.py) |
 | Process build contract | [`ApplicationBuildContract`](../../../src/impodo/application/shared/build_contract.py) |

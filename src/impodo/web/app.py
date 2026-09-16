@@ -73,6 +73,7 @@ from ..application.reconciliation_evidence_service import (
     ReconciliationEvidenceService,
 )
 from ..application.fallout_workbook_service import FalloutWorkbookService
+from ..adapters.artifacts.fallout_workbook import build_fallout_workbook
 from ..application.recipe_compilation_service import RecipeCompiler
 from ..application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
@@ -742,6 +743,7 @@ def create_local_app(
         workspace_state_repository,
         artifacts,
         workspace_access,
+        build_fallout_workbook,
     )
     cutover_plans = CutoverPlanService(
         projects=migration_projects,

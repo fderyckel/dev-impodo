@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}How Impodo organizes your migration &middot; Impodo{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='/concepts.css') }}">
+{% endblock %}
 {% block body_class %}concepts-page{% endblock %}
 {% block content %}
   <div class="page-heading concepts-heading">

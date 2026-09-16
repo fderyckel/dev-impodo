@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO, TextIOWrapper
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
@@ -16,6 +16,7 @@ from openpyxl.styles import Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from impodo.domain.reconciliation import ReconciliationRowStatus, ReconciliationRun
+from impodo.application.fallout_workbook_port import FalloutWorkbookCell
 
 
 FALLOUT_FILL = "FCE8E7"
@@ -24,24 +25,6 @@ WARNING_FILL = "FFF5DF"
 WARNING_TEXT = "7D4F00"
 VERIFIED_FILL = "EDF7EF"
 VERIFIED_TEXT = "4D7C5B"
-
-
-@dataclass(frozen=True, slots=True)
-class FalloutWorkbookCell:
-    """One authorized difference resolved to an optional physical source cell."""
-
-    source_file: str
-    worksheet: str
-    coordinate: str
-    business_key: str
-    odoo_record: str
-    field: str
-    source_value: Any
-    prepared_value: Any
-    odoo_value: Any
-    result: str
-    reason_code: str
-    recommended_action: str
 
 
 def build_fallout_workbook(

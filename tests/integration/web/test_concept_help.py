@@ -123,6 +123,7 @@ class ConceptHelpBrowserTests(unittest.TestCase):
                     boundary_patch.stop()
 
         self.assertEqual(response.status_code, 200)
+        self.assertIn('/concepts.css', response.text)
         migration_projects.list.assert_not_called()
         self.assertIn('href="/concepts"', response.text)
         self.assertIn('aria-current="page"', response.text)

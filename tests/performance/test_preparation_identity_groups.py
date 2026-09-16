@@ -34,7 +34,8 @@ class PreparationIdentityGroupTests(unittest.TestCase):
     tearDown = fixtures.BoundedPreparationParityTests.tearDown
 
     def _check_group_preparation(self, parent_count, child_count, target_models,
-                                 hybrid_native_lookup=False):
+                                 hybrid_native_lookup=False, clean_children=False,
+                                 duplicate_target_identity=False):
         dataset_mapping = fixtures.DatasetMapping
         source_values = fixtures._related_bom_values
 
@@ -49,6 +50,11 @@ class PreparationIdentityGroupTests(unittest.TestCase):
                         target_fields=(relation.target_field,), resolver=relation.resolver,
                     ),),
                 )
+                if duplicate_target_identity:
+                    kwargs["target_identity"] = (IdentityComponentMapping(
+                        source_column_keys=(kwargs["source_identity_column_keys"][0],),
+                        target_fields=("x_bom_reference",),
+                    ),)
             else:
                 kwargs["target_model"] = target_models[0]
                 if hybrid_native_lookup:
@@ -69,7 +75,8 @@ class PreparationIdentityGroupTests(unittest.TestCase):
 
         with (
             patch.object(fixtures, "DatasetMapping", generic_mapping),
-            patch.object(fixtures, "_related_bom_values", dirty_child),
+            patch.object(fixtures, "_related_bom_values",
+                         source_values if clean_children else dirty_child),
         ):
             workspace_id, _, _ = (
                 fixtures.PreparationWorkflowScaleTests._prepare_related_product_bom_project_and_evidence(
@@ -112,6 +119,11 @@ class PreparationIdentityGroupTests(unittest.TestCase):
 
         with (
             patch.object(group_adapter, "projected_hybrid_dependency_rows_sql", native_dependencies),
+            patch.object(
+                fixtures.preparation_module,
+                "stage_browser_mapping",
+                side_effect=AssertionError("whole-run transformation fallback"),
+            ),
             patch.object(quality_module, "build_bounded_quality_run", indexed_quality_only),
             patch.object(quality_module, "evaluate_quality", side_effect=AssertionError("whole-run quality fallback")),
             patch.object(normalization_module, "evaluate_normalization", side_effect=AssertionError("whole-run normalization fallback")),
@@ -133,12 +145,20 @@ class PreparationIdentityGroupTests(unittest.TestCase):
         assert staging is not None and ruleset is not None and actual_quality is not None
         expected_canonical = expected.canonical_run
         self.assertEqual(staging.content_hash, expected_canonical.content_hash)
-        if hybrid_native_lookup:
+        if hybrid_native_lookup or clean_children:
             actual = service.staging.get_canonical_staging_run(workspace_id, staging.run_id)
             assert actual is not None
             self.assertEqual(actual.to_portable_dict(include_hash=False),
                              expected_canonical.to_portable_dict(include_hash=False))
             self.assertGreater(len(native_dependency_calls), 0)
+            if clean_children:
+                database_path = service.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+                with duckdb.connect(str(database_path), read_only=True) as connection:
+                    self.assertEqual(connection.execute(
+                        "SELECT COUNT(*) FROM canonical_staging_row WHERE run_id = ? "
+                        "AND dataset = 'entries' AND row_json = ''",
+                        [staging.run_id],
+                    ).fetchone()[0], child_count)
         expected_quality = evaluate_quality(
             workspace_state=workspace, staging=expected_canonical,
             physical_rows=dict(expected.physical_rows), ruleset=ruleset,
@@ -148,10 +168,14 @@ class PreparationIdentityGroupTests(unittest.TestCase):
         self.assertEqual(result.content_hash, repeated.content_hash)
         self.assertEqual(service.mappings.get_mapping_revision(workspace_id), revision)
         self.assertEqual(service.sources.get_source_selection(workspace_id), physical)
-        expected_quarantined = 1 + (child_count - 1) // parent_count + 1
-        if hybrid_native_lookup:
+        expected_quarantined = expected_quality.quarantined_count if clean_children else (
+            1 + (child_count - 1) // parent_count + 1
+        )
+        if hybrid_native_lookup and not clean_children:
             expected_quarantined += 1 + (child_count - 2) // parent_count + 1
         self.assertEqual(actual_quality.quarantined_count, expected_quarantined)
+        if duplicate_target_identity:
+            self.assertGreater(actual_quality.quarantined_count, 0)
         self.assertEqual(len(actual_quality.row_results), parent_count + child_count)
         if parent_count + child_count > 25_000:
             print(f"Generic identity-group qualification: {parent_count + child_count:,} rows; "
@@ -163,6 +187,14 @@ class PreparationIdentityGroupTests(unittest.TestCase):
     def test_accounting_models_use_the_same_complete_route(self):
         self._check_group_preparation(3, 8, ("account.move", "account.move.line"))
 
+    def test_clean_custom_model_identity_groups_use_set_based_projection(self):
+        self._check_group_preparation(3, 8, ("x_custom.parent", "x_custom.child"),
+                                      clean_children=True)
+
+    def test_clean_colliding_child_identity_propagates_to_native_parent_group(self):
+        self._check_group_preparation(3, 8, ("x_custom.parent", "x_custom.child"),
+                                      clean_children=True, duplicate_target_identity=True)
+
     def test_native_hybrid_lookup_rebuilds_canonical_dependency_keys(self):
         self._check_group_preparation(3, 8, ("x_custom.document", "x_custom.entry"),
                                       hybrid_native_lookup=True)
@@ -170,6 +202,12 @@ class PreparationIdentityGroupTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("IMPODO_RUN_PREPARATION_SCALE") == "1", "opt-in preparation scale qualification")
     def test_custom_document_groups_above_materialized_limit(self):
         self._check_group_preparation(1_000, 25_001, ("x_custom.document", "x_custom.entry"))
+
+    @unittest.skipUnless(os.environ.get("IMPODO_RUN_PREPARATION_SCALE") == "1", "opt-in preparation scale qualification")
+    def test_clean_custom_document_groups_above_materialized_limit(self):
+        self._check_group_preparation(1_000, 25_001,
+                                      ("x_custom.document", "x_custom.entry"),
+                                      clean_children=True)
 
 
 @unittest.skipUnless(os.environ.get("IMPODO_RUN_PREPARATION_SCALE") == "1", "opt-in preparation scale qualification")

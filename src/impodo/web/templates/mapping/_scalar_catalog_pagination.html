@@ -1,0 +1,17 @@
+            <nav class="field-catalog-navigation" aria-label="Odoo field display options" data-scalar-pagination>
+              <div class="field-page-size" aria-label="Number of fields shown per page">
+                <span>Show fields:</span>
+                {% for option in view.scalar_page_size_options %}
+                  <a
+                    class="field-count-button{% if option.size == view.scalar_page_size %} active{% endif %}"
+                    href="{{ option.url }}"
+                    {% if option.size == view.scalar_page_size %}aria-current="page"{% endif %}
+                  >{{ option.size }}</a>
+                {% endfor %}
+              </div>
+              <div class="field-pagination">
+                {% if view.scalar_previous_url %}<a class="button secondary" href="{{ view.scalar_previous_url }}">Previous</a>{% endif %}
+                <span class="muted">Page {{ view.scalar_page }} of {{ view.scalar_page_count }}</span>
+                {% if view.scalar_next_url %}<a class="button secondary" href="{{ view.scalar_next_url }}">Show more fields</a>{% endif %}
+              </div>
+            </nav>

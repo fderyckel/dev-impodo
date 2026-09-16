@@ -419,6 +419,8 @@ stages:
       - src/impodo/web/templates/workspace_normalization.html
     code_references:
       - src/impodo/application/workspace/preparation/preparation_service.py::PreparationService
+      - src/impodo/adapters/polars_transformation.py::PolarsTransformationAdapter
+      - src/impodo/domain/compiler/columnar_transformation.py::ColumnarIdentityResolverProgram
       - src/impodo/web/composition/preparation_job_manager.py::PreparationJobManager
       - src/impodo/application/shared/build_contract.py::ApplicationBuildContract
       - src/impodo/application/workspace/preparation/quality_service.py::QualityService
@@ -426,6 +428,7 @@ stages:
       - src/impodo/adapters/duckdb/preparation_identity_group_quality.py::iter_identity_group_findings
       - src/impodo/domain/staging/preparation_session.py::PreparedCanonicalProjection
       - src/impodo/adapters/duckdb/native_prepared_projection.py::projected_encoded_rows_sql
+      - src/impodo/adapters/duckdb/native_prepared_projection.py::projected_hybrid_dependency_rows_sql
       - src/impodo/domain/preparation/quality.py::quality_dependency_references
       - src/impodo/application/workspace/preparation/preparation_capability.py::compile_preparation_capability
       - src/impodo/adapters/duckdb/preparation_stored_run_reader.py::PreparationStoredRunReader

@@ -28,6 +28,7 @@ from ..application.workspace.preparation.columnar_transformation_port import (
 from ..domain.compiler.columnar_transformation import (
     ColumnarExpressionStep,
     ColumnarIdentityComponentProgram,
+    ColumnarIdentityResolverProgram,
     ColumnarOperationKind,
     ColumnarRelationshipProgram,
     ColumnarScalarFieldProgram,
@@ -80,6 +81,7 @@ PREPARED_ORDINAL_COLUMN = "__impodo_prepared_ordinal"
 _ERROR_REQUIRED = "__required__"
 _ERROR_PREPARED_REQUIRED = "__prepared_required__"
 _ERROR_PARSE = "__parse__"
+_ERROR_PARTIAL_OPTIONAL_REFERENCE = "__partial_optional_reference__"
 
 
 class PolarsTransformationAdapter:
@@ -155,6 +157,8 @@ class _IdentityValueLayout:
 class _IdentityComponentLayout:
     component: ColumnarIdentityComponentProgram
     values: tuple[_IdentityValueLayout, ...]
+    resolver: ColumnarIdentityResolverProgram | None = None
+    partial_error_index: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,10 +439,16 @@ def _compile_lazy_transformation(
         _compile_identity_group(program.source_identity, "source_identity")
     )
     target_identity, target_prepared, target_values, target_issues = (
-        _compile_identity_group(program.target_identity, "target_identity")
+        _compile_identity_group(
+            program.target_identity,
+            "target_identity",
+            identity_resolvers=_identity_resolvers(program, "target_identity"),
+        )
     )
     target_scope, scope_prepared, scope_values, scope_issues = _compile_identity_group(
-        program.target_scope, "target_scope"
+        program.target_scope,
+        "target_scope",
+        identity_resolvers=_identity_resolvers(program, "target_scope"),
     )
     relationships, relationship_prepared, relationship_values, relationship_issues = (
         _compile_identity_group(
@@ -524,10 +534,12 @@ def _execution_layout(
     target_identity = _compile_identity_group(
         program.target_identity,
         "target_identity",
+        identity_resolvers=_identity_resolvers(program, "target_identity"),
     )[0]
     target_scope = _compile_identity_group(
         program.target_scope,
         "target_scope",
+        identity_resolvers=_identity_resolvers(program, "target_scope"),
     )[0]
     relationships = _compile_identity_group(
         tuple(item.key for item in program.relationships),
@@ -1263,6 +1275,7 @@ def _compile_identity_group(
     role: str,
     *,
     pre_normalization_mappings: Iterable[tuple[tuple[str, str], ...]] = (),
+    identity_resolvers: Iterable[ColumnarIdentityResolverProgram] = (),
 ) -> tuple[
     tuple[_IdentityComponentLayout, ...],
     list[pl.Expr],
@@ -1275,11 +1288,19 @@ def _compile_identity_group(
     issue_expressions: list[pl.Expr] = []
     error_index = 0
     mappings_by_component = tuple(pre_normalization_mappings)
+    resolvers_by_component = {
+        item.component_index: item for item in identity_resolvers
+    }
     for component_index, component in enumerate(components):
+        resolver = resolvers_by_component.get(component_index)
         component_mappings = (
             tuple(mappings_by_component[component_index])
             if component_index < len(mappings_by_component)
-            else ()
+            else (
+                tuple(resolver.target_value_mappings)
+                if resolver is not None
+                else ()
+            )
         )
         component_values: list[_IdentityValueLayout] = []
         conversion = next(
@@ -1341,26 +1362,29 @@ def _compile_identity_group(
                     f"__impodo_{role}_{component_index:04d}_"
                     f"{source_index:04d}_target_value"
                 )
-                mapped_raw = _mapped_value_before_normalization(
-                    raw,
-                    component_mappings,
-                )
-                target_normalized, _ = _text_expression(mapped_raw, text_steps)
-                target_value, _ = _conversion_expression(
-                    target_normalized,
-                    conversion,
-                )
-                value_expressions.append(
-                    (
+                if resolver is not None:
+                    # The domain applies reviewed identity aliases after
+                    # normalizing the incoming key. Preserve the alias bytes.
+                    target_value = _mapped_value_before_normalization(
+                        pl.col(normalized_alias), component_mappings,
+                    )
+                else:
+                    mapped_raw = _mapped_value_before_normalization(
+                        raw, component_mappings,
+                    )
+                    target_normalized, _ = _text_expression(mapped_raw, text_steps)
+                    parsed_target, _ = _conversion_expression(
+                        target_normalized, conversion,
+                    )
+                    target_value = (
                         target_normalized
-                        if conversion.operation
-                        in {
+                        if conversion.operation in {
                             ColumnarOperationKind.PARSE_STRING,
                             ColumnarOperationKind.PARSE_INTEGER,
                         }
-                        else target_value
-                    ).alias(target_value_alias)
-                )
+                        else parsed_target
+                    )
+                value_expressions.append(target_value.alias(target_value_alias))
             error = (
                 pl.when(pl.col(normalized_alias).is_null() & pl.lit(component.required))
                 .then(pl.lit(_ERROR_REQUIRED))
@@ -1386,10 +1410,33 @@ def _compile_identity_group(
                 )
             )
             error_index += 1
+        partial_error_index = None
+        if (
+            resolver is not None
+            and not component.required
+            and len(component_values) > 1
+        ):
+            partial_error_index = error_index
+            missing = [
+                pl.col(item.normalized_alias).is_null() for item in component_values
+            ]
+            partial = pl.any_horizontal(*missing) & ~pl.all_horizontal(*missing)
+            issue_expressions.append(
+                _issue_expression(
+                    role,
+                    partial_error_index,
+                    pl.when(partial)
+                    .then(pl.lit(_ERROR_PARTIAL_OPTIONAL_REFERENCE))
+                    .otherwise(pl.lit(None, dtype=pl.String)),
+                )
+            )
+            error_index += 1
         layouts.append(
             _IdentityComponentLayout(
                 component=component,
                 values=tuple(component_values),
+                resolver=resolver,
+                partial_error_index=partial_error_index,
             )
         )
     return (
@@ -1466,11 +1513,6 @@ def _adapt_frame(
     reference_rows: list[Mapping[str, Any]] = []
     issue_rows: list[tuple[Issue, ...]] = []
     scalar_by_index = {index: item for index, item in enumerate(layout.scalars)}
-    identity_by_kind = {
-        "source_identity": _flatten_identity(layout.source_identity),
-        "target_identity": _flatten_identity(layout.target_identity),
-        "target_scope": _flatten_identity(layout.target_scope),
-    }
     for row in frame.iter_rows(named=False):
         source_row = int(row[indexes[SOURCE_ROW_COLUMN]])
         source_rows.append(source_row)
@@ -1488,7 +1530,7 @@ def _adapt_frame(
 
         source_identity = tuple(
             _identity_value(row, indexes, item, errors)
-            for item in identity_by_kind["source_identity"]
+            for item in _flatten_identity(layout.source_identity)
         )
         scalar_values = {
             item.field.target_field: _scalar_value(
@@ -1500,13 +1542,17 @@ def _adapt_frame(
             )
             for index, item in scalar_by_index.items()
         }
-        target_identity = tuple(
-            _identity_value(row, indexes, item, errors)
-            for item in identity_by_kind["target_identity"]
+        target_identity = _identity_group_values(
+            row,
+            indexes,
+            layout.target_identity,
+            errors,
         )
-        target_scope = tuple(
-            _identity_value(row, indexes, item, errors)
-            for item in identity_by_kind["target_scope"]
+        target_scope = _identity_group_values(
+            row,
+            indexes,
+            layout.target_scope,
+            errors,
         )
         references = {
             relationship.target_field: _relationship_reference(
@@ -1946,6 +1992,50 @@ def _flatten_identity(
     return tuple(item for component in components for item in component.values)
 
 
+def _identity_resolvers(
+    program: ColumnarTransformationProgram,
+    role: str,
+) -> tuple[ColumnarIdentityResolverProgram, ...]:
+    return tuple(
+        item for item in program.identity_resolvers if item.role == role
+    )
+
+
+def _identity_group_values(
+    row: tuple[object, ...],
+    indexes: dict[str, int],
+    components: tuple[_IdentityComponentLayout, ...],
+    errors: dict[tuple[str, int], str],
+) -> tuple[object, ...]:
+    result: list[object] = []
+    for component in components:
+        incoming_key = tuple(
+            _identity_value(row, indexes, item, errors)
+            for item in component.values
+        )
+        resolver = component.resolver
+        if resolver is None:
+            result.extend(incoming_key)
+            continue
+        if not component.component.required and all(
+            value is None for value in incoming_key
+        ):
+            result.append(None)
+            continue
+        target_values = tuple(
+            _identity_value(
+                row,
+                indexes,
+                item,
+                errors,
+                alias=item.target_value_alias or item.value_alias,
+            )
+            for item in component.values
+        )
+        result.append(_identity_reference(resolver, incoming_key, target_values))
+    return tuple(result)
+
+
 def _identity_value(
     row: tuple[object, ...],
     indexes: dict[str, int],
@@ -2028,20 +2118,45 @@ def _row_issues(
             )
         )
     for groups in (layout.target_identity, layout.target_scope):
-        for item in _flatten_identity(groups):
-            error = errors.get((item.role, item.error_index))
-            if error is not None:
+        for component in groups:
+            for item in component.values:
+                error = errors.get((item.role, item.error_index))
+                if error is not None:
+                    issues.append(
+                        Issue(
+                            code=component.component.failure_code,
+                            message=_identity_error_message(
+                                error,
+                                item,
+                                raw_by_ordinal[item.source_ordinal],
+                            ),
+                            dataset=program.dataset_name,
+                            row=source_row,
+                            field=(
+                                component.resolver.target_field
+                                if component.resolver is not None
+                                else item.source_stable_key
+                            ),
+                        )
+                    )
+            if (
+                component.partial_error_index is not None
+                and errors.get(
+                    (component.component.role, component.partial_error_index)
+                )
+                == _ERROR_PARTIAL_OPTIONAL_REFERENCE
+            ):
+                assert component.resolver is not None
                 issues.append(
                     Issue(
-                        code="SOURCE_IDENTITY_INVALID",
-                        message=_identity_error_message(
-                            error,
-                            item,
-                            raw_by_ordinal[item.source_ordinal],
+                        code="SOURCE_REQUIRED_VALUE_MISSING",
+                        message=(
+                            "relational scope is only optional when every source "
+                            "key component is empty"
                         ),
                         dataset=program.dataset_name,
                         row=source_row,
-                        field=item.source_stable_key,
+                        field=component.resolver.target_field,
                     )
                 )
     for relationship, component in zip(
@@ -2100,6 +2215,38 @@ def _relationship_reference(
         incoming_key=(
             incoming_key
             if relationship.resolver_origin == "target_then_dataset"
+            else None
+        ),
+    )
+
+
+def _identity_reference(
+    resolver: ColumnarIdentityResolverProgram,
+    incoming_key: tuple[object, ...],
+    target_values: tuple[object, ...],
+) -> LogicalReference:
+    if resolver.resolver_origin == "dataset":
+        return LogicalReference(
+            origin="incoming",
+            key=incoming_key,
+            dataset=resolver.parent_dataset_name,
+        )
+    key_width = len(resolver.target_key_fields)
+    return LogicalReference(
+        origin=(
+            "target"
+            if resolver.resolver_origin == "target_catalog"
+            else "target_then_incoming"
+        ),
+        key=tuple(target_values[:key_width]),
+        dataset=resolver.parent_dataset_name or None,
+        model=resolver.related_model,
+        target_fields=resolver.target_key_fields,
+        target_scope_fields=resolver.target_scope_fields,
+        scope=tuple(target_values[key_width:]),
+        incoming_key=(
+            incoming_key
+            if resolver.resolver_origin == "target_then_dataset"
             else None
         ),
     )

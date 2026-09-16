@@ -62,6 +62,7 @@ TRUE_PROJECT_ID_TYPES = frozenset(
         "domain/run/production.py::ProductionRunBinding",
         "domain/run/production_values.py::ProductionRunValues",
         "application/run/setup_service.py::RunSetupSelection",
+        "application/run/recipe_run_jobs.py::RecipeRunJob",
         "application/run/odoo_requirements.py::SelectedRunSetup",
         "domain/project/models.py::MigrationProject",
         "domain/project/models.py::MigrationProjectSummary",

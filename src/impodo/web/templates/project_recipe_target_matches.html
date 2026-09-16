@@ -138,7 +138,7 @@
     <section class="form-card">
       <h2>No target choices can be changed here</h2>
       {% if review %}{% for reason in review.blocking_reasons %}<p>{{ reason }}</p>{% endfor %}{% endif %}
-      <p>Review the run's checks. If the source data needs correction, start a new run with the corrected delivery. If a field rule needs changing, publish a new Recipe version from its authoring workspace.</p>
+      <p>Review the run's checks. If the source data needs correction, start a new run with the corrected delivery. If a field rule needs changing, save a new Recipe version from its data project workspace.</p>
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}">Back to run</a>
         <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}/odoo">Recheck Odoo</a>

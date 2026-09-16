@@ -1460,8 +1460,20 @@ def _identity_component(
                 and parent_source is not None
             )
         )
-        supported = incoming_supported and (
+        aliases_supported = (
+            not resolver.value_mappings
+            or (
+                resolver.origin is ResolverOrigin.TARGET_THEN_DATASET
+                and len(target_key_fields) == 1
+                and not target_scope_fields
+                and len(component.source_column_keys) == 1
+            )
+        )
+        supported = (
+            component.value_type == "string" and aliases_supported
+            and incoming_supported and (
             resolver.origin is ResolverOrigin.DATASET or target_supported
+            )
         )
         draft.use(
             (

@@ -22,6 +22,7 @@ from ..polars_transformation import PREPARED_ORDINAL_COLUMN
 
 from ...domain.compiler.columnar_transformation import (
     ColumnarIdentityComponentProgram,
+    ColumnarIdentityResolverProgram,
     ColumnarOperationKind,
     ColumnarTransformationProgram,
 )
@@ -73,6 +74,7 @@ class _IdentityComponent:
     program: ColumnarIdentityComponentProgram
     values: tuple[_ValueColumn, ...]
     target_values: tuple[_ValueColumn, ...] = ()
+    resolver: ColumnarIdentityResolverProgram | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +104,7 @@ def supports_clean_native_projection(
                COUNT(*) FILTER (WHERE NOT (
                    {_integer_compatibility(layout)}
                    AND {_source_display_compatibility(program)}
+                   AND {_reference_label_compatibility(layout)}
                ))
           FROM read_parquet(?)
         """,
@@ -338,14 +341,16 @@ def append_clean_native_projection(
 
 
 def projected_hybrid_dependency_rows_sql(projection: PreparedCanonicalProjection) -> str:
-    """Project native forward dependencies using the canonical reference key.
+    """Project native dependency facts using each canonical reference key.
 
     Historical direct edge indexes may contain the incoming key for a hybrid
-    choice. The quality contract uses its canonical key. Read only relationship
-    columns, with the same reference serialization used by canonical replay.
+    choice. The quality contract uses its canonical key. Identity and scope
+    references are absent from the ordinary relationship index, so project
+    them from the same prepared columns used by canonical replay.
     """
 
-    references = _references_json(projection, _layout(projection.program))
+    layout = _layout(projection.program)
+    references = _references_json(projection, layout)
     items = []
     for relationship in projection.program.relationships:
         if not relationship.parent_dataset_name:
@@ -354,7 +359,27 @@ def projected_hybrid_dependency_rows_sql(projection: PreparedCanonicalProjection
         items.append(
             "struct_pack("
             f"parent_dataset := {_literal(relationship.parent_dataset_name)}, "
-            f"key_json := json_extract({references}, {_literal(pointer)}))"
+            f"key_json := json_extract({references}, {_literal(pointer)}), "
+            "identity_group := FALSE)"
+        )
+    for component in (*layout.target_identity, *layout.target_scope):
+        resolver = component.resolver
+        if resolver is None or not resolver.parent_dataset_name:
+            continue
+        reference = _reference_json(
+            resolver,
+            component,
+            contract_version=projection.contract_version,
+        )
+        all_null = " AND ".join(
+            f"{_identifier(item.alias)} IS NULL" for item in component.values
+        )
+        items.append(
+            "struct_pack("
+            f"parent_dataset := {_literal(resolver.parent_dataset_name)}, "
+            f"key_json := CASE WHEN {all_null} THEN NULL "
+            f"ELSE json_extract({reference}, '$.key') END, "
+            f"identity_group := {'TRUE' if resolver.resolver_origin == 'dataset' else 'FALSE'})"
         )
     if not items:
         raise ValueError("The projection has no incoming dependency")
@@ -363,7 +388,7 @@ def projected_hybrid_dependency_rows_sql(projection: PreparedCanonicalProjection
         SELECT {ordinal} AS child, item.parent_dataset,
                'sha256:' || sha256(CAST(json_object(
                    'dataset', item.parent_dataset, 'source_identity', item.key_json
-               ) AS VARCHAR)) AS identity_hash, FALSE AS identity_group
+               ) AS VARCHAR)) AS identity_hash, item.identity_group
           FROM read_parquet(?), UNNEST([{', '.join(items)}]) AS dependency(item)
          WHERE item.key_json IS NOT NULL
     """
@@ -443,8 +468,12 @@ def _projected_relation_sql(
 ) -> str:
     program = projection.program
     source_identity = _identity_json(layout.source_identity)
-    target_identity = _identity_json(layout.target_identity)
-    target_scope = _identity_json(layout.target_scope)
+    target_identity = _identity_json(
+        layout.target_identity, contract_version=projection.contract_version,
+    )
+    target_scope = _identity_json(
+        layout.target_scope, contract_version=projection.contract_version,
+    )
     proposed = _object_json(
         tuple(
             (field.target_field, _portable_json(value.alias, value.value_type))
@@ -468,11 +497,17 @@ def _projected_relation_sql(
         f"'model', {_literal(program.target_model)}, 'scope', target_scope_json)"
     )
     record_values = [
-        _display_sql(value.alias, value.value_type)
-        for value in (
-            *_flatten(layout.target_identity),
-            *_flatten(layout.source_identity),
-        )
+        *(
+            _reference_display(component)
+            if component.resolver is not None
+            else _display_sql(value.alias, value.value_type)
+            for component in layout.target_identity
+            for value in (component.values[:1] if component.resolver else component.values)
+        ),
+        *(
+            _display_sql(value.alias, value.value_type)
+            for value in _flatten(layout.source_identity)
+        ),
     ]
     record_list = ", ".join(record_values) or "NULL"
     record_label = f"""
@@ -486,11 +521,19 @@ def _projected_relation_sql(
     """
     quality_complete = (
         " AND ".join(
-            f"{value.alias} IS NOT NULL AND {_display_sql(value.alias, value.value_type)} <> ''"
-            for value in (
-                *_flatten(layout.target_identity),
-                *_flatten(layout.target_scope),
+            (
+                " AND ".join(
+                    f"{_identifier(value.alias)} IS NOT NULL"
+                    for value in component.values
+                )
+                if component.resolver is not None
+                else " AND ".join(
+                    f"{_identifier(value.alias)} IS NOT NULL AND "
+                    f"{_display_sql(value.alias, value.value_type)} <> ''"
+                    for value in component.values
+                )
             )
+            for component in (*layout.target_identity, *layout.target_scope)
         )
         or "FALSE"
     )
@@ -665,6 +708,61 @@ def _references_json(
     return _object_json(tuple(fields))
 
 
+def _reference_json(
+    resolver: ColumnarIdentityResolverProgram,
+    component: _IdentityComponent,
+    *,
+    contract_version: int = 4,
+) -> str:
+    """Serialize one resolved identity with the portable reference property order."""
+
+    incoming_key = _json_array_values(
+        [_identifier(item.alias) for item in component.values]
+    )
+    if resolver.resolver_origin == "dataset":
+        return (
+            "json_object("
+            f"'dataset', {_literal(resolver.parent_dataset_name)}, "
+            f"'key', {incoming_key}, 'origin', 'incoming', "
+            "'scope', json_array())"
+        )
+    target_values = component.target_values or component.values
+    values = [_identifier(item.alias) for item in target_values]
+    key_width = len(resolver.target_key_fields)
+    properties = [
+        ("key", _json_array_values(values[:key_width])),
+        (
+            "origin",
+            _literal(
+                "target" if resolver.resolver_origin == "target_catalog"
+                else "target_then_incoming"
+            ),
+        ),
+        ("scope", _json_array_values(values[key_width:])),
+        ("model", _literal(resolver.related_model or "")),
+        ("target_fields", _string_array_json(resolver.target_key_fields)),
+        ("target_scope_fields", _string_array_json(resolver.target_scope_fields)),
+    ]
+    if resolver.resolver_origin == "target_then_dataset":
+        properties.extend((
+            ("dataset", _literal(resolver.parent_dataset_name)),
+            ("incoming_key", incoming_key),
+        ))
+    if contract_version >= 4:
+        omitted = set()
+        if not resolver.target_key_fields:
+            omitted.add("target_fields")
+        if not resolver.target_scope_fields:
+            omitted.add("target_scope_fields")
+        properties = [
+            (name, value) for name, value in sorted(properties)
+            if name not in omitted
+        ]
+    return "json_object(" + ", ".join(
+        f"{_literal(name)}, {value}" for name, value in properties
+    ) + ")"
+
+
 def _relationship_items_sql(
     projection: PreparedCanonicalProjection,
     layout: _ProjectionLayout,
@@ -833,8 +931,14 @@ def _layout(program: ColumnarTransformationProgram) -> _ProjectionLayout:
     return _ProjectionLayout(
         scalars=scalars,
         source_identity=_identity_layout(program.source_identity, "source_identity"),
-        target_identity=_identity_layout(program.target_identity, "target_identity"),
-        target_scope=_identity_layout(program.target_scope, "target_scope"),
+        target_identity=_identity_layout(
+            program.target_identity, "target_identity",
+            identity_resolvers=program.identity_resolvers,
+        ),
+        target_scope=_identity_layout(
+            program.target_scope, "target_scope",
+            identity_resolvers=program.identity_resolvers,
+        ),
         relationships=_identity_layout(
             tuple(item.key for item in program.relationships),
             "relationship",
@@ -853,10 +957,17 @@ def _identity_layout(
     role: str,
     *,
     target_value_mappings: Iterable[tuple[tuple[str, str], ...]] = (),
+    identity_resolvers: Iterable[ColumnarIdentityResolverProgram] = (),
 ) -> tuple[_IdentityComponent, ...]:
     result = []
     mappings_by_component = tuple(target_value_mappings)
+    resolvers_by_component = {
+        item.component_index: item
+        for item in identity_resolvers
+        if item.role == role
+    }
     for component_index, component in enumerate(components):
+        resolver = resolvers_by_component.get(component_index)
         value_count = len(component.source_columns) or len(component.literal_values)
         conversion = next(
             (
@@ -884,7 +995,7 @@ def _identity_layout(
         component_mappings = (
             tuple(mappings_by_component[component_index])
             if component_index < len(mappings_by_component)
-            else ()
+            else tuple(resolver.target_value_mappings) if resolver else ()
         )
         target_values = (
             tuple(
@@ -907,6 +1018,7 @@ def _identity_layout(
                 program=component,
                 values=values,
                 target_values=target_values,
+                resolver=resolver,
             )
         )
     return tuple(result)
@@ -931,6 +1043,92 @@ def _display_sql(alias: str, value_type: str) -> str:
     else:
         rendered = f"CAST({column} AS VARCHAR)"
     return f"CASE WHEN {column} IS NULL THEN '—' ELSE {rendered} END"
+
+
+def _python_string_repr(value: str) -> str:
+    """Render printable reference keys as Python's string repr in SQL."""
+
+    apostrophe = _literal("'")
+    double_quote = _literal('"')
+    escaped = value
+    for before, after in (
+        ("\\", "\\\\"), ("\n", "\\n"), ("\r", "\\r"), ("\t", "\\t"),
+    ):
+        escaped = f"replace({escaped}, {_literal(before)}, {_literal(after)})"
+    double_quoted = f"contains({value}, {apostrophe}) AND NOT contains({value}, {double_quote})"
+    single = f"replace({escaped}, {apostrophe}, {_literal(chr(92) + chr(39))})"
+    return (
+        f"CASE WHEN {value} IS NULL THEN 'None' "
+        f"WHEN {double_quoted} THEN {double_quote} || {escaped} || {double_quote} "
+        f"ELSE {apostrophe} || {single} || {apostrophe} END"
+    )
+
+
+def _python_tuple_repr(values: tuple[str, ...]) -> str:
+    if not values:
+        return _literal("()")
+    pieces = " || ', ' || ".join(_python_string_repr(item) for item in values)
+    return "'(' || " + pieces + (" || ',)'" if len(values) == 1 else " || ')' ")
+
+
+def _reference_display(component: _IdentityComponent) -> str:
+    resolver = component.resolver
+    assert resolver is not None
+    incoming = tuple(_identifier(item.alias) for item in component.values)
+    target = tuple(_identifier(item.alias) for item in (component.target_values or component.values))
+    origin = (
+        "incoming" if resolver.resolver_origin == "dataset"
+        else "target" if resolver.resolver_origin == "target_catalog"
+        else "target_then_incoming"
+    )
+    key_width = len(resolver.target_key_fields)
+    key = incoming if resolver.resolver_origin == "dataset" else target[:key_width]
+    scope = () if resolver.resolver_origin == "dataset" else target[key_width:]
+    dataset = repr(resolver.parent_dataset_name) if resolver.parent_dataset_name else "None"
+    model = repr(resolver.related_model) if resolver.related_model is not None else "None"
+    incoming_key = (
+        _python_tuple_repr(incoming)
+        if resolver.resolver_origin == "target_then_dataset"
+        else _literal("None")
+    )
+    parts = (
+        _literal(f"LogicalReference(origin={origin!r}, key="),
+        _python_tuple_repr(key),
+        _literal(
+            f", dataset={dataset}, model={model}, "
+            f"target_fields={resolver.target_key_fields!r}, "
+            f"target_scope_fields={resolver.target_scope_fields!r}, scope="
+        ),
+        _python_tuple_repr(scope),
+        _literal(", incoming_key="),
+        incoming_key,
+        _literal(")"),
+    )
+    rendered = " || ".join(parts)
+    if component.program.required:
+        return rendered
+    all_null = " AND ".join(f"{_identifier(item.alias)} IS NULL" for item in component.values)
+    return f"CASE WHEN {all_null} THEN NULL ELSE {rendered} END"
+
+
+def _reference_label_compatibility(layout: _ProjectionLayout) -> str:
+    """Guard Unicode values whose Python repr uses additional escape forms."""
+
+    values = (
+        item for component in layout.target_identity if component.resolver
+        for item in (*component.values, *component.target_values)
+    )
+    checks = []
+    pattern = _literal("\\p{C}|\\p{Z}")
+    for item in values:
+        value = _identifier(item.alias)
+        printable = value
+        for character in (" ", "\n", "\r", "\t"):
+            printable = f"replace({printable}, {_literal(character)}, '')"
+        checks.append(
+            f"NOT COALESCE(regexp_matches({printable}, {pattern}), FALSE)"
+        )
+    return " AND ".join(checks) or "TRUE"
 
 
 def _source_display_sql(ordinal: int) -> str:
@@ -971,11 +1169,22 @@ def _datetime_text(column: str) -> str:
     """
 
 
-def _identity_json(components: tuple[_IdentityComponent, ...]) -> str:
+def _identity_json(
+    components: tuple[_IdentityComponent, ...], *, contract_version: int = 4,
+) -> str:
     values = tuple(
-        _portable_json(item.alias, item.value_type)
+        (
+            f"CASE WHEN {' AND '.join(f'{_identifier(item.alias)} IS NULL' for item in component.values)} "
+            f"THEN NULL ELSE {_reference_json(component.resolver, component, contract_version=contract_version)} END"
+            if component.resolver is not None and not component.program.required
+            else _reference_json(
+                component.resolver, component, contract_version=contract_version,
+            )
+            if component.resolver is not None
+            else _portable_json(item.alias, item.value_type)
+        )
         for component in components
-        for item in component.values
+        for item in (component.values[:1] if component.resolver else component.values)
     )
     return f"json_array({', '.join(values)})" if values else "json_array()"
 

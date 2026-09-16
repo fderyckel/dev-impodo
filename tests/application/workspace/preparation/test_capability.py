@@ -70,6 +70,50 @@ class PreparationCapabilityTests(unittest.TestCase):
             self.assertEqual(manifest.admitted, row_count <= 50_000)
             self.assertEqual(manifest.permits_materialized_fallback, row_count == 25_000)
 
+    def test_verified_relational_identity_reports_native_bounded_route(self) -> None:
+        selection = _selection((26_000,))
+        definition = _definition(selection)
+        dataset = replace(definition.datasets[0], target_scope=(
+            IdentityComponentMapping(
+                source_column_keys=("column:1",),
+                target_fields=("ancestor",),
+                resolver=RelationshipResolver(
+                    origin=ResolverOrigin.DATASET,
+                    dataset_id=selection.datasets[0].dataset_id,
+                ),
+            ),
+        ))
+        snapshots = (SimpleNamespace(dataset_id=selection.datasets[0].dataset_id),)
+        with (
+            patch.object(capability_module, "validate_snapshot_for_dataset"),
+            patch.object(bounded_module, "validate_snapshot_for_dataset"),
+        ):
+            manifest = compile_preparation_capability(
+                definition=replace(definition, datasets=(dataset,)),
+                physical_selection=selection,
+                effective_selection=selection,
+                source_snapshots=snapshots,
+                derived_plan=None,
+                current_ruleset=None,
+                reference_bundle=None,
+            )
+
+        transformation = next(
+            item for item in manifest.stages if item.stage == "transformation"
+        )
+        self.assertEqual(
+            transformation.behavior,
+            PreparationRouteBehavior.NATIVE_COLUMNAR,
+        )
+        self.assertEqual(
+            transformation.reason_codes,
+            ("RELATIONAL_IDENTITY_SCALE_UNQUALIFIED",),
+        )
+        canonical = next(
+            item for item in manifest.stages if item.stage == "canonical_adaptation"
+        )
+        self.assertEqual(canonical.reason_codes, ("PREPARED_SNAPSHOT_VALUE_PROJECTION",))
+
     def test_incoming_identity_limit_is_generic_and_checked_before_rows(self) -> None:
         for model, role in (
             ("sale.order.line", "target_identity"),

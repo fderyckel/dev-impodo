@@ -8,9 +8,9 @@ from typing import Protocol
 
 from openpyxl.utils import get_column_letter, range_boundaries
 
-from impodo.adapters.artifacts.fallout_workbook import (
+from impodo.application.fallout_workbook_port import (
     FalloutWorkbookCell,
-    build_fallout_workbook,
+    FalloutWorkbookRenderer,
 )
 from impodo.application.shared.artifacts import GovernedArtifactStores
 from impodo.application.workspace.execution.reconciliation import (
@@ -73,6 +73,7 @@ class FalloutWorkbookService:
         workspaces: FalloutWorkspaceReader,
         artifacts: GovernedArtifactStores,
         authorization: WorkspaceAccessService,
+        workbook_renderer: FalloutWorkbookRenderer,
     ) -> None:
         self._reconciliation = reconciliation
         self._preflight = preflight
@@ -81,6 +82,7 @@ class FalloutWorkbookService:
         self._workspaces = workspaces
         self._artifacts = artifacts
         self._authorization = authorization
+        self._workbook_renderer = workbook_renderer
 
     def generate(
         self,
@@ -235,7 +237,7 @@ class FalloutWorkbookService:
             selection.data_version_id,
             source_file.stored_name,
         ) as source_path:
-            content = build_fallout_workbook(
+            content = self._workbook_renderer(
                 Path(source_path),
                 source_display_name=source_file.display_name,
                 source_header_row=binding.header_row,

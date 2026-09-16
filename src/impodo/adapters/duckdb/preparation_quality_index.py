@@ -520,7 +520,7 @@ class PreparationQualityIndex:
             )
 
     def _native_hybrid_dependency_projections(self, connection, workspace_id, session_id):
-        """Rebuild native hybrid facts from verified relationship columns only."""
+        """Rebuild native relationship and identity dependencies from verified columns."""
 
         raw = connection.execute("""
             SELECT projection.projection_json, manifest.manifest_json
@@ -537,8 +537,12 @@ class PreparationQualityIndex:
         """, [session_id]).fetchall()
         for projection_json, snapshot_json in raw:
             projection = PreparedCanonicalProjection.from_portable_dict(json.loads(str(projection_json)))
-            if not any(relationship.resolver_origin == "target_then_dataset"
-                       for relationship in projection.program.relationships):
+            if not (
+                any(resolver.parent_dataset_name
+                    for resolver in projection.program.identity_resolvers)
+                or any(relationship.resolver_origin == "target_then_dataset"
+                       for relationship in projection.program.relationships)
+            ):
                 continue
             snapshot = PreparedSnapshot.from_json(str(snapshot_json))
             if (snapshot.workspace_id != workspace_id or snapshot.dataset_id != projection.dataset_id

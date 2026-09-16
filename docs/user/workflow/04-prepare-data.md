@@ -86,8 +86,8 @@ Investigate blocked rows, unresolved relationships, unexpected quarantine,
 count differences, or a stopped background job. A cancelled or failed attempt
 may be retried only after its recorded outcome is understood.
 
-**Preparation stopped** means the attempt has ended unsuccessfully. Its
-percentage shows the last step reached; waiting will not resume it. After the
+**Preparation stopped** means the attempt has ended unsuccessfully. The
+**Stopped at** percentage shows the last step reached; waiting will not resume it. After the
 cause has been corrected, return to **Prepare data** in the same workspace
 and start a fresh attempt. You can keep your accepted source data and saved
 field matches.
@@ -95,7 +95,10 @@ field matches.
 Direct parent-and-child tables can now use the preparation route for up to
 50,000 source rows in the selection. This includes document lines, hierarchies,
 and BoM components whose matching rules use an incoming parent as part of
-their identity. Impodo still checks the complete group together.
+their identity. The same limit applies when the identity uses an existing Odoo
+record or checks Odoo before an incoming parent. Impodo still checks the
+complete group together. The route comes from the saved relationship rules,
+so it applies to standard and custom Odoo models without a BoM-specific setup.
 
 Additional business checks or rules that build a table from other tables may
 require a lower limit. If your selection exceeds the supported route, Impodo

@@ -16,6 +16,7 @@ import duckdb
 
 from impodo.adapters.duckdb.native_prepared_projection import (
     projected_encoded_rows_sql,
+    projected_hybrid_dependency_rows_sql,
     supports_clean_native_projection,
 )
 from impodo.adapters.duckdb.preparation_session_repository import PreparationSessionRepository
@@ -29,6 +30,7 @@ from impodo.domain.mapping.contracts import (
     ConstantBusinessReference,
     ConstantReferenceComponent,
     IdentityComponentMapping,
+    IdentityNullPolicy,
     ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
@@ -124,6 +126,237 @@ class NativeReferenceSerializationTests(unittest.TestCase):
         changed["program"]["relationships"][0]["related_model"] = "x_other.category"
         with self.assertRaisesRegex(ValueError, "program changed"):
             PreparedCanonicalProjection.from_portable_dict(changed)
+
+    def test_relational_identity_projection_matches_canonical_oracle(self):
+        selection = fixtures._selection()
+        definition = fixtures._definition(selection)
+        mapping = replace(
+            definition.datasets[0],
+            fields=tuple(field for field in definition.datasets[0].fields
+                         if field.target_field in {"name", "quantity", "list_price"}),
+            target_identity=(IdentityComponentMapping(
+                source_column_keys=("product.category",),
+                target_fields=("category_id",),
+                resolver=RelationshipResolver(
+                    origin=ResolverOrigin.TARGET_CATALOG,
+                    model="product.category",
+                    key_mappings=(
+                        ReferenceKeyMapping("product.category", "code"),
+                    ),
+                ),
+            ),),
+        )
+        definition = replace(definition, datasets=(mapping,))
+        decision = compile_columnar_transformation_program(
+            definition,
+            selection,
+            fixtures.DATASET_ID,
+        )
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+        selection, snapshot, path, _prepared = self._prepare(
+            decision.program,
+            (fixtures._rows()[0],),
+        )
+        projection = PreparedCanonicalProjection(
+            dataset_id=fixtures.DATASET_ID,
+            dataset="products",
+            ordinal_start=0,
+            row_count=1,
+            mode=decision.program.target_mode,
+            source_hash=snapshot.content_hash,
+            physical_dataset_id=fixtures.DATASET_ID,
+            field_sources={},
+            program=decision.program,
+            set_based_projection=True,
+        )
+
+        expected, _ = fixtures._python_oracle(definition, selection, (fixtures._rows()[0],))
+        self.assertFalse(expected[0].issues)
+        expected_row = canonical_prepared_session_row(
+            dataset=expected[0].dataset, source_row=expected[0].source_row,
+            target_model=expected[0].target_model,
+            source_identity=expected[0].source_identity,
+            target_identity=expected[0].target_identity,
+            target_scope=expected[0].target_scope,
+            scalar_values=expected[0].scalar_values,
+            references=expected[0].references, issues=expected[0].issues,
+            ordinal=0, mode=projection.mode, source_hash=snapshot.content_hash,
+            source_selection_hash=decision.program.source_selection_hash,
+            mapping_hash=decision.program.mapping_content_hash,
+            schema_hash=decision.program.schema_hash, field_sources={},
+            physical_dataset_id=fixtures.DATASET_ID,
+        )
+        with duckdb.connect() as connection:
+            self.assertTrue(supports_clean_native_projection(connection, path, decision.program))
+        actual = self._project(projection, path)
+        self.assertEqual(actual[0][-1], expected_row.row_json)
+
+    def test_resolved_identity_and_scope_replay_all_origins_and_nullable_roots(self):
+        selection = fixtures._selection()
+        base = fixtures._definition(selection)
+        source = fixtures._rows()[0]
+        values = (
+            (" Retail ", " A'B ", " BE "),
+            (' "Équipe"\\unit\n💡 ', " V-2 ", None),
+            (" Consommateur 'A' \"夏\"\t🧾 ", " V-3 ", " "),
+        )
+        rows = tuple(replace(source, number=index + 2, values={
+            **source.values, "id": f"S-{index}", "category": category,
+            "sku": code, "scope": scope, "quantity": index,
+        }) for index, (category, code, scope) in enumerate(values))
+        for origin in ResolverOrigin:
+            with self.subTest(origin=origin):
+                incoming = origin is not ResolverOrigin.TARGET_CATALOG
+                mapping = replace(
+                    base.datasets[0], target_model="x_custom.child",
+                    target_identity=(IdentityComponentMapping(
+                        source_column_keys=("product.category", "product.sku"),
+                        target_fields=("x_choice",),
+                        resolver=RelationshipResolver(
+                            origin=origin,
+                            dataset_id=fixtures.DATASET_ID if incoming else None,
+                            model="x_custom.choice" if origin is not ResolverOrigin.DATASET else None,
+                            key_mappings=(
+                                ReferenceKeyMapping("product.category", "x_code"),
+                                ReferenceKeyMapping("product.sku", "x_variant"),
+                            ) if origin is not ResolverOrigin.DATASET else (),
+                        ),
+                    ),),
+                    target_scope=(IdentityComponentMapping(
+                        source_column_keys=("product.scope",),
+                        target_fields=("x_parent",),
+                        null_policy=IdentityNullPolicy.EXPLICIT_SCOPE_NULL,
+                        resolver=RelationshipResolver(
+                            origin=ResolverOrigin.DATASET,
+                            dataset_id=fixtures.DATASET_ID,
+                        ),
+                    ),),
+                    fields=tuple(field for field in base.datasets[0].fields
+                                 if field.target_field in {"name", "quantity", "list_price"}),
+                    relationships=(),
+                )
+                definition = canonicalize_mapping_definition(replace(base, datasets=(mapping,)))
+                decision = compile_columnar_transformation_program(
+                    definition, selection, fixtures.DATASET_ID,
+                )
+                self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+                assert decision.program is not None
+                prepared_selection, snapshot, path, _ = self._prepare(decision.program, rows)
+                expected, _ = fixtures._python_oracle(definition, prepared_selection, rows)
+                self.assertTrue(all(not item.issues for item in expected),
+                                tuple(item.issues for item in expected))
+                projection = PreparedCanonicalProjection(
+                    dataset_id=fixtures.DATASET_ID, dataset="products", ordinal_start=11,
+                    row_count=len(rows), mode=decision.program.target_mode,
+                    source_hash=snapshot.content_hash, physical_dataset_id=fixtures.DATASET_ID,
+                    field_sources={}, program=decision.program, set_based_projection=True,
+                )
+                expected_rows = tuple(canonical_prepared_session_row(
+                    dataset=record.dataset, source_row=record.source_row,
+                    target_model=record.target_model, source_identity=record.source_identity,
+                    target_identity=record.target_identity, target_scope=record.target_scope,
+                    scalar_values=record.scalar_values, references=record.references,
+                    issues=record.issues, ordinal=11 + index, mode=projection.mode,
+                    source_hash=snapshot.content_hash,
+                    source_selection_hash=decision.program.source_selection_hash,
+                    mapping_hash=decision.program.mapping_content_hash,
+                    schema_hash=decision.program.schema_hash, field_sources={},
+                    physical_dataset_id=fixtures.DATASET_ID,
+                ) for index, record in enumerate(expected))
+                with duckdb.connect() as connection:
+                    self.assertTrue(supports_clean_native_projection(
+                        connection, path, decision.program,
+                    ))
+                    if incoming:
+                        dependencies = connection.execute(
+                            projected_hybrid_dependency_rows_sql(projection),
+                            [str(path)],
+                        ).fetchall()
+                        self.assertEqual(
+                            sorted((row[0], row[3]) for row in dependencies),
+                            sorted([(11, True), (11, origin is ResolverOrigin.DATASET),
+                                    (12, origin is ResolverOrigin.DATASET),
+                                    (13, origin is ResolverOrigin.DATASET)]),
+                        )
+                for batch_size in (1, 17, 5_000):
+                    with self.subTest(batch_size=batch_size):
+                        actual = self._project(projection, path, batch_size=batch_size)
+                        self.assertEqual(tuple(row[-1] for row in actual),
+                                         tuple(row.row_json for row in expected_rows))
+                        self.assertEqual(tuple(row[0] for row in actual), (11, 12, 13))
+                self.assertIsNone(expected_rows[1].quality_identity_key)
+                self.assertIsNone(expected_rows[2].quality_identity_key)
+        # Python repr escapes Unicode separators; unsupported labels stay on
+        # the exact bounded route rather than accepting different SQL bytes.
+        separator_row = replace(source, values={
+            **source.values, "id": "S-separator", "category": "A\u2028B",
+            "scope": "BE", "quantity": 7,
+        })
+        _, _, separator_path, _ = self._prepare(decision.program, (separator_row,))
+        with duckdb.connect() as connection:
+            self.assertFalse(supports_clean_native_projection(
+                connection, separator_path, decision.program,
+            ))
+
+    def test_hybrid_identity_alias_uses_mapped_target_and_incoming_dependency(self):
+        selection = fixtures._selection()
+        base = fixtures._definition(selection)
+        source = fixtures._rows()[0]
+        row = replace(source, values={**source.values, "required_text": "ready",
+                                      "validated_required": "ABC"})
+        mapping = replace(
+            base.datasets[0], target_model="x_custom.child",
+            target_identity=(IdentityComponentMapping(
+                source_column_keys=("product.category",), target_fields=("x_parent",),
+                resolver=RelationshipResolver(
+                    origin=ResolverOrigin.TARGET_THEN_DATASET,
+                    dataset_id=fixtures.DATASET_ID,
+                    model="x_custom.parent",
+                    key_mappings=(ReferenceKeyMapping("product.category", "x_code"),),
+                    value_mappings=(ValueMapping("Retail", "Été 'A' \"夏\"\\unit\n"),),
+                ),
+            ),),
+            target_scope=(), relationships=(),
+            fields=tuple(field for field in base.datasets[0].fields
+                         if field.target_field in {"name", "quantity", "list_price"}),
+        )
+        definition = canonicalize_mapping_definition(replace(base, datasets=(mapping,)))
+        decision = compile_columnar_transformation_program(definition, selection, fixtures.DATASET_ID)
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+        prepared_selection, snapshot, path, _ = self._prepare(decision.program, (row,))
+        expected, _ = fixtures._python_oracle(definition, prepared_selection, (row,))
+        self.assertFalse(expected[0].issues)
+        projection = PreparedCanonicalProjection(
+            dataset_id=fixtures.DATASET_ID, dataset="products", ordinal_start=3,
+            row_count=1, mode=decision.program.target_mode,
+            source_hash=snapshot.content_hash, physical_dataset_id=fixtures.DATASET_ID,
+            field_sources={}, program=decision.program, set_based_projection=True,
+        )
+        canonical = canonical_prepared_session_row(
+            dataset="products", source_row=row.number, target_model="x_custom.child",
+            source_identity=expected[0].source_identity,
+            target_identity=expected[0].target_identity, target_scope=(),
+            scalar_values=expected[0].scalar_values, references={}, issues=(), ordinal=3,
+            mode=projection.mode, source_hash=snapshot.content_hash,
+            source_selection_hash=decision.program.source_selection_hash,
+            mapping_hash=decision.program.mapping_content_hash,
+            schema_hash=decision.program.schema_hash, field_sources={},
+            physical_dataset_id=fixtures.DATASET_ID,
+        )
+        with duckdb.connect() as connection:
+            self.assertTrue(supports_clean_native_projection(connection, path, decision.program))
+            dependency = connection.execute(projected_hybrid_dependency_rows_sql(projection),
+                                            [str(path)]).fetchone()
+        self.assertEqual(self._project(projection, path)[0][-1], canonical.row_json)
+        self.assertEqual(json.loads(canonical.row_json)["target_identity"][0]["key"],
+                         ["Été 'A' \"夏\"\\unit\n"])
+        self.assertEqual(dependency[0], 3)
+        self.assertEqual(dependency[3], False)
+        self.assertEqual(dependency[2], "sha256:" + sha256(canonical_json_bytes({
+            "dataset": "products", "source_identity": ["Été 'A' \"夏\"\\unit\n"],
+        })).hexdigest())
 
     def test_saved_historical_run_reopens_and_verifies_its_original_hash(self):
         harness = session_fixtures.PreparationSessionRepositoryTests()

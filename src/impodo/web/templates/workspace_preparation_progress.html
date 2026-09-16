@@ -33,7 +33,7 @@
       </div>
       <progress max="100" value="{{ job.progress_percent }}" data-preparation-progress>{{ job.progress_percent }}%</progress>
       <div class="preparation-progress-numbers">
-        <strong data-preparation-percent>{{ job.progress_percent }}%</strong>
+        <strong data-preparation-percent>{% if job.status.value in ('FAILED', 'CANCELLED') %}Stopped at {% endif %}{{ job.progress_percent }}%</strong>
         <span data-preparation-rows>
           {% if job.total_rows %}{{ "{:,}".format(job.completed_rows) }} of {{ "{:,}".format(job.total_rows) }} source rows{% else %}Starting safely{% endif %}
         </span>
