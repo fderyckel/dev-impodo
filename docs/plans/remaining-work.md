@@ -28,6 +28,10 @@ those current references have been verified.
   the remaining grouped dependency explanations.
 - Complete [comparison recovery and performance work](responsive-final-review-comparison.md)
   and design [exact-record repair for known fallout](load-fallout-source-cell-workbook.md).
+- Design a [Stage 4 comparison and reviewed set-aside](stage4-comparison-and-deferred-record-groups.md)
+  so Stage 4 exposes target relationship failures through the existing Odoo
+  comparison, safe records can proceed, and the workbook retains every
+  omitted record for later repair.
 - Extend [scenario qualification](end-to-end-trial-and-scenario-qualification.md)
   through the full lifecycle and remaining target and browser lanes.
 

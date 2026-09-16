@@ -108,6 +108,9 @@ records remain in Git history.
 - [Final review recovery and performance](plans/responsive-final-review-comparison.md)
   retains durable attempts, the remaining detailed compact preview, and measured
   publication qualification.
+- [Stage 4 comparison and deferred record groups](plans/stage4-comparison-and-deferred-record-groups.md)
+  proposes one shared Odoo comparison, a reviewed reduced load scope, and a
+  workbook of every omitted record.
 - [Known-fallout repair](plans/load-fallout-source-cell-workbook.md) proposes
   confirmed exact-record repairs after an execution with known differences.
 
