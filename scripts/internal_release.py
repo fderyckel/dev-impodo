@@ -449,7 +449,7 @@ def _validate_wheel_contents(wheel: Path) -> None:
         unexpected.append(name)
 
     required = {
-        "impodo/project_security.py",
+        "impodo/adapters/protected_evidence/project_security.py",
         "impodo/web/launcher.py",
     }
     missing = sorted(required.difference(names))

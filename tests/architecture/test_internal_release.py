@@ -245,13 +245,27 @@ class InternalReleaseGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:
             wheel = Path(temporary) / "impodo.whl"
             with zipfile.ZipFile(wheel, "w") as archive:
-                archive.writestr("impodo/project_security.py", "")
+                archive.writestr(
+                    "impodo/adapters/protected_evidence/project_security.py", ""
+                )
                 archive.writestr("impodo/web/launcher.py", "")
                 archive.writestr("impodo-0.0.0.dist-info/METADATA", "")
                 archive.writestr("uc_migration_profiler/__init__.py", "")
 
             with self.assertRaisesRegex(ReleaseGateError, "unexpected paths"):
                 _validate_wheel_contents(wheel)
+
+    def test_wheel_content_allowlist_accepts_current_security_module(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:
+            wheel = Path(temporary) / "impodo.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                archive.writestr(
+                    "impodo/adapters/protected_evidence/project_security.py", ""
+                )
+                archive.writestr("impodo/web/launcher.py", "")
+                archive.writestr("impodo-0.0.0.dist-info/METADATA", "")
+
+            _validate_wheel_contents(wheel)
 
     def test_internal_installer_verifies_artifacts_before_creating_venv(self) -> None:
         installer = (
