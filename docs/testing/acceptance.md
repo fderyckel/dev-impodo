@@ -23,9 +23,30 @@ and
 derived/materialized preparation and durable preflight retain their separate
 25,000-row boundaries. The clean Phase 6 macOS qualification passes that
 current common relationship boundary, including deterministic Product/BOM
-execution and first/repeat production workers. Broader Odoo-side
-ACL/record-rule matrices, the clean Windows repeat, and sizing beyond the
-current boundary remain pending for later risk profiles.
+execution and first/repeat production workers. A separate clean Windows
+Python 3.12 qualification on 2026-09-16 passed 50,000-row custom document/entry
+and Product/BoM first/repeat workers, with matching hashes and snapshot reuse.
+Broader Odoo-side ACL/record-rule matrices and sizing beyond the current
+boundary remain pending for later risk profiles.
+
+## Internal release evidence review, 2026-09-16
+
+The clean Windows 50,000-row custom document/entry fixture ran in three fresh
+processes. Median first/repeat preparation took 39.0/52.2 seconds; the highest
+worker peaks were 427/397 MiB. The BoM regression took 51.1/59.8 seconds in
+one fresh process, peaking at 412/384 MiB. Both used 2,000 parent and 48,000
+child rows, set-based projection for both datasets, stable staging/quality/
+normalization hashes, and repeat preparation after removing the source files.
+The previous committed route failed its comparable 25,000-row fixture before
+preparation, so these measurements do not establish a percentage speedup.
+
+The internal release secret-scan baseline was refreshed after reviewing all
+74 detector candidates: 24 are recorded content, revision, or schema hashes;
+50 are fixed literals in test fixtures and test/benchmark launch settings.
+They are marked false positive by exact file, detector, and fingerprint. The
+scanner still blocks a new or changed value. The review included the local
+stack's mocked environment and did not find an application credential in
+these candidates.
 
 The current scenario-qualification slice adds a committed offline Contact
 canary and a fake-transport full round-trip integration. A live local Odoo 19
