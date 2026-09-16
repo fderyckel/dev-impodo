@@ -236,6 +236,58 @@ class LoadJobManagerTests(unittest.TestCase):
         _wait_for_terminal(manager, queued.job_id)
         manager.shutdown()
 
+    def test_recovery_shows_saved_results_while_readback_is_pending(self) -> None:
+        manager = LoadJobManager()
+        started = Event()
+        release = Event()
+        original = _run(terminal=False)
+        saved = replace(
+            original,
+            rows=(
+                original.rows[0],
+                replace(original.rows[1], status=ExecutionRowStatus.IN_FLIGHT),
+                replace(original.rows[2], status=ExecutionRowStatus.PLANNED),
+            ),
+        )
+
+        def work(_access_context, _report_writing, _report_verifying):
+            started.set()
+            release.wait(1)
+            return LoadJobResult(
+                execution_run_id=saved.run_id,
+                verification_complete=False,
+            )
+
+        queued = manager.enqueue(
+            WORKSPACE_ID,
+            "Customer migration",
+            target_database="migration",
+            target_server="odoo.example.test",
+            target_environment="Test",
+            total_rows=3,
+            load_group_count=2,
+            recovery_run=saved,
+            access_context=_access_context(),
+            work=work,
+        )
+        self.assertTrue(started.wait(1))
+        active = manager.get(WORKSPACE_ID, queued.job_id)
+
+        for job in (queued, active):
+            self.assertEqual(job.execution_run_id, saved.run_id)
+            self.assertEqual(job.completed_rows, 1)
+            self.assertEqual(job.created_count, 1)
+            self.assertEqual(job.load_group_number, 1)
+            self.assertEqual(job.load_group_count, 2)
+            self.assertGreater(job.progress_percent, 0)
+            self.assertEqual(
+                job.message,
+                "Checking saved Odoo results before resuming",
+            )
+        release.set()
+        _wait_for_terminal(manager, queued.job_id)
+        manager.shutdown()
+
     def test_in_flight_row_is_not_reported_as_final_or_as_relationship_work(
         self,
     ) -> None:

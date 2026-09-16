@@ -88,6 +88,7 @@ class LoadJobManager:
         total_rows: int,
         relationship_total_rows: int = 0,
         load_group_count: int = 0,
+        recovery_run: ExecutionRun | None = None,
         access_context: WorkspaceAccessContext,
         work: LoadWork,
     ) -> LoadJob:
@@ -97,6 +98,11 @@ class LoadJobManager:
             raise MigrationIdentifierConfusionError(
                 "Load access context does not belong to this workspace"
             )
+        if recovery_run is not None and (
+            recovery_run.workspace_id != workspace_id
+            or recovery_run.status is not ExecutionRunStatus.RUNNING
+        ):
+            raise LoadJobStateError("The saved load does not belong to this active workspace")
 
         with self._condition:
             if self._stopping:
@@ -141,6 +147,11 @@ class LoadJobManager:
                 finished_at=None,
                 failure_message="",
             )
+            if recovery_run is not None:
+                job = replace(
+                    _job_from_run(job, recovery_run, phase=LoadPhase.CHECKING_TARGET),
+                    message="Checking saved Odoo results before resuming",
+                )
             self._jobs[job.job_id] = job
             self._pending.append((job.job_id, work))
             if self._worker is None:
@@ -246,8 +257,12 @@ class LoadJobManager:
                 job,
                 status=LoadJobStatus.RUNNING,
                 phase=LoadPhase.CHECKING_TARGET,
-                message=LOAD_PHASE_LABELS[LoadPhase.CHECKING_TARGET],
-                progress_percent=4,
+                message=(
+                    "Checking saved Odoo results before resuming"
+                    if job.execution_run_id
+                    else LOAD_PHASE_LABELS[LoadPhase.CHECKING_TARGET]
+                ),
+                progress_percent=max(job.progress_percent, 4),
                 started_at=now,
                 updated_at=now,
             )

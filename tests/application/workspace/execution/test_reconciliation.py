@@ -23,8 +23,8 @@ from impodo.domain.reconciliation import (
     ReconciliationRunStatus,
 )
 from impodo.domain.reconciliation_detail import ReconciliationDetailManifest
-from impodo.domain.execution_snapshot import FieldIntent
-from impodo.domain.shared.models import BusinessReference, OdooWriteIdentity
+from impodo.domain.execution_snapshot import ExecutionDataset, FieldIntent
+from impodo.domain.shared.models import BusinessReference, LogicalReference, OdooWriteIdentity
 from impodo.domain.execution.odoo_readback import ExternalIdBinding, OdooReadbackError, ReadbackLookup, ReadbackRecord
 from impodo.adapters.odoo.readback import Json2ReadbackReader
 from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
@@ -598,6 +598,102 @@ class ReconciliationServiceTests(unittest.TestCase):
         )
         self.assertTrue(report.rows[0].retry_safe)
         self.assertIsNone(results.report)
+
+    def test_recovery_resolves_relational_identity_from_receipt_and_exact_key(self):
+        original = _snapshot()
+        parent = replace(
+            original.rows[0],
+            dataset="boms",
+            target_model="mrp.bom",
+            business_identity=("B1",),
+            fields=(FieldIntent("code", "SET_VALUE", "B1"),),
+        )
+        product = BusinessReference("product.product", ("P1",))
+        bom = BusinessReference("mrp.bom", ("B1",))
+        line = replace(
+            original.rows[1],
+            dataset="lines",
+            target_model="mrp.bom.line",
+            business_identity=(product,),
+            business_scope=(bom,),
+            fields=(
+                FieldIntent(
+                    "product_id", "SET_VALUE", product,
+                    kind="relation", relation_operation="replace",
+                    related_model="product.product",
+                    related_identity_fields=("default_code",),
+                ),
+                FieldIntent(
+                    "bom_id", "SET_VALUE",
+                    LogicalReference(
+                        origin="incoming", key=parent.source_identity,
+                        dataset="boms",
+                    ),
+                    kind="relation", relation_operation="replace",
+                    related_model="mrp.bom",
+                    related_identity_fields=("code",),
+                ),
+            ),
+        )
+        snapshot = replace(
+            original,
+            datasets=(
+                ExecutionDataset("boms", "mrp.bom", 0, (), "update", ("code",), ()),
+                ExecutionDataset(
+                    "lines", "mrp.bom.line", 1, ("boms",), "update",
+                    ("product_id",), ("bom_id",),
+                ),
+            ),
+            rows=(parent, line),
+            counts={"CREATE": 2, "UPDATE": 0, "UNCHANGED": 0},
+        )
+        run = _run(
+            snapshot,
+            (ExecutionRowStatus.COMMITTED, ExecutionRowStatus.IN_FLIGHT),
+        )
+        run = replace(
+            run,
+            status=ExecutionRunStatus.RUNNING,
+            completed_at=None,
+        )
+        service, results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.records[("mrp.bom", 10)] = {"code": "B1"}
+        reader.references["product.product"] = {"P1": 20}
+        reader.external_ids[parent.proposed_external_id] = ExternalIdBinding(
+            parent.proposed_external_id, "mrp.bom", 10,
+        )
+
+        report = service.assess_recovery(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(
+            tuple(item.status for item in report.rows),
+            (ReconciliationRowStatus.VERIFIED, ReconciliationRowStatus.NOT_APPLIED),
+        )
+        self.assertTrue(report.rows[1].retry_safe)
+        self.assertIsNone(results.report)
+        line_lookups = [
+            lookups for model, lookups in reader.lookup_batches
+            if model == "mrp.bom.line"
+        ]
+        self.assertEqual(
+            line_lookups[0][0].domain,
+            (("product_id", "=", 20), ("bom_id", "=", 10)),
+        )
+
+        reader.references["product.product"] = {}
+        with self.assertRaisesRegex(WorkspaceError, "matches one record"):
+            service.assess_recovery(
+                snapshot.workspace_id,
+                expected_execution_run_id=run.run_id,
+                reader=reader,
+                actor=LOCAL_ACTOR,
+            )
 
     def test_recovery_assessment_classifies_partial_cycle_fields_exactly(self):
         snapshot = _remote_cycle_snapshot()

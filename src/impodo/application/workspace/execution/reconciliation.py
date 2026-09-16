@@ -96,6 +96,12 @@ class ReconciliationSchemaReader(Protocol):
     def get_odoo_schema_catalog(self, workspace_id: str): ...
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingIdentityReference:
+    model: str
+    domain: tuple[tuple[str, str, Any], ...]
+
+
 @dataclass(slots=True)
 class ReconciliationService:
     """Bind a bounded read-back result to one immutable execution journal.
@@ -562,7 +568,28 @@ class ReconciliationService:
         metadata: Mapping[str, ExecutionDataset],
         reader: OdooReadbackReader,
     ) -> dict[str, tuple[ReadbackRecord, ...]]:
-        by_model: dict[str, list[tuple[str, ReadbackLookup]]] = {}
+        # An interrupted create may use relational identity components (for
+        # example, a BOM line identified by product within one BOM). Resolve
+        # those components to exact Odoo IDs before looking for the line.
+        receipt_ids: dict[tuple[str, str, str], set[int]] = {}
+        by_source = {
+            (row.dataset, _portable_key(row.source_identity)): row
+            for row in rows.values()
+        }
+        for row_id, row in rows.items():
+            identifier = attempts[row_id].odoo_id
+            if identifier is not None:
+                receipt_ids.setdefault(
+                    (
+                        row.target_model,
+                        _portable_key(row.business_identity),
+                        _portable_key(row.business_scope),
+                    ),
+                    set(),
+                ).add(identifier)
+
+        pending: dict[str, list[tuple[str, Any]]] = {}
+        reference_lookups: dict[str, set[_PendingIdentityReference]] = {}
         for row_id, attempt in attempts.items():
             if (
                 attempt.status
@@ -575,11 +602,114 @@ class ReconciliationService:
                 continue
             row = rows[row_id]
             dataset = metadata[row.dataset]
+            if (
+                len(dataset.identity_fields) != len(row.business_identity)
+                or len(dataset.scope_fields) != len(row.business_scope)
+            ):
+                raise WorkspaceError("The Odoo business-key shape is incomplete")
+            components = []
+            for field, value in zip(
+                (*dataset.identity_fields, *dataset.scope_fields),
+                (*row.business_identity, *row.business_scope),
+                strict=True,
+            ):
+                if not isinstance(value, BusinessReference | LogicalReference):
+                    components.append((field, value))
+                    continue
+                intent = next(
+                    (
+                        item for item in row.fields
+                        if item.field == field and item.kind == "relation"
+                    ),
+                    None,
+                )
+                if intent is None:
+                    raise WorkspaceError(
+                        "A relational load identity has no reviewed lookup field"
+                    )
+                if (
+                    isinstance(value, LogicalReference)
+                    and value.origin == "incoming"
+                ):
+                    referenced = by_source.get(
+                        (value.dataset or "", _portable_key(value.key))
+                    )
+                    identifier = (
+                        attempts[referenced.row_id].odoo_id
+                        if referenced is not None and referenced.row_id in attempts
+                        else None
+                    )
+                    if identifier is None:
+                        raise WorkspaceError(
+                            "A related Odoo record has no saved load receipt"
+                        )
+                    components.append((field, identifier))
+                    continue
+                if value.model is not None and value.model != intent.related_model:
+                    raise WorkspaceError(
+                        "A relational load identity targets another Odoo model"
+                    )
+                receipt_key = (
+                    intent.related_model,
+                    _portable_key(value.key),
+                    _portable_key(value.scope),
+                )
+                identifiers = receipt_ids.get(receipt_key, set())
+                if len(identifiers) > 1:
+                    raise WorkspaceError(
+                        "A related Odoo business key matches several saved records"
+                    )
+                if identifiers:
+                    components.append((field, next(iter(identifiers))))
+                    continue
+                reference = _PendingIdentityReference(
+                    intent.related_model,
+                    _identity_domain(
+                        intent.related_identity_fields,
+                        value.key,
+                        intent.related_scope_fields,
+                        value.scope,
+                    ),
+                )
+                reference_lookups.setdefault(reference.model, set()).add(reference)
+                components.append((field, reference))
+            pending[row_id] = components
+
+        reference_ids: dict[_PendingIdentityReference, int] = {}
+        for model, references in reference_lookups.items():
+            ordered = sorted(references, key=lambda item: repr(item.domain))
+            for start in range(0, len(ordered), MAX_READBACK_LOOKUPS):
+                batch = ordered[start : start + MAX_READBACK_LOOKUPS]
+                results = reader.find_records_many(
+                    model,
+                    tuple(ReadbackLookup(domain=item.domain) for item in batch),
+                )
+                if len(results) != len(batch):
+                    raise WorkspaceError(
+                        "Odoo verification returned incomplete related key results"
+                    )
+                for reference, matches in zip(batch, results, strict=True):
+                    if len(matches) != 1:
+                        raise WorkspaceError(
+                            "A related Odoo business key no longer matches one record"
+                        )
+                    reference_ids[reference] = matches[0].odoo_id
+
+        by_model: dict[str, list[tuple[str, ReadbackLookup]]] = {}
+        for row_id, components in pending.items():
+            row = rows[row_id]
+            dataset = metadata[row.dataset]
+            values = tuple(
+                reference_ids[value]
+                if isinstance(value, _PendingIdentityReference)
+                else value
+                for _field, value in components
+            )
             domain = _identity_domain(
                 dataset.identity_fields,
-                row.business_identity,
+                values[:len(dataset.identity_fields)],
                 dataset.scope_fields,
-                row.business_scope,
+                values[len(dataset.identity_fields):],
             )
             fields = tuple(
                 intent.field for intent in row.fields if intent.action != "OMIT"

@@ -1055,6 +1055,7 @@ def build_execution_router(
                         "total_group_count",
                         0,
                     ),
+                    recovery_run=preview.current_run if recovering else None,
                     access_context=access_context,
                     work=run_load,
                 )

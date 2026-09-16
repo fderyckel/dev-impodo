@@ -34,6 +34,7 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.run = SimpleNamespace(
             run_id="11111111-1111-4111-8111-111111111111",
+            workspace_id=self.workspace.workspace_id,
             status=ExecutionRunStatus.RUNNING, rows=(), total_count=5,
             committed_count=2, planned_count=2, in_flight_count=1,
             retry_ready_count=0, unknown_count=0, partially_applied_count=0,
