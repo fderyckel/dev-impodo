@@ -3533,7 +3533,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         self.assertEqual(removed.headers["location"], setup_location)
 
         empty_again = self.client.get(setup_location)
-        self.assertIn("Removed wrong.csv from this Test run.", empty_again.text)
+        self.assertIn("Removed wrong.csv from this run.", empty_again.text)
         self.assertNotIn("<strong>wrong.csv</strong>", empty_again.text)
         current_revision = re.search(
             r'name="revision" value="([^"]+)"', empty_again.text
@@ -3881,6 +3881,11 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         with (
             patch.object(
                 context.test_runs,
+                "get",
+                return_value=active_setup_binding,
+            ),
+            patch.object(
+                context.test_runs.test_runs,
                 "get",
                 return_value=active_setup_binding,
             ),

@@ -608,10 +608,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             "const selectedOnly = Boolean(showSelected?.checked);",
             model_picker_script.text,
         )
-        self.assertIn(
-            "selectedOnly\n            ? selected",
-            model_picker_script.text,
-        )
+        self.assertRegex(model_picker_script.text, r"selectedOnly\s*\?\s*selected")
         self.assertIn(
             "Saving choices and loading Odoo data...",
             model_picker_script.text,
@@ -936,7 +933,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertEqual(
             saved_progress.headers["location"],
             (
-                f"/workspaces/{workspace_id}/mapping?{mapping_filter_query}"
+                f"/workspaces/{workspace_id}/mapping?{mapping_filter_query}&progress_saved=1"
                 f"#mapping-dataset-{customer_index}"
             ),
         )

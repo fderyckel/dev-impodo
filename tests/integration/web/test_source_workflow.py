@@ -620,7 +620,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         progress_url = started.headers["location"]
         progress_page = self.client.get(progress_url)
         self.assertIn("data-odoo-capture-job", progress_page.text)
-        finished = _wait_for_odoo_capture(self.client, progress_url)
+        finished = _wait_for_odoo_capture(self.client, progress_url, timeout=30.0)
         self.assertEqual(finished["status"], "SUCCEEDED", finished)
         self.assertEqual(finished["completed_rows"], 2)
         self.assertEqual(finished["page_count"], 1)
