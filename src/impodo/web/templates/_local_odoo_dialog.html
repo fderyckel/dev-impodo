@@ -115,7 +115,7 @@
       {% endif %}
       <form
         method="post"
-        action="/workspaces/{{ workspace_id }}/local-stack/control"
+        action="/workspaces/{{ workspace_id }}/local-stack/control{% if source_return_token is defined and source_return_token %}?return_to={{ source_return_token }}{% endif %}"
         data-control-stack-form
       >
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -165,7 +165,7 @@
       {% else %}
         <form
           method="post"
-          action="/workspaces/{{ workspace_id }}/local-stack/start"
+          action="/workspaces/{{ workspace_id }}/local-stack/start{% if source_return_token is defined and source_return_token %}?return_to={{ source_return_token }}{% endif %}"
           data-start-stack-form
         >
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -190,14 +190,14 @@
   {% endif %}
 
   <div class="dialog-actions">
-    <form method="post" action="/workspaces/{{ workspace_id }}/local-stack/select-config">
+    <form method="post" action="/workspaces/{{ workspace_id }}/local-stack/select-config{% if source_return_token is defined and source_return_token %}?return_to={{ source_return_token }}{% endif %}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="return_to" value="{{ local_stack_return_to }}">
       <button class="button secondary" type="submit">
         {% if local_stack.config_path %}Choose another local setup{% else %}Choose local Odoo setup{% endif %}
       </button>
     </form>
-    <form method="post" action="/workspaces/{{ workspace_id }}/local-stack/refresh">
+    <form method="post" action="/workspaces/{{ workspace_id }}/local-stack/refresh{% if source_return_token is defined and source_return_token %}?return_to={{ source_return_token }}{% endif %}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="return_to" value="{{ local_stack_return_to }}">
       <button class="button {% if local_stack_resume_compare %}secondary{% else %}primary{% endif %}" type="submit" {% if not local_stack.profile %}disabled{% endif %}>

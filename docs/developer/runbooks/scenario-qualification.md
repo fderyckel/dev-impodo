@@ -68,6 +68,27 @@ planner, snapshot adapter, and preflight engine. It performs zero writes. A
 pass means the actual counts equal the reviewed scenario expectations; it is
 not permission to load another database.
 
+## Prepare the PLW manufacturing demo set
+
+The PLW preparation scenario reads the four pinned demo workbooks and checks
+the reviewed field rules. It prepares 2,841 Products, 1,942 bill-of-material
+headers, 15,142 bill-of-material lines, and 17,328 operations. The expected
+result is 37,253 prepared rows with zero source issues.
+
+```powershell
+impodo-cli scenario run `
+  --definition .\scenarios\plw-manufacturing-preparation\v1\scenario.yaml `
+  --connector none `
+  --output .\.tmp\scenario-results\plw-manufacturing-preparation.json
+```
+
+`--connector none` is accepted only when a scenario stops after preparation.
+This run does not contact Odoo or authorize a write. The paired integration
+test also checks that every operation belongs to a selected bill of material,
+every line's Product exists in the fixture, and each item keeps one demo Work
+Center code. A pass confirms source preparation and those file relationships;
+it does not establish Odoo matches, Work Center availability, or load safety.
+
 ## Run the local Contact round trip
 
 Prepare a fresh or otherwise known-empty Odoo 19 database whose name begins

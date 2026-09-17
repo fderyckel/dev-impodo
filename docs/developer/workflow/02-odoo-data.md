@@ -8,9 +8,10 @@ status: current
 
 ## Responsibility
 
-Odoo data configures the Odoo destination when a file DataVersion does not yet
-have one, then captures selected Odoo 19 model and field metadata. In file mode,
-it also governs the business keys used by mapping and comparison. It owns
+Odoo data captures selected Odoo 19 model and field metadata. The shared
+**Odoo access** page configures the destination and checking credential outside
+the numbered file-source stages. In file mode, Odoo data also governs the
+business keys used by mapping and comparison. It owns
 the confirmed target-schema boundary. It keeps source-read checks separate from
 destination-read checks and records where the captured metadata came from.
 
@@ -19,11 +20,20 @@ generic RPC escape hatch.
 
 ## Entry conditions
 
-File mode requires frozen source data. If its destination is not configured,
-the schema route redirects to the shared connection page and returns after a
-successful read-only check. Odoo source mode already has its source connection
+File mode requires frozen source data before Stage 2 metadata capture. Shared
+Odoo access can be configured during Stage 1. If the destination is not
+configured when the schema route opens, it redirects to Odoo access and returns
+after a successful read-only check. Odoo source mode already has its source connection
 and reaches schema capture before source records are frozen because eligible
 fields define what may be captured.
+
+The file-source sidebar links directly to **Odoo access** outside the six
+numbered stages. Stage 2 lists only **Choose Odoo records**. A Stage 1 lookup
+or hierarchy request carries one of two allowlisted return tokens through
+connection testing and local-stack setup. Saving a checked connection then
+refreshes the model list and returns to the requesting form. A missing key on
+an already configured Remote target uses the inline read-key dialog and
+resumes the same Stage 1 model refresh.
 
 ## Implementation flow
 

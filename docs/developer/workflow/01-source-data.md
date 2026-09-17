@@ -70,6 +70,15 @@ the previous complete set current.
 `derived_entities.py` routes optional lookup extraction, multi-column hierarchy,
 and parent/child split rules through `DerivedEntityWorkspaceService`. These
 rules remain plans until full preparation expands them over the frozen source.
+The choice controls open forms within Stage 1 without adding browser-history
+entries. A preview response reveals its form, while a saved rule redirects to
+its saved card. Lookup and hierarchy choices that need Odoo record types open
+the shared Odoo access page when the destination is not configured. A bounded
+return token survives the connection check and local-stack actions. After the
+connection is saved, `target.py` refreshes the record-type list and redirects
+to the requesting Stage 1 form. The access check does not save a separation
+rule or choose Stage 2 record types. A changed target still invalidates
+dependent evidence through the existing target setup rules.
 
 `HierarchicalLookupRule` is model-neutral. It binds two to five ordered stable
 column keys from one accepted dataset, an arbitrary captured target model and
@@ -209,6 +218,8 @@ workspace.
 - [`tests/application/data_version/test_odoo_capture_jobs.py`](../../../tests/application/data_version/test_odoo_capture_jobs.py)
 - [`tests/application/workspace/test_derived_entities.py`](../../../tests/application/workspace/test_derived_entities.py)
 - [`tests/integration/web/test_source_workflow.py`](../../../tests/integration/web/test_source_workflow.py)
+- [`tests/e2e/test_derived_entities_navigation.py`](../../../tests/e2e/test_derived_entities_navigation.py)
+- [`tests/integration/web/test_target_workflow.py`](../../../tests/integration/web/test_target_workflow.py)
 
 Cover file hashing, configuration, pre-freeze replacement, post-freeze refusal,
 per-model Odoo plans, complete-set capture, atomic publication, capture bounds,

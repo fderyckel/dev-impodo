@@ -17,6 +17,13 @@ The current data-version target must be configured. A file-source data version
 also needs frozen source tables. Know the intended Odoo business records and
 agree stable business keys with the functional owner.
 
+For a file source, **Odoo access** is a separate setup page in the sidebar.
+You can check the destination there while finishing Source data, or open it
+when this stage asks for access. After the connection check, Stage 2 is where
+you choose Odoo record types and inspect their fields. If you opened Odoo
+access from **Separate combined information**, Impodo returns to that Source
+data choice after it loads the record types.
+
 Impodo currently supports Odoo 19. If the connected server reports an unknown
 or conflicting version, resolve that connection check before capturing its
 details. Odoo 20 support is being prepared and is not enabled yet. A Recipe

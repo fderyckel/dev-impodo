@@ -24,9 +24,11 @@ uploaded source rows.
 ## Before starting
 
 - Confirm the intended source tables.
-- Configure the project's Odoo target.
-- For a reusable-value table, load the current Odoo record-type catalogue so
-  Impodo can verify the selected target model.
+- Be ready to check the destination through **Odoo access**. If it has not
+  been configured, the related-table form opens that shared setup page and
+  returns you to the same Source data choice after the check.
+- For a reusable-value table, load the current Odoo record types so Impodo
+  can verify the selected target model.
 - Agree the business identity of each generated record with the functional
   owner. Similar-looking labels are not automatically the same entity.
 

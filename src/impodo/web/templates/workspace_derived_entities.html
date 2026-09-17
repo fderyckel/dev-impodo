@@ -41,9 +41,9 @@
     <section class="form-card">
       <h2>What does your source contain?</h2>
       <div class="actions">
-        <a class="button primary" href="#lookup-extraction" data-derived-entity-trigger>One field contains reusable values</a>
-        <a class="button secondary" href="#hierarchy-extraction" data-derived-entity-trigger>Several fields form a hierarchy</a>
-        <a class="button secondary" href="#create-related-datasets" data-derived-entity-trigger>Several rows describe the same record</a>
+        <button class="button primary" type="button" data-derived-entity-target="lookup-extraction">One field contains reusable values</button>
+        <button class="button secondary" type="button" data-derived-entity-target="hierarchy-extraction">Several fields form a hierarchy</button>
+        <button class="button secondary" type="button" data-derived-entity-target="create-related-datasets">Several rows describe the same record</button>
       </div>
       <p class="muted">Choose the hierarchy option when separate fields contain the parent and child names. Choose the final option when repeated information connects several rows.</p>
     </section>
@@ -51,7 +51,7 @@
     {% if pending_related %}
       {% set pending_rule = pending_related.rule %}
       {% set pending_preview = pending_related.preview %}
-      <section class="form-card related-preview" id="related-preview">
+      <section class="form-card related-preview" id="related-preview" data-derived-entity-preview>
         <div class="page-heading compact">
           <div>
             <p class="eyebrow">Review before creating</p>
@@ -120,7 +120,7 @@
           <input type="hidden" name="child_key_column_key" value="{{ pending_rule.child_key_column_key }}">
           <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
           <div class="actions">
-            <a class="button secondary" href="/workspaces/{{ workspace_id }}/derived-entities">Change selections</a>
+            <button class="button secondary" type="button" data-derived-entity-target="related-source-{{ pending_rule.source_dataset_id }}">Change selections</button>
             <button class="button primary" type="submit">Create these separate tables</button>
           </div>
         </form>
@@ -130,7 +130,7 @@
     {% for view in related_rule_views %}
       {% set rule = view.rule %}
       {% set preview = view.preview %}
-      <section class="form-card related-rule-card">
+      <section class="form-card related-rule-card" id="related-rule-{{ rule.rule_id }}">
         <div class="page-heading compact">
           <div>
             <p class="eyebrow">Related tables prepared</p>
@@ -166,7 +166,7 @@
       </section>
     {% endfor %}
 
-    <details class="form-card secondary-preparation" id="create-related-datasets" data-derived-entity-section>
+    <details class="form-card secondary-preparation" id="create-related-datasets" data-derived-entity-section{% if pending_related %} open{% endif %}>
       <summary>
         <span><strong>Create two related tables</strong><small>Use this when several source rows describe the same record.</small></span>
       </summary>
@@ -175,7 +175,7 @@
 
         {% for source_view in related_source_views %}
           {% set dataset = source_view.dataset %}
-          <details class="source-preparation-choice" {% if loop.first and not source_view.has_split %}open{% endif %}>
+          <details class="source-preparation-choice" id="related-source-{{ dataset.dataset_id }}" {% if (loop.first and not source_view.has_split) or (pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id) %}open{% endif %}>
             <summary>
               <span><strong>{{ dataset.name }}</strong><small>{{ dataset.row_count }} rows - {{ dataset.columns|length }} fields</small></span>
               {% if source_view.has_split %}<span class="status registered">Complete</span>{% endif %}
@@ -196,12 +196,12 @@
                   <div class="form-grid">
                     <label>
                       Table with one row per group
-                      <input name="parent_dataset_name" value="{{ source_view.parent_name_default }}" pattern="[a-z][a-z0-9_]{0,62}" required>
+                      <input name="parent_dataset_name" value="{{ pending_related.rule.parent_dataset_name if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id else source_view.parent_name_default }}" pattern="[a-z][a-z0-9_]{0,62}" required>
                       <small>Name this table after what each group represents. For example, if each group represents a document, use <code>documents</code>.</small>
                     </label>
                     <label>
                       Table that keeps every source row
-                      <input name="child_dataset_name" value="{{ source_view.child_name_default }}" pattern="[a-z][a-z0-9_]{0,62}" required>
+                      <input name="child_dataset_name" value="{{ pending_related.rule.child_dataset_name if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id else source_view.child_name_default }}" pattern="[a-z][a-z0-9_]{0,62}" required>
                       <small>Name this table after what each retained row represents. For example, use <code>document_rows</code> when each row belongs to a document.</small>
                     </label>
                   </div>
@@ -217,7 +217,7 @@
                       Which field groups rows together?
                       <select name="parent_key_column_key" required>
                         <option value="">Choose the grouping field</option>
-                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }}</option>{% endfor %}
+                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}"{% if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id and pending_related.rule.parent_key_column_key == column.stable_key %} selected{% endif %}>{{ column.source_name }}</option>{% endfor %}
                       </select>
                       <small>Choose a field whose repeated value means the rows describe the same record. For example, rows with the same document reference belong together.</small>
                     </label>
@@ -225,7 +225,7 @@
                       Should another field keep identical group values separate?
                       <select name="scope_column_key">
                         <option value="">No additional separation</option>
-                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }}</option>{% endfor %}
+                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}"{% if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id and pending_related.rule.scope_column_key == column.stable_key %} selected{% endif %}>{{ column.source_name }}</option>{% endfor %}
                       </select>
                       <small>Use this only when the same group value can occur in different contexts. For example, two companies may use the same document reference.</small>
                     </label>
@@ -233,7 +233,7 @@
                       Which field identifies each row within its group?
                       <select name="child_key_column_key" required>
                         <option value="">Choose the row identifier</option>
-                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }}</option>{% endfor %}
+                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}"{% if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id and pending_related.rule.child_key_column_key == column.stable_key %} selected{% endif %}>{{ column.source_name }}</option>{% endfor %}
                       </select>
                       <small>Choose a value that is unique inside each group. For example, a sequence number can distinguish the individual rows in one document.</small>
                     </label>
@@ -241,7 +241,7 @@
                       If required identity information is missing
                       <select name="blank_policy">
                         <option value="block">Stop and ask me to correct them</option>
-                        <option value="quarantine">Set those rows aside for review</option>
+                        <option value="quarantine"{% if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id and pending_related.rule.blank_policy == 'quarantine' %} selected{% endif %}>Set those rows aside for review</option>
                       </select>
                       <small>Choose whether Impodo should stop for correction or set the affected rows aside.</small>
                     </label>
@@ -259,7 +259,7 @@
       </section>
     </details>
 
-    <details class="form-card secondary-preparation" id="hierarchy-extraction" data-derived-entity-section>
+    <details class="form-card secondary-preparation" id="hierarchy-extraction" data-derived-entity-section{% if pending_hierarchy %} open{% endif %}>
       <summary>
         <span><strong>Build a hierarchy from separate fields</strong><small>Use this when one field contains the parent and another contains its child.</small></span>
       </summary>
@@ -267,7 +267,7 @@
       {% if pending_hierarchy %}
         {% set pending_rule = pending_hierarchy.rule %}
         {% set pending_preview = pending_hierarchy.preview %}
-        <section class="nested-rule-card" id="hierarchy-preview">
+        <section class="nested-rule-card" id="hierarchy-preview" data-derived-entity-preview>
           <div class="page-heading compact">
             <div>
               <p class="eyebrow">Review before creating</p>
@@ -321,7 +321,7 @@
             <input type="hidden" name="all_blank_mode" value="{{ pending_rule.all_blank.mode }}">
             <input type="hidden" name="all_blank_value" value="{{ pending_rule.all_blank.value or '' }}">
             <div class="actions">
-              <a class="button secondary" href="/workspaces/{{ workspace_id }}/derived-entities#hierarchy-extraction">Change selections</a>
+              <button class="button secondary" type="button" data-derived-entity-target="hierarchy-source-{{ pending_rule.source_dataset_id }}">Change selections</button>
               <button class="button primary" type="submit">Create this hierarchy table</button>
             </div>
           </form>
@@ -331,9 +331,10 @@
       {% if model_catalog %}
         {% for source_view in related_source_views %}
           {% set dataset = source_view.dataset %}
-          <details class="source-preparation-choice" {% if loop.first %}open{% endif %}>
+          {% set edit_rule = pending_hierarchy.rule if pending_hierarchy and pending_hierarchy.rule.source_dataset_id == dataset.dataset_id else none %}
+          <details class="source-preparation-choice" id="hierarchy-source-{{ dataset.dataset_id }}" {% if loop.first or (pending_hierarchy and pending_hierarchy.rule.source_dataset_id == dataset.dataset_id) %}open{% endif %}>
             <summary><span><strong>{{ dataset.name }}</strong><small>{{ dataset.row_count }} rows · {{ dataset.columns|length }} fields</small></span></summary>
-            <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/preview#hierarchy-preview">
+            <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/preview">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
               <input type="hidden" name="source_dataset_id" value="{{ dataset.dataset_id }}">
@@ -343,58 +344,58 @@
                     Hierarchy level {{ level }}{% if level > 2 %} (optional){% endif %}
                     <select name="hierarchy_level_{{ level }}" {% if level <= 2 %}required{% endif %}>
                       <option value="">{% if level <= 2 %}Choose level {{ level }}{% else %}No further level{% endif %}</option>
-                      {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }}</option>{% endfor %}
+                      {% for column in dataset.columns %}<option value="{{ column.stable_key }}"{% if edit_rule and level <= (edit_rule.source_level_column_keys|length) and edit_rule.source_level_column_keys[level - 1] == column.stable_key %} selected{% endif %}>{{ column.source_name }}</option>{% endfor %}
                     </select>
                   </label>
                 {% endfor %}
                 <label>
                   Name shown in Impodo
-                  <input name="output_dataset_name" pattern="[a-z][a-z0-9_]{0,62}" placeholder="related_records" required>
+                  <input name="output_dataset_name" value="{{ edit_rule.output_dataset_name if edit_rule else '' }}" pattern="[a-z][a-z0-9_]{0,62}" placeholder="related_records" required>
                 </label>
                 <label>
                   Type of Odoo record
-                  <input name="target_model" list="derived-target-models" placeholder="Start typing an Odoo record type" autocomplete="off" required>
+                  <input name="target_model" value="{{ edit_rule.target_model if edit_rule else '' }}" list="derived-target-models" placeholder="Start typing an Odoo record type" autocomplete="off" required>
                 </label>
                 <label>
                   When a parent is blank but a later level is populated
                   <select name="missing_parent_mode">
                     <option value="block">Stop and ask me to correct it</option>
-                    <option value="quarantine">Set the affected rows aside</option>
-                    <option value="fixed">Use a fixed parent value</option>
-                    <option value="promote">Make the next populated value top-level</option>
+                    <option value="quarantine"{% if edit_rule and edit_rule.missing_parent.mode == 'quarantine' %} selected{% endif %}>Set the affected rows aside</option>
+                    <option value="fixed"{% if edit_rule and edit_rule.missing_parent.mode == 'fixed' %} selected{% endif %}>Use a fixed parent value</option>
+                    <option value="promote"{% if edit_rule and edit_rule.missing_parent.mode == 'promote' %} selected{% endif %}>Make the next populated value top-level</option>
                   </select>
                 </label>
                 <label>
                   Fixed parent value
-                  <input name="missing_parent_value" maxlength="500" placeholder="Default">
+                  <input name="missing_parent_value" value="{{ (edit_rule.missing_parent.value or '') if edit_rule else '' }}" maxlength="500" placeholder="Default">
                   <small>This is required only when you choose a fixed parent. It creates or reuses a real incoming related record.</small>
                 </label>
                 <label>
                   When the final level is blank
                   <select name="missing_leaf">
                     <option value="use_deepest">Use the deepest populated level</option>
-                    <option value="block">Stop and ask me to correct it</option>
-                    <option value="quarantine">Set the affected rows aside</option>
+                    <option value="block"{% if edit_rule and edit_rule.missing_leaf == 'block' %} selected{% endif %}>Stop and ask me to correct it</option>
+                    <option value="quarantine"{% if edit_rule and edit_rule.missing_leaf == 'quarantine' %} selected{% endif %}>Set the affected rows aside</option>
                   </select>
                 </label>
                 <label>
                   When every selected level is blank
                   <select name="all_blank_mode">
                     <option value="emit_null_reference">Leave the related value blank</option>
-                    <option value="fixed">Use one fixed related value</option>
-                    <option value="block">Stop and ask me to correct it</option>
-                    <option value="quarantine">Set the affected rows aside</option>
+                    <option value="fixed"{% if edit_rule and edit_rule.all_blank.mode == 'fixed' %} selected{% endif %}>Use one fixed related value</option>
+                    <option value="block"{% if edit_rule and edit_rule.all_blank.mode == 'block' %} selected{% endif %}>Stop and ask me to correct it</option>
+                    <option value="quarantine"{% if edit_rule and edit_rule.all_blank.mode == 'quarantine' %} selected{% endif %}>Set the affected rows aside</option>
                   </select>
                 </label>
                 <label>
                   Fixed related value
-                  <input name="all_blank_value" maxlength="500">
+                  <input name="all_blank_value" value="{{ (edit_rule.all_blank.value or '') if edit_rule else '' }}" maxlength="500">
                 </label>
               </div>
               <details class="technical-details">
                 <summary>Support options</summary>
-                <label>Odoo display field <input name="target_name_field" value="name" pattern="[a-z_][a-z0-9_.]{0,127}" required></label>
-                <label>Stable source-system namespace <input name="external_id_namespace" value="{{ namespace_default }}" pattern="[a-z][a-z0-9_]{0,39}" required></label>
+                <label>Odoo display field <input name="target_name_field" value="{{ edit_rule.target_name_field if edit_rule else 'name' }}" pattern="[a-z_][a-z0-9_.]{0,127}" required></label>
+                <label>Stable source-system namespace <input name="external_id_namespace" value="{{ edit_rule.external_id_namespace if edit_rule else namespace_default }}" pattern="[a-z][a-z0-9_]{0,39}" required></label>
               </details>
               <div class="notice">
                 A blank parent cannot become an empty Odoo record. Choose a real fixed parent, make the populated value top-level, set the row aside, or stop for correction.
@@ -411,7 +412,9 @@
         <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh?return_to=hierarchy">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <div class="actions">
-            {% if read_credential_prompt and not read_credential_prompt.available %}
+            {% if not workspace_state.odoo_connection_mode %}
+              <a class="button primary" href="/workspaces/{{ workspace_id }}/target?return_to=source-hierarchy">Set up Odoo access</a>
+            {% elif read_credential_prompt and not read_credential_prompt.available %}
               <button
                 class="button primary"
                 type="button"
@@ -422,13 +425,13 @@
             {% else %}
               <button class="button primary" type="submit">Show available Odoo record types</button>
             {% endif %}
-            <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Review the Odoo connection</a>
+            {% if workspace_state.odoo_connection_mode %}<a class="button secondary" href="/workspaces/{{ workspace_id }}/target?return_to=source-hierarchy">Review Odoo access</a>{% endif %}
           </div>
         </form>
       {% endif %}
     </details>
 
-    <details class="form-card secondary-preparation" id="lookup-extraction" data-derived-entity-section>
+    <details class="form-card secondary-preparation" id="lookup-extraction" data-derived-entity-section{% if pending_lookup %} open{% endif %}>
       <summary>
         <span><strong>Create related records from one field</strong><small>Use this when values from one source field should become their own Odoo records.</small></span>
       </summary>
@@ -436,7 +439,7 @@
       {% if pending_lookup %}
         {% set pending_rule = pending_lookup.rule %}
         {% set pending_preview = pending_lookup.preview %}
-        <section class="nested-rule-card" id="lookup-preview">
+        <section class="nested-rule-card" id="lookup-preview" data-derived-entity-preview>
           <div class="page-heading compact">
             <div>
               <p class="eyebrow">Review before creating</p>
@@ -489,7 +492,7 @@
             <input type="hidden" name="parent_separator" value="{{ pending_rule.parent_separator or '' }}">
             <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
             <div class="actions">
-              <a class="button secondary" href="/workspaces/{{ workspace_id }}/derived-entities">Change selections</a>
+              <button class="button secondary" type="button" data-derived-entity-target="lookup-form">Change selections</button>
               <button class="button primary" type="submit">Create this related table</button>
             </div>
           </form>
@@ -540,7 +543,7 @@
         </section>
       {% endfor %}
 
-      <section class="nested-rule-card">
+      <section class="nested-rule-card" id="lookup-form">
         <h2>Create a related table</h2>
         <p>Choose the column that contains related records. Impodo will keep one row per unique value, keep the original product or line rows, and suggest the relationship in Mapping.</p>
         {% if model_catalog %}
@@ -562,7 +565,9 @@
           <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="actions">
-              {% if read_credential_prompt and not read_credential_prompt.available %}
+              {% if not workspace_state.odoo_connection_mode %}
+                <a class="button primary" href="/workspaces/{{ workspace_id }}/target?return_to=source-lookup">Set up Odoo access</a>
+              {% elif read_credential_prompt and not read_credential_prompt.available %}
                 <button
                   class="button primary"
                   type="button"
@@ -573,12 +578,12 @@
               {% else %}
                 <button class="button primary" type="submit">Show available Odoo record types</button>
               {% endif %}
-              <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Review the Odoo connection</a>
+              {% if workspace_state.odoo_connection_mode %}<a class="button secondary" href="/workspaces/{{ workspace_id }}/target?return_to=source-lookup">Review Odoo access</a>{% endif %}
             </div>
           </form>
         {% endif %}
         {% if model_catalog %}
-        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/lookup/preview#lookup-preview">
+        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/lookup/preview">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
           <div class="form-grid">
@@ -587,18 +592,18 @@
               <select name="source_binding" required>
                 <option value="">Choose a source column</option>
                 {% for choice in source_choices %}
-                  <option value="{{ choice.value }}">{{ choice.dataset_name }} - {{ choice.column_name }}</option>
+                  <option value="{{ choice.value }}"{% if pending_lookup and choice.value == (pending_lookup.rule.source_dataset_id ~ '|' ~ pending_lookup.rule.source_column_key) %} selected{% endif %}>{{ choice.dataset_name }} - {{ choice.column_name }}</option>
                 {% endfor %}
               </select>
             </label>
             <label>
               Name shown in Impodo
-              <input name="output_dataset_name" pattern="[a-z][a-z0-9_]{0,62}" required>
+              <input name="output_dataset_name" value="{{ pending_lookup.rule.output_dataset_name if pending_lookup else '' }}" pattern="[a-z][a-z0-9_]{0,62}" required>
               <small>Use a short plural name that describes the values. For example, if the field contains regions, use <code>regions</code>.</small>
             </label>
             <label>
               Type of Odoo record
-              <input name="target_model" list="derived-target-models" placeholder="Start typing an Odoo record type" autocomplete="off" aria-describedby="derived-target-model-help" required>
+              <input name="target_model" value="{{ pending_lookup.rule.target_model if pending_lookup else '' }}" list="derived-target-models" placeholder="Start typing an Odoo record type" autocomplete="off" aria-describedby="derived-target-model-help" required>
               <datalist id="derived-target-models">
                 {% for model in model_choices %}<option value="{{ model.name }}" label="{{ model.label }}">{{ model.label }}</option>{% endfor %}
               </datalist>
@@ -608,15 +613,15 @@
               <summary>Support options</summary>
               <label>
                 Odoo display field
-                <input name="target_name_field" value="name" pattern="[a-z_][a-z0-9_.]{0,127}" required>
+                <input name="target_name_field" value="{{ pending_lookup.rule.target_name_field if pending_lookup else 'name' }}" pattern="[a-z_][a-z0-9_.]{0,127}" required>
               </label>
               <label>
                 Stable source-system namespace
-                <input name="external_id_namespace" value="{{ namespace_default }}" pattern="[a-z][a-z0-9_]{0,39}" required>
+                <input name="external_id_namespace" value="{{ pending_lookup.rule.external_id_namespace if pending_lookup else namespace_default }}" pattern="[a-z][a-z0-9_]{0,39}" required>
               </label>
               <label>
                 Optional parent separator
-                <input name="parent_separator" maxlength="10" placeholder="/">
+                <input name="parent_separator" value="{{ (pending_lookup.rule.parent_separator or '') if pending_lookup else '' }}" maxlength="10" placeholder="/">
                 <small>Use this only when values contain levels, such as <code>Parent / Child</code>. Leave it empty for a flat list.</small>
               </label>
             </details>
@@ -624,7 +629,7 @@
               If a source value is blank
               <select name="blank_policy">
                 <option value="block">Stop and ask me to correct it</option>
-                <option value="quarantine">Set the affected rows aside</option>
+                <option value="quarantine"{% if pending_lookup and pending_lookup.rule.blank_policy == 'quarantine' %} selected{% endif %}>Set the affected rows aside</option>
               </select>
             </label>
           </div>

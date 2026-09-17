@@ -127,6 +127,18 @@
               </a>
             {% endif %}
 
+            {% if navigation.odoo_access_href %}
+              <a
+                class="sidebar-link{% if navigation.odoo_access_active %} active{% endif %}"
+                href="{{ navigation.odoo_access_href }}"
+                {% if navigation.odoo_access_active %}aria-current="page"{% endif %}
+                title="Odoo access"
+              >
+                {{ app_icon("shield-check") }}
+                <span class="nav-label">Odoo access</span>
+              </a>
+            {% endif %}
+
             <ol class="sidebar-workflow">
               {% for stage in navigation.stages %}
                 <li class="sidebar-stage {{ stage.status }}{% if stage.active %} active{% endif %}">
@@ -249,6 +261,10 @@
               {% if navigation.viewed_stage %}
                 <span aria-hidden="true">/</span>
                 <span>{{ navigation.viewed_stage.label }}</span>
+              {% endif %}
+              {% if navigation.odoo_access_active %}
+                <span aria-hidden="true">/</span>
+                <span aria-current="page">Odoo access</span>
               {% endif %}
               {% if navigation.viewed_page_label and navigation.viewed_stage %}
                 <span aria-hidden="true">/</span>

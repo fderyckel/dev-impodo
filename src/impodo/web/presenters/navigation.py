@@ -74,6 +74,8 @@ class WorkflowNavigation:
     journey_label: str = "Workspace"
     overview_label: str = "Data version overview"
     current_work_label: str = "Current data-version work"
+    odoo_access_href: str | None = None
+    odoo_access_active: bool = False
 
     @property
     def current_stage(self) -> WorkflowStage | None:
@@ -196,7 +198,7 @@ _TEMPLATE_LOCATION = {
         "source",
         "Separate combined information",
     ),
-    "workspace_target.html": ("odoo", "Connection & credentials"),
+    "workspace_target.html": ("", "Odoo access"),
     "workspace_schema.html": ("odoo", "Choose Odoo records"),
     "project_recipe_run_progress.html": ("odoo", "Odoo check progress"),
     "project_recipe_target_matches.html": ("odoo", "Review target values"),
@@ -888,19 +890,12 @@ def _build_authoring_workspace_navigation(
             pages=(
                 _page(
                     workspace_id,
-                    "odoo-connection",
-                    "Connection & credentials",
-                    "/target",
-                ),
-                _page(
-                    workspace_id,
                     "schema",
                     "Choose Odoo records",
                     "/schema",
                     complete=schema_complete,
                 ),
             ),
-            pages_always_visible=True,
         )
     )
     if not schema_complete:
@@ -1306,6 +1301,15 @@ def _navigation(
         setup_href=f"/workspaces/{workspace_state.workspace_id}/overview",
         overview_href=f"/workspaces/{workspace_state.workspace_id}/overview",
         overview_active=template_name == "workspace_overview.html",
+        odoo_access_href=(
+            f"/workspaces/{workspace_state.workspace_id}/target"
+            if workspace_state.source_mode is SourceMode.FILE
+            else None
+        ),
+        odoo_access_active=(
+            workspace_state.source_mode is SourceMode.FILE
+            and template_name == "workspace_target.html"
+        ),
         current_stage_id=current_stage.stage_id,
         current_stage_label=current_stage.label,
         viewed_stage_id=viewed_stage_id,

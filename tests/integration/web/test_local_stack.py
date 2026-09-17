@@ -13,6 +13,25 @@ from tests.support.browser_scenarios import (
 
 
 class LocalStackBrowserTests(LocalStackBrowserTestCase):
+    def test_local_setup_keeps_the_source_organization_return(self) -> None:
+        target = self.client.get(
+            f"/workspaces/{self.workspace_id}/target?return_to=source-hierarchy"
+        )
+        self.assertIn(
+            f'action="/workspaces/{self.workspace_id}/local-stack/select-config?return_to=source-hierarchy"',
+            target.text,
+        )
+        selected = self.client.post(
+            f"/workspaces/{self.workspace_id}/local-stack/select-config?return_to=source-hierarchy",
+            data={"csrf_token": self.csrf, "return_to": "target"},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(
+            selected.headers["location"],
+            f"/workspaces/{self.workspace_id}/target?local_stack=1&return_to=source-hierarchy",
+        )
+
     def test_selects_config_checks_status_and_keeps_profile_session_only(self) -> None:
         target = self.client.get(f"/workspaces/{self.workspace_id}/target")
         self.assertIn("Find local Odoo", target.text)

@@ -1,0 +1,183 @@
+profile:
+  id: scenario_plw_manufacturing_preparation_v1
+  description: Read-only preparation of the linked PLW Product, BOM, line, and operation demo set
+
+datasets:
+  - name: products
+    source:
+      file: PLW_demo_active_products.xlsx
+      sheet: plw_products
+    target:
+      model: product.template
+      mode: upsert
+    source_identity:
+      fields: ["Numéro d'article"]
+    target_identity:
+      components:
+        - source_fields: ["Numéro d'article"]
+          target_fields: [default_code]
+          type: string
+          normalize: {trim: true}
+    fields:
+      name:
+        source: Nom du produit
+        type: string
+        required: true
+        required_on_create: true
+        compare: true
+        normalize: {trim: true, collapse_whitespace: true}
+    relations:
+      uom_id:
+        kind: many2one
+        source_fields: ["Unité Stock"]
+        resolve:
+          target_model: uom.uom
+          target_fields: [name]
+        compare: true
+
+  - name: bom_headers
+    source:
+      file: PLW_demo_active_boms.xlsx
+      sheet: plw_bom
+    target:
+      model: mrp.bom
+      mode: upsert
+    source_identity:
+      fields: [BOMId]
+    target_identity:
+      components:
+        - source_fields: [BOMId]
+          target_fields: [code]
+          type: string
+          normalize: {trim: true}
+    fields:
+      active:
+        source: Active
+        formula: "Active == 'Oui' and Approved == 'Oui'"
+        type: boolean
+        required: true
+        compare: true
+      product_qty:
+        source: BOMId
+        formula: "1"
+        type: decimal
+        required: true
+        required_on_create: true
+        compare: true
+    relations:
+      product_tmpl_id:
+        kind: many2one
+        source_fields: [ItemId]
+        resolve:
+          dataset: products
+          target_source_fields: ["Numéro d'article"]
+        required: true
+        required_on_create: true
+        compare: true
+
+  - name: bom_lines
+    source:
+      file: PLW_demo_active_bom_lines.xlsx
+      sheet: plw_bom_lines
+    target:
+      model: mrp.bom.line
+      mode: upsert
+    source_identity:
+      fields: [BOMId, LineNum]
+    target_identity:
+      components:
+        - source_fields: [BOMId]
+          target_fields: [bom_id]
+          resolve:
+            target_model: mrp.bom
+            target_fields: [code]
+        - source_fields: [LineNum]
+          target_fields: [sequence]
+          type: integer
+    fields:
+      product_qty:
+        source: BOMQty
+        type: decimal
+        required: true
+        required_on_create: true
+        compare: true
+    relations:
+      bom_id:
+        kind: many2one
+        source_fields: [BOMId]
+        resolve:
+          dataset: bom_headers
+          target_source_fields: [BOMId]
+        required: true
+        required_on_create: true
+        compare: true
+      product_id:
+        kind: many2one
+        source_fields: [ItemId]
+        resolve:
+          target_model: product.product
+          target_fields: [default_code]
+        required: true
+        required_on_create: true
+        compare: true
+      product_uom_id:
+        kind: many2one
+        source_fields: [UnitId]
+        resolve:
+          target_model: uom.uom
+          target_fields: [name]
+        required: true
+        required_on_create: true
+        compare: true
+
+  - name: bom_operations
+    source:
+      file: PLW_demo_active_bom_operations.xlsx
+      sheet: plw_bom_operations
+    target:
+      model: mrp.routing.workcenter
+      mode: upsert
+    source_identity:
+      fields: [BOMId, Opr Id]
+    target_identity:
+      components:
+        - source_fields: [Opr Id]
+          target_fields: [name]
+          type: string
+          normalize: {trim: true}
+        - source_fields: [BOMId]
+          target_fields: [bom_id]
+          resolve:
+            target_model: mrp.bom
+            target_fields: [code]
+    fields:
+      name:
+        source: Opr Id
+        type: string
+        required: true
+        required_on_create: true
+        compare: true
+        normalize: {trim: true}
+      sequence:
+        source: Opr Num
+        type: integer
+        compare: true
+    relations:
+      bom_id:
+        kind: many2one
+        source_fields: [BOMId]
+        resolve:
+          dataset: bom_headers
+          target_source_fields: [BOMId]
+        required: true
+        required_on_create: true
+        compare: true
+      workcenter_id:
+        kind: many2one
+        source_fields: [Demo Work Center]
+        resolve:
+          target_model: mrp.workcenter
+          target_fields: [code]
+        required: true
+        required_on_create: true
+        compare: true

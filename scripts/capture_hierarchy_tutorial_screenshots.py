@@ -1,8 +1,8 @@
-"""Capture the documented multi-column hierarchy decisions from an isolated app.
+"""Capture Source data, Odoo access, and hierarchy decisions from an isolated app.
 
 Run this helper from the repository root with Playwright available. It creates
 only fictional product data, serves the current authenticated application on
-an ephemeral loopback port, and writes four 1440 by 1024 PNG files under
+an ephemeral loopback port, and writes seven 1440 by 1024 PNG files under
 ``docs/images/user``.
 """
 
@@ -519,10 +519,27 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
             )
             page = browser_context.new_page()
             page.goto(
+                f"{base_url}/workspaces/{workspace_id}/datasets",
+                wait_until="networkidle",
+            )
+            _capture(page, output_directory / "05-frozen-tables.png")
+            page.goto(
+                f"{base_url}/workspaces/{workspace_id}/target?return_to=source-hierarchy",
+                wait_until="networkidle",
+            )
+            _capture(page, output_directory / "06c-odoo-access.png")
+            page.goto(
+                f"{base_url}/workspaces/{workspace_id}/schema",
+                wait_until="networkidle",
+            )
+            _capture(page, output_directory / "08-odoo-models.png")
+            page.goto(
                 f"{base_url}/workspaces/{workspace_id}/derived-entities",
                 wait_until="networkidle",
             )
-            page.locator('a[href="#hierarchy-extraction"]').click()
+            page.get_by_role(
+                "button", name="Several fields form a hierarchy"
+            ).click()
             hierarchy = page.locator("#hierarchy-extraction")
             expect(hierarchy).to_have_attribute("open", "")
             hierarchy.locator('select[name="hierarchy_level_1"]').select_option(

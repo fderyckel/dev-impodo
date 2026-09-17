@@ -160,6 +160,26 @@ class ScenarioCliTests(unittest.TestCase):
         self.assertEqual(result["write_attempt_count"], 0)
         self.assertNotIn("C001", output_path.read_text(encoding="utf-8"))
 
+    def test_target_free_connector_rejects_comparison_scenarios(self) -> None:
+        errors = StringIO()
+
+        with redirect_stderr(errors):
+            exit_code = main(
+                [
+                    "scenario",
+                    "run",
+                    "--definition",
+                    str(self.definition),
+                    "--connector",
+                    "none",
+                    "--output",
+                    str(self.root / "result.json"),
+                ]
+            )
+
+        self.assertEqual(exit_code, 3)
+        self.assertIn("only for target-free preparation", errors.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

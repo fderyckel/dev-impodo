@@ -399,6 +399,12 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertEqual(related_preview.status_code, 200)
         self.assertIn("Review before creating", related_preview.text)
         self.assertIn("Create these separate tables", related_preview.text)
+        self.assertIn('id="create-related-datasets" data-derived-entity-section open', related_preview.text)
+        self.assertIn(
+            f'data-derived-entity-target="related-source-{product_dataset.dataset_id}">Change selections</button>',
+            related_preview.text,
+        )
+        self.assertIn('value="product_groups"', related_preview.text)
         saved_related = self.client.post(
             f"/workspaces/{workspace_id}/derived-entities/related/save",
             data={
@@ -416,7 +422,12 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             follow_redirects=False,
         )
         self.assertEqual(saved_related.status_code, 303)
+        self.assertIn("#related-rule-", saved_related.headers["location"])
         related_page = self.client.get(saved_related.headers["location"])
+        self.assertIn(
+            f'id="{saved_related.headers["location"].split("#", 1)[1]}"',
+            related_page.text,
+        )
         self.assertIn(
             "Created the separate tables product_groups and product_rows",
             related_page.text,
@@ -483,7 +494,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn(
             (
                 f'action="/workspaces/{workspace_id}/derived-entities/'
-                'lookup/preview#lookup-preview"'
+                'lookup/preview"'
             ),
             lookup_model_page.text,
         )
@@ -491,6 +502,35 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Start typing an Odoo record type", lookup_model_page.text)
         self.assertNotIn('placeholder="product_categories"', lookup_model_page.text)
         self.assertNotIn("Article and Service", lookup_model_page.text)
+
+        hierarchy_preview = self.client.post(
+            f"/workspaces/{workspace_id}/derived-entities/hierarchy/preview",
+            data={
+                "csrf_token": self.csrf,
+                "expected_parent_version": "2",
+                "source_dataset_id": product_dataset.dataset_id,
+                "hierarchy_level_1": product_name.stable_key,
+                "hierarchy_level_2": product_code.stable_key,
+                "output_dataset_name": "product_hierarchy",
+                "target_model": "res.partner",
+                "target_name_field": "name",
+                "external_id_namespace": "dynamics_ax_2012",
+                "missing_parent_mode": "block",
+                "missing_leaf": "use_deepest",
+                "all_blank_mode": "emit_null_reference",
+            },
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(hierarchy_preview.status_code, 200, hierarchy_preview.text)
+        self.assertIn(
+            'id="hierarchy-extraction" data-derived-entity-section open',
+            hierarchy_preview.text,
+        )
+        self.assertIn(
+            f'data-derived-entity-target="hierarchy-source-{product_dataset.dataset_id}">Change selections</button>',
+            hierarchy_preview.text,
+        )
+        self.assertIn('value="product_hierarchy"', hierarchy_preview.text)
 
         rejected_lookup_model = self.client.post(
             f"/workspaces/{workspace_id}/derived-entities/lookup/preview",
@@ -521,6 +561,9 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Review before creating", lookup_preview.text)
         self.assertIn('id="lookup-preview"', lookup_preview.text)
         self.assertIn("Create this related table", lookup_preview.text)
+        self.assertIn('id="lookup-extraction" data-derived-entity-section open', lookup_preview.text)
+        self.assertIn('data-derived-entity-target="lookup-form">Change selections</button>', lookup_preview.text)
+        self.assertIn('value="product_names"', lookup_preview.text)
         saved_derived = self.client.post(
             f"/workspaces/{workspace_id}/derived-entities/save",
             data=derived_rule_data,

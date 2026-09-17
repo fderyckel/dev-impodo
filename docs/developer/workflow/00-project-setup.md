@@ -33,6 +33,11 @@ registers the workspace, runs the bounded source inspection, and opens the
 source preview in one browser action. A failed inspection leaves the registered
 files available and presents the normal retry action.
 
+For a registered file-source workspace, `target.py` provides the shared
+**Odoo access** page outside the numbered stages. It preserves an allowlisted
+return to a Stage 1 related-table choice or returns to Stage 2 when opened by
+the schema route. The target and local-stack browser tests cover both paths.
+
 `WorkspaceAccessService` provides the verified Project-owned lineage for one
 workspace through one registry read. `WorkspaceOwnerViewService` uses that
 lineage to give presenters explicit Project, MigrationWorkspace, DataVersion,
@@ -184,6 +189,8 @@ therefore use one reviewed registry without adding a database or N+1 path.
 - [`tests/integration/web/test_concept_help.py`](../../../tests/integration/web/test_concept_help.py)
 - [`tests/integration/protected_evidence/test_project_security.py`](../../../tests/integration/protected_evidence/test_project_security.py)
 - [`tests/application/workspace/test_odoo_connection.py`](../../../tests/application/workspace/test_odoo_connection.py)
+- [`tests/integration/web/test_target_workflow.py`](../../../tests/integration/web/test_target_workflow.py)
+- [`tests/integration/web/test_local_stack.py`](../../../tests/integration/web/test_local_stack.py)
 - [`tests/application/data_version/test_odoo_capture_jobs.py`](../../../tests/application/data_version/test_odoo_capture_jobs.py)
 - [`tests/application/data_version/test_odoo_capture_publication.py`](../../../tests/application/data_version/test_odoo_capture_publication.py)
 - [`tests/application/workspace/preparation/test_jobs.py`](../../../tests/application/workspace/preparation/test_jobs.py)

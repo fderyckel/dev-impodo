@@ -30,6 +30,137 @@ from tests.support.browser_scenarios import (
 
 
 class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
+    def test_source_organization_connection_detour_returns_to_selected_form(self) -> None:
+        context = self.app.state.context
+        created = self.workspaces.create(
+            name="Source organization connection detour",
+            source_system="Other",
+        )
+        now = datetime.now(timezone.utc)
+        workspace_state = replace(
+            created,
+            status=WorkspaceStatus.REGISTERED,
+            revision=created.revision + 1,
+            updated_at=now,
+            registered_at=now,
+        )
+        context.workspace_states.repository.save(
+            workspace_state,
+            expected_revision=created.revision,
+            event_type="WORKSPACE_REGISTERED",
+            event_detail="",
+            actor=context.actor,
+        )
+        workspace_id = workspace_state.workspace_id
+        context.sources.sources.save_source_selection(
+            workspace_id,
+            SourceSelection(
+                selection_id=str(uuid4()),
+                version=1,
+                data_version_id=_workspace_data_version_id(context, workspace_id),
+                created_at=now,
+                created_by=context.actor.identity.display_name,
+                datasets=(),
+                content_hash="sha256:" + "d" * 64,
+            ),
+            actor=context.actor,
+        )
+
+        derived = self.client.get(f"/workspaces/{workspace_id}/derived-entities")
+        self.assertEqual(
+            derived.context["workspace_navigation"].viewed_stage_id,
+            "source",
+        )
+        self.assertIn(
+            f'href="/workspaces/{workspace_id}/target?return_to=source-hierarchy"',
+            derived.text,
+        )
+        self.assertIn(
+            f'href="/workspaces/{workspace_id}/target?return_to=source-lookup"',
+            derived.text,
+        )
+        target_url = f"/workspaces/{workspace_id}/target?return_to=source-hierarchy"
+        target = self.client.get(target_url)
+        target_navigation = target.context["workspace_navigation"]
+        self.assertEqual(target_navigation.viewed_stage_id, "")
+        self.assertTrue(target_navigation.odoo_access_active)
+        self.assertEqual(
+            tuple(page.page_id for page in target_navigation.stages[1].pages),
+            ("schema",),
+        )
+        self.assertIn("You will return to that Source data choice", target.text)
+        self.assertIn('title="Odoo access"', target.text)
+        self.assertIn(f'action="{target_url}"', target.text)
+        self.assertIn(
+            f'href="/workspaces/{workspace_id}/derived-entities#hierarchy-extraction"',
+            target.text,
+        )
+
+        tested = self.client.post(
+            target_url,
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(workspace_state.revision),
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://edu-ucaps.odoo.com",
+                "odoo_database": "edu-ucaps",
+                "read_api_key": "remote-secret-key",
+                "action": "test",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(
+            tested.headers["location"],
+            f"{target_url}#remote-connection-status",
+        )
+        workspace_state = context.queries.get(workspace_id)
+        saved = self.client.post(
+            target_url,
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(workspace_state.revision),
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://edu-ucaps.odoo.com",
+                "odoo_database": "edu-ucaps",
+                "action": "save",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(
+            saved.headers["location"],
+            f"/workspaces/{workspace_id}/derived-entities#hierarchy-extraction",
+        )
+        returned = self.client.get(saved.headers["location"])
+        self.assertIn("Stage 1 of 6", returned.text)
+        self.assertIn("Odoo record types are ready", returned.text)
+        self.assertEqual(self.model_catalog_calls, [(workspace_id, "remote-secret-key")])
+
+        workspace_state = context.queries.get(workspace_id)
+        lookup = self.client.post(
+            f"/workspaces/{workspace_id}/target?return_to=source-lookup",
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(workspace_state.revision),
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://edu-ucaps.odoo.com",
+                "odoo_database": "edu-ucaps",
+                "action": "save",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(
+            lookup.headers["location"],
+            f"/workspaces/{workspace_id}/derived-entities#lookup-extraction",
+        )
+        invalid_return = self.client.get(
+            f"/workspaces/{workspace_id}/target?return_to=https://other.example"
+        )
+        self.assertIn(f'action="/workspaces/{workspace_id}/target"', invalid_return.text)
+        self.assertNotIn("You will return to that Source data choice", invalid_return.text)
+
     def test_remote_connection_status_is_visible_persistent_and_target_bound(
         self,
     ) -> None:
@@ -137,7 +268,7 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             f'/workspaces/{workspace_id}/schema/models/refresh"',
             stage_two.text,
         )
-        self.assertIn("Review connection &amp; credentials", stage_two.text)
+        self.assertIn("Review Odoo access", stage_two.text)
 
         context = self.app.state.context
         context.sources.sources.save_source_selection(

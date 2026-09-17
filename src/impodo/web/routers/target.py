@@ -38,6 +38,7 @@ from ..presenters.summary import (
     _require_local_stack_start,
     _require_local_stack_stop,
 )
+from impodo.web.composition.target_readers import _refresh_model_catalog
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRemovalReason,
@@ -58,6 +59,10 @@ _LOCAL_STACK_RETURN_VALUES = {
     _LOCAL_STACK_RETURN_TARGET,
     _LOCAL_STACK_RETURN_SUMMARY_COMPARE,
 }
+_SOURCE_ORGANIZATION_RETURN_ANCHORS = {
+    "source-lookup": "lookup-extraction",
+    "source-hierarchy": "hierarchy-extraction",
+}
 
 
 def _connection_purpose(workspace_state) -> OdooConnectionPurpose:
@@ -77,13 +82,19 @@ def _local_stack_return_to(form) -> str:
     return value
 
 
-def _local_stack_return_location(workspace_id: str, return_to: str) -> str:
+def _local_stack_return_location(
+    request: Request, workspace_id: str, return_to: str
+) -> str:
     if return_to == _LOCAL_STACK_RETURN_SUMMARY_COMPARE:
         return (
             f"/workspaces/{workspace_id}/summary?local_stack=1"
             "#compare-with-odoo"
         )
-    return f"/workspaces/{workspace_id}/target?local_stack=1"
+    location = f"/workspaces/{workspace_id}/target?local_stack=1"
+    source_return_token = _source_organization_return_token(request)
+    if source_return_token:
+        location += f"&return_to={source_return_token}"
+    return location
 
 
 def _target_read_key_persistence(form) -> bool:
@@ -118,6 +129,13 @@ def _quick_credential_return_to(form, workspace_id: str) -> str:
     ):
         raise SecretStoreError("The requested return page is unavailable")
     return value
+
+
+def _source_organization_return_token(request: Request) -> str:
+    """Accept only a known Stage 1 destination for the connection detour."""
+
+    token = request.query_params.get("return_to", "")
+    return token if token in _SOURCE_ORGANIZATION_RETURN_ANCHORS else ""
 
 
 def _accepts_json(request: Request) -> bool:
@@ -338,7 +356,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 return_to=return_to,
             )
         return RedirectResponse(
-            _local_stack_return_location(workspace_id, return_to),
+            _local_stack_return_location(request, workspace_id, return_to),
             status_code=303,
         )
 
@@ -370,7 +388,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 return_to=return_to,
             )
         return RedirectResponse(
-            _local_stack_return_location(workspace_id, return_to),
+            _local_stack_return_location(request, workspace_id, return_to),
             status_code=303,
         )
 
@@ -411,7 +429,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             )
         _flash(request, "The local Odoo check is complete.")
         return RedirectResponse(
-            _local_stack_return_location(workspace_id, return_to),
+            _local_stack_return_location(request, workspace_id, return_to),
             status_code=303,
         )
 
@@ -462,7 +480,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             )
         _flash(request, message)
         return RedirectResponse(
-            _local_stack_return_location(workspace_id, return_to),
+            _local_stack_return_location(request, workspace_id, return_to),
             status_code=303,
         )
 
@@ -488,6 +506,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 "action",
             },
         )
+        source_return_token = _source_organization_return_token(request)
         current = context.queries.get(workspace_id)
         if current.status is WorkspaceStatus.CLOSED:
             return RedirectResponse(
@@ -691,7 +710,12 @@ def build_target_router(context: WebContext) -> APIRouter:
                     )
                 if show_local_results:
                     target_url = f"{target_url}?local_stack=1"
-                elif remote_test_requested:
+                if source_return_token:
+                    separator = "&" if "?" in target_url else "?"
+                    target_url = (
+                        f"{target_url}{separator}return_to={source_return_token}"
+                    )
+                if remote_test_requested:
                     target_url = f"{target_url}#remote-connection-status"
                 return RedirectResponse(
                     target_url,
@@ -717,8 +741,11 @@ def build_target_router(context: WebContext) -> APIRouter:
                     purpose=purpose,
                 )
                 if remote_test_requested:
+                    target_url = f"/workspaces/{workspace_id}/target"
+                    if source_return_token:
+                        target_url += f"?return_to={source_return_token}"
                     return RedirectResponse(
-                        f"/workspaces/{workspace_id}/target#remote-connection-status",
+                        f"{target_url}#remote-connection-status",
                         status_code=303,
                     )
             return _render_target(
@@ -781,6 +808,35 @@ def build_target_router(context: WebContext) -> APIRouter:
                     error=str(error),
                     status_code=422,
                 )
+        if source_return_token:
+            try:
+                catalog = await _refresh_model_catalog(context, workspace_state)
+            except (
+                ConnectorError,
+                LocalStackError,
+                WorkspaceStateError,
+                SecretStoreError,
+                WorkspaceError,
+            ) as error:
+                return _render_target(
+                    request,
+                    context,
+                    workspace_state,
+                    error=(
+                        "The Odoo connection is ready, but record types could not be "
+                        f"loaded: {error}"
+                    ),
+                    status_code=422,
+                )
+            _flash(
+                request,
+                f"Loaded {len(catalog.models)} Odoo record type(s) for Source data.",
+            )
+            anchor = _SOURCE_ORGANIZATION_RETURN_ANCHORS[source_return_token]
+            return RedirectResponse(
+                f"/workspaces/{workspace_state.workspace_id}/derived-entities#{anchor}",
+                status_code=303,
+            )
         return RedirectResponse(
             f"/workspaces/{workspace_state.workspace_id}/schema",
             status_code=303,

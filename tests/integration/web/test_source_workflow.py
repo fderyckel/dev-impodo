@@ -1314,9 +1314,11 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                     hierarchy_page.text,
                 )
                 self.assertIn(
-                    f'href="#{section_id}" data-derived-entity-trigger',
+                    f'type="button" data-derived-entity-target="{section_id}"',
                     hierarchy_page.text,
                 )
         derived_script = self.client.get("/static/derived-entities.js")
         self.assertEqual(derived_script.status_code, 200)
-        self.assertIn("section.open = true", derived_script.text)
+        self.assertIn("parent.open = true", derived_script.text)
+        self.assertIn("revealCurrentTarget", derived_script.text)
+        self.assertIn('window.addEventListener("pageshow"', derived_script.text)

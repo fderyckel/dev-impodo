@@ -9,12 +9,17 @@
 {% block content %}
   {% set step = "target" %}
   {% set is_odoo_source = workspace_state.source_mode.value == 'ODOO' %}
+  {% set source_return_token = request.query_params.get('return_to') if request.query_params.get('return_to') in ['source-lookup', 'source-hierarchy'] else '' %}
+  {% set source_return_anchor = 'hierarchy-extraction' if source_return_token == 'source-hierarchy' else 'lookup-extraction' %}
   {% if workspace_state.status.value == 'DRAFT' %}{% include "_steps.html" %}{% endif %}
   <section class="form-card">
     {% set is_recipe_test = migration_context and migration_context.data_version_purpose == 'TEST' %}
     {% set is_recipe_production = migration_context and migration_context.data_version_purpose == 'PRODUCTION' %}
-    <p class="eyebrow">{% if is_recipe_test %}Recipe rehearsal · Test destination{% elif is_recipe_production %}Recipe rollout · Production destination{% elif is_odoo_source %}Data project source{% else %}Odoo data{% endif %}</p>
+    <p class="eyebrow">{% if source_return_token %}Source data · Odoo access{% elif is_recipe_test %}Recipe rehearsal · Test destination{% elif is_recipe_production %}Recipe rollout · Production destination{% elif is_odoo_source %}Data project source{% else %}Odoo access{% endif %}</p>
     <h1>{% if is_recipe_test %}Connect the Test Odoo server{% elif is_recipe_production %}Connect the Production Odoo server{% elif is_odoo_source %}Connect the Odoo source{% else %}Connect the Odoo destination{% endif %}</h1>
+    {% if source_return_token %}
+      <div class="notice">Finish this Odoo access check to load the record types needed for <strong>Separate combined information</strong>. You will return to that Source data choice.</div>
+    {% endif %}
     {% include "_setup_blockers.html" %}
     <p>
       This check confirms the address, database, Odoo 19 version, and read-only access. It does not discover models or fields, and nothing can be changed in Odoo.
@@ -56,7 +61,7 @@
     </section>
     <form
       method="post"
-      action="/workspaces/{{ workspace_id }}/target"
+      action="/workspaces/{{ workspace_id }}/target{% if source_return_token %}?return_to={{ source_return_token }}{% endif %}"
       data-target-form
     >
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -205,7 +210,7 @@
         {% endif %}
       </section>
       <div class="actions">
-        <a class="button secondary" href="{% if is_recipe_test %}/projects/{{ migration_context.project_id }}/test-runs/{{ migration_context.migration_run_id }}/fresh-data{% elif is_odoo_source %}/projects/{{ migration_context.project_id }}{% else %}/workspaces/{{ workspace_id }}/sources{% endif %}">Back</a>
+        <a class="button secondary" href="{% if source_return_token %}/workspaces/{{ workspace_id }}/derived-entities#{{ source_return_anchor }}{% elif is_recipe_test %}/projects/{{ migration_context.project_id }}/test-runs/{{ migration_context.migration_run_id }}/fresh-data{% elif is_odoo_source %}/projects/{{ migration_context.project_id }}{% elif workspace_state.status.value == 'REGISTERED' and workspace_navigation.current_stage and workspace_navigation.current_stage.href %}{{ workspace_navigation.current_stage.href }}{% else %}/workspaces/{{ workspace_id }}/sources{% endif %}">{% if source_return_token %}Back to Source data{% elif workspace_state.status.value == 'REGISTERED' and not is_odoo_source and not is_recipe_test %}Back to current stage{% else %}Back{% endif %}</a>
         <button
           class="button secondary"
           type="submit"
@@ -213,7 +218,7 @@
           value="test"
           data-test-connection-button
         >{% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == "REMOTE" %}{{ remote_connection.button_label }}{% else %}Check connection{% endif %}</button>
-        <button class="button primary" type="submit" name="action" value="save">{% if is_recipe_test or is_odoo_source %}Use this Odoo and continue{% else %}Use this destination and continue{% endif %}</button>
+        <button class="button primary" type="submit" name="action" value="save">{% if source_return_token %}Use this destination and return to Source data{% elif is_recipe_test or is_odoo_source %}Use this Odoo and continue{% else %}Use this destination and continue{% endif %}</button>
       </div>
     </form>
 

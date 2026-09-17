@@ -1,0 +1,27 @@
+contract_version: 1
+scenario_id: plw-manufacturing-preparation-v1
+purpose: RELEASE_QUALIFICATION
+
+source:
+  mode: FILE
+  fixture_set: fixtures
+  fixture_hash: sha256:ea9f2691c0341cc88c527cec42b26d272ff3dfdfdac46a7a34bf2a11da1262d0
+
+rules:
+  profile: profile.yaml
+  profile_hash: sha256:ee927b8bbd813603ea8f2782eab65a81b517e5ecf697d5d6d6cafd8161787c91
+
+destination:
+  mode: LOCAL_ODOO
+  target_profile: local.manufacturing
+  expected_seed: no-target-read
+  relevant_modules: [base, uom, product, mrp]
+
+execution:
+  stop_after: PREPARATION
+  write_policy: READ_ONLY
+
+expectations:
+  expected_outcome: PASS
+  prepared_rows: 37253
+  source_issues: 0

@@ -27,6 +27,7 @@ from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.scenarios import (
     ScenarioDestinationMode,
     ScenarioRunStatus,
+    ScenarioStopAfter,
     ScenarioWritePolicy,
 )
 from impodo.adapters.odoo.connectors import (
@@ -136,9 +137,9 @@ def build_parser() -> argparse.ArgumentParser:
     scenario_run_parser.add_argument("--definition", required=True)
     scenario_run_parser.add_argument(
         "--connector",
-        choices=("snapshot", "json2"),
+        choices=("none", "snapshot", "json2"),
         required=True,
-        help="offline read fixture or live Odoo JSON-2",
+        help="no target for preparation, offline read fixture, or live Odoo JSON-2",
     )
     scenario_run_parser.add_argument(
         "--snapshot",
@@ -271,7 +272,19 @@ def _scenario_run_command(arguments: argparse.Namespace) -> int:
             raise ValueError(
                 "scenario evidence must be outside the immutable definition directory"
             )
-    if arguments.connector == "snapshot":
+    if arguments.connector == "none":
+        if (
+            write_capable
+            or loaded.definition.execution.stop_after is not ScenarioStopAfter.PREPARATION
+            or arguments.snapshot
+            or arguments.database
+            or arguments.api_key_file
+            or arguments.evidence_dir
+            or arguments.confirm_disposable_write
+        ):
+            raise ValueError("--connector none is only for target-free preparation")
+        connector = None
+    elif arguments.connector == "snapshot":
         if write_capable:
             raise ValueError("a write-capable scenario requires --connector json2")
         if not arguments.snapshot:

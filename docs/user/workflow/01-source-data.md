@@ -34,6 +34,20 @@ first complete the eligible-field capture described in
 6. Optionally open **Separate combined information** when combined information
    must become separate related tables.
 
+Some related-table choices need the list of record types from your Odoo
+destination. If only the read-only key is missing, select **Enter key and show
+Odoo record types**. Impodo saves the key for this destination, loads the list,
+and keeps you on the same Source data choice. If the destination itself needs
+setup, select **Set up Odoo access**. Check the connection and select **Use
+this destination and return to Source data**. Impodo loads the record types
+and returns to the choice you opened. **Odoo access** is a shared setup page
+outside the numbered stages; Stage 2 begins when you choose the Odoo data to
+use.
+
+For example, if a Product file has separate category levels, you can start
+the hierarchy in Stage 1, check Odoo access when prompted, and then finish
+the hierarchy without searching for the same source table again.
+
 For a multi-column parent-and-child hierarchy, follow [Prepare related
 tables](../guides/related-tables.md#build-a-hierarchy-from-separate-fields).
 
@@ -63,6 +77,8 @@ another Odoo instance.
 ![Current source inspection inside a fictional data project workspace.](../../images/user/04-source-inspection.png)
 
 ![Current frozen table choices and the next Odoo-data action in that data version.](../../images/user/05-frozen-tables.png)
+
+![Shared Odoo access during a Stage 1 hierarchy choice, with a return to Source data.](../../images/user/06c-odoo-access.png)
 
 ## How Recipes reuse this work
 

@@ -51,6 +51,11 @@ The command accepts a remote HTTPS target only when the scenario pins that
 target's non-secret identity hash. The edu-ucaps Product and bill-of-material
 definitions are registered, but their live result is not yet qualified.
 
+The larger PLW manufacturing demo has a separate preparation-only scenario.
+It checks all four linked files without contacting Odoo. Its passing result
+does not mean that Odoo already contains the required Work Centers or that a
+load has been verified.
+
 An Odoo source, Odoo-to-Odoo trials, automatic database setup and cleanup,
 scheduled background runs, and a trial of every browser page remain planned.
 You can still run the normal browser workflow for supported migration shapes,

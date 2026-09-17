@@ -15,6 +15,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.workspace.derived_entities import (
+    HierarchicalLookupRule,
+    RelatedDatasetRule,
+)
 from impodo.adapters.odoo.local_stack import LocalStackError
 from impodo.domain.workspace.workbench import WorkspaceStateError
 from impodo.application.shared.secrets import SecretStoreError
@@ -421,7 +425,10 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             ),
         )
         return RedirectResponse(
-            f"/workspaces/{workspace_id}/derived-entities",
+            (
+                f"/workspaces/{workspace_id}/derived-entities"
+                f"#related-rule-{rule.rule_id}"
+            ),
             status_code=303,
         )
 
@@ -438,6 +445,11 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             request,
             form,
             {"csrf_token", "expected_parent_version"},
+        )
+        plan = context.queries.get_derived_entity_plan(workspace_id)
+        removed_rule = next(
+            (rule for rule in (plan.rules if plan else ()) if rule.rule_id == rule_id),
+            None,
         )
         try:
             context.derived_entities.delete_rule(
@@ -460,8 +472,15 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             request,
             "Removed the saved separation rule.",
         )
+        return_anchor = (
+            "create-related-datasets"
+            if isinstance(removed_rule, RelatedDatasetRule)
+            else "hierarchy-extraction"
+            if isinstance(removed_rule, HierarchicalLookupRule)
+            else "lookup-extraction"
+        )
         return RedirectResponse(
-            f"/workspaces/{workspace_id}/derived-entities",
+            f"/workspaces/{workspace_id}/derived-entities#{return_anchor}",
             status_code=303,
         )
 

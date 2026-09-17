@@ -33,6 +33,11 @@ Impodo creates an Authoring data version and workspace for the data project. It
 does not create a Recipe, inspect Odoo, or write to Odoo during data project
 creation.
 
+For a file project, the workspace sidebar also has **Odoo access**. You can
+check the destination there while working in Source data; it is separate from
+the numbered stages. [Source data](workflow/01-source-data.md) explains how a
+related-table choice returns to the same form after this check.
+
 ![The current New project form separates the data project purpose from optional reusable Recipe rules.](../images/user/02-new-project.png)
 
 ## Data project, data version, workspace, and Recipe
