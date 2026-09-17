@@ -16,6 +16,7 @@ from impodo.adapters.odoo.connectors import (
     _urllib_transport,
     target_record_read_context,
 )
+from impodo.adapters.odoo.lookup_values import lookup_values_equal
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 from impodo.domain.execution.odoo_scope import OdooApiScope
 
@@ -335,20 +336,6 @@ def _record_matches_lookup(
 ) -> bool:
     for field, _operator, expected in domain:
         actual = record.values.get(field)
-        if (
-            isinstance(actual, (list, tuple))
-            and len(actual) == 2
-            and type(actual[0]) is int
-        ):
-            actual = actual[0]
-        if not _lookup_values_equal(actual, expected):
+        if not lookup_values_equal(actual, expected):
             return False
     return True
-
-
-def _lookup_values_equal(actual: object, expected: object) -> bool:
-    """Compare an Odoo search value with its exact reviewed domain value."""
-
-    if expected is None and actual is False:
-        return True
-    return actual == expected

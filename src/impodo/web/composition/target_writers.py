@@ -57,7 +57,8 @@ def _write_executor(
             database=workspace_state.odoo_database,
             api_key=api_key,
             connection_mode=workspace_state.odoo_connection_mode.value,
-            retries=0,
+            timeout_seconds=120.0,
+            retries=2,
         ),
         scope,
     )

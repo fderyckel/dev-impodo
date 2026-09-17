@@ -7,6 +7,7 @@ import json
 from types import SimpleNamespace
 import unittest
 from unittest.mock import PropertyMock, patch
+from urllib.error import URLError
 from uuid import uuid4
 
 from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
@@ -3361,6 +3362,50 @@ class Json2WriteExecutorTests(unittest.TestCase):
             ((3,),),
         )
 
+    def test_identity_read_retries_transient_connection_and_http_failures(self):
+        calls = []
+
+        def transport(*_args):
+            calls.append(1)
+            if len(calls) == 1:
+                raise URLError("connection reset")
+            if len(calls) == 2:
+                return 503, None
+            return 200, [{"id": 42, "ref": "C1"}]
+
+        executor = Json2WriteExecutor(
+            self.executor.config,
+            self.scope,
+            transport=transport,
+        )
+        with patch("impodo.adapters.odoo.writer.time.sleep") as sleep:
+            self.assertEqual(
+                executor.find_ids_many("res.partner", ((("ref", "=", "C1"),),)),
+                ((42,),),
+            )
+
+        self.assertEqual(len(calls), 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2])
+
+    def test_lost_write_response_is_never_retried(self):
+        calls = []
+
+        def transport(*_args):
+            calls.append(1)
+            raise URLError("connection reset")
+
+        executor = Json2WriteExecutor(
+            self.executor.config,
+            self.scope,
+            transport=transport,
+        )
+        with patch("impodo.adapters.odoo.writer.time.sleep") as sleep:
+            with self.assertRaises(OdooWriteOutcomeUnknown):
+                executor.create_rows("res.partner", ({"name": "Contact"},))
+
+        self.assertEqual(len(calls), 1)
+        sleep.assert_not_called()
+
     def test_generated_receipt_readback_is_exact_bounded_and_positional(self):
         calls = []
 
@@ -3671,7 +3716,8 @@ class TargetWriterFactoryTests(unittest.TestCase):
 
         self.assertIsInstance(executor, Json2WriteExecutor)
         self.assertEqual(executor.config.connection_mode, "REMOTE")
-        self.assertEqual(executor.config.retries, 0)
+        self.assertEqual(executor.config.retries, 2)
+        self.assertEqual(executor.config.timeout_seconds, 120.0)
 
 
 if __name__ == "__main__":

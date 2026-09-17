@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 import socket
+import time
 from typing import Any, Mapping, Sequence
 from urllib.error import URLError
 from urllib.parse import quote
@@ -24,6 +25,7 @@ from impodo.adapters.odoo.connectors import (
     _urllib_transport,
     target_record_read_context,
 )
+from impodo.adapters.odoo.lookup_values import lookup_values_equal
 from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS
 from impodo.domain.execution.odoo_write import (
     MAX_IDENTITY_LOOKUP_KEYS,
@@ -157,7 +159,7 @@ class Json2WriteExecutor:
                 raise OdooWriteRejected("Odoo returned an invalid bulk lookup result")
             for index, domain in enumerate(normalized):
                 if all(
-                    _lookup_values_equal(item.get(field), value)
+                    lookup_values_equal(item.get(field), value)
                     for field, _operator, value in domain
                 ):
                     results[index].append(identifier)
@@ -440,22 +442,34 @@ class Json2WriteExecutor:
             "X-Odoo-Database": self.config.database,
             "User-Agent": "impodo",
         }
-        try:
-            status, response = self.transport(
-                url,
-                headers,
-                body,
-                self.config.timeout_seconds,
-                "POST",
-            )
-        except (TimeoutError, socket.timeout, URLError, ValueError) as error:
-            if write:
-                raise OdooWriteOutcomeUnknown(
-                    "The Odoo response was lost; the outcome is unknown"
-                ) from error
-            raise OdooWriteRejected(
-                "Odoo could not be reached for identity lookup"
-            ) from error
+        # A search_read is safe to repeat after a lost response. A write is
+        # not: Odoo might have committed it before the connection failed.
+        attempts = 1 if write else max(1, self.config.retries + 1)
+        for attempt in range(attempts):
+            try:
+                status, response = self.transport(
+                    url,
+                    headers,
+                    body,
+                    self.config.timeout_seconds,
+                    "POST",
+                )
+            except (TimeoutError, socket.timeout, URLError, ValueError) as error:
+                if write:
+                    raise OdooWriteOutcomeUnknown(
+                        "The Odoo response was lost; the outcome is unknown"
+                    ) from error
+                if attempt + 1 == attempts:
+                    raise OdooWriteRejected(
+                        "Odoo could not be reached for identity lookup"
+                    ) from error
+                time.sleep(2**attempt)
+                continue
+            if not write and status in {408, 425, 429, 500, 502, 503, 504}:
+                if attempt + 1 < attempts:
+                    time.sleep(2**attempt)
+                    continue
+            break
         if status == 200:
             return response
         if status in {401, 403}:
@@ -471,23 +485,3 @@ def _safe_import_error(_messages: object) -> str:
     """Return a fixed error because import details can contain secrets or data."""
 
     return "Odoo rejected one or more imported rows"
-
-
-def _lookup_values_equal(actual: object, expected: object) -> bool:
-    """Compare JSON-2 search values with exact generated domain scalars."""
-
-    if expected is None and actual is False:
-        return True
-    if (
-        isinstance(actual, (list, tuple))
-        and len(actual) == 2
-        and type(actual[0]) is int
-    ):
-        # JSON-2 returns a many2one as [id, display_name]. Reviewed
-        # business keys may carry the portable display name, while other
-        # exact lookups may carry the numeric ID.
-        if type(expected) is str:
-            return actual[1] == expected
-        if type(expected) is int:
-            return actual[0] == expected
-    return actual == expected

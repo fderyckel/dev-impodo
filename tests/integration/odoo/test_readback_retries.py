@@ -9,7 +9,7 @@ from impodo.web.composition.target_writers import _readback_reader, _write_execu
 
 
 class Json2ReadbackRetryTests(unittest.TestCase):
-    def test_load_composition_retries_verification_reads_only(self):
+    def test_load_composition_retries_verification_and_identity_reads(self):
         workspace = SimpleNamespace(
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_disposable",
@@ -42,7 +42,7 @@ class Json2ReadbackRetryTests(unittest.TestCase):
 
         self.assertEqual(result[0].values, {"name": "Verified"})
         self.assertEqual(calls, 2)
-        self.assertEqual(writer.config.retries, 0)
+        self.assertEqual(writer.config.retries, 2)
 
     def test_retries_a_transient_readback_timeout(self):
         calls = 0

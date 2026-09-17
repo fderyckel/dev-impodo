@@ -1327,6 +1327,49 @@ class Json2ReadbackReaderTests(unittest.TestCase):
             ["&", ["ref", "=", "ROOT"], ["company_id", "=", None]],
         )
 
+    def test_matches_scoped_calendar_by_company_display_name(self):
+        def transport(_url, _headers, _body, _timeout, _method):
+            return 200, [
+                {
+                    "id": 1,
+                    "name": "Standard 40 hours/week",
+                    "company_id": [1, "United Caps"],
+                },
+                {
+                    "id": 3,
+                    "name": "Standard 40 hours/week",
+                    "company_id": [2, "United Caps Wiltz"],
+                },
+            ]
+
+        reader = Json2ReadbackReader(
+            self.reader.config,
+            OdooApiScope(
+                preview_hash=HASH,
+                models=(
+                    OdooModelScope(
+                        "resource.calendar",
+                        lookup_fields=("company_id", "name"),
+                    ),
+                ),
+            ),
+            transport=transport,
+        )
+
+        matches = reader.find_records_many(
+            "resource.calendar",
+            (
+                ReadbackLookup(
+                    (
+                        ("name", "=", "Standard 40 hours/week"),
+                        ("company_id", "=", "United Caps Wiltz"),
+                    ),
+                ),
+            ),
+        )
+
+        self.assertEqual(tuple(item.odoo_id for item in matches[0]), (3,))
+
     def test_rejects_an_unrequested_record(self):
         def transport(*_args):
             return 200, [{"id": 99, "name": "Wrong"}]
