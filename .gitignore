@@ -31,11 +31,20 @@ outputs/
 var/
 .codex-artifacts
 
+# Local Git worktrees
+# Keep disposable worktrees under .local-worktrees/ (or the existing .tmp/),
+# never as top-level repository content. These paths are retained as ignore
+# rules because they were previously committed accidentally.
+/.local-worktrees/
+/r/
+/t/
+/u/
+/v/
+/w/
+/x/
+
 # OS and editor files
 .DS_Store
 .idea/
 .vscode/
-.agents/
-r/
-u/
-v/
+/.agents/

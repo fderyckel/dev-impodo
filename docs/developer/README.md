@@ -54,6 +54,7 @@ routes, services, implementation status, performance risks, and focused tests.
 - [Profile authoring](cli/profile-authoring.md)
 - [Preflight CLI](cli/preflight.md)
 - [Windows development setup](setup/windows.md)
+- [Local worktree containment](runbooks/local-worktree-containment.md)
 - [Local Odoo technical runbook](runbooks/local-odoo.md)
 - [Internal development and release](runbooks/internal-release.md)
 - [Remote Odoo 19 acceptance](runbooks/remote-odoo-acceptance.md)
