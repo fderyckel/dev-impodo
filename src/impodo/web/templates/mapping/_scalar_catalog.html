@@ -327,6 +327,22 @@
                       </label>
                       <div class="compact-control" data-rounding-policy>
                         <span>Decimal rounding</span>
+                        {% if row.metadata.type == 'float' and row.metadata.digits %}
+                          <small>Odoo precision for this field: {{ row.metadata.digits[1] }} decimal place{{ '' if row.metadata.digits[1] == 1 else 's' }} ({{ row.metadata.digits[0] }} total digits).</small>
+                          <button
+                            type="button"
+                            class="button secondary compact"
+                            data-use-target-rounding
+                            data-target-rounding-places="{{ row.metadata.digits[1] }}"
+                            {% if row.metadata.digits[1] > 18 %}disabled{% endif %}
+                          >Round to this Odoo precision</button>
+                          {% if row.metadata.digits[1] > 18 %}
+                            <small>Impodo's mapping rounding supports up to 18 places. This Odoo field reports {{ row.metadata.digits[1] }}; exact values can still be used without a rounding rule.</small>
+                          {% endif %}
+                          <small>This changes source numbers when they have more places. Review the effects before loading, especially values that could become zero.</small>
+                        {% elif row.metadata.type == 'float' %}
+                          <small>Odoo did not report a fixed decimal precision for this field.</small>
+                        {% endif %}
                         <div class="rule-inline-fields">
                           <label>
                             Places
@@ -334,9 +350,9 @@
                               type="number"
                               name="scalar_round_places_{{ dataset_index }}_{{ field_index }}"
                               min="0"
-                              max="18"
+                              max="{{ [row.metadata.digits[1], 18]|min if row.metadata.type == 'float' and row.metadata.digits else 18 }}"
                               value="{{ transform.decimal_places if transform and transform.decimal_places is not none else '' }}"
-                              placeholder="No rounding"
+                              placeholder="{{ 'Odoo: ' ~ row.metadata.digits[1] if row.metadata.type == 'float' and row.metadata.digits else 'No rounding' }}"
                               data-round-places
                             >
                           </label>

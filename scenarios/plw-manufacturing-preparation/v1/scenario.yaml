@@ -9,7 +9,7 @@ source:
 
 rules:
   profile: profile.yaml
-  profile_hash: sha256:ee927b8bbd813603ea8f2782eab65a81b517e5ecf697d5d6d6cafd8161787c91
+  profile_hash: sha256:ef19fade0ab513070075b2b61bbd32ebc9a5c6e8f9da4a6d06793bc6c8ac7945
 
 destination:
   mode: LOCAL_ODOO

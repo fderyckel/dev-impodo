@@ -18,6 +18,8 @@ from impodo.domain.run.contracts import (
 )
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.schema.governance import SchemaGovernance
+from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
 if TYPE_CHECKING:
     from .context import WebContext
@@ -39,6 +41,7 @@ def enqueue_preparation(
         if restored is not None and restored.workspace_id == workspace_id:
             return restored
     workspace = _assert_recipe_application_can_prepare(context, workspace)
+    workspace = _with_target_float_precision(context, workspace)
     total_rows = _preparation_row_count(context, workspace_id)
     if retry_job_id is not None:
         return manager.retry(
@@ -51,6 +54,41 @@ def enqueue_preparation(
         total_rows,
         actor=context.actor,
         workspace=workspace,
+    )
+
+
+def _with_target_float_precision(
+    context: WebContext,
+    workspace: PreparationWorkspace,
+) -> PreparationWorkspace:
+    """Bind the captured float scales for the registry-isolated worker."""
+
+    schema = context.queries.get_odoo_schema_catalog(workspace.workspace_id)
+    if not isinstance(schema, OdooSchemaCatalog):
+        return workspace
+    governance = context.queries.get_schema_governance(workspace.workspace_id)
+    if (
+        isinstance(governance, SchemaGovernance)
+        and governance.catalog_hash != schema.content_hash
+    ):
+        raise WorkspaceError(
+            "The captured Odoo field details changed after matching. "
+            "Refresh the Odoo data and check field matches again."
+        )
+    mapping_schema_hash = (
+        governance.content_hash
+        if isinstance(governance, SchemaGovernance)
+        else schema.content_hash
+    )
+    return replace(
+        workspace,
+        target_mapping_schema_hash=mapping_schema_hash,
+        target_float_digits=tuple(
+            (model.name, field.name, field.digits)
+            for model in schema.models
+            for field in model.fields
+            if field.type == "float" and field.digits is not None
+        ),
     )
 
 

@@ -59,7 +59,7 @@ datasets:
         compare: true
       product_qty:
         source: BOMId
-        formula: "1"
+        formula: "1000"
         type: decimal
         required: true
         required_on_create: true
@@ -97,6 +97,7 @@ datasets:
     fields:
       product_qty:
         source: BOMQty
+        formula: "BOMQty / (BOMQtySerie if BOMQtySerie > 0 else 1) * 1000"
         type: decimal
         required: true
         required_on_create: true

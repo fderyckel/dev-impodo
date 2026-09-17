@@ -5,6 +5,7 @@ from dataclasses import replace
 from tests.support.paths import REPOSITORY_ROOT
 
 from pathlib import Path
+from datetime import datetime, timezone
 import shutil
 import unittest
 from types import SimpleNamespace
@@ -45,6 +46,9 @@ from impodo.web.run_commands import (
     _preparation_workspace, _assert_recipe_application_can_prepare,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField, SchemaModel, SchemaOrigin
+from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
+from impodo.web.run_commands import _with_target_float_precision
 
 
 ROOT = REPOSITORY_ROOT
@@ -68,6 +72,50 @@ def _workspace() -> PreparationWorkspace:
 
 
 class PreparationJobRegistryTests(unittest.TestCase):
+    def test_worker_packet_carries_each_captured_float_scale(self) -> None:
+        workspace = _workspace()
+        schema = OdooSchemaCatalog(
+            workspace_id=workspace.workspace_id,
+            policy_hash=ODOO_SOURCE_POLICY_HASH,
+            captured_at=datetime.now(timezone.utc),
+            captured_by="tester",
+            connection_mode="LOCAL",
+            database="odoo-test",
+            odoo_version="19.0",
+            models=(SchemaModel(
+                name="x.model", label="Custom",
+                fields=tuple(
+                    SchemaField(
+                        name=f"x_{scale}", label=f"Quantity {scale}",
+                        type="float", required=False, readonly=False,
+                        relation=None, relation_field=None, selection=(),
+                        digits=(16, scale),
+                    )
+                    for scale in (2, 6, 10)
+                ),
+            ),),
+            content_hash="sha256:" + "a" * 64,
+            origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash="sha256:" + "b" * 64,
+            read_principal_hash="sha256:" + "c" * 64,
+            read_permission_hash="sha256:" + "d" * 64,
+            read_context_hash="sha256:" + "e" * 64,
+            connection_target_hash="sha256:" + "f" * 64,
+        )
+        context = SimpleNamespace(queries=SimpleNamespace(
+            get_odoo_schema_catalog=lambda _workspace_id: schema,
+            get_schema_governance=lambda _workspace_id: None,
+        ))
+
+        packet = _with_target_float_precision(context, workspace)
+
+        self.assertEqual(packet.target_mapping_schema_hash, schema.content_hash)
+        self.assertEqual(packet.target_float_digits, (
+            ("x.model", "x_10", (16, 10)),
+            ("x.model", "x_2", (16, 2)),
+            ("x.model", "x_6", (16, 6)),
+        ))
+
     def setUp(self) -> None:
         self.registry = PreparationJobRegistry()
         self.workspace_id = str(uuid4())

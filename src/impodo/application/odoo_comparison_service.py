@@ -462,6 +462,7 @@ def _same_write_field(stored: SchemaField | None, live: FieldMetadata | None) ->
         and stored.related == live.related
         and stored.translated == live.translated
         and stored.company_dependent == live.company_dependent
+        and stored.digits == live.digits
     )
 
 

@@ -74,6 +74,10 @@ The PLW preparation scenario reads the four pinned demo workbooks and checks
 the reviewed field rules. It prepares 2,841 Products, 1,942 bill-of-material
 headers, 15,142 bill-of-material lines, and 17,328 operations. The expected
 result is 37,253 prepared rows with zero source issues.
+Two piece-count lines have `BOMQtySerie = 0`. The reviewed demo rule treats
+those rows as a quantity per one unit, so their quantity transformation can
+complete. That fallback belongs to this demo rule; it does not establish a
+general interpretation of zero series quantities in source BOMs.
 
 ```powershell
 impodo-cli scenario run `

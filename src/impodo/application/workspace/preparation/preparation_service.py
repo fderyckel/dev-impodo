@@ -17,7 +17,7 @@ See ``docs/architecture/python-code-map.md``,
 from __future__ import annotations
 
 from contextlib import ExitStack
-from typing import Callable, Iterable, Protocol
+from typing import AbstractSet, Callable, Iterable, Protocol
 
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.application.shared.artifacts import GovernedArtifactStores, ArtifactStoreError
@@ -45,8 +45,10 @@ from impodo.domain.staging.scale import (
 from impodo.domain.staging.transformation_impact import TransformationImpactRow
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.application.data_version.inspection import SourceFileCatalog
-from impodo.domain.mapping.contracts import MappingDefinition
+from impodo.domain.mapping.contracts import MappingDefinition, MappingTargetMode, ScalarValueSource
 from impodo.domain.preparation.normalization import NormalizationRunSummary
+from impodo.domain.preparation.staging_contracts import CanonicalRow
+from impodo.domain.target_numeric_precision import TargetNumericPrecisionLosses
 from impodo.application.workspace.preparation.job_models import PreparationPhase
 from impodo.domain.workspace.workbench import WorkspaceState
 from impodo.domain.preparation.source import SourceTable
@@ -55,7 +57,7 @@ from impodo.application.data_version.source_snapshots import (
     load_source_snapshot_table,
     validate_snapshot_for_dataset,
 )
-from impodo.domain.workspace.contracts import SourceSelection
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
 from impodo.domain.errors import ReadinessError
 from impodo.domain.workspace.errors import WorkspaceError
 from .bounded_preparation import (
@@ -95,6 +97,7 @@ from .readiness_ports import (
     PreparationSourceRepository,
     PreparationStagingRepository,
     PreparationSessionRepository,
+    PreflightSchemaRepository,
 )
 
 
@@ -123,6 +126,9 @@ class PreparationService:
         columnar_transformations: ColumnarTransformationPort,
         resolution: ResolutionService | None = None,
         odoo_provenance: PreparationOdooProvenance | None = None,
+        schemas: PreflightSchemaRepository | None = None,
+        target_mapping_schema_hash: str | None = None,
+        target_float_digits: tuple[tuple[str, str, tuple[int, int]], ...] = (),
     ) -> None:
         self.workspaces = workspaces
         self.sources = sources
@@ -137,6 +143,9 @@ class PreparationService:
         self.columnar_transformations = columnar_transformations
         self.resolution = resolution
         self.odoo_provenance = odoo_provenance
+        self.schemas = schemas
+        self.target_mapping_schema_hash = target_mapping_schema_hash
+        self.target_float_digits = target_float_digits
 
     def prepare(
         self,
@@ -390,6 +399,48 @@ class PreparationService:
                 ),
                 timing=timing,
             )
+            schema = (
+                self.schemas.get_odoo_schema_catalog(workspace_id)
+                if self.schemas is not None else None
+            )
+            if schema is not None or self.target_float_digits:
+                if schema is not None:
+                    governance = self.schemas.get_schema_governance(workspace_id)
+                    expected_schema_hash = (
+                        governance.content_hash if governance is not None
+                        else schema.content_hash
+                    )
+                    if (
+                        expected_schema_hash != revision.definition.schema_hash
+                        or (
+                            governance is not None
+                            and governance.catalog_hash != schema.content_hash
+                        )
+                    ):
+                        raise ReadinessError(
+                            "The captured Odoo field details changed after matching. "
+                            "Refresh the Odoo data and check field matches again."
+                        )
+                elif self.target_mapping_schema_hash != revision.definition.schema_hash:
+                    raise ReadinessError(
+                        "The captured Odoo field details changed after matching. "
+                        "Refresh the Odoo data and check field matches again."
+                    )
+                prepared_rows = (
+                    (item.canonical_row for item in effective.rows)
+                    if effective is not None
+                    else canonical_run.rows
+                )
+                precision_error = prepared_target_precision_error(
+                    prepared_rows,
+                    quality_run.eligible_row_ids,
+                    revision.definition,
+                    effective_selection,
+                    schema,
+                    target_float_digits=self.target_float_digits,
+                )
+                if precision_error is not None:
+                    raise ReadinessError(precision_error)
             report_progress(
                 PreparationPhase.NORMALIZING,
                 total_rows,
@@ -433,6 +484,62 @@ class PreparationService:
                 except Exception:
                     pass
             raise
+
+
+def prepared_target_precision_error(
+    rows: Iterable[CanonicalRow],
+    eligible_row_ids: AbstractSet[str],
+    definition: MappingDefinition,
+    selection: SourceSelection,
+    schema: OdooSchemaCatalog | None,
+    *,
+    target_float_digits: tuple[tuple[str, str, tuple[int, int]], ...] = (),
+) -> str | None:
+    """Find numeric loss after formulas and exclusions, before Odoo comparison."""
+
+    dataset_names = {item.dataset_id: item.name for item in selection.datasets}
+    write_fields = {
+        dataset_names[dataset.dataset_id]: {
+            item.target_field
+            for item in dataset.fields
+            if not item.validate_only
+            and item.value_source is not ScalarValueSource.ODOO_DEFAULT
+        }
+        for dataset in definition.datasets
+        if dataset.dataset_id in dataset_names
+        and dataset.mode is not MappingTargetMode.REFERENCE
+    }
+    digits_by_model: dict[str, dict[str, tuple[int, int]]] = {}
+    if schema is not None:
+        digits_by_model = {
+            model.name: {
+                field.name: field.digits
+                for field in model.fields
+                if field.type == "float" and field.digits is not None
+            }
+            for model in schema.models
+        }
+    else:
+        for model, field_name, digits in target_float_digits:
+            digits_by_model.setdefault(model, {})[field_name] = digits
+    losses = TargetNumericPrecisionLosses()
+    # Stored quality runs can check known canonical IDs without a database lookup.
+    contains_canonical = getattr(eligible_row_ids, "contains_canonical", None)
+    for row in rows:
+        eligible = (
+            contains_canonical(row.row_id)
+            if callable(contains_canonical)
+            else row.row_id in eligible_row_ids
+        )
+        if not eligible:
+            continue
+        allowed_fields = write_fields.get(row.dataset, ())
+        model_digits = digits_by_model.get(row.target_model, {})
+        for field_name, value in row.proposed_values.items():
+            digits = model_digits.get(field_name)
+            if field_name in allowed_fields and digits is not None and value is not None:
+                losses.add(row.target_model, field_name, digits, value)
+    return losses.first_message()
 
 
 def canonical_source_hashes(selection: SourceSelection) -> dict[str, str]:

@@ -5,12 +5,13 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 import re
 from typing import Any, Callable, Mapping, Protocol, Sequence
 from uuid import uuid4
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.target_numeric_precision import TargetNumericPrecisionLosses
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.execution.models import (
     ExecutionRowAttempt,
@@ -3184,9 +3185,7 @@ def _execution_snapshot_error(
     write_rows = tuple(row for row in snapshot.rows if row.fields)
     if not write_rows:
         return NO_WRITE_ROWS_MESSAGE
-    precision_issues: dict[
-        tuple[str, str, tuple[int, int]], list[Decimal]
-    ] = {}
+    precision_issues = TargetNumericPrecisionLosses()
     digits_by_dataset = {
         dataset.dataset: dict(getattr(dataset, "field_digits", ()))
         for dataset in snapshot.datasets
@@ -3202,38 +3201,10 @@ def _execution_snapshot_error(
                 or type(intent.value) is bool
             ):
                 continue
-            value = _unrepresentable_decimal(intent.value, digits)
-            if value is not None:
-                precision_issues.setdefault(
-                    (row.target_model, intent.field, digits), []
-                ).append(value)
-    if precision_issues:
-        (model, field, digits), values = sorted(
-            precision_issues.items(),
-            key=lambda item: (-len(item[1]), item[0]),
-        )[0]
-        examples = ", ".join(str(value) for value in values[:3])
-        required_decimal_places = max(
-            (
-                _required_decimal_places(value)
-                for value in values
-                if value.is_finite()
-            ),
-            default=digits[1],
-        )
-        precision_guidance = (
-            f" These values need at least {required_decimal_places} decimal places."
-            if required_decimal_places > digits[1]
-            else " These values exceed the target numeric precision."
-        )
-        return (
-            f"{model}.{field}: {len(values):,} prepared value(s) cannot be "
-            f"represented at Odoo precision ({digits[0]}, {digits[1]}) without "
-            f"changing them.{precision_guidance} Change the Odoo precision or "
-            "approve an explicit "
-            f"rounding or conversion rule, then compare again. Examples: {examples}. "
-            "Support code: TARGET_NUMERIC_PRECISION_LOSS."
-        )
+            precision_issues.add(row.target_model, intent.field, digits, intent.value)
+    precision_message = precision_issues.first_message()
+    if precision_message is not None:
+        return precision_message
     datasets = {item.dataset: item for item in snapshot.datasets}
     rows_by_source = {
         (row.dataset, _portable_key(row.source_identity)): row
@@ -3449,38 +3420,6 @@ def _execution_scope_error_code(message: str) -> str:
         return ""
     code = message.rsplit(marker, 1)[1].strip().removesuffix(".")
     return code if code.replace("_", "").isalnum() else ""
-
-
-def _unrepresentable_decimal(
-    value: object,
-    digits: tuple[int, int],
-) -> Decimal | None:
-    """Return a finite value when target precision would alter or overflow it."""
-
-    try:
-        number = Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
-        return None
-    if not number.is_finite():
-        return number
-    precision, scale = digits
-    quantum = Decimal(1).scaleb(-scale)
-    try:
-        if number.quantize(quantum) != number:
-            return number
-    except InvalidOperation:
-        return number
-    integral = number.copy_abs().to_integral_value()
-    integral_digits = len(str(integral).replace("-", "").split(".", 1)[0].lstrip("0"))
-    if integral_digits > precision - scale:
-        return number
-    return None
-
-
-def _required_decimal_places(value: Decimal) -> int:
-    """Return significant fractional places after removing trailing zeros."""
-
-    return max(0, -value.normalize().as_tuple().exponent)
 
 
 def _execution_dependency_summary(

@@ -1072,6 +1072,38 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertLess(summary, phone_cleanup)
         self.assertLess(phone_cleanup, closing_details)
 
+    def test_float_rounding_suggestion_uses_each_odoo_field_precision(self) -> None:
+        source = (
+            REPOSITORY_ROOT
+            / "src" / "impodo" / "web" / "templates" / "mapping"
+            / "_scalar_catalog.html"
+        ).read_text(encoding="utf-8")
+        start = source.index('<div class="compact-control" data-rounding-policy>')
+        end = source.index("{% set value_rules_configured", start)
+        template = Environment().from_string(source[start:end])
+        for scale in (2, 6, 10):
+            with self.subTest(scale=scale):
+                html = template.render(
+                    row=SimpleNamespace(metadata=SimpleNamespace(type="float", digits=(16, scale))),
+                    transform=None,
+                    dataset_index=0,
+                    field_index=0,
+                )
+                self.assertIn(f'data-target-rounding-places="{scale}"', html)
+                self.assertIn(f'max="{scale}"', html)
+                self.assertIn(f'placeholder="Odoo: {scale}"', html)
+                self.assertIn('name="scalar_round_places_0_0"', html)
+                self.assertIn('value=""', html)
+        high_scale = template.render(
+            row=SimpleNamespace(metadata=SimpleNamespace(type="float", digits=(32, 20))),
+            transform=None,
+            dataset_index=0,
+            field_index=0,
+        )
+        self.assertIn('data-target-rounding-places="20"', high_scale)
+        self.assertIn('max="18"', high_scale)
+        self.assertIn("rounding supports up to 18 places", high_scale)
+
     def test_mapping_page_owns_its_page_assets(self) -> None:
         root = REPOSITORY_ROOT
         template = (

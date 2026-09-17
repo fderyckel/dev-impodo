@@ -269,6 +269,27 @@ def _validate_scalar(
         columns,
         issues,
     )
+    target_digits = getattr(metadata, "digits", None)
+    rounding_places = field_mapping.transform.decimal_places
+    if (
+        metadata.type == "float"
+        and target_digits is not None
+        and rounding_places is not None
+        and rounding_places > target_digits[1]
+    ):
+        issues.append(
+            _issue(
+                "MAPPING_TARGET_PRECISION_EXCEEDED",
+                path,
+                (
+                    f"{field_mapping.target_field} uses {rounding_places} decimal "
+                    f"places, but Odoo reports {target_digits[1]} for this field."
+                ),
+                "Use this Odoo field's precision or refresh Odoo data if it changed.",
+                dataset=dataset,
+                target_field=field_mapping.target_field,
+            )
+        )
     if metadata.readonly and not field_mapping.validate_only:
         issues.append(
             _issue(

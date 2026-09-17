@@ -1571,6 +1571,48 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             Decimal("2.47"),
         )
 
+    def test_float_rounding_respects_each_captured_odoo_field_scale(self) -> None:
+        partner_model = next(
+            item for item in self.schema.models if item.name == "res.partner"
+        )
+        schema = replace(
+            self.schema,
+            models=tuple(
+                replace(
+                    model,
+                    fields=(
+                        *model.fields,
+                        replace(_field("x_two", "float"), digits=(16, 2)),
+                        replace(_field("x_six", "float"), digits=(16, 6)),
+                        replace(_field("x_ten", "float"), digits=(16, 10)),
+                    ),
+                )
+                if model is partner_model else model
+                for model in self.schema.models
+            ),
+        )
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        for field_name, scale in (("x_two", 2), ("x_six", 6), ("x_ten", 10)):
+            with self.subTest(field=field_name):
+                for places, rejected in ((scale, False), (scale + 1, True)):
+                    mapping = ScalarFieldMapping(
+                        target_field=field_name,
+                        source_column_key="partner.name",
+                        value_type="decimal",
+                        transform=ScalarTransformPolicy(decimal_places=places),
+                    )
+                    result = self.validator.validate(
+                        replace(definition, datasets=(company, replace(partner, fields=(mapping,)))),
+                        self.selection,
+                        schema,
+                        self.governance,
+                    )
+                    self.assertEqual(
+                        "MAPPING_TARGET_PRECISION_EXCEEDED" in {item.code for item in result.issues},
+                        rejected,
+                    )
+
     def test_declared_control_total_is_portable_and_requires_numeric_mapping(
         self,
     ) -> None:

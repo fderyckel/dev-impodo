@@ -91,6 +91,8 @@ class PreparationWorkspace:
     source_package_hash: str | None = None
     source_dataset_ids: tuple[str, ...] = ()
     mapping_content_hash: str | None = None
+    target_mapping_schema_hash: str | None = None
+    target_float_digits: tuple[tuple[str, str, tuple[int, int]], ...] = ()
 
     def __post_init__(self) -> None:
         require_uuid(self.project_id, "project_id")
@@ -101,6 +103,25 @@ class PreparationWorkspace:
             require_uuid(self.recipe_application_id, "recipe_application_id")
         if self.mapping_content_hash is not None:
             require_hash(self.mapping_content_hash, "mapping_content_hash")
+        if self.target_mapping_schema_hash is not None:
+            require_hash(self.target_mapping_schema_hash, "target_mapping_schema_hash")
+        if self.target_float_digits and self.target_mapping_schema_hash is None:
+            raise ValueError("Target float precision requires a bound schema")
+        normalized_float_digits = tuple(sorted(self.target_float_digits))
+        if (
+            len({(model, field) for model, field, _digits in normalized_float_digits})
+            != len(normalized_float_digits)
+            or any(
+                not model or not field
+                or len(digits) != 2
+                or digits[0] < 1
+                or digits[1] < 0
+                or digits[1] > digits[0]
+                for model, field, digits in normalized_float_digits
+            )
+        ):
+            raise ValueError("Target float precision evidence is invalid")
+        object.__setattr__(self, "target_float_digits", normalized_float_digits)
         if (self.source_package_hash is None) != (not self.source_dataset_ids):
             raise ValueError(
                 "Projected source package identity and datasets must be provided together"

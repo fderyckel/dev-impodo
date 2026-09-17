@@ -10,6 +10,7 @@ from impodo.adapters.duckdb.advanced_coverage_repository import (
 )
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.mapping_repository import MappingRepository
+from impodo.adapters.duckdb.schema_repository import SchemaRepository
 from impodo.adapters.duckdb.normalization_repository import NormalizationRepository
 from impodo.adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
 from impodo.adapters.duckdb.preparation_session_repository import (
@@ -131,4 +132,7 @@ def create_preparation_worker(
         PolarsTransformationAdapter(),
         resolution,
         odoo_provenance=odoo_provenance,
+        schemas=SchemaRepository(database),
+        target_mapping_schema_hash=workspace.target_mapping_schema_hash,
+        target_float_digits=workspace.target_float_digits,
     )

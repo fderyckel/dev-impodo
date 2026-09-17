@@ -674,6 +674,7 @@ def create_local_app(
         PolarsTransformationAdapter(),
         resolution,
         odoo_provenance=odoo_provenance_service,
+        schemas=schema_repository,
     )
     preflight = PreflightService(
         staging_repository,

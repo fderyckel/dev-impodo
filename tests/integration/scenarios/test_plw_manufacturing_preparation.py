@@ -99,6 +99,12 @@ class PlwManufacturingPreparationScenarioTests(unittest.TestCase):
             len(lines),
         )
         self.assertTrue(all(row[lh.index("BOMQty")] > 0 for row in lines))
+        zero_series_ids = {
+            key(row[lh.index("RecId")])
+            for row in lines
+            if row[lh.index("BOMQtySerie")] == 0
+        }
+        self.assertEqual(zero_series_ids, {"5637245187", "5637245822"})
         self.assertEqual(
             {key(row[lh.index("UnitId")]) for row in lines},
             {"PCE", "G", "g", "KG", "kg", "ML", "ml"},

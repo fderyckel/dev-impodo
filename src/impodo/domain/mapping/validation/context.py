@@ -54,6 +54,7 @@ class SchemaFieldView(Protocol):
     related: bool | None
     translated: bool | None
     company_dependent: bool | None
+    digits: tuple[int, int] | None
     create_default_present: bool
     create_default_value: bool | int | float | str | None
 

@@ -18,12 +18,12 @@
     <p class="eyebrow">{% if source_return_token %}Source data · Odoo access{% elif is_recipe_test %}Recipe rehearsal · Test destination{% elif is_recipe_production %}Recipe rollout · Production destination{% elif is_odoo_source %}Data project source{% else %}Odoo access{% endif %}</p>
     <h1>{% if is_recipe_test %}Connect the Test Odoo server{% elif is_recipe_production %}Connect the Production Odoo server{% elif is_odoo_source %}Connect the Odoo source{% else %}Connect the Odoo destination{% endif %}</h1>
     {% if source_return_token %}
-      <div class="notice">Finish this Odoo access check to load the record types needed for <strong>Separate combined information</strong>. You will return to that Source data choice.</div>
+      <div class="notice"><strong>Odoo access for Source data</strong><span>Finish this check to load the record types needed for Separate combined information. You will return to that Source data choice.</span></div>
     {% endif %}
     {% include "_setup_blockers.html" %}
     <p>
       This check confirms the address, database, Odoo 19 version, and read-only access. It does not discover models or fields, and nothing can be changed in Odoo.
-      {% if is_odoo_source %}Impodo currently reads and freezes the selected records as protected source data. Moving records between two Odoo databases is not available yet.{% else %}Model and field discovery starts on the next screen and is reused instead of repeated unnecessarily.{% endif %}
+      {% if is_odoo_source %}Impodo currently reads and freezes the selected records as protected source data. Moving records between two Odoo databases is not available yet.{% elif source_return_token %}Impodo will load the Odoo record types for your Source data choice after you save the checked connection.{% else %}Model and field discovery starts on the next screen and is reused instead of repeated unnecessarily.{% endif %}
       {% if is_recipe_test %}These server settings and credentials belong only to this Test data version; they are never copied into the Recipe.{% elif is_recipe_production %}Enter the current Production endpoint, database, and checking key. Test access is never reused, and Production requires a separate limited write key.{% endif %}
     </p>
     <section

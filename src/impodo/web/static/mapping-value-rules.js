@@ -1180,6 +1180,14 @@ document.addEventListener("DOMContentLoaded", () => {
     selectionRuleBuilder = initializeSelectionRuleBuilder(row, updateScalarRow);
     concatenationBuilder = initializeConcatenationBuilder(row, updateScalarRow);
     initializeTextStepBuilder(row, updateScalarRow);
+    row.querySelector("[data-use-target-rounding]")?.addEventListener("click", (event) => {
+      const places = row.querySelector("[data-round-places]");
+      if (!places) {
+        return;
+      }
+      places.value = event.currentTarget.dataset.targetRoundingPlaces;
+      places.dispatchEvent(new Event("input", { bubbles: true }));
+    });
     for (const control of row.querySelectorAll("select, input, textarea")) {
       control.addEventListener("change", updateScalarRow);
       control.addEventListener("input", updateScalarRow);
