@@ -35,3 +35,7 @@ var/
 .DS_Store
 .idea/
 .vscode/
+.agents/
+r/
+u/
+v/
