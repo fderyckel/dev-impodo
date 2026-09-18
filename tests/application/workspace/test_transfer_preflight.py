@@ -92,6 +92,30 @@ class TransferPreflightTests(unittest.TestCase):
             report.datasets[0].blocker_codes,
         )
 
+    def test_new_required_create_field_blocks_after_approval(self) -> None:
+        workspace, package, approval, match = _approved_state()
+        changed_model = replace(
+            match.model_matches[0],
+            unresolved_create_fields=("company_id",),
+        )
+        report = TransferPreflightService().build(
+            workspace,
+            package,
+            approval,
+            match,
+            _fresh(match, model_matches=(changed_model,)),
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+        self.assertFalse(report.ready)
+        self.assertIn(
+            "DESTINATION_CREATE_FIELDS_UNRESOLVED",
+            report.datasets[0].blocker_codes,
+        )
+        self.assertIn(
+            "DESTINATION_CREATE_FIELD_DRIFT",
+            report.datasets[0].blocker_codes,
+        )
+
     def test_permission_and_relationship_resolution_drift_both_block(self) -> None:
         product = replace(
             _model("product.template", "Product", create=1),

@@ -210,6 +210,44 @@ class TransferReviewTests(unittest.TestCase):
                 model_policies={contact.model: "upsert"}, **arguments,
             )
 
+    def test_required_create_gap_blocks_only_when_a_record_would_be_created(self) -> None:
+        existing = replace(
+            _model("res.partner", "Contact", existing=1, create=0),
+            unresolved_create_fields=("company_id",),
+        )
+        existing_match = _match_plan((existing,), ())
+        existing_package = _package(existing_match)
+        self.assertEqual(existing_package.totals.destination_create_record_count, 0)
+
+        incoming = replace(existing, destination_create_key_count=1,
+                           source_row_count=2, source_distinct_key_count=2)
+        incoming_match = _match_plan((incoming,), ())
+        with self.assertRaisesRegex(WorkspaceError, "unresolved required create fields"):
+            _package(incoming_match)
+
+    def test_stateful_model_can_be_reused_but_cannot_use_plain_orm_writes(self) -> None:
+        contact = replace(
+            _model("x.transaction", "Transaction", existing=1, create=0),
+            requires_workflow_handler=True,
+        )
+        match = _match_plan((contact,), ())
+        order = _build(match)
+        workspace = replace(_workspace(match), transfer_order_plan=order)
+        arguments = dict(
+            run_id=str(uuid4()), data_version_id=str(uuid4()),
+            built_by=LOCAL_ACTOR.identity,
+        )
+        reused = TransferReviewService().build(
+            workspace, match, order,
+            model_policies={contact.model: "reuse_only"}, **arguments,
+        )
+        self.assertEqual(reused.datasets[0].model_policy, "reuse_only")
+        with self.assertRaisesRegex(WorkspaceError, "business workflow handler"):
+            TransferReviewService().build(
+                workspace, match, order,
+                model_policies={contact.model: "upsert"}, **arguments,
+            )
+
     def test_approval_binds_exact_package_and_stable_actor_identity(self) -> None:
         product = _model("product.template", "Product", create=1)
         package = _package(_match_plan((product,), ()))

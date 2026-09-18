@@ -10,6 +10,7 @@ from uuid import uuid4
 from impodo.domain.odoo_capture import (
     OdooCaptureContractError,
     OdooCaptureFilterPolicy,
+    OdooCaptureRole,
     OdooCaptureSelection,
     odoo_column_stable_key,
     odoo_dataset_id,
@@ -127,7 +128,7 @@ class OdooCaptureContractTests(unittest.TestCase):
         payload["retired_field"] = "ignored-by-old-builds"
         with self.assertRaisesRegex(OdooCaptureContractError, "current contract"):
             OdooCaptureSelection.from_json(json.dumps(payload))
-        with self.assertRaisesRegex(OdooCaptureContractError, "current source policy"):
+        with self.assertRaisesRegex(OdooCaptureContractError, "unrecognized source policy"):
             replace(selection, policy_hash="sha256:" + "9" * 64)
 
     def test_odoo_selection_accepts_the_three_bounded_batch_sizes(self) -> None:
@@ -135,6 +136,37 @@ class OdooCaptureContractTests(unittest.TestCase):
             with self.subTest(page_size=page_size):
                 selection = self._selection(page_size=page_size)
                 self.assertEqual(selection.page_size, page_size)
+
+    def test_linked_only_selection_round_trips_without_source_ids(self) -> None:
+        original = self._selection()
+        linked = OdooCaptureSelection.create(
+            selection_id=original.selection_id,
+            version=original.version,
+            data_version_id=original.data_version_id,
+            dataset_name=original.dataset_name,
+            model=original.model,
+            field_names=original.field_names,
+            capture_role=OdooCaptureRole.LINKED_ONLY,
+            filter_policy=OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS,
+            max_rows=original.max_rows,
+            page_size=original.page_size,
+            connection_target_hash=original.connection_target_hash,
+            schema_scope_hash=original.schema_scope_hash,
+            read_principal_hash=original.read_principal_hash,
+            read_permission_hash=original.read_permission_hash,
+            context_hash=original.context_hash,
+            created_at=original.created_at,
+            created_by=original.created_by,
+        )
+        payload = linked.to_json()
+        self.assertEqual(linked.contract_version, 6)
+        self.assertEqual(OdooCaptureSelection.from_json(payload), linked)
+        self.assertNotIn('"member_ids"', payload)
+        with self.assertRaisesRegex(OdooCaptureContractError, "Linked-only"):
+            replace(
+                linked, filter_policy=OdooCaptureFilterPolicy.ACTIVE_RECORDS,
+                content_hash="", _calculate_content_hash=True,
+            )
 
     def test_current_policy_fails_closed_for_production_writes(self) -> None:
         policy = CURRENT_ODOO_SOURCE_POLICY

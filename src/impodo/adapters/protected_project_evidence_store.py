@@ -28,6 +28,7 @@ _ARTIFACT_KINDS = frozenset(
         "correction-target-indexes",
         "correction-plans",
         "correction-confirmations",
+        "odoo-source-filters",
     }
 )
 

@@ -32,6 +32,9 @@ from ..domain.odoo_capture import (
     ODOO_CAPTURE_PAGE_SIZES,
     OdooCaptureContractError,
     OdooCaptureFilterPolicy,
+    OdooCaptureFilterClause,
+    OdooCaptureFilterOperator,
+    OdooCaptureRole,
     OdooCaptureSelection,
 )
 from ..domain.odoo_source_capture import (
@@ -63,6 +66,7 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.application.workspace.access import WorkspaceAccessService
+from .odoo_capture_filters import OdooCaptureFilterStore
 from ..domain.serialization import content_hash
 
 
@@ -209,12 +213,14 @@ class SourceWorkspaceService:
         artifacts: DataVersionSourceArtifactStore | None = None,
         *,
         schemas: OdooCaptureSchemaReader | None = None,
+        capture_filters: OdooCaptureFilterStore | None = None,
     ) -> None:
         self.workspace_states = workspace_states
         self.sources = sources
         self.authorization = authorization
         self.artifacts = artifacts
         self.schemas = schemas
+        self.capture_filters = capture_filters
         self.snapshot_publisher = (
             SourceSnapshotPublisher(artifacts) if artifacts is not None else None
         )
@@ -229,6 +235,10 @@ class SourceWorkspaceService:
         field_names: Iterable[str],
         include_archived: bool,
         page_size: int | str,
+        filter_field: str = "",
+        filter_value: str = "",
+        remove_filter: bool = False,
+        linked_only: bool = False,
         actor: Actor,
     ) -> OdooCaptureSelection:
         """Save a closed, bounded capture plan without contacting Odoo."""
@@ -238,6 +248,12 @@ class SourceWorkspaceService:
             Capability.SOURCE_SELECT,
             workspace_id=workspace_id,
         )
+        if not isinstance(filter_field, str) or not isinstance(filter_value, str):
+            raise WorkspaceError("Odoo source filter input is invalid")
+        if not isinstance(remove_filter, bool):
+            raise WorkspaceError("Odoo source filter choice is invalid")
+        if not isinstance(linked_only, bool):
+            raise WorkspaceError("Odoo linked capture choice is invalid")
         workspace_state = self.workspace_states.get(workspace_id)
         if workspace_state.status is not WorkspaceStatus.REGISTERED:
             raise WorkspaceError(
@@ -306,6 +322,45 @@ class SourceWorkspaceService:
             raise WorkspaceError(
                 "Odoo capture batch size must be 10, 100, or 500 records"
             )
+        clauses: tuple[OdooCaptureFilterClause, ...] = ()
+        if remove_filter and (filter_field or filter_value):
+            raise WorkspaceError("Choose either a replacement root filter or remove the saved filter")
+        if linked_only and (filter_field or filter_value):
+            raise WorkspaceError("Linked-only records use source relationships, not a root filter")
+        if filter_field or filter_value:
+            field = fields_by_name.get(filter_field)
+            if (
+                field is None
+                or not is_odoo_capture_filter_field(field)
+                or filter_field in {"id", "write_date", "active"}
+                or not filter_value
+            ):
+                raise WorkspaceError("Choose an eligible source filter field and value")
+            if field.type == "boolean":
+                if filter_value not in {"true", "false"}:
+                    raise WorkspaceError("Use true or false for a Boolean source filter")
+                value: bool | int | str = filter_value == "true"
+            elif field.type == "integer":
+                if (
+                    len(filter_value) > 20
+                    or not re.fullmatch(r"-?(0|[1-9][0-9]*)", filter_value)
+                ):
+                    raise WorkspaceError("Use a whole number for this source filter")
+                value = int(filter_value)
+                if not -(2**63) <= value < 2**63:
+                    raise WorkspaceError("Source filter number is outside the supported range")
+            else:
+                value = filter_value
+            try:
+                clauses = (OdooCaptureFilterClause(
+                    field_name=filter_field,
+                    operator=OdooCaptureFilterOperator.EQUALS,
+                    values=(value,),
+                ),)
+            except OdooCaptureContractError as error:
+                raise WorkspaceError(str(error)) from error
+            if self.capture_filters is None:
+                raise WorkspaceError("Protected Odoo source filters are not configured")
         current_selections = self.sources.get_current_odoo_capture_selections(
             workspace_id
         )
@@ -313,6 +368,22 @@ class SourceWorkspaceService:
             (item for item in current_selections if item.model == model),
             None,
         )
+        if (
+            linked_only
+            and current is not None
+            and (current.protected_filter_artifact_hash or current.filter_clauses)
+            and not remove_filter
+        ):
+            raise WorkspaceError(
+                "Remove the saved root filter before changing this plan to linked-only"
+            )
+        if not clauses and not remove_filter and not linked_only and current is not None:
+            if current.protected_filter_artifact_hash is not None:
+                if self.capture_filters is None:
+                    raise WorkspaceError("Protected Odoo source filters are not configured")
+                clauses = self.capture_filters.read(context.project_id, current)
+            else:
+                clauses = current.filter_clauses
         duplicate_dataset = next(
             (
                 item
@@ -333,11 +404,15 @@ class SourceWorkspaceService:
                 dataset_name=dataset_name.strip(),
                 model=model,
                 field_names=normalized_fields,
-                filter_clauses=(),
+                filter_clauses=clauses,
+                capture_role=(
+                    OdooCaptureRole.LINKED_ONLY
+                    if linked_only else OdooCaptureRole.ROOT
+                ),
                 filter_policy=(
                     (
                         OdooCaptureFilterPolicy.ACTIVE_AND_ARCHIVED_RECORDS
-                        if include_archived
+                        if include_archived or linked_only
                         else OdooCaptureFilterPolicy.ACTIVE_RECORDS
                     )
                     if (
@@ -363,6 +438,38 @@ class SourceWorkspaceService:
             plan_odoo_source_capture(selection, schema)
         except OdooSourceCaptureConfigurationError as error:
             raise WorkspaceError(str(error)) from error
+        if clauses:
+            if self.capture_filters is None:
+                raise WorkspaceError("Protected Odoo source filters are not configured")
+            try:
+                artifact_hash = self.capture_filters.put(
+                    context.project_id,
+                    selection_id=selection.selection_id,
+                    version=selection.version,
+                    data_version_id=selection.data_version_id,
+                    clauses=clauses,
+                )
+                selection = OdooCaptureSelection.create(
+                    selection_id=selection.selection_id,
+                    version=selection.version,
+                    data_version_id=selection.data_version_id,
+                    dataset_name=selection.dataset_name,
+                    model=selection.model,
+                    field_names=selection.field_names,
+                    filter_policy=selection.filter_policy,
+                    max_rows=selection.max_rows,
+                    page_size=selection.page_size,
+                    protected_filter_artifact_hash=artifact_hash,
+                    connection_target_hash=selection.connection_target_hash,
+                    schema_scope_hash=selection.schema_scope_hash,
+                    read_principal_hash=selection.read_principal_hash,
+                    read_permission_hash=selection.read_permission_hash,
+                    context_hash=selection.context_hash,
+                    created_at=selection.created_at,
+                    created_by=selection.created_by,
+                )
+            except (OdooCaptureContractError, WorkspaceError) as error:
+                raise WorkspaceError(str(error)) from error
         self.sources.save_odoo_capture_selection(
             workspace_id,
             selection,

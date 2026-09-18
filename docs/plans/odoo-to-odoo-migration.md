@@ -33,15 +33,29 @@ current behavior.
 The first implementation changes admit finite Odoo `float` values into source
 capture and give every selected model an approved reuse-only,
 create-if-missing, or upsert policy. Reused records have no update intents.
-The source screen now lists writable relationship fields whose related model
-is outside the selected scope, using captured metadata. This is guidance;
-automatic bounded capture of the related rows is still unfinished.
+The source screen lists writable relationships and one-to-many child fields
+whose related model is outside the selected scope. For a supporting model
+already in that scope, the manager can choose linked-only capture. A bounded
+protected closure follows eligible relationships from root records, resolves
+only the linked rows, and
+checks membership again before atomic publication. The manager still chooses
+each supporting model in advance and confirms all eligible relationship fields
+as a group. Per-field edge approval and automatic model proposals remain.
 When selected record types are captured together, publication now rejects
 links whose target row was excluded from the frozen set. The destination
 matching page supports a first text field and up to two more captured text or
 integer fields. Matching, approval, preflight, relationship resolution, and
 execution use the same ordered fields. The first field still bounds the
 destination read to 1,001 rows; a wide first-field match is blocked.
+Matching now reads all destination field definitions and their available
+required-field defaults. It blocks a proposed create when required inputs
+are neither captured nor automatically safe to leave to Odoo. Preflight
+rechecks that coverage. Review of a business-sensitive destination default
+is not yet implemented, so such a default remains a blocker.
+Models whose destination metadata exposes a Selection field named `state`
+now require a qualified workflow handler before generic creates or updates.
+Existing destination records can still be reused. This guard does not detect
+every possible business action on a custom or standard model.
 These changes do not add a model-specific path or allow updates to the
 captured source instance. The remaining phases below describe unfinished
 capabilities.
@@ -60,6 +74,23 @@ destination match, and the write-field check rejected `display_name` as
 incompatible. That combination therefore cannot be treated as a proven
 create path. A parent-scoped identity and a writable field plan remain
 necessary for this record type.
+The full-field rehearsal also found unresolved required create fields on the
+demo destination for Contacts, Products, and BOM lines. The sampled Contact
+and Product already existed, so they did not need those create inputs; the
+BOM line was missing and remains blocked.
+
+| Sampled model | Required destination fields still needing values or reviewed handling |
+| --- | --- |
+| `res.partner` | `autopost_bills`, `group_on`, `group_rfq` |
+| `product.template` | `product_variant_ids`, `service_tracking`, `tracking`, `type`, `uom_id` |
+| `mrp.bom.line` | `bom_id`, `product_id`, `product_uom_id` |
+
+This is a check of one selected field surface per model. The exact gaps can
+change when the manager captures more source fields or the destination's
+modules and defaults change.
+The demo source had no sampled `sale.order` identity in its first 20 rows,
+so no order transfer was qualified. Its destination metadata does expose a
+Selection field named `state`, which activates the workflow-handler guard.
 
 ## Phase 1: freeze a complete selected source set
 
@@ -77,6 +108,26 @@ related record types. The manager reviews the proposal before a complete read.
   publishing the source set. Do not silently omit an unselected link.
 - Detect source changes during a multi-model capture and require recapture
   when selected values or relationships cannot be shown consistently.
+
+The capture form now accepts one exact-match direct scalar root filter. Its
+value is stored in an encrypted, selection-bound project artifact, while the
+saved selection carries only the artifact hash. Assessment and capture require
+that artifact. Linked-only capture now derives related IDs inside the protected
+boundary and enforces row, link, and depth limits before promoting the complete
+set. The browser shows model and row counts without exposing source IDs.
+Broader root filters, individual edge approval, and automatic selection of
+missing model types remain to be implemented. Company access is bound to the
+source identity check, but a separate company-specific closure rule remains.
+
+On 18 September 2026, a read-only check against the private demo source
+retrieved seven Contact samples and found one exact-name match. It verified
+the Odoo equality domain without printing the chosen name. This check did not
+exercise a complete browser capture with the protected filter.
+Another read-only Odoo 19 check sampled five BOMs and resolved all 25 IDs
+returned through their `bom_line_ids` field. Five Contacts returned one child
+ID through `child_ids`, which also resolved. This confirms the JSON-2
+one-to-many response shape for those samples. It does not qualify a complete
+linked-only browser freeze or destination load.
 
 **Exit gate:** A selected Contact group, Product group, BOM, or transactional
 set produces one reviewable frozen set with its approved dependencies. Every
@@ -105,11 +156,25 @@ one read-only destination key.
   effects. A generic transfer must not duplicate an Odoo-generated child or
   assume that a business workflow action is an ordinary field write.
 
+For relational scope, resolve each protected source parent or company ID to
+its reviewed portable identity, then resolve that identity to the destination
+record before classifying the child. Carry the relation as a reference into
+execution so the destination lookup uses its actual ID at write time. The
+current execution snapshot carries scalar scope values, so this requires a
+new reviewed resolver contract rather than putting a source or destination
+numeric ID into a portable key.
+
+Required destination defaults that select another record, workflow choice,
+or company context need a review control bound to exact destination default
+evidence. Generated child records need an explicit handler that predicts and
+reconciles their post-parent identities before the load is approved.
+
 The current scalar composite match does not resolve a parent or company
 relationship as an identity component. Such records still need the scoped
-identity work above. The current publication check validates only links
-between selected record types; it does not yet propose or capture missing
-related rows automatically.
+identity work above. The publication check validates links between selected
+record types. Linked-only capture now obtains referenced rows for selected
+supporting models. It does not select a missing model type or resolve a parent
+or company relationship as an identity component.
 At load time, after an earlier wave commits, Impodo rechecks remaining create
 identities before each later wave. If Odoo generated a record that the plan
 expected to create, the transfer blocks later writes and keeps the journal

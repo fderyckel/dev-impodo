@@ -7,7 +7,7 @@ domain, method, arbitrary context, row JSON, or per-row digest.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 import math
 import re
@@ -16,12 +16,14 @@ from uuid import UUID
 
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField
 from .odoo_capture import (
+    ODOO_CAPTURE_CONTRACT_VERSION,
     ODOO_CAPTURE_FIELD_TYPES,
     ODOO_CAPTURE_PAGE_SIZES,
     OdooCaptureConsistency,
     OdooCaptureFilterClause,
     OdooCaptureFilterOperator,
     OdooCaptureFilterPolicy,
+    OdooCaptureRole,
     OdooCaptureSelection,
 )
 from .odoo_provenance import OdooOriginBatch, OdooRelationshipOriginColumn
@@ -176,9 +178,13 @@ class OdooSourceCaptureRequest:
     consistency: OdooCaptureConsistency
     target_instance_assurance: TargetInstanceAssurance
     relationship_projection: tuple[OdooCaptureRelationshipProjection, ...] = ()
+    discovery_relationship_projection: tuple[OdooCaptureRelationshipProjection, ...] = ()
+    capture_role: OdooCaptureRole = OdooCaptureRole.ROOT
+    member_ids: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         policy = CURRENT_ODOO_SOURCE_POLICY
+        object.__setattr__(self, "capture_role", OdooCaptureRole(self.capture_role))
         try:
             UUID(self.data_version_id)
             UUID(self.selection_id)
@@ -274,6 +280,23 @@ class OdooSourceCaptureRequest:
             raise OdooSourceCaptureConfigurationError(
                 "Odoo capture relationship projection must be scoped and unique"
             )
+        discovery = tuple(self.discovery_relationship_projection)
+        if (
+            len(relationships) + len(discovery) > policy.max_relationship_fields
+            or any(
+                not isinstance(item, OdooCaptureRelationshipProjection)
+                or item.kind != "one2many"
+                or item.relation_model not in self.schema_model_names
+                for item in discovery
+            )
+            or tuple(item.name for item in discovery)
+            != tuple(sorted({item.name for item in discovery}))
+            or set(item.name for item in discovery)
+            & ({item.name for item in relationships} | {item.name for item in projection})
+        ):
+            raise OdooSourceCaptureConfigurationError(
+                "Odoo dependency projection is invalid"
+            )
         clauses = tuple(self.filter_clauses)
         if (
             len(clauses) > policy.max_filter_clauses
@@ -291,6 +314,20 @@ class OdooSourceCaptureRequest:
                 "Odoo capture request filters are invalid"
             )
         schema_model_names = tuple(self.schema_model_names)
+        members = tuple(self.member_ids)
+        if (
+            len(members) > policy.max_filter_set_members
+            or members != tuple(sorted(set(members)))
+            or any(type(value) is not int or not 1 <= value <= 2**63 - 1 for value in members)
+            or (members and self.capture_role is not OdooCaptureRole.LINKED_ONLY)
+            or (
+                self.capture_role is OdooCaptureRole.LINKED_ONLY
+                and (clauses or self.filter_policy is OdooCaptureFilterPolicy.ACTIVE_RECORDS)
+            )
+        ):
+            raise OdooSourceCaptureConfigurationError(
+                "Odoo linked capture membership is invalid"
+            )
         if (
             not schema_model_names
             or any(
@@ -305,8 +342,10 @@ class OdooSourceCaptureRequest:
             )
         object.__setattr__(self, "projection", projection)
         object.__setattr__(self, "relationship_projection", relationships)
+        object.__setattr__(self, "discovery_relationship_projection", discovery)
         object.__setattr__(self, "filter_clauses", clauses)
         object.__setattr__(self, "schema_model_names", schema_model_names)
+        object.__setattr__(self, "member_ids", members)
 
     @property
     def field_names(self) -> tuple[str, ...]:
@@ -467,6 +506,7 @@ class OdooCaptureAccounting:
     consistency: OdooCaptureConsistency
     target_instance_assurance: TargetInstanceAssurance
     consistency_limitation: str
+    read_segment_count: int = 1
 
     def __post_init__(self) -> None:
         if (
@@ -477,9 +517,24 @@ class OdooCaptureAccounting:
             or self.page_count > self.row_count
             # Older saved accounting has high-water + page calls. Current
             # accounting also includes the one bounded pre-value count call.
-            or self.record_request_count
-            not in {self.page_count + 1, self.page_count + 2}
-            or self.response_bytes < 1
+            or self.read_segment_count < 0
+            or (
+                self.read_segment_count == 0
+                and (
+                    self.row_count or self.page_count or self.record_request_count
+                    or self.response_bytes or self.normalized_bytes
+                    or self.high_water_id
+                )
+            )
+            or (
+                self.read_segment_count > 0
+                and not (
+                    self.page_count + self.read_segment_count
+                    <= self.record_request_count
+                    <= self.page_count + 2 * self.read_segment_count
+                )
+            )
+            or (self.read_segment_count > 0 and self.response_bytes < 1)
             or self.normalized_bytes < 0
             or self.capture_started_at.tzinfo is None
             or self.capture_finished_at.tzinfo is None
@@ -506,6 +561,9 @@ class OdooCaptureSample:
 def plan_odoo_source_capture(
     selection: OdooCaptureSelection,
     schema: OdooSchemaCatalog,
+    *,
+    protected_filter_clauses: tuple[OdooCaptureFilterClause, ...] | None = None,
+    linked_models: frozenset[str] = frozenset(),
 ) -> OdooSourceCaptureRequest:
     """Build the only request shape accepted by the live capture adapter."""
 
@@ -559,13 +617,46 @@ def plan_odoo_source_capture(
         # captured models are present. This prevents two writers for one link.
         and field.type != "one2many"
     )
+    discovery_relationships = tuple(
+        OdooCaptureRelationshipProjection(
+            name=field.name,
+            kind=field.type,
+            relation_model=str(field.relation),
+            inverse_field=field.relation_field,
+        )
+        for field in sorted(schema_model.fields, key=lambda item: item.name)
+        if is_odoo_capture_relationship_field(
+            field, selected_models=selected_models
+        ) and field.type == "one2many" and field.relation in linked_models
+    )
     if selection.filter_policy is not OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS:
         active = fields.get("active")
         if not is_odoo_capture_filter_field(active) or active.type != "boolean":
             raise OdooSourceCaptureConfigurationError(
                 "Active/archive capture requires an eligible active field"
             )
-    for clause in selection.filter_clauses:
+    if selection.protected_filter_artifact_hash is not None:
+        if protected_filter_clauses is None or not protected_filter_clauses:
+            raise OdooSourceCaptureConfigurationError(
+                "The protected Odoo source filter is required before reading records"
+            )
+        clauses = tuple(protected_filter_clauses)
+    else:
+        if protected_filter_clauses is not None:
+            raise OdooSourceCaptureConfigurationError(
+                "Unexpected protected Odoo source filter"
+            )
+        clauses = selection.filter_clauses
+    if (
+        len(clauses) > CURRENT_ODOO_SOURCE_POLICY.max_filter_clauses
+        or tuple(sorted(clauses, key=lambda item: item.field_name)) != clauses
+        or len({item.field_name for item in clauses}) != len(clauses)
+        or any(item.field_name in {"id", "write_date"} for item in clauses)
+        or len(canonical_json([item.to_dict() for item in clauses]).encode("utf-8"))
+        > CURRENT_ODOO_SOURCE_POLICY.max_filter_bytes
+    ):
+        raise OdooSourceCaptureConfigurationError("Odoo source filters are invalid or exceed the limit")
+    for clause in clauses:
         field = fields.get(clause.field_name)
         if not is_odoo_capture_filter_field(field):
             raise OdooSourceCaptureConfigurationError(
@@ -582,7 +673,7 @@ def plan_odoo_source_capture(
         policy_hash=selection.policy_hash,
         model=selection.model,
         projection=tuple(projection),
-        filter_clauses=selection.filter_clauses,
+        filter_clauses=clauses,
         filter_policy=selection.filter_policy,
         schema_model_names=tuple(sorted(item.name for item in schema.models)),
         maximum_rows=selection.max_rows,
@@ -601,7 +692,33 @@ def plan_odoo_source_capture(
         consistency=selection.consistency,
         target_instance_assurance=policy.target_instance_assurance,
         relationship_projection=relationships,
+        discovery_relationship_projection=discovery_relationships,
+        capture_role=selection.capture_role,
     )
+
+
+def validate_odoo_capture_selection_reference(
+    selection: OdooCaptureSelection,
+    schema: OdooSchemaCatalog,
+) -> None:
+    """Validate saved schema bindings without resolving an encrypted predicate.
+
+    This is only for repository admission. The sanitized request is discarded;
+    every live read must call ``plan_odoo_source_capture`` with the real
+    protected clauses and fail closed if they are unavailable.
+    """
+
+    if selection.protected_filter_artifact_hash is None:
+        plan_odoo_source_capture(selection, schema)
+        return
+    unfiltered_reference = replace(
+        selection,
+        contract_version=ODOO_CAPTURE_CONTRACT_VERSION,
+        protected_filter_artifact_hash=None,
+        content_hash="",
+        _calculate_content_hash=True,
+    )
+    plan_odoo_source_capture(unfiltered_reference, schema)
 
 
 def require_not_cancelled(probe: CancellationProbe | None) -> None:

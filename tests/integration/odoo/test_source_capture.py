@@ -6,8 +6,15 @@ import inspect
 import json
 import math
 import unittest
+from types import SimpleNamespace
+
+from impodo.adapters.protected_odoo_capture_filters import ProtectedOdooCaptureFilterStore
 
 from impodo.adapters.odoo_source_capture import Json2OdooSourceCapture
+from impodo.application.odoo_dependency_capture import (
+    discover_dependency_closure,
+    require_capture_matches_discovery,
+)
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.application.odoo_source_capture_service import OdooSourceCaptureService
 from impodo.adapters.odoo.connectors import Json2Config
@@ -17,12 +24,16 @@ from impodo.domain.odoo_capture import (
     OdooCaptureFilterClause,
     OdooCaptureFilterOperator,
     OdooCaptureFilterPolicy,
+    OdooCaptureRole,
     OdooCaptureSelection,
 )
 from impodo.domain.odoo_source_capture import (
     OdooCaptureAccounting,
+    OdooCapturePage,
+    OdooCaptureValueColumn,
     OdooCaptureFieldProjection,
     OdooCaptureRelationshipProjection,
+    OdooCaptureRelationshipColumn,
     OdooSourceCaptureAccessRefreshRequired,
     OdooSourceCaptureCancelled,
     OdooSourceCaptureConfigurationError,
@@ -30,6 +41,7 @@ from impodo.domain.odoo_source_capture import (
     OdooSourceCaptureLimitError,
     OdooSourceCaptureRequest,
     plan_odoo_source_capture,
+    validate_odoo_capture_selection_reference,
 )
 from impodo.domain.odoo_source_policy import (
     CURRENT_ODOO_SOURCE_POLICY,
@@ -38,6 +50,7 @@ from impodo.domain.odoo_source_policy import (
     READABLE_ODOO_SOURCE_POLICY_HASHES,
     TargetInstanceAssurance,
 )
+from impodo.domain.odoo_provenance import OdooOriginBatch, OdooRelationshipOriginColumn
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.models import (
     FieldMetadata,
@@ -58,6 +71,7 @@ from impodo.domain.workspace.contracts import (
     SchemaModel,
     SchemaOrigin,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 from tests.support.workspace_access import data_version_id, workspace_access_service
 
 
@@ -112,6 +126,94 @@ class DatasetTransport:
 
 
 class OdooSourceCaptureAdapterTests(unittest.TestCase):
+    def test_relationship_scan_reads_no_scalar_business_fields(self) -> None:
+        transport = DatasetTransport([{
+            **_row(1), "category_id": [7, "Fictional"],
+            "category_ids": [7, 8],
+        }])
+        request = _request(
+            schema_model_names=("res.partner", "res.partner.category"),
+            relationship_projection=(OdooCaptureRelationshipProjection(
+                "category_id", "many2one", "res.partner.category"
+            ),),
+            discovery_relationship_projection=(OdooCaptureRelationshipProjection(
+                "category_ids", "one2many", "res.partner.category"
+            ),),
+        )
+        batches = self._adapter(transport).scan_origins(request, _context())
+        self.assertEqual(batches[0].odoo_ids, (1,))
+        self.assertEqual(batches[0].relationships[0].values, ((7,),))
+        self.assertEqual(batches[0].relationships[1].values, ((7, 8),))
+        self.assertTrue(all(
+            "name" not in call.get("fields", ()) for call in transport.calls
+        ))
+
+    def test_linked_request_without_members_cannot_read_all_records(self) -> None:
+        request = _request(capture_role=OdooCaptureRole.LINKED_ONLY)
+        transport = DatasetTransport(_rows(2))
+        with self.assertRaisesRegex(
+            OdooSourceCaptureConfigurationError, "protected member set"
+        ):
+            self._adapter(transport).open_capture(request, _context())
+        self.assertEqual(transport.calls, [])
+
+    def test_protected_root_filter_binds_selection_without_plaintext_value(self) -> None:
+        workspace_id = "00000000-0000-0000-0000-000000000001"
+        schema = _schema(workspace_id)
+        clause = OdooCaptureFilterClause(
+            "name", OdooCaptureFilterOperator.EQUALS, ("Only Example Group",)
+        )
+
+        class Evidence:
+            def __init__(self):
+                self.payload = b""
+
+            def put_artifact(self, _project_id, **kwargs):
+                self.payload = kwargs["payload"]
+                return SimpleNamespace(artifact_hash=HASH)
+
+            def artifact_storage_key(self, _project_id, **_kwargs):
+                return "protected"
+
+            def read(self, _project_id, **kwargs):
+                if kwargs["expected_artifact_hash"] != HASH:
+                    raise ValueError("artifact changed")
+                return self.payload
+
+        evidence = Evidence()
+        store = ProtectedOdooCaptureFilterStore(evidence)
+        original = _selection(workspace_id, schema)
+        artifact_hash = store.put(
+            "00000000-0000-0000-0000-000000000099",
+            selection_id=original.selection_id,
+            version=original.version,
+            data_version_id=original.data_version_id,
+            clauses=(clause,),
+        )
+        selection = replace(
+            original,
+            contract_version=5,
+            filter_clauses=(),
+            protected_filter_artifact_hash=artifact_hash,
+            content_hash="",
+            _calculate_content_hash=True,
+        )
+        self.assertNotIn("Only Example Group", selection.to_json())
+        self.assertEqual(OdooCaptureSelection.from_json(selection.to_json()), selection)
+        validate_odoo_capture_selection_reference(selection, schema)
+        with self.assertRaisesRegex(
+            OdooSourceCaptureConfigurationError, "protected Odoo source filter"
+        ):
+            plan_odoo_source_capture(selection, schema)
+        clauses = store.read(
+            "00000000-0000-0000-0000-000000000099", selection
+        )
+        self.assertEqual(clauses, (clause,))
+        request = plan_odoo_source_capture(
+            selection, schema, protected_filter_clauses=clauses
+        )
+        self.assertEqual(request.filter_clauses, (clause,))
+
     def test_page_boundaries_and_calls_scale_by_page(self) -> None:
         for count in (0, 1, 499, 500, 501):
             with self.subTest(count=count):
@@ -464,6 +566,7 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
                 "open_capture",
                 "probe_identity",
                 "probe_schema",
+                "scan_origins",
                 "sample",
             },
         )
@@ -512,6 +615,202 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
             ),
             transport=transport,
         )
+
+
+class OdooDependencyClosureTests(unittest.TestCase):
+    def test_planner_reads_one2many_only_for_linked_supporting_models(self) -> None:
+        workspace_id = "00000000-0000-0000-0000-000000000001"
+        schema = _schema(workspace_id)
+        root = schema.models[0]
+        category = replace(root, name="res.partner.category", label="Category")
+        child_field = replace(
+            root.fields[0], name="category_ids", label="Categories",
+            type="one2many", relation=category.name,
+            relation_field="partner_id",
+        )
+        schema = replace(schema, models=(
+            replace(root, fields=(*root.fields, child_field)), category,
+        ))
+        selection = _selection(workspace_id, schema)
+        self.assertEqual(
+            plan_odoo_source_capture(selection, schema).discovery_relationship_projection,
+            (),
+        )
+        planned = plan_odoo_source_capture(
+            selection, schema, linked_models=frozenset({category.name}),
+        )
+        self.assertEqual(
+            tuple(item.name for item in planned.discovery_relationship_projection),
+            ("category_ids",),
+        )
+
+    def test_parent_one2many_discovers_children_without_duplicate_portable_link(self) -> None:
+        models = ("mrp.bom", "mrp.bom.line")
+        root = _request(
+            model="mrp.bom", schema_model_names=models,
+            discovery_relationship_projection=(OdooCaptureRelationshipProjection(
+                "bom_line_ids", "one2many", "mrp.bom.line", "bom_id"
+            ),),
+        )
+        child = _request(
+            model="mrp.bom.line", schema_model_names=models,
+            capture_role=OdooCaptureRole.LINKED_ONLY,
+            relationship_projection=(OdooCaptureRelationshipProjection(
+                "bom_id", "many2one", "mrp.bom"
+            ),),
+        )
+
+        def scan(request):
+            if request.model == "mrp.bom":
+                return (OdooOriginBatch(1, (10,), (None,), (
+                    OdooRelationshipOriginColumn(
+                        "bom_line_ids", "one2many", "mrp.bom.line", ((71,),)
+                    ),
+                )),)
+            self.assertEqual(request.member_ids, (71,))
+            return (OdooOriginBatch(1, (71,), (None,), (
+                OdooRelationshipOriginColumn(
+                    "bom_id", "many2one", "mrp.bom", ((10,),)
+                ),
+            )),)
+
+        closure = discover_dependency_closure((root, child), scan)
+        self.assertEqual(closure.ids_by_model["mrp.bom.line"], (71,))
+        self.assertEqual(
+            closure.discovery_facts_by_model["mrp.bom"][10][1],
+            (("bom_line_ids", (71,)),),
+        )
+        require_capture_matches_discovery(
+            root, (OdooOriginBatch(1, (10,), (None,), ()),), closure
+        )
+
+    def test_changed_one2many_edges_are_detected_even_when_membership_is_same(self) -> None:
+        models = ("mrp.bom", "mrp.bom.line")
+        root = _request(
+            model="mrp.bom", schema_model_names=models,
+            discovery_relationship_projection=(
+                OdooCaptureRelationshipProjection(
+                    "a_ids", "one2many", "mrp.bom.line", "bom_id"
+                ),
+                OdooCaptureRelationshipProjection(
+                    "b_ids", "one2many", "mrp.bom.line", "bom_id"
+                ),
+            ),
+        )
+        child = _request(
+            model="mrp.bom.line", schema_model_names=models,
+            capture_role=OdooCaptureRole.LINKED_ONLY,
+        )
+
+        def scan(swapped):
+            def read(request):
+                if request.model == "mrp.bom.line":
+                    return (OdooOriginBatch(
+                        1, request.member_ids,
+                        (None,) * len(request.member_ids), (),
+                    ),)
+                return (OdooOriginBatch(1, (10,), (None,), (
+                    OdooRelationshipOriginColumn(
+                        "a_ids", "one2many", "mrp.bom.line",
+                        ((72 if swapped else 71,),),
+                    ),
+                    OdooRelationshipOriginColumn(
+                        "b_ids", "one2many", "mrp.bom.line",
+                        ((71 if swapped else 72,),),
+                    ),
+                )),)
+            return read
+
+        before = discover_dependency_closure((root, child), scan(False))
+        after = discover_dependency_closure((root, child), scan(True))
+        self.assertEqual(before.ids_by_model, after.ids_by_model)
+        self.assertNotEqual(before, after)
+
+    def test_follows_generic_chain_and_deduplicates_cycle(self) -> None:
+        models = ("mrp.bom", "product.template", "uom.uom")
+        requests = (
+            _request(
+                model="mrp.bom", schema_model_names=models,
+                relationship_projection=(OdooCaptureRelationshipProjection(
+                    "product_tmpl_id", "many2one", "product.template"
+                ),),
+            ),
+            _request(
+                model="product.template", schema_model_names=models,
+                capture_role=OdooCaptureRole.LINKED_ONLY,
+                relationship_projection=(OdooCaptureRelationshipProjection(
+                    "uom_id", "many2one", "uom.uom"
+                ),),
+            ),
+            _request(
+                model="uom.uom", schema_model_names=models,
+                capture_role=OdooCaptureRole.LINKED_ONLY,
+                relationship_projection=(OdooCaptureRelationshipProjection(
+                    "product_id", "many2one", "product.template"
+                ),),
+            ),
+        )
+        calls = []
+
+        def scan(request):
+            calls.append((request.model, request.member_ids))
+            identifier, field, target = {
+                "mrp.bom": (10, "product_tmpl_id", 20),
+                "product.template": (20, "uom_id", 30),
+                "uom.uom": (30, "product_id", 20),
+            }[request.model]
+            return (OdooOriginBatch(
+                1, (identifier,), (None,),
+                (OdooRelationshipOriginColumn(
+                    field, "many2one",
+                    request.relationship_projection[0].relation_model,
+                    ((target,),),
+                ),),
+            ),)
+
+        closure = discover_dependency_closure(requests, scan)
+        self.assertEqual(closure.ids_by_model, {
+            "mrp.bom": (10,), "product.template": (20,), "uom.uom": (30,)
+        })
+        self.assertEqual(calls, [
+            ("mrp.bom", ()), ("product.template", (20,)), ("uom.uom", (30,))
+        ])
+        require_capture_matches_discovery(requests[0], scan(requests[0]), closure)
+        with self.assertRaisesRegex(
+            OdooSourceCaptureConsistencyError, "missing or inaccessible"
+        ):
+            discover_dependency_closure(
+                requests,
+                lambda request: () if request.model == "uom.uom" else scan(request),
+            )
+
+    def test_depth_limit_blocks_runaway_related_graph(self) -> None:
+        models = tuple(f"related.m{index}" for index in range(6))
+        requests = tuple(_request(
+            model=model,
+            schema_model_names=models,
+            capture_role=(
+                OdooCaptureRole.ROOT if index == 0 else OdooCaptureRole.LINKED_ONLY
+            ),
+            relationship_projection=(
+                (OdooCaptureRelationshipProjection(
+                    "next_id", "many2one", models[index + 1]
+                ),) if index < 5 else ()
+            ),
+        ) for index, model in enumerate(models))
+
+        def scan(request):
+            index = models.index(request.model)
+            relation = (
+                (OdooRelationshipOriginColumn(
+                    "next_id", "many2one", models[index + 1],
+                    ((index + 2,),),
+                ),) if index < 5 else ()
+            )
+            return (OdooOriginBatch(1, (index + 1,), (None,), relation),)
+
+        with self.assertRaisesRegex(OdooSourceCaptureLimitError, "depth limit"):
+            discover_dependency_closure(requests, scan)
 
 
 class OdooSourceCaptureServiceTests(unittest.TestCase):
@@ -694,6 +993,166 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
             workspace_access_service(),
         )
         return service, schema
+
+    def test_service_reads_protected_filter_before_any_odoo_call(self) -> None:
+        clause = OdooCaptureFilterClause(
+            "name", OdooCaptureFilterOperator.EQUALS, ("Fictional Group",)
+        )
+        selection = replace(
+            self.selection,
+            contract_version=5,
+            filter_clauses=(),
+            protected_filter_artifact_hash=HASH,
+            content_hash="",
+            _calculate_content_hash=True,
+        )
+        self.selections = _SelectionReader(selection)
+        gateway = _Gateway(self.schema)
+        service = OdooSourceCaptureService(
+            self.workspace_states,
+            self.selections,
+            self.schemas,
+            workspace_access_service(),
+        )
+        with self.assertRaisesRegex(
+            WorkspaceError, "Protected Odoo source filters are not configured"
+        ):
+            service.assess(self.workspace_id, gateway, actor=LOCAL_ACTOR)
+        self.assertEqual(gateway.identity_calls, 0)
+
+        class Filters:
+            def read(self, _project_id, current):
+                self_seen.append(current.content_hash)
+                return (clause,)
+
+        self_seen: list[str] = []
+        service = OdooSourceCaptureService(
+            self.workspace_states,
+            self.selections,
+            self.schemas,
+            workspace_access_service(),
+            capture_filters=Filters(),
+        )
+        request = service.validate_current_plans(
+            self.workspace_id, actor=LOCAL_ACTOR
+        )[0]
+        self.assertEqual(request.filter_clauses, (clause,))
+        self.assertEqual(self_seen, [selection.content_hash])
+
+    def test_linked_only_capture_resolves_members_before_freezing_values(self) -> None:
+        related_name = "res.partner.category"
+        partner = self.schema.models[0]
+        category = replace(partner, name=related_name, label="Category")
+        category_id = replace(
+            partner.fields[0],
+            name="category_id", label="Category", type="many2one",
+            relation=related_name,
+        )
+        partner = replace(partner, fields=(category_id, *partner.fields))
+        schema = replace(self.schema, models=(partner, category))
+        root = _selection(self.workspace_id, schema)
+        related = replace(
+            _selection(
+                self.workspace_id, schema,
+                selection_id="00000000-0000-0000-0000-000000000003",
+                dataset_name="categories", model=related_name,
+            ),
+            contract_version=6,
+            capture_role=OdooCaptureRole.LINKED_ONLY,
+            content_hash="",
+            _calculate_content_hash=True,
+        )
+        service = OdooSourceCaptureService(
+            _WorkspaceStateReader(replace(
+                self.workspace_state,
+                intended_models=("res.partner", related_name),
+            )),
+            _SelectionReader(root, related),
+            _SchemaReader(schema),
+            workspace_access_service(),
+        )
+        now = datetime.now(timezone.utc)
+
+        class Gateway(_Gateway):
+            def __init__(self):
+                super().__init__(schema)
+                self.scanned = []
+                self.opened = []
+                self.missing = False
+
+            def scan_origins(self, request, context, *, cancellation=None):
+                self.scanned.append((request.model, request.member_ids))
+                if request.model == related_name and self.missing:
+                    return ()
+                identifier = 41 if request.model == "res.partner" else 7
+                relations = (
+                    (OdooRelationshipOriginColumn(
+                        "category_id", "many2one", related_name, ((7,),)
+                    ),) if request.model == "res.partner" else ()
+                )
+                return (OdooOriginBatch(1, (identifier,), (now,), relations),)
+
+            def open_capture(self, request, context, *, cancellation=None):
+                self.opened.append((request.model, request.member_ids))
+                identifier = 41 if request.model == "res.partner" else 7
+                name = "Demo contact" if identifier == 41 else "Demo category"
+                relations = (
+                    (OdooCaptureRelationshipColumn(
+                        "category_id", "many2one", related_name, ((7,),)
+                    ),) if identifier == 41 else ()
+                )
+                page = OdooCapturePage(
+                    1, (identifier,), (now,),
+                    (OdooCaptureValueColumn("name", "char", (name,)),),
+                    100, 30, relations,
+                )
+                accounting = OdooCaptureAccounting(
+                    high_water_id=identifier, row_count=1, page_count=1,
+                    record_request_count=3, response_bytes=200,
+                    normalized_bytes=30, capture_started_at=now,
+                    capture_finished_at=now,
+                    consistency=request.consistency,
+                    target_instance_assurance=request.target_instance_assurance,
+                    consistency_limitation="Bounded native reads",
+                )
+
+                class Session:
+                    matching_rows = 1
+
+                    def pages(self):
+                        return iter((page,))
+
+                    @property
+                    def accounting(self):
+                        return accounting
+
+                return Session()
+
+        gateway = Gateway()
+        assessment = service.assess_all(
+            self.workspace_id, gateway, actor=LOCAL_ACTOR
+        )
+        self.assertEqual(assessment.matching_rows, 2)
+        self.assertEqual(assessment.items[1][1].page_size, 100)
+        self.assertEqual(gateway.scanned, [
+            ("res.partner", ()), (related_name, (7,))
+        ])
+        pages = []
+        results = service.capture_all(
+            self.workspace_id, gateway,
+            consume_page_factory=lambda request, selection: pages.append,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual([item.accounting.row_count for item in results], [1, 1])
+        self.assertEqual([page.odoo_ids for page in pages], [(41,), (7,)])
+        self.assertEqual(gateway.opened, [
+            ("res.partner", ()), (related_name, (7,))
+        ])
+        gateway.missing = True
+        with self.assertRaisesRegex(
+            OdooSourceCaptureConsistencyError, "missing or inaccessible"
+        ):
+            service.assess_all(self.workspace_id, gateway, actor=LOCAL_ACTOR)
 
     def test_service_rejects_end_identity_drift(self) -> None:
         gateway = _Gateway(self.schema, drift_identity=True)

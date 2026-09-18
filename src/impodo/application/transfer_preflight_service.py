@@ -111,6 +111,21 @@ class TransferPreflightService:
                     blockers.add("DESTINATION_RECORD_IDENTITY_DRIFT")
                 if fresh.compatible_fields != approved_fields:
                     blockers.add("DESTINATION_FIELD_SCOPE_DRIFT")
+                will_write = (
+                    item.destination_create_record_count > 0
+                    or (
+                        item.model_policy == "upsert"
+                        and item.destination_existing_record_count > 0
+                    )
+                )
+                if will_write:
+                    blockers.update(fresh.write_blocking_reasons)
+                if (
+                    item.destination_create_record_count > 0
+                    and fresh.unresolved_create_fields
+                    != prior.unresolved_create_fields
+                ):
+                    blockers.add("DESTINATION_CREATE_FIELD_DRIFT")
             datasets.append(
                 TransferPreflightDataset(
                     dataset_id=item.dataset_id,

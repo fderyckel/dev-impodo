@@ -40,7 +40,10 @@ from impodo.application.workspace.preparation.preparation_service import (
 from impodo.application.shared.artifacts import ArtifactSizeError
 from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.domain.odoo.contracts import MetadataSnapshot
-from impodo.domain.odoo_capture import OdooCaptureFilterPolicy, OdooCaptureSelection
+from impodo.domain.odoo_capture import (
+    OdooCaptureFilterPolicy, OdooCaptureRole, OdooCaptureSelection,
+)
+from impodo.domain.odoo_provenance import OdooOriginBatch
 from impodo.domain.odoo_source_capture import (
     OdooCaptureAccounting,
     OdooCapturePage,
@@ -382,6 +385,65 @@ class OdooCapturePublicationTests(unittest.TestCase):
             self.provenance,
             actor=LOCAL_ACTOR,
         )
+
+    def test_empty_linked_model_publishes_an_empty_dataset(self) -> None:
+        base_model = self.schema.models[0]
+        category_model = replace(
+            base_model, name="res.partner.category", label="Category",
+        )
+        schema = replace(
+            self.schema,
+            models=(base_model, category_model),
+            content_hash=HASHES[6],
+        )
+        self.schemas.save_odoo_schema_catalog(
+            self.workspace_state.workspace_id, schema, actor=LOCAL_ACTOR,
+        )
+        root = _selection(
+            self.workspace_state.workspace_id, schema, self.now,
+            model="res.partner", dataset_name="contacts",
+        )
+        linked = OdooCaptureSelection.create(
+            selection_id=str(uuid4()), version=1,
+            data_version_id=_data_version_id(self.workspace_state.workspace_id),
+            dataset_name="categories", model="res.partner.category",
+            field_names=("name",), capture_role=OdooCaptureRole.LINKED_ONLY,
+            filter_policy=OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS,
+            max_rows=10_000,
+            connection_target_hash=schema.connection_target_hash,
+            schema_scope_hash=schema.content_hash,
+            read_principal_hash=schema.read_principal_hash,
+            read_permission_hash=schema.read_permission_hash,
+            context_hash=schema.read_context_hash,
+            created_at=self.now, created_by="Data Manager",
+        )
+        for selection in (root, linked):
+            self.sources.save_odoo_capture_selection(
+                self.workspace_state.workspace_id, selection, actor=LOCAL_ACTOR,
+            )
+
+        class Gateway(_Gateway):
+            def scan_origins(self, request, context, *, cancellation=None):
+                if request.model != "res.partner" or request.member_ids:
+                    raise AssertionError("Only root membership needs a scan")
+                return (OdooOriginBatch(
+                    1, (41, 42), (self.now, self.now + timedelta(seconds=1)), (),
+                ),)
+
+            def open_capture(self, request, context, *, cancellation=None):
+                if request.model != "res.partner":
+                    raise AssertionError("An empty linked model must not be read")
+                return super().open_capture(request, context, cancellation=cancellation)
+
+        publication = self.service.publish(
+            self.workspace_state.workspace_id, Gateway(schema, self.now),
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(
+            tuple(item.row_count for item in publication.source_selection.datasets),
+            (2, 0),
+        )
+        self.assertEqual(tuple(item.row_count for item in publication.manifests), (2, 0))
 
     def test_protected_origins_can_follow_data_version_artifact_ownership(
         self,

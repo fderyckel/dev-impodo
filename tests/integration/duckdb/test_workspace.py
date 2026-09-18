@@ -917,6 +917,66 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             2,
         )
 
+        class ProtectedFilters:
+            def put(self, _project_id, **kwargs):
+                assert kwargs["clauses"][0].values == ("Fictional Root",)
+                return "sha256:" + "a" * 64
+
+            def read(self, _project_id, _selection):
+                from impodo.domain.odoo_capture import (
+                    OdooCaptureFilterClause,
+                    OdooCaptureFilterOperator,
+                )
+
+                return (OdooCaptureFilterClause(
+                    "name", OdooCaptureFilterOperator.EQUALS, ("Fictional Root",)
+                ),)
+
+        self.sources.capture_filters = ProtectedFilters()
+        filtered = self.sources.define_odoo_capture_selection(
+            self.workspace_state.workspace_id,
+            dataset_name="odoo_contacts",
+            model="res.partner",
+            field_names=("name",),
+            include_archived=False,
+            page_size=100,
+            filter_field="name",
+            filter_value="Fictional Root",
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(filtered.contract_version, 5)
+        self.assertEqual(filtered.filter_clauses, ())
+        self.assertNotIn("Fictional Root", filtered.to_json())
+        self.assertEqual(
+            self.source_repository.get_current_odoo_capture_selection(
+                self.workspace_state.workspace_id
+            ),
+            filtered,
+        )
+        retained = self.sources.define_odoo_capture_selection(
+            self.workspace_state.workspace_id,
+            dataset_name="odoo_contacts",
+            model="res.partner",
+            field_names=("active", "name"),
+            include_archived=False,
+            page_size=10,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(retained.version, filtered.version + 1)
+        self.assertIsNotNone(retained.protected_filter_artifact_hash)
+        removed = self.sources.define_odoo_capture_selection(
+            self.workspace_state.workspace_id,
+            dataset_name="odoo_contacts",
+            model="res.partner",
+            field_names=("name",),
+            include_archived=False,
+            page_size=100,
+            remove_filter=True,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(removed.version, retained.version + 1)
+        self.assertIsNone(removed.protected_filter_artifact_hash)
+
     def test_odoo_capture_keeps_one_current_plan_per_model(self) -> None:
         odoo_project = replace(
             self.workspace_state,
@@ -968,7 +1028,8 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             dataset_name="units_of_measure",
             model="uom.uom",
             field_names=("active", "name"),
-            include_archived=True,
+            include_archived=False,
+            linked_only=True,
             page_size=10,
             actor=LOCAL_ACTOR,
         )
@@ -989,6 +1050,9 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(product_v2.selection_id, product.selection_id)
         self.assertEqual(product_v2.version, 2)
         self.assertEqual(uom.version, 1)
+        self.assertEqual(uom.capture_role.value, "LINKED_ONLY")
+        self.assertEqual(uom.contract_version, 6)
+        self.assertEqual(uom.filter_policy.value, "ACTIVE_AND_ARCHIVED_RECORDS")
         self.assertEqual(product_v2.schema_scope_hash, schema.content_hash)
         with self.assertRaisesRegex(WorkspaceError, "different dataset name"):
             self.sources.define_odoo_capture_selection(

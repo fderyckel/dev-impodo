@@ -323,6 +323,8 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Stage 2 of 8", source_page.text)
         self.assertIn("Define a bounded Odoo capture", source_page.text)
         self.assertIn("Freezing is read-only", source_page.text)
+        self.assertIn('name="filter_field"', source_page.text)
+        self.assertIn('name="filter_value"', source_page.text)
         render_schema = self.app.state.context.queries.get_odoo_schema_catalog(
             workspace_id
         )

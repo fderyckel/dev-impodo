@@ -42,6 +42,15 @@ load. There is no third API key.
    exact package after checking those choices. If some captured fields cannot
    be written to the destination, Impodo can still reuse existing records;
    creating or updating that record type requires resolving the field issues.
+   For a new record, Impodo also checks the destination's required fields.
+   If a required value is absent or its Odoo default needs review, the page
+   lists the field and stops that create plan. An eligible source field may
+   supply the value; other fields need approved Odoo default or generated
+   record handling. You can choose reuse only when every source record
+   already exists there.
+   If the destination record type has a **State** field, Impodo can reuse
+   existing records but stops ordinary create or update until its business
+   workflow has been qualified.
 5. Select **Continue to destination preflight**, then select **Run read-only
    preflight**.
 6. Compare the approved and freshly observed reuse, create, field, and

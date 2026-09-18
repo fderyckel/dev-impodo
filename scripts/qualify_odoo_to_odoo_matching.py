@@ -129,7 +129,15 @@ def qualify(
         None,
     )
     if chosen is None:
-        return "No nonblank source identity in the first 20 records"
+        target_metadata = destination.get_model_metadata(
+            (MetadataRequest(model, (), all_fields=True),)
+        )
+        state = target_metadata.models[model].fields.get("state")
+        return (
+            "No nonblank source identity in the first 20 records; "
+            f"model={model}; workflow_handler_required="
+            f"{state is not None and state.type == 'selection'}"
+        )
 
     now = datetime.now(UTC)
     workspace_id = str(uuid4())
@@ -257,7 +265,9 @@ def qualify(
         f"matching_blockers={','.join(result.blocking_reasons) or 'none'}; "
         f"write_field_blockers={','.join(result.write_blocking_reasons) or 'none'}; "
         f"missing_fields={','.join(result.missing_fields) or 'none'}; "
-        f"incompatible_fields={','.join(result.incompatible_fields) or 'none'}"
+        f"incompatible_fields={','.join(result.incompatible_fields) or 'none'}; "
+        f"unresolved_create_fields={','.join(result.unresolved_create_fields) or 'none'}; "
+        f"workflow_handler_required={result.requires_workflow_handler}"
     )
 
 

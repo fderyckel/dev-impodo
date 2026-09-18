@@ -59,7 +59,7 @@
             </select>
             <p class="hint">{{ model.destination_existing_key_count }} existing; {{ model.destination_create_key_count }} missing.</p>
             {% if model.write_blocking_reasons %}
-              <p class="hint">{{ model.missing_fields|length }} missing and {{ model.incompatible_fields|length }} incompatible destination fields. Creating or updating this record type requires compatible fields.</p>
+              <p class="hint">{{ model.missing_fields|length }} missing, {{ model.incompatible_fields|length }} incompatible, and {{ model.unresolved_create_fields|length if model.destination_create_key_count else 0 }} unresolved required create fields. Resolve these before writing this record type.</p>
             {% endif %}
           </div>
         {% endfor %}

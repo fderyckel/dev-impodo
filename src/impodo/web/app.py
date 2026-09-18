@@ -179,6 +179,7 @@ from ..adapters.duckdb.row_inclusion_review_repository import (
 from ..adapters.polars_transformation import PolarsTransformationAdapter
 from ..adapters.correction_review_pipeline import NativeCorrectionReviewPipeline
 from ..adapters.odoo_source_capture import Json2OdooSourceCapture
+from ..adapters.protected_odoo_capture_filters import ProtectedOdooCaptureFilterStore
 from ..adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
 from ..adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
 from ..adapters.protected_correction_store import ProtectedCorrectionStore
@@ -476,11 +477,15 @@ def create_local_app(
         ProtectedOdooProvenanceCodec(),
         ProtectedOdooComparisonCodec(),
     )
+    odoo_capture_filters = ProtectedOdooCaptureFilterStore(
+        ProtectedProjectEvidenceStore(project_root, resolved_secret_store)
+    )
     odoo_source_capture = OdooSourceCaptureService(
         workspace_state_repository,
         source_repository,
         schema_repository,
         workspace_access,
+        capture_filters=odoo_capture_filters,
     )
     odoo_capture_publication = OdooCapturePublicationService(
         odoo_source_capture,
@@ -1047,6 +1052,7 @@ def create_local_app(
             workspace_access,
             artifacts,
             schemas=schema_repository,
+            capture_filters=odoo_capture_filters,
         ),
         derived_entities=DerivedEntityWorkspaceService(
             source_repository,

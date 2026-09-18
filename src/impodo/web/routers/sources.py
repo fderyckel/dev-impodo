@@ -43,12 +43,15 @@ from ...domain.odoo_source_capture import (
     OdooSourceCaptureError,
     OdooSourceCaptureConfigurationError,
     is_odoo_capture_value_field,
+    is_odoo_capture_filter_field,
+    is_odoo_capture_relationship_field,
     plan_odoo_source_capture,
 )
 from impodo.application.workspace.odoo_capture_jobs import OdooCaptureJob, OdooCaptureJobStatus
 from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ...domain.odoo_capture import (
     ODOO_CAPTURE_PAGE_SIZES,
+    OdooCaptureRole,
     odoo_capture_selection_set_hash,
 )
 from ...domain.data_version.models import DataVersionState
@@ -257,6 +260,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 "field_names",
                 "include_archived",
                 "page_size",
+                "filter_field",
+                "filter_value",
+                "remove_filter",
+                "linked_only",
             },
         )
         workspace_state = context.queries.get(workspace_id)
@@ -269,6 +276,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 field_names=tuple(form.getlist("field_names")),
                 include_archived=bool(_text(form, "include_archived")),
                 page_size=_text(form, "page_size"),
+                filter_field=_text(form, "filter_field"),
+                filter_value=_text(form, "filter_value"),
+                remove_filter=bool(_text(form, "remove_filter")),
+                linked_only=bool(_text(form, "linked_only")),
                 actor=context.actor,
             )
         except WorkspaceError as error:
@@ -322,7 +333,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         _secure_form(
             request,
             form,
-            {"csrf_token", "selection_id", "selection_hash"},
+            {"csrf_token", "selection_id", "selection_hash", "confirm_linked_relationships"},
         )
         workspace_state = context.queries.get(workspace_id)
         try:
@@ -352,6 +363,13 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 raise WorkspaceError(
                     "Save a capture plan for every selected Odoo record type "
                     "before checking matching records."
+                )
+            if (
+                any(item.capture_role is OdooCaptureRole.LINKED_ONLY for item in selections)
+                and not _text(form, "confirm_linked_relationships")
+            ):
+                raise WorkspaceError(
+                    "Review and confirm the selected relationship fields before checking linked records"
                 )
             selection_set_hash = odoo_capture_selection_set_hash(selections)
             submitted_hash = _text(form, "selection_hash")
@@ -579,7 +597,12 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     "freezing another source version."
                 )
             for selection in selections:
-                plan_odoo_source_capture(selection, schema)
+                if selection.protected_filter_artifact_hash is None:
+                    plan_odoo_source_capture(selection, schema)
+                else:
+                    context.odoo_source_capture.validate_current_plans(
+                        workspace_id, actor=context.actor
+                    )
             assessment_evidence = request.session.get(
                 _ODOO_CAPTURE_ASSESSMENT_SESSION_KEY
             )
@@ -1068,14 +1091,28 @@ def _render_odoo_capture_selection(
         (model, field)
         for model in models
         for field in model.fields
-        if field.type in {"many2one", "many2many"}
+        if field.type in {"many2one", "many2many", "one2many"}
         and field.relation
         and field.relation not in selected_models
         and field.exportable is True
         and field.related is not True
         and field.company_dependent is False
-        and field.readonly is False
+        and (field.type == "one2many" or field.readonly is False)
     )
+    linked_models = {
+        item.model for item in current_selections
+        if item.capture_role is OdooCaptureRole.LINKED_ONLY
+    }
+    linked_relationships = tuple(
+        (model, field)
+        for model in models
+        for field in model.fields
+        if is_odoo_capture_relationship_field(
+            field, selected_models=selected_models
+        )
+        and (field.type != "one2many" or field.relation in linked_models)
+    )
+    has_linked_only = bool(linked_models)
     requested_model = request.query_params.get("model", "").strip()
     selected_model = next(
         (
@@ -1109,6 +1146,10 @@ def _render_odoo_capture_selection(
             key=lambda item: (item.label.casefold(), item.name),
         )
     )
+    filter_fields = tuple(
+        field for field in fields
+        if is_odoo_capture_filter_field(field) and field.name != "active"
+    )
     selected_field_names = (
         frozenset(current.field_names)
         if current is not None and current.model == selected_model.name
@@ -1127,7 +1168,12 @@ def _render_odoo_capture_selection(
     if schema is not None:
         for saved_selection in current_selections:
             try:
-                plan_odoo_source_capture(saved_selection, schema)
+                if saved_selection.protected_filter_artifact_hash is None:
+                    plan_odoo_source_capture(saved_selection, schema)
+                else:
+                    context.odoo_source_capture.validate_current_plans(
+                        workspace_state.workspace_id, actor=context.actor
+                    )
                 if (
                     saved_selection.max_rows
                     != CURRENT_ODOO_SOURCE_POLICY.max_rows
@@ -1136,7 +1182,7 @@ def _render_odoo_capture_selection(
                     raise OdooSourceCaptureConfigurationError(
                         "The saved capture plan uses the earlier row-limit workflow"
                     )
-            except OdooSourceCaptureConfigurationError as plan_error:
+            except (OdooSourceCaptureConfigurationError, WorkspaceError) as plan_error:
                 capture_plan_errors[saved_selection.model] = str(plan_error)
     current_plan_error = (
         capture_plan_errors.get(current.model) if current is not None else None
@@ -1206,12 +1252,15 @@ def _render_odoo_capture_selection(
         models=models,
         selected_model=selected_model,
         fields=fields,
+        filter_fields=filter_fields,
         selected_field_names=selected_field_names,
         dataset_name_default=dataset_name_default,
         current=current,
         current_selections=current_selections,
         current_by_model=current_by_model,
         unselected_relationships=unselected_relationships,
+        linked_relationships=linked_relationships,
+        has_linked_only=has_linked_only,
         plans_complete=plans_complete,
         selection_set_hash=selection_set_hash,
         capture_plan_errors=capture_plan_errors,

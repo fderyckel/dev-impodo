@@ -25,6 +25,7 @@ from impodo.adapters.odoo.connectors import (
 from ..domain.odoo_capture import (
     OdooCaptureFilterOperator,
     OdooCaptureFilterPolicy,
+    OdooCaptureRole,
 )
 from ..domain.odoo_source_capture import (
     CancellationProbe,
@@ -44,6 +45,7 @@ from ..domain.odoo_source_capture import (
 from impodo.domain.shared.models import OdooReadIdentity, ProtectedOdooReadContext
 from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ..domain.serialization import canonical_json
+from ..domain.odoo_provenance import OdooOriginBatch, OdooRelationshipOriginColumn
 
 
 RawCaptureTransport = Callable[
@@ -215,6 +217,119 @@ class Json2OdooSourceCapture:
             cancellation=cancellation,
         )
         return count
+
+    def scan_origins(
+        self,
+        request: OdooSourceCaptureRequest,
+        context: ProtectedOdooReadContext,
+        *,
+        cancellation: CancellationProbe | None = None,
+    ) -> tuple[OdooOriginBatch, ...]:
+        """Read bounded IDs and approved links without scalar business values."""
+
+        require_not_cancelled(cancellation)
+        base_domain = _base_domain(request)
+        raw, first_bytes = self._search_read(
+            request, context, domain=base_domain, fields=("id",),
+            limit=1, order="id desc", cancellation=cancellation,
+        )
+        rows = _require_rows(raw, maximum=1)
+        if not rows:
+            return ()
+        if set(rows[0]) != {"id"}:
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo relationship scan high-water response is invalid"
+            )
+        high_water_id = _require_id(rows[0]["id"])
+        count, count_bytes = self._search_count(
+            request, context,
+            domain=[*base_domain, ["id", "<=", high_water_id]],
+            limit=request.maximum_rows + 1,
+            cancellation=cancellation,
+        )
+        if count > request.maximum_rows:
+            raise OdooSourceCaptureLimitError(
+                "Odoo relationship scan exceeds the selected row limit"
+            )
+        response_total = first_bytes + count_bytes
+        if response_total > request.max_snapshot_bytes:
+            raise OdooSourceCaptureLimitError(
+                "Odoo relationship scan exceeds the fixed byte limit"
+            )
+        if count == 0:
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo relationship membership changed during scan"
+            )
+        batches: list[OdooOriginBatch] = []
+        last_id = 0
+        row_count = 0
+        projections = tuple(sorted(
+            (*request.relationship_projection, *request.discovery_relationship_projection),
+            key=lambda item: item.name,
+        ))
+        relation_fields = tuple(item.name for item in projections)
+        while row_count < count:
+            require_not_cancelled(cancellation)
+            limit = min(request.page_size, count - row_count)
+            raw, response_bytes = self._search_read(
+                request, context,
+                domain=[*base_domain, ["id", ">", last_id], ["id", "<=", high_water_id]],
+                fields=("id", "write_date", *relation_fields),
+                limit=limit, order="id asc", cancellation=cancellation,
+            )
+            response_total += response_bytes
+            if response_total > request.max_snapshot_bytes:
+                raise OdooSourceCaptureLimitError(
+                    "Odoo relationship scan exceeds the fixed byte limit"
+                )
+            rows = _require_rows(raw, maximum=limit)
+            if not rows:
+                raise OdooSourceCaptureConsistencyError(
+                    "Odoo relationship membership changed during scan"
+                )
+            expected = {"id", "write_date", *relation_fields}
+            ids: list[int] = []
+            dates: list[datetime | None] = []
+            values = {name: [] for name in relation_fields}
+            previous = last_id
+            for row in rows:
+                if set(row) != expected:
+                    raise OdooSourceCaptureConsistencyError(
+                        "Odoo relationship scan response is incomplete"
+                    )
+                identifier = _require_id(row["id"])
+                if not previous < identifier <= high_water_id:
+                    raise OdooSourceCaptureConsistencyError(
+                        "Odoo relationship scan identifiers are reordered"
+                    )
+                previous = identifier
+                ids.append(identifier)
+                write_date, _ = _decode_write_date(row["write_date"])
+                dates.append(write_date)
+                for relation in projections:
+                    values[relation.name].append(_decode_relationship(
+                        relation.kind,
+                        row[relation.name],
+                        maximum_members=CURRENT_ODOO_SOURCE_POLICY.max_relationship_members_per_row,
+                    ))
+            batches.append(OdooOriginBatch(
+                first_row_ordinal=row_count + 1,
+                odoo_ids=tuple(ids),
+                write_dates=tuple(dates),
+                relationships=tuple(OdooRelationshipOriginColumn(
+                    field_name=relation.name,
+                    kind=relation.kind,
+                    relation_model=relation.relation_model,
+                    values=tuple(values[relation.name]),
+                ) for relation in projections),
+            ))
+            row_count += len(ids)
+            last_id = ids[-1]
+        if row_count != count:
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo relationship membership changed during scan"
+            )
+        return tuple(batches)
 
     def sample(
         self,
@@ -854,6 +969,10 @@ def _require_id(raw: Any) -> int:
 
 
 def _base_domain(request: OdooSourceCaptureRequest) -> list[list[object]]:
+    if request.capture_role is OdooCaptureRole.LINKED_ONLY and not request.member_ids:
+        raise OdooSourceCaptureConfigurationError(
+            "Linked Odoo capture requires a protected member set"
+        )
     operator_map = {
         OdooCaptureFilterOperator.EQUALS: "=",
         OdooCaptureFilterOperator.IN_SET: "in",
@@ -863,6 +982,8 @@ def _base_domain(request: OdooSourceCaptureRequest) -> list[list[object]]:
         OdooCaptureFilterOperator.BEFORE: "<",
     }
     domain: list[list[object]] = []
+    if request.member_ids:
+        domain.append(["id", "in", list(request.member_ids)])
     for clause in request.filter_clauses:
         operand: object = (
             list(clause.values)

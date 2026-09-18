@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from math import isfinite
 from typing import Mapping, Protocol, Sequence
 
 from impodo.domain.odoo.compatibility import (
@@ -21,6 +22,13 @@ from impodo.domain.odoo.contracts import (
     record_snapshot_payload,
 )
 from impodo.domain.serialization import content_hash
+from impodo.domain.mapping.create_field_policy import (
+    CreateFieldCoverage,
+    VerifiedCreateDefaultAction,
+    decide_verified_create_default,
+    evaluate_create_field,
+    required_create_hook_inputs,
+)
 from impodo.domain.workspace.portable_identity import (
     portable_identity,
     record_identity,
@@ -303,6 +311,7 @@ class DestinationMatchingService:
             MetadataRequest(
                 model=item.model,
                 fields=tuple(sorted(field.name for field in item.source_fields)),
+                all_fields=True,
                 include_unique_constraints=True,
             )
             for item in sorted(prepared, key=lambda current: current.model)
@@ -433,6 +442,16 @@ class DestinationMatchingService:
             compatible_fields=tuple(sorted(compatible)),
             missing_fields=tuple(sorted(missing)),
             incompatible_fields=tuple(sorted(incompatible)),
+            unresolved_create_fields=_unresolved_create_fields(
+                item,
+                metadata,
+                tuple(compatible),
+            ),
+            requires_workflow_handler=bool(
+                destination_model is not None
+                and (state_field := destination_model.fields.get("state")) is not None
+                and state_field.type == "selection"
+            ),
             destination_limit_reached=(
                 len(target_rows) >= DESTINATION_MATCH_RECORD_LIMIT
             ),
@@ -561,6 +580,90 @@ class DestinationMatchingService:
         return tuple(
             sorted(results, key=lambda item: (item.model, item.field_name))
         )
+
+
+def _unresolved_create_fields(
+    item: _PreparedModel,
+    metadata: MetadataSnapshot,
+    compatible_fields: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Find required create inputs absent from the reviewed source projection.
+
+    A target default is accepted automatically only when the shared create
+    policy considers it low risk. Other defaults need a future review step.
+    """
+
+    model = metadata.models.get(item.model)
+    if model is None:
+        return ()
+    provided = set(compatible_fields)
+    defaults = metadata.create_defaults.get(item.model, {})
+    unresolved = set(required_create_hook_inputs(item.model, provided) - provided)
+    for field in model.fields.values():
+        if not field.required:
+            continue
+        default = defaults.get(field.name)
+        has_default = (
+            field.name in defaults
+            and _usable_create_default(field.type, default)
+        )
+        view = SchemaField(
+            name=field.name,
+            label=field.label or field.name,
+            type=field.type,
+            required=field.required,
+            readonly=field.readonly,
+            relation=field.relation,
+            relation_field=field.relation_field,
+            selection=field.selection,
+            computed=field.computed,
+            related=field.related,
+            company_dependent=field.company_dependent,
+            create_default_present=has_default,
+            create_default_value=default if has_default else None,
+        )
+        assessment = evaluate_create_field(
+            view,
+            provided=field.name in provided,
+            handling=None,
+            target_model=item.model,
+            odoo_version=metadata.fingerprint.odoo_version,
+        )
+        if assessment.coverage is CreateFieldCoverage.DEFAULT_AVAILABLE:
+            if (
+                decide_verified_create_default(view).action
+                is VerifiedCreateDefaultAction.APPLY_AUTOMATICALLY
+            ):
+                continue
+            unresolved.add(field.name)
+        elif assessment.coverage in {
+            CreateFieldCoverage.REQUIRED_VALUE_MISSING,
+            CreateFieldCoverage.DEFAULT_UNVERIFIED,
+            CreateFieldCoverage.ODOO_MANAGED_INVALID,
+        }:
+            unresolved.add(field.name)
+    return tuple(sorted(unresolved))
+
+
+def _usable_create_default(field_type: str, value: object) -> bool:
+    if value is None:
+        return False
+    if field_type == "boolean":
+        return isinstance(value, bool)
+    if field_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if field_type in {"float", "monetary"}:
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return False
+        try:
+            return isfinite(value)
+        except OverflowError:
+            return False
+    if field_type == "many2one":
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+    if field_type in {"char", "text", "selection", "date", "datetime", "html"}:
+        return isinstance(value, str) and bool(value.strip())
+    return False
 
 
 def _prepare_relationships(

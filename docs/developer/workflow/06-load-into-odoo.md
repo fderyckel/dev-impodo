@@ -55,6 +55,20 @@ Field compatibility findings remain visible during destination matching, but
 block package creation only when the selected model policy would create or
 update records. This lets an existing record be reused even when a captured
 read-only field cannot be written to the destination.
+Matching reads the full destination field metadata and `default_get` evidence
+for required fields. It uses the shared create-field policy to identify
+required create inputs missing from the captured fields. Low-risk defaults
+can be left to Odoo. Defaults requiring business review, generated fields
+without an approved handling choice, and missing values block a model that
+would create records. The match plan retains only technical field names and
+aggregate results. A fresh preflight repeats this check and blocks if
+required create-field coverage changes. The browser does not yet offer a
+reviewed default or generated-field handling choice.
+If the full destination metadata exposes a Selection field named `state`,
+the generic ORM write path requires a qualified workflow handler. Reuse of
+an existing record remains available. This metadata signal is deliberately
+conservative and does not prove that every model without `state` is free of
+business actions.
 Approval authorizes only that immutable package; it does not authorize
 transport.
 

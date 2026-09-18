@@ -12,6 +12,7 @@ from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.odoo.contracts import MetadataSnapshot
 from ..domain.odoo_capture import (
     OdooCaptureSelection,
+    OdooCaptureRole,
     odoo_capture_selection_set_hash,
     require_consistent_odoo_capture_selection_set,
 )
@@ -28,6 +29,13 @@ from ..domain.odoo_source_capture import (
     plan_odoo_source_capture,
     require_not_cancelled,
 )
+from ..domain.odoo_provenance import OdooOriginBatch
+from .odoo_dependency_capture import (
+    ProtectedDependencyClosure,
+    discover_dependency_closure,
+    require_capture_matches_discovery,
+)
+from dataclasses import replace
 from impodo.domain.shared.models import (
     FieldMetadata,
     OdooReadIdentity,
@@ -45,6 +53,7 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.application.workspace.access import WorkspaceAccessService
+from .odoo_capture_filters import OdooCaptureFilterStore
 
 
 class OdooCaptureWorkspaceReader(Protocol):
@@ -110,6 +119,14 @@ class OdooSourceCapturePort(Protocol):
         cancellation: CancellationProbe | None = None,
     ) -> int: ...
 
+    def scan_origins(
+        self,
+        request: OdooSourceCaptureRequest,
+        context: ProtectedOdooReadContext,
+        *,
+        cancellation: CancellationProbe | None = None,
+    ) -> tuple[OdooOriginBatch, ...]: ...
+
     def sample(
         self,
         request: OdooSourceCaptureRequest,
@@ -171,11 +188,13 @@ class OdooSourceCaptureService:
         selections: OdooCaptureSelectionReader,
         schemas: OdooCaptureSchemaReader,
         authorization: WorkspaceAccessService,
+        capture_filters: OdooCaptureFilterStore | None = None,
     ) -> None:
         self._workspaces = workspaces
         self._selections = selections
         self._schemas = schemas
         self._authorization = authorization
+        self._capture_filters = capture_filters
 
     def capture(
         self,
@@ -233,6 +252,16 @@ class OdooSourceCaptureService:
             actor=actor,
             require_complete=True,
         )
+        if any(
+            request.capture_role is OdooCaptureRole.LINKED_ONLY
+            for request, _, _ in contexts
+        ):
+            return self._capture_with_dependencies(
+                workspace_id, gateway, contexts,
+                consume_page_factory=consume_page_factory,
+                cancellation=cancellation,
+                observe_matching_rows=observe_matching_rows,
+            )
         return self._capture_contexts(
             workspace_id,
             gateway,
@@ -308,6 +337,145 @@ class OdooSourceCaptureService:
         require_not_cancelled(cancellation)
         return tuple(results)
 
+    def _discover_dependencies(
+        self,
+        gateway: OdooSourceCapturePort,
+        contexts: tuple[
+            tuple[OdooSourceCaptureRequest, OdooSchemaCatalog, OdooCaptureSelection],
+            ...,
+        ],
+        protected_context: ProtectedOdooReadContext,
+        *,
+        cancellation: CancellationProbe | None,
+    ) -> ProtectedDependencyClosure:
+        return discover_dependency_closure(
+            tuple(request for request, _, _ in contexts),
+            lambda request: gateway.scan_origins(
+                request, protected_context, cancellation=cancellation
+            ),
+        )
+
+    def _capture_with_dependencies(
+        self,
+        workspace_id: str,
+        gateway: OdooSourceCapturePort,
+        contexts: tuple[
+            tuple[OdooSourceCaptureRequest, OdooSchemaCatalog, OdooCaptureSelection],
+            ...,
+        ],
+        *,
+        consume_page_factory: Callable[
+            [OdooSourceCaptureRequest, OdooCaptureSelection],
+            Callable[[OdooCapturePage], None],
+        ],
+        cancellation: CancellationProbe | None,
+        observe_matching_rows: Callable[[OdooCaptureSelection, int], None] | None,
+    ) -> tuple[OdooSourceCaptureResult, ...]:
+        first_request, schema, _ = contexts[0]
+        protected_context = self._verify_start(
+            gateway, first_request, schema, cancellation=cancellation
+        )
+        closure = self._discover_dependencies(
+            gateway, contexts, protected_context, cancellation=cancellation
+        )
+        if observe_matching_rows is not None:
+            for request, _, selection in contexts:
+                observe_matching_rows(
+                    selection, len(closure.ids_by_model[request.model])
+                )
+        results: list[OdooSourceCaptureResult] = []
+        for request, _, selection in contexts:
+            require_not_cancelled(cancellation)
+            expected_ids = closure.ids_by_model[request.model]
+            consume_page = consume_page_factory(request, selection)
+            if request.capture_role is OdooCaptureRole.ROOT:
+                segments = (request,)
+            else:
+                segments = tuple(
+                    replace(request, member_ids=expected_ids[index:index + 100])
+                    for index in range(0, len(expected_ids), 100)
+                )
+            captured_batches: list[OdooOriginBatch] = []
+            accounting_segments: list[OdooCaptureAccounting] = []
+            completed_rows = 0
+            for segment in segments:
+                session = gateway.open_capture(
+                    segment, protected_context, cancellation=cancellation
+                )
+                expected_segment_rows = (
+                    len(expected_ids)
+                    if segment.capture_role is OdooCaptureRole.ROOT
+                    else len(segment.member_ids)
+                )
+                if session.matching_rows != expected_segment_rows:
+                    raise OdooSourceCaptureConsistencyError(
+                        "Odoo linked-record membership changed after discovery"
+                    )
+                for page in session.pages():
+                    require_not_cancelled(cancellation)
+                    rebased = replace(
+                        page,
+                        first_row_ordinal=completed_rows + page.first_row_ordinal,
+                    )
+                    consume_page(rebased)
+                    captured_batches.append(rebased.origin_batch)
+                accounting = session.accounting
+                completed_rows += accounting.row_count
+                accounting_segments.append(accounting)
+            require_capture_matches_discovery(
+                request, tuple(captured_batches), closure
+            )
+            now = datetime.now(timezone.utc)
+            accounting = OdooCaptureAccounting(
+                high_water_id=max(
+                    (item.high_water_id for item in accounting_segments), default=0
+                ),
+                row_count=completed_rows,
+                page_count=sum(item.page_count for item in accounting_segments),
+                record_request_count=sum(
+                    item.record_request_count for item in accounting_segments
+                ),
+                response_bytes=sum(item.response_bytes for item in accounting_segments),
+                normalized_bytes=sum(
+                    item.normalized_bytes for item in accounting_segments
+                ),
+                capture_started_at=(
+                    accounting_segments[0].capture_started_at
+                    if accounting_segments else now
+                ),
+                capture_finished_at=(
+                    accounting_segments[-1].capture_finished_at
+                    if accounting_segments else now
+                ),
+                consistency=request.consistency,
+                target_instance_assurance=request.target_instance_assurance,
+                consistency_limitation=(
+                    accounting_segments[0].consistency_limitation
+                    if accounting_segments else "No linked records were selected"
+                ),
+                read_segment_count=len(accounting_segments),
+            )
+            results.append(OdooSourceCaptureResult(
+                request=request,
+                selection=selection,
+                accounting=accounting,
+                matching_rows=len(expected_ids),
+            ))
+        end_closure = self._discover_dependencies(
+            gateway, contexts, protected_context, cancellation=cancellation
+        )
+        if end_closure != closure:
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo linked-record membership changed during capture. Freeze again."
+            )
+        self._require_current_contexts(workspace_id, contexts)
+        self._verify_end(
+            gateway, first_request, schema, protected_context,
+            cancellation=cancellation,
+        )
+        require_not_cancelled(cancellation)
+        return tuple(results)
+
     def assess(
         self,
         workspace_id: str,
@@ -367,6 +535,39 @@ class OdooSourceCaptureService:
             schema,
             cancellation=cancellation,
         )
+        if any(
+            request.capture_role is OdooCaptureRole.LINKED_ONLY
+            for request, _, _ in contexts
+        ):
+            closure = self._discover_dependencies(
+                gateway, contexts, protected_context, cancellation=cancellation
+            )
+            observed_at = datetime.now(timezone.utc)
+            items = tuple((
+                selection,
+                OdooCaptureAssessment(
+                    selection_hash=request.selection_hash,
+                    matching_rows=len(closure.ids_by_model[request.model]),
+                    maximum_rows=request.maximum_rows,
+                    page_size=(
+                        min(request.page_size, 100)
+                        if request.capture_role is OdooCaptureRole.LINKED_ONLY
+                        else request.page_size
+                    ),
+                    observed_at=observed_at,
+                ),
+            ) for request, _, selection in contexts)
+            self._require_current_contexts(workspace_id, contexts)
+            self._verify_end(
+                gateway, first_request, schema, protected_context,
+                cancellation=cancellation,
+            )
+            return OdooCaptureSetAssessment(
+                selection_hash=odoo_capture_selection_set_hash(
+                    tuple(selection for _, _, selection in contexts)
+                ),
+                items=items,
+            )
         observed_at = datetime.now(timezone.utc)
         items = []
         for request, _, selection in contexts:
@@ -559,11 +760,22 @@ class OdooSourceCaptureService:
                 "Save a capture plan for every selected Odoo record type before "
                 "checking or freezing records"
             )
+        if (
+            any(item.capture_role is OdooCaptureRole.LINKED_ONLY for item in selections)
+            and not any(item.capture_role is OdooCaptureRole.ROOT for item in selections)
+        ):
+            raise WorkspaceError(
+                "Choose at least one root Odoo record type before linked-only capture"
+            )
         if schema.origin is not SchemaOrigin.LIVE_API:
             raise WorkspaceError(
                 "Live Odoo source capture requires authenticated schema evidence"
             )
         contexts = []
+        linked_models = frozenset(
+            item.model for item in selections
+            if item.capture_role is OdooCaptureRole.LINKED_ONLY
+        )
         for selection in selections:
             if selection.data_version_id != access.data_version_id:
                 raise WorkspaceError(
@@ -573,11 +785,50 @@ class OdooSourceCaptureService:
                 raise WorkspaceError(
                     "Review and save the Odoo capture plan before reading records"
                 )
-            contexts.append(
-                (plan_odoo_source_capture(selection, schema), schema, selection)
-            )
+            contexts.append((
+                self._plan_for_selection(
+                    access.project_id, selection, schema,
+                    linked_models=linked_models,
+                ),
+                schema,
+                selection,
+            ))
         require_consistent_odoo_capture_selection_set(selections)
         return tuple(contexts)
+
+    def _plan_for_selection(
+        self,
+        project_id: str,
+        selection: OdooCaptureSelection,
+        schema: OdooSchemaCatalog,
+        *,
+        linked_models: frozenset[str],
+    ) -> OdooSourceCaptureRequest:
+        if selection.protected_filter_artifact_hash is None:
+            return plan_odoo_source_capture(
+                selection, schema, linked_models=linked_models
+            )
+        if self._capture_filters is None:
+            raise WorkspaceError("Protected Odoo source filters are not configured")
+        clauses = self._capture_filters.read(project_id, selection)
+        return plan_odoo_source_capture(
+            selection, schema, protected_filter_clauses=clauses,
+            linked_models=linked_models,
+        )
+
+    def validate_current_plans(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+    ) -> tuple[OdooSourceCaptureRequest, ...]:
+        """Validate current plans, including encrypted predicates, without Odoo I/O."""
+
+        return tuple(
+            request for request, _, _ in self._contexts(
+                workspace_id, actor=actor, require_complete=False
+            )
+        )
 
     def _context(
         self,

@@ -48,6 +48,20 @@
     </div>
   {% endif %}
 
+  {% if has_linked_only %}
+    <section class="notice warning" id="linked-record-scope">
+      <strong>Relationship fields used to find linked records</strong>
+      <p>Impodo follows the eligible links below between selected record types, up to four relationship steps. It stops if a linked record is missing or inaccessible.</p>
+      <ul>
+        {% for model, field in linked_relationships %}
+          <li>{{ model.label }}.{{ field.label }} ({{ model.name }}.{{ field.name }}) refers to {{ field.relation }}</li>
+        {% else %}
+          <li>No eligible links connect the selected record types.</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
   {% if capture_ready_to_assess and not assessment %}
     <section class="next-action-card ready" id="capture-next-action">
       <div>
@@ -63,6 +77,12 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="selection_id" value="{{ current_selections[0].selection_id }}">
           <input type="hidden" name="selection_hash" value="{{ selection_set_hash }}">
+          {% if has_linked_only %}
+            <label class="checkbox">
+              <input type="checkbox" name="confirm_linked_relationships" value="1" required>
+              I reviewed the selected relationship fields above
+            </label>
+          {% endif %}
           <button class="button primary" type="submit">Check matching records and continue</button>
         </form>
       </div>
@@ -152,6 +172,37 @@
               <small>Choose 10 for a constrained demo server, 100 for a cautious default, or 500 for a stronger server. This changes batch size, not the records included.</small>
             </label>
           </div>
+
+          <label class="checkbox">
+            <input type="checkbox" name="linked_only" value="1" {% if current and current.capture_role.value == 'LINKED_ONLY' %}checked{% endif %}>
+            Capture only records linked from the selected source records
+          </label>
+          <p class="muted">Use this for a supporting record type. Impodo includes archived linked records. Keep at least one root record type.</p>
+
+          <div class="form-grid compact-grid">
+            <label>
+              Root record filter (optional)
+              <select name="filter_field">
+                <option value="">{% if current and (current.protected_filter_artifact_hash or current.filter_clauses) %}Keep saved root filter{% else %}No root filter{% endif %}</option>
+                {% for field in filter_fields %}
+                  <option value="{{ field.name }}">{{ field.label }} ({{ field.name }})</option>
+                {% endfor %}
+              </select>
+              <small>Choose one direct Odoo field. Impodo will match its exact value.</small>
+            </label>
+            <label>
+              Exact value
+              <input name="filter_value" maxlength="4096" autocomplete="off" placeholder="Enter a value for the chosen field">
+              <small>For a Boolean field, enter true or false. Use the Odoo code for a selection field.</small>
+            </label>
+          </div>
+          {% if current and (current.protected_filter_artifact_hash or current.filter_clauses) %}
+            <p class="notice warning">This plan has a protected root filter. Saving other changes keeps it. Enter a new field and value to replace it.</p>
+            <label class="checkbox">
+              <input type="checkbox" name="remove_filter" value="1">
+              Remove the saved root filter
+            </label>
+          {% endif %}
 
           <fieldset class="model-picker-list">
             <legend>Eligible fields from {{ selected_model.label }}</legend>

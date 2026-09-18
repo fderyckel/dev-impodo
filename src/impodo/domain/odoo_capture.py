@@ -25,6 +25,8 @@ from .source_binding import OdooSourceBinding, SourceOriginKind
 
 
 ODOO_CAPTURE_CONTRACT_VERSION = 4
+PROTECTED_FILTER_CONTRACT_VERSION = 5
+RELATED_CAPTURE_CONTRACT_VERSION = 6
 MAX_ODOO_CAPTURE_FIELDS = CURRENT_ODOO_SOURCE_POLICY.max_fields
 MAX_ODOO_CAPTURE_ROWS = CURRENT_ODOO_SOURCE_POLICY.max_rows
 MAX_ODOO_CAPTURE_DATASETS = 10
@@ -52,6 +54,11 @@ class OdooCaptureFilterPolicy(StrEnum):
     ALL_MATCHING_RECORDS = "ALL_MATCHING_RECORDS"
     ACTIVE_RECORDS = "ACTIVE_RECORDS"
     ACTIVE_AND_ARCHIVED_RECORDS = "ACTIVE_AND_ARCHIVED_RECORDS"
+
+
+class OdooCaptureRole(StrEnum):
+    ROOT = "ROOT"
+    LINKED_ONLY = "LINKED_ONLY"
 
 
 class OdooCaptureConsistency(StrEnum):
@@ -130,9 +137,9 @@ class OdooCaptureFilterClause:
 class OdooCaptureSelection:
     """One immutable, bounded Odoo-source capture plan.
 
-    The current contract intentionally exposes no arbitrary Odoo domain. Its
-    only filter decision is whether archived rows join the active rows; later
-    filter variants require a new contract version and explicit validation.
+    The browser can save an exact-match direct-field predicate in encrypted
+    project evidence. Version 5 binds its ciphertext hash here without storing
+    the predicate value. No version accepts an arbitrary Odoo domain.
     """
 
     selection_id: str
@@ -156,13 +163,36 @@ class OdooCaptureSelection:
     created_by: str
     content_hash: str
     contract_version: int = ODOO_CAPTURE_CONTRACT_VERSION
+    protected_filter_artifact_hash: str | None = None
+    capture_role: OdooCaptureRole = OdooCaptureRole.ROOT
     _calculate_content_hash: InitVar[bool] = False
 
     def __post_init__(self, _calculate_content_hash: bool) -> None:
-        if self.contract_version != ODOO_CAPTURE_CONTRACT_VERSION:
+        if self.contract_version not in {
+            ODOO_CAPTURE_CONTRACT_VERSION,
+            PROTECTED_FILTER_CONTRACT_VERSION,
+            RELATED_CAPTURE_CONTRACT_VERSION,
+        }:
             raise OdooCaptureContractError(
                 "Unsupported Odoo capture selection contract version"
             )
+        object.__setattr__(self, "capture_role", OdooCaptureRole(self.capture_role))
+        if self.contract_version == RELATED_CAPTURE_CONTRACT_VERSION:
+            if (
+                self.capture_role is not OdooCaptureRole.LINKED_ONLY
+                or self.filter_clauses
+                or self.protected_filter_artifact_hash is not None
+                or self.filter_policy is OdooCaptureFilterPolicy.ACTIVE_RECORDS
+            ):
+                raise OdooCaptureContractError("Linked-only Odoo capture selection is invalid")
+        elif self.capture_role is not OdooCaptureRole.ROOT:
+            raise OdooCaptureContractError("Earlier Odoo selections must capture roots")
+        if self.contract_version == PROTECTED_FILTER_CONTRACT_VERSION:
+            if self.filter_clauses or self.protected_filter_artifact_hash is None:
+                raise OdooCaptureContractError("Protected Odoo filter reference is invalid")
+            _require_hash(self.protected_filter_artifact_hash, "protected filter artifact hash")
+        elif self.protected_filter_artifact_hash is not None:
+            raise OdooCaptureContractError("Earlier Odoo selections cannot reference protected filters")
         for value, label in (
             (self.selection_id, "selection ID"),
             (self.data_version_id, "DataVersion ID"),
@@ -261,6 +291,8 @@ class OdooCaptureSelection:
         model: str,
         field_names: tuple[str, ...],
         filter_clauses: tuple[OdooCaptureFilterClause, ...] = (),
+        protected_filter_artifact_hash: str | None = None,
+        capture_role: OdooCaptureRole = OdooCaptureRole.ROOT,
         filter_policy: OdooCaptureFilterPolicy,
         max_rows: int,
         page_size: int = ODOO_CAPTURE_PAGE_SIZE,
@@ -272,6 +304,7 @@ class OdooCaptureSelection:
         created_at: datetime,
         created_by: str,
     ) -> OdooCaptureSelection:
+        capture_role = OdooCaptureRole(capture_role)
         return cls(
             selection_id=selection_id,
             version=version,
@@ -280,6 +313,17 @@ class OdooCaptureSelection:
             model=model,
             field_names=field_names,
             filter_clauses=filter_clauses,
+            protected_filter_artifact_hash=protected_filter_artifact_hash,
+            capture_role=capture_role,
+            contract_version=(
+                RELATED_CAPTURE_CONTRACT_VERSION
+                if capture_role is OdooCaptureRole.LINKED_ONLY
+                else (
+                    PROTECTED_FILTER_CONTRACT_VERSION
+                    if protected_filter_artifact_hash is not None
+                    else ODOO_CAPTURE_CONTRACT_VERSION
+                )
+            ),
             filter_policy=filter_policy,
             max_rows=max_rows,
             page_size=page_size,
@@ -325,7 +369,7 @@ class OdooCaptureSelection:
         )
 
     def _semantic_dict(self) -> dict[str, object]:
-        return {
+        value = {
             "contract_version": self.contract_version,
             "connection_target_hash": self.connection_target_hash,
             "consistency": self.consistency.value,
@@ -345,6 +389,11 @@ class OdooCaptureSelection:
             "selection_id": self.selection_id,
             "version": self.version,
         }
+        if self.contract_version == PROTECTED_FILTER_CONTRACT_VERSION:
+            value["protected_filter_artifact_hash"] = self.protected_filter_artifact_hash
+        if self.contract_version == RELATED_CAPTURE_CONTRACT_VERSION:
+            value["capture_role"] = self.capture_role.value
+        return value
 
     def to_json(self) -> str:
         return canonical_json(
@@ -360,31 +409,37 @@ class OdooCaptureSelection:
     def from_json(cls, value: str) -> OdooCaptureSelection:
         try:
             payload = json.loads(value)
+            contract_version = int(payload["contract_version"])
+            required_keys = {
+                "selection_id",
+                "version",
+                "data_version_id",
+                "dataset_name",
+                "model",
+                "field_names",
+                "filter_clauses",
+                "filter_policy",
+                "max_rows",
+                "page_size",
+                "consistency",
+                "policy_hash",
+                "connection_target_hash",
+                "schema_scope_hash",
+                "read_principal_hash",
+                "read_permission_hash",
+                "context_hash",
+                "created_at",
+                "created_by",
+                "content_hash",
+                "contract_version",
+            }
+            if contract_version == PROTECTED_FILTER_CONTRACT_VERSION:
+                required_keys.add("protected_filter_artifact_hash")
+            if contract_version == RELATED_CAPTURE_CONTRACT_VERSION:
+                required_keys.add("capture_role")
             _require_exact_keys(
                 payload,
-                {
-                    "selection_id",
-                    "version",
-                    "data_version_id",
-                    "dataset_name",
-                    "model",
-                    "field_names",
-                    "filter_clauses",
-                    "filter_policy",
-                    "max_rows",
-                    "page_size",
-                    "consistency",
-                    "policy_hash",
-                    "connection_target_hash",
-                    "schema_scope_hash",
-                    "read_principal_hash",
-                    "read_permission_hash",
-                    "context_hash",
-                    "created_at",
-                    "created_by",
-                    "content_hash",
-                    "contract_version",
-                },
+                required_keys,
             )
             selection = cls(
                 selection_id=str(payload["selection_id"]),
@@ -410,7 +465,9 @@ class OdooCaptureSelection:
                 created_at=datetime.fromisoformat(str(payload["created_at"])),
                 created_by=str(payload["created_by"]),
                 content_hash=str(payload["content_hash"]),
-                contract_version=int(payload["contract_version"]),
+                contract_version=contract_version,
+                protected_filter_artifact_hash=payload.get("protected_filter_artifact_hash"),
+                capture_role=OdooCaptureRole(payload.get("capture_role", "ROOT")),
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             if isinstance(error, OdooCaptureContractError):

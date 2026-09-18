@@ -118,22 +118,58 @@ values, which the source snapshot records as numeric values and presents as
 decimal candidates. The Odoo-source policy hash changes when this capture
 surface changes, so an earlier saved selection cannot silently acquire the
 new field type. This read-only capture change does not enable float updates to
-the captured source instance. The reader fetches 10, 100, or 500-row keyset
+the captured source instance. The browser also accepts one exact-match root
+predicate on an eligible direct scalar field. `SourceWorkspaceService` validates
+the field and value against the live schema before storing the value through
+`ProtectedOdooCaptureFilterStore`. The encrypted artifact is bound to the
+selection ID, version, DataVersion, and project. The version-5 selection JSON
+contains only the ciphertext hash; it contains neither the predicate value nor
+an Odoo record ID. `OdooSourceCaptureService` requires and verifies the artifact
+before it builds a governed request. Missing or changed artifacts block capture.
+The DuckDB admission check validates the selection's schema reference without
+using its protected value; it discards that temporary validation request and
+cannot use it for a live read.
+Earlier version-4 selections remain readable. Editing a filtered plan reuses
+the protected value and creates a new encrypted artifact for the new selection
+version. The operator must explicitly remove it or enter a replacement to
+change the record scope.
+Version-6 selections mark a supporting model as `LINKED_ONLY`. They contain no
+source record IDs and cannot carry a root filter. `OdooSourceCaptureService`
+builds a protected dependency closure from the selected root records. It scans
+only IDs, write dates, and eligible relationship fields before any business
+values. It follows many-to-one and many-to-many links and uses one-to-many
+fields to discover children whose inverse many-to-one field owns the portable
+link. The closure deduplicates cycles and enforces four steps, 50,000 total
+rows, 250,000 links, and the per-model row limit. It rejects missing or
+inaccessible linked records and references outside a selected root set.
+Membership is kept in memory inside the protected capture path. Linked value
+reads use chunks of at most 100 IDs, and an empty linked set creates an empty
+dataset without an unbounded model read. Capture compares IDs, write dates,
+and stored links against discovery, then rescans the closure before publication
+to detect changed membership or discovery links. The complete manifest set is
+still promoted together. Because JSON-2 does not provide a database-wide
+snapshot, a source change that reverts between checks remains a limitation.
+The reader fetches 10, 100, or 500-row keyset
 pages as the saved plan specifies. It shares the start and end identity and schema
-checks across the set, but opens one bounded value stream per model. The live
+checks across the set. Root models use one bounded value stream; linked models
+use one stream for each protected 100-ID chunk. The live
 reader accepts only service-generated requests. It exposes no raw domain,
 arbitrary context, generic method, or caller-selected field path.
 
 The source selection page derives a bounded, read-only list of writable
-many-to-one and many-to-many fields that refer to models outside the selected
-schema. This helps the operator spot missing model scope before capture. The
+many-to-one and many-to-many fields, plus one-to-many child fields, that refer
+to models outside the selected schema. This helps the operator spot missing
+model scope before capture. The
 capture projection still includes relationship origins only when both models
-are selected; the list is not a dependency closure or a record-level proof.
+are selected. A separate relationship review lists eligible links between
+selected models before linked capture assessment. The operator confirms that
+list as a group; individual edge approval and automatic selection of missing
+model types are not yet implemented.
 
 Each identity check computes one small company-scope fingerprint from the
 primary and available company IDs. Assessment performs one identity and schema
 check for the complete set. Capture performs one pair before and after the
-complete set. Record pages are neither rescanned nor hashed, and consistency
+complete set. Business-value pages are neither rescanned nor hashed, and consistency
 validation does not compute a digest unless the workflow needs an evidence or
 form token.
 
@@ -145,6 +181,8 @@ form token.
 | Isolated source workers | [`source_worker.py`](../../../src/impodo/application/data_version/source_worker.py) |
 | Shared source-file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Odoo source capture | [`OdooSourceCaptureService`](../../../src/impodo/application/odoo_source_capture_service.py) |
+| Protected linked-record closure | [`discover_dependency_closure`](../../../src/impodo/application/odoo_dependency_capture.py) |
+| Protected root predicates | [`ProtectedOdooCaptureFilterStore`](../../../src/impodo/adapters/protected_odoo_capture_filters.py) |
 | Atomic Odoo capture-set publication | [`OdooCapturePublicationService`](../../../src/impodo/application/odoo_capture_publication_service.py) |
 | Protected Odoo origin evidence | [`OdooProvenanceService`](../../../src/impodo/application/odoo_provenance_service.py) |
 | Data-version source acceptance | [`WorkspaceDataVersionSourceService`](../../../src/impodo/application/workspace_data_version_source_service.py) |

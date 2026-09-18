@@ -44,6 +44,9 @@ _BLOCKER_LABELS = {
         "A matching key resolves to a different destination record"
     ),
     "DESTINATION_FIELD_SCOPE_DRIFT": "Compatible field scope changed",
+    "DESTINATION_CREATE_FIELD_DRIFT": "Required create fields changed",
+    "DESTINATION_CREATE_FIELDS_UNRESOLVED": "Required create fields need values or reviewed defaults",
+    "DESTINATION_WORKFLOW_HANDLER_REQUIRED": "This model needs a qualified business workflow handler",
     "DESTINATION_RELATIONSHIP_SCOPE_DRIFT": "Relationship scope changed",
     "DESTINATION_RELATIONSHIP_RESOLUTION_DRIFT": "Relationship resolution changed",
     "SOURCE_KEY_BLANK": "A source matching key is blank",

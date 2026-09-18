@@ -16,8 +16,8 @@ from typing import Any
 from impodo.domain.serialization import canonical_json, content_hash
 
 
-DESTINATION_MATCH_CONTRACT_VERSION = 4
-_SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset({1, 2, 3, 4})
+DESTINATION_MATCH_CONTRACT_VERSION = 5
+_SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset({1, 2, 3, 4, 5})
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 
@@ -47,6 +47,8 @@ class DestinationModelMatch:
     destination_limit_reached: bool
     source_column_keys: tuple[str, ...] = ()
     key_fields: tuple[str, ...] = ()
+    unresolved_create_fields: tuple[str, ...] = ()
+    requires_workflow_handler: bool = False
 
     def __post_init__(self) -> None:
         text_values = (
@@ -98,15 +100,18 @@ class DestinationModelMatch:
             raise ValueError("Destination model matching totals are inconsistent")
         if _HASH.fullmatch(self.destination_key_binding_hash) is None:
             raise ValueError("Destination key classification binding is invalid")
+        if not isinstance(self.requires_workflow_handler, bool):
+            raise ValueError("Destination workflow requirement is invalid")
         field_groups = (
             self.compatible_fields,
             self.missing_fields,
             self.incompatible_fields,
+            self.unresolved_create_fields,
         )
         if any(group != tuple(sorted(set(group))) for group in field_groups):
             raise ValueError("Destination field results must be sorted and unique")
-        if len(set().union(*map(set, field_groups))) != sum(
-            len(group) for group in field_groups
+        if len(set().union(*map(set, field_groups[:3]))) != sum(
+            len(group) for group in field_groups[:3]
         ):
             raise ValueError("Destination field results overlap")
 
@@ -134,6 +139,10 @@ class DestinationModelMatch:
             reasons.append("DESTINATION_FIELDS_MISSING")
         if self.incompatible_fields:
             reasons.append("DESTINATION_FIELDS_INCOMPATIBLE")
+        if self.destination_create_key_count and self.unresolved_create_fields:
+            reasons.append("DESTINATION_CREATE_FIELDS_UNRESOLVED")
+        if self.requires_workflow_handler:
+            reasons.append("DESTINATION_WORKFLOW_HANDLER_REQUIRED")
         return tuple(reasons)
 
     @property
@@ -375,6 +384,12 @@ class DestinationMatchPlan:
                         self.contract_version >= 4
                         or name not in {"source_column_keys", "key_fields"}
                     )
+                    and (
+                        self.contract_version >= 5
+                        or name not in {
+                            "unresolved_create_fields", "requires_workflow_handler"
+                        }
+                    )
                 }
                 for item in self.model_matches
             ],
@@ -466,6 +481,12 @@ class DestinationMatchPlan:
                         ),
                         source_column_keys=tuple(item.get("source_column_keys", ())),
                         key_fields=tuple(item.get("key_fields", ())),
+                        unresolved_create_fields=tuple(
+                            item.get("unresolved_create_fields", ())
+                        ),
+                        requires_workflow_handler=bool(
+                            item.get("requires_workflow_handler", False)
+                        ),
                     )
                     for item in payload["model_matches"]
                 ),

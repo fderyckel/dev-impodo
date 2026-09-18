@@ -158,6 +158,70 @@ class DestinationMatchingTests(unittest.TestCase):
         )
         previous = replace(plan, contract_version=3)
         self.assertEqual(DestinationMatchPlan.from_json(previous.to_json()), previous)
+        previous_full_fields = replace(plan, contract_version=4)
+        self.assertEqual(
+            DestinationMatchPlan.from_json(previous_full_fields.to_json()),
+            previous_full_fields,
+        )
+
+    def test_required_destination_create_fields_are_checked_from_full_metadata(self) -> None:
+        base_reader = _destination_reader(self.workspace)
+
+        def reader(*args):
+            self.assertTrue(all(request.all_fields for request in args[2]))
+            metadata, records = base_reader(*args)
+            product = metadata.models["product.template"]
+            fields = {
+                **product.fields,
+                "company_id": FieldMetadata(
+                    "company_id", "many2one", "Company", required=True,
+                    relation="res.company", company_dependent=False,
+                ),
+                "x_low_risk": FieldMetadata(
+                    "x_low_risk", "char", "Note", required=True,
+                    company_dependent=False,
+                ),
+                "state": FieldMetadata(
+                    "state", "selection", "State", required=True,
+                    company_dependent=False,
+                ),
+            }
+            return replace(
+                metadata,
+                models={
+                    **metadata.models,
+                    "product.template": replace(product, fields=fields),
+                },
+                create_defaults={
+                    "product.template": {
+                        "x_low_risk": "standard",
+                        "state": "draft",
+                    },
+                },
+            ), records
+
+        plan = DestinationMatchingService(self.source_values).check(
+            self.workspace,
+            self.selection,
+            self.schema,
+            (
+                DestinationMatchKeyChoice(self.product.dataset_id, "product-code"),
+                DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=reader,
+            recorded_by="Data manager",
+        )
+        product = next(item for item in plan.model_matches if item.model == "product.template")
+        self.assertTrue(plan.ready)
+        self.assertEqual(product.unresolved_create_fields, ("company_id", "state"))
+        self.assertTrue(product.requires_workflow_handler)
+        self.assertIn("DESTINATION_CREATE_FIELDS_UNRESOLVED", product.write_blocking_reasons)
+        self.assertIn("DESTINATION_WORKFLOW_HANDLER_REQUIRED", product.write_blocking_reasons)
+        self.assertEqual(DestinationMatchPlan.from_json(plan.to_json()), plan)
+        self.assertNotIn("standard", plan.to_json())
 
     def test_duplicate_source_keys_block_the_plan(self) -> None:
         self.source_values.values[(self.product.dataset_id, "product-code")] = (

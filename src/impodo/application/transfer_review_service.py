@@ -64,11 +64,16 @@ class TransferReviewService:
                 item.destination_create_key_count > 0
                 or (model_policy == "upsert" and item.destination_existing_key_count > 0)
             )
+            if will_write and item.requires_workflow_handler:
+                raise WorkspaceError(
+                    f"{item.model_label} requires a qualified business workflow "
+                    "handler before creating or updating records"
+                )
             if will_write and item.write_blocking_reasons:
                 raise WorkspaceError(
                     f"{item.model_label} has missing or incompatible destination "
-                    "fields. Select compatible source fields before creating or "
-                    "updating this record type."
+                    "write fields, or unresolved required create fields. Review "
+                    "the destination matching issues before creating or updating."
                 )
 
         relationships_by_owner: dict[str, list[str]] = {

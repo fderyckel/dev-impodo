@@ -28,7 +28,7 @@ from ...domain.source_snapshot import (
 from ...domain.odoo_capture import OdooCaptureSelection
 from ...domain.odoo_source_capture import (
     OdooSourceCaptureConfigurationError,
-    plan_odoo_source_capture,
+    validate_odoo_capture_selection_reference,
 )
 from impodo.application.data_version.inspection import SourceFileCatalog, SourceInspectionError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError, WorkspaceStatus, SourceMode
@@ -431,7 +431,7 @@ class SourceRepository(DuckDbRepository):
                 )
             schema = OdooSchemaCatalog.from_json(str(schema_row[0]))
             try:
-                plan_odoo_source_capture(selection, schema)
+                validate_odoo_capture_selection_reference(selection, schema)
             except OdooSourceCaptureConfigurationError as error:
                 raise WorkspaceError(
                     "Odoo capture selection does not match the current schema identity"

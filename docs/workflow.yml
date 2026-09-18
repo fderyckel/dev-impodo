@@ -109,6 +109,7 @@ stages:
       - src/impodo/application/source_workspace_service.py::SourceWorkspaceService
       - src/impodo/application/source_workspace_service.py::SourceWorkspaceService.freeze_selection
       - src/impodo/application/odoo_source_capture_service.py::OdooSourceCaptureService
+      - src/impodo/application/odoo_dependency_capture.py::discover_dependency_closure
       - src/impodo/application/odoo_capture_publication_service.py::OdooCapturePublicationService
       - src/impodo/application/odoo_provenance_service.py::OdooProvenanceService
       - src/impodo/application/workspace_data_version_source_service.py::WorkspaceDataVersionSourceService
