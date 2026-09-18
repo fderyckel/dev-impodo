@@ -62,6 +62,48 @@ class GovernedReferencePolicyTests(unittest.TestCase):
             ReferenceEvidenceKind.REVIEWED_STANDARD,
         )
 
+    def test_company_scoped_name_probe_uses_verified_metadata_for_any_relation(self):
+        scoped = self._country_request(
+            parent_model="x.machine",
+            relationship_field="x_location_id",
+            relationship_model="x.location",
+            related_model="x.location",
+            key_fields=("name",),
+            scope_fields=("company_id",),
+            requested_fields=("name", "company_id"),
+            purpose=ReferenceReadPurpose.MATCH_CHOICES,
+            governed_key=True,
+        )
+        fields = (
+            StandardReferenceFieldContract("name", "char", True, False),
+            StandardReferenceFieldContract(
+                "company_id", "many2one", False, False, "res.company"
+            ),
+        )
+
+        initial = authorize_supporting_match_probe(scoped)
+        accepted = authorize_supporting_match_probe(scoped, captured_fields=fields)
+        wrong_relation = authorize_supporting_match_probe(
+            scoped,
+            captured_fields=(
+                fields[0],
+                replace(fields[1], relation_model="x.company"),
+            ),
+        )
+        unsupported_scope = authorize_supporting_match_probe(
+            replace(
+                scoped,
+                scope_fields=("x_site_id",),
+                requested_fields=("name", "x_site_id"),
+            )
+        )
+
+        self.assertTrue(initial.accepted)
+        self.assertTrue(accepted.accepted)
+        self.assertFalse(wrong_relation.accepted)
+        self.assertFalse(unsupported_scope.accepted)
+        self.assertIsNone(standard_reference_key("x.location"))
+
     def test_incompatible_explicit_capture_fails_closed(self):
         country = standard_reference_key("res.country")
         assert country is not None
@@ -158,6 +200,31 @@ class GovernedReferencePolicyTests(unittest.TestCase):
         self.assertEqual(
             accepted.evidence_kind,
             ReferenceEvidenceKind.CAPTURED_GOVERNED,
+        )
+
+    def test_captured_custom_reference_accepts_a_confirmed_noncompany_scope(self):
+        request = self._country_request(
+            parent_model="x.machine",
+            relationship_field="x_location_id",
+            relationship_model="x.location",
+            related_model="x.location",
+            key_fields=("x_code",),
+            scope_fields=("x_site_id",),
+            requested_fields=("x_code", "x_site_id"),
+            governed_key=True,
+        )
+        fields = (
+            StandardReferenceFieldContract("x_code", "char", True, False),
+            StandardReferenceFieldContract(
+                "x_site_id", "many2one", False, False, "x.site"
+            ),
+        )
+
+        decision = authorize_governed_reference(request, captured_fields=fields)
+
+        self.assertTrue(decision.accepted)
+        self.assertEqual(
+            decision.evidence_kind, ReferenceEvidenceKind.CAPTURED_GOVERNED
         )
 
     def test_many2one_name_probe_is_bounded_to_stage_three_choices(self):

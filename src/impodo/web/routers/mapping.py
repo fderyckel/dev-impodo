@@ -71,6 +71,7 @@ from ...domain.errors import ReadinessError
 from ...domain.mapping.contracts import (
     MAPPING_CONTRACT_VERSION,
     SUPPORTED_MAPPING_CONTRACT_VERSIONS,
+    RelationshipValueSource,
     RowInclusionMode,
     TargetFieldHandling,
     UnsupportedMappingContractError,
@@ -80,6 +81,7 @@ from ...domain.mapping.row_inclusion_review import (
     RowInclusionReviewFilter,
     RowInclusionReviewOutcome,
 )
+from ...domain.workspace.supporting_lookups import portable_supporting_value
 from ...domain.staging.transformation_impact import TransformationImpactFilter
 from ...domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
@@ -145,6 +147,50 @@ from ..security import require_csrf, require_session
 
 
 _ROW_REVIEW_FAILURE_CODE = "MAPPING_ROW_REVIEW_FAILED"
+
+
+def _require_selected_company_scopes(
+    context: WebContext,
+    workspace_id: str,
+    datasets,
+    schema,
+) -> None:
+    """Accept scoped constant choices only from current Odoo lookup evidence."""
+
+    for dataset in datasets:
+        for relation in dataset.relationships:
+            reference = relation.constant_reference
+            if (
+                relation.value_source is not RelationshipValueSource.CONSTANT_EXISTING
+                or reference is None
+                or tuple(item.target_field for item in reference.key_values)
+                != ("name",)
+                or tuple(item.target_field for item in reference.scope_values)
+                != ("company_id",)
+            ):
+                continue
+            snapshot = context.supporting_lookups.current(
+                workspace_id,
+                relation_model=relation.resolver.model,
+                key_fields=("name",),
+                scope_fields=("company_id",),
+                display_field="name",
+                target_hash=schema.connection_target_hash,
+                read_credential_binding_hash=schema.read_credential_binding_hash,
+                read_principal_hash=schema.read_principal_hash,
+                read_context_hash=schema.read_context_hash,
+                actor=context.actor,
+            )
+            chosen = portable_supporting_value(
+                (reference.key_values[0].value, reference.scope_values[0].value)
+            )
+            if snapshot is None or chosen not in {
+                choice.value for choice in snapshot.choices
+            }:
+                raise WorkspaceError(
+                    f"Choose an existing {relation.target_field} record with its "
+                    "company after checking the available Odoo choices."
+                )
 
 
 def build_mapping_router(context: WebContext) -> APIRouter:
@@ -1529,6 +1575,9 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     governance,
                     fixed_controls=fixed_controls,
                     derived_links=derived_dataset_links(preparation_plan),
+                )
+                _require_selected_company_scopes(
+                    context, workspace_id, datasets, schema
                 )
                 datasets = _merge_partial_mapping_datasets(
                     datasets,

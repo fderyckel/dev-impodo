@@ -31,6 +31,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     const syncComponents = () => {
       const option = businessKey?.selectedOptions[0];
+      const keyCount = (option?.dataset.keyFields || "").split("|").filter(Boolean).length;
       const fields = [
         ...(option?.dataset.keyFields || "").split("|").filter(Boolean),
         ...(option?.dataset.scopeFields || "").split("|").filter(Boolean),
@@ -40,27 +41,83 @@ document.addEventListener("DOMContentLoaded", () => {
       )) {
         const slot = Number(component.dataset.constantComponentSlot);
         const active = slot < fields.length;
+        const scoped = active && slot >= keyCount && fields[slot] === "company_id";
         component.hidden = !active;
         component.style.display = active ? "" : "none";
         const input = component.querySelector("[data-constant-component-value]");
+        const scopeChoice = component.querySelector("[data-constant-scope-choice]");
         const label = component.querySelector("[data-constant-component-label]");
         if (input) {
-          input.disabled = !active;
-          input.required = active && provider?.value === "constant_existing";
+          input.hidden = scoped;
+          input.style.display = scoped ? "none" : "";
+          input.disabled = !active || scoped;
+          input.required = active && !scoped && provider?.value === "constant_existing";
           input.setCustomValidity(
             input.required && !input.value.trim()
               ? `Enter ${fields[slot]} or choose an existing Odoo record.`
               : ""
           );
         }
+        if (scopeChoice) {
+          scopeChoice.hidden = !scoped;
+          scopeChoice.style.display = scoped ? "" : "none";
+          scopeChoice.disabled = !scoped;
+          scopeChoice.required = scoped && provider?.value === "constant_existing";
+        }
         if (label && active) label.textContent = fields[slot];
+      }
+    };
+    const renderScopeChoices = () => {
+      for (const component of row.querySelectorAll("[data-constant-component-row]")) {
+        const select = component.querySelector("[data-constant-scope-choice]");
+        if (!select || select.disabled) continue;
+        const slot = Number(component.dataset.constantComponentSlot);
+        const selected = select.value;
+        const values = new Set();
+        for (const item of loadedChoices) {
+          try {
+            const parts = JSON.parse(item.value);
+            if (Array.isArray(parts) && parts[slot]) values.add(parts[slot]);
+          } catch (_error) {
+            continue;
+          }
+        }
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = values.size
+          ? "Choose an existing company"
+          : "Check this record to load choices";
+        const options = Array.from(values).sort((a, b) => a.localeCompare(b))
+          .map((value) => {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = value;
+            return option;
+          });
+        select.replaceChildren(placeholder, ...options);
+        select.value = values.has(selected) ? selected : "";
       }
     };
     const renderChoices = () => {
       if (!choice) return;
       const query = search?.value.trim().toLocaleLowerCase() || "";
+      const scopes = Array.from(row.querySelectorAll(
+        "[data-constant-component-row]:not([hidden]) [data-constant-scope-choice]:not([disabled])"
+      )).map((select) => ({
+        slot: Number(select.closest("[data-constant-component-row]").dataset.constantComponentSlot),
+        value: select.value,
+      }));
       const options = loadedChoices
-        .filter((item) => item.label.toLocaleLowerCase().includes(query))
+        .filter((item) => {
+          if (!item.label.toLocaleLowerCase().includes(query)) return false;
+          if (!scopes.some((scope) => scope.value)) return true;
+          try {
+            const parts = JSON.parse(item.value);
+            return scopes.every((scope) => !scope.value || parts[scope.slot] === scope.value);
+          } catch (_error) {
+            return false;
+          }
+        })
         .map((item) => {
           const option = document.createElement("option");
           option.value = item.value;
@@ -88,8 +145,21 @@ document.addEventListener("DOMContentLoaded", () => {
       input.addEventListener("input", syncComponents);
     }
     provider?.addEventListener("change", syncProvider);
-    businessKey?.addEventListener("change", syncComponents);
+    businessKey?.addEventListener("change", () => {
+      loadedChoices = [];
+      for (const component of row.querySelectorAll("[data-constant-component-row]")) {
+        const input = component.querySelector("[data-constant-component-value]");
+        if (input) input.value = "";
+      }
+      syncComponents();
+      renderScopeChoices();
+      renderChoices();
+      if (status) status.textContent = "Check this record to load available Odoo choices.";
+    });
     search?.addEventListener("input", renderChoices);
+    for (const scopeChoice of row.querySelectorAll("[data-constant-scope-choice]")) {
+      scopeChoice.addEventListener("change", renderChoices);
+    }
     choice?.addEventListener("change", () => {
       if (choice.value) {
         const scoped = Boolean(
@@ -102,18 +172,18 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
         if (!Array.isArray(selectedComponents)) return;
-        const inputs = Array.from(
-          row.querySelectorAll(
-            "[data-constant-component-row]:not([hidden]) [data-constant-component-value]"
-          )
-        );
-        if (selectedComponents.length !== inputs.length) return;
-        inputs.forEach((input, index) => {
-          input.value = selectedComponents[index];
-          input.dispatchEvent(new Event("input", { bubbles: true }));
+        const components = Array.from(
+          row.querySelectorAll("[data-constant-component-row]:not([hidden])")
+        ).map((component) => component.querySelector(
+          "[data-constant-scope-choice]:not([disabled]), [data-constant-component-value]:not([disabled])"
+        ));
+        if (selectedComponents.length !== components.length) return;
+        components.forEach((component, index) => {
+          component.value = selectedComponents[index];
+          component.dispatchEvent(new Event("input", { bubbles: true }));
         });
         if (status) {
-          const values = inputs
+          const values = components
             .map((component) => component.value.trim())
             .filter(Boolean);
           const rowCount = Number(chooser?.dataset.sourceRowCount || 0);
@@ -155,6 +225,7 @@ document.addEventListener("DOMContentLoaded", () => {
           loadedChoices = Array.isArray(payload.target_choices)
             ? payload.target_choices
             : [];
+          renderScopeChoices();
           renderChoices();
           if (status) {
             status.textContent = loadedChoices.length
@@ -163,6 +234,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         } catch (error) {
           loadedChoices = [];
+          renderScopeChoices();
           renderChoices();
           if (status) {
             status.textContent =

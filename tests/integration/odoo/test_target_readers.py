@@ -751,7 +751,7 @@ class ScopedRelationshipChoiceTests(unittest.TestCase):
             odoo_connection_mode=OdooConnectionMode.REMOTE,
             odoo_base_url="https://test.example.test",
             odoo_database="test",
-            intended_models=("mrp.workcenter", "resource.calendar"),
+            intended_models=("mrp.workcenter",),
         )
         target_hash = target_identity_hash(
             connection_mode="REMOTE",
@@ -763,25 +763,11 @@ class ScopedRelationshipChoiceTests(unittest.TestCase):
             type="many2one", required=False, readonly=False,
             relation="resource.calendar", relation_field=None, selection=(),
         )
-        calendar_fields = (
-            SchemaField(
-                name="name", label="Name", type="char", required=True,
-                readonly=False, relation=None, relation_field=None, selection=(),
-            ),
-            SchemaField(
-                name="company_id", label="Company", type="many2one",
-                required=False, readonly=False, relation="res.company",
-                relation_field=None, selection=(),
-            ),
-        )
         schema = OdooSchemaCatalog(
             workspace_id=workspace.workspace_id, policy_hash=HASH,
             captured_at=datetime.now(timezone.utc), captured_by="Tester",
             connection_mode="REMOTE", database="test", odoo_version="19.0",
-            models=(
-                SchemaModel("mrp.workcenter", "Work Center", (relation,)),
-                SchemaModel("resource.calendar", "Working Hours", calendar_fields),
-            ),
+            models=(SchemaModel("mrp.workcenter", "Work Center", (relation,)),),
             content_hash=HASH, origin=SchemaOrigin.LIVE_API,
             read_credential_binding_hash="credential", read_principal_hash="principal",
             read_permission_hash="permission", read_context_hash="context",

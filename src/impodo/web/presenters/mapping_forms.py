@@ -1562,6 +1562,23 @@ def _supporting_name_business_key(
     )
 
 
+def _supporting_name_company_business_key(
+    model: str | None,
+) -> BusinessKeyDefinition | None:
+    """Offer a scoped candidate whose fields are checked against live Odoo."""
+
+    if not model:
+        return None
+    return BusinessKeyDefinition(
+        key_id=_business_key_id(model, ("name",), ("company_id",)),
+        model=model,
+        key_fields=("name",),
+        scope_fields=("company_id",),
+        description="Name within Company (if available)",
+        status=BusinessKeyStatus.CANDIDATE,
+    )
+
+
 def _related_business_keys(
     definitions: Iterable[BusinessKeyDefinition],
     model: str | None,
@@ -1581,17 +1598,17 @@ def _related_business_keys(
         for item in available
     ):
         available.append(standard)
-    supporting_name = (
-        _supporting_name_business_key(model)
-        if include_supporting_name
-        else None
-    )
-    if supporting_name is not None and not any(
-        item.key_fields == supporting_name.key_fields
-        and item.scope_fields == supporting_name.scope_fields
-        for item in available
-    ):
-        available.append(supporting_name)
+    if include_supporting_name:
+        for candidate in (
+            _supporting_name_business_key(model),
+            _supporting_name_company_business_key(model),
+        ):
+            if candidate is not None and not any(
+                item.key_fields == candidate.key_fields
+                and item.scope_fields == candidate.scope_fields
+                for item in available
+            ):
+                available.append(candidate)
     return tuple(available)
 
 

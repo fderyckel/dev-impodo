@@ -9,7 +9,7 @@ from typing import Iterable, Protocol
 from impodo.domain.serialization import content_hash
 
 
-REFERENCE_POLICY_VERSION = 2
+REFERENCE_POLICY_VERSION = 3
 
 
 class ReferenceReadPurpose(StrEnum):
@@ -182,9 +182,19 @@ REFERENCE_POLICY_HASH = content_hash(
         "bounded_match_probe": {
             "purpose": ReferenceReadPurpose.MATCH_CHOICES,
             "relationship_type": "many2one",
-            "key_fields": ("name",),
-            "scope_fields": (),
-            "requested_fields": ("name",),
+            "identities": (
+                {
+                    "key_fields": ("name",),
+                    "scope_fields": (),
+                    "requested_fields": ("name",),
+                },
+                {
+                    "key_fields": ("name",),
+                    "scope_fields": ("company_id",),
+                    "requested_fields": ("name", "company_id"),
+                    "company_relation": "res.company",
+                },
+            ),
         },
         "references": [
             {
@@ -215,15 +225,22 @@ REFERENCE_POLICY_HASH = content_hash(
 
 def authorize_supporting_match_probe(
     request: GovernedReferenceRequest,
+    *,
+    captured_fields: tuple[StandardReferenceFieldContract, ...] | None = None,
 ) -> GovernedReferenceDecision:
-    """Authorize one minimal metadata-and-values probe for a Many2one name.
+    """Authorize a bounded name probe, optionally scoped to a real company.
 
     This is deliberately narrower than normal reference authorization.  It
-    lets Stage 3 inspect only ``name`` on the exact related model named by a
-    captured parent field.  The returned metadata must still pass
-    ``authorize_governed_reference`` before any choices become evidence.
+    lets Stage 3 inspect ``name`` and, when requested, ``company_id`` on the
+    exact related model named by a captured parent field. The returned field
+    types must be verified before any choices become evidence.
     """
 
+    name_only = request.scope_fields == () and request.requested_fields == ("name",)
+    name_within_company = (
+        request.scope_fields == ("company_id",)
+        and request.requested_fields == ("name", "company_id")
+    )
     accepted = bool(
         request.purpose is ReferenceReadPurpose.MATCH_CHOICES
         and request.relationship_type == "many2one"
@@ -231,13 +248,25 @@ def authorize_supporting_match_probe(
         and bool(request.parent_model)
         and bool(request.relationship_field)
         and request.key_fields == ("name",)
-        and request.scope_fields == ()
-        and request.requested_fields == ("name",)
+        and (name_only or name_within_company)
         and request.governed_key
         and not request.write_use
         and not request.all_fields
         and not request.include_unique_constraints
     )
+    if accepted and captured_fields is not None:
+        fields = {field.name: field for field in captured_fields}
+        name = fields.get("name")
+        accepted = name is not None and name.field_type in {
+            "char", "text", "selection"
+        }
+        if accepted and name_within_company:
+            company = fields.get("company_id")
+            accepted = bool(
+                company is not None
+                and company.field_type == "many2one"
+                and company.relation_model == "res.company"
+            )
     return GovernedReferenceDecision(
         accepted=accepted,
         evidence_kind=(

@@ -97,6 +97,7 @@
                       <div data-constant-component-list>
                         {% for slot in range(10) %}
                           {% set component_value = row.constant_component_values[slot] if slot < row.constant_component_values|length else '' %}
+                          {% set scope_slot = row.selected_key and slot >= row.selected_key.key_fields|length and slot < (row.selected_key.key_fields|length + row.selected_key.scope_fields|length) and row.selected_key.scope_fields[slot - row.selected_key.key_fields|length] == 'company_id' %}
                           <label data-constant-component-row data-constant-component-slot="{{ slot }}" {% if not row.selected_key or slot >= (row.selected_key.key_fields|length + row.selected_key.scope_fields|length) %}hidden{% endif %}>
                             <span data-constant-component-label>
                               {% if row.selected_key and slot < row.selected_key.key_fields|length %}
@@ -110,8 +111,17 @@
                               value="{{ component_value }}"
                               maxlength="10000"
                               data-constant-component-value
-                              {% if not row.selected_key or slot >= (row.selected_key.key_fields|length + row.selected_key.scope_fields|length) %}disabled{% endif %}
+                              {% if scope_slot %}hidden{% endif %}
+                              {% if scope_slot or not row.selected_key or slot >= (row.selected_key.key_fields|length + row.selected_key.scope_fields|length) %}disabled{% endif %}
                             >
+                            <select
+                              name="relation_constant_component_{{ dataset_index }}_{{ relation_index }}_{{ slot }}"
+                              data-constant-scope-choice
+                              {% if not scope_slot %}hidden disabled{% endif %}
+                            >
+                              <option value="">Check this record to load choices</option>
+                              {% if scope_slot and component_value %}<option value="{{ component_value }}" selected>{{ component_value }} (saved; check Odoo)</option>{% endif %}
+                            </select>
                           </label>
                         {% endfor %}
                       </div>

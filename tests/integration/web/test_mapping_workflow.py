@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from io import BytesIO
 from openpyxl import load_workbook
 from time import sleep
@@ -22,6 +23,11 @@ from impodo.domain.mapping.row_inclusion_review import (
     RowInclusionSourceValue,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.reference_keys import StandardReferenceFieldContract
+from impodo.domain.workspace.supporting_lookups import (
+    SupportingLookupChoice,
+    portable_supporting_value,
+)
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     get_target_credential as actual_get_target_credential,
@@ -1323,6 +1329,110 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Match values", page.text)
         self.assertNotIn('name="relation_key_0_0" disabled', page.text)
         self.assertNotIn("No matching rule available", page.text)
+
+    def test_uncaptured_working_hours_renders_company_scoped_matching(self) -> None:
+        workspace_id, _dataset, _key = self._mapping_ready_workspace(
+            scalar_field_count=0,
+            relationship_field_count=1,
+            relationship_model="resource.calendar",
+            target_model="mrp.workcenter",
+            relationship_field_names=("resource_calendar_id",),
+            relationship_field_labels=("Working Hours",),
+        )
+
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("Name within Company (if available)", page.text)
+        self.assertRegex(
+            page.text,
+            r'data-key-fields="name"\s+data-scope-fields="company_id"',
+        )
+
+    def test_working_hours_save_rejects_unchecked_or_unavailable_company(self) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=0,
+            relationship_field_count=1,
+            relationship_model="resource.calendar",
+            target_model="mrp.workcenter",
+            relationship_field_names=("resource_calendar_id",),
+        )
+        context = self.app.state.context
+        schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        self.assertEqual(page.status_code, 200, page.text)
+        company_key = re.search(
+            r'<option\s+value="([^"]+)"\s+data-key-fields="name"\s+'
+            r'data-scope-fields="company_id"',
+            page.text,
+        )
+        self.assertIsNotNone(company_key, page.text)
+        entries = [
+            ["csrf_token", self.csrf],
+            ["action", "save_progress"],
+            ["expected_parent_version", ""],
+            ["expected_working_draft_version", ""],
+            ["editable_dataset_id", dataset.dataset_id],
+            ["target_model_0", "mrp.workcenter"],
+            ["mode_0", "upsert"],
+            ["on_existing_0", "block"],
+            ["source_identity_0", dataset.columns[0].stable_key],
+            ["business_key_0", business_key.key_id],
+            ["identity_source_0_0", dataset.columns[0].stable_key],
+            ["visible_relation_target_0", "resource_calendar_id"],
+            ["relation_value_source_0_0", "constant_existing"],
+            ["relation_constant_key_0_0", company_key.group(1)],
+            ["relation_constant_component_0_0_0", "Standard 40 hours/week"],
+            ["relation_constant_component_0_0_1", "UNITED CAPS FRANCE"],
+            ["relation_operation_0_0", "replace"],
+            ["relation_missing_0_0", "error"],
+            ["relation_ambiguous_0_0", "error"],
+            ["relation_null_0_0", "distinct"],
+        ]
+
+        def save():
+            return self.client.post(
+                f"/workspaces/{workspace_id}/mapping/save",
+                json={"entries": entries},
+                headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+            )
+
+        unchecked = save()
+        self.assertEqual(unchecked.status_code, 422, unchecked.text)
+        context.supporting_lookups.capture(
+            workspace_id,
+            relation_model="resource.calendar",
+            key_fields=("name",),
+            scope_fields=("company_id",),
+            display_field="name",
+            field_contracts=(
+                StandardReferenceFieldContract("name", "char", True, False),
+                StandardReferenceFieldContract(
+                    "company_id", "many2one", False, False, "res.company"
+                ),
+            ),
+            target_hash=schema.connection_target_hash,
+            read_credential_binding_hash=schema.read_credential_binding_hash,
+            read_principal_hash=schema.read_principal_hash,
+            read_permission_hash=schema.read_permission_hash,
+            read_context_hash=schema.read_context_hash,
+            captured_at=datetime.now(timezone.utc),
+            choices=(
+                SupportingLookupChoice(
+                    portable_supporting_value(
+                        ("Standard 40 hours/week", "United Caps Wiltz")
+                    ),
+                    "Standard 40 hours/week (United Caps Wiltz)",
+                ),
+            ),
+            ambiguous_values=(),
+            actor=context.actor,
+        )
+        unavailable = save()
+        self.assertEqual(unavailable.status_code, 422, unavailable.text)
+        entries[15][1] = "United Caps Wiltz"
+        selected = save()
+        self.assertEqual(selected.status_code, 200, selected.text)
 
     def test_constant_existing_uom_saves_without_a_source_column(self) -> None:
         workspace_id, dataset, business_key = self._mapping_ready_workspace(

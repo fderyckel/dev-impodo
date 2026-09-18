@@ -29,7 +29,7 @@ from impodo.domain.odoo.contracts import (
     ReferenceEvidenceBinding,
 )
 from impodo.adapters.odoo.local_stack import LocalStackProfile
-from impodo.domain.schema.governance import BusinessKeyDefinition
+from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
 from impodo.domain.shared.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from impodo.domain.execution.planner import (
@@ -1077,14 +1077,18 @@ def _relationship_value_choices(
         reference_request,
         captured_fields=captured_contracts,
     )
-    probe_decision = (
-        authorize_supporting_match_probe(reference_request)
-        if related_model is None and not decision.accepted
+    candidate_probe = (
+        authorize_supporting_match_probe(
+            reference_request,
+            captured_fields=captured_contracts,
+        )
+        if key.status is BusinessKeyStatus.CANDIDATE
         else None
     )
-    if not decision.accepted and not (
-        probe_decision is not None and probe_decision.accepted
-    ):
+    if (
+        not decision.accepted
+        and not (candidate_probe is not None and candidate_probe.accepted)
+    ) or (candidate_probe is not None and not candidate_probe.accepted):
         raise WorkspaceError(
             "The linked Odoo choices no longer match the governed reference policy"
         )
@@ -1122,7 +1126,17 @@ def _relationship_value_choices(
                 reference_request,
                 captured_fields=current.field_contracts,
             )
-            if not cached_decision.accepted:
+            cached_probe = (
+                authorize_supporting_match_probe(
+                    reference_request,
+                    captured_fields=current.field_contracts,
+                )
+                if candidate_probe is not None
+                else None
+            )
+            if not cached_decision.accepted or (
+                cached_probe is not None and not cached_probe.accepted
+            ):
                 raise WorkspaceError(
                     "The saved Odoo choices no longer match the governed reference policy"
                 )
@@ -1168,9 +1182,19 @@ def _relationship_value_choices(
         reference_request,
         captured_fields=returned_contracts,
     )
-    if not returned_decision.accepted:
+    returned_probe = (
+        authorize_supporting_match_probe(
+            reference_request,
+            captured_fields=returned_contracts,
+        )
+        if candidate_probe is not None
+        else None
+    )
+    if not returned_decision.accepted or (
+        returned_probe is not None and not returned_probe.accepted
+    ):
         raise WorkspaceError(
-            "The linked Odoo fields do not authorize these matching choices"
+            "The linked Odoo record does not support this name and company matching rule"
         )
 
     records = record_snapshot.records.get(field.relation, ())

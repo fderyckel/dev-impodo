@@ -9,13 +9,20 @@ from jinja2 import Environment, FileSystemLoader
 from starlette.datastructures import FormData
 
 from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
-from impodo.domain.mapping.contracts import MappingDefinition
+from impodo.domain.mapping.contracts import MappingDefinition, RelationshipValueSource
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.workspace.contracts import SchemaField, SchemaModel, SourceDataset, SourceDatasetColumn
 from impodo.domain.workspace.derived_entities import DerivedDatasetLink
-from impodo.web.presenters.mapping_forms import _mapping_datasets_from_form, _merge_partial_mapping_datasets
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.supporting_lookups import portable_supporting_value
+from impodo.web.presenters.mapping_forms import (
+    _mapping_datasets_from_form,
+    _merge_partial_mapping_datasets,
+    _related_business_keys,
+)
 from impodo.web.presenters.mapping_view import _mapping_dataset_views
+from impodo.web.routers.mapping import _require_selected_company_scopes
 from tests.support.paths import REPOSITORY_ROOT
 
 
@@ -77,6 +84,72 @@ class _RenderedControls(HTMLParser):
 
 
 class MappingFormRoundTripTests(unittest.TestCase):
+    def test_company_scope_must_be_one_checked_odoo_choice(self):
+        scope = SimpleNamespace(target_field="company_id", value="United Caps Wiltz")
+        reference = SimpleNamespace(
+            key_values=(SimpleNamespace(target_field="name", value="Standard 40 hours/week"),),
+            scope_values=(scope,),
+        )
+        relation = SimpleNamespace(
+            value_source=RelationshipValueSource.CONSTANT_EXISTING,
+            constant_reference=reference,
+            resolver=SimpleNamespace(model="resource.calendar"),
+            target_field="resource_calendar_id",
+        )
+        datasets = (SimpleNamespace(relationships=(relation,)),)
+        schema = SimpleNamespace(
+            connection_target_hash="target",
+            read_credential_binding_hash="credential",
+            read_principal_hash="principal",
+            read_context_hash="context",
+        )
+        valid = portable_supporting_value(
+            ("Standard 40 hours/week", "United Caps Wiltz")
+        )
+        lookup = SimpleNamespace(choices=(SimpleNamespace(value=valid),))
+        current = lambda *_args, **_kwargs: lookup
+        context = SimpleNamespace(
+            supporting_lookups=SimpleNamespace(current=current),
+            actor=object(),
+        )
+
+        _require_selected_company_scopes(context, "workspace", datasets, schema)
+        scope.value = "UNITED CAPS FRANCE"
+        with self.assertRaisesRegex(WorkspaceError, "Choose an existing"):
+            _require_selected_company_scopes(context, "workspace", datasets, schema)
+
+        context.supporting_lookups.current = lambda *_args, **_kwargs: None
+        with self.assertRaisesRegex(WorkspaceError, "Choose an existing"):
+            _require_selected_company_scopes(context, "workspace", datasets, schema)
+
+    def test_any_linked_model_offers_company_scoped_name_candidate(self):
+        for model in ("resource.calendar", "x.location"):
+            with self.subTest(model=model):
+                keys = _related_business_keys((), model)
+
+                self.assertTrue(
+                    any(
+                        key.key_fields == ("name",)
+                        and key.scope_fields == ("company_id",)
+                        and key.status is BusinessKeyStatus.CANDIDATE
+                        for key in keys
+                    )
+                )
+
+    def test_confirmed_custom_scope_is_available_without_model_specific_code(self):
+        confirmed = BusinessKeyDefinition(
+            key_id="x-location-within-site",
+            model="x.location",
+            key_fields=("x_code",),
+            scope_fields=("x_site_id",),
+            status=BusinessKeyStatus.CONFIRMED,
+        )
+
+        keys = _related_business_keys((confirmed,), "x.location")
+
+        self.assertIn(confirmed, keys)
+        self.assertNotIn(confirmed, _related_business_keys((), "x.location"))
+
     def setUp(self):
         binding = FileSourceBinding(
             file_id="file:products", table_key="csv", source_sha256="a" * 64,
