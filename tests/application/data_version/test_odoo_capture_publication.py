@@ -235,6 +235,77 @@ class OdooCapturePublicationTests(unittest.TestCase):
         self.assertIsNotNone(origins)
         self.assertEqual((origins or (None, ()))[1][0].odoo_ids, (41, 42))
 
+    def test_finite_float_survives_capture_publication_and_snapshot_read(self) -> None:
+        model = self.schema.models[0]
+        numeric_field = replace(
+            model.fields[0],
+            name="x_score",
+            label="Score",
+            type="float",
+            required=False,
+        )
+        schema = replace(
+            self.schema,
+            models=(replace(model, fields=model.fields + (numeric_field,)),),
+            content_hash=HASHES[6],
+        )
+        self.schemas.save_odoo_schema_catalog(
+            self.workspace_state.workspace_id, schema, actor=LOCAL_ACTOR,
+        )
+        selection = OdooCaptureSelection.create(
+            selection_id=str(uuid4()),
+            version=1,
+            data_version_id=_data_version_id(self.workspace_state.workspace_id),
+            dataset_name="contacts",
+            model="res.partner",
+            field_names=("name", "x_score"),
+            filter_policy=OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS,
+            max_rows=10_000,
+            connection_target_hash=schema.connection_target_hash,
+            schema_scope_hash=schema.content_hash,
+            read_principal_hash=schema.read_principal_hash,
+            read_permission_hash=schema.read_permission_hash,
+            context_hash=schema.read_context_hash,
+            created_at=self.now,
+            created_by="Data Manager",
+        )
+        self.sources.save_odoo_capture_selection(
+            self.workspace_state.workspace_id, selection, actor=LOCAL_ACTOR,
+        )
+
+        class _FloatGateway(_Gateway):
+            def open_capture(self, request, context, *, cancellation=None):
+                session = super().open_capture(
+                    request, context, cancellation=cancellation
+                )
+                session.page = replace(
+                    session.page,
+                    columns=session.page.columns + (
+                        OdooCaptureValueColumn(
+                            field_name="x_score",
+                            field_type="float",
+                            values=(1.25, 2.5),
+                        ),
+                    ),
+                )
+                return session
+
+        publication = self.service.publish(
+            self.workspace_state.workspace_id,
+            _FloatGateway(schema, self.now),
+            actor=LOCAL_ACTOR,
+        )
+        with self.artifacts.materialize_source_snapshot(
+            _data_version_id(self.workspace_state.workspace_id),
+            publication.source_snapshot.parquet_storage_key,
+            expected_sha256=publication.source_snapshot.parquet_sha256,
+        ) as path:
+            table = load_source_snapshot_table(path, publication.source_snapshot)
+        self.assertEqual(
+            tuple(row.values["x_score"] for row in table.rows),
+            (1.25, 2.5),
+        )
+
     def test_two_model_capture_promotes_one_atomic_source_set(self) -> None:
         base_model = self.schema.models[0]
         multi_schema = replace(

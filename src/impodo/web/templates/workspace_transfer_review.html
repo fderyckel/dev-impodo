@@ -37,27 +37,41 @@
     </div>
   {% endif %}
 
-  {% if not transfer_review_current %}
-    <section class="form-card">
+    <section class="form-card" id="model-policies">
       <p class="eyebrow">Freeze review evidence</p>
-      <h2>Build the complete transfer package</h2>
+      <h2>Choose what happens for each record type</h2>
       <p>
-        This combines Stage 5 and Stage 6 locally. It does not contact either
-        Odoo instance and does not ask for an API key.
+        Use the same policy for any Odoo model. Existing records can be reused
+        without changing them, while missing records can be created when needed.
+        This step does not contact either Odoo instance.
       </p>
       <form method="post" action="/workspaces/{{ workspace_id }}/transfer-review/build">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+        {% for model in transfer_match_models %}
+          {% set saved = transfer_review_package.datasets | selectattr('dataset_id', 'equalto', model.dataset_id) | first if transfer_review_current else none %}
+          <div class="field">
+            <label for="policy_{{ model.dataset_id }}">{{ model.model_label }} ({{ model.model }})</label>
+            <select id="policy_{{ model.dataset_id }}" name="policy_{{ model.dataset_id }}">
+              <option value="create_if_missing" {% if not saved or saved.model_policy == 'create_if_missing' %}selected{% endif %}>Reuse existing, create missing</option>
+              <option value="reuse_only" {% if saved and saved.model_policy == 'reuse_only' %}selected{% endif %}>Reuse existing only</option>
+              <option value="upsert" {% if saved and saved.model_policy == 'upsert' %}selected{% endif %}>Update existing, create missing</option>
+            </select>
+            <p class="hint">{{ model.destination_existing_key_count }} existing; {{ model.destination_create_key_count }} missing.</p>
+            {% if model.write_blocking_reasons %}
+              <p class="hint">{{ model.missing_fields|length }} missing and {{ model.incompatible_fields|length }} incompatible destination fields. Creating or updating this record type requires compatible fields.</p>
+            {% endif %}
+          </div>
+        {% endfor %}
         <div class="actions">
           <a
             class="button secondary"
             href="/workspaces/{{ workspace_id }}/transfer-order#transfer-order-results"
           >Back to transfer order</a>
-          <button class="button primary" type="submit">Build review package</button>
+          <button class="button primary" type="submit">{{ 'Rebuild review package' if transfer_review_current else 'Build review package' }}</button>
         </div>
       </form>
     </section>
-  {% endif %}
 
   {% if transfer_review_current %}
     <section class="form-card" id="review-package">
@@ -80,9 +94,8 @@
 
       <div class="notice">
         <strong>Exact destination behavior</strong>
-        Missing records will be created. Unique matching records may be updated
-        only in the fields listed below. Destination records outside this source
-        package remain unchanged.
+        Each record type follows the policy shown below. Destination records
+        outside this source package remain unchanged.
       </div>
 
       <dl class="definition-list capture-summary">
@@ -91,7 +104,7 @@
           <dd>{{ "{:,}".format(transfer_review_package.totals.source_record_count) }}</dd>
         </div>
         <div>
-          <dt>Reuse and update</dt>
+          <dt>Existing matches</dt>
           <dd>
             {{ "{:,}".format(transfer_review_package.totals.destination_existing_record_count) }}
           </dd>
@@ -146,21 +159,25 @@
           </div>
           <dl class="definition-list capture-summary">
             <div>
-              <dt>Reuse and update</dt>
+              <dt>Existing matches</dt>
               <dd>{{ "{:,}".format(row.dataset.destination_existing_record_count) }}</dd>
+            </div>
+            <div>
+              <dt>Policy</dt>
+              <dd>{{ row.dataset.model_policy | replace('_', ' ') }}</dd>
             </div>
             <div>
               <dt>Create</dt>
               <dd>{{ "{:,}".format(row.dataset.destination_create_record_count) }}</dd>
             </div>
             <div>
-              <dt>Scalar write fields</dt>
+              <dt>Scalar fields if written</dt>
               <dd>
                 {{ row.dataset.scalar_write_fields|join(', ') if row.dataset.scalar_write_fields else 'None' }}
               </dd>
             </div>
             <div>
-              <dt>Relationship fields</dt>
+              <dt>Relationship fields if written</dt>
               <dd>
                 {{ row.dataset.relationship_write_fields|join(', ') if row.dataset.relationship_write_fields else 'None' }}
               </dd>

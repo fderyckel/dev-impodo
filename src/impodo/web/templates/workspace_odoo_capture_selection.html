@@ -25,14 +25,26 @@
   </div>
 
   <div class="notice warning">
-    <strong>Production updates are disabled.</strong>
-    Native JSON-2 currently proves the configured connection, not a restored or cloned database instance, and does not provide Impodo's required atomic compare-and-write transaction.
+    <strong>Updating the captured source instance is disabled.</strong>
+    A transfer to a different Odoo destination remains available after destination matching, review, preflight, and explicit load confirmation.
   </div>
 
-  {% if 'product.template' in current_by_model and 'uom.uom' in current_by_model %}
-    <div class="notice">
-      <strong>Product and Unit of Measure will be frozen together, not imported in screen order.</strong>
-      A future cross-instance load must match or create Units of Measure before Products and bind each Product relationship to the destination record. That load path remains disabled; this capture alone is not yet ready to write into another Odoo instance.
+  {% if unselected_relationships %}
+    <div class="notice warning">
+      <strong>Related record types outside this source selection</strong>
+      <p>Impodo captures links only between selected record types. Review these
+      metadata-based candidates before freezing; a link to an unselected type
+      will not be available for transfer.</p>
+      <ul>
+        {% for model, field in unselected_relationships[:12] %}
+          <li>{{ model.label }}.{{ field.label }} ({{ model.name }}.{{ field.name }})
+            refers to {{ field.relation }}{% if field.required %} &middot; required field{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% if unselected_relationships|length > 12 %}
+        <p>{{ unselected_relationships|length - 12 }} more relationship fields are outside the selection.</p>
+      {% endif %}
+      <a href="/workspaces/{{ workspace_id }}/schema#odoo-details">Review selected Odoo record types</a>
     </div>
   {% endif %}
 
@@ -206,7 +218,7 @@
       {% if not plans_complete %}
         <div class="notice warning" role="alert">
           <strong>Save the remaining record type plans.</strong>
-          Product and UoM are separate datasets. Select each record type above and save its own eligible fields before checking or freezing records.
+          Each selected Odoo record type needs its own saved capture plan. Select the remaining types above before checking or freezing records.
         </div>
       {% elif capture_plan_errors %}
         <div class="notice warning" role="alert">

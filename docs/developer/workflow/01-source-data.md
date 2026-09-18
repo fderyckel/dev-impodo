@@ -113,11 +113,22 @@ identity. Saving one model's selection does not contact Odoo and does not
 replace another model's current selection. The complete set must contain one
 plan for every model in the current schema, with distinct dataset names and at
 most ten datasets. Current policy permits at most 50 closed scalar fields and
-10,000 rows per model. The reader fetches 10, 100, or 500-row keyset pages as
-the saved plan specifies. It shares the start and end identity and schema
+10,000 rows per model. The eligible value types include finite Odoo `float`
+values, which the source snapshot records as numeric values and presents as
+decimal candidates. The Odoo-source policy hash changes when this capture
+surface changes, so an earlier saved selection cannot silently acquire the
+new field type. This read-only capture change does not enable float updates to
+the captured source instance. The reader fetches 10, 100, or 500-row keyset
+pages as the saved plan specifies. It shares the start and end identity and schema
 checks across the set, but opens one bounded value stream per model. The live
 reader accepts only service-generated requests. It exposes no raw domain,
 arbitrary context, generic method, or caller-selected field path.
+
+The source selection page derives a bounded, read-only list of writable
+many-to-one and many-to-many fields that refer to models outside the selected
+schema. This helps the operator spot missing model scope before capture. The
+capture projection still includes relationship origins only when both models
+are selected; the list is not a dependency closure or a record-level proof.
 
 Each identity check computes one small company-scope fingerprint from the
 primary and available company IDs. Assessment performs one identity and schema

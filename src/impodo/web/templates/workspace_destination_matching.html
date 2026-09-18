@@ -101,6 +101,14 @@
                   {% if row.result.source_duplicate_key_count %}<li>{{ row.result.source_duplicate_key_count }} source key(s) occur more than once.</li>{% endif %}
                   {% if row.result.destination_duplicate_key_count %}<li>{{ row.result.destination_duplicate_key_count }} destination key(s) identify more than one record.</li>{% endif %}
                   {% if row.result.destination_limit_reached %}<li>The bounded destination result limit was reached.</li>{% endif %}
+                </ul>
+              </div>
+            {% endif %}
+            {% if row.result.write_blocking_reasons %}
+              <div class="notice warning">
+                <strong>Creating or updating this record type needs compatible fields.</strong>
+                <p>Matching can continue so you can review a reuse policy. A model policy that writes records will be blocked until these fields are resolved.</p>
+                <ul>
                   {% if row.result.missing_fields %}<li>Missing destination fields: {{ row.result.missing_fields|join(', ') }}.</li>{% endif %}
                   {% if row.result.incompatible_fields %}<li>Incompatible destination fields: {{ row.result.incompatible_fields|join(', ') }}.</li>{% endif %}
                 </ul>

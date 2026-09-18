@@ -86,6 +86,9 @@ records remain in Git history.
 - [End-to-end trial and scenario qualification](plans/end-to-end-trial-and-scenario-qualification.md)
   retains full lifecycle integration, browser and remote acceptance, Odoo-source
   scenarios, recovery, and scheduling beyond the implemented profile runner.
+- [Generic Odoo-to-Odoo migration](plans/odoo-to-odoo-migration.md)
+  records the staged work to capture related records, match them in a second
+  Odoo 19 instance, and verify one approved load across supported models.
 - [VM deployment with DuckDB and managed workers](plans/vm-deployment-duckdb-worker-management.md)
   proposes internal VM deployment, Entra sign-in, durable worker coordination,
   resource controls, recovery, and pilot acceptance.

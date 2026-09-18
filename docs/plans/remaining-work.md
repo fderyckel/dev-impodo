@@ -34,6 +34,9 @@ those current references have been verified.
   omitted record for later repair.
 - Extend [scenario qualification](end-to-end-trial-and-scenario-qualification.md)
   through the full lifecycle and remaining target and browser lanes.
+- Deliver the [generic Odoo-to-Odoo migration](odoo-to-odoo-migration.md)
+  through complete source capture, reviewed destination policies, verified
+  loading, and measured qualification across supported model classes.
 
 Each detailed plan retains its own status and prerequisites. Listing a
 proposal here does not activate a deferred track or authorize external writes.

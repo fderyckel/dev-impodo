@@ -64,3 +64,33 @@
   color: var(--impodo-charcoal);
   font-weight: 750;
 }
+
+.fallout-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: .75rem;
+  margin: 1rem 0;
+}
+
+.fallout-filters label {
+  flex: 1 1 12rem;
+  margin: 0;
+}
+
+.fallout-filters .button,
+.fallout-filters > a {
+  margin-bottom: .15rem;
+}
+
+.fallout-values-table .fallout-value {
+  min-width: 7rem;
+  max-width: 18rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.fallout-values-table td:last-child {
+  min-width: 16rem;
+  max-width: 23rem;
+}

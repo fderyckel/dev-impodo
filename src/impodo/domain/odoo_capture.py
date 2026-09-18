@@ -18,6 +18,7 @@ from uuid import UUID
 from .odoo_source_policy import (
     CURRENT_ODOO_SOURCE_POLICY,
     ODOO_SOURCE_POLICY_HASH,
+    READABLE_ODOO_SOURCE_POLICY_HASHES,
 )
 from .serialization import canonical_json, content_hash
 from .source_binding import OdooSourceBinding, SourceOriginKind
@@ -225,9 +226,9 @@ class OdooCaptureSelection:
             (self.context_hash, "context hash"),
         ):
             _require_hash(value, label)
-        if self.policy_hash != ODOO_SOURCE_POLICY_HASH:
+        if self.policy_hash not in READABLE_ODOO_SOURCE_POLICY_HASHES:
             raise OdooCaptureContractError(
-                "Odoo capture selection does not use the current source policy"
+                "Odoo capture selection uses an unrecognized source policy"
             )
         if self.created_at.tzinfo is None:
             raise OdooCaptureContractError(

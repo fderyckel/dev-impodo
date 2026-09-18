@@ -501,7 +501,9 @@ def compile_transfer_execution_snapshot(
                     }
                 )
             ),
-            existing_policy="update",
+            existing_policy=(
+                "update" if item.model_policy == "upsert" else "reference"
+            ),
             identity_fields=(item.key_field,),
             scope_fields=(),
             field_types=tuple(
@@ -537,12 +539,28 @@ def compile_transfer_execution_snapshot(
         )
         for source_row, key in zip(rows, keys, strict=True):
             target_id = target_ids_by_dataset[dataset_id].get(key)
-            disposition = "UPDATE" if target_id is not None else "CREATE"
-            intents = [
-                _scalar_intent(field, source_row.values.get(field))
-                for field in reviewed.scalar_write_fields
-            ]
-            for relationship in relationships_by_owner.get(dataset_id, ()):
+            if target_id is None and reviewed.model_policy == "reuse_only":
+                raise WorkspaceError(
+                    f"A destination record is missing for reuse-only {reviewed.model_label}"
+                )
+            if target_id is None:
+                disposition = "CREATE"
+            elif reviewed.model_policy == "upsert":
+                disposition = "UPDATE"
+            else:
+                disposition = "UNCHANGED"
+            intents = []
+            if disposition != "UNCHANGED":
+                intents.extend(
+                    _scalar_intent(field, source_row.values.get(field))
+                    for field in reviewed.scalar_write_fields
+                )
+            relationships_to_write = (
+                relationships_by_owner.get(dataset_id, ())
+                if disposition != "UNCHANGED"
+                else ()
+            )
+            for relationship in relationships_to_write:
                 members_by_row = relationship_columns.get(relationship.field_name)
                 if members_by_row is None:
                     raise WorkspaceError(
@@ -633,7 +651,8 @@ def compile_transfer_execution_snapshot(
     rank = {row.row_id: row.schedule_ordinal for row in planned_rows}
     rows_by_dataset = {}
     for row in planned_rows:
-        rows_by_dataset.setdefault(row.dataset, []).append(row.row_id)
+        if row.disposition in {"CREATE", "UPDATE"}:
+            rows_by_dataset.setdefault(row.dataset, []).append(row.row_id)
     components = []
     for wave in sorted({item.wave for item in package.datasets}):
         wave_rows = [
@@ -655,7 +674,8 @@ def compile_transfer_execution_snapshot(
         for item in Classification
     }
     if (
-        counts["UPDATE"] != package.totals.destination_existing_record_count
+        counts["UPDATE"] + counts["UNCHANGED"]
+        != package.totals.destination_existing_record_count
         or counts["CREATE"] != package.totals.destination_create_record_count
         or len(planned_rows) != package.totals.source_record_count
     ):

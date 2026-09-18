@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Mapping
 from uuid import uuid4
 
 from impodo.domain.cutover.approvals import FrozenExportPlan
@@ -12,6 +13,7 @@ from impodo.domain.workspace.destination_matching import DestinationMatchPlan
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.transfer_order import TransferOrderPlan
 from impodo.domain.workspace.transfer_review import (
+    TRANSFER_MODEL_POLICIES,
     TRANSFER_REVIEW_POLICY_VERSION,
     TransferReviewDataset,
     TransferReviewPackage,
@@ -34,6 +36,7 @@ class TransferReviewService:
         run_id: str,
         data_version_id: str,
         built_by: ActorIdentity,
+        model_policies: Mapping[str, str] | None = None,
     ) -> TransferReviewPackage:
         if (
             workspace.destination_match_plan != match_plan
@@ -44,6 +47,29 @@ class TransferReviewService:
             )
         ):
             raise WorkspaceError("Complete the current transfer order first")
+        policies = dict(model_policies or {})
+        model_names = {item.model for item in match_plan.model_matches}
+        if set(policies) - model_names or any(
+            value not in TRANSFER_MODEL_POLICIES for value in policies.values()
+        ):
+            raise WorkspaceError("Choose a supported policy for every selected record type")
+        for item in match_plan.model_matches:
+            model_policy = policies.get(item.model, "upsert")
+            if model_policy == "reuse_only" and item.destination_create_key_count:
+                raise WorkspaceError(
+                    f"{item.model_label} has {item.destination_create_key_count} missing "
+                    "destination record(s); choose create if missing or upsert"
+                )
+            will_write = (
+                item.destination_create_key_count > 0
+                or (model_policy == "upsert" and item.destination_existing_key_count > 0)
+            )
+            if will_write and item.write_blocking_reasons:
+                raise WorkspaceError(
+                    f"{item.model_label} has missing or incompatible destination "
+                    "fields. Select compatible source fields before creating or "
+                    "updating this record type."
+                )
 
         relationships_by_owner: dict[str, list[str]] = {
             item.dataset_id: [] for item in match_plan.model_matches
@@ -74,6 +100,7 @@ class TransferReviewService:
                 relationship_write_fields=tuple(
                     sorted(relationships_by_owner[item.dataset_id])
                 ),
+                model_policy=policies.get(item.model, "upsert"),
             )
             for item in match_plan.model_matches
         )

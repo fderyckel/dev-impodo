@@ -59,8 +59,10 @@ version.
 1. Open **Download and freeze** after eligible fields have been captured.
 2. Choose each **Odoo record type** in turn. The page shows that record
    type's eligible fields and its own saved plan.
-3. Save one bounded plan for every selected record type. For example, save a
-   Product plan and then a Unit of Measure plan.
+3. Review the page's related record types outside the selection, then save one
+   bounded plan for every selected type. A Contact, Product, transaction, or
+   supporting record type each has its own plan. Include the fields needed by
+   the migration when they appear among the eligible fields.
 4. Select **Check matching records**. Impodo shows the count and request
    estimate for each dataset and for the complete capture.
 5. Confirm the read-only action and wait while Impodo freezes every dataset as
@@ -69,10 +71,16 @@ version.
 The Odoo-source route reads selected business records; it does not authorize a
 write back to Odoo.
 
-For a Product and Unit of Measure example, the two record types remain separate
-datasets. Capturing both gives Match data both field lists. It does not by
-itself define the relationship between them or authorize recreating records in
-another Odoo instance.
+Selected record types remain separate datasets. Capturing both ends of a
+relationship gives **Match destination data** the records and protected link
+evidence it needs. A link to an unselected record type is not transferred.
+The relationship list is a metadata-based hint; it does not yet fetch missing
+related records automatically. Capture alone does not authorize recreating
+records in another Odoo instance.
+
+Impodo accepts finite Odoo floating point values such as quantities, rates,
+and durations in this source capture. Review the captured values before
+loading another instance.
 
 ![Current source inspection inside a fictional data project workspace.](../../images/user/04-source-inspection.png)
 

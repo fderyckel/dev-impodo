@@ -196,7 +196,10 @@ the JSON by byte size, SHA-256 hash, logical hash, difference count, execution,
 snapshot, target, and reconciliation ID. The artifact uses workspace access
 controls and integrity verification, not application-level encryption. It
 contains no credential or secret. Normal browser state continues to carry only
-the compact value-free reconciliation projection.
+the compact value-free reconciliation projection. The authenticated load
+outcome route may read the protected companion artifact for its current
+attempt and display prepared and observed values in bounded pages. This does
+not add business values to the normal projection.
 
 The execution snapshot freezes target numeric `digits`. A value that cannot be
 represented exactly at that precision blocks a new load before writer

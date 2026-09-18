@@ -32,7 +32,14 @@ load. There is no third API key.
 3. Review **Validate transfer order**. Supporting records appear before the
    records that refer to them, while safe optional cycles use a later
    relationship pass.
-4. Build and approve the exact package in **Review transfer**.
+4. In **Review transfer**, choose a policy for each record type: **Reuse
+   existing, create missing** (the browser default), **Reuse existing only**,
+   or **Update existing, create missing**. This applies to Contacts, Products,
+   supporting records, and any other selected model. A reuse-only choice stops
+   package creation if any destination record is missing. Build and approve the
+   exact package after checking those choices. If some captured fields cannot
+   be written to the destination, Impodo can still reuse existing records;
+   creating or updating that record type requires resolving the field issues.
 5. Select **Continue to destination preflight**, then select **Run read-only
    preflight**.
 6. Compare the approved and freshly observed reuse, create, field, and
@@ -42,7 +49,9 @@ load. There is no third API key.
    Impodo performs one last destination read and compiles the exact load. This
    action still cannot write to Odoo.
 8. On **Confirm and load**, check the destination database, total records,
-   creates, updates, relationship fields, and approved wave order.
+   creates, updates, reused records, relationship fields, and approved wave order.
+   If every record is reused, the page says that no destination write is needed
+   and offers no load action.
 9. Select the single **Load ... into destination Odoo** action once. This is the
    first action in the cross-instance workflow that can start a write.
 10. Follow progress to **Verify result**. Impodo attempts read-back
@@ -95,16 +104,23 @@ Stage 8B sequence above for an Odoo-to-Odoo workspace.
 7. Open **Verify result** to read back the affected records.
 8. Review reconciliation when any row cannot be verified. A read-back
    difference means Odoo accepted the record but stored at least one different
-   value; it does not mean that Odoo rejected the row. Select **Re-check Odoo
-   now** for a fresh read-only attempt, then download the highlighted source
-   workbook to see each affected worksheet cell, prepared value, Odoo value,
-   and recommended action. The original source workbook is never changed.
+   value; it does not mean that Odoo rejected the row. Use **See the different
+   values** to filter by field or find a prepared row, Odoo record, or value.
+   For a BOM line, the card also shows the reviewed BOM and component keys.
+   Compare the prepared and Odoo values and read **What to check** before
+   deciding whether the change matters. When a BOM line's prepared Sequence is
+   blank and Odoo returns 0, the card counts those lines. Confirm that 0 gives
+   the intended line order; the read-back difference alone does not mean the
+   component is missing. Select **Re-check Odoo now** for a
+   fresh read-only attempt, or download the highlighted source workbook to
+   locate the original worksheet cells. The original source workbook is never
+   changed. Do not load the same review again.
 
 ![Current Check changes screen with exact new, changed, up-to-date, and per-table totals.](../../images/user/17-load-preview.png)
 
 ![Current Confirm and load screen with the optional loading-key field and one explicit load action.](../../images/user/17b-load-confirmation.png)
 
-![Current fallout outcome with accepted-record wording, field groups, highlighted-workbook download, and read-only re-check.](../../images/user/18-load-fallout.png)
+![Current fallout outcome with the different-values card, field filter, prepared and Odoo values, and read-only re-check.](../../images/user/18-load-fallout.png)
 
 ## Correct a verified Authoring load
 

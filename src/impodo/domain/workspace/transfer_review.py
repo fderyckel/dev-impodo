@@ -23,9 +23,10 @@ from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor, ActorIdentity, Capability
 
 
-TRANSFER_REVIEW_CONTRACT_VERSION = 1
+TRANSFER_REVIEW_CONTRACT_VERSION = 2
 TRANSFER_REVIEW_APPROVAL_CONTRACT_VERSION = 1
-TRANSFER_REVIEW_POLICY_VERSION = "odoo-transfer-review-v1"
+TRANSFER_REVIEW_POLICY_VERSION = "odoo-transfer-review-v2"
+TRANSFER_MODEL_POLICIES = frozenset({"reuse_only", "create_if_missing", "upsert"})
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 _SOURCE_HASH_NAMES = frozenset(
@@ -58,6 +59,7 @@ class TransferReviewDataset:
     wave: int
     scalar_write_fields: tuple[str, ...]
     relationship_write_fields: tuple[str, ...]
+    model_policy: str = "upsert"
 
     def __post_init__(self) -> None:
         if any(
@@ -101,6 +103,10 @@ class TransferReviewDataset:
             self.relationship_write_fields
         ):
             raise ValueError("Transfer-review write fields overlap")
+        if self.model_policy not in TRANSFER_MODEL_POLICIES:
+            raise ValueError("Transfer-review model policy is invalid")
+        if self.model_policy == "reuse_only" and self.destination_create_record_count:
+            raise ValueError("Reuse-only models cannot have missing destination records")
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,18 +228,26 @@ class TransferReviewPackage:
     relationships: tuple[TransferReviewRelationship, ...]
     totals: TransferReviewTotals
     built_by: ActorIdentity
-    matched_record_policy: str = "update_selected_fields"
-    missing_record_policy: str = "create"
+    matched_record_policy: str = "per_model"
+    missing_record_policy: str = "per_model"
     unmatched_destination_policy: str = "leave_unchanged"
     contract_version: int = TRANSFER_REVIEW_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if self.contract_version != TRANSFER_REVIEW_CONTRACT_VERSION:
+        if self.contract_version not in {1, TRANSFER_REVIEW_CONTRACT_VERSION}:
             raise ValueError("Transfer-review contract version is unsupported")
-        if self.matched_record_policy != "update_selected_fields":
+        matched_policy = (
+            "update_selected_fields" if self.contract_version == 1 else "per_model"
+        )
+        missing_policy = "create" if self.contract_version == 1 else "per_model"
+        if self.matched_record_policy != matched_policy:
             raise ValueError("Transfer-review matched-record policy is invalid")
-        if self.missing_record_policy != "create":
+        if self.missing_record_policy != missing_policy:
             raise ValueError("Transfer-review missing-record policy is invalid")
+        if self.contract_version == 1 and any(
+            item.model_policy != "upsert" for item in self.datasets
+        ):
+            raise ValueError("Legacy transfer-review models must use upsert")
         if self.unmatched_destination_policy != "leave_unchanged":
             raise ValueError("Transfer-review unmatched-record policy is invalid")
         if set(self.export_plan.source_hashes) != _SOURCE_HASH_NAMES:
@@ -281,6 +295,7 @@ class TransferReviewPackage:
             self.datasets,
             self.relationships,
             self.totals,
+            contract_version=self.contract_version,
         ):
             raise ValueError("Transfer-review action binding is inconsistent")
 
@@ -316,7 +331,10 @@ class TransferReviewPackage:
         payload: dict[str, Any] = {
             "contract_version": self.contract_version,
             "export_plan": _export_plan_dict(self.export_plan),
-            "datasets": [asdict(item) for item in self.datasets],
+            "datasets": [
+                _dataset_dict(item, contract_version=self.contract_version)
+                for item in self.datasets
+            ],
             "relationships": [asdict(item) for item in self.relationships],
             "totals": asdict(self.totals),
             "built_by": _actor_dict(self.built_by),
@@ -357,6 +375,7 @@ class TransferReviewPackage:
                         relationship_write_fields=tuple(
                             item["relationship_write_fields"]
                         ),
+                        model_policy=str(item.get("model_policy", "upsert")),
                     )
                     for item in payload["datasets"]
                 ),
@@ -547,20 +566,38 @@ def transfer_review_actions_hash(
     datasets: tuple[TransferReviewDataset, ...],
     relationships: tuple[TransferReviewRelationship, ...],
     totals: TransferReviewTotals,
+    *,
+    contract_version: int = TRANSFER_REVIEW_CONTRACT_VERSION,
 ) -> str:
     """Bind every execution-relevant action and fixed transfer policy."""
 
     return content_hash(
         {
-            "contract_version": TRANSFER_REVIEW_CONTRACT_VERSION,
-            "datasets": [asdict(item) for item in datasets],
+            "contract_version": contract_version,
+            "datasets": [
+                _dataset_dict(item, contract_version=contract_version)
+                for item in datasets
+            ],
             "relationships": [asdict(item) for item in relationships],
             "totals": asdict(totals),
-            "matched_record_policy": "update_selected_fields",
-            "missing_record_policy": "create",
+            "matched_record_policy": (
+                "update_selected_fields" if contract_version == 1 else "per_model"
+            ),
+            "missing_record_policy": (
+                "create" if contract_version == 1 else "per_model"
+            ),
             "unmatched_destination_policy": "leave_unchanged",
         }
     )
+
+
+def _dataset_dict(
+    item: TransferReviewDataset, *, contract_version: int
+) -> dict[str, Any]:
+    payload = asdict(item)
+    if contract_version == 1:
+        payload.pop("model_policy")
+    return payload
 
 
 def _totals(

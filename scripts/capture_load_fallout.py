@@ -258,6 +258,8 @@ def capture(output: Path, *, browser_channel: str) -> None:
                     wait_until="networkidle",
                 )
                 expect(page.get_by_text("What needs review")).to_be_visible()
+                expect(page.get_by_text("See the different values")).to_be_visible()
+                expect(page.get_by_label("Find a record or value")).to_be_visible()
                 expect(
                     page.get_by_text("Download highlighted source workbook (.xlsx)")
                 ).to_be_visible()

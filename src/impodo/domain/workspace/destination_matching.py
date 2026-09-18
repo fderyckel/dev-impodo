@@ -102,6 +102,13 @@ class DestinationModelMatch:
             reasons.append("DESTINATION_KEY_DUPLICATE")
         if self.destination_limit_reached:
             reasons.append("DESTINATION_MATCH_LIMIT_REACHED")
+        return tuple(reasons)
+
+    @property
+    def write_blocking_reasons(self) -> tuple[str, ...]:
+        """Field issues that matter only when this model will receive writes."""
+
+        reasons = []
         if self.missing_fields:
             reasons.append("DESTINATION_FIELDS_MISSING")
         if self.incompatible_fields:

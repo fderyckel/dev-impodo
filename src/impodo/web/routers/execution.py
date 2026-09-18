@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -31,7 +32,11 @@ from ...application.workspace.execution.load_jobs import (
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS, ExecutionRunStatus
 from impodo.domain.execution.odoo_readback import OdooReadbackError
-from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
+from impodo.domain.shared.models import (
+    OdooReadIdentity,
+    OdooWriteIdentity,
+    portable_value,
+)
 from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
 from impodo.domain.project.foundation import MigrationConflictError
 from impodo.domain.run.production import ProductionRunError
@@ -324,6 +329,7 @@ def build_execution_router(
         reconciliation = context.reconciliation.current(workspace_id)
         fallout_detail_available = False
         fallout_groups = ()
+        fallout_detail_page = None
         reconciliation_summary = None
         if reconciliation is not None:
             load_rows = reconciliation.rows
@@ -344,6 +350,18 @@ def build_execution_router(
                         reason_counts.update(
                             (item.field, item.reason_code)
                             for item in detail.differences
+                        )
+                        fallout_detail_page = _fallout_detail_page(
+                            detail.differences,
+                            snapshot_rows=(
+                                getattr(preview.snapshot, "rows", ())
+                                if getattr(detail, "snapshot_hash", None)
+                                == preview.snapshot.semantic_hash
+                                else ()
+                            ),
+                            requested_field=request.query_params.get("fallout_field"),
+                            requested_query=request.query_params.get("fallout_query"),
+                            requested_page=request.query_params.get("fallout_page"),
                         )
             fallout_groups = _fallout_groups(
                 reconciliation,
@@ -436,6 +454,7 @@ def build_execution_router(
             reconciliation=reconciliation,
             fallout_detail_available=fallout_detail_available,
             fallout_groups=fallout_groups,
+            fallout_detail_page=fallout_detail_page,
             reconciliation_summary=reconciliation_summary,
             interrupted_load=(
                 preview.current_run is not None
@@ -1371,6 +1390,174 @@ def _fallout_groups(report, reason_counts: Counter[tuple[str, str]]):
             )
         )
     return tuple(groups)
+
+
+def _fallout_detail_page(
+    differences,
+    *,
+    snapshot_rows=(),
+    requested_field: str | None,
+    requested_query: str | None,
+    requested_page: str | None,
+):
+    """Present protected values from the current verification in bounded pages."""
+
+    fields = tuple(sorted({item.field for item in differences}))
+    field = requested_field if requested_field in fields else ""
+    query = (requested_query or "").strip()[:100]
+    needle = query.casefold()
+    source_traces = {item.source_trace_id for item in differences}
+    record_context = {
+        row.source_trace_id: _fallout_record_context(row)
+        for row in snapshot_rows
+        if row.source_trace_id in source_traces
+    }
+
+    def matches(item) -> bool:
+        if field and item.field != field:
+            return False
+        if not needle:
+            return True
+        searchable = (
+            item.dataset,
+            str(item.source_row),
+            item.target_model,
+            str(item.odoo_id),
+            item.field,
+            record_context.get(item.source_trace_id, ""),
+            _display_fallout_value(item.expected_value),
+            _display_fallout_value(item.observed_value),
+        )
+        return any(needle in value.casefold() for value in searchable)
+
+    filtered = tuple(item for item in differences if matches(item))
+    page_size = 50
+    page_count = max(1, (len(filtered) + page_size - 1) // page_size)
+    try:
+        page = int(requested_page or "1")
+    except ValueError:
+        page = 1
+    page = min(max(1, page), page_count)
+    start = (page - 1) * page_size
+    visible = filtered[start : start + page_size]
+
+    def page_url(number: int) -> str:
+        params = {"fallout_page": number}
+        if field:
+            params["fallout_field"] = field
+        if query:
+            params["fallout_query"] = query
+        return f"?{urlencode(params)}#fallout-values"
+
+    return SimpleNamespace(
+        total=len(differences),
+        filtered_count=len(filtered),
+        blank_sequence_zero_count=sum(
+            _is_blank_bom_sequence_zero(item) for item in differences
+        ),
+        first=start + 1 if visible else 0,
+        last=start + len(visible),
+        fields=tuple(
+            SimpleNamespace(value=item, label=item.replace("_", " ").title())
+            for item in fields
+        ),
+        selected_field=field,
+        query=query,
+        rows=tuple(
+            SimpleNamespace(
+                dataset=item.dataset.replace("_", " ").title(),
+                source_row=item.source_row,
+                record_context=record_context.get(item.source_trace_id, ""),
+                target_model=item.target_model,
+                odoo_id=item.odoo_id,
+                field=item.field.replace("_", " ").title(),
+                prepared_value=_display_fallout_value(item.expected_value),
+                odoo_value=_display_fallout_value(item.observed_value),
+                explanation=_fallout_difference_explanation(item),
+            )
+            for item in visible
+        ),
+        previous_url=page_url(page - 1) if page > 1 else None,
+        next_url=page_url(page + 1) if page < page_count else None,
+    )
+
+
+def _display_fallout_value(value) -> str:
+    if value is None or value == "":
+        return "(empty)"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple, dict)):
+        return json.dumps(portable_value(value), ensure_ascii=False)
+    return str(value)
+
+
+def _fallout_record_context(row) -> str:
+    """Name a BOM line's parent and component from frozen reviewed identity."""
+
+    if row.target_model != "mrp.bom.line":
+        return ""
+    parent = next(
+        (
+            item
+            for item in row.business_scope
+            if getattr(item, "model", "") == "mrp.bom"
+        ),
+        None,
+    )
+    component = next(
+        (
+            item
+            for item in row.business_identity
+            if getattr(item, "model", "") in {"product.product", "product.template"}
+        ),
+        None,
+    )
+    if parent is None or component is None:
+        return ""
+    bom_key = " / ".join(str(value) for value in parent.key)
+    component_key = " / ".join(str(value) for value in component.key)
+    return f"BOM {bom_key} · Component {component_key}"
+
+
+def _fallout_difference_explanation(item) -> str:
+    if item.reason_code == "TARGET_NUMERIC_PRECISION_LOSS":
+        return (
+            "Odoo's field precision cannot represent the prepared number "
+            "exactly. Review the target precision or an approved number rule."
+        )
+    if item.reason_code == "HTML_CONTENT_DIFFERENT":
+        return (
+            "Odoo returned meaningfully different HTML. Review the content "
+            "before accepting the change."
+        )
+    if _is_blank_bom_sequence_zero(item):
+        return (
+            "Odoo returned this BOM line with Sequence 0 after Impodo "
+            "prepared an empty value. Check that its position on the BOM is "
+            "acceptable. The read-back does not establish why Odoo stored 0."
+        )
+    if item.target_model == "mrp.bom.line" and item.field == "sequence":
+        return (
+            "Odoo returned the BOM line, so this difference alone does not "
+            "mean the component is missing. Its sequence differs. Check the "
+            "component and line order on the BOM. The read-back does not "
+            "establish why Odoo changed this value."
+        )
+    return (
+        "Odoo returned a different final value. Check whether the change is "
+        "acceptable; the read-back does not establish its cause."
+    )
+
+
+def _is_blank_bom_sequence_zero(item) -> bool:
+    return (
+        item.target_model == "mrp.bom.line"
+        and item.field == "sequence"
+        and item.expected_value is None
+        and item.observed_value == 0
+        and not isinstance(item.observed_value, bool)
+    )
 
 
 def _reconciliation_summary(report):

@@ -34,8 +34,11 @@ from impodo.domain.odoo_source_capture import (
 from impodo.domain.odoo_source_policy import (
     CURRENT_ODOO_SOURCE_POLICY,
     ODOO_SOURCE_POLICY_HASH,
+    PREVIOUS_ODOO_SOURCE_POLICY_HASH,
+    READABLE_ODOO_SOURCE_POLICY_HASHES,
     TargetInstanceAssurance,
 )
+from impodo.domain.serialization import content_hash
 from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
@@ -171,6 +174,87 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
         self.assertEqual(relationships["category_ids"].values, ((7, 8), ()))
         protected = {item.field_name: item for item in page.origin_batch.relationships}
         self.assertEqual(protected["category_id"].values, ((7,), ()))
+
+    def test_float_values_are_captured_and_nonfinite_values_are_rejected(self) -> None:
+        request = _request(
+            projection=(
+                OdooCaptureFieldProjection("name", "char"),
+                OdooCaptureFieldProjection("product_qty", "float"),
+            ),
+        )
+        rows = [{**_row(1), "product_qty": 0.45}]
+        page = next(iter(self._adapter(DatasetTransport(rows)).open_capture(
+            request, _context(),
+        ).pages()))
+        self.assertEqual(page.columns[1].values, (0.45,))
+
+        for invalid in (float("nan"), float("inf"), "0.45", True):
+            with self.subTest(invalid=invalid):
+                rows = [{**_row(1), "product_qty": invalid}]
+                with self.assertRaisesRegex(
+                    OdooSourceCaptureConsistencyError, "invalid float value",
+                ):
+                    list(self._adapter(DatasetTransport(rows)).open_capture(
+                        request, _context(),
+                    ).pages())
+
+    def test_float_quantity_is_eligible_in_a_saved_source_selection(self) -> None:
+        workspace_id = "00000000-0000-0000-0000-000000000001"
+        schema = _schema(workspace_id)
+        model = schema.models[0]
+        quantity = replace(
+            model.fields[0],
+            name="product_qty",
+            label="Quantity",
+            type="float",
+        )
+        schema = replace(schema, models=(replace(
+            model,
+            fields=(model.fields[0], quantity, model.fields[1]),
+        ),))
+        selection = replace(
+            _selection(workspace_id, schema),
+            field_names=("name", "product_qty"),
+            content_hash="",
+            _calculate_content_hash=True,
+        )
+
+        request = plan_odoo_source_capture(selection, schema)
+
+        self.assertEqual(
+            tuple((field.name, field.field_type) for field in request.projection),
+            (("name", "char"), ("product_qty", "float")),
+        )
+        self.assertNotIn("float", CURRENT_ODOO_SOURCE_POLICY.writable_field_types)
+
+    def test_previous_policy_selection_remains_readable_but_cannot_capture(self) -> None:
+        workspace_id = "00000000-0000-0000-0000-000000000001"
+        schema = _schema(workspace_id)
+        previous_hash = PREVIOUS_ODOO_SOURCE_POLICY_HASH
+        self.assertIn(previous_hash, READABLE_ODOO_SOURCE_POLICY_HASHES)
+        prior_policy = replace(
+            CURRENT_ODOO_SOURCE_POLICY,
+            contract_version=3,
+            capture_field_types=tuple(
+                field for field in CURRENT_ODOO_SOURCE_POLICY.capture_field_types
+                if field != "float"
+            ),
+        )
+        self.assertEqual(content_hash(prior_policy.to_dict()), previous_hash)
+        previous = replace(
+            _selection(workspace_id, schema),
+            policy_hash=previous_hash,
+            content_hash="",
+            _calculate_content_hash=True,
+        )
+
+        self.assertEqual(
+            OdooCaptureSelection.from_json(previous.to_json()), previous,
+        )
+        with self.assertRaisesRegex(
+            OdooSourceCaptureConfigurationError, "current schema evidence",
+        ):
+            plan_odoo_source_capture(previous, schema)
 
     def test_maximum_plus_one_fails_closed(self) -> None:
         with self.assertRaisesRegex(OdooSourceCaptureLimitError, "More than 500"):

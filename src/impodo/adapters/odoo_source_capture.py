@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from datetime import date, datetime, timezone
 import json
+import math
 import socket
 import time
 from typing import Any, Callable, Protocol
@@ -772,6 +773,22 @@ def _decode_value(
                 "Odoo returned an invalid integer value"
             )
         return raw, 8
+    if field_type == "float":
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo returned an invalid float value"
+            )
+        try:
+            value = float(raw)
+        except OverflowError as error:
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo returned an invalid float value"
+            ) from error
+        if not math.isfinite(value):
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo returned an invalid float value"
+            )
+        return value, 8
     if field_type in {"char", "text", "selection"}:
         if not isinstance(raw, str):
             raise OdooSourceCaptureConsistencyError(

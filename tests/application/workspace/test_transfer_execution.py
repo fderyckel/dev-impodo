@@ -149,6 +149,7 @@ class TransferExecutionCompilerTests(unittest.TestCase):
             recorded_by="Data manager",
         )
         ordered = replace(matched, transfer_order_plan=order)
+        self.ordered_workspace = ordered
         self.package = TransferReviewService().build(
             ordered,
             self.match,
@@ -251,6 +252,139 @@ class TransferExecutionCompilerTests(unittest.TestCase):
             "Destination identities changed",
         ):
             self._compile(changed)
+
+    def test_reuses_existing_supporting_record_without_updating_it(self) -> None:
+        product, uom = self.selection.datasets
+        package = TransferReviewService().build(
+            self.ordered_workspace,
+            self.match,
+            self.ordered_workspace.transfer_order_plan,
+            run_id=str(uuid4()),
+            data_version_id=self.selection.data_version_id,
+            built_by=LOCAL_ACTOR.identity,
+            model_policies={
+                "product.template": "upsert",
+                "uom.uom": "create_if_missing",
+            },
+        )
+        approval = TransferReviewApproval.approve(
+            package,
+            approval_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+            approved_at=datetime.now(UTC),
+        )
+        approved = replace(
+            self.ordered_workspace,
+            transfer_review_package=package,
+            transfer_review_approval=approval,
+        )
+        report = TransferPreflightService().build(
+            approved,
+            package,
+            approval,
+            self.match,
+            self.match,
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+        self.package = package
+        self.report = report
+        self.workspace = replace(approved, transfer_preflight_report=report)
+
+        snapshot = self._compile(self.records)
+
+        self.assertEqual(snapshot.counts["CREATE"], 2)
+        self.assertEqual(snapshot.counts["UPDATE"], 1)
+        self.assertEqual(snapshot.counts["UNCHANGED"], 1)
+        rows = {(row.dataset, row.source_row): row for row in snapshot.rows}
+        existing_uom = rows[(uom.name, 1)]
+        self.assertEqual(existing_uom.disposition, "UNCHANGED")
+        self.assertEqual(existing_uom.fields, ())
+        self.assertEqual(rows[(uom.name, 2)].disposition, "CREATE")
+        product_relation = next(
+            field for field in rows[(product.name, 1)].fields
+            if field.field == "uom_id"
+        )
+        self.assertIsInstance(product_relation.value, BusinessReference)
+        self.assertEqual(type(snapshot).from_json(snapshot.to_json()), snapshot)
+
+    def test_all_reused_records_compile_without_write_rows(self) -> None:
+        product, uom = self.selection.datasets
+        captured = []
+
+        def full_reader(*args):
+            metadata, records = self.reader(*args)
+            records = replace(
+                records,
+                records={
+                    "product.template": records.records["product.template"] + (
+                        TargetRecord(
+                            "product.template", 42, {"default_code": "P002"}
+                        ),
+                    ),
+                    "uom.uom": records.records["uom.uom"] + (
+                        TargetRecord("uom.uom", 8, {"name": "Kilogram"}),
+                    ),
+                },
+            )
+            captured.append(records)
+            return metadata, records
+
+        match = DestinationMatchingService(self.source_values).check(
+            self.workspace,
+            self.selection,
+            self.schema,
+            (
+                DestinationMatchKeyChoice(product.dataset_id, "product-code"),
+                DestinationMatchKeyChoice(uom.dataset_id, "uom-name"),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=full_reader,
+            recorded_by="Data manager",
+            source_origins=self.origins,
+        )
+        matched = replace(self.workspace, destination_match_plan=match)
+        order = TransferOrderService().build(
+            matched, match, recorded_by="Data manager"
+        )
+        ordered = replace(matched, transfer_order_plan=order)
+        package = TransferReviewService().build(
+            ordered, match, order,
+            run_id=str(uuid4()),
+            data_version_id=self.selection.data_version_id,
+            built_by=LOCAL_ACTOR.identity,
+            model_policies={
+                "product.template": "reuse_only",
+                "uom.uom": "reuse_only",
+            },
+        )
+        approval = TransferReviewApproval.approve(
+            package,
+            approval_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+            approved_at=datetime.now(UTC),
+        )
+        approved = replace(
+            ordered,
+            transfer_review_package=package,
+            transfer_review_approval=approval,
+        )
+        report = TransferPreflightService().build(
+            approved, package, approval, match, match,
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+        self.workspace = replace(approved, transfer_preflight_report=report)
+        self.package = package
+        self.report = report
+        self.match = match
+
+        snapshot = self._compile(captured[0])
+
+        self.assertEqual(snapshot.write_count, 0)
+        self.assertEqual(snapshot.counts["UNCHANGED"], 4)
+        self.assertEqual(snapshot.relationship_plan.components, ())
+        self.assertTrue(all(not row.fields for row in snapshot.rows))
 
     def _compile(self, records):
         return compile_transfer_execution_snapshot(

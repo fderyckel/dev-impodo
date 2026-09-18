@@ -397,6 +397,66 @@
           </section>
         {% endif %}
 
+        {% if fallout_detail_page and fallout_detail_page.total %}
+          <section class="form-card" id="fallout-values" aria-labelledby="fallout-values-title">
+            <h2 id="fallout-values-title">See the different values</h2>
+            <p>Odoo accepted these records. Compare the prepared value with the value Odoo returned. The highlighted source workbook shows the original worksheet cells.</p>
+            {% if fallout_detail_page.blank_sequence_zero_count %}
+              <div class="notice">
+                <strong>Across this verification, {{ fallout_detail_page.blank_sequence_zero_count }} BOM line{{ 's' if fallout_detail_page.blank_sequence_zero_count != 1 else '' }} with blank prepared Sequence returned as 0 in Odoo.</strong>
+                <p>Odoo returned these BOM lines; the difference alone does not mean a component is missing. Check whether Sequence 0 gives the intended line order. Impodo cannot tell from read-back why Odoo stored 0. Do not reload these lines.</p>
+              </div>
+            {% endif %}
+            <form class="fallout-filters" method="get" action="/workspaces/{{ workspace_id }}/load/outcome#fallout-values">
+              <label>
+                Field
+                <select name="fallout_field">
+                  <option value="">All fields</option>
+                  {% for field in fallout_detail_page.fields %}
+                    <option value="{{ field.value }}" {% if fallout_detail_page.selected_field == field.value %}selected{% endif %}>{{ field.label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>
+                Find a record or value
+                <input type="search" name="fallout_query" value="{{ fallout_detail_page.query }}" placeholder="Row, Odoo ID, or value">
+              </label>
+              <button class="button secondary" type="submit">Filter differences</button>
+              <a href="/workspaces/{{ workspace_id }}/load/outcome#fallout-values">Clear filters</a>
+            </form>
+            <p class="muted">Showing {{ fallout_detail_page.first }}-{{ fallout_detail_page.last }} of {{ fallout_detail_page.filtered_count }} matching field difference{{ 's' if fallout_detail_page.filtered_count != 1 else '' }}{% if fallout_detail_page.filtered_count != fallout_detail_page.total %} ({{ fallout_detail_page.total }} total){% endif %}.</p>
+            {% if fallout_detail_page.rows %}
+              <div class="table-scroll">
+                <table class="data-table fallout-values-table">
+                  <thead>
+                    <tr><th>Prepared record</th><th>Odoo record</th><th>Field</th><th>Prepared value</th><th>Odoo value</th><th>What to check</th></tr>
+                  </thead>
+                  <tbody>
+                    {% for row in fallout_detail_page.rows %}
+                      <tr>
+                        <td>{{ row.dataset }} &middot; row {{ row.source_row }}{% if row.record_context %}<small>{{ row.record_context }}</small>{% endif %}</td>
+                        <td>{{ row.target_model }} &middot; {{ row.odoo_id }}</td>
+                        <td>{{ row.field }}</td>
+                        <td class="fallout-value">{{ row.prepared_value }}</td>
+                        <td class="fallout-value">{{ row.odoo_value }}</td>
+                        <td>{{ row.explanation }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% else %}
+              <p>No differences match these filters.</p>
+            {% endif %}
+            {% if fallout_detail_page.previous_url or fallout_detail_page.next_url %}
+              <nav class="button-row" aria-label="Different value pages">
+                {% if fallout_detail_page.previous_url %}<a class="button secondary" href="{{ fallout_detail_page.previous_url }}">Previous differences</a>{% endif %}
+                {% if fallout_detail_page.next_url %}<a class="button secondary" href="{{ fallout_detail_page.next_url }}">Next differences</a>{% endif %}
+              </nav>
+            {% endif %}
+          </section>
+        {% endif %}
+
         <section class="form-card" aria-labelledby="recheck-odoo-title">
           <h2 id="recheck-odoo-title">Check the current Odoo values again</h2>
           <p>This is read-only. Impodo keeps the previous verification and publishes a new attempt; it does not repeat the load.</p>

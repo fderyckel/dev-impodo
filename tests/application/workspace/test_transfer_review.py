@@ -6,6 +6,7 @@ import unittest
 from uuid import uuid4
 
 from impodo.application.transfer_review_service import TransferReviewService
+from impodo.application.transfer_preflight_service import TransferPreflightService
 from impodo.application.transfer_order_service import TransferOrderService
 from impodo.domain.shared.access import (
     CapabilityAuthorizationPolicy,
@@ -15,6 +16,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.transfer_review import (
     TransferReviewApproval,
     TransferReviewPackage,
+    transfer_review_actions_hash,
 )
 from impodo.domain.workspace.workbench import WorkspaceStateService
 from tests.application.workspace.test_transfer_order import (
@@ -93,6 +95,107 @@ class TransferReviewTests(unittest.TestCase):
             ("x.alpha", "beta_ids", "replace"),
         )
         self.assertEqual(package.totals.post_create_link_count, 1)
+
+    def test_reuse_only_requires_every_destination_record_to_exist(self) -> None:
+        product = _model("product.template", "Product", existing=1, create=1)
+        match = _match_plan((product,), ())
+        order = _build(match)
+        workspace = replace(_workspace(match), transfer_order_plan=order)
+
+        with self.assertRaisesRegex(WorkspaceError, "missing destination"):
+            TransferReviewService().build(
+                workspace,
+                match,
+                order,
+                run_id=str(uuid4()),
+                data_version_id=str(uuid4()),
+                built_by=LOCAL_ACTOR.identity,
+                model_policies={product.model: "reuse_only"},
+            )
+
+    def test_model_policy_is_bound_to_exact_review_package(self) -> None:
+        contact = _model("res.partner", "Contact", existing=1, create=0)
+        match = _match_plan((contact,), ())
+        order = _build(match)
+        workspace = replace(_workspace(match), transfer_order_plan=order)
+        arguments = dict(
+            run_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            built_by=LOCAL_ACTOR.identity,
+        )
+        reused = TransferReviewService().build(
+            workspace, match, order,
+            model_policies={contact.model: "reuse_only"}, **arguments,
+        )
+        updated = TransferReviewService().build(
+            workspace, match, order,
+            model_policies={contact.model: "upsert"}, **arguments,
+        )
+
+        self.assertEqual(reused.datasets[0].model_policy, "reuse_only")
+        self.assertNotEqual(reused.export_plan.actions_hash, updated.export_plan.actions_hash)
+        self.assertEqual(TransferReviewPackage.from_json(reused.to_json()), reused)
+
+    def test_legacy_review_package_remains_readable(self) -> None:
+        product = _model("product.template", "Product", create=1)
+        current = _package(_match_plan((product,), ()))
+        legacy = replace(
+            current,
+            export_plan=replace(
+                current.export_plan,
+                actions_hash=transfer_review_actions_hash(
+                    current.datasets, current.relationships, current.totals,
+                    contract_version=1,
+                ),
+            ),
+            matched_record_policy="update_selected_fields",
+            missing_record_policy="create",
+            contract_version=1,
+        )
+
+        self.assertEqual(TransferReviewPackage.from_json(legacy.to_json()), legacy)
+
+    def test_read_only_destination_field_allows_reuse_but_blocks_updates(self) -> None:
+        contact = replace(
+            _model("res.partner", "Contact", existing=1),
+            incompatible_fields=("credit_limit",),
+        )
+        match = _match_plan((contact,), ())
+        self.assertTrue(match.ready)
+        order = _build(match)
+        workspace = replace(_workspace(match), transfer_order_plan=order)
+        arguments = dict(
+            run_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            built_by=LOCAL_ACTOR.identity,
+        )
+
+        reused = TransferReviewService().build(
+            workspace, match, order,
+            model_policies={contact.model: "reuse_only"}, **arguments,
+        )
+        self.assertEqual(reused.datasets[0].model_policy, "reuse_only")
+        approval = TransferReviewApproval.approve(
+            reused,
+            approval_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+            approved_at=datetime.now(UTC),
+        )
+        approved = replace(
+            workspace,
+            transfer_review_package=reused,
+            transfer_review_approval=approval,
+        )
+        report = TransferPreflightService().build(
+            approved, reused, approval, match, match,
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+        self.assertTrue(report.ready)
+        with self.assertRaisesRegex(WorkspaceError, "incompatible destination"):
+            TransferReviewService().build(
+                workspace, match, order,
+                model_policies={contact.model: "upsert"}, **arguments,
+            )
 
     def test_approval_binds_exact_package_and_stable_actor_identity(self) -> None:
         product = _model("product.template", "Product", create=1)

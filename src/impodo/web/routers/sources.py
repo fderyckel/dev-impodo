@@ -1063,6 +1063,19 @@ def _render_odoo_capture_selection(
     )
     current_by_model = {item.model: item for item in current_selections}
     models = tuple(schema.models) if schema is not None else ()
+    selected_models = {item.name for item in models}
+    unselected_relationships = tuple(
+        (model, field)
+        for model in models
+        for field in model.fields
+        if field.type in {"many2one", "many2many"}
+        and field.relation
+        and field.relation not in selected_models
+        and field.exportable is True
+        and field.related is not True
+        and field.company_dependent is False
+        and field.readonly is False
+    )
     requested_model = request.query_params.get("model", "").strip()
     selected_model = next(
         (
@@ -1198,6 +1211,7 @@ def _render_odoo_capture_selection(
         current=current,
         current_selections=current_selections,
         current_by_model=current_by_model,
+        unselected_relationships=unselected_relationships,
         plans_complete=plans_complete,
         selection_set_hash=selection_set_hash,
         capture_plan_errors=capture_plan_errors,

@@ -34,8 +34,20 @@ key is never substituted for it and no third credential role is introduced.
 for every frozen source model. It resolves generic many-to-one and many-to-many
 evidence and normalizes inverse one-to-many metadata to the writable
 many-to-one field. `TransferOrderService` derives dependency waves, while
-`TransferReviewService` freezes create and update counts, write fields,
-relationship operations, later relationship passes, and control totals.
+`TransferReviewService` freezes a reviewed policy per model (`reuse_only`,
+`create_if_missing`, or `upsert`), create and existing-match counts, write
+fields, relationship operations, later relationship passes, and control totals.
+The browser defaults to `create_if_missing`, so existing supporting records
+are used without changing their fields. `reuse_only` requires every selected
+source key to have exactly one destination match. Stage 8B compiles matched
+rows under either reuse policy as `UNCHANGED` with no write intents; their
+binding can still resolve selected relationships. The policy is part of the
+review action hash and changing it requires new approval. Legacy version 1
+review packages retain the earlier upsert meaning when read.
+Field compatibility findings remain visible during destination matching, but
+block package creation only when the selected model policy would create or
+update records. This lets an existing record be reused even when a captured
+read-only field cannot be written to the destination.
 Approval authorizes only that immutable package; it does not authorize
 transport.
 
@@ -116,8 +128,15 @@ Field-level differences are stored as ordinary JSON in the owner-restricted
 workspace report store and are bound by size, SHA-256 artifact hash, logical
 hash, reconciliation, execution, snapshot, and target. This detail is not
 application-encrypted and requires no evidence key; API credentials remain in
-the operating-system credential vault. The browser exposes only grouped
-counts. `GET .../load/fallout.xlsx` joins the bound detail to frozen lineage and
+the operating-system credential vault. The normal reconciliation projection
+contains no business values. The outcome route opens the current protected
+detail with the local actor and renders bounded pages of prepared and observed
+values. Its field and text filters apply only to that current attempt. The page
+calls out BOM lines whose prepared Sequence is empty and whose returned value
+is 0 without inferring why Odoo stored that value. When the current snapshot
+hash matches the detail, the card uses the already loaded execution rows to
+show the BOM and component business keys for each affected line.
+`GET .../load/fallout.xlsx` joins the bound detail to frozen lineage and
 generates a derivative copy with an **Impodo Fallout** sheet, exact-cell links,
 highlights, and comments while leaving the accepted source artifact unchanged.
 

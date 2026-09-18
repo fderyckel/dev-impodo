@@ -443,6 +443,7 @@ def _candidate_type(field_type: str) -> str:
     return {
         "boolean": "boolean",
         "integer": "integer",
+        "float": "decimal",
         "date": "date",
         "datetime": "datetime",
         "char": "string",

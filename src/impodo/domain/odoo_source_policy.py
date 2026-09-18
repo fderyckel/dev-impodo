@@ -14,7 +14,7 @@ from enum import StrEnum
 from .serialization import content_hash
 
 
-ODOO_SOURCE_POLICY_CONTRACT_VERSION = 3
+ODOO_SOURCE_POLICY_CONTRACT_VERSION = 4
 
 
 class TargetInstanceAssurance(StrEnum):
@@ -86,6 +86,7 @@ CURRENT_ODOO_SOURCE_POLICY = OdooSourcePolicy(
         "char",
         "date",
         "datetime",
+        "float",
         "integer",
         "selection",
         "text",
@@ -131,3 +132,12 @@ CURRENT_ODOO_SOURCE_POLICY = OdooSourcePolicy(
 # The policy is immutable process metadata. Canonicalize and hash it exactly
 # once, then reuse this fixed boundary value in every catalog and manifest.
 ODOO_SOURCE_POLICY_HASH = content_hash(CURRENT_ODOO_SOURCE_POLICY.to_dict())
+
+# Earlier selections remain readable as historical evidence. Planning a new
+# capture still requires ODOO_SOURCE_POLICY_HASH and an updated selection.
+PREVIOUS_ODOO_SOURCE_POLICY_HASH = (
+    "sha256:403be4a671a9e2a25ddee994ff0c337e0b271438a7ae47a60d68f5be3572ac01"
+)
+READABLE_ODOO_SOURCE_POLICY_HASHES = frozenset(
+    {ODOO_SOURCE_POLICY_HASH, PREVIOUS_ODOO_SOURCE_POLICY_HASH}
+)

@@ -165,6 +165,130 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertNotIn("re-matched uncertain writes", page.text)
         self.assertIn("could not verify every saved outcome", page.text)
 
+    def test_fallout_values_show_bom_sequence_and_can_be_filtered(self) -> None:
+        context = self.app.state.context
+        workspace_state = self.workspaces.create(
+            name="BOM sequence read-back",
+            source_system="Other",
+        )
+        run_id = "11111111-1111-4111-8111-111111111111"
+        preview = SimpleNamespace(
+            snapshot=SimpleNamespace(
+                counts={"CREATE": 20, "UPDATE": 0, "UNCHANGED": 0},
+                target_database="migration",
+                target_odoo_version="19.0",
+                semantic_hash="sha256:" + "a" * 64,
+                target_hash="sha256:" + "b" * 64,
+            ),
+            datasets=(),
+            current_run=SimpleNamespace(run_id=run_id, rows=()),
+            can_load=False,
+        )
+        differences = tuple(
+            SimpleNamespace(
+                dataset="bom_lines",
+                source_row=index,
+                source_trace_id=f"trace-{index}",
+                target_model="mrp.bom.line",
+                odoo_id=1000 + index,
+                field="sequence",
+                expected_value=None,
+                observed_value=0,
+                reason_code="VALUE_DIFFERENT",
+            )
+            for index in range(1, 20)
+        ) + (
+            SimpleNamespace(
+                dataset="bom_lines",
+                source_row=20,
+                source_trace_id="trace-20",
+                target_model="mrp.bom.line",
+                odoo_id=1020,
+                field="product_qty",
+                expected_value=2,
+                observed_value=3,
+                reason_code="VALUE_DIFFERENT",
+            ),
+        )
+        preview.snapshot.rows = tuple(
+            SimpleNamespace(
+                source_trace_id=item.source_trace_id,
+                target_model="mrp.bom.line",
+                business_scope=(
+                    SimpleNamespace(model="mrp.bom", key=(f"BOM-{item.source_row}",)),
+                ),
+                business_identity=(
+                    SimpleNamespace(
+                        model="product.product",
+                        key=(f"PART-{item.source_row}",),
+                    ),
+                ),
+            )
+            for item in differences
+        )
+        reconciliation = SimpleNamespace(
+            status=SimpleNamespace(value="FALLOUT"),
+            rows=tuple(
+                SimpleNamespace(
+                    dataset=item.dataset,
+                    source_row=item.source_row,
+                    target_model=item.target_model,
+                    operation="CREATE",
+                    execution_status="COMMITTED",
+                    status=SimpleNamespace(value="DIFFERENT"),
+                    odoo_id=item.odoo_id,
+                    differing_fields=(item.field,),
+                    message="Odoo differs from the confirmed load preview",
+                    retry_safe=False,
+                )
+                for item in differences
+            ),
+            verified_count=0,
+            fallout_count=20,
+            unknown_count=0,
+            retry_safe_count=0,
+        )
+        url = f"/workspaces/{workspace_state.workspace_id}/load/outcome"
+        with (
+            patch.object(type(context.execution), "current_preview", return_value=preview),
+            patch.object(type(context.reconciliation), "current", return_value=reconciliation),
+            patch.object(type(context.reconciliation), "current_detail_available", return_value=True),
+            patch.object(
+                type(context.reconciliation),
+                "current_detail",
+                return_value=SimpleNamespace(
+                    differences=differences,
+                    snapshot_hash=preview.snapshot.semantic_hash,
+                ),
+            ),
+        ):
+            page = self.client.get(url)
+            filtered = self.client.get(url + "?fallout_field=sequence")
+            searched = self.client.get(url + "?fallout_query=1019")
+            by_component = self.client.get(url + "?fallout_query=PART-19")
+
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("See the different values", page.text)
+        self.assertIn("20 matching field differences", page.text)
+        self.assertIn("mrp.bom.line", page.text)
+        self.assertIn(
+            "19 BOM lines with blank prepared Sequence returned as 0 in Odoo",
+            page.text,
+        )
+        self.assertIn("Check whether Sequence 0 gives the intended line order", page.text)
+        self.assertIn('<td class="fallout-value">(empty)</td>', page.text)
+        self.assertIn('<td class="fallout-value">0</td>', page.text)
+        self.assertIn("BOM BOM-19", page.text)
+        self.assertIn("Component PART-19", page.text)
+        self.assertIn("19 matching field differences", filtered.text)
+        self.assertNotIn("Product Qty</td>", filtered.text)
+        self.assertIn("1 matching field difference", searched.text)
+        self.assertIn("1019", searched.text)
+        self.assertEqual(
+            searched.text.count("Odoo returned this BOM line with Sequence 0"), 1
+        )
+        self.assertIn("1 matching field difference", by_component.text)
+
     def test_load_receipt_rows_offer_twenty_or_fifty_with_pagination(self) -> None:
         context = self.app.state.context
         workspace_state = self.workspaces.create(

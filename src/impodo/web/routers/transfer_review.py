@@ -75,6 +75,10 @@ def _render_review(
             workspace_state.transfer_review_approval if approved else None
         ),
         transfer_review_dataset_rows=_dataset_rows(package if current else None),
+        transfer_match_models=(
+            workspace_state.destination_match_plan.model_matches
+            if workspace_state.destination_match_plan is not None else ()
+        ),
         disable_default_read_credential_prompt=True,
         error=error,
         status_code=status_code,
@@ -122,8 +126,17 @@ def build_transfer_review_router(context: WebContext) -> APIRouter:
     @router.post("/workspaces/{workspace_id}/transfer-review/build")
     async def build_transfer_review(request: Request, workspace_id: str):
         form = await request.form()
-        _secure_form(request, form, {"csrf_token", "revision"})
         workspace_state = context.queries.get(workspace_id)
+        match_plan = workspace_state.destination_match_plan
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "revision"}
+            | {
+                f"policy_{item.dataset_id}"
+                for item in (match_plan.model_matches if match_plan else ())
+            },
+        )
         try:
             selection, schema = _current_evidence(context, workspace_id)
         except WorkspaceError as error:
@@ -138,10 +151,15 @@ def build_transfer_review_router(context: WebContext) -> APIRouter:
                 raise WorkspaceStateError(
                     "The workspace changed in another request; reload before continuing"
                 )
-            match_plan = workspace_state.destination_match_plan
             order_plan = workspace_state.transfer_order_plan
             if match_plan is None or order_plan is None:
                 raise WorkspaceError("Complete the current transfer order first")
+            model_policies = {
+                item.model: (
+                    _text(form, f"policy_{item.dataset_id}") or "create_if_missing"
+                )
+                for item in match_plan.model_matches
+            }
             access = context.workspace_access.resolve(
                 workspace_id,
                 actor=context.actor,
@@ -154,6 +172,7 @@ def build_transfer_review_router(context: WebContext) -> APIRouter:
                 run_id=access.migration_run_id,
                 data_version_id=access.data_version_id,
                 built_by=context.actor.identity,
+                model_policies=model_policies,
             )
             workspace_state = context.workspace_states.save_transfer_review_package(
                 workspace_id,

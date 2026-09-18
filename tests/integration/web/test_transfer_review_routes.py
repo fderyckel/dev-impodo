@@ -76,6 +76,10 @@ class TransferReviewRouteTests(unittest.TestCase):
         self.assertEqual(built.status_code, 303)
         reviewed = repository.workspace
         self.assertIsNotNone(reviewed.transfer_review_package)
+        self.assertEqual(
+            reviewed.transfer_review_package.datasets[0].model_policy,
+            "create_if_missing",
+        )
         self.assertIsNone(reviewed.transfer_review_approval)
 
         approved = asyncio.run(
@@ -109,6 +113,26 @@ class TransferReviewRouteTests(unittest.TestCase):
                 "WORKSPACE_TRANSFER_REVIEW_APPROVED",
             ],
         )
+
+        rebuilt = asyncio.run(
+            _endpoint(router, "build_transfer_review")(
+                _request(
+                    "/transfer-review/build",
+                    {
+                        "csrf_token": "csrf",
+                        "revision": str(final.revision),
+                        f"policy_{match.model_matches[0].dataset_id}": "upsert",
+                    },
+                ),
+                workspace.workspace_id,
+            )
+        )
+        self.assertEqual(rebuilt.status_code, 303)
+        self.assertEqual(
+            repository.workspace.transfer_review_package.datasets[0].model_policy,
+            "upsert",
+        )
+        self.assertIsNone(repository.workspace.transfer_review_approval)
 
 
 class _Queries:

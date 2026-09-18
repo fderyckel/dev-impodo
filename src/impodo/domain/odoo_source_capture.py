@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+import math
 import re
 from typing import Callable
 from uuid import UUID
@@ -32,7 +33,7 @@ from .odoo_source_policy import (
 from .serialization import canonical_json
 
 
-CaptureScalar = bool | int | str | date | datetime | None
+CaptureScalar = bool | int | float | str | date | datetime | None
 CancellationProbe = Callable[[], bool]
 
 _FIELD_NAME = re.compile(r"[a-z_][a-z0-9_]{0,127}")
@@ -738,6 +739,8 @@ def _capture_value_matches_type(field_type: str, value: CaptureScalar) -> bool:
         return isinstance(value, bool)
     if field_type == "integer":
         return isinstance(value, int) and not isinstance(value, bool)
+    if field_type == "float":
+        return isinstance(value, float) and math.isfinite(value)
     if field_type in {"char", "text", "selection"}:
         return isinstance(value, str)
     if field_type == "date":
