@@ -252,6 +252,7 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
                 DestinationMatchKeyChoice(
                     dataset_id=item.dataset_id,
                     source_column_key=item.source_column_key,
+                    additional_source_column_keys=item.source_column_keys[1:],
                 )
                 for item in approved_match.model_matches
             )

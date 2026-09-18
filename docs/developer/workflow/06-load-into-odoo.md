@@ -33,7 +33,14 @@ key is never substituted for it and no third credential role is introduced.
 `DestinationMatchingService` performs bounded metadata and natural-key reads
 for every frozen source model. It resolves generic many-to-one and many-to-many
 evidence and normalizes inverse one-to-many metadata to the writable
-many-to-one field. `TransferOrderService` derives dependency waves, while
+many-to-one field. Each model can select one text key and up to two additional
+text or integer components. The first component bounds the destination read;
+the full ordered tuple is used for match counts, binding hashes, review,
+preflight, relationship resolution, and execution. A first-component query
+that reaches the 1,001-row destination limit blocks the plan. The capture
+publisher rejects selected links that point outside the captured related
+rows. Automatic capture of missing related rows and relationally scoped
+identities remain separate work. `TransferOrderService` derives dependency waves, while
 `TransferReviewService` freezes a reviewed policy per model (`reuse_only`,
 `create_if_missing`, or `upsert`), create and existing-match counts, write
 fields, relationship operations, later relationship passes, and control totals.
@@ -85,7 +92,10 @@ absent. Creates use deterministic External IDs. The repository transaction
 requires the current ready transfer-preflight hash, workspace, and target,
 then saves every planned attempt before transport. The shared dependency
 engine performs creates, updates, and deferred relationship completion in the
-approved order. The job attempts automatic read-back through
+approved order. For Odoo-to-Odoo transfers it repeats the create-key absence
+check before a later wave if an earlier wave committed. A generated child
+that now occupies an approved create key blocks remaining writes; the journal
+retains the partial result for review. The job attempts automatic read-back through
 `ReconciliationService`; its outcome page also permits manual verification
 with the same transfer key.
 

@@ -85,6 +85,7 @@ class TransferReviewService:
                 model_label=item.model_label,
                 key_field=item.key_field,
                 key_field_label=item.key_field_label,
+                key_fields=item.key_fields,
                 source_row_count=item.source_row_count,
                 destination_existing_record_count=(
                     item.destination_existing_key_count
@@ -136,6 +137,7 @@ class TransferReviewService:
                     field_name=item.field_name,
                     field_label=item.field_label,
                     related_key_field=item.related_key_field,
+                    related_key_fields=item.related_key_fields,
                     kind=item.kind,
                     operation=item.operation,
                     inverse_field=item.inverse_field,

@@ -23,9 +23,9 @@ from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor, ActorIdentity, Capability
 
 
-TRANSFER_REVIEW_CONTRACT_VERSION = 2
+TRANSFER_REVIEW_CONTRACT_VERSION = 3
 TRANSFER_REVIEW_APPROVAL_CONTRACT_VERSION = 1
-TRANSFER_REVIEW_POLICY_VERSION = "odoo-transfer-review-v2"
+TRANSFER_REVIEW_POLICY_VERSION = "odoo-transfer-review-v3"
 TRANSFER_MODEL_POLICIES = frozenset({"reuse_only", "create_if_missing", "upsert"})
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
@@ -60,6 +60,7 @@ class TransferReviewDataset:
     scalar_write_fields: tuple[str, ...]
     relationship_write_fields: tuple[str, ...]
     model_policy: str = "upsert"
+    key_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if any(
@@ -79,6 +80,14 @@ class TransferReviewDataset:
             for value in (self.model, self.key_field)
         ):
             raise ValueError("Transfer-review dataset identity is invalid")
+        if not self.key_fields:
+            object.__setattr__(self, "key_fields", (self.key_field,))
+        if (
+            self.key_fields[0] != self.key_field
+            or len(set(self.key_fields)) != len(self.key_fields)
+            or any(_TECHNICAL_NAME.fullmatch(value) is None for value in self.key_fields)
+        ):
+            raise ValueError("Transfer-review composite identity is invalid")
         if any(
             value < 0
             for value in (
@@ -130,6 +139,7 @@ class TransferReviewRelationship:
     destination_reused_link_count: int
     incoming_link_count: int
     phase: str
+    related_key_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if any(
@@ -147,6 +157,14 @@ class TransferReviewRelationship:
             )
         ):
             raise ValueError("Transfer-review relationship identity is incomplete")
+        if not self.related_key_fields:
+            object.__setattr__(self, "related_key_fields", (self.related_key_field,))
+        if (
+            self.related_key_fields[0] != self.related_key_field
+            or len(set(self.related_key_fields)) != len(self.related_key_fields)
+            or any(_TECHNICAL_NAME.fullmatch(value) is None for value in self.related_key_fields)
+        ):
+            raise ValueError("Transfer-review relationship composite identity is invalid")
         technical = (
             self.owner_model,
             self.related_model,
@@ -234,7 +252,7 @@ class TransferReviewPackage:
     contract_version: int = TRANSFER_REVIEW_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if self.contract_version not in {1, TRANSFER_REVIEW_CONTRACT_VERSION}:
+        if self.contract_version not in {1, 2, TRANSFER_REVIEW_CONTRACT_VERSION}:
             raise ValueError("Transfer-review contract version is unsupported")
         matched_policy = (
             "update_selected_fields" if self.contract_version == 1 else "per_model"
@@ -335,7 +353,10 @@ class TransferReviewPackage:
                 _dataset_dict(item, contract_version=self.contract_version)
                 for item in self.datasets
             ],
-            "relationships": [asdict(item) for item in self.relationships],
+            "relationships": [
+                _relationship_dict(item, contract_version=self.contract_version)
+                for item in self.relationships
+            ],
             "totals": asdict(self.totals),
             "built_by": _actor_dict(self.built_by),
             "matched_record_policy": self.matched_record_policy,
@@ -376,6 +397,7 @@ class TransferReviewPackage:
                             item["relationship_write_fields"]
                         ),
                         model_policy=str(item.get("model_policy", "upsert")),
+                        key_fields=tuple(item.get("key_fields", ())),
                     )
                     for item in payload["datasets"]
                 ),
@@ -404,6 +426,7 @@ class TransferReviewPackage:
                         ),
                         incoming_link_count=int(item["incoming_link_count"]),
                         phase=str(item["phase"]),
+                        related_key_fields=tuple(item.get("related_key_fields", ())),
                     )
                     for item in payload["relationships"]
                 ),
@@ -578,7 +601,10 @@ def transfer_review_actions_hash(
                 _dataset_dict(item, contract_version=contract_version)
                 for item in datasets
             ],
-            "relationships": [asdict(item) for item in relationships],
+            "relationships": [
+                _relationship_dict(item, contract_version=contract_version)
+                for item in relationships
+            ],
             "totals": asdict(totals),
             "matched_record_policy": (
                 "update_selected_fields" if contract_version == 1 else "per_model"
@@ -595,8 +621,19 @@ def _dataset_dict(
     item: TransferReviewDataset, *, contract_version: int
 ) -> dict[str, Any]:
     payload = asdict(item)
+    if contract_version < 3:
+        payload.pop("key_fields")
     if contract_version == 1:
         payload.pop("model_policy")
+    return payload
+
+
+def _relationship_dict(
+    item: TransferReviewRelationship, *, contract_version: int
+) -> dict[str, Any]:
+    payload = asdict(item)
+    if contract_version < 3:
+        payload.pop("related_key_fields")
     return payload
 
 

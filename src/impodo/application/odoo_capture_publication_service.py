@@ -50,6 +50,7 @@ from impodo.application.workspace.access import WorkspaceAccessService
 from .odoo_provenance_service import OdooProvenanceService
 from .odoo_source_capture_service import (
     OdooSourceCapturePort,
+    OdooSourceCaptureResult,
     OdooSourceCaptureService,
 )
 
@@ -277,6 +278,11 @@ class OdooCapturePublicationService:
                     observe_matching_rows=observe_matching_rows,
                 )
 
+                _require_captured_relationship_coverage(
+                    results,
+                    origins_by_model,
+                )
+
                 for result in results:
                     selection = result.selection
                     writer = writers.get(selection.model)
@@ -413,6 +419,52 @@ class OdooCapturePublicationService:
         except Exception:
             self._publications.recover_incomplete_publications(workspace_id)
             raise
+
+
+def _require_captured_relationship_coverage(
+    results: tuple[OdooSourceCaptureResult, ...],
+    origins_by_model: dict[str, list[OdooOriginBatch]],
+) -> None:
+    """Reject selected links whose related source rows were excluded by filters.
+
+    Only protected numeric IDs are compared here. They never enter the
+    portable snapshot, a log message, or the raised diagnostic.
+    """
+
+    captured_ids = {
+        model: {identifier for batch in batches for identifier in batch.odoo_ids}
+        for model, batches in origins_by_model.items()
+    }
+    for result in results:
+        for projection in result.request.relationship_projection:
+            related_ids = captured_ids.get(projection.relation_model)
+            if related_ids is None:
+                raise WorkspaceError(
+                    f"Selected related record type {projection.relation_model} was not captured"
+                )
+            batches = origins_by_model[result.selection.model]
+            if any(
+                sum(column.field_name == projection.name for column in batch.relationships) != 1
+                for batch in batches
+            ):
+                raise WorkspaceError(
+                    f"Protected relationship evidence is incomplete for "
+                    f"{result.selection.model}.{projection.name}"
+                )
+            missing = any(
+                identifier not in related_ids
+                for batch in batches
+                for column in batch.relationships
+                if column.field_name == projection.name
+                for members in column.values
+                for identifier in members
+            )
+            if missing:
+                raise WorkspaceError(
+                    f"{result.selection.model}.{projection.name} has a link "
+                    f"outside the captured {projection.relation_model} rows. "
+                    "Expand the related selection or narrow the source records."
+                )
 
 def _report_progress(
     callback: Callable[[OdooCaptureProgress], None] | None,

@@ -5,7 +5,7 @@
     <div>
       <p class="eyebrow">Stage 5 of 8 · Match destination data</p>
       <h1>Decide how source records find destination records</h1>
-      <p>Choose one stable text field per Odoo record type. Impodo checks same-name destination fields and exact existing-record matches without writing anything.</p>
+      <p>Choose a stable text field and, when needed, up to two more scalar fields per record type. Impodo checks exact combined values without writing anything.</p>
     </div>
     <span class="status {% if match_plan_ready %}ready{% elif match_plan %}review{% else %}review{% endif %}">
       {% if match_plan_ready %}Matching ready{% elif match_plan %}Review required{% else %}Check required{% endif %}
@@ -28,8 +28,8 @@
     <div class="page-heading compact">
       <div>
         <p class="eyebrow">Natural record identity</p>
-        <h2>Choose the field used to find each record</h2>
-        <p>Product Internal Reference is preferred when captured; Unit of Measure normally uses its captured Name unless your database provides a stable external code.</p>
+        <h2>Choose the fields used to find each record</h2>
+        <p>Choose fields whose combined values identify one record in each database. If a first field repeats, add another captured scalar field.</p>
       </div>
       <span class="status {% if destination_credential_status.available %}registered{% else %}blocked{% endif %}">Key: {{ destination_credential_status.label }}</span>
     </div>
@@ -39,20 +39,35 @@
       <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
       <div class="stacked-fields">
         {% for row in matching_rows %}
-          <label>
-            {{ row.dataset.name }} <small>({{ row.model }}, {{ "{:,}".format(row.dataset.row_count) }} source records)</small>
-            {% if row.candidates %}
-              <select name="match_key" required>
-                {% for candidate in row.candidates %}
-                  <option value="{{ candidate.value }}" {% if candidate.stable_key == row.selected_key %}selected{% endif %}>
+          <div>
+            <strong>{{ row.dataset.name }}</strong> <small>({{ row.model }}, {{ "{:,}".format(row.dataset.row_count) }} source records)</small>
+            {% if row.primary_candidates %}
+              <label for="match-key-{{ loop.index }}">First field</label>
+              <select id="match-key-{{ loop.index }}" name="match_key" required>
+                {% for candidate in row.primary_candidates %}
+                  <option value="{{ candidate.value }}" {% if candidate.stable_key == row.selected_keys[0] %}selected{% endif %}>
                     {{ candidate.label }} ({{ candidate.field_name }})
                   </option>
                 {% endfor %}
               </select>
+              <label for="match-key-extra-1-{{ loop.index }}">Second field (optional)</label>
+              <select id="match-key-extra-1-{{ loop.index }}" name="match_key_extra">
+                <option value="">None</option>
+                {% for candidate in row.candidates %}
+                  <option value="{{ candidate.value }}" {% if row.selected_keys|length > 1 and candidate.stable_key == row.selected_keys[1] %}selected{% endif %}>{{ candidate.label }} ({{ candidate.field_name }})</option>
+                {% endfor %}
+              </select>
+              <label for="match-key-extra-2-{{ loop.index }}">Third field (optional)</label>
+              <select id="match-key-extra-2-{{ loop.index }}" name="match_key_extra">
+                <option value="">None</option>
+                {% for candidate in row.candidates %}
+                  <option value="{{ candidate.value }}" {% if row.selected_keys|length > 2 and candidate.stable_key == row.selected_keys[2] %}selected{% endif %}>{{ candidate.label }} ({{ candidate.field_name }})</option>
+                {% endfor %}
+              </select>
             {% else %}
-              <span class="field-error">No captured text field is available. Return to the source selection and include a stable code or name.</span>
+              <span class="field-error">No captured text field is available. Return to the source selection and include a stable text identifier.</span>
             {% endif %}
-          </label>
+          </div>
         {% endfor %}
       </div>
       <div class="actions">
@@ -82,7 +97,7 @@
             <div class="page-heading compact">
               <div>
                 <h3>{{ row.result.model_label }}</h3>
-                <p>{{ row.result.model }} · match by {{ row.result.key_field_label }} ({{ row.result.key_field }})</p>
+                <p>{{ row.result.model }} · match by {{ row.result.key_fields|join(' + ') }}</p>
               </div>
               <span class="status {% if row.result.ready %}ready{% else %}blocked{% endif %}">{% if row.result.ready %}Ready{% else %}Needs review{% endif %}</span>
             </div>
@@ -132,7 +147,7 @@
               <div>
                 <h3>{{ relation.model_label }} &middot; {{ relation.field_label }}</h3>
                 <p>
-                  {{ relation.model }}.{{ relation.field_name }} &rarr; {{ relation.related_model }}.{{ relation.related_key_field }}
+                  {{ relation.model }}.{{ relation.field_name }} &rarr; {{ relation.related_model }}.{{ relation.related_key_fields|join(' + ') }}
                   &middot; {{ relation.kind }} &middot; {{ relation.operation }}
                   {% if relation.inverse_field %}&middot; inverse one2many {{ relation.related_model }}.{{ relation.inverse_field }}{% endif %}
                 </p>

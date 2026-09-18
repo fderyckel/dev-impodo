@@ -60,6 +60,9 @@ class _SourceValues:
     def source_key_rows(self, _workspace_id, dataset_id, source_column_key):
         return self.rows[(dataset_id, source_column_key)]
 
+    def source_key_tuples(self, _workspace_id, dataset_id, source_column_keys):
+        return self.rows[(dataset_id, tuple(source_column_keys))]
+
 
 class DestinationMatchingTests(unittest.TestCase):
     def test_different_or_unknown_source_major_blocks_matching(self) -> None:
@@ -153,6 +156,8 @@ class DestinationMatchingTests(unittest.TestCase):
             DestinationMatchPlan.from_json(legacy.to_json()).to_json(),
             legacy.to_json(),
         )
+        previous = replace(plan, contract_version=3)
+        self.assertEqual(DestinationMatchPlan.from_json(previous.to_json()), previous)
 
     def test_duplicate_source_keys_block_the_plan(self) -> None:
         self.source_values.values[(self.product.dataset_id, "product-code")] = (
@@ -182,6 +187,53 @@ class DestinationMatchingTests(unittest.TestCase):
         self.assertEqual(product.source_duplicate_key_count, 1)
         self.assertEqual(product.source_blank_row_count, 0)
         self.assertIn("SOURCE_KEY_DUPLICATE", product.blocking_reasons)
+
+    def test_composite_scalar_identity_uses_exact_tuple_and_keeps_values_private(self) -> None:
+        self.source_values.rows[(
+            self.product.dataset_id, ("product-code", "product-name")
+        )] = (("P001", "Blue"), ("P001", "Red"))
+        base_reader = _destination_reader(self.workspace)
+
+        def reader(*args):
+            metadata, records = base_reader(*args)
+            requests = args[3]
+            product_request = next(item for item in requests if item.model == "product.template")
+            self.assertEqual(product_request.fields, ("default_code", "name"))
+            self.assertEqual(product_request.domain, (("default_code", "in", ("P001",)),))
+            return metadata, replace(
+                records,
+                records={
+                    **records.records,
+                    "product.template": (
+                        TargetRecord("product.template", 41, {"default_code": "P001", "name": "Blue"}),
+                        TargetRecord("product.template", 42, {"default_code": "P001", "name": "Other"}),
+                    ),
+                },
+            )
+
+        plan = DestinationMatchingService(self.source_values).check(
+            self.workspace,
+            self.selection,
+            self.schema,
+            (
+                DestinationMatchKeyChoice(
+                    self.product.dataset_id, "product-code", ("product-name",)
+                ),
+                DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=reader,
+            recorded_by="Data manager",
+        )
+        product = next(item for item in plan.model_matches if item.model == "product.template")
+        self.assertTrue(plan.ready)
+        self.assertEqual(product.key_fields, ("default_code", "name"))
+        self.assertEqual(product.destination_existing_key_count, 1)
+        self.assertEqual(product.destination_create_key_count, 1)
+        self.assertEqual(DestinationMatchPlan.from_json(plan.to_json()), plan)
+        self.assertNotIn("Blue", plan.to_json())
 
     def test_equal_counts_still_bind_each_key_to_its_exact_destination_record(self) -> None:
         service = DestinationMatchingService(self.source_values)

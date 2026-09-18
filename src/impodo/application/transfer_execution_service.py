@@ -51,6 +51,7 @@ from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
 from impodo.domain.workspace.destination_matching import DestinationMatchPlan
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.portable_identity import portable_components, record_identity
 from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
 from impodo.domain.workspace.transfer_review import TransferReviewPackage
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceState
@@ -409,6 +410,7 @@ def compile_transfer_execution_snapshot(
 
     target_ids_by_dataset: dict[str, dict[str, int]] = {}
     keys_by_dataset: dict[str, tuple[str, ...]] = {}
+    components_by_dataset: dict[str, tuple[tuple[str, ...], ...]] = {}
     bindings_by_dataset: dict[str, dict[str, str]] = {}
     source_id_to_row: dict[str, dict[int, int]] = {}
     relationships_by_owner: dict[str, list] = {}
@@ -426,28 +428,30 @@ def compile_transfer_execution_snapshot(
                 f"Frozen row count changed for {reviewed.model_label}"
             )
         selected = selected_by_id[dataset_id]
-        key_column = next(
-            (
-                item
-                for item in selected.columns
-                if item.stable_key == match.source_column_key
-            ),
-            None,
-        )
-        if key_column is None or key_column.source_name != reviewed.key_field:
+        columns_by_key = {item.stable_key: item for item in selected.columns}
+        if (
+            reviewed.key_fields != match.key_fields
+            or tuple(columns_by_key.get(key).source_name if columns_by_key.get(key) else None
+                     for key in match.source_column_keys) != reviewed.key_fields
+        ):
             raise WorkspaceError(
                 f"Matching field changed for {reviewed.model_label}"
             )
-        keys = tuple(_match_value(row.values.get(reviewed.key_field)) for row in rows)
+        components = tuple(
+            portable_components(tuple(row.values.get(field) for field in reviewed.key_fields))
+            for row in rows
+        )
+        keys = tuple(record_identity(row.values, reviewed.key_fields) for row in rows)
         if any(not value for value in keys) or len(set(keys)) != len(keys):
             raise WorkspaceError(
                 f"Matching values are blank or duplicated for {reviewed.model_label}"
             )
         keys_by_dataset[dataset_id] = keys
+        components_by_dataset[dataset_id] = components
 
         matches: dict[str, list[int]] = {value: [] for value in keys}
         for record in destination_records.records.get(reviewed.model, ()):
-            value = _match_value(record.values.get(reviewed.key_field))
+            value = record_identity(record.values, reviewed.key_fields)
             if value in matches:
                 matches[value].append(record.odoo_id)
         if any(len(items) > 1 for items in matches.values()):
@@ -458,6 +462,7 @@ def compile_transfer_execution_snapshot(
             reviewed.model,
             reviewed.key_field,
             matches,
+            key_fields=reviewed.key_fields,
         )
         expected = preflight_by_id[dataset_id]
         existing = sum(bool(items) for items in matches.values())
@@ -504,7 +509,7 @@ def compile_transfer_execution_snapshot(
             existing_policy=(
                 "update" if item.model_policy == "upsert" else "reference"
             ),
-            identity_fields=(item.key_field,),
+            identity_fields=item.key_fields,
             scope_fields=(),
             field_types=tuple(
                 sorted(
@@ -571,6 +576,7 @@ def compile_transfer_execution_snapshot(
                 references = []
                 reference_bindings = []
                 related_keys = keys_by_dataset[relationship.related_dataset_id]
+                related_components = components_by_dataset[relationship.related_dataset_id]
                 related_rows = source_id_to_row[relationship.related_dataset_id]
                 for source_id in members:
                     related_ordinal = related_rows.get(source_id)
@@ -580,6 +586,7 @@ def compile_transfer_execution_snapshot(
                             f"{relationship.owner_model}.{relationship.field_name}"
                         )
                     related_key = related_keys[related_ordinal - 1]
+                    related_identity = related_components[related_ordinal - 1]
                     related_binding = bindings_by_dataset[
                         relationship.related_dataset_id
                     ].get(related_key)
@@ -587,7 +594,7 @@ def compile_transfer_execution_snapshot(
                         references.append(
                             BusinessReference(
                                 model=relationship.related_model,
-                                key=(related_key,),
+                                key=related_identity,
                             )
                         )
                         reference_bindings.append(related_binding)
@@ -595,7 +602,7 @@ def compile_transfer_execution_snapshot(
                         references.append(
                             LogicalReference(
                                 origin="incoming",
-                                key=(related_key,),
+                                key=related_identity,
                                 dataset=reviewed_by_id[
                                     relationship.related_dataset_id
                                 ].dataset_name,
@@ -621,9 +628,9 @@ def compile_transfer_execution_snapshot(
                     dataset=reviewed.dataset_name,
                     source_row=source_row.number,
                     source_trace_id=row_id,
-                    source_identity=(key,),
+                    source_identity=components_by_dataset[dataset_id][source_row.number - 1],
                     target_model=reviewed.model,
-                    business_identity=(key,),
+                    business_identity=components_by_dataset[dataset_id][source_row.number - 1],
                     business_scope=(),
                     disposition=disposition,
                     target_match_count=1 if target_id is not None else 0,
@@ -760,7 +767,7 @@ def _relationship_intent(relationship, references, bindings) -> FieldIntent:
             kind="relation",
             relation_operation="replace",
             related_model=relationship.related_model,
-            related_identity_fields=(relationship.related_key_field,),
+            related_identity_fields=relationship.related_key_fields,
             dependency_strength=(
                 "hard" if relationship.required else "deferrable"
             ),
@@ -773,7 +780,7 @@ def _relationship_intent(relationship, references, bindings) -> FieldIntent:
         kind="relation",
         relation_operation="replace",
         related_model=relationship.related_model,
-        related_identity_fields=(relationship.related_key_field,),
+        related_identity_fields=relationship.related_key_fields,
         dependency_strength="hard" if relationship.required else "deferrable",
         target_binding_hashes=bindings,
     )
@@ -825,11 +832,14 @@ def _destination_binding_hash(
     model: str,
     key_field: str,
     matches: Mapping[str, list[int]],
+    *,
+    key_fields: tuple[str, ...] = (),
 ) -> str:
     return content_hash(
         {
             "model": model,
             "key_field": key_field,
+            **({"key_fields": key_fields} if len(key_fields) > 1 else {}),
             "classifications": [
                 {
                     "key": key,
@@ -842,10 +852,6 @@ def _destination_binding_hash(
             ],
         }
     )
-
-
-def _match_value(value: object) -> str:
-    return "" if value is None or value is False else str(value).strip()
 
 
 def _row_id(workspace_id: str, dataset_id: str, source_row: int, model: str) -> str:

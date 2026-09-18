@@ -16,8 +16,8 @@ from typing import Any
 from impodo.domain.serialization import canonical_json, content_hash
 
 
-DESTINATION_MATCH_CONTRACT_VERSION = 3
-_SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset({1, 2, 3})
+DESTINATION_MATCH_CONTRACT_VERSION = 4
+_SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset({1, 2, 3, 4})
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 
@@ -45,6 +45,8 @@ class DestinationModelMatch:
     missing_fields: tuple[str, ...]
     incompatible_fields: tuple[str, ...]
     destination_limit_reached: bool
+    source_column_keys: tuple[str, ...] = ()
+    key_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         text_values = (
@@ -58,6 +60,25 @@ class DestinationModelMatch:
         )
         if any(not value.strip() for value in text_values):
             raise ValueError("Destination model matching identity is incomplete")
+        if not self.source_column_keys or (
+            len(self.source_column_keys) == 1
+            and self.source_column_keys[0] != self.source_column_key
+        ):
+            object.__setattr__(self, "source_column_keys", (self.source_column_key,))
+        if not self.key_fields or (
+            len(self.key_fields) == 1 and self.key_fields[0] != self.key_field
+        ):
+            object.__setattr__(self, "key_fields", (self.key_field,))
+        if (
+            not 1 <= len(self.key_fields) <= 3
+            or len(self.source_column_keys) != len(self.key_fields)
+            or self.source_column_keys[0] != self.source_column_key
+            or self.key_fields[0] != self.key_field
+            or len(set(self.source_column_keys)) != len(self.source_column_keys)
+            or len(set(self.key_fields)) != len(self.key_fields)
+            or any(_TECHNICAL_NAME.fullmatch(field) is None for field in self.key_fields)
+        ):
+            raise ValueError("Destination composite matching identity is invalid")
         counts = (
             self.source_row_count,
             self.source_distinct_key_count,
@@ -152,6 +173,7 @@ class DestinationRelationshipMatch:
     ambiguous_destination_link_count: int
     source_evidence_available: bool
     required: bool
+    related_key_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         text_values = (
@@ -169,6 +191,14 @@ class DestinationRelationshipMatch:
         )
         if any(not value.strip() for value in text_values):
             raise ValueError("Destination relationship identity is incomplete")
+        if not self.related_key_fields:
+            object.__setattr__(self, "related_key_fields", (self.related_key_field,))
+        if (
+            self.related_key_fields[0] != self.related_key_field
+            or len(set(self.related_key_fields)) != len(self.related_key_fields)
+            or any(_TECHNICAL_NAME.fullmatch(field) is None for field in self.related_key_fields)
+        ):
+            raise ValueError("Destination relationship composite identity is invalid")
         for value in (
             self.model,
             self.field_name,
@@ -340,8 +370,11 @@ class DestinationMatchPlan:
                 {
                     name: value
                     for name, value in asdict(item).items()
-                    if self.contract_version >= 3
-                    or name != "destination_key_binding_hash"
+                    if (self.contract_version >= 3 or name != "destination_key_binding_hash")
+                    and (
+                        self.contract_version >= 4
+                        or name not in {"source_column_keys", "key_fields"}
+                    )
                 }
                 for item in self.model_matches
             ],
@@ -350,7 +383,11 @@ class DestinationMatchPlan:
         }
         if self.contract_version >= 2:
             payload["relationship_matches"] = [
-                asdict(item) for item in self.relationship_matches
+                {
+                    name: value for name, value in asdict(item).items()
+                    if self.contract_version >= 4 or name != "related_key_fields"
+                }
+                for item in self.relationship_matches
             ]
         if include_hash:
             payload["content_hash"] = self.content_hash
@@ -427,6 +464,8 @@ class DestinationMatchPlan:
                         destination_limit_reached=bool(
                             item["destination_limit_reached"]
                         ),
+                        source_column_keys=tuple(item.get("source_column_keys", ())),
+                        key_fields=tuple(item.get("key_fields", ())),
                     )
                     for item in payload["model_matches"]
                 ),
@@ -471,6 +510,7 @@ class DestinationMatchPlan:
                             item["source_evidence_available"]
                         ),
                         required=bool(item["required"]),
+                        related_key_fields=tuple(item.get("related_key_fields", ())),
                     )
                     for item in payload.get("relationship_matches", ())
                 ),

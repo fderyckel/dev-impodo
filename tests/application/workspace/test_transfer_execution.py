@@ -253,6 +253,78 @@ class TransferExecutionCompilerTests(unittest.TestCase):
         ):
             self._compile(changed)
 
+    def test_composite_identity_compiles_and_resolves_relations(self) -> None:
+        product, uom = self.selection.datasets
+        self.source_values.rows[(
+            product.dataset_id, ("product-code", "product-name")
+        )] = (("P001", "Product 1"), ("P002", "Product 2"))
+        captured = []
+
+        def composite_reader(*args):
+            metadata, records = self.reader(*args)
+            records = replace(
+                records,
+                records={
+                    **records.records,
+                    "product.template": (
+                        TargetRecord(
+                            "product.template", 41,
+                            {"default_code": "P001", "name": "Product 1"},
+                        ),
+                    ),
+                },
+            )
+            captured.append(records)
+            return metadata, records
+
+        match = DestinationMatchingService(self.source_values).check(
+            self.workspace, self.selection, self.schema,
+            (
+                DestinationMatchKeyChoice(
+                    product.dataset_id, "product-code", ("product-name",)
+                ),
+                DestinationMatchKeyChoice(uom.dataset_id, "uom-name"),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=composite_reader,
+            recorded_by="Data manager",
+            source_origins=self.origins,
+        )
+        matched = replace(self.workspace, destination_match_plan=match)
+        order = TransferOrderService().build(matched, match, recorded_by="Data manager")
+        ordered = replace(matched, transfer_order_plan=order)
+        package = TransferReviewService().build(
+            ordered, match, order,
+            run_id=str(uuid4()),
+            data_version_id=self.selection.data_version_id,
+            built_by=LOCAL_ACTOR.identity,
+        )
+        approval = TransferReviewApproval.approve(
+            package, approval_id=str(uuid4()), actor=LOCAL_ACTOR,
+            approved_at=datetime.now(UTC),
+        )
+        approved = replace(
+            ordered, transfer_review_package=package,
+            transfer_review_approval=approval,
+        )
+        report = TransferPreflightService().build(
+            approved, package, approval, match, match,
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+        self.workspace = replace(approved, transfer_preflight_report=report)
+        self.match, self.package, self.report = match, package, report
+
+        snapshot = self._compile(captured[0])
+        product_rows = [row for row in snapshot.rows if row.dataset == product.name]
+        self.assertEqual(
+            [row.business_identity for row in product_rows],
+            [("P001", "Product 1"), ("P002", "Product 2")],
+        )
+        self.assertEqual(snapshot.counts["CREATE"], 2)
+        self.assertEqual(type(snapshot).from_json(snapshot.to_json()), snapshot)
+
     def test_reuses_existing_supporting_record_without_updating_it(self) -> None:
         product, uom = self.selection.datasets
         package = TransferReviewService().build(

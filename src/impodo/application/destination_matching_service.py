@@ -21,6 +21,10 @@ from impodo.domain.odoo.contracts import (
     record_snapshot_payload,
 )
 from impodo.domain.serialization import content_hash
+from impodo.domain.workspace.portable_identity import (
+    portable_identity,
+    record_identity,
+)
 from impodo.domain.odoo_provenance import OdooOriginBatch
 from impodo.domain.shared.models import OdooReadIdentity
 from impodo.domain.shared.models import target_record_binding_hash
@@ -63,6 +67,13 @@ class DestinationSourceValueReader(Protocol):
         source_column_key: str,
     ) -> tuple[str | None, ...]: ...
 
+    def source_key_tuples(
+        self,
+        workspace_id: str,
+        dataset_id: str,
+        source_column_keys: Sequence[str],
+    ) -> tuple[tuple[str | None, ...], ...]: ...
+
 
 class DestinationMatchReader(Protocol):
     def __call__(
@@ -78,6 +89,11 @@ class DestinationMatchReader(Protocol):
 class DestinationMatchKeyChoice:
     dataset_id: str
     source_column_key: str
+    additional_source_column_keys: tuple[str, ...] = ()
+
+    @property
+    def source_column_keys(self) -> tuple[str, ...]:
+        return (self.source_column_key, *self.additional_source_column_keys)
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,10 +103,13 @@ class _PreparedModel:
     model: str
     model_label: str
     source_column_key: str
+    source_column_keys: tuple[str, ...]
     key_field: str
+    key_fields: tuple[str, ...]
     key_field_label: str
     source_row_count: int
     source_counts: Counter[str]
+    source_first_values: tuple[str, ...]
     source_fields: tuple[SchemaField, ...]
 
 
@@ -126,7 +145,7 @@ class DestinationMatchingService:
 
         if not workspace.destination_verified:
             raise WorkspaceError("Verify the destination Odoo connection first")
-        selected = {item.dataset_id: item.source_column_key for item in choices}
+        selected = {item.dataset_id: item.source_column_keys for item in choices}
         if len(selected) != len(choices):
             raise WorkspaceError("Choose one matching field for each source table")
         if set(selected) != {item.dataset_id for item in selection.datasets}:
@@ -149,54 +168,81 @@ class DestinationMatchingService:
                 raise WorkspaceError(
                     f"Refresh the source fields for {dataset.source.model} first"
                 )
-            source_column_key = selected[dataset.dataset_id]
-            source_column = next(
-                (
-                    item
-                    for item in dataset.columns
-                    if item.stable_key == source_column_key
-                ),
-                None,
-            )
-            if source_column is None:
+            source_column_keys = selected[dataset.dataset_id]
+            if (
+                not 1 <= len(source_column_keys) <= 3
+                or len(set(source_column_keys)) != len(source_column_keys)
+            ):
+                raise WorkspaceError(
+                    f"Choose one to three distinct matching fields for {dataset.name}"
+                )
+            columns_by_key = {item.stable_key: item for item in dataset.columns}
+            source_columns = tuple(columns_by_key.get(key) for key in source_column_keys)
+            if any(column is None for column in source_columns):
                 raise WorkspaceError(
                     f"Choose a current matching field for {dataset.name}"
                 )
-            key_field = next(
-                (
-                    item
-                    for item in source_model.fields
-                    if item.name == source_column.source_name
-                ),
-                None,
+            fields_by_name = {item.name: item for item in source_model.fields}
+            key_fields = tuple(
+                fields_by_name.get(column.source_name) for column in source_columns
             )
-            if key_field is None or key_field.type not in _TEXT_KEY_TYPES:
-                raise WorkspaceError(
-                    f"Choose a text matching field for {dataset.name}"
+            if (
+                key_fields[0] is None
+                or key_fields[0].type not in _TEXT_KEY_TYPES
+                or any(
+                    field is None or field.type not in _TEXT_KEY_TYPES | {"integer"}
+                    for field in key_fields
                 )
-            raw_choices = self._source_values.source_value_choices(
-                workspace.workspace_id,
-                dataset.dataset_id,
-                source_column.stable_key,
-            )
-            if len(raw_choices) > DESTINATION_MATCH_MAX_DISTINCT_KEYS:
+            ):
+                raise WorkspaceError(
+                    f"Choose a text first matching field and scalar components for {dataset.name}"
+                )
+            key_field = key_fields[0]
+            source_counts: Counter[str] = Counter()
+            first_values: set[str] = set()
+            if len(key_fields) == 1:
+                raw_choices = self._source_values.source_value_choices(
+                    workspace.workspace_id,
+                    dataset.dataset_id,
+                    source_column_keys[0],
+                )
+                for item in raw_choices:
+                    value = portable_identity((item.get("value"),))
+                    count = item.get("count")
+                    if (
+                        not value
+                        or not isinstance(count, int)
+                        or isinstance(count, bool)
+                        or count <= 0
+                    ):
+                        raise WorkspaceError(
+                            f"The frozen matching values for {dataset.name} are invalid"
+                        )
+                    source_counts[value] += count
+                    first_values.add(value)
+            else:
+                rows = self._source_values.source_key_tuples(
+                    workspace.workspace_id,
+                    dataset.dataset_id,
+                    source_column_keys,
+                )
+                if len(rows) != dataset.row_count:
+                    raise WorkspaceError(
+                        f"The frozen matching rows for {dataset.name} are inconsistent"
+                    )
+                for row in rows:
+                    if len(row) != len(key_fields):
+                        raise WorkspaceError(
+                            f"The frozen matching rows for {dataset.name} are invalid"
+                        )
+                    value = portable_identity(row)
+                    if value:
+                        source_counts[value] += 1
+                        first_values.add(portable_identity(row[:1]))
+            if len(source_counts) > DESTINATION_MATCH_MAX_DISTINCT_KEYS:
                 raise WorkspaceError(
                     f"{dataset.name} has too many distinct matching values for this stage"
                 )
-            source_counts: Counter[str] = Counter()
-            for item in raw_choices:
-                value = _match_value(item.get("value"))
-                count = item.get("count")
-                if (
-                    not value
-                    or not isinstance(count, int)
-                    or isinstance(count, bool)
-                    or count <= 0
-                ):
-                    raise WorkspaceError(
-                        f"The frozen matching values for {dataset.name} are invalid"
-                    )
-                source_counts[value] += count
             if sum(source_counts.values()) > dataset.row_count:
                 raise WorkspaceError(
                     f"The frozen matching counts for {dataset.name} are inconsistent"
@@ -210,11 +256,14 @@ class DestinationMatchingService:
                     dataset_name=dataset.name,
                     model=dataset.source.model,
                     model_label=source_model.label,
-                    source_column_key=source_column.stable_key,
+                    source_column_key=source_column_keys[0],
+                    source_column_keys=source_column_keys,
                     key_field=key_field.name,
+                    key_fields=tuple(field.name for field in key_fields),
                     key_field_label=key_field.label,
                     source_row_count=dataset.row_count,
                     source_counts=source_counts,
+                    source_first_values=tuple(sorted(first_values)),
                     source_fields=tuple(
                         field
                         for field in source_model.fields
@@ -261,8 +310,8 @@ class DestinationMatchingService:
         record_requests = tuple(
             RecordRequest(
                 model=item.model,
-                fields=(item.key_field,),
-                domain=((item.key_field, "in", tuple(sorted(item.source_counts))),),
+                fields=item.key_fields,
+                domain=((item.key_field, "in", item.source_first_values),),
                 limit=DESTINATION_MATCH_RECORD_LIMIT,
             )
             for item in sorted(prepared, key=lambda current: current.model)
@@ -353,7 +402,7 @@ class DestinationMatchingService:
         destination_counts: Counter[str] = Counter()
         source_keys = set(item.source_counts)
         for row in target_rows:
-            value = _match_value(row.values.get(item.key_field))
+            value = record_identity(row.values, item.key_fields)
             if value in source_keys:
                 destination_counts[value] += 1
         matched_keys = set(destination_counts)
@@ -387,6 +436,8 @@ class DestinationMatchingService:
             destination_limit_reached=(
                 len(target_rows) >= DESTINATION_MATCH_RECORD_LIMIT
             ),
+            source_column_keys=item.source_column_keys,
+            key_fields=item.key_fields,
         )
         return result, destination_counts
 
@@ -405,11 +456,17 @@ class DestinationMatchingService:
             return ()
         id_to_key: dict[str, dict[int, str | None]] = {}
         for item in prepared:
-            rows = self._source_values.source_key_rows(
-                workspace_id,
-                item.dataset_id,
-                item.source_column_key,
-            )
+            if len(item.key_fields) == 1:
+                rows = self._source_values.source_key_rows(
+                    workspace_id, item.dataset_id, item.source_column_key,
+                )
+            else:
+                rows = tuple(
+                    portable_identity(row)
+                    for row in self._source_values.source_key_tuples(
+                        workspace_id, item.dataset_id, item.source_column_keys,
+                    )
+                )
             if len(rows) != item.source_row_count:
                 raise WorkspaceError(
                     f"The frozen matching rows for {item.dataset_name} are inconsistent"
@@ -485,6 +542,7 @@ class DestinationMatchingService:
                     related_model=relationship.related.model,
                     related_model_label=relationship.related.model_label,
                     related_key_field=relationship.related.key_field,
+                    related_key_fields=relationship.related.key_fields,
                     operation=(
                         "set" if relationship.field.type == "many2one" else "replace"
                     ),
@@ -619,6 +677,7 @@ def _unavailable_relationship_result(
         related_model=relationship.related.model,
         related_model_label=relationship.related.model_label,
         related_key_field=relationship.related.key_field,
+        related_key_fields=relationship.related.key_fields,
         operation="set" if relationship.field.type == "many2one" else "replace",
         inverse_field=relationship.inverse_field,
         source_owner_count=0,
@@ -650,7 +709,7 @@ def destination_match_key_candidates(
         choices = []
         for column in dataset.columns:
             field = fields.get(column.source_name)
-            if field is not None and field.type in _TEXT_KEY_TYPES:
+            if field is not None and field.type in _TEXT_KEY_TYPES | {"integer"}:
                 choices.append((column.stable_key, field.name, field.label))
         result[dataset.dataset_id] = tuple(
             sorted(
@@ -675,12 +734,6 @@ def _key_rank(field_name: str) -> int:
     return preferred.get(field_name, 10)
 
 
-def _match_value(value: object) -> str:
-    if value is None or value is False:
-        return ""
-    return str(value).strip()
-
-
 def _destination_key_binding_hash(
     item: _PreparedModel,
     target_rows,
@@ -696,7 +749,7 @@ def _destination_key_binding_hash(
         value: [] for value in sorted(item.source_counts)
     }
     for row in target_rows:
-        value = _match_value(row.values.get(item.key_field))
+        value = record_identity(row.values, item.key_fields)
         if value in bindings:
             bindings[value].append(
                 target_record_binding_hash(item.model, row.odoo_id)
@@ -705,6 +758,7 @@ def _destination_key_binding_hash(
         {
             "model": item.model,
             "key_field": item.key_field,
+            **({"key_fields": item.key_fields} if len(item.key_fields) > 1 else {}),
             "classifications": [
                 {
                     "key": value,

@@ -1277,6 +1277,30 @@ class ExecutionService:
                     ExecutionRowStatus.RETRY_READY,
                 }
             )
+            if (
+                workspace_state.source_mode is SourceMode.ODOO
+                and creates
+                and any(
+                    attempt.status is ExecutionRowStatus.COMMITTED
+                    for attempt in recorded.values()
+                )
+            ):
+                # A prior wave can cause Odoo to generate records that were
+                # absent at the pre-journal check. Never import those children
+                # as fresh rows from an already approved snapshot.
+                try:
+                    self._assert_create_rows_still_absent(creates, metadata, executor)
+                except WorkspaceError as error:
+                    self._record_blocked(
+                        workspace_id,
+                        run.run_id,
+                        dataset_rows,
+                        recorded,
+                        str(error),
+                    )
+                    publish_progress(changed_rows=len(dataset_rows))
+                    stop_after_rejection = True
+                    continue
             for start in range(0, len(creates), create_batch_rows):
                 batch = creates[start : start + create_batch_rows]
                 prepared_rows: list[

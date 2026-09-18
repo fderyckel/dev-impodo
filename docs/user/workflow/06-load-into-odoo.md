@@ -26,9 +26,11 @@ for loading and verification only after you explicitly confirm the prepared
 load. There is no third API key.
 
 1. Complete **Connect destination Odoo** with the destination transfer key.
-2. In **Match destination data**, choose the stable matching field for every
-   record type. Impodo classifies each unique source key as an existing record
-   to reuse or a missing record to create.
+2. In **Match destination data**, choose a stable text field for every record
+   type. If that field repeats within a record type, add a second or third
+   captured text or integer field. Impodo matches the complete combination
+   and classifies each unique source record as existing or missing. A parent
+   record or company relationship cannot yet be used as one of these fields.
 3. Review **Validate transfer order**. Supporting records appear before the
    records that refer to them, while safe optional cycles use a later
    relationship pass.

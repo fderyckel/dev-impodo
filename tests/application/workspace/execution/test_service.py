@@ -887,6 +887,64 @@ class ExecutionServiceTests(unittest.TestCase):
         self.assertTrue(all(batch[2] for batch in executor.loads))
         self.assertEqual(executor.creates, [])
 
+    def test_transfer_blocks_child_created_by_an_earlier_wave(self):
+        service, journal, snapshot = self._transfer_service(_snapshot())
+        scope = execution_api_scope(snapshot)
+
+        class GeneratedChildExecutor(_Executor):
+            def load_create_rows(self, model, values, external_ids):
+                identifiers = super().load_create_rows(model, values, external_ids)
+                if model == "product.category":
+                    self.lookup_results[(
+                        "product.template", (("default_code", "=", "P1"),)
+                    )] = (901,)
+                return identifiers
+
+        executor = GeneratedChildExecutor(
+            scope.semantic_hash,
+            lookup_ids=(),
+            lookup_results={("res.partner", (("ref", "=", "C1"),)): (50,)},
+        )
+        executor.target_hash = snapshot.target_hash
+        read_identity = OdooReadIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash=HASH,
+            permission_hash=HASH,
+            context_hash=HASH,
+            readable_models=snapshot.readable_models,
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        write_identity = OdooWriteIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash=HASH,
+            permission_hash=HASH,
+            context_hash=HASH,
+            readable_models=tuple(item.model for item in scope.models),
+            writable_models=tuple(
+                item.model for item in scope.models if item.write_fields
+            ),
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        run = service.execute_transfer(
+            snapshot.workspace_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            expected_preflight_hash=HASH,
+            snapshot=snapshot,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+            read_identity=read_identity,
+            credential_binding_hash=HASH,
+            write_identity=write_identity,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED_WITH_ERRORS)
+        self.assertEqual([item[0] for item in executor.loads], ["product.category"])
+        self.assertEqual(executor.updates, [])
+        by_row = {item.row_id: item for item in journal.run.rows}
+        product = next(row for row in snapshot.rows if row.dataset == "products")
+        self.assertEqual(by_row[product.row_id].status, ExecutionRowStatus.BLOCKED)
+
     def test_interrupted_transfer_resumes_with_same_key_and_external_ids(self):
         service, journal, snapshot = self._transfer_service(_snapshot())
         scope = execution_api_scope(snapshot)

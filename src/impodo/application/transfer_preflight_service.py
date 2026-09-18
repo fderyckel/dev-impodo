@@ -90,7 +90,9 @@ class TransferPreflightService:
                 if (
                     fresh.model != item.model
                     or fresh.key_field != item.key_field
+                    or fresh.key_fields != item.key_fields
                     or fresh.source_column_key != prior.source_column_key
+                    or fresh.source_column_keys != prior.source_column_keys
                     or fresh.source_row_count != item.source_row_count
                     or fresh.source_distinct_key_count != prior.source_distinct_key_count
                 ):
@@ -166,6 +168,7 @@ class TransferPreflightService:
                     fresh.model != item.owner_model
                     or fresh.related_dataset_id != item.related_dataset_id
                     or fresh.related_model != item.related_model
+                    or fresh.related_key_fields != item.related_key_fields
                     or fresh.kind != item.kind
                     or fresh.operation != item.operation
                     or fresh.inverse_field != item.inverse_field

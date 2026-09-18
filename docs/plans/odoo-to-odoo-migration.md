@@ -23,7 +23,7 @@ the same major version. Odoo 20 and Production cutover have separate gates.
 ## Current implementation used by this plan
 
 The browser already captures bounded Odoo source tables, stores protected
-relationship origins, matches selected models by one text field, builds
+relationship origins, matches selected models by one to three scalar fields, builds
 relationship waves, obtains review approval, runs read-only preflight, and
 loads through a journal and read-back. The
 [source workflow](../developer/workflow/01-source-data.md) and
@@ -36,9 +36,30 @@ create-if-missing, or upsert policy. Reused records have no update intents.
 The source screen now lists writable relationship fields whose related model
 is outside the selected scope, using captured metadata. This is guidance;
 automatic bounded capture of the related rows is still unfinished.
+When selected record types are captured together, publication now rejects
+links whose target row was excluded from the frozen set. The destination
+matching page supports a first text field and up to two more captured text or
+integer fields. Matching, approval, preflight, relationship resolution, and
+execution use the same ordered fields. The first field still bounds the
+destination read to 1,001 rows; a wide first-field match is blocked.
 These changes do not add a model-specific path or allow updates to the
 captured source instance. The remaining phases below describe unfinished
 capabilities.
+
+On 2026-09-18, a read-only rehearsal used two distinct private Odoo
+`19.0+e` demo instances. The matching service classified one sampled Contact
+by `name` and `company_type`, then one sampled Product by `name` and
+`default_code`. Both identities had one existing destination match and no
+matching blocker. This verifies the scalar matching path for those samples;
+it does not qualify source capture, creation, updates, relationship loading,
+or recovery on live Odoo. The instances also exposed different field counts
+for several common models despite sharing the same Odoo version, so the
+destination field check remains a required part of each transfer.
+One sampled BOM line matched by `display_name` and `sequence` had no
+destination match, and the write-field check rejected `display_name` as
+incompatible. That combination therefore cannot be treated as a proven
+create path. A parent-scoped identity and a writable field plan remain
+necessary for this record type.
 
 ## Phase 1: freeze a complete selected source set
 
@@ -67,7 +88,8 @@ make no writes.
 Impodo matches the frozen source set against the different destination using
 one read-only destination key.
 
-- Support reviewed single-field, composite, and scoped identities. A Contact
+- Extend the implemented single-field and scalar composite matching to
+  relational scope identities. A Contact
   might use a reference; a Product might use an internal code; a line might
   use its parent identity and sequence. The manager chooses the rule from the
   fields and constraints available for that model. Align this with the shared
@@ -82,6 +104,17 @@ one read-only destination key.
 - Require a reviewed handler for generated records or model-specific side
   effects. A generic transfer must not duplicate an Odoo-generated child or
   assume that a business workflow action is an ordinary field write.
+
+The current scalar composite match does not resolve a parent or company
+relationship as an identity component. Such records still need the scoped
+identity work above. The current publication check validates only links
+between selected record types; it does not yet propose or capture missing
+related rows automatically.
+At load time, after an earlier wave commits, Impodo rechecks remaining create
+identities before each later wave. If Odoo generated a record that the plan
+expected to create, the transfer blocks later writes and keeps the journal
+for review. It does not silently reuse that generated record; a qualified
+handler still has to define how that record and its links are reconciled.
 
 **Exit gate:** The preview accounts for every selected source row and link as
 reuse, create, update, or a clear blocker. Matching, ordering, review, and

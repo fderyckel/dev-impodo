@@ -48,6 +48,14 @@ def _choice_value(dataset_id: str, source_column_key: str) -> str:
 
 def _parse_choices(form) -> tuple[DestinationMatchKeyChoice, ...]:
     choices: list[DestinationMatchKeyChoice] = []
+    extras: dict[str, list[str]] = {}
+    for raw in form.getlist("match_key_extra"):
+        if not raw:
+            continue
+        dataset_id, separator, source_column_key = str(raw).partition("::")
+        if not separator or not dataset_id or not source_column_key:
+            raise WorkspaceStateError("Choose current matching fields")
+        extras.setdefault(dataset_id, []).append(source_column_key)
     for raw in form.getlist("match_key"):
         dataset_id, separator, source_column_key = str(raw).partition("::")
         if not separator or not dataset_id or not source_column_key:
@@ -56,8 +64,11 @@ def _parse_choices(form) -> tuple[DestinationMatchKeyChoice, ...]:
             DestinationMatchKeyChoice(
                 dataset_id=dataset_id,
                 source_column_key=source_column_key,
+                additional_source_column_keys=tuple(extras.pop(dataset_id, ())),
             )
         )
+    if extras:
+        raise WorkspaceStateError("Matching fields do not belong to a selected table")
     return tuple(choices)
 
 
@@ -65,7 +76,7 @@ def _matching_rows(workspace_state, selection, schema):
     candidates = destination_match_key_candidates(selection, schema)
     plan = workspace_state.destination_match_plan
     selected_by_dataset = {
-        item.dataset_id: item.source_column_key
+        item.dataset_id: item.source_column_keys
         for item in plan.model_matches
     } if plan is not None else {}
     result_by_dataset = {
@@ -87,15 +98,30 @@ def _matching_rows(workspace_state, selection, schema):
             }
             for stable_key, field_name, label in candidates.get(dataset.dataset_id, ())
         )
-        selected_key = selected_by_dataset.get(dataset.dataset_id)
-        if selected_key not in {item["stable_key"] for item in available}:
-            selected_key = available[0]["stable_key"] if available else ""
+        text_fields = {
+            field.name
+            for schema_model in schema.models if schema_model.name == model
+            for field in schema_model.fields if field.type in {"char", "text", "selection"}
+        }
+        primary_candidates = tuple(
+            item for item in available if item["field_name"] in text_fields
+        )
+        selected_keys = selected_by_dataset.get(dataset.dataset_id, ())
+        if not selected_keys or selected_keys[0] not in {
+            item["stable_key"] for item in primary_candidates
+        }:
+            selected_keys = (
+                (primary_candidates[0]["stable_key"],)
+                if primary_candidates
+                else ()
+            )
         rows.append(
             {
                 "dataset": dataset,
                 "model": model,
                 "candidates": available,
-                "selected_key": selected_key,
+                "primary_candidates": primary_candidates,
+                "selected_keys": selected_keys,
                 "result": result_by_dataset.get(dataset.dataset_id),
             }
         )
@@ -129,7 +155,7 @@ def _render_matching(
         source_selection=selection,
         source_schema=schema,
         matching_rows=rows,
-        matching_can_check=bool(rows) and all(row["candidates"] for row in rows),
+        matching_can_check=bool(rows) and all(row["primary_candidates"] for row in rows),
         match_plan=workspace_state.destination_match_plan,
         match_plan_current=current,
         match_plan_ready=ready,
@@ -187,7 +213,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
         _secure_form(
             request,
             form,
-            {"csrf_token", "revision", "match_key"},
+            {"csrf_token", "revision", "match_key", "match_key_extra"},
         )
         workspace_state = context.queries.get(workspace_id)
         if (
