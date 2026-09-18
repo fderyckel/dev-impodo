@@ -404,6 +404,45 @@
       {% endif %}
     {% endif %}
 
+    {% if readiness.blocked_count or missing_parent_views or missing_parent_evidence_error %}
+      <section class="form-card" id="missing-parent-values" aria-labelledby="missing-parent-title">
+        <p class="eyebrow">Relationship issues</p>
+        <h2 id="missing-parent-title">Missing parent values</h2>
+        {% if missing_parent_evidence_error %}
+          <p class="notice warning">{{ missing_parent_evidence_error }}</p>
+        {% elif not missing_parent_views %}
+          <p>No confirmed missing parent values were found. Review the checked rows below for other causes.</p>
+        {% else %}
+          <p>These values had no matching parent in the Odoo comparison or eligible incoming tables. Ambiguous matches and Odoo read failures are shown separately in checked rows.</p>
+          {% for view in missing_parent_views %}
+            {% set group = view.group %}
+            <article class="notice warning">
+              <h3>{{ group.affected_count }} {{ view.dataset_label }} record{{ 's' if group.affected_count != 1 else '' }} need a {{ view.field_label }}</h3>
+              <p>{{ group.values|length }} distinct {{ view.source_name }} value{{ 's' if group.values|length != 1 else '' }} had no match.
+                {% if group.scope_values %}Within {{ group.scope_fields|join(', ') }}: {{ group.scope_values|join(' / ') }}.{% endif %}
+              </p>
+              <div class="table-scroll">
+                <table class="data-table">
+                  <thead><tr><th>{{ view.source_name }}</th><th>Records affected</th></tr></thead>
+                  <tbody>
+                    {% for value in group.values %}
+                      <tr><td><code>{{ value.value }}</code></td><td>{{ value.affected_count }}</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <textarea hidden readonly data-missing-parent-copy-values>{{ group.copy_text }}</textarea>
+              <div class="actions">
+                <button class="button secondary small" type="button" data-copy-missing-parent-values>Copy {{ view.source_name }} {{ 'list' if group.stage3_list_supported else 'values' }}</button>
+                {% if view.draft_url %}<a class="button secondary small" href="{{ view.draft_url }}">Draft exclusion rule</a>{% endif %}
+              </div>
+              {% if view.draft_url %}<p class="muted">The draft opens Rows to use without saving. Check its included and excluded counts before confirming the rule.</p>{% endif %}
+            </article>
+          {% endfor %}
+        {% endif %}
+      </section>
+    {% endif %}
+
     <section class="readiness-cards comparison-cards" aria-label="Odoo comparison overview">
       {% if not odoo_source %}
       <a class="readiness-card ready{% if status_filter == 'create' %} selected{% endif %}" href="?status=create#readiness-rows" {% if status_filter == 'create' %}aria-current="true"{% endif %}>

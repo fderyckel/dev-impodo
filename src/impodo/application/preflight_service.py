@@ -51,6 +51,10 @@ from ..domain.preflight.frozen_input import (
     FrozenPreflightInput,
     build_frozen_preflight_input,
 )
+from ..domain.preflight.missing_parents import (
+    MissingParentGroup,
+    missing_parent_groups,
+)
 from ..domain.preflight.reports import (
     ReadinessReport,
     ReadinessRowPage,
@@ -399,6 +403,35 @@ class PreflightService:
             page=page,
             page_size=page_size,
         )
+
+    def current_missing_parent_groups(
+        self, workspace_id: str
+    ) -> tuple[MissingParentGroup, ...]:
+        """Read confirmed missing references from the current verified manifest."""
+
+        report = self.current_report(workspace_id)
+        if report is None:
+            return ()
+        try:
+            with self.artifacts.materialize_report(
+                workspace_id, report.run_id, MANIFEST_NAME
+            ) as path:
+                content = path.read_bytes()
+            if "sha256:" + sha256(content).hexdigest() != report.manifest_hash:
+                raise ValueError("Manifest hash differs from the current comparison")
+            manifest = json.loads(content)
+            if (
+                not isinstance(manifest, dict)
+                or manifest.get("semantic_hash") != report.result_hash
+                or not isinstance(manifest.get("reference_resolutions"), list)
+            ):
+                raise ValueError("Manifest lacks current structured references")
+            return missing_parent_groups(manifest["reference_resolutions"])
+        except (ArtifactStoreError, OSError, ValueError) as error:
+            raise ReadinessError(
+                "The saved Odoo comparison evidence is unavailable. Compare with "
+                "Odoo again before reviewing missing relationships."
+            ) from error
 
     def compare(
         self,

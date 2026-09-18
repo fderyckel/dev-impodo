@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from time import perf_counter
 from typing import Any
@@ -18,6 +18,7 @@ from impodo.adapters.artifacts.mapping_review import (
 from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.application.workspace.mapping.order_service import MatchingOrderService
 from impodo.domain.shared.access import Capability
+from impodo.domain.mapping.source_conditions import parse_source_text_list
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityRule,
     HierarchicalLookupRule,
@@ -96,6 +97,7 @@ from .mapping_impact import (
     _mapping_field_page_size,
     _mapping_return_url,
 )
+from .missing_parent_actions import missing_parent_source_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -360,6 +362,19 @@ def _render_mapping(
         active_dataset_index,
         has_unvalidated_changes,
     )
+    missing_parent_overrides, missing_parent_draft = _missing_parent_exclusion_draft(
+        request,
+        context,
+        workspace_id,
+        selection,
+        active_definition,
+        active_dataset_index,
+        has_unvalidated_changes,
+    )
+    if missing_parent_draft is not None:
+        collision_overrides, collision_draft = (
+            missing_parent_overrides, missing_parent_draft
+        )
     if collision_overrides:
         dataset_views = tuple(
             {
@@ -2683,6 +2698,7 @@ def _collision_exclusion_draft(
         return {}, None
     unavailable = {
         "ready": False,
+        "title": "Collision suggestion unavailable",
         "message": (
             "This collision suggestion is no longer current. Review the "
             "saved Rows to use rule before changing it."
@@ -2783,12 +2799,191 @@ def _collision_exclusion_draft(
     )
     return {dataset.dataset_id: draft}, {
         "ready": True,
+        "title": "Unsaved collision exclusion",
         "dataset_index": dataset_index,
         "message": (
             f"Draft only: include rows where {column.source_name} is not "
             f"{member.source_identity_value}. Save progress, review the included "
             "and excluded rows, and prepare again. This mapping rule can carry "
             "into future runs if you publish it."
+        ),
+    }
+
+
+def _missing_parent_exclusion_draft(
+    request,
+    context,
+    workspace_id,
+    selection,
+    definition,
+    active_dataset_index,
+    has_unvalidated_changes,
+):
+    """Prefill one exact NOT_IN rule from the saved comparison, without saving."""
+
+    run_id = request.query_params.get("missing_parent_run", "").strip()
+    group_id = request.query_params.get("missing_parent_group", "").strip()
+    if not run_id and not group_id:
+        return {}, None
+    unavailable = {
+        "ready": False,
+        "title": "Missing-parent suggestion unavailable",
+        "message": (
+            "This missing-parent suggestion is no longer current. Compare with "
+            "Odoo again before drafting an exclusion."
+        ),
+    }
+    if not run_id or not group_id or selection is None or definition is None:
+        return {}, unavailable
+    if has_unvalidated_changes:
+        return {}, {
+            "ready": False,
+            "message": (
+                "Save or discard the existing mapping draft before adding an "
+                "exclusion. No rule was changed."
+            ),
+        }
+    owner = context.workspace_views.get(workspace_id, actor=context.actor)
+    if owner.migration_project.data_classification.value == "RESTRICTED":
+        return {}, {
+            "ready": False,
+            "message": (
+                "Automatic row exclusions are not offered for restricted data. "
+                "Review the exact values and Rows to use manually."
+            ),
+        }
+    report = context.preflight.current_report(workspace_id)
+    if report is None or report.run_id != run_id:
+        return {}, unavailable
+    try:
+        groups = context.preflight.current_missing_parent_groups(workspace_id)
+    except WorkspaceError:
+        return {}, unavailable
+    group = next((item for item in groups if item.group_id == group_id), None)
+    if group is None:
+        return {}, unavailable
+    located = next(
+        ((index, dataset) for index, dataset in enumerate(selection.datasets)
+         if dataset.name == group.dataset),
+        None,
+    )
+    if located is None or located[0] != active_dataset_index:
+        return {}, unavailable
+    dataset_index, dataset = located
+    mapping = next(
+        (item for item in definition.datasets if item.dataset_id == dataset.dataset_id),
+        None,
+    )
+    source_key = missing_parent_source_key(mapping, group) if mapping else None
+    column = next(
+        (item for item in dataset.columns if item.stable_key == source_key),
+        None,
+    )
+    values = tuple(item.value for item in group.values)
+    if column is None or group.scope_fields or not group.stage3_list_supported:
+        return {}, {
+            "ready": False,
+            "message": (
+                "These parent values need a manually scoped Rows to use rule. "
+                "No exclusion was drafted."
+            ),
+        }
+    comparison_value = ",".join(values)
+    if len(comparison_value) > 10_000 or parse_source_text_list(
+        comparison_value
+    ) != values:
+        return {}, unavailable
+    policy = mapping.row_inclusion
+    if policy.mode is RowInclusionMode.MATCHING_ROWS and (
+        policy.join is not RowInclusionJoin.ALL
+        or len(policy.conditions) >= MAX_ROW_INCLUSION_CONDITIONS
+    ):
+        return {}, {
+            "ready": False,
+            "message": (
+                "The saved Rows to use rule cannot safely accept another "
+                "condition. Review it manually; no exclusion was drafted."
+            ),
+        }
+    if any(
+        item.source_column_key == source_key
+        and item.operator is SelectionConditionOperator.NOT_IN
+        and item.comparison_value == comparison_value
+        for item in policy.conditions
+    ):
+        return {}, {"ready": False, "message": "This exclusion is already saved."}
+    condition = RowInclusionCondition(
+        condition_id=str(uuid5(
+            NAMESPACE_URL,
+            f"impodo:missing-parent-exclusion:{dataset.dataset_id}:{group.group_id}",
+        )),
+        source_column_key=source_key,
+        operator=SelectionConditionOperator.NOT_IN,
+        comparison_value=comparison_value,
+        value_type="string",
+    )
+    draft = RowInclusionPolicy(
+        mode=RowInclusionMode.MATCHING_ROWS,
+        conditions=(*policy.conditions, condition),
+        join=RowInclusionJoin.ALL,
+    )
+    candidate = replace(
+        definition,
+        datasets=tuple(
+            replace(item, row_inclusion=draft)
+            if item.dataset_id == dataset.dataset_id else item
+            for item in definition.datasets
+        ),
+    )
+    try:
+        preview = context.row_inclusion_reviews.preview_definition(
+            workspace_id, candidate, actor=context.actor
+        )
+    except (WorkspaceError, ValueError):
+        return {}, {
+            "ready": False,
+            "title": "Missing-parent draft needs a source check",
+            "message": (
+                "Impodo could not check the draft against the current source "
+                "rows. No rule was changed; review these values manually."
+            ),
+        }
+    impact = next(
+        (item for item in preview.datasets if item.dataset_id == dataset.dataset_id),
+        None,
+    )
+    if impact is None or impact.cannot_evaluate_count:
+        return {}, {
+            "ready": False,
+            "title": "Missing-parent draft needs a source check",
+            "message": (
+                "Some source rows could not be checked against the draft. "
+                "No rule was changed; review Rows to use manually."
+            ),
+        }
+    if (
+        policy.mode is RowInclusionMode.ALL_ROWS
+        and impact.excluded_count != group.affected_count
+    ):
+        return {}, {
+            "ready": False,
+            "title": "Missing-parent values differ from source rows",
+            "message": (
+                "The exact source-row exclusion count does not match the "
+                "Odoo comparison. No rule was changed; review the source "
+                "values and company/site context manually."
+            ),
+        }
+    return {dataset.dataset_id: draft}, {
+        "ready": True,
+        "title": "Unsaved missing-parent exclusion",
+        "dataset_index": dataset_index,
+        "message": (
+            f"Draft only: exclude {len(values)} exact {column.source_name} "
+            f"values linked to {group.affected_count} missing-parent records. "
+            f"Read-only source check: {impact.excluded_count} excluded and "
+            f"{impact.included_count} included. Save progress, then review "
+            "and confirm these exact counts."
         ),
     }
 

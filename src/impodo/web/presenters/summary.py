@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 
 from fastapi import HTTPException, Request
 
+from impodo.domain.errors import ReadinessError
 from impodo.domain.shared.access import AuthorizationError, Capability
 from ...application.workspace.preparation.bounded_preparation import (
     supports_bounded_direct_preparation,
@@ -42,6 +43,7 @@ from ..target_credentials import (
 )
 from .common import _render
 from .comparison_recovery import comparison_recovery_view
+from .missing_parent_actions import missing_parent_source_key
 
 
 def _render_target(
@@ -375,6 +377,88 @@ def _render_summary(
     summary_evidence_ms = (perf_counter() - evidence_started) * 1000
     readiness_started = perf_counter()
     report = context.preflight.current_report(workspace_id)
+    missing_parent_views = []
+    missing_parent_evidence_error = ""
+    if report is not None:
+        try:
+            missing_parent_groups = context.preflight.current_missing_parent_groups(
+                workspace_id
+            )
+        except ReadinessError as error:
+            missing_parent_groups = ()
+            missing_parent_evidence_error = str(error)
+        if missing_parent_groups:
+            allow_missing_parent_draft = (
+                context.workspace_views.get(
+                    workspace_id, actor=context.actor
+                ).migration_project.data_classification.value != "RESTRICTED"
+            )
+            mapped_datasets = {
+                item.dataset_id: item for item in revision.definition.datasets
+            } if revision else {}
+            sources = tuple(effective_selection.datasets) if effective_selection else ()
+            schema = context.queries.get_odoo_schema_catalog(workspace_id)
+            field_labels = {
+                (model.name, field.name): field.label
+                for model in (schema.models if schema else ())
+                for field in model.fields
+            }
+            for group in missing_parent_groups:
+                located = next(
+                    (
+                        (index, dataset)
+                        for index, dataset in enumerate(sources)
+                        if dataset.name == group.dataset
+                    ),
+                    None,
+                )
+                source_name = group.key_field
+                draft_url = ""
+                if located is not None:
+                    index, dataset = located
+                    mapping = mapped_datasets.get(dataset.dataset_id)
+                    source_key = (
+                        missing_parent_source_key(mapping, group)
+                        if mapping is not None else None
+                    )
+                    source_column = next(
+                        (column for column in dataset.columns
+                         if column.stable_key == source_key),
+                        None,
+                    )
+                    if (
+                        source_column is not None
+                        and allow_missing_parent_draft
+                        and not group.scope_fields
+                        and group.stage3_list_supported
+                    ):
+                        source_name = source_column.source_name
+                        draft_url = (
+                            f"/workspaces/{workspace_id}/mapping?"
+                            + urlencode({
+                                "mapping_dataset": index,
+                                "missing_parent_run": report.run_id,
+                                "missing_parent_group": group.group_id,
+                            })
+                            + f"#rows-to-use-{index}"
+                        )
+                    elif source_column is not None:
+                        source_name = source_column.source_name
+                missing_parent_views.append({
+                    "group": group,
+                    "dataset_label": next(
+                        (item.label for item in report.datasets
+                         if item.dataset == group.dataset),
+                        group.dataset,
+                    ),
+                    "field_label": field_labels.get(
+                        (next((item.target_model for item in report.datasets
+                               if item.dataset == group.dataset), ""), group.field),
+                        group.field.replace("_", " ").title(),
+                    ),
+                    "source_name": source_name,
+                    "draft_url": draft_url,
+                })
     if (
         comparison_failure is None
         and remote_read_credential_missing
@@ -535,6 +619,8 @@ def _render_summary(
             else None
         ),
         readiness=report,
+        missing_parent_views=tuple(missing_parent_views),
+        missing_parent_evidence_error=missing_parent_evidence_error,
         load_preview=load_preview,
         readiness_rows=rows,
         readiness_row_total=row_total,

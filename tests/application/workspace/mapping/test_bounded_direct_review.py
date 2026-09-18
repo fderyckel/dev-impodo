@@ -100,6 +100,28 @@ class BoundedDirectReviewRoutingTests(unittest.TestCase):
             reviews.replace_current_review.call_args.args[1], report
         )
 
+    def test_unsaved_rows_to_use_preview_does_not_publish_evidence(self) -> None:
+        checked_mapping = MagicMock()
+        checked_mapping.context.return_value = self.context
+        checked_mapping.sources.get_source_catalogs.return_value = ()
+        checked_mapping.sources.get_current_source_snapshots.return_value = ()
+        reviews = MagicMock()
+        service = RowInclusionReviewService(
+            checked_mapping, reviews, MagicMock()
+        )
+        report = object()
+        with patch(
+            "impodo.application.workspace.mapping.row_inclusion_review."
+            "direct_row_inclusion_review",
+            return_value=report,
+        ) as bounded:
+            result = service.preview_definition(
+                "workspace", self.definition, actor=MagicMock()
+            )
+        self.assertIs(result, report)
+        bounded.assert_called_once()
+        reviews.replace_current_review.assert_not_called()
+
     def test_direct_review_rejects_50_001_before_opening_sources(self) -> None:
         large = replace(
             self.selection,

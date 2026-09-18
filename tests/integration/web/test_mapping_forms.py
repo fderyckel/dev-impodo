@@ -19,7 +19,11 @@ from impodo.domain.mapping.contracts import (
     BusinessControlDefinition,
     IdentityNullPolicy,
     MappingDefinition,
+    DatasetMapping,
     MappingControlExpectation,
+    ReferenceKeyMapping,
+    RelationshipMapping,
+    RelationshipResolver,
     RelationshipValueSource,
     ResolverOrigin,
     RowInclusionPolicy,
@@ -28,6 +32,7 @@ from impodo.domain.mapping.contracts import (
     RowInclusionCondition,
     SelectionConditionOperator,
 )
+from impodo.domain.preflight.missing_parents import missing_parent_groups
 from impodo.domain.preparation.quality import (
     QualityCollisionGroup,
     QualityCollisionMember,
@@ -62,6 +67,7 @@ from impodo.web.presenters.mapping_forms import (
 )
 from impodo.web.presenters.mapping_view import (
     _collision_exclusion_draft,
+    _missing_parent_exclusion_draft,
     _is_phone_field,
     _mapping_dataset_views,
     _matching_order_custom_warnings,
@@ -71,6 +77,75 @@ from impodo.web.presenters.mapping_view import (
 
 
 class OrderedTextStepFormTests(unittest.TestCase):
+    def test_missing_parent_link_prefills_exact_unsaved_not_in_rule(self) -> None:
+        exact = ("CK0291ABK332 -  Idru", "CK0291ABK378  LT004")
+        group = missing_parent_groups([
+            {
+                "dataset": "plw_bom_operation", "field": "bom_id",
+                "reference": {"origin": "target", "model": "mrp.bom",
+                              "key": [value], "scope": [],
+                              "target_fields": ["code"]},
+                "status": "NOT_FOUND", "match_count": 0,
+                "affected_count": 9,
+            }
+            for value in exact
+        ])[0]
+        request = Request({
+            "type": "http",
+            "query_string": (
+                f"mapping_dataset=0&missing_parent_run=run-1"
+                f"&missing_parent_group={group.group_id}"
+            ).encode(),
+        })
+        context = MagicMock()
+        context.preflight.current_report.return_value = SimpleNamespace(
+            run_id="run-1"
+        )
+        context.preflight.current_missing_parent_groups.return_value = (group,)
+        selection = SimpleNamespace(datasets=(SimpleNamespace(
+            dataset_id="operations-id", name="plw_bom_operation",
+            row_count=20,
+            columns=(SimpleNamespace(stable_key="bom-code", source_name="BOMId"),),
+        ),))
+        relation = RelationshipMapping(
+            target_field="bom_id", kind="many2one",
+            source_column_keys=("bom-code",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.TARGET_CATALOG, model="mrp.bom",
+                key_mappings=(ReferenceKeyMapping(
+                    source_column_key="bom-code", target_field="code"
+                ),),
+            ),
+        )
+        definition = MappingDefinition(
+            mapping_id=str(uuid4()),
+            source_selection_hash="sha256:" + "a" * 64,
+            schema_hash="sha256:" + "b" * 64,
+            datasets=(DatasetMapping(
+                dataset_id="operations-id", target_model="mrp.routing.workcenter",
+                relationships=(relation,),
+            ),),
+        )
+        context.row_inclusion_reviews.preview_definition.return_value = SimpleNamespace(
+            datasets=(SimpleNamespace(
+                dataset_id="operations-id", included_count=2,
+                excluded_count=18, cannot_evaluate_count=0,
+            ),),
+        )
+
+        overrides, notice = _missing_parent_exclusion_draft(
+            request, context, "workspace", selection, definition, 0, False
+        )
+
+        condition = overrides["operations-id"].conditions[0]
+        self.assertEqual(condition.source_column_key, "bom-code")
+        self.assertEqual(condition.operator, SelectionConditionOperator.NOT_IN)
+        self.assertEqual(condition.comparison_value, ",".join(exact))
+        self.assertTrue(notice["ready"])
+        self.assertIn("18 missing-parent records", notice["message"])
+        self.assertIn("18 excluded and 2 included", notice["message"])
+        context.preflight.current_missing_parent_groups.assert_called_once()
+
     def test_collision_exclusion_prefills_but_does_not_save_mapping(self) -> None:
         row_id = "sha256:" + "a" * 64
         request = Request({

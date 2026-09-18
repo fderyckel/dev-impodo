@@ -14,7 +14,7 @@ from .bounded_direct_review import (
     direct_row_inclusion_review,
     uses_bounded_direct_review,
 )
-from impodo.domain.mapping.contracts import DatasetMapping
+from impodo.domain.mapping.contracts import DatasetMapping, MappingDefinition
 from impodo.domain.mapping.mutations import MappingVersionConflict
 from impodo.domain.mapping.row_inclusion_review import (
     RowInclusionReviewConfirmation,
@@ -148,6 +148,60 @@ class RowInclusionReviewService:
             working_draft_version=(working.version if working else None),
             mapping_revision_version=context.revision.version,
         )
+
+    def preview_definition(
+        self,
+        workspace_id: str,
+        definition: MappingDefinition,
+        *,
+        actor: Actor,
+    ) -> RowInclusionReviewReport:
+        """Evaluate an unsaved Rows to use draft without publishing evidence."""
+
+        self.authorization.require(
+            actor, Capability.MAPPING_SUBMIT, workspace_id=workspace_id
+        )
+        context = self.checked_mapping.context(workspace_id)
+        if (
+            definition.mapping_id != context.revision.definition.mapping_id
+            or definition.source_selection_hash
+            != context.revision.definition.source_selection_hash
+            or definition.schema_hash != context.revision.definition.schema_hash
+        ):
+            raise WorkspaceError("The draft does not belong to this checked mapping")
+        catalogs = self.checked_mapping.sources.get_source_catalogs(workspace_id)
+        snapshots = self.checked_mapping.sources.get_current_source_snapshots(
+            workspace_id
+        )
+        if uses_bounded_direct_review(
+            context.physical_selection,
+            context.effective_selection,
+            context.plan,
+        ):
+            report = direct_row_inclusion_review(
+                context.workspace_state,
+                definition,
+                context.physical_selection,
+                context.effective_selection,
+                catalogs,
+                self.checked_mapping.artifacts,
+                snapshots,
+            )
+        else:
+            staged = stage_browser_mapping(
+                context.workspace_state,
+                definition,
+                context.physical_selection,
+                context.effective_selection,
+                context.plan,
+                catalogs,
+                self.checked_mapping.artifacts,
+                source_snapshots=snapshots,
+            )
+            report = staged.row_inclusion_review
+        if report is None:
+            raise WorkspaceError("The draft has no Rows to use rule to preview")
+        return report
 
     def current(
         self,

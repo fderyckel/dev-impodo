@@ -20,4 +20,21 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  for (const button of document.querySelectorAll("[data-copy-missing-parent-values]")) {
+    button.addEventListener("click", async () => {
+      const source = button.closest("article")?.querySelector(
+        "[data-missing-parent-copy-values]"
+      );
+      if (!source) return;
+      try {
+        await navigator.clipboard.writeText(source.value);
+        button.textContent = "Copied exact values";
+      } catch (_error) {
+        source.hidden = false;
+        source.select();
+        button.textContent = "Select and copy the values below";
+      }
+    });
+  }
+
 });

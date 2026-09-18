@@ -131,7 +131,7 @@
               {% if blocker.dataset_labels %}<small>{{ blocker.dataset_labels|join(', ') }}{% if blocker.omitted_dataset_count %} and {{ blocker.omitted_dataset_count }} more record type{{ 's' if blocker.omitted_dataset_count != 1 else '' }}{% endif %}</small>{% endif %}
               <p>{{ blocker.action }}</p>
               {% if blocker.code in ('BLOCKED_ROWS', 'AMBIGUOUS_ROWS') %}
-                <a href="/workspaces/{{ workspace_id }}/summary?status=attention#readiness-rows">Review affected rows in Final review</a>
+                {% if blocker.code == 'BLOCKED_ROWS' %}<a href="/workspaces/{{ workspace_id }}/summary#missing-parent-values">Check missing parent values in Final review</a> &middot; {% endif %}<a href="/workspaces/{{ workspace_id }}/summary?status=attention#readiness-rows">Review affected rows in Final review</a>
               {% endif %}
             </article>
           {% endfor %}

@@ -12,7 +12,7 @@
 
   {% if collision_draft and view.active %}
     <div class="notice {{ 'warning' if collision_draft.ready else 'info' }}" role="status">
-      <strong>{{ 'Unsaved collision exclusion' if collision_draft.ready else 'Collision suggestion unavailable' }}</strong>
+      <strong>{{ collision_draft.title if collision_draft.title else ('Unsaved collision exclusion' if collision_draft.ready else 'Collision suggestion unavailable') }}</strong>
       <p>{{ collision_draft.message }}</p>
     </div>
   {% endif %}
