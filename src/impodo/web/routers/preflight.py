@@ -296,6 +296,19 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                                 "No load confirmation was needed."
                             ),
                         )
+                    if report.attention_count:
+                        return PreflightJobResult(
+                            preflight_run_id=report.run_id,
+                            redirect_url=(
+                                f"/workspaces/{workspace_id}/summary"
+                                "?status=attention#readiness-rows"
+                            ),
+                            completion_message=(
+                                f"Comparison found {report.attention_count} record"
+                                f"{'s' if report.attention_count != 1 else ''} "
+                                "needing attention. Review them before loading."
+                            ),
+                        )
                     return PreflightJobResult(
                         preflight_run_id=report.run_id,
                         redirect_url=f"/workspaces/{workspace_id}/load/review",
@@ -321,7 +334,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     workspace_state,
                     credential,
                 )
-            await run_in_threadpool(
+            report = await run_in_threadpool(
                 context.preflight.compare,
                 workspace_id,
                 reader=reader,
@@ -415,6 +428,18 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             return RedirectResponse(
                 f"/projects/{access_context.project_id}/runs/"
                 f"{access_context.migration_run_id}",
+                status_code=303,
+            )
+        if report.attention_count:
+            _flash(
+                request,
+                f"Comparison found {report.attention_count} record"
+                f"{'s' if report.attention_count != 1 else ''} "
+                "needing attention. Review them before loading.",
+            )
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/summary"
+                "?status=attention#readiness-rows",
                 status_code=303,
             )
         _flash(request, "Prepared data compared with Odoo. Nothing was changed.")

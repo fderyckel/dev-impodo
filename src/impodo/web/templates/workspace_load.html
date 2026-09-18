@@ -123,13 +123,16 @@
     {% if blocker_summary and blocker_summary.groups %}
       <section class="form-card load-blocker-card" aria-labelledby="load-blockers-title">
         <p class="eyebrow">Why loading is blocked</p>
-        <h2 id="load-blockers-title">Resolve these relationship issues</h2>
+        <h2 id="load-blockers-title">Resolve these blocked records</h2>
         <div class="load-blocker-list">
           {% for blocker in blocker_summary.groups %}
             <article>
               <strong>{{ blocker.record_count }} record{{ 's' if blocker.record_count != 1 else '' }} &middot; {{ blocker.title }}</strong>
               {% if blocker.dataset_labels %}<small>{{ blocker.dataset_labels|join(', ') }}{% if blocker.omitted_dataset_count %} and {{ blocker.omitted_dataset_count }} more record type{{ 's' if blocker.omitted_dataset_count != 1 else '' }}{% endif %}</small>{% endif %}
               <p>{{ blocker.action }}</p>
+              {% if blocker.code in ('BLOCKED_ROWS', 'AMBIGUOUS_ROWS') %}
+                <a href="/workspaces/{{ workspace_id }}/summary?status=attention#readiness-rows">Review affected rows in Final review</a>
+              {% endif %}
             </article>
           {% endfor %}
         </div>

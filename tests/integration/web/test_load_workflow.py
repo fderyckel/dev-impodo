@@ -454,14 +454,23 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             preview.blocker_summary = SimpleNamespace(
                 groups=(
                     SimpleNamespace(
+                        code="MISSING_INCOMING_ROW",
                         record_count=2,
                         title="A related source record is missing",
                         action="Add the supporting record, then compare again.",
                         dataset_labels=("BOM Lines",),
                         omitted_dataset_count=0,
                     ),
+                    SimpleNamespace(
+                        code="BLOCKED_ROWS",
+                        record_count=36,
+                        title="Some records still need a valid mapping or value",
+                        action="Review the affected rows, then compare again.",
+                        dataset_labels=("BOM Operations",),
+                        omitted_dataset_count=0,
+                    ),
                 ),
-                total_group_count=1,
+                total_group_count=2,
                 omitted_group_count=0,
             )
             blocked_review = self.client.get(
@@ -501,6 +510,11 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Why loading is blocked", blocked_review.text)
         self.assertIn("A related source record is missing", blocked_review.text)
         self.assertIn("Add the supporting record", blocked_review.text)
+        self.assertIn(
+            f"/workspaces/{workspace_state.workspace_id}/summary"
+            "?status=attention#readiness-rows",
+            blocked_review.text,
+        )
         self.assertIn(
             "Choose how Odoo should store these numbers",
             precision_review.text,

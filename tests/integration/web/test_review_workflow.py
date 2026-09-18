@@ -39,7 +39,8 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             started.set()
             release.wait(timeout=30)
             return SimpleNamespace(
-                run_id="50000000-0000-4000-8000-000000000001"
+                run_id="50000000-0000-4000-8000-000000000001",
+                attention_count=0,
             )
 
         try:
@@ -122,6 +123,89 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             release.set()
             manager.shutdown()
             context.preflight_jobs = None
+
+    def test_background_comparison_opens_blocked_rows_before_load(self) -> None:
+        context = self.app.state.context
+        workspace_state, _schema = self._registered_remote_schema_workspace()
+        manager = PreflightJobManager()
+        context.preflight_jobs = manager
+
+        def compare(_workspace_id, *, reader, actor, progress):
+            return SimpleNamespace(
+                run_id="50000000-0000-4000-8000-000000000002",
+                attention_count=36,
+            )
+
+        try:
+            with (
+                patch.object(context.preflight, "compare", side_effect=compare),
+                patch(
+                    "impodo.web.routers.preflight._rebind_remote_read_access",
+                    return_value=None,
+                ),
+            ):
+                started = self.client.post(
+                    f"/workspaces/{workspace_state.workspace_id}/summary/compare",
+                    data={
+                        "csrf_token": self.csrf,
+                        "read_api_key": "replacement-read-key",
+                        "read_api_key_storage": "session",
+                    },
+                    headers=POST_HEADERS,
+                    follow_redirects=False,
+                )
+                self.assertEqual(started.status_code, 303)
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    status = self.client.get(
+                        f"{started.headers['location']}/status"
+                    ).json()
+                    if status["status"] == "SUCCEEDED":
+                        break
+                    time.sleep(0.005)
+                else:
+                    self.fail("background comparison did not finish")
+                self.assertEqual(
+                    status["redirect_url"],
+                    f"/workspaces/{workspace_state.workspace_id}/summary"
+                    "?status=attention#readiness-rows",
+                )
+                self.assertIn("36 records needing attention", status["completion_message"])
+        finally:
+            manager.shutdown()
+            context.preflight_jobs = None
+
+    def test_direct_comparison_opens_blocked_rows_before_load(self) -> None:
+        context = self.app.state.context
+        workspace_state, _schema = self._registered_remote_schema_workspace()
+        context.preflight_jobs = None
+        with (
+            patch.object(
+                context.preflight,
+                "compare",
+                return_value=SimpleNamespace(attention_count=36),
+            ),
+            patch(
+                "impodo.web.routers.preflight._rebind_remote_read_access",
+                return_value=None,
+            ),
+        ):
+            response = self.client.post(
+                f"/workspaces/{workspace_state.workspace_id}/summary/compare",
+                data={
+                    "csrf_token": self.csrf,
+                    "read_api_key": "replacement-read-key",
+                    "read_api_key_storage": "session",
+                },
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            response.headers["location"],
+            f"/workspaces/{workspace_state.workspace_id}/summary"
+            "?status=attention#readiness-rows",
+        )
 
     def test_summary_reconnects_missing_remote_key_without_losing_schema(
         self,

@@ -3545,7 +3545,8 @@ _BLOCKER_GUIDANCE: dict[str, tuple[str, str]] = {
     ),
     "BLOCKED_ROWS": (
         "Some records still need a valid mapping or value",
-        "Resolve those rows in the final review, then compare again.",
+        "Open the affected rows in Final review to see the field and reason. "
+        "Correct the source, mapping, or Odoo record, then compare again.",
     ),
 }
 
