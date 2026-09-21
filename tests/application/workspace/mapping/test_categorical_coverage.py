@@ -15,6 +15,7 @@ from impodo.application.workspace.mapping.categorical_coverage import (
 from impodo.domain.mapping.contracts import (
     MAPPING_CONTRACT_VERSION,
     MAX_CATEGORICAL_EVIDENCE_VALUES,
+    MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES,
     MAX_VALUE_MAPPINGS,
     CategoricalCoveragePolicy,
     DatasetMapping,
@@ -435,6 +436,111 @@ class CategoricalCoverageTests(unittest.TestCase):
         self.assertEqual(
             [item.code for item in explicit_result.issues],
             ["MAPPING_CATEGORICAL_DOMAIN_TOO_LARGE"],
+        )
+
+    def test_incoming_exact_business_key_uses_the_50k_evidence_boundary(
+        self,
+    ) -> None:
+        relationship = self.definition.datasets[0].relationships[0]
+        incoming = replace(
+            self.definition,
+            datasets=(
+                replace(
+                    self.definition.datasets[0],
+                    fields=(),
+                    relationships=(
+                        replace(
+                            relationship,
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.DATASET,
+                                dataset_id="dataset:countries",
+                            ),
+                            categorical_policy=(
+                                CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        values = [
+            f"COUNTRY-{index:05d}"
+            for index in range(
+                MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES + 1
+            )
+        ]
+
+        at_limit = _RecordingCoverageService(
+            _Sources(self.selection),
+            pl.DataFrame({"country": values[:-1]}),
+        ).collect(
+            self.workspace_id,
+            incoming,
+            self.selection,
+            self.schema,
+        )
+        over_limit = _RecordingCoverageService(
+            _Sources(self.selection),
+            pl.DataFrame({"country": values}),
+        ).collect(
+            self.workspace_id,
+            incoming,
+            self.selection,
+            self.schema,
+        )
+        target_only = replace(
+            incoming,
+            datasets=(
+                replace(
+                    incoming.datasets[0],
+                    relationships=(
+                        replace(
+                            incoming.datasets[0].relationships[0],
+                            resolver=replace(
+                                relationship.resolver,
+                                value_mappings=(),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        ordinary_limit = _RecordingCoverageService(
+            _Sources(self.selection),
+            pl.DataFrame(
+                {"country": values[: MAX_CATEGORICAL_EVIDENCE_VALUES + 1]}
+            ),
+        ).collect(
+            self.workspace_id,
+            target_only,
+            self.selection,
+            self.schema,
+        )
+
+        self.assertEqual(at_limit.issues, ())
+        self.assertEqual(
+            len(at_limit.evidence.field_results[0].distinct_values),
+            MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES,
+        )
+        self.assertEqual(
+            CategoricalCoverageEvidence.from_dict(at_limit.evidence.to_dict()),
+            at_limit.evidence,
+        )
+        self.assertEqual(
+            [item.code for item in over_limit.issues],
+            ["MAPPING_CATEGORICAL_DOMAIN_TOO_LARGE"],
+        )
+        self.assertIn(
+            str(MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES),
+            over_limit.issues[0].message,
+        )
+        self.assertEqual(
+            [item.code for item in ordinary_limit.issues],
+            ["MAPPING_CATEGORICAL_DOMAIN_TOO_LARGE"],
+        )
+        self.assertIn(
+            str(MAX_CATEGORICAL_EVIDENCE_VALUES),
+            ordinary_limit.issues[0].message,
         )
 
     def test_generated_exact_business_key_is_not_read_from_physical_snapshot(

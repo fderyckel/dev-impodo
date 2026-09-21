@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
+import tempfile
+import unittest
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-import tempfile
-import unittest
 
 from openpyxl import load_workbook
 
@@ -22,6 +23,7 @@ from impodo.domain.mapping.contracts import (
     ConstantReferenceComponent,
     DatasetMapping,
     IdentityComponentMapping,
+    MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES,
     MappingDefinition,
     MappingTargetMode,
     RelationshipMapping,
@@ -61,6 +63,70 @@ HASH_C = "sha256:" + "c" * 64
 
 
 class MappingReviewWorkbookTests(unittest.TestCase):
+    @unittest.skipUnless(
+        os.environ.get("IMPODO_RUN_MAPPING_REVIEW_SCALE") == "1",
+        "opt-in 50,000-value matching-review qualification",
+    )
+    def test_value_coverage_writes_the_incoming_relationship_boundary(
+        self,
+    ) -> None:
+        revision, validation, selection, schema = self._evidence()
+        coverage = CategoricalCoverageEvidence(
+            mapping_content_hash=revision.definition.content_hash,
+            effective_source_selection_hash=selection.content_hash,
+            source_snapshot_hashes=(),
+            scan_contract_hash=HASH_A,
+            provider_and_normalization_semantics_hash=HASH_A,
+            target_schema_dependency_hash=HASH_A,
+            target_reference_evidence=None,
+            field_results=(
+                CategoricalFieldResult(
+                    path="datasets/0/relationships/0",
+                    dataset_id="orders",
+                    target_field="customer_id",
+                    policy="EXACT_BUSINESS_KEY",
+                    source_column_keys=("external_id",),
+                    distinct_values=tuple(
+                        CategoricalValueCount(
+                            values=(f"CUSTOMER-{index:05d}",),
+                            count=1,
+                        )
+                        for index in range(
+                            MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES
+                        )
+                    ),
+                    uncovered_values=(),
+                    status="COVERED",
+                ),
+            ),
+        )
+        validation = replace(validation, categorical_coverage=coverage)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / mapping_review_workbook_name(revision)
+            write_mapping_review_workbook(
+                revision,
+                validation,
+                selection,
+                schema,
+                path,
+            )
+            workbook = load_workbook(path, read_only=True, data_only=True)
+            coverage_sheet = workbook["Value coverage"]
+            self.assertEqual(
+                coverage_sheet.max_row,
+                MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES + 3,
+            )
+            self.assertEqual(coverage_sheet["F4"].value, "CUSTOMER-00000")
+            self.assertEqual(
+                coverage_sheet.cell(
+                    MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES + 3,
+                    6,
+                ).value,
+                "CUSTOMER-49999",
+            )
+            workbook.close()
+
     def test_constant_relationship_is_not_attributed_to_a_source_field(self) -> None:
         provider, source = _field_provider(
             None,

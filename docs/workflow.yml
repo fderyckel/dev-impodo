@@ -358,6 +358,7 @@ stages:
       - src/impodo/adapters/polars_transformation.py::summarize_polars_rule_impacts
       - src/impodo/domain/preparation/source.py::_prepare_relation
       - src/impodo/web/presenters/mapping_forms.py::_scalar_concatenation_from_form
+      - src/impodo/web/presenters/mapping_forms.py::_ordered_incoming_relationship_sources
       - src/impodo/adapters/duckdb/transformation_impact_repository.py::TransformationImpactRepository
       - src/impodo/adapters/artifacts/mapping_review.py::write_mapping_review_workbook
       - src/impodo/adapters/artifacts/mapping_review.py::build_mapping_review_row_projection

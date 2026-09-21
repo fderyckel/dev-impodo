@@ -39,6 +39,10 @@ MAX_VALUE_MAPPINGS = 1_000
 # value.  Keep their evidence bounded independently so ordinary large
 # business-key domains are not constrained by the explicit-mapping limit.
 MAX_CATEGORICAL_EVIDENCE_VALUES = 10_000
+# An incoming-table relationship can expose one distinct compound key per
+# supported bounded-direct source row.  Keep this separate from the ordinary
+# categorical ceiling so target-only and scalar domains do not grow with it.
+MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES = 50_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
 MAX_SELECTION_RULES = 20

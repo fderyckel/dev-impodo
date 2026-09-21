@@ -389,6 +389,15 @@ def _mapping_datasets_from_form(
 ) -> tuple[DatasetMapping, ...]:
     models = {item.name: item for item in schema.models}
     keys = _available_mapping_business_keys(schema, governance)
+    source_identity_by_dataset = {
+        source_dataset.dataset_id: tuple(
+            item
+            for item in _texts(form, f"source_identity_{dataset_index}")
+            if item in {column.stable_key for column in source_dataset.columns}
+        )
+        for dataset_index, source_dataset in enumerate(selection.datasets)
+        if source_dataset.origin is not SourceOriginKind.ODOO
+    }
     hierarchy_parent_links = {
         (link.derived_dataset_id, link.parent_key_column_key): link
         for link in derived_links
@@ -917,6 +926,21 @@ def _mapping_datasets_from_form(
                 )
                 or ResolverOrigin.TARGET_CATALOG.value
             )
+            resolver_dataset_id = _text(
+                form,
+                f"relation_dataset_{dataset_index}_{relation_index}",
+            ) or None
+            if origin in {
+                ResolverOrigin.DATASET,
+                ResolverOrigin.TARGET_THEN_DATASET,
+            }:
+                selected_sources = _ordered_incoming_relationship_sources(
+                    selected_sources,
+                    source_dataset=source_dataset,
+                    referenced_dataset_id=resolver_dataset_id,
+                    source_identity_by_dataset=source_identity_by_dataset,
+                    selection=selection,
+                )
             if origin is ResolverOrigin.DATASET:
                 value_mappings = _value_mappings_from_form(
                     form,
@@ -928,17 +952,9 @@ def _mapping_datasets_from_form(
                     )
                 resolver = RelationshipResolver(
                     origin=origin,
-                    dataset_id=_text(
-                        form,
-                        f"relation_dataset_{dataset_index}_{relation_index}",
-                    )
-                    or None,
+                    dataset_id=resolver_dataset_id,
                 )
             elif origin is ResolverOrigin.TARGET_THEN_DATASET:
-                resolver_dataset_id = _text(
-                    form,
-                    f"relation_dataset_{dataset_index}_{relation_index}",
-                ) or None
                 projection_binding = _text(
                     form,
                     f"relation_projection_{dataset_index}_{relation_index}",
@@ -1202,12 +1218,9 @@ def _mapping_datasets_from_form(
                 source_identity_column_keys=tuple(
                     ()
                     if pinned_update
-                    else (
-                        item
-                        for item in _texts(
-                            form, f"source_identity_{dataset_index}"
-                        )
-                        if item in source_columns
+                    else source_identity_by_dataset.get(
+                        source_dataset.dataset_id,
+                        (),
                     )
                 ),
                 target_identity=tuple(identity_components),
@@ -1236,6 +1249,61 @@ def _mapping_datasets_from_form(
             )
         )
     return tuple(datasets)
+
+
+def _ordered_incoming_relationship_sources(
+    selected_sources: tuple[str, ...],
+    *,
+    source_dataset,
+    referenced_dataset_id: str | None,
+    source_identity_by_dataset: Mapping[str, tuple[str, ...]],
+    selection,
+) -> tuple[str, ...]:
+    """Align equal-named compound keys with the referenced identity order."""
+
+    if referenced_dataset_id is None or len(selected_sources) < 2:
+        return selected_sources
+    referenced_dataset = next(
+        (
+            item
+            for item in selection.datasets
+            if item.dataset_id == referenced_dataset_id
+        ),
+        None,
+    )
+    if referenced_dataset is None:
+        return selected_sources
+    referenced_identity = source_identity_by_dataset.get(
+        referenced_dataset_id,
+        (),
+    )
+    if len(referenced_identity) != len(selected_sources):
+        return selected_sources
+
+    selected_names = {
+        column.stable_key: column.source_name
+        for column in source_dataset.columns
+        if column.stable_key in selected_sources
+    }
+    identity_names = {
+        column.stable_key: column.source_name
+        for column in referenced_dataset.columns
+        if column.stable_key in referenced_identity
+    }
+    if (
+        len(selected_names) != len(selected_sources)
+        or len(identity_names) != len(referenced_identity)
+    ):
+        return selected_sources
+    selected_by_name = {name: key for key, name in selected_names.items()}
+    ordered_names = tuple(identity_names[key] for key in referenced_identity)
+    if (
+        len(selected_by_name) != len(selected_sources)
+        or len(set(ordered_names)) != len(ordered_names)
+        or set(selected_by_name) != set(ordered_names)
+    ):
+        return selected_sources
+    return tuple(selected_by_name[name] for name in ordered_names)
 
 
 def _active_mapping_definition(

@@ -423,6 +423,11 @@ form names another table.
 For an incoming relational component, its selected child source columns are
 the reference tuple and the referenced dataset's
 `source_identity_column_keys` are the lookup tuple. Their arity must match.
+When a submitted compound relationship uses the same unique source-column
+names as the referenced identity, `_ordered_incoming_relationship_sources`
+stores the child columns in referenced-identity order. It preserves the
+submitted order when the names are absent, duplicated, or not the same set, so
+semantic validation remains fail-closed instead of guessing a correspondence.
 The browser compiler copies the referenced source identity into
 `ResolveSpec.target_source_fields`; it never guesses by column label. Dataset
 order in the source selection is irrelevant: identity and scope dependencies
@@ -770,6 +775,17 @@ rows, reopen repositories for individual fields, or contact Odoo. Workbook
 cells must neutralize spreadsheet formulas in external text. Creation requires
 protected-evidence management authority, while download requires
 protected-evidence read authority.
+
+Categorical scan contract version 4 keeps three distinct evidence ceilings.
+Explicit value or key matching remains limited to 1,000 distinct choices.
+Ordinary exact target and business-key policies remain limited to 10,000.
+Only an `EXACT_BUSINESS_KEY` relationship whose resolver uses `dataset` or
+`target_then_dataset` may retain up to 50,000 distinct incoming keys, which
+matches the qualified bounded-direct relationship path. Validation evidence
+accepts that larger exact-business-key payload, while collection remains the
+authoritative origin-sensitive gate. The opt-in matching-review workbook test
+uses `IMPODO_RUN_MAPPING_REVIEW_SCALE=1` to write all 50,000 value-coverage
+rows.
 
 ## Verification
 

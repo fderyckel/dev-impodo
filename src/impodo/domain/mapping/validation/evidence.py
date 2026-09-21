@@ -16,6 +16,7 @@ from typing import Any, Mapping
 from ..contracts import (
     CategoricalCoveragePolicy,
     MAX_CATEGORICAL_EVIDENCE_VALUES,
+    MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES,
 )
 from ...serialization import canonical_json as _canonical_json
 from ...serialization import content_hash as _content_hash
@@ -23,7 +24,7 @@ from ...serialization import portable as _portable
 from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
 
 
-MAPPING_VALIDATOR_VERSION = "10.0.0"
+MAPPING_VALIDATOR_VERSION = "10.1.0"
 MAPPING_VALIDATION_CONTRACT_VERSION = 3
 CATEGORICAL_COVERAGE_CONTRACT_VERSION = 1
 MAX_CATEGORICAL_EVIDENCE_FIELDS = 10_000
@@ -94,10 +95,15 @@ class CategoricalFieldResult:
     def __post_init__(self) -> None:
         if not self.path or not self.dataset_id or not self.target_field:
             raise ValueError("Categorical field identity is invalid")
-        CategoricalCoveragePolicy(self.policy)
+        policy = CategoricalCoveragePolicy(self.policy)
         if self.status not in {"COVERED", "UNCOVERED", "UNSUPPORTED"}:
             raise ValueError("Categorical coverage status is unsupported")
-        if len(self.distinct_values) > MAX_CATEGORICAL_EVIDENCE_VALUES:
+        distinct_limit = (
+            MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES
+            if policy is CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+            else MAX_CATEGORICAL_EVIDENCE_VALUES
+        )
+        if len(self.distinct_values) > distinct_limit:
             raise ValueError("Categorical distinct-value evidence is too large")
         if len(self.uncovered_values) > MAX_CATEGORICAL_UNCOVERED_VALUES:
             raise ValueError("Categorical uncovered-value evidence is too large")

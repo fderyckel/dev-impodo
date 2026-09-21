@@ -496,6 +496,93 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIsNone(incoming_only.model)
         self.assertEqual(incoming_only.key_mappings, ())
 
+    def test_incoming_relationship_follows_referenced_compound_identity_order(
+        self,
+    ) -> None:
+        file_binding = FileSourceBinding(
+            file_id="file:bom",
+            table_key="csv",
+            source_sha256="a" * 64,
+            catalog_hash="sha256:" + "b" * 64,
+            encoding="utf-8",
+            delimiter=",",
+            header_row=1,
+        )
+        operations = SourceDataset(
+            dataset_id="dataset:operations",
+            name="plw_bom_operations",
+            source=file_binding,
+            row_count=17_292,
+            columns=(
+                SourceDatasetColumn(7, "Opr Id", "operation.opr", "string"),
+                SourceDatasetColumn(25, "BOMId", "operation.bom", "string"),
+            ),
+        )
+        lines = SourceDataset(
+            dataset_id="dataset:lines",
+            name="plw_bom_lines",
+            source=file_binding,
+            row_count=15_142,
+            columns=(
+                SourceDatasetColumn(2, "BOMId", "line.bom", "string"),
+                SourceDatasetColumn(9, "Opr Id", "line.opr", "string"),
+            ),
+        )
+        schema = SimpleNamespace(
+            models=(
+                SchemaModel("mrp.routing.workcenter", "Operation", ()),
+                SchemaModel(
+                    "mrp.bom.line",
+                    "BOM line",
+                    (
+                        SchemaField(
+                            name="operation_id",
+                            label="Consumed in Operation",
+                            type="many2one",
+                            required=False,
+                            readonly=False,
+                            relation="mrp.routing.workcenter",
+                            relation_field=None,
+                            selection=(),
+                        ),
+                    ),
+                ),
+            )
+        )
+        form = FormData(
+            (
+                ("target_model_0", "mrp.routing.workcenter"),
+                ("source_identity_0", "operation.opr"),
+                ("source_identity_0", "operation.bom"),
+                ("target_model_1", "mrp.bom.line"),
+                ("relation_value_source_1_0", "source"),
+                ("relation_source_1_0", "line.bom"),
+                ("relation_source_1_0", "line.opr"),
+                ("relation_origin_1_0", "dataset"),
+                ("relation_dataset_1_0", "dataset:operations"),
+                (
+                    "relation_categorical_policy_1_0",
+                    "EXACT_BUSINESS_KEY",
+                ),
+            )
+        )
+
+        datasets = _mapping_datasets_from_form(
+            form,
+            SimpleNamespace(datasets=(operations, lines)),
+            schema,
+            SimpleNamespace(business_keys=()),
+        )
+
+        self.assertEqual(
+            datasets[0].source_identity_column_keys,
+            ("operation.opr", "operation.bom"),
+        )
+        self.assertEqual(
+            datasets[1].relationships[0].source_column_keys,
+            ("line.opr", "line.bom"),
+        )
+
     def test_generated_hierarchy_self_parent_allows_an_explicit_root_null(
         self,
     ) -> None:

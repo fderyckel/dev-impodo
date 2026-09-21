@@ -308,6 +308,11 @@ different dataset or field catalogue.
 Source inspection, mapping preview, and preparation use bounded local evidence.
 Target metadata and record reads are planned and batched by model. No connector
 call, metadata lookup, or database query is permitted inside a source-row loop.
+Explicit categorical matches retain at most 1,000 distinct choices. Ordinary
+exact categorical evidence retains at most 10,000. An exact relationship that
+resolves through another incoming table may retain at most 50,000 distinct
+keys, which is the qualified bounded-direct relationship limit. The larger
+ceiling does not apply to scalar choices or target-only relationships.
 
 ## Related documentation
 

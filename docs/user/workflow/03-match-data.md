@@ -350,6 +350,15 @@ refers to an existing Odoo record or a record from another incoming table:
   update it merely because it won the relationship match. When it finds none,
   Impodo resolves the value through the selected incoming table.
 
+An incoming-table link can use a compound key. Select every source column that
+identifies the related row. When those columns have the same names in both
+tables, Impodo stores them in the related table's **Unique row identifier**
+order. For example, if an operations table uses `Opr Id` followed by `BOMId`,
+a BOM-line relationship that offers `BOMId` before `Opr Id` is still stored as
+`Opr Id` followed by `BOMId`. **Check matches** supports up to 50,000 distinct
+exact incoming-table keys for one linked field. At 50,001, Impodo asks you to
+reduce the source domain before confirmation.
+
 Some Odoo records create a second linked record automatically. For example, a
 Product template creates its Product variant, while a BOM component needs the
 variant. When the captured Odoo fields support this shape, Match data shows

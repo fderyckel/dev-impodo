@@ -10,6 +10,7 @@ from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, 
 from impodo.application.shared.columnar_runtime import configure_columnar_runtime
 from impodo.domain.mapping.contracts import (
     MAX_CATEGORICAL_EVIDENCE_VALUES,
+    MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES,
     MAX_VALUE_MAPPINGS,
     CategoricalCoveragePolicy,
     DatasetMapping,
@@ -52,13 +53,16 @@ import polars as pl  # noqa: E402
 
 CATEGORICAL_SCAN_CONTRACT_HASH = content_hash(
     {
-        "contract_version": 3,
+        "contract_version": 4,
         "input": "source_snapshot_value_columns",
         "blank": "trimmed_empty_excluded",
         "grouping": "exact_utf8_tuple",
         "maximum_distinct_values_per_field": {
             "explicit_mapping": MAX_VALUE_MAPPINGS,
             "exact_policy": MAX_CATEGORICAL_EVIDENCE_VALUES,
+            "exact_incoming_relationship": (
+                MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES
+            ),
         },
         "dataset_reads": "one_projected_scan",
         "derived_exact_business_key": "covered_without_physical_projection",
@@ -576,7 +580,7 @@ def _evaluate_field(
                 is ScalarValueSource.CONDITIONAL_RULES
             ),
         )
-        evidence_limit = _categorical_evidence_limit(item.policy)
+        evidence_limit = _categorical_evidence_limit(item)
         if len(raw_counts) > evidence_limit:
             return (
                 _unsupported_result(item),
@@ -628,14 +632,21 @@ def _evaluate_field(
     return result, issue
 
 
-def _categorical_evidence_limit(policy: CategoricalCoveragePolicy) -> int:
+def _categorical_evidence_limit(item: _CoverageField) -> int:
     """Keep authored match cardinality separate from exact-policy evidence."""
 
-    if policy in {
+    if item.policy in {
         CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH,
         CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
     }:
         return MAX_VALUE_MAPPINGS
+    if (
+        item.policy is CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+        and item.relationship is not None
+        and item.relationship.resolver.origin
+        in {ResolverOrigin.DATASET, ResolverOrigin.TARGET_THEN_DATASET}
+    ):
+        return MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES
     return MAX_CATEGORICAL_EVIDENCE_VALUES
 
 
