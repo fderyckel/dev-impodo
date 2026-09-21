@@ -427,7 +427,8 @@ When a submitted compound relationship uses the same unique source-column
 names as the referenced identity, `_ordered_incoming_relationship_sources`
 stores the child columns in referenced-identity order. It preserves the
 submitted order when the names are absent, duplicated, or not the same set, so
-semantic validation remains fail-closed instead of guessing a correspondence.
+Impodo does not guess a correspondence and the existing resolver validation
+remains authoritative.
 The browser compiler copies the referenced source identity into
 `ResolveSpec.target_source_fields`; it never guesses by column label. Dataset
 order in the source selection is irrelevant: identity and scope dependencies
