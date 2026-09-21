@@ -325,6 +325,7 @@ class PreparationService:
                 self.sources.get_source_catalogs(workspace_id),
                 self.artifacts,
                 source_snapshots=source_snapshots,
+                supported_limit=capability.materialized_fallback_rows,
                 collect_transformation_impact=True,
                 transformation_detail_limit=0,
                 transformation_impact_sink=materialized_impacts.append,
@@ -683,6 +684,7 @@ def stage_browser_mapping(
     reference_bundle: ReferenceBundle | None = None,
     *,
     source_snapshots: Iterable[SourceSnapshot] | None = None,
+    supported_limit: int | None = None,
     collect_transformation_impact: bool = False,
     transformation_detail_limit: int = TRANSFORMATION_IMPACT_DETAIL_LIMIT,
     transformation_impact_sink: Callable[[TransformationImpactRow], None]
@@ -696,7 +698,10 @@ def stage_browser_mapping(
     not publish evidence or contact Odoo.
     """
 
-    require_supported_browser_scale(physical_selection)
+    scale_options = (
+        {} if supported_limit is None else {"supported_limit": supported_limit}
+    )
+    require_supported_browser_scale(physical_selection, **scale_options)
     physical_tables = _load_browser_source_tables(
         workspace_state,
         physical_selection,
@@ -715,6 +720,7 @@ def stage_browser_mapping(
         collect_transformation_impact=collect_transformation_impact,
         transformation_detail_limit=transformation_detail_limit,
         transformation_impact_sink=transformation_impact_sink,
+        supported_limit=supported_limit,
     )
 
 

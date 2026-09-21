@@ -19,15 +19,29 @@ acceptance when the disposable on-premises target is available. Single-dataset
 exact-snapshot direct mappings compiled entirely to the native columnar path
 are supported through 100,000 physical rows. Direct multi-dataset or direct
 relationship routes and mappings requiring the Python oracle remain at 50,000,
-and
-derived/materialized preparation and durable preflight retain their separate
-25,000-row boundaries. The clean Phase 6 macOS qualification passes that
+as does one low-cardinality single-column lookup-derived table without
+advanced quality rules or reference data. Other derived/materialized
+preparation and durable preflight retain their separate 25,000-row boundaries.
+The clean Phase 6 macOS qualification passes that
 current common relationship boundary, including deterministic Product/BOM
 execution and first/repeat production workers. A separate clean Windows
 Python 3.12 qualification on 2026-09-16 passed 50,000-row custom document/entry
 and Product/BoM first/repeat workers, with matching hashes and snapshot reuse.
 Broader Odoo-side ACL/record-rule matrices and sizing beyond the current
 boundary remain pending for later risk profiles.
+
+## Lookup-derived admission, 2026-09-21
+
+Preparation capability now distinguishes a single non-hierarchical lookup
+extracted from one source field from broader derived materialization. The
+50,000-physical-row route requires exactly one generated table, no more than
+5,000 generated records, no advanced quality rules, and no reference bundle.
+The selected ceiling is passed through both browser-scale guards and the
+quality and normalization fallback decision. Capability regressions verify
+admission at 50,000, rejection at 50,001, rejection for higher-cardinality
+lookups, and retention of the 25,000 boundary when advanced quality is active.
+The wider hierarchy, split, structural, and multi-rule derived routes remain
+unqualified and capped at 25,000.
 
 ## Internal release evidence review, 2026-09-16
 

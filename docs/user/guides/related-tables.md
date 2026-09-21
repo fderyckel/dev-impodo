@@ -18,8 +18,11 @@ The browser supports three shapes:
 
 These rules currently work with confirmed tables from uploaded files. During
 preparation, Impodo applies the rule to every row, not only the rows shown in
-the preview. A project using related tables is currently limited to 25,000
-uploaded source rows.
+the preview. A single reusable-value table with no more than 5,000 generated
+records can prepare up to 50,000 uploaded source rows when no advanced checks
+or reference data are configured. Hierarchies, parent-and-child splits,
+multiple generated-table rules, and other materialized routes retain the
+25,000-row limit.
 
 ## Before starting
 

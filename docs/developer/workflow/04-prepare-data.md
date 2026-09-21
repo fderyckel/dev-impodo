@@ -61,7 +61,13 @@ from the mapping's identity and scope components. It applies equally to
 standard and custom models. Direct incoming groups now use the existing
 50,000-row direct route. They no longer require the 25,000-row materialized
 route solely because an incoming parent supplies their identity or scope.
-Advanced rules and non-direct preparation retain their separate limits.
+Advanced rules and most non-direct preparation retain their separate limits.
+The bounded exception is one non-hierarchical `DerivedEntityRule` whose exact
+effective selection adds one generated table with no more than 5,000 records.
+Without advanced quality rules or reference data, that route admits 50,000
+physical rows and carries the selected materialized ceiling through the domain
+evaluator, quality fallback, normalization, and relationship checks. Other
+non-direct routes retain the 25,000-row ceiling.
 
 The [DuckDB group-quality adapter](../../../src/impodo/adapters/duckdb/preparation_identity_group_quality.py)
 projects only identity, scope, and reference values from stored canonical JSON
@@ -185,7 +191,9 @@ Full-pipeline admission also checks snapshots, dataset shape, and downstream
 quality and normalization capabilities. The current limits are 100,000 physical
 rows for qualified exact-snapshot, single-dataset native preparation, 50,000
 for current direct Python-fallback, relationship, or native relational-identity
-routes pending scale qualification, and 25,000 for derived or materialized routes.
+routes pending scale qualification, 50,000 for one low-cardinality
+single-column lookup-derived table without advanced quality or reference data,
+and 25,000 for other derived or materialized routes.
 Extending qualification belongs to the
 [remaining scale work](../../plans/remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
 

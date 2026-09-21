@@ -100,9 +100,15 @@ record or checks Odoo before an incoming parent. Impodo still checks the
 complete group together. The route comes from the saved relationship rules,
 so it applies to standard and custom Odoo models without a BoM-specific setup.
 
-Additional business checks or rules that build a table from other tables may
-require a lower limit. If your selection exceeds the supported route, Impodo
-stops before preparing the rows and reports that limit. Use a source selection within it.
+One generated related table made from the distinct values in a single source
+field can also use the 50,000-source-row route when it contains no more than
+5,000 generated records. For example, a small Work Centres table generated
+from an operation field qualifies. Additional business checks, reference data,
+hierarchies, table splits, or other rules that build tables retain the lower
+materialized limit.
+
+If your selection exceeds its supported route, Impodo stops before preparing
+the rows and reports that limit. Use a source selection within it.
 Restarting the same oversized selection will not change the limit. Your saved
 field matches remain available.
 

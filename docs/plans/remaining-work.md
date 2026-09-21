@@ -54,7 +54,9 @@ The current preparation limits are:
   compiled entirely to the verified native-columnar route;
 - 50,000 physical rows for current direct Python-fallback or relationship
   routes; and
-- 25,000 physical rows for current derived or materialized routes.
+- 50,000 physical rows for one low-cardinality single-column lookup-derived
+  table without advanced checks or reference data; and
+- 25,000 physical rows for other derived or materialized routes.
 
 This roadmap does not raise, remove, or reinterpret those limits.
 

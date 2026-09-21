@@ -11,7 +11,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable
 
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    DerivedEntityRule,
+)
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.mapping.contracts import MappingDefinition
 from impodo.domain.compiler.columnar_transformation import (
@@ -24,6 +27,8 @@ from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+    LOOKUP_DERIVED_BROWSER_EVALUATION_ROW_LIMIT,
+    LOOKUP_DERIVED_OUTPUT_ROW_LIMIT,
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 )
 from impodo.domain.preparation.quality import (
@@ -111,6 +116,7 @@ class PreparationCapabilityManifest:
     supported_rows: int
     stages: tuple[PreparationStageCapability, ...]
     datasets: tuple[PreparationDatasetCapability, ...] = ()
+    materialized_fallback_rows: int = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
 
     @property
     def admitted(self) -> bool:
@@ -122,7 +128,7 @@ class PreparationCapabilityManifest:
     def permits_materialized_fallback(self) -> bool:
         """Allow oracle fallback only inside its explicitly bounded envelope."""
 
-        return self.physical_rows <= MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
+        return self.physical_rows <= self.materialized_fallback_rows
 
     def require_supported(self) -> None:
         """Fail before loading rows when any required stage is over capacity."""
@@ -157,6 +163,7 @@ class PreparationCapabilityManifest:
             "supported_rows": self.supported_rows,
             "admitted": self.admitted,
             "permits_materialized_fallback": self.permits_materialized_fallback,
+            "materialized_fallback_rows": self.materialized_fallback_rows,
             "stages": [item.to_portable_dict() for item in self.stages],
             "datasets": [item.to_portable_dict() for item in self.datasets],
         }
@@ -179,6 +186,16 @@ def compile_preparation_capability(
         physical_selection,
         effective_selection,
         derived_plan,
+    )
+    lookup_only_derived = _supports_lookup_only_derived_preparation(
+        physical_selection,
+        effective_selection,
+        derived_plan,
+    )
+    materialized_fallback_rows = (
+        LOOKUP_DERIVED_BROWSER_EVALUATION_ROW_LIMIT
+        if lookup_only_derived
+        else MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
     )
     snapshots = tuple(source_snapshots)
     compilation: tuple[ColumnarCompilationDecision, ...] | None = None
@@ -247,18 +264,23 @@ def compile_preparation_capability(
             reason_codes=canonical_reasons,
         )
     else:
-        transformation_limit = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
+        transformation_limit = materialized_fallback_rows
+        transformation_reasons = (
+            ("LOOKUP_ONLY_DERIVED_DATASET",)
+            if lookup_only_derived
+            else ("DERIVED_OR_NON_DIRECT_DATASET",)
+        )
         transformation = PreparationStageCapability(
             stage="transformation",
             behavior=PreparationRouteBehavior.MATERIALIZING,
             supported_rows=transformation_limit,
-            reason_codes=("DERIVED_OR_NON_DIRECT_DATASET",),
+            reason_codes=transformation_reasons,
         )
         canonical = PreparationStageCapability(
             stage="canonical_adaptation",
             behavior=PreparationRouteBehavior.MATERIALIZING,
             supported_rows=transformation_limit,
-            reason_codes=("DERIVED_OR_NON_DIRECT_DATASET",),
+            reason_codes=transformation_reasons,
         )
 
     quality_reasons = _bounded_quality_reasons(
@@ -270,7 +292,12 @@ def compile_preparation_capability(
         direct=direct,
     )
     if quality_reasons:
-        quality_limit = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
+        quality_limit = (
+            materialized_fallback_rows
+            if lookup_only_derived
+            and quality_reasons == ("NON_DIRECT_QUALITY_INPUT",)
+            else MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
+        )
         quality = PreparationStageCapability(
             stage="quality",
             behavior=PreparationRouteBehavior.MATERIALIZING,
@@ -297,7 +324,7 @@ def compile_preparation_capability(
         supported_rows=(
             normalization_limit
             if not quality_reasons
-            else MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
+            else quality_limit
         ),
         reason_codes=(
             ("RUNTIME_DATA_SHAPE_GUARD",)
@@ -335,7 +362,11 @@ def compile_preparation_capability(
         supported_rows=(
             relationship_limit
             if direct and not quality_reasons
-            else MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
+            else (
+                normalization_limit
+                if lookup_only_derived
+                else MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
+            )
         ),
         reason_codes=(
             relationship_reasons
@@ -370,6 +401,53 @@ def compile_preparation_capability(
         supported_rows=supported_rows,
         stages=stages,
         datasets=dataset_routes,
+        materialized_fallback_rows=(
+            min(materialized_fallback_rows, supported_rows)
+        ),
+    )
+
+
+def _supports_lookup_only_derived_preparation(
+    physical_selection: SourceSelection,
+    effective_selection: SourceSelection,
+    plan: DerivedEntityPlan | None,
+) -> bool:
+    """Recognize the qualified single-column lookup materialization route."""
+
+    if plan is None or len(plan.rules) != 1:
+        return False
+    rule = plan.rules[0]
+    if not isinstance(rule, DerivedEntityRule) or rule.parent_separator is not None:
+        return False
+    physical_by_id = {
+        item.dataset_id: item for item in physical_selection.datasets
+    }
+    effective_by_id = {
+        item.dataset_id: item for item in effective_selection.datasets
+    }
+    if (
+        len(physical_by_id) != len(physical_selection.datasets)
+        or len(effective_by_id) != len(effective_selection.datasets)
+        or rule.source_dataset_id not in physical_by_id
+    ):
+        return False
+    if any(
+        dataset_id not in effective_by_id
+        or effective_by_id[dataset_id].name != physical.name
+        for dataset_id, physical in physical_by_id.items()
+    ):
+        return False
+    derived = tuple(
+        item
+        for item in effective_selection.datasets
+        if item.dataset_id not in physical_by_id
+    )
+    return (
+        len(derived) == 1
+        and derived[0].name == rule.output_dataset_name
+        and derived[0].row_count <= LOOKUP_DERIVED_OUTPUT_ROW_LIMIT
+        and len(effective_selection.datasets)
+        == len(physical_selection.datasets) + 1
     )
 
 

@@ -185,7 +185,8 @@ The current supported boundaries depend on the execution path:
 | --- | ---: |
 | One direct dataset, bound to an exact source snapshot, with all transformations supported by the native columnar engine | 100,000 physical rows |
 | Direct preparation across multiple datasets, direct relationship routes, or mappings requiring the Python fallback | 50,000 physical rows |
-| Derived or materialized preparation | 25,000 physical rows |
+| One low-cardinality related table derived from one reusable-value field, without advanced checks or reference data | 50,000 physical rows |
+| Other derived or materialized preparation | 25,000 physical rows |
 | Durable preflight comparison | 25,000 rows |
 
 These are separate stage limits, not a claim that a 100,000-row migration has

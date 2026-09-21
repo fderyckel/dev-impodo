@@ -338,6 +338,7 @@ def evaluate_browser_mapping(
     transformation_detail_limit: int = TRANSFORMATION_IMPACT_DETAIL_LIMIT,
     transformation_impact_sink: Callable[[TransformationImpactRow], None]
     | None = None,
+    supported_limit: int | None = None,
 ) -> StagedBrowserMapping:
     """Evaluate every frozen row without storage access or Odoo access.
 
@@ -347,7 +348,10 @@ def evaluate_browser_mapping(
     reconciliation.
     """
 
-    require_supported_browser_scale(physical_selection)
+    scale_options = (
+        {} if supported_limit is None else {"supported_limit": supported_limit}
+    )
+    require_supported_browser_scale(physical_selection, **scale_options)
     if (
         physical_selection.data_version_id != effective_selection.data_version_id
         or (plan is not None and plan.workspace_id != workspace_id)

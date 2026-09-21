@@ -29,6 +29,10 @@ from impodo.domain.workspace.contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    DerivedEntityRule,
+)
 
 
 class PreparationCapabilityTests(unittest.TestCase):
@@ -349,6 +353,102 @@ class PreparationCapabilityTests(unittest.TestCase):
             ("ADVANCED_QUALITY_RULES_MATERIALIZE",),
         )
 
+    def test_single_lookup_derived_route_admits_50_000_rows(self) -> None:
+        physical = _selection((17_000, 33_000), names=("operations", "lines"))
+        effective, plan = _single_lookup_route(physical)
+
+        manifest = compile_preparation_capability(
+            definition=_definition(effective),
+            physical_selection=physical,
+            effective_selection=effective,
+            source_snapshots=(),
+            derived_plan=plan,
+            current_ruleset=None,
+            reference_bundle=None,
+        )
+
+        self.assertTrue(manifest.admitted)
+        self.assertEqual(manifest.supported_rows, 50_000)
+        self.assertEqual(manifest.materialized_fallback_rows, 50_000)
+        self.assertTrue(manifest.permits_materialized_fallback)
+        transformation = next(
+            item for item in manifest.stages if item.stage == "transformation"
+        )
+        self.assertEqual(
+            transformation.reason_codes,
+            ("LOOKUP_ONLY_DERIVED_DATASET",),
+        )
+
+    def test_single_lookup_derived_route_stops_above_50_000_rows(self) -> None:
+        physical = _selection((17_000, 33_001), names=("operations", "lines"))
+        effective, plan = _single_lookup_route(physical)
+
+        manifest = compile_preparation_capability(
+            definition=_definition(effective),
+            physical_selection=physical,
+            effective_selection=effective,
+            source_snapshots=(),
+            derived_plan=plan,
+            current_ruleset=None,
+            reference_bundle=None,
+        )
+
+        self.assertFalse(manifest.admitted)
+        self.assertEqual(manifest.supported_rows, 50_000)
+        self.assertFalse(manifest.permits_materialized_fallback)
+
+    def test_lookup_route_with_advanced_quality_keeps_25_000_limit(self) -> None:
+        physical = _selection((30_000,), names=("operations",))
+        effective, plan = _single_lookup_route(physical)
+        definition = _definition(effective)
+        advanced_ruleset = SimpleNamespace(
+            mapping_hash=definition.content_hash,
+            schema_hash=definition.schema_hash,
+            reference_bundle_hash=None,
+            rules=(),
+        )
+
+        manifest = compile_preparation_capability(
+            definition=definition,
+            physical_selection=physical,
+            effective_selection=effective,
+            source_snapshots=(),
+            derived_plan=plan,
+            current_ruleset=advanced_ruleset,
+            reference_bundle=None,
+        )
+
+        self.assertFalse(manifest.admitted)
+        self.assertEqual(manifest.supported_rows, 25_000)
+        self.assertEqual(manifest.materialized_fallback_rows, 25_000)
+        quality = next(
+            item for item in manifest.stages if item.stage == "quality"
+        )
+        self.assertEqual(
+            quality.reason_codes,
+            ("ADVANCED_QUALITY_RULES_MATERIALIZE", "NON_DIRECT_QUALITY_INPUT"),
+        )
+
+    def test_high_cardinality_lookup_keeps_25_000_limit(self) -> None:
+        physical = _selection((30_000,), names=("operations",))
+        effective, plan = _single_lookup_route(
+            physical,
+            derived_row_count=5_001,
+        )
+
+        manifest = compile_preparation_capability(
+            definition=_definition(effective),
+            physical_selection=physical,
+            effective_selection=effective,
+            source_snapshots=(),
+            derived_plan=plan,
+            current_ruleset=None,
+            reference_bundle=None,
+        )
+
+        self.assertFalse(manifest.admitted)
+        self.assertEqual(manifest.supported_rows, 25_000)
+
 
 def _selection(
     row_counts: tuple[int, ...],
@@ -427,3 +527,40 @@ def _manifest(definition: MappingDefinition, selection: SourceSelection):
         definition=definition, physical_selection=selection, effective_selection=selection,
         source_snapshots=(), derived_plan=None, current_ruleset=None, reference_bundle=None,
     )
+
+
+def _single_lookup_route(
+    physical: SourceSelection,
+    *,
+    derived_row_count: int = 27,
+) -> tuple[SourceSelection, DerivedEntityPlan]:
+    rule = DerivedEntityRule(
+        rule_id="d89b9692-aaa4-45f5-9a5b-e3c81dc1f9e5",
+        output_dataset_name="workcenters",
+        source_dataset_id=physical.datasets[0].dataset_id,
+        source_column_key="column:1",
+        target_model="mrp.workcenter",
+        target_name_field="name",
+        external_id_namespace="uploaded_files",
+    )
+    plan = DerivedEntityPlan(
+        plan_id="a97f6792-b82b-428d-bd3c-cfa5dd497bd9",
+        version=1,
+        workspace_id="workspace:1",
+        source_selection_hash=physical.content_hash,
+        rules=(rule,),
+        updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        updated_by="tester",
+    )
+    derived = replace(
+        physical.datasets[0],
+        dataset_id="dataset:workcenters",
+        name="workcenters",
+        row_count=derived_row_count,
+    )
+    effective = replace(
+        physical,
+        datasets=(*physical.datasets, derived),
+        content_hash="sha256:" + "e" * 64,
+    )
+    return effective, plan
