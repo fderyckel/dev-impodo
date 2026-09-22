@@ -305,6 +305,8 @@ stages:
       - tests/integration/web/test_schema_capture_recovery.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
+    references:
+      - docs/plans/stage-2-odoo-matching-rule-suggestions.md
 
   - id: match
     order: 3

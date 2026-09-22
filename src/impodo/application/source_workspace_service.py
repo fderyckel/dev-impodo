@@ -683,12 +683,23 @@ class SourceWorkspaceService:
         if not datasets:
             raise WorkspaceError("Select at least one source dataset")
         previous = self.sources.get_source_selection(workspace_id)
+        dataset_set = tuple(datasets)
+        if (
+            previous is not None
+            and previous.data_version_id == context.data_version_id
+            and previous.datasets == dataset_set
+        ):
+            # Finalizing an unchanged selection is an idempotent read.  In
+            # particular, do not republish snapshots: their persisted hashes
+            # already bind the immutable source bytes and are intentionally
+            # reused by the DataVersion package and preparation workers.
+            return previous
         version = previous.version + 1 if previous else 1
         content = {
             "contract_version": WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
             "data_version_id": context.data_version_id,
             "version": version,
-            "datasets": [item.to_dict() for item in datasets],
+            "datasets": [item.to_dict() for item in dataset_set],
         }
         selection = SourceSelection(
             selection_id=str(uuid4()),
@@ -696,7 +707,7 @@ class SourceWorkspaceService:
             data_version_id=context.data_version_id,
             created_at=datetime.now(timezone.utc),
             created_by=actor.identity.display_name,
-            datasets=tuple(datasets),
+            datasets=dataset_set,
             content_hash=content_hash(content),
         )
         if self.snapshot_publisher is None or self.artifacts is None:

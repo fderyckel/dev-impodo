@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+from threading import RLock
+from typing import Mapping, Protocol
 from uuid import UUID, uuid5
 
 from impodo.domain.shared.access import Actor
@@ -31,6 +33,18 @@ from impodo.domain.workspace.workbench import WorkspaceStateService
 from impodo.domain.workspace.contracts import SourceConfiguration, SourceSelection
 
 
+class FileSelectionFreezer(Protocol):
+    """Freeze one file selection without reopening accepted source evidence."""
+
+    def freeze_selection(
+        self,
+        workspace_id: str,
+        *,
+        dataset_names: Mapping[tuple[str, str], str],
+        actor: Actor,
+    ) -> SourceSelection: ...
+
+
 class WorkspaceDataVersionSourceService:
     """Promote current source evidence once, then project references back."""
 
@@ -42,6 +56,7 @@ class WorkspaceDataVersionSourceService:
         migration_workspaces: MigrationWorkspaceService,
         packages: DataVersionSourcePackageService,
         projections: WorkspaceSourceProjectionService,
+        source_workspace: FileSelectionFreezer,
     ) -> None:
         self.workspace_states = workspace_states
         self.workspace_sources = workspace_sources
@@ -49,6 +64,56 @@ class WorkspaceDataVersionSourceService:
         self.migration_workspaces = migration_workspaces
         self.packages = packages
         self.projections = projections
+        self.source_workspace = source_workspace
+        self._file_selection_lock = RLock()
+
+    def finalize_file_selection(
+        self,
+        workspace_id: str,
+        *,
+        dataset_names: Mapping[tuple[str, str], str],
+        actor: Actor,
+    ) -> WorkspaceSourceProjection:
+        """Freeze and project one file selection exactly once.
+
+        The lock covers the local cross-store boundary.  Retries after a
+        completed freeze use only persisted selection/package metadata and do
+        not publish snapshots or hash source files again.
+        """
+
+        with self._file_selection_lock:
+            workspace = self.migration_workspaces.get(workspace_id, actor=actor)
+            package = self.packages.repository.get_source_package(
+                workspace.data_version_id
+            )
+            if package is not None and package.state is SourcePackageState.FROZEN:
+                selection = self.workspace_sources.get_source_selection(workspace_id)
+                if selection is None:
+                    raise MigrationFoundationError(
+                        "The frozen DataVersion source selection is missing"
+                    )
+                if not self._same_file_selection_request(selection, dataset_names):
+                    raise MigrationFoundationError(
+                        "This DataVersion source is already frozen; start a new "
+                        "DataVersion to change its selected datasets"
+                    )
+                return self._materialize_projection(
+                    workspace_id,
+                    selection,
+                    package,
+                    actor=actor,
+                )
+
+            selection = self.source_workspace.freeze_selection(
+                workspace_id,
+                dataset_names=dataset_names,
+                actor=actor,
+            )
+            return self.accept_file_selection(
+                workspace_id,
+                selection,
+                actor=actor,
+            )
 
     def accept_file_selection(
         self,
@@ -304,6 +369,14 @@ class WorkspaceDataVersionSourceService:
             raise MigrationFoundationError(
                 "The workspace selection does not match its frozen DataVersion"
             )
+        physical_hashes = {
+            str(item.manifest.get("physical_selection_hash", ""))
+            for item in package.datasets
+        }
+        if physical_hashes != {selection.content_hash}:
+            raise MigrationFoundationError(
+                "The workspace source identity does not match its frozen DataVersion"
+            )
         projected = self.projections.repository.get_workspace_source_projection(
             workspace_id
         )
@@ -378,3 +451,22 @@ class WorkspaceDataVersionSourceService:
     @staticmethod
     def _operation(selection_id: str, name: str) -> str:
         return str(uuid5(UUID(selection_id), name))
+
+    @staticmethod
+    def _same_file_selection_request(
+        selection: SourceSelection,
+        dataset_names: Mapping[tuple[str, str], str],
+    ) -> bool:
+        requested = {
+            (str(file_id), str(table_key)): str(name).strip()
+            for (file_id, table_key), name in dataset_names.items()
+        }
+        try:
+            selected = {
+                (binding.file_id, binding.table_key): dataset.name
+                for dataset in selection.datasets
+                for binding in (require_file_source(dataset.source),)
+            }
+        except (TypeError, ValueError):
+            return False
+        return requested == selected

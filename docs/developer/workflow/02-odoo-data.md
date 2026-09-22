@@ -218,4 +218,5 @@ read-only capability, batched requests, invalidation, and both source modes.
 
 - [User guide: Odoo data](../../user/workflow/02-odoo-data.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
+- [Proposal: prefill Stage 2 Odoo matching rules](../../plans/stage-2-odoo-matching-rule-suggestions.md)
 - [Architecture decisions](../../decisions/README.md)

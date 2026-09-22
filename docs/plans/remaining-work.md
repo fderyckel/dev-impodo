@@ -15,6 +15,9 @@ those current references have been verified.
 
 ## Remaining delivery and qualification
 
+- Implement the [Stage 2 Odoo matching-rule suggestions](stage-2-odoo-matching-rule-suggestions.md)
+  so supported business keys are prefilled, explained, and confirmed together,
+  while ambiguous record types remain explicit attention items.
 - Complete the [three-page Production journey](recipe-run-three-page-ui-refactor.md)
   and its user guidance. The Test journey is implemented.
 - Complete the [Windows relationship repeat](scalable-relationship-dependency-planning.md)

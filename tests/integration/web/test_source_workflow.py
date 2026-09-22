@@ -1248,6 +1248,41 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         saved_selection = context.queries.get_source_selection(workspace_id)
         saved_catalogs = context.queries.get_source_catalogs(workspace_id)
         self.assertIsNotNone(saved_selection)
+        with patch.object(
+            context.sources,
+            "freeze_selection",
+            side_effect=AssertionError("duplicate request refroze the source"),
+        ):
+            repeated_freeze = self.client.post(
+                f"/workspaces/{workspace_id}/datasets/freeze",
+                data={
+                    "csrf_token": self.csrf,
+                    "dataset_name_0": "customers",
+                },
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+        self.assertEqual(repeated_freeze.status_code, 303)
+        self.assertEqual(
+            context.queries.get_source_selection(workspace_id),
+            saved_selection,
+        )
+
+        changed_freeze = self.client.post(
+            f"/workspaces/{workspace_id}/datasets/freeze",
+            data={
+                "csrf_token": self.csrf,
+                "dataset_name_0": "renamed_customers",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(changed_freeze.status_code, 422)
+        self.assertIn("already frozen", changed_freeze.text)
+        self.assertEqual(
+            context.queries.get_source_selection(workspace_id),
+            saved_selection,
+        )
         source_page = self.client.get(f"/workspaces/{workspace_id}/sources")
         self.assertEqual(source_page.status_code, 200)
         self.assertNotIn("Check files again", source_page.text)

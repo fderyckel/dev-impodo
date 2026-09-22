@@ -549,6 +549,14 @@ def create_local_app(
         recipe_compiler,
         resolved_authorization,
     )
+    sources = SourceWorkspaceService(
+        workspace_state_repository,
+        source_repository,
+        workspace_access,
+        artifacts,
+        schemas=schema_repository,
+        capture_filters=odoo_capture_filters,
+    )
     data_version_source_projection = WorkspaceDataVersionSourceService(
         workspace_states,
         source_repository,
@@ -559,6 +567,7 @@ def create_local_app(
             foundation_repository,
             resolved_authorization,
         ),
+        sources,
     )
     categorical_coverage = CategoricalCoverageService(
         source_repository,
@@ -1046,14 +1055,7 @@ def create_local_app(
             artifacts,
             workspace_access,
         ),
-        sources=SourceWorkspaceService(
-            workspace_state_repository,
-            source_repository,
-            workspace_access,
-            artifacts,
-            schemas=schema_repository,
-            capture_filters=odoo_capture_filters,
-        ),
+        sources=sources,
         derived_entities=DerivedEntityWorkspaceService(
             source_repository,
             derived_entity_repository,

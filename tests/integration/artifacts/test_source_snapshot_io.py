@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from tests.support.paths import REPOSITORY_ROOT
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from io import BytesIO
@@ -291,6 +292,94 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             repeated.run.validated_content_hash,
             bounded.run.validated_content_hash,
         )
+
+    def test_unchanged_freeze_reuses_selection_without_snapshot_publication(self) -> None:
+        workspace_state, source_file, catalog = self._registered_csv(
+            b"Code,Name\nC1,Acme\n"
+        )
+        self.repository.save_source_catalogs(
+            workspace_state.workspace_id,
+            (catalog,),
+            actor=LOCAL_ACTOR,
+        )
+        self.service.confirm_source(
+            workspace_state.workspace_id,
+            source_file.file_id,
+            selected_table_keys=("csv",),
+            warnings_acknowledged=False,
+            actor=LOCAL_ACTOR,
+        )
+        names = {(source_file.file_id, "csv"): "customers"}
+        first = self.service.freeze_selection(
+            workspace_state.workspace_id,
+            dataset_names=names,
+            actor=LOCAL_ACTOR,
+        )
+        snapshots = self.repository.get_current_source_snapshots(
+            workspace_state.workspace_id
+        )
+
+        assert self.service.snapshot_publisher is not None
+        with (
+            patch.object(
+                self.service.snapshot_publisher,
+                "publish",
+                side_effect=AssertionError("unchanged freeze republished a snapshot"),
+            ),
+            patch(
+                "impodo.application.source_workspace_service.content_hash",
+                side_effect=AssertionError("unchanged freeze recomputed its hash"),
+            ),
+        ):
+            repeated = self.service.freeze_selection(
+                workspace_state.workspace_id,
+                dataset_names=names,
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertEqual(repeated, first)
+        self.assertEqual(repeated.version, 1)
+        self.assertEqual(
+            self.repository.get_current_source_snapshots(workspace_state.workspace_id),
+            snapshots,
+        )
+
+    def test_concurrent_unchanged_freezes_publish_one_snapshot(self) -> None:
+        workspace_state, source_file, catalog = self._registered_csv(
+            b"Code,Name\nC1,Acme\n"
+        )
+        self.repository.save_source_catalogs(
+            workspace_state.workspace_id,
+            (catalog,),
+            actor=LOCAL_ACTOR,
+        )
+        self.service.confirm_source(
+            workspace_state.workspace_id,
+            source_file.file_id,
+            selected_table_keys=("csv",),
+            warnings_acknowledged=False,
+            actor=LOCAL_ACTOR,
+        )
+        names = {(source_file.file_id, "csv"): "customers"}
+        assert self.service.snapshot_publisher is not None
+        publisher = self.service.snapshot_publisher
+
+        with patch.object(publisher, "publish", wraps=publisher.publish) as publish:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                selections = tuple(
+                    executor.map(
+                        lambda _index: self.service.freeze_selection(
+                            workspace_state.workspace_id,
+                            dataset_names=names,
+                            actor=LOCAL_ACTOR,
+                        ),
+                        range(2),
+                    )
+                )
+
+        self.assertEqual(selections[0], selections[1])
+        self.assertEqual(selections[0].version, 1)
+        self.assertEqual(publish.call_count, 1)
 
     def test_writer_uses_bounded_fragments_and_round_trips_null_and_empty(self) -> None:
         workspace_state, source_file, catalog = self._registered_csv(

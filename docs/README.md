@@ -81,6 +81,9 @@ records remain in Git history.
   records the deferred tracks and current row limits.
 - [Odoo 19 and Odoo 20 support](plans/odoo-19-and-20-support.md) proposes shared
   integration, version-specific policies, and qualification for both versions.
+- [Stage 2 Odoo matching-rule suggestions](plans/stage-2-odoo-matching-rule-suggestions.md)
+  proposes prefilled, evidence-labelled business keys that a data manager can
+  confirm together or adjust through the advanced controls.
 - [Maintainable code and focused execution services](plans/maintainable-code-and-execution-services.md)
   proposes coding practices, automated checks, and a focused execution refactor.
 - [End-to-end trial and scenario qualification](plans/end-to-end-trial-and-scenario-qualification.md)

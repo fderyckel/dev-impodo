@@ -46,7 +46,11 @@ from impodo.application.recipe_publication_service import (
 from impodo.application.run.service import MigrationRunService
 from impodo.application.workspace.service import MigrationWorkspaceService
 from impodo.domain.data_version.models import DataVersionPurpose, DataVersionState
-from impodo.domain.project.foundation import MigrationOperationState, utc_now
+from impodo.domain.project.foundation import (
+    MigrationFoundationError,
+    MigrationOperationState,
+    utc_now,
+)
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
 from impodo.domain.source_binding import OdooSourceBinding
@@ -968,6 +972,54 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         )
         self.assertFalse(
             (self.root / "artifacts" / "ws" / workspace_id / "inbox").exists()
+        )
+
+        names = {(source_file.file_id, "csv"): "customers"}
+        with patch.object(
+            context.sources,
+            "freeze_selection",
+            side_effect=AssertionError("duplicate finalization refroze the source"),
+        ):
+            repeated = (
+                context.data_version_source_projection.finalize_file_selection(
+                    workspace_id,
+                    dataset_names=names,
+                    actor=context.actor,
+                )
+            )
+        self.assertEqual(repeated, projection)
+        self.assertEqual(
+            context.sources.sources.get_source_selection(workspace_id),
+            selection,
+        )
+
+        with self.assertRaisesRegex(
+            MigrationFoundationError,
+            "already frozen",
+        ):
+            context.data_version_source_projection.finalize_file_selection(
+                workspace_id,
+                dataset_names={(source_file.file_id, "csv"): "renamed_customers"},
+                actor=context.actor,
+            )
+        self.assertEqual(
+            context.sources.sources.get_source_selection(workspace_id),
+            selection,
+        )
+
+        with self.assertRaisesRegex(
+            MigrationFoundationError,
+            "identity does not match",
+        ):
+            context.data_version_source_projection.accept_file_selection(
+                workspace_id,
+                replace(selection, content_hash="sha256:" + "f" * 64),
+                actor=context.actor,
+            )
+        self.assertEqual(
+            context.data_version_source_projection.projections.repository
+            .get_workspace_source_projection(workspace_id),
+            projection,
         )
 
     def test_odoo_acceptance_freezes_the_same_data_version_boundary(self) -> None:

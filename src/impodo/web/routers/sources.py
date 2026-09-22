@@ -910,16 +910,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
             for index, choice in enumerate(choices)
         }
         try:
-            selection = await run_in_threadpool(
-                context.sources.freeze_selection,
+            await run_in_threadpool(
+                context.data_version_source_projection.finalize_file_selection,
                 workspace_id,
                 dataset_names=names,
-                actor=context.actor,
-            )
-            await run_in_threadpool(
-                context.data_version_source_projection.accept_file_selection,
-                workspace_id,
-                selection,
                 actor=context.actor,
             )
         except (MigrationFoundationError, WorkspaceError) as error:
