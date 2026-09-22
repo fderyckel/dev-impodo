@@ -79,7 +79,7 @@ DATASET_ID = "dataset:0123456789abcdef01234567"
 NOW = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
 
 
-class PolarsTransformationParityTests(unittest.TestCase):
+class ScalarErrorMessageTests(unittest.TestCase):
     def test_conversion_error_reports_the_failing_value_without_internal_sentinel(
         self,
     ) -> None:
@@ -90,10 +90,15 @@ class PolarsTransformationParityTests(unittest.TestCase):
         )
 
         self.assertEqual(code, "SOURCE_TYPE_INVALID")
-        self.assertEqual(message, "Cannot parse 4.5 as integer.")
-        self.assertEqual(impact, message)
+        self.assertEqual(
+            message,
+            "The prepared value cannot be converted to integer.",
+        )
+        self.assertEqual(impact, "Cannot parse 4.5 as integer.")
         self.assertNotIn("__impodo", message)
 
+
+class PolarsTransformationParityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)

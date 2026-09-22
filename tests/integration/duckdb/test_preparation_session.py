@@ -63,7 +63,7 @@ SOURCE_HASH = "sha256:" + "5" * 64
 PLAN_HASH = "sha256:" + "6" * 64
 
 
-class PreparationSessionRepositoryTests(unittest.TestCase):
+class QualityRecordLabelTests(unittest.TestCase):
     def test_quality_record_label_uses_reference_key_not_diagnostic_repr(
         self,
     ) -> None:
@@ -82,6 +82,8 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
         self.assertEqual(label, "RPEHD02 / source-42")
         self.assertNotIn("LogicalReference", label)
 
+
+class PreparationSessionRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")

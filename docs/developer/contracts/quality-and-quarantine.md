@@ -39,6 +39,27 @@ dependent record is set aside, Impodo also sets aside the identity parent and
 the remaining dependent records. This produces `QUARANTINE` evidence rather
 than a run-level `BLOCK`, so unrelated record groups can continue to review.
 
+## Actionable set-aside evidence
+
+Each relationship-readiness finding distinguishes the condition that Impodo
+observed. `INCOMING_RELATIONSHIP_MISSING` identifies a key with no incoming
+parent. `INCOMING_RELATIONSHIP_AMBIGUOUS` identifies a key with more than one
+incoming parent. `INCOMING_RELATIONSHIP_PARENT_SET_ASIDE` identifies a
+dependent whose matched parent was already unsafe.
+`INCOMING_IDENTITY_DEPENDENT_SET_ASIDE` identifies the reverse propagation
+that keeps an incoming identity group together.
+
+The finding names the linked dataset and affected field. An inherited finding
+also names one deterministic related source row when that row is available.
+Full and bounded evaluation must publish the same reason, disposition, and
+field evidence. The browser may group findings on the current page, but it
+must label that scope and continue to show every finding on each record.
+
+User-facing messages must not expose internal sentinels or dataclass
+representations. Quality evidence remains value-free: the source row and
+friendly field label guide the data manager back to the governed source or
+mapping without copying raw business values into the quality ledger.
+
 ## Complete accounting
 
 Every canonical row has exactly one quality result. Every physical source row

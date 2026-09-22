@@ -17,7 +17,7 @@ class QualityCauseSummaryTests(unittest.TestCase):
         direct = SimpleNamespace(
             issue_id="direct",
             reason_code="SOURCE_TYPE_INVALID",
-            message="Cannot parse 4.5 as integer.",
+            message="The prepared value cannot be converted to integer.",
             affected_fields=("field:sequence",),
         )
         inherited = SimpleNamespace(

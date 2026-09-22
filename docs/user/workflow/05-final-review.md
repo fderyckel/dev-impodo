@@ -32,6 +32,12 @@ Use a reachable Odoo 19 target with the approved read access.
 7. Download the workbook when you need to review the proposed load in Excel or
    keep a durable rehearsal record.
 
+Before comparison, the prepared-data section can show records that Impodo set
+aside. Its cause summary distinguishes a problem on the record itself from a
+problem inherited from a linked record. The summary counts only the records on
+the current page. Open each row to review all findings and use its source row,
+field name, owner, and correction route to fix the cause upstream.
+
 The progress page reports elapsed time during work that has no honest row
 percentage. Delayed progress updates do not start another comparison. Selecting
 **Compare with Odoo** again while the same workspace already has an active

@@ -8,6 +8,7 @@ references without opening source artifacts or contacting Odoo.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from decimal import DivisionByZero
 from hashlib import sha256
 from pathlib import PurePath
 from typing import Any, Iterable
@@ -245,12 +246,16 @@ def _prepare_row(
                 if spec.formula.strip()
                 else row.get(spec.source)
             )
-        except (ArithmeticError, KeyError, TypeError, ValueError):
+        except (ArithmeticError, KeyError, TypeError, ValueError) as error:
             scalar_values[target_field] = None
             row_issues.append(
                 Issue(
                     code="SOURCE_FORMULA_INVALID",
-                    message="the reviewed formula could not produce a value",
+                    message=(
+                        "Formula cannot divide by zero for this row."
+                        if isinstance(error, (DivisionByZero, ZeroDivisionError))
+                        else "The reviewed formula could not produce a value."
+                    ),
                     dataset=dataset.name,
                     row=row_index,
                     field=spec.source,

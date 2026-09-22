@@ -87,6 +87,29 @@ def _prepare(definition, selection, rows):
 
 
 class BrowserArithmeticFormulaTests(unittest.TestCase):
+    def test_python_conversion_failure_never_exposes_internal_sentinel(self):
+        definition, selection, rows = _fixture()
+        field = replace(
+            definition.datasets[0].fields[0],
+            value_type="integer",
+            transform=ScalarTransformPolicy(),
+        )
+        mapped = replace(
+            definition,
+            datasets=(
+                replace(definition.datasets[0], fields=(field,)),
+            ),
+        )
+        records, _report = _prepare(mapped, selection, rows[:1])
+
+        issue = records[0].issues[0]
+        self.assertEqual(issue.code, "SOURCE_TYPE_INVALID")
+        self.assertEqual(
+            issue.message,
+            "The prepared value cannot be converted to integer.",
+        )
+        self.assertNotIn("__impodo", issue.message)
+
     def test_models_preserve_exact_records_issues_and_impacts(self):
         for model in ("sale.order.line", "account.move.line", "x_custom.record"):
             with self.subTest(model=model):

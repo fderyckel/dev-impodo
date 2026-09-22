@@ -1669,10 +1669,21 @@ def _apply_scalar_mappings(
                     message=str(error),
                 )
         except ScalarValueError as error:
-            values[synthetic_field(field_plan.index)] = (
-                None
-                if "required value" in str(error).casefold()
-                else "__impodo_invalid_value__"
+            required_value = "required value" in str(error).casefold()
+            values[synthetic_field(field_plan.index)] = InvalidPreparedValue(
+                code=(
+                    "SOURCE_REQUIRED_VALUE_MISSING"
+                    if required_value
+                    else "SOURCE_TYPE_INVALID"
+                ),
+                message=(
+                    "Required value is empty after transformation."
+                    if required_value
+                    else (
+                        "The prepared value cannot be converted to "
+                        f"{field.value_type}."
+                    )
+                ),
             )
             if impact_collector is not None:
                 impact_collector.record(

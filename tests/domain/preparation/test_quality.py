@@ -471,7 +471,7 @@ class QualityEvaluationTests(unittest.TestCase):
             if item.reason_code == "INCOMING_RELATIONSHIP_MISSING"
         )
         self.assertEqual(missing_issue.affected_fields, ("product_id",))
-        self.assertIn("products", missing_issue.message)
+        self.assertIn("articles", missing_issue.message)
 
     def test_relationship_readiness_propagates_through_a_long_chain(self) -> None:
         row_count = 64

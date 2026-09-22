@@ -81,6 +81,15 @@ were already unsafe. Findings are read in bounded pages; application issue
 accumulation still uses the existing compact exceptions and needs separate
 error-heavy publication qualification.
 
+Relationship projection retains the parent dataset and affected target field.
+When propagation starts from an unsafe parent, it also retains one
+deterministic related row. `evaluate_quality`, the materialized bounded
+fallback, the direct relationship index, and the identity-group index use the
+same reason builder. Missing, ambiguous, forward set-aside, and reverse
+identity-group conditions therefore remain distinct without changing the
+portable quality contract shape. Evaluator version 4 invalidates earlier
+current quality runs rather than rewriting their evidence.
+
 These temporary facts are rebuilt from immutable evidence on each attempt.
 An interrupted calculation rolls back without changing canonical rows or
 requiring a storage migration. Qualified direct relational identities now use
@@ -212,6 +221,7 @@ Extending qualification belongs to the
 | Project-only worker wiring | [`create_preparation_worker`](../../../src/impodo/web/composition/preparation_worker.py) |
 | Quality publication | [`QualityService`](../../../src/impodo/application/workspace/preparation/quality_service.py) |
 | Quality indexes across direct datasets | [`PreparationQualityIndex`](../../../src/impodo/adapters/duckdb/preparation_quality_index.py) |
+| Actionable relationship reason builder | [`_relationship_issue_details`](../../../src/impodo/domain/preparation/quality.py) |
 | Admission and dataset route diagnostics | [`compile_preparation_capability`](../../../src/impodo/application/workspace/preparation/preparation_capability.py) |
 | Canonical publication validation | [`PreparationStoredRunReader`](../../../src/impodo/adapters/duckdb/preparation_stored_run_reader.py) |
 | Entity resolution | [`ResolutionService`](../../../src/impodo/application/workspace/preparation/resolution_service.py) |
@@ -323,6 +333,7 @@ lineage parity before being called an optimization.
 - [`tests/performance/test_preparation_scale.py`](../../../tests/performance/test_preparation_scale.py)
 - [`tests/performance/test_preparation_identity_groups.py`](../../../tests/performance/test_preparation_identity_groups.py)
 - [`tests/integration/web/test_preparation_workflow.py`](../../../tests/integration/web/test_preparation_workflow.py)
+- [`tests/integration/web/test_normalization_presenter.py`](../../../tests/integration/web/test_normalization_presenter.py)
 - [`tests/application/workspace/preparation/test_readiness.py`](../../../tests/application/workspace/preparation/test_readiness.py)
 - [`tests/integration/artifacts/test_source_snapshot_io.py`](../../../tests/integration/artifacts/test_source_snapshot_io.py)
 

@@ -43,6 +43,12 @@ current report or the complete new report, never a partial current report.
 Tests may disable the manager and exercise the synchronous compatibility path.
 Both paths call the same comparison service and publication transaction.
 
+The summary presenter groups the quality findings on the current review page
+by reason, message, and friendly field label. It labels each group as a direct
+finding or an inherited dependency and states that the counts are page-scoped.
+The row table renders every issue instead of collapsing the record to its first
+issue. Stable reason and rule identifiers remain under **Support details**.
+
 `PreflightService` freezes the input bindings, plans metadata and record
 requests, captures the target fingerprint and snapshot, performs offline
 classification, and publishes the report and execution snapshot atomically.
@@ -138,6 +144,7 @@ meaning before a new comparison can use the replacement credential generation.
 | Role | Code |
 | --- | --- |
 | Comparison orchestration | [`PreflightService`](../../../src/impodo/application/preflight_service.py) |
+| Prepared-quality cause presentation | [`_quality_cause_groups`](../../../src/impodo/web/presenters/summary.py) |
 | Compact execution projection | [`navigation.py`](../../../src/impodo/application/workspace/execution/navigation.py) and [`PreflightRepository`](../../../src/impodo/adapters/duckdb/preflight_repository.py) |
 | Bounded shared navigation | [`WorkspaceNavigationQueryService`](../../../src/impodo/application/workspace/navigation.py) and [`WorkspaceNavigationRepository`](../../../src/impodo/adapters/duckdb/navigation_repository.py) |
 | Background comparison control | [`preflight_jobs.py`](../../../src/impodo/application/preflight_jobs.py) |
@@ -242,6 +249,7 @@ contact Odoo while writing them.
 - [`tests/integration/odoo/test_connectors.py`](../../../tests/integration/odoo/test_connectors.py)
 - [`tests/application/workspace/review/test_odoo_comparison.py`](../../../tests/application/workspace/review/test_odoo_comparison.py)
 - [`tests/integration/web/test_review_workflow.py`](../../../tests/integration/web/test_review_workflow.py)
+- [`tests/integration/web/test_summary_presenter.py`](../../../tests/integration/web/test_summary_presenter.py)
 - [`tests/integration/duckdb/test_navigation_repository.py`](../../../tests/integration/duckdb/test_navigation_repository.py)
 - [`tests/architecture/test_workspace_navigation_boundaries.py`](../../../tests/architecture/test_workspace_navigation_boundaries.py)
 - [Recipe comparison and shared-key recovery](../../../tests/integration/web/test_recipe_comparison_recovery.py)
