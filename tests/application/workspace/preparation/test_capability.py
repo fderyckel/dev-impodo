@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from dataclasses import replace
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, sentinel
 
 from impodo.application.workspace.preparation.preparation_capability import (
     PreparationRouteBehavior,
@@ -18,8 +18,10 @@ from impodo.domain.mapping.contracts import (
 )
 from impodo.application.workspace.preparation import preparation_capability as capability_module
 from impodo.application.workspace.preparation import bounded_preparation as bounded_module
+from impodo.application.workspace.preparation import preparation_service as service_module
 from impodo.domain.recipe.value_rules import ScalarTransformPolicy
-from impodo.domain.source_binding import FileSourceBinding
+from impodo.domain.source_binding import DerivedSourceBinding, FileSourceBinding
+from impodo.domain.staging import evaluator as evaluator_module
 from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
@@ -449,6 +451,53 @@ class PreparationCapabilityTests(unittest.TestCase):
         self.assertFalse(manifest.admitted)
         self.assertEqual(manifest.supported_rows, 25_000)
 
+    def test_materialized_staging_propagates_the_selected_route_limit(self) -> None:
+        selection = _selection((32_434,))
+        with (
+            patch.object(service_module, "require_supported_browser_scale") as scale,
+            patch.object(
+                service_module,
+                "_load_browser_source_tables",
+                return_value={},
+            ),
+            patch.object(
+                service_module,
+                "evaluate_browser_mapping",
+                return_value=sentinel.staged,
+            ) as evaluate,
+        ):
+            result = service_module.stage_browser_mapping(
+                SimpleNamespace(workspace_id="workspace:1"),
+                SimpleNamespace(),
+                selection,
+                selection,
+                None,
+                (),
+                SimpleNamespace(),
+                supported_limit=50_000,
+            )
+
+        self.assertIs(result, sentinel.staged)
+        scale.assert_called_once_with(selection, supported_limit=50_000)
+        self.assertEqual(evaluate.call_args.kwargs["supported_limit"], 50_000)
+
+        with patch.object(
+            evaluator_module,
+            "require_supported_browser_scale",
+            side_effect=RuntimeError("stop after scale check"),
+        ) as domain_scale:
+            with self.assertRaisesRegex(RuntimeError, "stop after scale check"):
+                evaluator_module.evaluate_browser_mapping(
+                    workspace_id="workspace:1",
+                    definition=SimpleNamespace(),
+                    physical_selection=selection,
+                    effective_selection=selection,
+                    plan=None,
+                    loaded_tables={},
+                    supported_limit=50_000,
+                )
+        domain_scale.assert_called_once_with(selection, supported_limit=50_000)
+
 
 def _selection(
     row_counts: tuple[int, ...],
@@ -557,6 +606,11 @@ def _single_lookup_route(
         dataset_id="dataset:workcenters",
         name="workcenters",
         row_count=derived_row_count,
+        source=DerivedSourceBinding(
+            rule_hash="sha256:" + "f" * 64,
+            input_dataset_ids=(physical.datasets[0].dataset_id,),
+            data_hash=physical.datasets[0].source_evidence_hash,
+        ),
     )
     effective = replace(
         physical,

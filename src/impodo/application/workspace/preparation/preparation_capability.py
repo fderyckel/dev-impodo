@@ -23,6 +23,7 @@ from impodo.domain.compiler.columnar_transformation import (
 )
 from impodo.application.data_version.source_snapshots import validate_snapshot_for_dataset
 from impodo.domain.preparation.source import SourceLoadError
+from impodo.domain.source_binding import SourceOriginKind
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
@@ -445,6 +446,7 @@ def _supports_lookup_only_derived_preparation(
     return (
         len(derived) == 1
         and derived[0].name == rule.output_dataset_name
+        and derived[0].origin is SourceOriginKind.DERIVED
         and derived[0].row_count <= LOOKUP_DERIVED_OUTPUT_ROW_LIMIT
         and len(effective_selection.datasets)
         == len(physical_selection.datasets) + 1
