@@ -362,9 +362,18 @@ class QualityEvaluationTests(unittest.TestCase):
             QualityDisposition.QUARANTINED,
         )
         self.assertIn(
-            "INCOMING_RELATIONSHIP_NOT_READY",
+            "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE",
             {item.reason_code for item in run.issues},
         )
+        relationship_issue = next(
+            item
+            for item in run.issues
+            if item.reason_code
+            == "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE"
+        )
+        self.assertEqual(relationship_issue.affected_fields, ("categ_id",))
+        self.assertIn("categories", relationship_issue.message)
+        self.assertIn("source row 2", relationship_issue.message)
 
     def test_unready_component_sets_aside_its_bom_identity_group(self) -> None:
         bom = _canonical_row(
@@ -453,9 +462,16 @@ class QualityEvaluationTests(unittest.TestCase):
             QualityDisposition.QUARANTINED,
         )
         self.assertIn(
-            "INCOMING_IDENTITY_GROUP_NOT_READY",
+            "INCOMING_IDENTITY_DEPENDENT_SET_ASIDE",
             {item.reason_code for item in run.issues},
         )
+        missing_issue = next(
+            item
+            for item in run.issues
+            if item.reason_code == "INCOMING_RELATIONSHIP_MISSING"
+        )
+        self.assertEqual(missing_issue.affected_fields, ("product_id",))
+        self.assertIn("products", missing_issue.message)
 
     def test_relationship_readiness_propagates_through_a_long_chain(self) -> None:
         row_count = 64
@@ -528,7 +544,7 @@ class QualityEvaluationTests(unittest.TestCase):
         self.assertEqual(run.quarantined_count, row_count)
         self.assertEqual(
             sum(
-                issue.reason_code == "INCOMING_RELATIONSHIP_NOT_READY"
+                issue.reason_code == "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE"
                 for issue in run.issues
             ),
             row_count - 1,
@@ -600,7 +616,7 @@ class QualityEvaluationTests(unittest.TestCase):
         self.assertEqual(run.quarantined_count, 2)
         self.assertEqual(
             sum(
-                issue.reason_code == "INCOMING_RELATIONSHIP_NOT_READY"
+                issue.reason_code == "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE"
                 for issue in run.issues
             ),
             2,
@@ -845,7 +861,7 @@ class QualityEvaluationTests(unittest.TestCase):
         relationship_issues = tuple(
             issue
             for issue in run.issues
-            if issue.reason_code == "INCOMING_RELATIONSHIP_NOT_READY"
+            if issue.reason_code == "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE"
         )
         self.assertEqual(len(relationship_issues), 2)
         self.assertEqual(
@@ -1288,7 +1304,7 @@ class QualityRelationshipScaleTests(unittest.TestCase):
         self.assertEqual(run.quarantined_count, row_count)
         self.assertEqual(
             sum(
-                issue.reason_code == "INCOMING_RELATIONSHIP_NOT_READY"
+                issue.reason_code == "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE"
                 for issue in run.issues
             ),
             row_count - 1,

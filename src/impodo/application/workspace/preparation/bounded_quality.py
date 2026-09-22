@@ -37,9 +37,11 @@ from impodo.domain.preparation.quality import (
     _family_for_issue,
     _hash,
     _identity_logical_references,
+    _logical_reference_contexts,
     _logical_references,
     _quality_issue,
     _record_label,
+    _relationship_issue_details,
     _setup_issue,
     quality_identity_key,
     retention_context_hash,
@@ -970,6 +972,9 @@ def _build_indexed_quality_run(
     )
     relationship_finder = getattr(staging.rows, finder_name, None)
     if callable(relationship_finder):
+        attached_relationship_causes: set[
+            tuple[str, str, str, str]
+        ] = set()
         unsafe_dispositions = {
             QualityDisposition.BLOCKED,
             QualityDisposition.QUARANTINED,
@@ -998,29 +1003,47 @@ def _build_indexed_quality_run(
                 and rule.outcome is not QualityOutcomePolicy.WARNING
             )
         )
-        relationship_message = (
-            "The linked incoming record is missing, ambiguous or set aside. "
-            "This dependent record was also set aside."
-        )
-        group_message = (
-            "A dependent record that uses this incoming identity is missing, "
-            "ambiguous or set aside. This record and its dependent group were "
-            "also set aside."
-        )
         for raw in relationship_finder(
             initially_unsafe,
             propagating_datasets,
         ):
-            (
-                _ordinal,
-                row_id,
-                dataset,
-                source_row,
-                disposition,
-                physical_id,
-                physical_row,
-                resolution_state,
-            ) = raw
+            if len(raw) == 8:
+                (
+                    _ordinal,
+                    row_id,
+                    dataset,
+                    source_row,
+                    disposition,
+                    physical_id,
+                    physical_row,
+                    resolution_state,
+                ) = raw
+                linked_dataset = ""
+                affected_field = ""
+                related_dataset = ""
+                related_source_row = None
+            else:
+                (
+                    _ordinal,
+                    row_id,
+                    dataset,
+                    source_row,
+                    disposition,
+                    physical_id,
+                    physical_row,
+                    resolution_state,
+                    linked_dataset,
+                    affected_field,
+                    _related_row_id,
+                    related_source_row,
+                ) = raw[:12]
+                related_dataset = (
+                    str(raw[12])
+                    if len(raw) > 12 and raw[12] is not None
+                    else str(linked_dataset)
+                    if str(resolution_state) == "IDENTITY_GROUP"
+                    else ""
+                )
             row = register(
                 row_id,
                 dataset,
@@ -1034,17 +1057,33 @@ def _build_indexed_quality_run(
             )
             if rule is None:
                 continue
-            reason = (
-                "INCOMING_IDENTITY_GROUP_NOT_READY" if resolution_state == "IDENTITY_GROUP"
-                else "INCOMING_RELATIONSHIP_NOT_READY"
+            cause = (
+                row.row_id,
+                str(resolution_state),
+                str(linked_dataset),
+                str(affected_field),
+            )
+            if cause in attached_relationship_causes:
+                continue
+            attached_relationship_causes.add(cause)
+            reason, message, fields = _relationship_issue_details(
+                str(resolution_state),
+                linked_dataset=str(linked_dataset),
+                affected_field=str(affected_field),
+                related_dataset=related_dataset,
+                related_source_row=(
+                    int(related_source_row)
+                    if related_source_row is not None
+                    else None
+                ),
             )
             issue = _quality_issue(
                 workspace_state,
                 rule,
                 row,
                 reason,
-                group_message if resolution_state == "IDENTITY_GROUP" else relationship_message,
-                (),
+                message,
+                fields,
                 policy=rule.outcome,
             )
             issue_map[issue.issue_id] = issue
@@ -1190,8 +1229,11 @@ def _attach_relationship_findings(
         )
         for row_id, row in relation_rows.items()
     }
-    dependents_by_parent: dict[str, str | list[str]] = {}
-    unresolved_dependents: set[str] = set()
+    dependents_by_parent: dict[str, list[tuple[str, str, str]]] = {}
+    identity_parents_by_dependent: dict[
+        str, list[tuple[str, str, str]]
+    ] = {}
+    unresolved_dependents: dict[str, list[tuple[str, str, str]]] = {}
     relationship_rule_by_row: dict[str, object] = {}
     for row in staging.rows:
         if (row.dataset, row.source_row) in duplicate_coordinates:
@@ -1202,8 +1244,9 @@ def _attach_relationship_findings(
         if rule is None:
             continue
         relationship_rule_by_row[row.row_id] = rule
-        seen_parent_ids: set[str] = set()
-        for reference in _logical_references(row):
+        seen_relationships: set[tuple[str, str]] = set()
+        contexts = _logical_reference_contexts(row)
+        for reference, _identity_group, affected_field in contexts:
             if not reference.dataset:
                 continue
             matches = source_index.get(
@@ -1213,37 +1256,76 @@ def _attach_relationship_findings(
                 ),
                 (),
             )
+            if matches == ():
+                unresolved_dependents.setdefault(row.row_id, []).append(
+                    ("MISSING", reference.dataset, affected_field)
+                )
+                continue
             if not isinstance(matches, str):
-                unresolved_dependents.add(row.row_id)
+                unresolved_dependents.setdefault(row.row_id, []).append(
+                    ("AMBIGUOUS", reference.dataset, affected_field)
+                )
                 continue
-            if matches in seen_parent_ids:
+            relationship = (matches, affected_field)
+            if relationship in seen_relationships:
                 continue
-            seen_parent_ids.add(matches)
-            existing = dependents_by_parent.get(matches)
-            if existing is None:
-                dependents_by_parent[matches] = row.row_id
-            elif isinstance(existing, list):
-                existing.append(row.row_id)
-            else:
-                dependents_by_parent[matches] = [existing, row.row_id]
+            seen_relationships.add(relationship)
+            dependents_by_parent.setdefault(matches, []).append(
+                (row.row_id, affected_field, reference.dataset)
+            )
 
-    relationship_message = (
-        "The linked incoming record is missing, ambiguous or set aside. "
-        "This dependent record was also set aside."
-    )
+        for reference, identity_group, affected_field in contexts:
+            if not identity_group or not reference.dataset:
+                continue
+            matches = source_index.get(
+                (
+                    reference.dataset,
+                    canonical_json_bytes(portable_value(reference.key)),
+                ),
+                (),
+            )
+            if not isinstance(matches, str):
+                continue
+            identity_parent = (matches, affected_field, reference.dataset)
+            parents = identity_parents_by_dependent.setdefault(row.row_id, [])
+            if identity_parent not in parents:
+                parents.append(identity_parent)
 
-    def attach(row_id: str) -> bool:
+    attached_relationship_causes: set[tuple[str, str, str, str]] = set()
+
+    def attach(
+        row_id: str,
+        state: str,
+        *,
+        linked_dataset: str = "",
+        affected_field: str = "",
+        related_row_id: str | None = None,
+    ) -> bool:
         rule = relationship_rule_by_row.get(row_id)
         if rule is None:
             return False
+        cause = (row_id, state, linked_dataset, affected_field)
+        if cause in attached_relationship_causes:
+            return False
+        attached_relationship_causes.add(cause)
         row = relation_rows[row_id]
+        related = relation_rows.get(related_row_id) if related_row_id else None
+        reason, message, fields = _relationship_issue_details(
+            state,
+            linked_dataset=linked_dataset,
+            affected_field=affected_field,
+            related_dataset=(related.dataset if related is not None else ""),
+            related_source_row=(
+                related.source_row if related is not None else None
+            ),
+        )
         issue = _quality_issue(
             workspace_state,
             rule,
             row,
-            "INCOMING_RELATIONSHIP_NOT_READY",
-            relationship_message,
-            (),
+            reason,
+            message,
+            fields,
             policy=rule.outcome,
         )
         issue_ids = row_issue_ids.setdefault(row_id, set())
@@ -1261,8 +1343,14 @@ def _attach_relationship_findings(
             and dispositions[row_id] in unsafe_dispositions
         )
 
-    for row_id in unresolved_dependents:
-        attach(row_id)
+    for row_id, findings in unresolved_dependents.items():
+        for state, linked_dataset, affected_field in findings:
+            attach(
+                row_id,
+                state,
+                linked_dataset=linked_dataset,
+                affected_field=affected_field,
+            )
     queue = deque(
         row_id
         for row_id, disposition in dispositions.items()
@@ -1270,17 +1358,31 @@ def _attach_relationship_findings(
     )
     while queue:
         parent_id = queue.popleft()
-        dependents = dependents_by_parent.get(parent_id)
-        dependent_ids = (
-            ()
-            if dependents is None
-            else dependents
-            if isinstance(dependents, list)
-            else (dependents,)
-        )
-        for dependent_id in dependent_ids:
-            if attach(dependent_id):
+        for dependent_id, affected_field, linked_dataset in dependents_by_parent.get(
+            parent_id,
+            (),
+        ):
+            if attach(
+                dependent_id,
+                "UNSAFE_PARENT",
+                linked_dataset=linked_dataset,
+                affected_field=affected_field,
+                related_row_id=parent_id,
+            ):
                 queue.append(dependent_id)
+        for (
+            identity_parent_id,
+            affected_field,
+            linked_dataset,
+        ) in identity_parents_by_dependent.get(parent_id, ()):
+            if attach(
+                identity_parent_id,
+                "IDENTITY_GROUP",
+                linked_dataset=linked_dataset,
+                affected_field=affected_field,
+                related_row_id=parent_id,
+            ):
+                queue.append(identity_parent_id)
 
 
 def materialize_staging_run(

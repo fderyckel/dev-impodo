@@ -360,9 +360,13 @@ def projected_hybrid_dependency_rows_sql(projection: PreparedCanonicalProjection
             "struct_pack("
             f"parent_dataset := {_literal(relationship.parent_dataset_name)}, "
             f"key_json := json_extract({references}, {_literal(pointer)}), "
-            "identity_group := FALSE)"
+            "identity_group := FALSE, "
+            f"target_field := {_literal(relationship.target_field)})"
         )
-    for component in (*layout.target_identity, *layout.target_scope):
+    for component, target_field in (
+        *((item, "Odoo match") for item in layout.target_identity),
+        *((item, "Odoo match scope") for item in layout.target_scope),
+    ):
         resolver = component.resolver
         if resolver is None or not resolver.parent_dataset_name:
             continue
@@ -379,7 +383,8 @@ def projected_hybrid_dependency_rows_sql(projection: PreparedCanonicalProjection
             f"parent_dataset := {_literal(resolver.parent_dataset_name)}, "
             f"key_json := CASE WHEN {all_null} THEN NULL "
             f"ELSE json_extract({reference}, '$.key') END, "
-            f"identity_group := {'TRUE' if resolver.resolver_origin == 'dataset' else 'FALSE'})"
+            f"identity_group := {'TRUE' if resolver.resolver_origin == 'dataset' else 'FALSE'}, "
+            f"target_field := {_literal(target_field)})"
         )
     if not items:
         raise ValueError("The projection has no incoming dependency")
@@ -388,7 +393,8 @@ def projected_hybrid_dependency_rows_sql(projection: PreparedCanonicalProjection
         SELECT {ordinal} AS child, item.parent_dataset,
                'sha256:' || sha256(CAST(json_object(
                    'dataset', item.parent_dataset, 'source_identity', item.key_json
-               ) AS VARCHAR)) AS identity_hash, item.identity_group
+               ) AS VARCHAR)) AS identity_hash, item.identity_group,
+               item.target_field
           FROM read_parquet(?), UNNEST([{', '.join(items)}]) AS dependency(item)
          WHERE item.key_json IS NOT NULL
     """

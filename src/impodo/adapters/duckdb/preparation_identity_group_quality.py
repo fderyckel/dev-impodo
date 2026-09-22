@@ -12,14 +12,14 @@ from __future__ import annotations
 from hashlib import sha256
 import json
 
-from impodo.domain.preparation.quality import quality_dependency_references
+from impodo.domain.preparation.quality import quality_dependency_reference_contexts
 from impodo.domain.shared.models import canonical_json_bytes, portable_value, restore_portable_value
 from .serialization import iter_encoded_json_batches
 from .constants import DUCKDB_JSON_BATCH_MAX_BYTES, PREPARATION_SESSION_ROW_BATCH_SIZE
 from .native_prepared_projection import projected_hybrid_dependency_rows_sql
 
 
-_EDGE_STRUCTURE = '[{"child":"BIGINT","parent_dataset":"VARCHAR","identity_hash":"VARCHAR","identity_group":"BOOLEAN"}]'
+_EDGE_STRUCTURE = '[{"child":"BIGINT","parent_dataset":"VARCHAR","identity_hash":"VARCHAR","identity_group":"BOOLEAN","target_field":"VARCHAR"}]'
 
 
 def _materialize_unsafe_group_rows(connection, session_id, unsafe_row_ids) -> None:
@@ -89,12 +89,17 @@ def _project_group_edges(connection, session_id: str) -> None:
                 identity = restore_portable_value(json.loads(str(identity_json)))
                 scope = restore_portable_value(json.loads(str(scope_json)))
                 references = restore_portable_value(json.loads(str(references_json)))
-                for reference, identity_group in quality_dependency_references(identity, scope, references):
+                for reference, identity_group, target_field in quality_dependency_reference_contexts(
+                    identity,
+                    scope,
+                    references,
+                ):
                     if not reference.dataset:
                         continue
                     yield {
                         "child": int(ordinal), "parent_dataset": reference.dataset,
                         "identity_group": identity_group,
+                        "target_field": target_field,
                         "identity_hash": "sha256:" + sha256(canonical_json_bytes({
                             "dataset": reference.dataset,
                             "source_identity": portable_value(reference.key),
@@ -107,7 +112,8 @@ def _project_group_edges(connection, session_id: str) -> None:
             connection.execute(
                 """
                 INSERT INTO group_reference SELECT DISTINCT item.child,
-                    item.parent_dataset, item.identity_hash, item.identity_group
+                    item.parent_dataset, item.identity_hash, item.identity_group,
+                    item.target_field
                   FROM (SELECT UNNEST(from_json_strict(CAST(? AS JSON), ?)) AS item)
                 ON CONFLICT DO NOTHING
                 """,
@@ -124,13 +130,16 @@ def iter_identity_group_findings(connection, session_id, unsafe_row_ids, propaga
         connection.execute("""
             CREATE TEMP TABLE group_reference (
                 child BIGINT, parent_dataset VARCHAR, identity_hash VARCHAR,
-                identity_group BOOLEAN,
-                PRIMARY KEY (child, parent_dataset, identity_hash, identity_group)
+                identity_group BOOLEAN, target_field VARCHAR,
+                PRIMARY KEY (
+                    child, parent_dataset, identity_hash, identity_group,
+                    target_field
+                )
             )
         """)
         connection.execute("""
             INSERT INTO group_reference SELECT DISTINCT child_ordinal,
-                parent_dataset, parent_identity_hash, FALSE
+                parent_dataset, parent_identity_hash, FALSE, target_field
               FROM preparation_relationship_edge AS edge
               JOIN canonical_staging_row AS row ON row.run_id = edge.session_id
                AND row.ordinal = edge.child_ordinal
@@ -152,7 +161,8 @@ def iter_identity_group_findings(connection, session_id, unsafe_row_ids, propaga
                   FROM preparation_direct_identity WHERE session_id = ?
                  GROUP BY dataset, identity_hash
             )
-            SELECT ref.child, ref.identity_group, COALESCE(parent.match_count, 0) AS match_count,
+            SELECT ref.child, ref.parent_dataset, ref.target_field,
+                   ref.identity_group, COALESCE(parent.match_count, 0) AS match_count,
                    CASE WHEN parent.match_count = 1 THEN parent.ordinal END AS parent
               FROM group_reference AS ref
               LEFT JOIN parent_keys AS parent
@@ -161,10 +171,11 @@ def iter_identity_group_findings(connection, session_id, unsafe_row_ids, propaga
         """, [session_id])
         connection.execute("""
             CREATE TEMP TABLE group_arc AS
-            SELECT DISTINCT parent AS source, child AS destination, FALSE AS reverse
+            SELECT DISTINCT parent AS source, child AS destination,
+                   FALSE AS reverse, parent_dataset, target_field
               FROM group_match WHERE match_count = 1
             UNION
-            SELECT DISTINCT child, parent, TRUE
+            SELECT DISTINCT child, parent, TRUE, parent_dataset, target_field
               FROM group_match WHERE match_count = 1 AND identity_group
         """)
         connection.execute("""
@@ -176,18 +187,21 @@ def iter_identity_group_findings(connection, session_id, unsafe_row_ids, propaga
         connection.execute("""
             CREATE TEMP TABLE group_finding AS
             SELECT child AS ordinal,
-                   CASE WHEN match_count = 0 THEN 'MISSING' ELSE 'AMBIGUOUS' END AS state
+                   CASE WHEN match_count = 0 THEN 'MISSING' ELSE 'AMBIGUOUS' END AS state,
+                   parent_dataset, target_field, NULL::BIGINT AS related_ordinal
               FROM group_match WHERE match_count != 1
             UNION
-            SELECT arc.destination, CASE WHEN arc.reverse THEN 'IDENTITY_GROUP' ELSE 'UNSAFE_PARENT' END
+            SELECT arc.destination,
+                   CASE WHEN arc.reverse THEN 'IDENTITY_GROUP' ELSE 'UNSAFE_PARENT' END,
+                   arc.parent_dataset, arc.target_field, arc.source
               FROM group_arc AS arc JOIN group_unsafe AS unsafe ON unsafe.ordinal = arc.source
         """)
-        # Two readiness reasons are possible for one row. Collapse forward
-        # states, preserving the distinct group reason for deterministic issues.
         connection.execute("""
             CREATE TEMP TABLE group_result AS
-            SELECT ordinal, state = 'IDENTITY_GROUP' AS identity_group, MIN(state) AS state
-              FROM group_finding GROUP BY ordinal, state = 'IDENTITY_GROUP'
+            SELECT ordinal, state, parent_dataset, target_field,
+                   MIN(related_ordinal) AS related_ordinal
+              FROM group_finding
+             GROUP BY ordinal, state, parent_dataset, target_field
         """)
         connection.commit()
     except Exception:
@@ -195,12 +209,18 @@ def iter_identity_group_findings(connection, session_id, unsafe_row_ids, propaga
         raise
     cursor = connection.execute("""
         SELECT row.ordinal, row.row_id, row.dataset, row.source_row, row.disposition,
-               lineage.physical_dataset_id, lineage.physical_source_row, finding.state
+               lineage.physical_dataset_id, lineage.physical_source_row,
+               finding.state, finding.parent_dataset, finding.target_field,
+               related.row_id, related.source_row, related.dataset
           FROM group_result AS finding
           JOIN canonical_staging_row AS row ON row.run_id = ? AND row.ordinal = finding.ordinal
+          LEFT JOIN canonical_staging_row AS related
+            ON related.run_id = row.run_id
+           AND related.ordinal = finding.related_ordinal
           JOIN preparation_lineage AS lineage ON lineage.session_id = row.run_id
            AND lineage.dataset = row.dataset AND lineage.output_source_row = row.source_row
-         ORDER BY row.ordinal, finding.identity_group
+         ORDER BY row.ordinal, finding.state, finding.parent_dataset,
+                  finding.target_field
     """, [session_id])
     while batch := cursor.fetchmany(PREPARATION_SESSION_ROW_BATCH_SIZE):
         yield from batch

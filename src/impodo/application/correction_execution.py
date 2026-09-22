@@ -40,7 +40,10 @@ from impodo.domain.execution.models import (
     ExecutionRun,
     ExecutionRunStatus,
 )
-from impodo.domain.execution.odoo_readback import MAX_READBACK_IDS, OdooReadbackReader
+from impodo.domain.execution.odoo_readback import (
+    MAX_READBACK_RECORD_IDS,
+    OdooReadbackReader,
+)
 from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.domain.execution.odoo_write import (
     OdooWriteExecutor,
@@ -375,8 +378,8 @@ class CorrectionExecutionService:
             )
         for model in sorted(by_model):
             identifiers = by_model[model]
-            for start in range(0, len(identifiers), MAX_READBACK_IDS):
-                page = identifiers[start : start + MAX_READBACK_IDS]
+            for start in range(0, len(identifiers), MAX_READBACK_RECORD_IDS):
+                page = identifiers[start : start + MAX_READBACK_RECORD_IDS]
                 for item in reader.read_ids(model, page, tuple(sorted(fields[model]))):
                     found[(model, item.odoo_id)] = item.values
         return found

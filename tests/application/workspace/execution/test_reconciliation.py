@@ -25,7 +25,14 @@ from impodo.domain.reconciliation import (
 from impodo.domain.reconciliation_detail import ReconciliationDetailManifest
 from impodo.domain.execution_snapshot import ExecutionDataset, FieldIntent
 from impodo.domain.shared.models import BusinessReference, LogicalReference, OdooWriteIdentity
-from impodo.domain.execution.odoo_readback import ExternalIdBinding, OdooReadbackError, ReadbackLookup, ReadbackRecord
+from impodo.domain.execution.odoo_readback import (
+    MAX_READBACK_EXTERNAL_IDS,
+    MAX_READBACK_RECORD_IDS,
+    ExternalIdBinding,
+    OdooReadbackError,
+    ReadbackLookup,
+    ReadbackRecord,
+)
 from impodo.adapters.odoo.readback import Json2ReadbackReader
 from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.domain.workspace.errors import WorkspaceError
@@ -124,6 +131,7 @@ class _Reader:
         self.uncertain = ()
         self.references = {}
         self.lookup_batches = []
+        self.external_id_reads = []
         self.external_ids = {
             "impodo_test.categories_2": ExternalIdBinding(
                 "impodo_test.categories_2", "product.category", 10
@@ -160,6 +168,7 @@ class _Reader:
         )
 
     def read_external_ids(self, external_ids):
+        self.external_id_reads.append(tuple(external_ids))
         return tuple(
             self.external_ids[item]
             for item in external_ids
@@ -693,6 +702,58 @@ class ReconciliationServiceTests(unittest.TestCase):
         self.assertIn(("res.partner", (50,), ("email",)), final_reader.reads)
         self.assertEqual(final_report.rows[2].status, ReconciliationRowStatus.DIFFERENT)
 
+    def test_targeted_recovery_omits_rows_that_were_never_started(self):
+        snapshot = _snapshot()
+        run = _run(
+            snapshot,
+            (
+                ExecutionRowStatus.COMMITTED,
+                ExecutionRowStatus.IN_FLIGHT,
+                ExecutionRowStatus.PLANNED,
+            ),
+        )
+        run = replace(
+            run,
+            status=ExecutionRunStatus.RUNNING,
+            completed_at=None,
+            rows=(
+                run.rows[0],
+                replace(
+                    run.rows[1],
+                    schedule_component=1,
+                    transport_page=0,
+                    transport_batch=1,
+                    transport_phase="CREATE",
+                ),
+                run.rows[2],
+            ),
+        )
+        service, _results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.external_ids.pop(snapshot.rows[1].proposed_external_id)
+
+        report = service.assess_recovery(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+            targeted=True,
+        )
+
+        self.assertEqual(
+            tuple(item.row_id for item in report.rows),
+            (snapshot.rows[0].row_id, snapshot.rows[1].row_id),
+        )
+        self.assertEqual(
+            reader.external_id_reads,
+            [(snapshot.rows[1].proposed_external_id,)],
+        )
+        recovered = ExecutionService._classify_recovery(
+            snapshot, run, report, targeted=True,
+        )
+        self.assertEqual(recovered[2].status, ExecutionRowStatus.PLANNED)
+        self.assertEqual(recovered[2].recovery_hash, report.semantic_hash)
+
     def test_external_id_without_uncertain_business_key_blocks_retry(self):
         snapshot = _snapshot()
         run = _run(
@@ -915,6 +976,49 @@ class ReconciliationServiceTests(unittest.TestCase):
 
         self.assertIn(("res.partner", (50,), ("email",)), reader.reads)
         self.assertIn(("res.partner", (51,), ("name",)), reader.reads)
+
+    def test_committed_readback_uses_download_sized_exact_id_pages(self):
+        snapshot = _snapshot()
+        template_row = snapshot.rows[-1]
+        template_attempt = _run(snapshot).rows[-1]
+        rows = {}
+        attempts = {}
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        for index in range((2 * MAX_READBACK_RECORD_IDS) + 1):
+            identifier = index + 1
+            row = replace(
+                template_row,
+                row_id=f"contact-{identifier}",
+                source_row=identifier,
+                source_trace_id=f"trace-{identifier}",
+                source_identity=(f"C{identifier}",),
+                business_identity=(f"C{identifier}",),
+            )
+            rows[row.row_id] = row
+            attempts[row.row_id] = replace(
+                template_attempt,
+                row_id=row.row_id,
+                source_row=row.source_row,
+                odoo_id=identifier,
+            )
+            reader.records[("res.partner", identifier)] = {
+                "email": f"contact-{identifier}@example.test"
+            }
+
+        actual_by_row = {}
+        ReconciliationService._read_committed(
+            rows,
+            attempts,
+            actual_by_row,
+            reader,
+            frozenset(rows),
+        )
+
+        self.assertEqual(
+            tuple(len(identifiers) for _model, identifiers, _fields in reader.reads),
+            (MAX_READBACK_RECORD_IDS, MAX_READBACK_RECORD_IDS, 1),
+        )
+        self.assertEqual(len(actual_by_row), len(rows))
 
     def test_unknown_create_is_rematched_without_retrying_the_write(self):
         snapshot = _snapshot()
@@ -1240,6 +1344,34 @@ class Json2ReadbackReaderTests(unittest.TestCase):
             set(custom[0].values),
             {"customer_rank", "x_impodo_note"},
         )
+
+    def test_reads_a_download_sized_exact_id_page_in_one_request(self):
+        identifiers = tuple(range(1, MAX_READBACK_RECORD_IDS + 1))
+
+        def transport(url, headers, body, timeout, method):
+            del headers, timeout, method
+            payload = json.loads(body)
+            self.calls.append((url, payload))
+            return 200, [
+                {"id": identifier, "name": f"Partner {identifier}"}
+                for identifier in payload["domain"][0][2]
+            ]
+
+        reader = replace(self.reader, transport=transport)
+        result = reader.read_ids("res.partner", identifiers, ("name",))
+
+        self.assertEqual(len(result), MAX_READBACK_RECORD_IDS)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0][1]["limit"], MAX_READBACK_RECORD_IDS)
+
+    def test_keeps_external_id_pages_on_the_tighter_bound(self):
+        external_ids = tuple(
+            f"impodo_test.partners_{index}"
+            for index in range(MAX_READBACK_EXTERNAL_IDS + 1)
+        )
+
+        with self.assertRaises(OdooReadbackError):
+            self.reader.read_external_ids(external_ids)
 
     def test_rejects_broad_or_out_of_scope_reads(self):
         with self.assertRaises(OdooReadbackError):

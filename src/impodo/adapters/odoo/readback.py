@@ -26,8 +26,9 @@ _EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")
 
 
 from impodo.domain.execution.odoo_readback import (
-    MAX_READBACK_IDS,
+    MAX_READBACK_EXTERNAL_IDS,
     MAX_READBACK_LOOKUPS,
+    MAX_READBACK_RECORD_IDS,
     ExternalIdBinding,
     OdooReadbackError,
     OdooReadbackReader,
@@ -69,7 +70,7 @@ class Json2ReadbackReader:
         ids = tuple(dict.fromkeys(identifiers))
         if (
             not ids
-            or len(ids) > MAX_READBACK_IDS
+            or len(ids) > MAX_READBACK_RECORD_IDS
             or any(type(item) is not int or item <= 0 for item in ids)
         ):
             raise OdooReadbackError("Odoo read-back IDs are outside the safe bound")
@@ -178,7 +179,7 @@ class Json2ReadbackReader:
         requested = tuple(external_ids)
         if (
             not requested
-            or len(requested) > MAX_READBACK_IDS
+            or len(requested) > MAX_READBACK_EXTERNAL_IDS
             or len(set(requested)) != len(requested)
             or any(
                 not isinstance(item, str)
@@ -270,7 +271,7 @@ class Json2ReadbackReader:
             "X-Odoo-Database": self.config.database,
             "User-Agent": "impodo",
         }
-        transient_statuses = {429, 502, 503, 504}
+        transient_statuses = {429, 500, 502, 503, 504}
         for attempt in range(self.config.retries + 1):
             try:
                 status, response = self.transport(

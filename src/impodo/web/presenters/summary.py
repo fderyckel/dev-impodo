@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from fastapi import HTTPException, Request
 
 from impodo.domain.errors import ReadinessError
+from impodo.domain.compiler.browser_mapping_compiler import browser_mapping_labels
 from impodo.domain.shared.access import AuthorizationError, Capability
 from ...application.workspace.preparation.bounded_preparation import (
     supports_bounded_direct_preparation,
@@ -160,7 +161,26 @@ def _render_normalization(
         )
     collision_groups = {}
     collision_routes = {}
+    quality_field_labels: dict[str, dict[str, str]] = {}
+    quality_issue_field_labels: dict[str, tuple[str, ...]] = {}
+    quality_cause_groups = ()
     if set_aside_page is not None:
+        selection = context.queries.get_mapping_source_selection(workspace_id)
+        revision = context.queries.get_mapping_revision(workspace_id)
+        schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        quality_field_labels = _quality_field_label_map(
+            revision,
+            selection,
+            schema,
+        )
+        quality_issue_field_labels = _quality_issue_field_label_map(
+            set_aside_page.items,
+            quality_field_labels,
+        )
+        quality_cause_groups = _quality_cause_groups(
+            set_aside_page.items,
+            quality_field_labels,
+        )
         collision_items = tuple(
             item for item in set_aside_page.items
             if any(
@@ -174,8 +194,6 @@ def _render_normalization(
                 summary.quality_run_id,
                 tuple(item.row.row_id for item in collision_items),
             )
-            selection = context.queries.get_mapping_source_selection(workspace_id)
-            revision = context.queries.get_mapping_revision(workspace_id)
             if selection is not None:
                 mapped = (
                     {item.dataset_id: item for item in revision.definition.datasets}
@@ -228,6 +246,8 @@ def _render_normalization(
         dry_run=dry_run,
         review_items=page_items,
         set_aside_page=set_aside_page,
+        quality_cause_groups=quality_cause_groups,
+        quality_issue_field_labels=quality_issue_field_labels,
         collision_groups=collision_groups,
         collision_routes=collision_routes,
         set_aside_row_start=(page - 1) * NORMALIZATION_GROUPS_PER_PAGE + 1,
@@ -518,6 +538,19 @@ def _render_summary(
                 quality_page.page * quality_page_size,
                 quality_page.matching_count,
             )
+    quality_field_labels = _quality_field_label_map(
+        revision,
+        effective_selection,
+        schema_catalog,
+    )
+    quality_issue_field_labels = _quality_issue_field_label_map(
+        quality_page.items if quality_page is not None else (),
+        quality_field_labels,
+    )
+    quality_cause_groups = _quality_cause_groups(
+        quality_page.items if quality_page is not None else (),
+        quality_field_labels,
+    )
     summary_quality_page_ms = (perf_counter() - quality_page_started) * 1000
     status_filter = request.query_params.get("status", "").strip()
     if status_filter not in {
@@ -578,6 +611,8 @@ def _render_summary(
         normalization=normalization,
         resolution=resolution,
         quality_review_page=quality_page,
+        quality_cause_groups=quality_cause_groups,
+        quality_issue_field_labels=quality_issue_field_labels,
         quality_review_row_start=quality_row_start,
         quality_review_row_end=quality_row_end,
         quality_status=quality_status,
@@ -710,6 +745,138 @@ def _render_summary(
         total=(perf_counter() - summary_started) * 1000,
     )
     return response
+
+
+def _quality_field_label_map(
+    revision,
+    selection,
+    schema_catalog,
+) -> dict[str, dict[str, str]]:
+    """Return dataset-scoped labels for source, target, and synthetic fields."""
+
+    labels: dict[str, dict[str, str]] = {}
+    if revision is None or selection is None:
+        return labels
+    try:
+        _dataset_labels, compiled = browser_mapping_labels(
+            revision.definition,
+            selection,
+        )
+    except (AttributeError, ReadinessError, TypeError):
+        return labels
+    for (dataset, field), label in compiled.items():
+        labels.setdefault(dataset, {})[field] = label
+
+    target_labels = {
+        (model.name, field.name): field.label
+        for model in (schema_catalog.models if schema_catalog is not None else ())
+        for field in model.fields
+    }
+    datasets = {item.dataset_id: item for item in selection.datasets}
+    for mapping in revision.definition.datasets:
+        dataset = datasets.get(mapping.dataset_id)
+        if dataset is None:
+            continue
+        scoped = labels.setdefault(dataset.name, {})
+        target_fields = {
+            item.target_field for item in mapping.fields
+        } | {
+            item.target_field for item in mapping.relationships
+        } | {
+            field
+            for component in (*mapping.target_identity, *mapping.target_scope)
+            for field in component.target_fields
+        }
+        for field in target_fields:
+            scoped.setdefault(
+                field,
+                target_labels.get(
+                    (mapping.target_model, field),
+                    field.replace("_", " ").title(),
+                ),
+            )
+        scoped.setdefault("Odoo match", "Odoo match")
+        scoped.setdefault("Odoo match scope", "Odoo match scope")
+    return labels
+
+
+def _quality_issue_field_label_map(
+    items,
+    field_labels: dict[str, dict[str, str]],
+) -> dict[str, tuple[str, ...]]:
+    """Resolve issue field identifiers once before rendering a review page."""
+
+    return {
+        issue.issue_id: tuple(
+            field_labels.get(item.row.dataset, {}).get(
+                field,
+                field.replace("_", " ").title(),
+            )
+            for field in issue.affected_fields
+        )
+        for item in items
+        for issue in item.issues
+    }
+
+
+def _quality_cause_groups(
+    items,
+    field_labels: dict[str, dict[str, str]],
+) -> tuple[dict[str, object], ...]:
+    """Group findings on the visible page into direct and inherited causes."""
+
+    titles = {
+        "SOURCE_TYPE_INVALID": "Invalid number or value type",
+        "SOURCE_FORMULA_INVALID": "Formula calculation failed",
+        "INCOMING_RELATIONSHIP_MISSING": "Linked source record is missing",
+        "INCOMING_RELATIONSHIP_AMBIGUOUS": "Linked source record is ambiguous",
+        "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE": "Linked parent was set aside",
+        "INCOMING_IDENTITY_DEPENDENT_SET_ASIDE": (
+            "Dependent identity group was set aside"
+        ),
+    }
+    inherited_reasons = {
+        "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE",
+        "INCOMING_IDENTITY_DEPENDENT_SET_ASIDE",
+    }
+    grouped: dict[tuple[object, ...], dict[str, object]] = {}
+    for item in items:
+        scoped = field_labels.get(item.row.dataset, {})
+        for issue in item.issues:
+            fields = tuple(
+                scoped.get(field, field.replace("_", " ").title())
+                for field in issue.affected_fields
+            )
+            key = (issue.reason_code, issue.message, fields)
+            group = grouped.setdefault(
+                key,
+                {
+                    "reason_code": issue.reason_code,
+                    "title": titles.get(
+                        issue.reason_code,
+                        issue.reason_code.replace("_", " ").title(),
+                    ),
+                    "kind": (
+                        "Inherited dependency"
+                        if issue.reason_code in inherited_reasons
+                        else "Direct finding"
+                    ),
+                    "message": issue.message,
+                    "fields": fields,
+                    "count": 0,
+                },
+            )
+            group["count"] = int(group["count"]) + 1
+    return tuple(
+        sorted(
+            grouped.values(),
+            key=lambda item: (
+                -int(item["count"]),
+                str(item["title"]),
+                str(item["message"]),
+            ),
+        )
+    )
 
 
 def _append_summary_server_timing(response, **metrics: float) -> None:

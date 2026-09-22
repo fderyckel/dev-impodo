@@ -104,9 +104,12 @@
         <p class="eyebrow">Load stopped</p>
         <h2>Review the recorded totals before continuing</h2>
         <p data-load-failure>{{ job.failure_message }}</p>
-        <p><strong>Do not start another load from this review.</strong> A completed Odoo call may already have changed records.</p>
+        <p><strong>Do not start a new load.</strong> Return to the saved result instead. Impodo will check Odoo again and resume only work proven safe.</p>
       </div>
-      <a class="button secondary" href="/projects">Return to projects</a>
+      <div class="button-row">
+        <a class="button primary" href="/workspaces/{{ job.workspace_id }}/load/outcome">Review and recover saved load</a>
+        <a class="button secondary" href="/projects">Return to projects</a>
+      </div>
     </section>
 
     <section class="next-action-card ready" data-load-complete {% if job.status.value != 'SUCCEEDED' %}hidden{% endif %}>

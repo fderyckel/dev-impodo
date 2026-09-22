@@ -128,6 +128,23 @@
     {% if review_status == 'set_aside' %}
       {% set restricted = migration_project.data_classification.value == 'RESTRICTED' %}
       {% if set_aside_page.items %}
+        {% if quality_cause_groups %}
+          <div class="notice" data-quality-cause-summary>
+            <strong>Causes in the records shown on this page</strong>
+            <span>Direct findings come from the record itself. Inherited dependencies mean a linked record was already set aside.</span>
+            <dl class="summary-list">
+              {% for cause in quality_cause_groups %}
+                <div data-quality-cause="{{ cause.reason_code }}">
+                  <dt>{{ cause.title }} ({{ cause.count }})</dt>
+                  <dd>
+                    {{ cause.kind }}. {{ cause.message }}
+                    {% if cause.fields %}<small class="row-field">Fields: {{ cause.fields|join(', ') }}</small>{% endif %}
+                  </dd>
+                </div>
+              {% endfor %}
+            </dl>
+          </div>
+        {% endif %}
         <div class="table-scroll" data-normalization-table-scroll>
           <table class="data-table readiness-row-table">
             <thead><tr><th>Table</th><th>Source row</th><th>Record</th><th>Why it was set aside</th><th>Next step</th></tr></thead>
@@ -142,7 +159,8 @@
                     {% for issue in item.issues %}
                       <p>
                         {{ issue.message }}
-                        {% if issue.affected_fields %}<small class="row-field">Fields: {{ issue.affected_fields|join(', ') }}</small>{% endif %}
+                        {% set fields = quality_issue_field_labels.get(issue.issue_id, ()) %}
+                        {% if fields %}<small class="row-field">Fields: {{ fields|join(', ') }}</small>{% endif %}
                         <small class="row-field">
                           {% if issue.policy.value == 'QUARANTINE' %}This check set the record aside for correction.
                           {% elif issue.policy.value == 'EXCLUDE' %}This check excluded the record.

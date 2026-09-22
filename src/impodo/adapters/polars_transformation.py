@@ -2281,7 +2281,7 @@ def _scalar_error_messages(
     if error == _ERROR_PARSE:
         return (
             "SOURCE_TYPE_INVALID",
-            f"cannot parse '__impodo_invalid_value__' as {field.value_type}",
+            f"Cannot parse {prepared!r} as {field.value_type}.",
             f"Cannot parse {prepared!r} as {field.value_type}.",
         )
     if error == "SOURCE_RULE_OUTPUT_TOO_LONG":

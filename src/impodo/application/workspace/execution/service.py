@@ -111,11 +111,27 @@ def _targeted_recovery_row_ids(
             item.dependency_row_ids
         )
 
+    # PLANNED rows were never sent to Odoo, and RETRY_READY rows were already
+    # proved absent by an earlier recovery. Use both to discover the committed
+    # dependency frontier without manufacturing read-back outcomes for tens of
+    # thousands of records that have never been attempted.
     selected = {
-        row_id for row_id, item in attempts.items()
+        row_id
+        for row_id, item in attempts.items()
+        if item.status
+        not in {
+            ExecutionRowStatus.COMMITTED,
+            ExecutionRowStatus.PLANNED,
+            ExecutionRowStatus.RETRY_READY,
+        }
+    }
+    frontier = {
+        row_id
+        for row_id, item in attempts.items()
         if item.status is not ExecutionRowStatus.COMMITTED
     }
-    pending = list(selected)
+    pending = list(frontier)
+    visited = set(frontier)
     expanded_models: set[str] = set()
     expanded_datasets: set[str] = set()
     while pending:
@@ -148,9 +164,14 @@ def _targeted_recovery_row_ids(
         unknown_ids = related_ids.difference(snapshot_row_ids)
         if unknown_ids:
             raise WorkspaceError("A recovery dependency is missing from the preview")
-        new_ids = related_ids.intersection(rows).difference(selected)
-        selected.update(new_ids)
+        new_ids = related_ids.intersection(rows).difference(visited)
+        visited.update(new_ids)
         pending.extend(new_ids)
+        selected.update(
+            item
+            for item in new_ids
+            if attempts[item].status is ExecutionRowStatus.COMMITTED
+        )
     return frozenset(selected)
 
 
@@ -1695,9 +1716,14 @@ class ExecutionService:
             row = rows[row_id]
             outcome = outcomes.get(row_id)
             if outcome is None:
-                # The immutable receipt is retained, with a full Odoo read
-                # still required by post-load reconciliation.
-                if attempt.status is not ExecutionRowStatus.COMMITTED:
+                # A targeted read omits never-started rows and unrelated
+                # committed receipts. Preserve both in the same journal; a
+                # full Odoo read is still required by final reconciliation.
+                if attempt.status not in {
+                    ExecutionRowStatus.COMMITTED,
+                    ExecutionRowStatus.PLANNED,
+                    ExecutionRowStatus.RETRY_READY,
+                }:
                     raise WorkspaceError("Recovery omitted an unfinished load row")
                 recovered.append(replace(attempt, recovery_hash=recovery_hash))
                 continue

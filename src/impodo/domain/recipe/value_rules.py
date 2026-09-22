@@ -11,6 +11,7 @@ import ast
 from dataclasses import dataclass
 from decimal import (
     Decimal,
+    DivisionByZero,
     ROUND_CEILING,
     ROUND_DOWN,
     ROUND_FLOOR,
@@ -383,9 +384,14 @@ def prepare_rule_text(
                 else evaluate_formula(policy.formula, context)
             )
         except (ArithmeticError, TypeError, ValueError) as error:
+            message = (
+                "Formula cannot divide by zero for this row."
+                if isinstance(error, (DivisionByZero, ZeroDivisionError))
+                else f"Formula could not calculate this value: {error}"
+            )
             raise ScalarRuleError(
                 "SOURCE_FORMULA_INVALID",
-                f"Formula could not calculate this value: {error}",
+                message,
             ) from error
     if value is None:
         return None

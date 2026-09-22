@@ -19,7 +19,10 @@ from impodo.domain.correction import (
 from impodo.domain.correction_execution import CorrectionExecutionSnapshot
 from impodo.domain.correction_origin import ProtectedCorrectionArtifactReference
 from impodo.domain.execution.models import ExecutionRunStatus
-from impodo.domain.execution.odoo_readback import ReadbackRecord
+from impodo.domain.execution.odoo_readback import (
+    MAX_READBACK_RECORD_IDS,
+    ReadbackRecord,
+)
 from impodo.domain.execution.odoo_write import (
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
@@ -204,7 +207,7 @@ class CorrectionExecutionServiceTests(unittest.TestCase):
         )
         return plan, confirmation, target, bindings, journal, results, service
 
-    def test_768_equal_updates_use_sixteen_exact_id_writes(self):
+    def test_768_equal_updates_use_batched_reads_and_sixteen_exact_id_writes(self):
         plan, confirmation, target, bindings, journal, _results, service = self._fixture(768)
 
         outcome = service.execute(
@@ -220,7 +223,13 @@ class CorrectionExecutionServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(len(target.write_calls), 16)
-        self.assertEqual(len(target.read_calls), 32)
+        self.assertEqual(len(target.read_calls), 4)
+        self.assertTrue(
+            all(
+                len(item[1]) <= MAX_READBACK_RECORD_IDS
+                for item in target.read_calls
+            )
+        )
         self.assertTrue(all(len(item[1]) <= 50 for item in target.write_calls))
         self.assertEqual(outcome.execution.status, ExecutionRunStatus.COMPLETED)
         self.assertEqual(outcome.reconciliation.status.value, "VERIFIED")

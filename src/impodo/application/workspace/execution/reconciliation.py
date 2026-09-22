@@ -45,8 +45,9 @@ from impodo.application.reconciliation_evidence_service import (
 )
 from impodo.domain.shared.models import BusinessReference, LogicalReference, OdooWriteIdentity
 from impodo.domain.execution.odoo_readback import (
-    MAX_READBACK_IDS,
+    MAX_READBACK_EXTERNAL_IDS,
     MAX_READBACK_LOOKUPS,
+    MAX_READBACK_RECORD_IDS,
     OdooReadbackReader,
     ReadbackLookup,
     ReadbackRecord,
@@ -443,6 +444,7 @@ class ReconciliationService:
             resolved_ids,
             reader,
             checked_row_ids,
+            full_verification=row_ids is None,
         )
 
         identity_cache = self._preload_reference_ids(
@@ -585,10 +587,10 @@ class ReconciliationService:
                 attempts[row.row_id].odoo_id: row.row_id for row in model_rows
             }
             ids = tuple(identifier for identifier in identifiers if identifier)
-            for start in range(0, len(ids), MAX_READBACK_IDS):
+            for start in range(0, len(ids), MAX_READBACK_RECORD_IDS):
                 records = reader.read_ids(
                     model,
-                    ids[start : start + MAX_READBACK_IDS],
+                    ids[start : start + MAX_READBACK_RECORD_IDS],
                     fields,
                 )
                 for record in records:
@@ -888,6 +890,8 @@ class ReconciliationService:
         resolved_ids: Mapping[str, int],
         reader: OdooReadbackReader,
         checked_row_ids: frozenset[str],
+        *,
+        full_verification: bool,
     ) -> dict[str, str]:
         if not reader.imports_external_ids:
             return {}
@@ -908,6 +912,14 @@ class ReconciliationService:
                     ExecutionRowStatus.IN_FLIGHT,
                 }
                 and (
+                    full_verification
+                    or attempt.status
+                    in {
+                        ExecutionRowStatus.OUTCOME_UNKNOWN,
+                        ExecutionRowStatus.IN_FLIGHT,
+                    }
+                )
+                and (
                     resolved_id is not None
                     or attempt.status in {
                         ExecutionRowStatus.OUTCOME_UNKNOWN,
@@ -923,9 +935,9 @@ class ReconciliationService:
 
         bindings = {}
         external_ids = tuple(expected)
-        for start in range(0, len(external_ids), MAX_READBACK_IDS):
+        for start in range(0, len(external_ids), MAX_READBACK_EXTERNAL_IDS):
             for binding in reader.read_external_ids(
-                external_ids[start : start + MAX_READBACK_IDS]
+                external_ids[start : start + MAX_READBACK_EXTERNAL_IDS]
             ):
                 bindings[binding.external_id] = binding
 

@@ -82,6 +82,43 @@ class Json2ReadbackRetryTests(unittest.TestCase):
         self.assertEqual(result[0].values, {"name": "Verified"})
         self.assertEqual(calls, 2)
 
+    def test_retries_a_transient_odoo_server_error(self):
+        calls = 0
+
+        def transport(url, headers, body, timeout, method):
+            nonlocal calls
+            del url, headers, body, timeout, method
+            calls += 1
+            if calls == 1:
+                return 500, None
+            return 200, [{"id": 42, "name": "Verified"}]
+
+        reader = Json2ReadbackReader(
+            Json2Config(
+                base_url="http://127.0.0.1:8069",
+                database="odoo19_disposable",
+                api_key="secret",
+                connection_mode="LOCAL",
+                retries=1,
+            ),
+            OdooApiScope(
+                preview_hash="sha256:" + "a" * 64,
+                models=(
+                    OdooModelScope(
+                        "res.partner",
+                        write_fields=("name",),
+                        read_fields=("name",),
+                    ),
+                ),
+            ),
+            transport=transport,
+        )
+
+        result = reader.read_ids("res.partner", (42,), ("name",))
+
+        self.assertEqual(result[0].values, {"name": "Verified"})
+        self.assertEqual(calls, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

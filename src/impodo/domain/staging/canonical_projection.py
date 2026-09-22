@@ -5,7 +5,14 @@ from __future__ import annotations
 from hashlib import sha256
 from typing import Any, Mapping
 
-from impodo.domain.shared.models import Issue, canonical_json_bytes, portable_issue, portable_value
+from impodo.domain.shared.models import (
+    BusinessReference,
+    Issue,
+    LogicalReference,
+    canonical_json_bytes,
+    portable_issue,
+    portable_value,
+)
 from impodo.domain.preparation.staging_contracts import CanonicalIssue, StagingDisposition
 from .preparation_session import CanonicalPreparedSessionRow
 
@@ -24,7 +31,21 @@ def canonical_quality_record_label(
     ]
     if not values:
         return f"Row {source_row}"
-    return " / ".join(str(item) for item in values[:2])[:120]
+    return " / ".join(_quality_label_value(item) for item in values[:2])[:120]
+
+
+def _quality_label_value(value: Any) -> str:
+    """Render portable identities without leaking dataclass diagnostics."""
+
+    if isinstance(value, (LogicalReference, BusinessReference)):
+        parts = tuple(
+            item
+            for item in (*value.key, *value.scope)
+            if item is not None and item != ""
+        )
+        if parts:
+            return " / ".join(str(item) for item in parts)
+    return str(value)
 
 
 def canonical_quality_identity_key(

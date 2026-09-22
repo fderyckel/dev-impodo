@@ -1,12 +1,52 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 
 from impodo.web.presenters.summary import (
+    _quality_cause_groups,
+    _quality_issue_field_label_map,
     _preparation_limit_message,
     _summary_page_size,
 )
+
+
+class QualityCauseSummaryTests(unittest.TestCase):
+    def test_groups_direct_and_inherited_causes_with_friendly_fields(self) -> None:
+        direct = SimpleNamespace(
+            issue_id="direct",
+            reason_code="SOURCE_TYPE_INVALID",
+            message="Cannot parse 4.5 as integer.",
+            affected_fields=("field:sequence",),
+        )
+        inherited = SimpleNamespace(
+            issue_id="inherited",
+            reason_code="INCOMING_RELATIONSHIP_PARENT_SET_ASIDE",
+            message="The linked BOM was already set aside.",
+            affected_fields=("bom_id",),
+        )
+        item = SimpleNamespace(
+            row=SimpleNamespace(dataset="bom_lines"),
+            issues=(direct, inherited),
+        )
+        labels = {
+            "bom_lines": {
+                "field:sequence": "Operation number",
+                "bom_id": "Bill of Materials",
+            }
+        }
+
+        fields = _quality_issue_field_label_map((item,), labels)
+        groups = _quality_cause_groups((item,), labels)
+
+        self.assertEqual(fields["direct"], ("Operation number",))
+        self.assertEqual(fields["inherited"], ("Bill of Materials",))
+        self.assertEqual(
+            {group["kind"] for group in groups},
+            {"Direct finding", "Inherited dependency"},
+        )
+        self.assertEqual(sum(int(group["count"]) for group in groups), 2)
 
 
 class SummaryPageSizeTests(unittest.TestCase):

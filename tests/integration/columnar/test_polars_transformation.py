@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -14,6 +15,8 @@ import polars as pl
 
 from impodo.adapters.polars_transformation import (
     POLARS_TRANSFORMATION_BATCH_ROWS,
+    _ERROR_PARSE,
+    _scalar_error_messages,
     iter_polars_prepared_batches,
     write_polars_prepared_snapshot,
 )
@@ -77,6 +80,20 @@ NOW = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
 
 
 class PolarsTransformationParityTests(unittest.TestCase):
+    def test_conversion_error_reports_the_failing_value_without_internal_sentinel(
+        self,
+    ) -> None:
+        code, message, impact = _scalar_error_messages(
+            _ERROR_PARSE,
+            SimpleNamespace(value_type="integer"),
+            4.5,
+        )
+
+        self.assertEqual(code, "SOURCE_TYPE_INVALID")
+        self.assertEqual(message, "Cannot parse 4.5 as integer.")
+        self.assertEqual(impact, message)
+        self.assertNotIn("__impodo", message)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)

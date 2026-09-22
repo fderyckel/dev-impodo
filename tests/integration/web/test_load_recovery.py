@@ -230,6 +230,13 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             finished = _wait_for_load(self.client, started.headers["location"])
             self.assertEqual(finished["status"], "FAILED", finished)
             self.assertIn("Earlier Odoo record changed", finished["failure_message"])
+            page = self.client.get(started.headers["location"])
+            self.assertIn("Review and recover saved load", page.text)
+            self.assertIn(
+                f'/workspaces/{self.workspace.workspace_id}/load/outcome',
+                page.text,
+            )
+            self.assertIn("Do not start a new load", page.text)
             mocks["writer"].assert_not_called()
             mocks["resume"].assert_not_called()
 

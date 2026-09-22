@@ -32,8 +32,8 @@ from impodo.domain.execution.models import (
     ExecutionRunStatus,
 )
 from impodo.domain.execution.odoo_readback import (
-    MAX_READBACK_IDS,
     MAX_READBACK_LOOKUPS,
+    MAX_READBACK_RECORD_IDS,
     OdooReadbackError,
     OdooReadbackReader,
     ReadbackLookup,
@@ -467,7 +467,9 @@ class CorrectionReviewService:
         for model in sorted(by_model):
             by_id = by_model[model]
             identifier_iterator = iter(sorted(by_id))
-            while identifiers := tuple(islice(identifier_iterator, MAX_READBACK_IDS)):
+            while identifiers := tuple(
+                islice(identifier_iterator, MAX_READBACK_RECORD_IDS)
+            ):
                 fields = tuple(
                     sorted(
                         {

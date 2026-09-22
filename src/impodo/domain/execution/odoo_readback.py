@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Protocol, Sequence
 
 
-MAX_READBACK_IDS = 50
+# Exact record reads use the same conservative page size as ordinary Odoo
+# downloads.  External-ID resolution remains smaller because it queries
+# ir.model.data by generated names rather than already-known numeric IDs.
+MAX_READBACK_RECORD_IDS = 500
+MAX_READBACK_EXTERNAL_IDS = 50
 MAX_READBACK_LOOKUPS = 20
 
 

@@ -475,26 +475,30 @@ class PreparationQualityIndex:
                 findings = tuple(
                     connection.execute(
                         """
-                        SELECT child.ordinal, child.row_id, child.dataset,
+                        SELECT DISTINCT child.ordinal, child.row_id, child.dataset,
                                child.source_row, child.disposition,
                                lineage.physical_dataset_id,
                                lineage.physical_source_row,
-                               MIN(edge.resolution_state) AS resolution_state
+                               edge.resolution_state,
+                               edge.parent_dataset,
+                               edge.target_field,
+                               parent.row_id AS related_row_id,
+                               parent.source_row AS related_source_row
                           FROM preparation_relationship_edge AS edge
                           JOIN canonical_staging_row AS child
                             ON child.run_id = edge.session_id
                            AND child.ordinal = edge.child_ordinal
+                          LEFT JOIN canonical_staging_row AS parent
+                            ON parent.run_id = edge.session_id
+                           AND parent.ordinal = edge.resolved_parent_ordinal
                           JOIN preparation_lineage AS lineage
                             ON lineage.session_id = child.run_id
                            AND lineage.dataset = child.dataset
                            AND lineage.output_source_row = child.source_row
                          WHERE edge.session_id = ?
                            AND edge.resolution_state != 'RESOLVED'
-                         GROUP BY child.ordinal, child.row_id, child.dataset,
-                                  child.source_row, child.disposition,
-                                  lineage.physical_dataset_id,
-                                  lineage.physical_source_row
-                         ORDER BY child.ordinal
+                         ORDER BY child.ordinal, edge.parent_dataset,
+                                  edge.target_field, edge.resolution_state
                         """,
                         [canonical_session_id],
                     ).fetchall()

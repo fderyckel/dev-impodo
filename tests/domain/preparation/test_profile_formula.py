@@ -101,6 +101,10 @@ class ProfileFormulaTests(unittest.TestCase):
             prepared.records[0].issues[0].code,
             "SOURCE_FORMULA_INVALID",
         )
+        self.assertEqual(
+            prepared.records[0].issues[0].message,
+            "Formula cannot divide by zero for this row.",
+        )
         self.assertTrue(prepared.records[0].blocked)
 
 

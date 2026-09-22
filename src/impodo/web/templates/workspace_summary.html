@@ -141,24 +141,47 @@
         </div>
       </div>
       {% if quality_review_page and quality_review_page.items %}
+        {% if quality_cause_groups %}
+          <div class="notice" data-quality-cause-summary>
+            <strong>Causes in the records shown on this page</strong>
+            <span>Direct findings come from the record itself. Inherited dependencies mean a linked record was already set aside.</span>
+            <dl class="summary-list">
+              {% for cause in quality_cause_groups %}
+                <div data-quality-cause="{{ cause.reason_code }}">
+                  <dt>{{ cause.title }} ({{ cause.count }})</dt>
+                  <dd>
+                    {{ cause.kind }}. {{ cause.message }}
+                    {% if cause.fields %}<small class="row-field">Fields: {{ cause.fields|join(', ') }}</small>{% endif %}
+                  </dd>
+                </div>
+              {% endfor %}
+            </dl>
+          </div>
+        {% endif %}
         <div class="table-scroll">
           <table class="data-table readiness-row-table">
             <thead><tr><th>Table</th><th>Source row</th><th>Record</th><th>What Impodo found</th><th>Owner and next step</th></tr></thead>
             <tbody>
               {% for item in quality_review_page.items %}
                 {% set row = item.row %}
-                {% set issue = item.issues[0] if item.issues else none %}
                 <tr data-quality-row>
                   <td>{{ row.dataset.replace('_', ' ')|title }}</td>
                   <td>{{ row.source_row }}</td>
                   <th>{{ row.record_label }}</th>
                   <td>
-                    {% if issue %}{{ issue.message }}{% else %}No target-independent problem was found.{% endif %}
-                    {% if item.issues|length > 1 %}<small class="row-field">{{ item.issues|length - 1 }} additional finding{{ "s" if item.issues|length > 2 else "" }}</small>{% endif %}
+                    {% for issue in item.issues %}
+                      <p>
+                        {{ issue.message }}
+                        {% set fields = quality_issue_field_labels.get(issue.issue_id, ()) %}
+                        {% if fields %}<small class="row-field">Fields: {{ fields|join(', ') }}</small>{% endif %}
+                      </p>
+                    {% else %}
+                      No target-independent problem was found.
+                    {% endfor %}
                   </td>
                   <td>
-                    {% if issue %}
-                      <strong>{{ issue.owner_label }}</strong>
+                    {% if item.issues %}
+                      <strong>{{ item.issues[0].owner_label }}</strong>
                       <small class="row-field">{{ item.correction_route or "Review the source or guided data check, then check all rows again." }}</small>
                     {% else %}
                       No action needed
