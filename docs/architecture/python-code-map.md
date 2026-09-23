@@ -296,6 +296,14 @@ Readiness uses accepted answers rather than a second editable form.
 | Final review | `PreflightService`, `PreflightJobManager` | `/workspaces/{workspace_id}/summary`, `/workspaces/{workspace_id}/preflight` |
 | Load and reconcile | `ExecutionService`, `TransferExecutionService`, `LoadJobManager`, `ReconciliationService` | `/workspaces/{workspace_id}/load`, `/workspaces/{workspace_id}/transfer-load` |
 
+Stage 2 matching-rule defaults start in
+`domain/workspace/business_keys.py`. The schema presenter places one safe
+recommendation in each unconfirmed form card, while
+`SchemaWorkspaceService.govern_complete` enforces one confirmed rule for every
+captured authoring model. Parent-owned records use ordinary portable key fields
+plus a Many2one scope, such as BoM line Sequence within Parent BoM; no numeric
+Odoo ID enters governance or Recipe meaning.
+
 ## Query and Odoo performance
 
 `MigrationFoundationRepository.list_projects`, run history, integrated

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from impodo.domain.workspace.business_keys import BUSINESS_KEY_POLICY_VERSION
+
 from tests.support.browser_scenarios import (
     OdooConnectionMode,
     OdooWriteIdentity,
@@ -734,16 +736,21 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         schema_page = self.client.get(scope.headers["location"])
         self.assertIn("Tell Impodo how to find existing records", schema_page.text)
         self.assertIn("How should Impodo find an existing Contact?", schema_page.text)
-        self.assertNotIn("Reference (ref)", schema_page.text)
+        self.assertIn("Suggested and ready to confirm", schema_page.text)
+        self.assertIn("Reference (ref)", schema_page.text)
         self.assertIn("Search fields", schema_page.text)
         self.assertIn("Show fields that Odoo controls", schema_page.text)
-        self.assertIn("Impodo found no single safe recommendation", schema_page.text)
         self.assertIn("Reference", schema_page.text)
         self.assertIn("Support options for combined matching", schema_page.text)
+        self.assertIn("Confirm suggested matching rules", schema_page.text)
         governed = self.client.post(
             f"/workspaces/{workspace_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
+                "expected_schema_hash": schema_catalog.content_hash,
+                "expected_business_key_policy_version": str(
+                    BUSINESS_KEY_POLICY_VERSION
+                ),
                 "primary_key_field_0": "ref",
                 "primary_scope_field_0": "",
                 "key_fields_0": "",

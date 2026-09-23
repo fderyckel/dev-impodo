@@ -110,6 +110,37 @@ may come from one exact supported rule or one unambiguous Odoo uniqueness
 constraint, but it remains non-authoritative until confirmation. Relationships
 and matching use these portable keys rather than remembered numeric Odoo IDs.
 
+`business_keys.py` owns recommendation policy version 1. It classifies a
+preferred rule as `ODOO_ENFORCED` or `CURATED_CONVENTION`, and returns
+`MULTIPLE_CANDIDATES` or `NO_SAFE_CANDIDATE` without a preferred rule when it
+cannot choose safely. A curated rule is an exact model, field type, and relation
+contract; a translated label or a field merely named `code`, `ref`, or `name`
+does not qualify another model.
+
+The current curated Odoo 19 policy covers Country code, Language code,
+Currency code, Contact reference, Company name, Product and Product variant
+Internal Reference, Product category name within its parent, Unit name within
+its category, BoM reference, BoM line sequence within its parent BoM, and Work
+Center Usage operation name within its BoM. Convention rules carry a warning
+when Odoo permits blanks or duplicates. In particular, BoM Component within
+Parent BoM is not the default because the same component may legitimately
+occur more than once; it remains available through the advanced editor.
+
+`_schema_key_views` server-renders the preferred fields, scope, and description
+when there is no submitted draft and no confirmed rule. A submitted draft wins
+over the recommendation after validation failure, and an existing confirmed
+rule wins over a later policy version. JavaScript updates the advanced editor,
+but it is not required to place suggested values in the submitted form.
+
+The authoring route binds confirmation to both the captured schema content hash
+and the recommendation-policy version. `SchemaWorkspaceService.govern_complete`
+requires exactly one confirmed rule per captured model before publishing new
+Stage 2 governance. Recipe application continues to use `govern`, because its
+saved Recipe already defines the required model subset. A used suggestion
+stores its basis and policy version in backward-compatible governance evidence;
+an advanced override stores only the reviewed matching shape. Page rendering
+and confirmation remain local and make no additional Odoo call.
+
 `reference_keys.py` owns the versioned Odoo 19 governed-reference policy. A
 captured parent relation may authorize a reviewed supporting model outside the
 primary schema only for its exact key, scope, display fields, and read purpose.
@@ -124,8 +155,11 @@ remains outside the migration write scope.
 | Schema orchestration | [`SchemaWorkspaceService`](../../../src/impodo/application/schema_workspace_service.py) |
 | Purpose-specific connection check | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
 | Schema governance | [`governance.py`](../../../src/impodo/domain/schema/governance.py) |
+| Matching-rule recommendations | [`business_keys.py`](../../../src/impodo/domain/workspace/business_keys.py) |
 | Governed supporting references | [`reference_keys.py`](../../../src/impodo/domain/workspace/reference_keys.py) |
 | Browser routes | [`schema.py`](../../../src/impodo/web/routers/schema.py) |
+| Browser presenter | [`schema.py`](../../../src/impodo/web/presenters/schema.py) |
+| Browser review | [`workspace_schema.html`](../../../src/impodo/web/templates/workspace_schema.html) |
 | Local reader | [`local_odoo_reader.py`](../../../src/impodo/adapters/odoo/local_reader.py) |
 
 ## Evidence and state
@@ -208,6 +242,9 @@ scope.
 - [`tests/integration/duckdb/test_workspace.py`](../../../tests/integration/duckdb/test_workspace.py)
 - [`tests/integration/odoo/test_local_reader.py`](../../../tests/integration/odoo/test_local_reader.py)
 - [`tests/application/workspace/test_odoo_connection.py`](../../../tests/application/workspace/test_odoo_connection.py)
+- [`tests/application/workspace/test_schema_governance.py`](../../../tests/application/workspace/test_schema_governance.py)
+- [`tests/domain/workspace/test_business_keys.py`](../../../tests/domain/workspace/test_business_keys.py)
+- [`tests/integration/web/test_schema_presenter.py`](../../../tests/integration/web/test_schema_presenter.py)
 - [`tests/integration/web/test_target_workflow.py`](../../../tests/integration/web/test_target_workflow.py)
 - [`tests/integration/web/test_schema_capture_recovery.py`](../../../tests/integration/web/test_schema_capture_recovery.py)
 
@@ -218,5 +255,5 @@ read-only capability, batched requests, invalidation, and both source modes.
 
 - [User guide: Odoo data](../../user/workflow/02-odoo-data.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
-- [Proposal: prefill Stage 2 Odoo matching rules](../../plans/stage-2-odoo-matching-rule-suggestions.md)
+- [Implementation and qualification record: Stage 2 matching-rule suggestions](../../plans/stage-2-odoo-matching-rule-suggestions.md)
 - [Architecture decisions](../../decisions/README.md)

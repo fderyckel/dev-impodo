@@ -11,7 +11,7 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 import json
@@ -39,11 +39,14 @@ class BusinessKeyDefinition:
     scope_fields: tuple[str, ...] = ()
     description: str = ""
     status: BusinessKeyStatus = BusinessKeyStatus.CANDIDATE
+    recommendation_basis: str = ""
+    recommendation_policy_version: int | None = None
 
     def __post_init__(self) -> None:
         key_id = self.key_id.strip()
         model = self.model.strip()
         description = self.description.strip()
+        recommendation_basis = self.recommendation_basis.strip()
         key_fields = tuple(item.strip() for item in self.key_fields)
         scope_fields = tuple(item.strip() for item in self.scope_fields)
         if not key_id or not model:
@@ -52,6 +55,23 @@ class BusinessKeyDefinition:
             raise ValueError("Business-key ID or model is too long")
         if len(description) > 1000:
             raise ValueError("Business-key description is too long")
+        if recommendation_basis not in {
+            "",
+            "ODOO_ENFORCED",
+            "CURATED_CONVENTION",
+        }:
+            raise ValueError("Business-key recommendation basis is invalid")
+        if (
+            self.recommendation_policy_version is not None
+            and self.recommendation_policy_version < 1
+        ):
+            raise ValueError("Business-key recommendation policy is invalid")
+        if bool(recommendation_basis) != (
+            self.recommendation_policy_version is not None
+        ):
+            raise ValueError(
+                "Business-key recommendation provenance must be complete"
+            )
         if not key_fields:
             raise ValueError("A business key requires at least one key field")
         all_fields = (*key_fields, *scope_fields)
@@ -62,6 +82,7 @@ class BusinessKeyDefinition:
         object.__setattr__(self, "key_id", key_id)
         object.__setattr__(self, "model", model)
         object.__setattr__(self, "description", description)
+        object.__setattr__(self, "recommendation_basis", recommendation_basis)
         object.__setattr__(self, "key_fields", key_fields)
         object.__setattr__(self, "scope_fields", scope_fields)
         object.__setattr__(self, "status", BusinessKeyStatus(self.status))
@@ -95,13 +116,7 @@ class SchemaGovernance:
             "workspace_id": self.workspace_id,
             "catalog_hash": self.catalog_hash,
             "permitted_models": list(self.permitted_models),
-            "business_keys": [
-                {
-                    **asdict(item),
-                    "status": item.status.value,
-                }
-                for item in self.business_keys
-            ],
+            "business_keys": [_business_key_payload(item) for item in self.business_keys],
             "recorded_at": self.recorded_at.isoformat(),
             "recorded_by": self.recorded_by,
         }
@@ -133,6 +148,14 @@ class SchemaGovernance:
                     scope_fields=tuple(item.get("scope_fields", ())),
                     description=str(item.get("description", "")),
                     status=BusinessKeyStatus(item["status"]),
+                    recommendation_basis=str(
+                        item.get("recommendation_basis", "")
+                    ),
+                    recommendation_policy_version=(
+                        int(item["recommendation_policy_version"])
+                        if item.get("recommendation_policy_version") is not None
+                        else None
+                    ),
                 )
                 for item in payload["business_keys"]
             ),
@@ -142,3 +165,22 @@ class SchemaGovernance:
         if payload.get("content_hash") != result.content_hash:
             raise ValueError("Schema-governance content hash is invalid")
         return result
+
+
+def _business_key_payload(item: BusinessKeyDefinition) -> dict[str, Any]:
+    """Serialize new recommendation provenance without changing old hashes."""
+
+    payload = {
+        "key_id": item.key_id,
+        "model": item.model,
+        "key_fields": item.key_fields,
+        "scope_fields": item.scope_fields,
+        "description": item.description,
+        "status": item.status.value,
+    }
+    if item.recommendation_basis:
+        payload["recommendation_basis"] = item.recommendation_basis
+        payload["recommendation_policy_version"] = (
+            item.recommendation_policy_version
+        )
+    return payload

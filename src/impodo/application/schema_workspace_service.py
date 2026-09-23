@@ -26,6 +26,7 @@ from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from ..domain.schema.governance import (
     BusinessKeyDefinition,
+    BusinessKeyStatus,
     SchemaGovernance,
 )
 from ..domain.mapping.create_field_policy import supports_create_default_capture
@@ -1249,6 +1250,57 @@ class SchemaWorkspaceService:
             actor=actor,
         )
         return governance
+
+    def govern_complete(
+        self,
+        workspace_id: str,
+        *,
+        business_keys: Iterable[BusinessKeyDefinition],
+        expected_catalog_hash: str,
+        actor: Actor,
+    ) -> SchemaGovernance:
+        """Confirm exactly one key for every captured authoring model."""
+
+        definitions = tuple(business_keys)
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+        if schema is None:
+            raise WorkspaceError(
+                "Capture the Odoo schema before confirming keys"
+            )
+        if expected_catalog_hash != schema.content_hash:
+            raise WorkspaceError(
+                "The Odoo details changed. Review the current matching rules "
+                "before confirming them."
+            )
+        counts = {model.name: 0 for model in schema.models}
+        for definition in definitions:
+            if definition.status is not BusinessKeyStatus.CONFIRMED:
+                raise WorkspaceError(
+                    "Every submitted matching rule must be explicitly confirmed"
+                )
+            if definition.model in counts:
+                counts[definition.model] += 1
+        missing = [
+            model.label for model in schema.models if counts[model.name] == 0
+        ]
+        repeated = [
+            model.label for model in schema.models if counts[model.name] > 1
+        ]
+        if missing:
+            raise WorkspaceError(
+                "Choose a matching rule for every selected Odoo record type: "
+                + ", ".join(missing)
+            )
+        if repeated:
+            raise WorkspaceError(
+                "Choose one matching rule for each selected Odoo record type: "
+                + ", ".join(repeated)
+            )
+        return self.govern(
+            workspace_id,
+            business_keys=definitions,
+            actor=actor,
+        )
 
 
 def _schema_field_from_metadata(

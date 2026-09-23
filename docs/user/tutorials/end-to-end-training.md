@@ -293,7 +293,7 @@ For the training project, the scope is:
 | --- | --- | --- |
 | Customer | res.partner | Customer reference (ref) |
 | Country | res.country | Country code (code) |
-| Product Category | product.category | Category name (name) |
+| Product Category | product.category | Parent category plus category name (parent_id, name) |
 | Product | product.template | Internal reference (default_code) |
 | Product Variant | product.product | Internal reference (default_code) |
 | Bill of Materials | mrp.bom | BoM reference (code) |

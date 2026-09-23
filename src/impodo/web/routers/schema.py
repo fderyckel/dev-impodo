@@ -40,6 +40,10 @@ from impodo.domain.project.foundation import MigrationFoundationError
 from ...domain.recipe.models import RecipeError
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaOrigin
+from impodo.domain.workspace.business_keys import (
+    BUSINESS_KEY_POLICY_VERSION,
+    assess_business_key_recommendation,
+)
 from impodo.domain.workspace.errors import OdooModelCatalogRefreshRequired, WorkspaceError
 from impodo.domain.workspace.workbench import (
     SourceMode,
@@ -1025,7 +1029,11 @@ def build_schema_router(context: WebContext) -> APIRouter:
         schema = context.queries.get_odoo_schema_catalog(workspace_id)
         if schema is None:
             raise HTTPException(status_code=422, detail="Odoo schema missing")
-        allowed = {"csrf_token"} | {
+        allowed = {
+            "csrf_token",
+            "expected_schema_hash",
+            "expected_business_key_policy_version",
+        } | {
             name
             for index, _model in enumerate(schema.models)
             for name in (
@@ -1037,6 +1045,21 @@ def build_schema_router(context: WebContext) -> APIRouter:
             )
         }
         _secure_form(request, form, allowed)
+        if (
+            _text(form, "expected_schema_hash") != schema.content_hash
+            or _text(form, "expected_business_key_policy_version")
+            != str(BUSINESS_KEY_POLICY_VERSION)
+        ):
+            return _render_schema(
+                request,
+                context,
+                workspace_id,
+                error=(
+                    "The Odoo details or suggested matching rules changed. "
+                    "Review the current suggestions before confirming them."
+                ),
+                status_code=409,
+            )
         key_drafts: dict[
             str,
             tuple[tuple[str, ...], tuple[str, ...], str],
@@ -1065,8 +1088,19 @@ def build_schema_router(context: WebContext) -> APIRouter:
         for model in schema.models:
             key_fields, scope_fields, description = key_drafts[model.name]
             if not key_fields:
+                key_errors[model.name] = (
+                    f"Choose a matching rule for {model.label}."
+                )
                 continue
             try:
+                recommendation = assess_business_key_recommendation(
+                    model
+                ).preferred
+                used_recommendation = bool(
+                    recommendation is not None
+                    and key_fields == recommendation.key_fields
+                    and scope_fields == recommendation.scope_fields
+                )
                 definitions.append(
                     BusinessKeyDefinition(
                         key_id=_business_key_id(
@@ -1077,6 +1111,16 @@ def build_schema_router(context: WebContext) -> APIRouter:
                         scope_fields=scope_fields,
                         description=description,
                         status=BusinessKeyStatus.CONFIRMED,
+                        recommendation_basis=(
+                            recommendation.basis.value
+                            if used_recommendation and recommendation is not None
+                            else ""
+                        ),
+                        recommendation_policy_version=(
+                            BUSINESS_KEY_POLICY_VERSION
+                            if used_recommendation
+                            else None
+                        ),
                     )
                 )
             except ValueError as error:
@@ -1102,9 +1146,10 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 key_errors=key_errors,
             )
         try:
-            governance = context.schema_workspace.govern(
+            governance = context.schema_workspace.govern_complete(
                 workspace_id,
                 business_keys=definitions,
+                expected_catalog_hash=schema.content_hash,
                 actor=context.actor,
             )
         except (ValueError, WorkspaceError) as error:

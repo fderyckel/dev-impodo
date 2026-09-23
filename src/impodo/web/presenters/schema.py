@@ -12,8 +12,9 @@ from starlette.datastructures import FormData
 
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.business_keys import (
+    BUSINESS_KEY_POLICY_VERSION,
+    assess_business_key_recommendation,
     describe_business_key,
-    recommend_business_key,
     selectable_business_key_fields,
 )
 from impodo.domain.workspace.derived_entities import (
@@ -533,6 +534,26 @@ def _render_schema(
         key_drafts=key_drafts,
         key_errors=key_errors,
     )
+    key_summary = {
+        "confirmed": sum(
+            1
+            for view in key_views
+            if view["existing"] is not None
+            and not view["has_submitted_draft"]
+        ),
+        "suggested": sum(1 for view in key_views if view["is_prefilled"]),
+        "changed": sum(
+            1
+            for view in key_views
+            if view["has_submitted_draft"] and view["key_fields"]
+        ),
+        "needs_attention": sum(
+            1
+            for view in key_views
+            if not view["key_fields"]
+        ),
+        "total": len(key_views),
+    }
     local_stack = context.local_stack.get(workspace_id)
     return _render(
         request,
@@ -564,6 +585,8 @@ def _render_schema(
         governance=governance,
         governed_by_model=governed_by_model,
         key_views=key_views,
+        key_summary=key_summary,
+        business_key_policy_version=BUSINESS_KEY_POLICY_VERSION,
         local_stack=local_stack,
         manual_schema_by_model=(
             {model.name: model for model in schema.models}
@@ -621,22 +644,40 @@ def _schema_key_views(
     views = []
     for model in schema.models:
         existing = governed_by_model.get(model.name)
-        recommendation = recommend_business_key(model)
+        assessment = assess_business_key_recommendation(model)
+        recommendation = assessment.preferred
         draft = drafts.get(model.name)
         key_fields = (
             draft[0]
             if draft is not None
-            else existing.key_fields if existing else ()
+            else (
+                existing.key_fields
+                if existing
+                else recommendation.key_fields if recommendation else ()
+            )
         )
         scope_fields = (
             draft[1]
             if draft is not None
-            else existing.scope_fields if existing else ()
+            else (
+                existing.scope_fields
+                if existing
+                else recommendation.scope_fields if recommendation else ()
+            )
         )
         description = (
             draft[2]
             if draft is not None
-            else existing.description if existing else ""
+            else (
+                existing.description
+                if existing
+                else recommendation.description if recommendation else ""
+            )
+        )
+        matches_recommendation = bool(
+            recommendation is not None
+            and key_fields == recommendation.key_fields
+            and scope_fields == recommendation.scope_fields
         )
         views.append(
             {
@@ -646,7 +687,7 @@ def _schema_key_views(
                 "scope_fields": scope_fields,
                 "description": description,
                 "key_error": errors.get(model.name),
-                "existing_summary": (
+                "selection_summary": (
                     describe_business_key(
                         model,
                         key_fields,
@@ -656,6 +697,18 @@ def _schema_key_views(
                     else ""
                 ),
                 "recommendation": recommendation,
+                "recommendation_assessment": assessment,
+                "is_prefilled": (
+                    draft is None
+                    and existing is None
+                    and recommendation is not None
+                ),
+                "has_submitted_draft": draft is not None,
+                "is_changed_from_suggestion": bool(
+                    draft is not None
+                    and recommendation is not None
+                    and not matches_recommendation
+                ),
                 "field_choices": selectable_business_key_fields(model),
                 "field_labels": {
                     field.name: field.label for field in model.fields

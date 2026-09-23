@@ -77,10 +77,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const primaryScope = decision.querySelector("[data-primary-scope-field]");
     const combinedKey = decision.querySelector("[data-combined-key-fields]");
     const combinedScope = decision.querySelector("[data-combined-scope-fields]");
-    const description = decision.querySelector("[data-key-description]");
     const draft = decision.querySelector("[data-key-draft-selection]");
     const draftSummary = draft?.querySelector("[data-key-selection-summary]");
-    const suggestion = decision.querySelector("[data-use-key-suggestion]");
     const editor = decision.querySelector("[data-key-editor]");
     const technicalFields = decision.querySelector(".key-technical-fields");
     const fieldError = decision.querySelector("[data-key-field-error]");
@@ -184,31 +182,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const scopeFields = values(combinedScope.value);
       if (primaryScope) {
         primaryScope.value = scopeFields.length === 1 ? scopeFields[0] : "";
-      }
-      refreshKeyDraft();
-    });
-    suggestion?.addEventListener("click", () => {
-      const keyFields = values(suggestion.dataset.keyFields);
-      const scopeFields = values(suggestion.dataset.scopeFields);
-      if (combinedKey) {
-        combinedKey.value = keyFields.join(", ");
-      }
-      if (combinedScope) {
-        combinedScope.value = scopeFields.join(", ");
-      }
-      if (primaryKey) {
-        primaryKey.value = keyFields.length === 1 ? keyFields[0] : "";
-      }
-      if (primaryScope) {
-        primaryScope.value = scopeFields.length === 1 ? scopeFields[0] : "";
-      }
-      if (description) {
-        description.value = suggestion.dataset.description || "";
-      }
-      suggestion.textContent = "Suggestion selected";
-      suggestion.setAttribute("aria-pressed", "true");
-      if (editor) {
-        editor.open = false;
       }
       refreshKeyDraft();
     });

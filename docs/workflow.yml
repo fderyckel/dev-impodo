@@ -298,9 +298,15 @@ stages:
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.check_refresh
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.confirm_refresh
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.govern
+      - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.govern_complete
+      - src/impodo/domain/workspace/business_keys.py::assess_business_key_recommendation
+      - src/impodo/web/presenters/schema.py::_schema_key_views
     tests:
       - tests/integration/duckdb/test_workspace.py
       - tests/integration/odoo/test_local_reader.py
+      - tests/domain/workspace/test_business_keys.py
+      - tests/application/workspace/test_schema_governance.py
+      - tests/integration/web/test_schema_presenter.py
       - tests/integration/web/test_target_workflow.py
       - tests/integration/web/test_schema_capture_recovery.py
     contracts:

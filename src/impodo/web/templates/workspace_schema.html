@@ -522,14 +522,17 @@
     {% else %}
     <form method="post" action="/workspaces/{{ workspace_id }}/schema/govern">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="expected_schema_hash" value="{{ schema.content_hash }}">
+      <input type="hidden" name="expected_business_key_policy_version" value="{{ business_key_policy_version }}">
       <section class="form-card" id="schema-governance">
         <div class="page-heading compact">
           <div>
             <p class="eyebrow">Matching rules</p>
             <h2>Tell Impodo how to find existing records</h2>
             <p>
-              Choose the stable field that identifies one record. If the same
-              value can occur in several companies, add the company as the scope.
+              Impodo has filled every matching rule that the captured Odoo
+              details support safely. Review the suggestions, change any rule
+              that does not fit your migration, and confirm the complete set.
             </p>
           </div>
           {% if governance %}
@@ -540,6 +543,13 @@
           Suggestions are starting points. You confirm the matching rule;
           Impodo checks the actual source and target data later.
         </div>
+        <dl class="summary-list">
+          <div><dt>Suggested</dt><dd>{{ key_summary.suggested }}</dd></div>
+          <div><dt>Confirmed</dt><dd>{{ key_summary.confirmed }}</dd></div>
+          <div><dt>Changed</dt><dd>{{ key_summary.changed }}</dd></div>
+          <div><dt>Needs attention</dt><dd>{{ key_summary.needs_attention }}</dd></div>
+          <div><dt>Selected record types</dt><dd>{{ key_summary.total }}</dd></div>
+        </dl>
       </section>
 
       {% for view in key_views %}
@@ -547,7 +557,7 @@
         {% set existing = view.existing %}
         {% set recommendation = view.recommendation %}
         <section
-          class="form-card catalog-card"
+          class="form-card catalog-card{% if view.has_submitted_draft %} has-unconfirmed-changes{% elif existing %} is-confirmed{% elif recommendation %} needs-confirmation{% else %} has-unconfirmed-changes{% endif %}"
           data-key-decision
           data-field-labels='{{ view.field_labels|tojson }}'
         >
@@ -556,7 +566,15 @@
               <h2>How should Impodo find an existing {{ model.label }}?</h2>
               <p>{{ model.fields|length }} available fields</p>
             </div>
-            {% if existing %}<span class="status registered">Rule confirmed</span>{% endif %}
+            {% if view.has_submitted_draft %}
+              <span class="status attention">Review change</span>
+            {% elif existing %}
+              <span class="status complete">Rule confirmed</span>
+            {% elif recommendation %}
+              <span class="status current">Suggested</span>
+            {% else %}
+              <span class="status attention">Needs attention</span>
+            {% endif %}
           </div>
 
           {% if view.key_error %}
@@ -566,7 +584,13 @@
           {% endif %}
 
           <div class="key-decision-summary">
-            {% if existing %}
+            {% if view.has_submitted_draft %}
+              <p class="eyebrow">
+                {% if view.is_changed_from_suggestion %}Changed from suggestion{% else %}Ready to confirm after review{% endif %}
+              </p>
+              <p class="key-rule-title">{{ view.selection_summary }}</p>
+              {% if view.description %}<p>{{ view.description }}</p>{% endif %}
+            {% elif existing %}
               <p class="eyebrow">Confirmed matching rule</p>
               <p class="key-rule-title">
                 {% for field_name in existing.key_fields %}{{ view.field_labels.get(field_name, "Selected field") }}{% if not loop.last %} + {% endif %}{% endfor %}
@@ -576,7 +600,8 @@
               </p>
               {% if existing.description %}<p>{{ existing.description }}</p>{% endif %}
             {% elif recommendation %}
-              <p class="eyebrow">Suggested matching rule</p>
+              <p class="eyebrow">Suggested and ready to confirm</p>
+              <p class="key-rule-title">{{ recommendation.title }}</p>
               <p>{{ recommendation.reason }}</p>
               <details class="technical-details">
                 <summary>Why Impodo suggested this</summary>
@@ -585,28 +610,28 @@
               {% if recommendation.warning %}
                 <p class="key-warning">{{ recommendation.warning }}</p>
               {% endif %}
-              <button
-                class="button secondary"
-                type="button"
-                aria-pressed="false"
-                data-use-key-suggestion
-                data-key-fields="{{ recommendation.key_fields|join(', ') }}"
-                data-scope-fields="{{ recommendation.scope_fields|join(', ') }}"
-                data-description="{{ recommendation.description }}"
-              >Use suggestion</button>
             {% else %}
               <p class="eyebrow">Matching rule</p>
               <p class="key-rule-title">Choose the field that identifies one {{ model.label|lower }}</p>
-              <p>Impodo found no single safe recommendation for this model.</p>
+              {% if view.recommendation_assessment.alternatives %}
+                <p>Odoo declares more than one possible unique rule. Choose the one that matches this migration.</p>
+                <ul>
+                  {% for alternative in view.recommendation_assessment.alternatives %}
+                    <li>{{ alternative.title }}</li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p>Impodo found no single safe recommendation for this model.</p>
+              {% endif %}
             {% endif %}
 
             <div
               class="key-draft-selection"
               data-key-draft-selection
-              hidden
+              {% if not view.key_fields or existing %}hidden{% endif %}
             >
               <strong>Ready to confirm:</strong>
-              <span data-key-selection-summary>{{ view.existing_summary }}</span>
+              <span data-key-selection-summary>{{ view.selection_summary }}</span>
             </div>
           </div>
 
@@ -616,7 +641,7 @@
             {% if view.key_error or (not existing and not recommendation) %}open{% endif %}
           >
             <summary>
-              {% if existing %}Change matching rule{% elif recommendation %}Choose another field{% else %}Choose matching field{% endif %}
+              {% if existing %}Change matching rule{% elif recommendation %}Change suggested rule{% else %}Choose matching field{% endif %}
             </summary>
             <div class="form-grid key-simple-fields">
               <label>
@@ -651,7 +676,7 @@
                     >{{ field.label }}</option>
                   {% endfor %}
                 </select>
-                <small>Use when the same value may exist in different companies or organizations.</small>
+                <small>Use when the same value may exist under different parents, companies, or organizations.</small>
               </label>
             </div>
 
@@ -741,7 +766,9 @@
       {% endfor %}
 
       <div class="actions">
-        <button class="button primary" type="submit">Confirm matching rules</button>
+        <button class="button primary" type="submit">
+          {% if key_summary.suggested and not key_summary.needs_attention %}Confirm suggested matching rules{% else %}Confirm matching rules{% endif %}
+        </button>
         {% if governance %}
           <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping">Continue to match data</a>
         {% endif %}

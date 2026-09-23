@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.domain.workspace.business_keys import BUSINESS_KEY_POLICY_VERSION
 
 from tests.support.browser_scenarios import (
     CanonicalControlTotal,
@@ -569,11 +570,22 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             context.schema_workspace.schemas.get_schema_governance(workspace_id)
         )
         self.assertIsNotNone(original_governance)
+        schema = context.schema_workspace.schemas.get_odoo_schema_catalog(
+            workspace_id
+        )
+        self.assertIsNotNone(schema)
+        expected_evidence = {
+            "expected_schema_hash": schema.content_hash,
+            "expected_business_key_policy_version": str(
+                BUSINESS_KEY_POLICY_VERSION
+            ),
+        }
 
         duplicate_simple = self.client.post(
             f"/workspaces/{workspace_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
+                **expected_evidence,
                 "primary_key_field_0": "ref",
                 "primary_scope_field_0": "ref",
                 "key_fields_0": "ref",
@@ -623,6 +635,7 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             f"/workspaces/{workspace_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
+                **expected_evidence,
                 "primary_key_field_0": "",
                 "primary_scope_field_0": "",
                 "key_fields_0": "ref, ref",
@@ -640,6 +653,7 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             f"/workspaces/{workspace_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
+                **expected_evidence,
                 "primary_key_field_0": "field_0000",
                 "primary_scope_field_0": "ref",
                 "key_fields_0": "field_0000",
@@ -670,6 +684,48 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             "Matching fields and Within fields must be different.",
             schema_script.text,
         )
+
+    def test_schema_governance_rejects_stale_suggestions(self) -> None:
+        workspace_id, _dataset, original_key = self._mapping_ready_workspace(
+            scalar_field_count=0,
+        )
+        context = self.app.state.context
+        original_governance = (
+            context.schema_workspace.schemas.get_schema_governance(workspace_id)
+        )
+        self.assertIsNotNone(original_governance)
+
+        response = self.client.post(
+            f"/workspaces/{workspace_id}/schema/govern",
+            data={
+                "csrf_token": self.csrf,
+                "expected_schema_hash": "sha256:" + "0" * 64,
+                "expected_business_key_policy_version": str(
+                    BUSINESS_KEY_POLICY_VERSION
+                ),
+                "primary_key_field_0": "ref",
+                "primary_scope_field_0": "",
+                "key_fields_0": "ref",
+                "scope_fields_0": "",
+                "key_description_0": "Contact reference",
+            },
+            headers=POST_HEADERS,
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn(
+            "The Odoo details or suggested matching rules changed.",
+            response.text,
+        )
+        unchanged_governance = (
+            context.schema_workspace.schemas.get_schema_governance(workspace_id)
+        )
+        self.assertIsNotNone(unchanged_governance)
+        self.assertEqual(
+            unchanged_governance.content_hash,
+            original_governance.content_hash,
+        )
+        self.assertEqual(unchanged_governance.business_keys, (original_key,))
 
     def test_preparation_worker_and_progress_page_do_not_open_locked_databases(
         self,

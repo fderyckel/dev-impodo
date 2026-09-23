@@ -44,10 +44,35 @@ same secret. Production continues to require a separate limited write key.
 3. Choose only the record types included in the approved scope.
 4. Load the selected Odoo details.
 5. Review fields, types, required values, selections, and relationships.
-6. For a file-source migration, choose the business key for each writable
-   record type and confirm the exact captured schema and matching rules.
+6. For a file-source migration, review the matching rule that Impodo prepared
+   for each supported writable record type. Change a rule when the proposed
+   identity does not fit the migration, resolve every **Needs attention** card,
+   then confirm the complete set once.
 7. For an Odoo source, confirm the eligible fields needed by the bounded source
    capture.
+
+The matching-rule summary separates **Suggested**, **Confirmed**, **Changed**,
+and **Needs attention** record types. When every card has a proposed or saved
+rule, select **Confirm suggested matching rules**. The suggested values are
+already in the form; you do not need to select a suggestion on every card.
+
+For a child record, **Within** can identify the owning parent. For example,
+Impodo proposes:
+
+- **Sequence**, within **Parent BoM**, for a Bill of Material Line; and
+- **Operation**, within **Bill of Material**, for a Work Center Usage.
+
+This parent scope means that the child value needs to identify one line only
+inside that parent. It does not use either record's numeric Odoo ID. A component
+can legitimately appear more than once in one BoM, so **Component within Parent
+BoM** remains an advanced override rather than the default. Use **Change
+suggested rule** when the functional owner has approved a different identity.
+
+Impodo leaves a record type as **Needs attention** when Odoo exposes several
+possible unique rules or no reviewed rule. It does not guess from a field name
+or translated label. A convention warning also remains visible because Prepare
+data and Final review must still prove that the actual values are populated and
+unique.
 
 After the first capture, **Check for Odoo changes** reads the same selected
 record types again. If their technical Odoo details are unchanged, Impodo
@@ -95,6 +120,9 @@ current target evidence.
 - Required fields and selection choices reflect the connected database.
 - For a file source, each business key is expected to find zero or one record,
   never several.
+- For a parent-owned child, the matching field is unique within the chosen
+  parent scope. Repeated components, operations, or line numbers are reviewed
+  before confirming the rule.
 - Linked records can be resolved by an incoming table or approved existing
   Odoo data.
 - A supporting reference is read-only and does not enter the intended Odoo
@@ -103,10 +131,10 @@ current target evidence.
 
 ## What Complete means
 
-For a file source, the selected schema and business-key governance are saved
-together and **Match data** becomes available. For an Odoo source, the eligible
-schema is captured and you next define and freeze the bounded source-record
-selection.
+For a file source, every selected writable record type has one confirmed rule.
+The selected schema and complete business-key governance are saved together and
+**Match data** becomes available. For an Odoo source, the eligible schema is
+captured and you next define and freeze the bounded source-record selection.
 
 ## What changes and what does not
 
