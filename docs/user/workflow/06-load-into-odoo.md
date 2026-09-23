@@ -38,16 +38,29 @@ load. There is no third API key.
    existing, create missing** (the browser default), **Reuse existing only**,
    or **Update existing, create missing**. This applies to Contacts, Products,
    supporting records, and any other selected model. A reuse-only choice stops
-   package creation if any destination record is missing. Build and approve the
+   package creation if any destination record is missing. The frozen review
+   shows each create-only field and its value source without revealing a
+   protected fixed value or linked-record identity. Build and approve the
    exact package after checking those choices. If some captured fields cannot
    be written to the destination, Impodo can still reuse existing records;
    creating or updating that record type requires resolving the field issues.
    For a new record, Impodo also checks the destination's required fields.
-   If a required value is absent or its Odoo default needs review, the page
-   lists the field and stops that create plan. An eligible source field may
-   supply the value; other fields need approved Odoo default or generated
-   record handling. You can choose reuse only when every source record
-   already exists there.
+   Use **Complete values for new records** when a current Odoo default needs
+   review or Odoo supplies no usable value. You can confirm the current Odoo
+   default, set one typed value for all new records, or choose a compatible
+   captured source field. These choices apply only to new records; they never
+   replace a value on a reused destination record. For a required linked
+   record, you can choose an existing destination record when its related
+   record type is selected and its business key identifies one current
+   record. A current Odoo default can also be reviewed without adding that
+   related record type; Impodo verifies the linked record after creation. If
+   the related record type is one of your selected source tables, you can also
+   choose **Use one selected source record**. That choice uses the same
+   reviewed record for every new record of this type. Impodo reuses it when it
+   already exists in the destination, or places its source table in an earlier
+   transfer wave when it must be created. If Impodo cannot prove one of these
+   routes, it stops creation instead of asking for a numeric Odoo ID. You can
+   choose reuse only when every source record already exists there.
    If the destination record type has a **State** field, Impodo can reuse
    existing records but stops ordinary create or update until its business
    workflow has been qualified.

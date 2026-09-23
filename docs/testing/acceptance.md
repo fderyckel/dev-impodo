@@ -30,6 +30,39 @@ and Product/BoM first/repeat workers, with matching hashes and snapshot reuse.
 Broader Odoo-side ACL/record-rule matrices and sizing beyond the current
 boundary remain pending for later risk profiles.
 
+## Stage 2 matching-rule qualification, 2026-09-23
+
+The representative browser journey uses fictional captured Odoo 19 schema
+evidence for a standard Contact, an extended-standard Product with a custom
+legacy-reference field, and a custom Asset with an enforced unique constraint.
+It also adds an unresolved custom record type for the fail-closed path. The
+three journey tests prove that all safe suggestions can be confirmed once,
+that an advanced override survives a validation error, confirmation, and
+reload, and that an unresolved custom record type remains visible and blocks
+completion.
+
+The fixture records every connection, model-catalogue, schema, identity, and
+readiness connector call immediately after schema capture. Those vectors stay
+unchanged across Stage 2 page rendering and confirmation. This qualifies the
+post-capture local boundary; it does not claim that an external Odoo service
+was contacted while reviewing or confirming the rules.
+
+The authenticated Microsoft Edge capture uses a 1440 by 1024 viewport and the
+same fictional schema to produce and visually inspect the summary,
+convention-warning, advanced-override, and unresolved-custom states:
+
+- `docs/images/user/08b-odoo-business-keys.png`;
+- `docs/images/user/08d-odoo-matching-rule-warning.png`;
+- `docs/images/user/08e-odoo-matching-rule-override.png`; and
+- `docs/images/user/08f-odoo-matching-rule-attention.png`.
+
+Reproduce the evidence with:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest tests.e2e.test_stage2_matching_rules -v
+uv run --with playwright python scripts\capture_stage2_matching_rule_screenshots.py --browser-channel msedge
+```
+
 ## Lookup-derived admission, 2026-09-21
 
 Preparation capability now distinguishes a single non-hierarchical lookup

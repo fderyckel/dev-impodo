@@ -44,7 +44,7 @@
             {% if order_check.status_url %}data-matching-order-check data-status-url="{{ order_check.status_url }}"{% endif %}
           >
             <div>
-              <strong>Odoo refinement</strong>
+              <strong>Odoo identity and relationship check</strong>
               <p data-matching-order-check-message>{{ order_check.message }}</p>
               {% if order_check.checked_relationship_count or order_check.unchecked_relationship_count %}
                 <small class="muted">
@@ -65,7 +65,7 @@
               <form method="post" action="/workspaces/{{ workspace_id }}/mapping/order/check">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button class="button secondary compact" type="submit" {% if not order_check.can_start %}disabled{% endif %}>
-                  Check Odoo and update suggestion
+                  Check identities and update suggestion
                 </button>
               </form>
             {% endif %}

@@ -2,7 +2,7 @@
 
 Run this helper from the repository root with Playwright available. It creates
 only fictional product data, serves the current authenticated application on
-an ephemeral loopback port, and writes seven 1440 by 1024 PNG files under
+an ephemeral loopback port, and writes eight 1440 by 1024 PNG files under
 ``docs/images/user``.
 """
 
@@ -284,7 +284,12 @@ def _fictional_source(base_selection: SourceSelection):
     return selection, (catalog,), dataset
 
 
-def _configure_product_schema(fixture, workspace_id: str) -> None:
+def _configure_product_schema(
+    fixture,
+    workspace_id: str,
+    *,
+    include_category: bool,
+) -> None:
     context = fixture.app.state.context
     actor = context.actor
     workspace_state = context.queries.get(workspace_id)
@@ -305,10 +310,26 @@ def _configure_product_schema(fixture, workspace_id: str) -> None:
             "state": "base",
         },
     )
+    uom_record = TargetRecord(
+        model="ir.model",
+        odoo_id=41,
+        values={
+            "name": "Unit of Measure",
+            "model": "uom.uom",
+            "abstract": False,
+            "transient": False,
+            "modules": "uom",
+            "state": "base",
+        },
+    )
     model_snapshot = replace(
         model_snapshot,
         records={
-            "ir.model": (*model_snapshot.records["ir.model"], category_record),
+            "ir.model": (
+                *model_snapshot.records["ir.model"],
+                category_record,
+                uom_record,
+            ),
         },
     )
     context.schema_workspace.discover_models(
@@ -370,12 +391,26 @@ def _configure_product_schema(fixture, workspace_id: str) -> None:
                 relation_field=None,
                 selection=(),
             ),
+            SchemaField(
+                name="uom_id",
+                label="Unit of Measure",
+                type="many2one",
+                required=True,
+                readonly=False,
+                relation="uom.uom",
+                relation_field=None,
+                selection=(),
+            ),
         ),
     )
     schema = replace(
         existing_schema,
         captured_at=datetime.now(timezone.utc),
-        models=(product_category, product_template),
+        models=(
+            (product_category, product_template)
+            if include_category
+            else (product_template,)
+        ),
         content_hash="sha256:" + "7" * 64,
     )
     context.schema_workspace.schemas.save_odoo_schema_catalog(
@@ -390,15 +425,25 @@ def _configure_product_schema(fixture, workspace_id: str) -> None:
             version=1,
             workspace_id=workspace_id,
             catalog_hash=schema.content_hash,
-            permitted_models=("product.category", "product.template"),
+            permitted_models=(
+                ("product.category", "product.template")
+                if include_category
+                else ("product.template",)
+            ),
             business_keys=(
-                BusinessKeyDefinition(
-                    key_id="product.category:name-parent",
-                    model="product.category",
-                    key_fields=("name",),
-                    scope_fields=("parent_id",),
-                    description="Name within Parent Category",
-                    status=BusinessKeyStatus.CONFIRMED,
+                *(
+                    (
+                        BusinessKeyDefinition(
+                            key_id="product.category:name-parent",
+                            model="product.category",
+                            key_fields=("name",),
+                            scope_fields=("parent_id",),
+                            description="Name within Parent Category",
+                            status=BusinessKeyStatus.CONFIRMED,
+                        ),
+                    )
+                    if include_category
+                    else ()
                 ),
                 BusinessKeyDefinition(
                     key_id="product.template:default-code",
@@ -487,7 +532,11 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
             selection,
             catalogs,
         )
-        _configure_product_schema(fixture, workspace_id)
+        _configure_product_schema(
+            fixture,
+            workspace_id,
+            include_category=False,
+        )
 
         session_cookie = fixture.client.cookies.get("impodo_session")
         if not session_cookie:
@@ -533,6 +582,15 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 wait_until="networkidle",
             )
             _capture(page, output_directory / "08-odoo-models.png")
+            supporting_data = page.locator("#supporting-odoo-data")
+            expect(supporting_data).to_be_visible()
+            _show_decision(page, supporting_data, offset=80)
+            _capture(page, output_directory / "08c-odoo-supporting-data.png")
+            _configure_product_schema(
+                fixture,
+                workspace_id,
+                include_category=True,
+            )
             page.goto(
                 f"{base_url}/workspaces/{workspace_id}/derived-entities",
                 wait_until="networkidle",

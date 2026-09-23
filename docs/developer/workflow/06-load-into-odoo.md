@@ -58,12 +58,48 @@ read-only field cannot be written to the destination.
 Matching reads the full destination field metadata and `default_get` evidence
 for required fields. It uses the shared create-field policy to identify
 required create inputs missing from the captured fields. Low-risk defaults
-can be left to Odoo. Defaults requiring business review, generated fields
-without an approved handling choice, and missing values block a model that
-would create records. The match plan retains only technical field names and
-aggregate results. A fresh preflight repeats this check and blocks if
-required create-field coverage changes. The browser does not yet offer a
-reviewed default or generated-field handling choice.
+can be left to Odoo. The browser asks the data manager to review sensitive
+defaults and lets them choose a typed fixed value or a compatible captured
+source field when Odoo supplies no usable scalar value. These decisions apply
+only to rows classified as `CREATE`.
+
+[`DestinationCreateFieldEvidence`](../../../src/impodo/domain/workspace/destination_matching.py)
+stores exact defaults and fixed values in encrypted Project evidence through
+[`ProtectedDestinationCreateFieldStore`](../../../src/impodo/adapters/protected_destination_create_fields.py).
+`DestinationMatchPlan` stores only provider kinds,
+technical field names, and hashes. `compile_transfer_execution_snapshot`
+copies a selected source field into a create row. It represents a fixed value
+as `SET_PROTECTED` and an Odoo default as `EXPECT_PROTECTED`, so the staged
+snapshot contains no protected business value. The writer resolves
+`SET_PROTECTED` only at execution. Reconciliation resolves both actions at its
+protected boundary, reads the required field in bounded groups, and verifies
+the exact expected value. A fresh preflight repeats the field check and blocks
+if the field contract, provider, or value hash changes.
+
+Computed, related, read-only, and version-qualified create-hook fields remain
+Odoo-managed. For a required Many2one field, matching offers the unique
+destination records returned for a selected related record type. Each choice
+binds the related business-key fields, protected identity, numeric ID, and
+opaque target-record binding. The portable plan and execution snapshot retain
+only hashes and technical relationship metadata. A verified Many2one Odoo
+default does not require the related type to be selected: the writer omits it,
+and read-back compares Odoo's result with the exact protected ID. A required
+Many2one with neither a usable default nor one unique candidate still blocks
+generic creation.
+
+An unresolved required Many2one can also use an `incoming_reference` choice.
+Protected create-field evidence lists unique business identities from another
+selected dataset whose model matches the relationship. The portable matching
+plan stores the provider, related key fields, selected dataset ID, creation
+requirement, and value hash without the chosen business value. When the source
+record is missing from the destination, `TransferOrderService.build` adds a
+hard dataset edge. Compilation restores the protected identity as a
+`LogicalReference`; when the record already exists, it emits a
+`BusinessReference` and adds no ordering edge.
+[`TransferReviewDataset`](../../../src/impodo/domain/workspace/transfer_review.py)
+binds its `create_field_providers` value-safe summary into the Stage 7 action
+hash. Exact fixed values, defaults, and selected reference identities remain
+outside the review package.
 If the full destination metadata exposes a Selection field named `state`,
 the generic ORM write path requires a qualified workflow handler. Reuse of
 an existing record remains available. This metadata signal is deliberately

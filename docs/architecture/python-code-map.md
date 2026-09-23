@@ -302,7 +302,12 @@ recommendation in each unconfirmed form card, while
 `SchemaWorkspaceService.govern_complete` enforces one confirmed rule for every
 captured authoring model. Parent-owned records use ordinary portable key fields
 plus a Many2one scope, such as BoM line Sequence within Parent BoM; no numeric
-Odoo ID enters governance or Recipe meaning.
+Odoo ID enters governance or Recipe meaning. The representative browser
+journey in `tests/e2e/test_stage2_matching_rules.py` covers standard,
+extended-standard, custom, and unresolved custom record types and proves that
+review and confirmation do not add connector calls. The authenticated
+`scripts/capture_stage2_matching_rule_screenshots.py` helper reproduces the
+documented 1440 by 1024 review states from the same fictional captured schema.
 
 ## Query and Odoo performance
 

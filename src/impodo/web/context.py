@@ -89,6 +89,9 @@ from impodo.application.shared.jobs import JobDispatcher
 from impodo.adapters.odoo.local_reader import (
     LocalOdooMetadataReader,
 )
+from impodo.adapters.protected_destination_create_fields import (
+    ProtectedDestinationCreateFieldStore,
+)
 from impodo.domain.run.setup import MigrationRunTargetSetupService
 from impodo.adapters.odoo.local_stack import LocalStackService
 from impodo.domain.project.foundation import MigrationIdentifierConfusionError
@@ -234,6 +237,7 @@ class WebContext:
     odoo_capture_publication: OdooCapturePublicationService
     odoo_capture_jobs: OdooCaptureJobManager | None
     odoo_provenance: OdooProvenanceService
+    destination_create_fields: ProtectedDestinationCreateFieldStore
     artifacts: WorkspaceArtifactStore
     actor: Actor
     authorization: AuthorizationPolicy

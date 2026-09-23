@@ -46,7 +46,7 @@ from impodo.domain.relationship_dependencies import (
 )
 
 
-EXECUTION_SNAPSHOT_VERSION = 8
+EXECUTION_SNAPSHOT_VERSION = 9
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -82,6 +82,7 @@ class FieldIntent:
     target_binding_hashes: tuple[str, ...] = ()
     incoming_projection_field: str = ""
     defer_on_create: bool = False
+    protected_value_hash: str = ""
 
     def portable_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -91,6 +92,8 @@ class FieldIntent:
         }
         if self.action == "SET_VALUE":
             payload["value"] = portable_value(self.value)
+        if self.protected_value_hash:
+            payload["protected_value_hash"] = self.protected_value_hash
         if self.relation_operation:
             payload["relation_operation"] = self.relation_operation
             payload["related_model"] = self.related_model
@@ -1845,7 +1848,9 @@ def _validate_rows(
         if len({item.field for item in row.fields}) != len(row.fields):
             raise ValueError("Execution snapshot field intention is duplicated")
         for intent in row.fields:
-            if intent.action not in {"OMIT", "SET_NULL", "SET_VALUE"}:
+            if intent.action not in {
+                "OMIT", "SET_NULL", "SET_VALUE", "SET_PROTECTED", "EXPECT_PROTECTED"
+            }:
                 raise ValueError("Execution snapshot field action is invalid")
             if intent.kind not in {"scalar", "relation"}:
                 raise ValueError("Execution snapshot field kind is invalid")
@@ -1853,6 +1858,13 @@ def _validate_rows(
                 raise ValueError("Execution snapshot field value is invalid")
             if intent.action != "SET_VALUE" and intent.value is not None:
                 raise ValueError("Execution snapshot field value is invalid")
+            if intent.action in {"SET_PROTECTED", "EXPECT_PROTECTED"}:
+                if not _SHA256.fullmatch(intent.protected_value_hash):
+                    raise ValueError("Execution snapshot protected value is invalid")
+            elif intent.protected_value_hash:
+                raise ValueError("Execution snapshot protected value is invalid")
+            if intent.action == "EXPECT_PROTECTED" and row.disposition != "CREATE":
+                raise ValueError("Execution snapshot default expectation is invalid")
             if intent.kind == "scalar" and intent.relation_operation:
                 raise ValueError("Execution snapshot relation operation is invalid")
             if intent.kind == "scalar" and (
@@ -1873,7 +1885,11 @@ def _validate_rows(
             }:
                 raise ValueError("Execution snapshot relation operation is invalid")
             if intent.kind == "relation" and (
-                not intent.related_model or not intent.related_identity_fields
+                not intent.related_model
+                or (
+                    not intent.related_identity_fields
+                    and intent.action != "EXPECT_PROTECTED"
+                )
             ):
                 raise ValueError("Execution snapshot relation shape is invalid")
             if intent.incoming_projection_field and (
@@ -2064,6 +2080,7 @@ def _restore_row(payload: Mapping[str, Any]) -> ExecutionRow:
                 item.get("incoming_projection_field", "")
             ),
             defer_on_create=bool(item.get("defer_on_create", False)),
+            protected_value_hash=str(item.get("protected_value_hash", "")),
         )
         for item in payload.get("fields", ())
     )

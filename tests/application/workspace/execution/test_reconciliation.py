@@ -277,6 +277,95 @@ class ReconciliationServiceTests(unittest.TestCase):
         )
         self.assertEqual(results.report.semantic_hash, report.semantic_hash)
 
+    def test_protected_fixed_value_and_default_are_verified_without_detail_leak(self):
+        fixed_hash = "sha256:" + "8" * 64
+        default_hash = "sha256:" + "9" * 64
+        relation_default_hash = "sha256:" + "7" * 64
+        base = _snapshot()
+        snapshot = replace(
+            base,
+            datasets=tuple(
+                replace(
+                    item,
+                    field_types=(
+                        *item.field_types,
+                        ("x_default", "char"),
+                        ("x_default_parent_id", "many2one"),
+                        ("x_fixed", "char"),
+                    ),
+                )
+                if item.dataset == "categories"
+                else item
+                for item in base.datasets
+            ),
+            rows=(
+                replace(
+                    base.rows[0],
+                    fields=(
+                        *base.rows[0].fields,
+                        FieldIntent(
+                            "x_default",
+                            "EXPECT_PROTECTED",
+                            protected_value_hash=default_hash,
+                        ),
+                        FieldIntent(
+                            "x_fixed",
+                            "SET_PROTECTED",
+                            protected_value_hash=fixed_hash,
+                        ),
+                        FieldIntent(
+                            "x_default_parent_id",
+                            "EXPECT_PROTECTED",
+                            kind="relation",
+                            relation_operation="replace",
+                            related_model="res.partner",
+                            protected_value_hash=relation_default_hash,
+                        ),
+                    ),
+                ),
+                *base.rows[1:],
+            ),
+        )
+        run = _run(snapshot)
+        service, _results = self._service(snapshot, run)
+        evidence = _Evidence()
+        service.evidence = evidence
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.records[("product.category", 10)].update(
+            {
+                "x_default": "Destination default",
+                "x_default_parent_id": [77, "Default parent"],
+                "x_fixed": "Different",
+            }
+        )
+
+        report = service.reconcile(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+            protected_values={
+                default_hash: "Destination default",
+                fixed_hash: "Reviewed fixed value",
+                relation_default_hash: 77,
+            },
+        )
+
+        self.assertEqual(report.status, ReconciliationRunStatus.FALLOUT)
+        self.assertEqual(report.rows[0].differing_fields, ("x_fixed",))
+        self.assertIn(
+            (
+                "product.category",
+                (10,),
+                ("name", "x_default", "x_default_parent_id", "x_fixed"),
+            ),
+            reader.reads,
+        )
+        self.assertIsNotNone(evidence.detail)
+        difference = evidence.detail.differences[0]
+        self.assertEqual(difference.expected_value, "[protected]")
+        self.assertEqual(difference.observed_value, "[protected]")
+
     def test_html_readback_accepts_odoo_outer_paragraph_serialization(self):
         snapshot = _snapshot()
         product = snapshot.rows[1]

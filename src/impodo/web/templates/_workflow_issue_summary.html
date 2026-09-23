@@ -1,0 +1,44 @@
+{% if workflow_issue_summary and workflow_issue_summary.issues %}
+  <section class="notice warning" id="migration-issues" aria-labelledby="migration-issues-title">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Migration issues</p>
+        <h2 id="migration-issues-title">
+          {% if workflow_issue_summary.must_fix_count %}
+            {{ workflow_issue_summary.must_fix_count }} Must fix{% if workflow_issue_summary.review_count %} &middot; {{ workflow_issue_summary.review_count }} to review{% endif %}
+          {% else %}
+            {{ workflow_issue_summary.review_count }} to review
+          {% endif %}
+        </h2>
+        <p>Impodo shows the cause, correction owner, and one safe next action.</p>
+      </div>
+    </div>
+    <div class="overview-stage-list">
+      {% for issue in workflow_issue_summary.issues %}
+        <article class="overview-stage-card {% if issue.severity.value == 'MUST_FIX' %}attention{% endif %}">
+          <div>
+            <p class="eyebrow">{{ 'Must fix' if issue.severity.value == 'MUST_FIX' else 'Review' }} &middot; {{ issue.owning_stage }}</p>
+            <h3>{{ issue.cause }}</h3>
+            {% if issue.affected_record_types %}
+              <p><strong>Affects:</strong> {{ issue.affected_record_types|join(', ') }}</p>
+            {% endif %}
+            {% if issue.affected_fields %}
+              <p><strong>Fields:</strong> {{ issue.affected_fields|join('; ') }}</p>
+            {% endif %}
+            <p><strong>Owner:</strong> {{ issue.owner }}</p>
+            <p><strong>Your saved work:</strong> {{ issue.preserved_work }}</p>
+            <p><strong>Then:</strong> {{ issue.recheck }}</p>
+            <div class="actions">
+              <a class="button primary" href="{{ issue.correction_route }}">{{ issue.correction_label }}</a>
+            </div>
+            <details class="technical-details">
+              <summary>Support details</summary>
+              <p><code>{{ issue.code }}</code> &middot; {{ issue.origin.value }} &middot; {{ issue.state.value }}</p>
+              <p><code>{{ issue.evidence_revision }}</code></p>
+            </details>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}

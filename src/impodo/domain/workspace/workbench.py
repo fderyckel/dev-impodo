@@ -774,6 +774,13 @@ class WorkspaceStateService:
             raise WorkspaceStateError("Verify the destination Odoo connection first")
         if plan.workspace_id != workspace.workspace_id:
             raise WorkspaceStateError("Destination matching changed workspace identity")
+        if plan.create_field_evidence is not None or (
+            plan.create_field_decisions
+            and plan.protected_create_field_artifact_hash is None
+        ):
+            raise WorkspaceStateError(
+                "Protect the exact destination defaults before saving matching"
+            )
         if (
             plan.destination_target_hash
             != transfer_destination_identity_hash(workspace)
@@ -800,7 +807,9 @@ class WorkspaceStateService:
             actor=actor,
             detail=(
                 f"plan={plan.content_hash}; models={len(plan.model_matches)}; "
-                f"ready={'yes' if plan.ready else 'no'}"
+                f"ready={'yes' if plan.ready else 'no'}; "
+                f"create_defaults={len(plan.create_field_decisions)}; "
+                f"pending_defaults={len(plan.pending_create_field_decisions)}"
             ),
         )
 

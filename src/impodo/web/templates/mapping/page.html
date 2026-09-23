@@ -31,6 +31,7 @@
     </div>
   {% endif %}
   {% if selection and schema and (governance or odoo_pinned) %}
+    {% include "mapping/_identity_health.html" %}
     {% include "mapping/_matching_order.html" %}
     <form
       method="post"

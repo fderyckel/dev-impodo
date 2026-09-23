@@ -32,7 +32,12 @@ from impodo.domain.workspace.contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
-from impodo.domain.workspace.destination_matching import DestinationMatchPlan
+from impodo.domain.workspace.destination_matching import (
+    DestinationMatchPlan,
+    carry_destination_create_field_reviews,
+    choose_destination_create_field_provider,
+    confirm_destination_create_field_defaults,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
@@ -184,6 +189,31 @@ class DestinationMatchingTests(unittest.TestCase):
                 "state": FieldMetadata(
                     "state", "selection", "State", required=True,
                     company_dependent=False,
+                    selection=(("draft", "Draft"),),
+                ),
+                "x_enabled": FieldMetadata(
+                    "x_enabled", "boolean", "Enabled", required=True,
+                    company_dependent=False,
+                ),
+                "x_required": FieldMetadata(
+                    "x_required", "char", "Required text", required=True,
+                    company_dependent=False,
+                ),
+                "x_required_2": FieldMetadata(
+                    "x_required_2", "char", "Other required text", required=True,
+                    company_dependent=False,
+                ),
+                "x_default_uom_id": FieldMetadata(
+                    "x_default_uom_id", "many2one", "Default Unit", required=True,
+                    relation="uom.uom", company_dependent=False,
+                ),
+                "x_existing_uom_id": FieldMetadata(
+                    "x_existing_uom_id", "many2one", "Existing Unit", required=True,
+                    relation="uom.uom", company_dependent=False,
+                ),
+                "x_incoming_uom_id": FieldMetadata(
+                    "x_incoming_uom_id", "many2one", "Selected Source Unit",
+                    required=True, relation="uom.uom", company_dependent=False,
                 ),
             }
             return replace(
@@ -194,8 +224,11 @@ class DestinationMatchingTests(unittest.TestCase):
                 },
                 create_defaults={
                     "product.template": {
+                        "company_id": 3,
                         "x_low_risk": "standard",
                         "state": "draft",
+                        "x_enabled": False,
+                        "x_default_uom_id": 7,
                     },
                 },
             ), records
@@ -216,12 +249,303 @@ class DestinationMatchingTests(unittest.TestCase):
         )
         product = next(item for item in plan.model_matches if item.model == "product.template")
         self.assertTrue(plan.ready)
-        self.assertEqual(product.unresolved_create_fields, ("company_id", "state"))
+        self.assertEqual(
+            product.unresolved_create_fields,
+            (
+                "company_id", "state", "x_default_uom_id", "x_existing_uom_id",
+                "x_incoming_uom_id", "x_required", "x_required_2",
+            ),
+        )
         self.assertTrue(product.requires_workflow_handler)
         self.assertIn("DESTINATION_CREATE_FIELDS_UNRESOLVED", product.write_blocking_reasons)
         self.assertIn("DESTINATION_WORKFLOW_HANDLER_REQUIRED", product.write_blocking_reasons)
         self.assertEqual(DestinationMatchPlan.from_json(plan.to_json()), plan)
+        self.assertEqual(
+            type(plan.create_field_evidence).from_json(
+                plan.create_field_evidence.to_json()
+            ),
+            plan.create_field_evidence,
+        )
         self.assertNotIn("standard", plan.to_json())
+        self.assertNotIn("draft", plan.to_json())
+        decisions = {
+            item.field_name: item for item in plan.create_field_decisions
+            if item.model == "product.template"
+        }
+        self.assertTrue(decisions["x_low_risk"].reviewed)
+        self.assertTrue(decisions["x_enabled"].reviewed)
+        self.assertFalse(decisions["state"].reviewed)
+        self.assertFalse(decisions["company_id"].reviewed)
+        self.assertEqual(decisions["company_id"].related_model, "res.company")
+        self.assertEqual(decisions["company_id"].related_identity_fields, ())
+        self.assertFalse(decisions["x_default_uom_id"].reviewed)
+        self.assertEqual(decisions["x_default_uom_id"].related_model, "uom.uom")
+        self.assertEqual(
+            {
+                item.field_name: item.value
+                for item in plan.create_field_evidence.values
+                if item.model == "product.template"
+            }["x_enabled"],
+            False,
+        )
+        state_evidence = next(
+            item for item in plan.create_field_evidence.values
+            if item.key == ("product.template", "state")
+        )
+        self.assertEqual(state_evidence.display_value, "Draft (draft)")
+        default_uom_evidence = next(
+            item for item in plan.create_field_evidence.values
+            if item.key == ("product.template", "x_default_uom_id")
+        )
+        self.assertEqual(default_uom_evidence.display_value, "Unit")
+        company_evidence = next(
+            item for item in plan.create_field_evidence.values
+            if item.key == ("product.template", "company_id")
+        )
+        self.assertEqual(company_evidence.display_value, "Current destination default")
+        existing_uom_evidence = next(
+            item for item in plan.create_field_evidence.values
+            if item.key == ("product.template", "x_existing_uom_id")
+        )
+        self.assertEqual(len(existing_uom_evidence.reference_candidates), 1)
+        incoming_uom_evidence = next(
+            item for item in plan.create_field_evidence.values
+            if item.key == ("product.template", "x_incoming_uom_id")
+        )
+        self.assertEqual(len(incoming_uom_evidence.incoming_reference_candidates), 2)
+        incoming_choice = next(
+            item for item in incoming_uom_evidence.incoming_reference_candidates
+            if item.display_value == "Kilogram"
+        )
+        existing_incoming_choice = next(
+            item for item in incoming_uom_evidence.incoming_reference_candidates
+            if item.display_value == "Unit"
+        )
+        self.assertTrue(incoming_choice.requires_create)
+        self.assertFalse(existing_incoming_choice.requires_create)
+        self.assertTrue(
+            existing_incoming_choice.target_binding_hash.startswith("sha256:")
+        )
+
+        stored = replace(
+            plan,
+            protected_create_field_artifact_hash=HASH,
+            create_field_evidence=None,
+        )
+        confirmed = confirm_destination_create_field_defaults(
+            stored,
+            plan.create_field_evidence,
+            {
+                ("product.template", "company_id"),
+                ("product.template", "state"),
+                ("product.template", "x_default_uom_id"),
+            },
+        )
+        confirmed_product = next(
+            item for item in confirmed.model_matches
+            if item.model == "product.template"
+        )
+        self.assertEqual(
+            confirmed_product.unresolved_create_fields,
+            (
+                "x_existing_uom_id", "x_incoming_uom_id",
+                "x_required", "x_required_2",
+            ),
+        )
+
+        reference_choice = choose_destination_create_field_provider(
+            confirmed,
+            plan.create_field_evidence,
+            model="product.template",
+            field_name="x_existing_uom_id",
+            provider_kind="existing_reference",
+            reference_choice_hash=(
+                existing_uom_evidence.reference_candidates[0].choice_hash
+            ),
+        )
+
+        incoming_choice_plan = choose_destination_create_field_provider(
+            replace(
+                reference_choice,
+                protected_create_field_artifact_hash=HASH,
+                create_field_evidence=None,
+            ),
+            reference_choice.create_field_evidence,
+            model="product.template",
+            field_name="x_incoming_uom_id",
+            provider_kind="incoming_reference",
+            incoming_reference_choice_hash=incoming_choice.choice_hash,
+        )
+
+        source_choice = choose_destination_create_field_provider(
+            replace(
+                incoming_choice_plan,
+                protected_create_field_artifact_hash=HASH,
+                create_field_evidence=None,
+            ),
+            incoming_choice_plan.create_field_evidence,
+            model="product.template",
+            field_name="x_required",
+            provider_kind="source_field",
+            source_field_name="name",
+        )
+        fixed_choice = choose_destination_create_field_provider(
+            replace(
+                source_choice,
+                protected_create_field_artifact_hash=HASH,
+                create_field_evidence=None,
+            ),
+            source_choice.create_field_evidence,
+            model="product.template",
+            field_name="x_required_2",
+            provider_kind="fixed_value",
+            fixed_value="New records only",
+        )
+        chosen_product = next(
+            item for item in fixed_choice.model_matches
+            if item.model == "product.template"
+        )
+        self.assertEqual(chosen_product.unresolved_create_fields, ())
+        self.assertNotIn("New records only", fixed_choice.to_json())
+        self.assertNotIn("Kilogram", fixed_choice.to_json())
+        chosen = replace(
+            fixed_choice,
+            protected_create_field_artifact_hash=HASH,
+            create_field_evidence=None,
+        )
+        self.assertEqual(DestinationMatchPlan.from_json(chosen.to_json()), chosen)
+
+        fresh = DestinationMatchingService(self.source_values).check(
+            self.workspace,
+            self.selection,
+            self.schema,
+            (
+                DestinationMatchKeyChoice(self.product.dataset_id, "product-code"),
+                DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=reader,
+            recorded_by="Data manager",
+        )
+        carried = carry_destination_create_field_reviews(
+            fresh,
+            chosen,
+            fixed_choice.create_field_evidence,
+        )
+        carried_state = next(
+            item for item in carried.create_field_decisions
+            if item.key == ("product.template", "state")
+        )
+        self.assertTrue(carried_state.reviewed)
+        carried_providers = {
+            item.field_name: item.provider_kind
+            for item in carried.create_field_decisions
+        }
+        self.assertEqual(carried_providers["x_required"], "source_field")
+        self.assertEqual(carried_providers["x_required_2"], "fixed_value")
+        self.assertEqual(
+            carried_providers["x_existing_uom_id"], "existing_reference"
+        )
+        self.assertEqual(
+            carried_providers["x_incoming_uom_id"], "incoming_reference"
+        )
+        carried_incoming = next(
+            item for item in carried.create_field_decisions
+            if item.field_name == "x_incoming_uom_id"
+        )
+        self.assertEqual(carried_incoming.source_dataset_id, self.uom.dataset_id)
+
+        def incoming_target_changed_reader(*args):
+            metadata, records = reader(*args)
+            return metadata, replace(
+                records,
+                records={
+                    **records.records,
+                    "uom.uom": (
+                        *records.records["uom.uom"],
+                        TargetRecord("uom.uom", 8, {"name": "Kilogram"}),
+                    ),
+                },
+            )
+
+        incoming_target_changed = DestinationMatchingService(
+            self.source_values
+        ).check(
+            self.workspace,
+            self.selection,
+            self.schema,
+            (
+                DestinationMatchKeyChoice(self.product.dataset_id, "product-code"),
+                DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=incoming_target_changed_reader,
+            recorded_by="Data manager",
+        )
+        incoming_target_drift = carry_destination_create_field_reviews(
+            incoming_target_changed,
+            chosen,
+            fixed_choice.create_field_evidence,
+        )
+        drifted_product = next(
+            item for item in incoming_target_drift.model_matches
+            if item.model == "product.template"
+        )
+        self.assertIn(
+            "x_incoming_uom_id",
+            drifted_product.unresolved_create_fields,
+        )
+        self.assertNotIn(
+            "x_incoming_uom_id",
+            {
+                item.field_name
+                for item in incoming_target_drift.create_field_decisions
+                if item.provider_kind == "incoming_reference"
+            },
+        )
+
+        def changed_reader(*args):
+            metadata, records = reader(*args)
+            return replace(
+                metadata,
+                create_defaults={
+                    **metadata.create_defaults,
+                    "product.template": {
+                        **metadata.create_defaults["product.template"],
+                        "state": "confirmed",
+                    },
+                },
+            ), records
+
+        changed = DestinationMatchingService(self.source_values).check(
+            self.workspace,
+            self.selection,
+            self.schema,
+            (
+                DestinationMatchKeyChoice(self.product.dataset_id, "product-code"),
+                DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=changed_reader,
+            recorded_by="Data manager",
+        )
+        drifted = carry_destination_create_field_reviews(changed, confirmed)
+        drifted_state = next(
+            item for item in drifted.create_field_decisions
+            if item.key == ("product.template", "state")
+        )
+        self.assertFalse(drifted_state.reviewed)
+        drifted_product = next(
+            item for item in drifted.model_matches
+            if item.model == "product.template"
+        )
+        self.assertIn("state", drifted_product.unresolved_create_fields)
 
     def test_duplicate_source_keys_block_the_plan(self) -> None:
         self.source_values.values[(self.product.dataset_id, "product-code")] = (

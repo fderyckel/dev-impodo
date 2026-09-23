@@ -107,6 +107,21 @@ class TransferReviewService:
                     sorted(relationships_by_owner[item.dataset_id])
                 ),
                 model_policy=policies.get(item.model, "upsert"),
+                create_field_providers=(
+                    tuple(
+                        sorted(
+                            (
+                                (decision.field_name, decision.provider_kind)
+                                for decision in match_plan.create_field_decisions
+                                if decision.dataset_id == item.dataset_id
+                                and decision.reviewed
+                            ),
+                            key=lambda choice: choice[0],
+                        )
+                    )
+                    if item.destination_create_key_count
+                    else ()
+                ),
             )
             for item in match_plan.model_matches
         )

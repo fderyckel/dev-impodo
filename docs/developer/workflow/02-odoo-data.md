@@ -45,6 +45,14 @@ key governance. `SchemaWorkspaceService` coordinates these operations through
 separate ports for the model catalogue, schema catalogue, source selection,
 and mapping invalidation.
 
+After a live destination capture, `supporting_models.py` derives direct
+relationships from the selected schema. It classifies each relationship as
+reuse existing, checked default, Odoo managed, or review incoming. The Stage 2
+presenter joins that domain result with the saved model catalogue and projects
+business-facing groups plus the shared read-only workflow-issue shape. Opening
+the page remains local: this projection is not persisted and makes no Odoo
+request.
+
 For a non-Production target, the connection form can explicitly keep the same
 submitted or already stored secret for later loading. `target.py` writes two
 target-bound vault envelopes with distinct `READ` and `WRITE` roles and audits
@@ -94,6 +102,24 @@ Target evidence is either verified `LIVE_API` capture or an unverified
 authorize mapping submission. Abstract and transient models are excluded, and
 related models are never silently added to the permitted scope.
 
+Supporting-model derivation is generic and limited to direct captured
+required relationship fields outside the selected write scope, plus
+one-to-many child data with a captured inverse. It excludes non-exportable and
+company-dependent fields, does not recursively traverse the Odoo model graph,
+and never changes `intended_models`. Optional many-to-one and many-to-many
+fields wait for accepted-source or Recipe intent in a later slice. A
+one-to-many with a captured inverse is presented as related incoming business
+data; computed, related, read-only, and inverse-managed relationships remain
+Odoo managed. A usable required create default remains a checked-default
+decision.
+
+A required relationship classified as reuse existing must point to a model in
+the current target-bound model catalogue. Otherwise the presenter emits a
+current **Must fix** issue and `govern_complete` rejects Stage 2 completion. An
+unavailable inverse-owned child model remains a **Review** finding. This proves
+model availability only; Stage 3 and later checks still own source-value
+coverage, identity, ambiguity, and record-level relationship resolution.
+
 Field capture records the effective inherited Odoo 19 field set. For each
 field, it records requirements, read-only state, relationships, inverse fields,
 and selection codes. It performs one `fields_get` request per selected model,
@@ -141,6 +167,14 @@ stores its basis and policy version in backward-compatible governance evidence;
 an advanced override stores only the reviewed matching shape. Page rendering
 and confirmation remain local and make no additional Odoo call.
 
+The representative browser qualification installs captured Odoo 19 evidence
+for a standard Contact, an extended-standard Product with a custom legacy
+field, and a custom Asset with an enforced unique constraint. It proves one
+confirmation, override persistence after a validation error and reload, and a
+visible unresolved custom-model blocker. Connector call vectors are recorded
+after capture and must remain unchanged across every review and confirmation
+request.
+
 `reference_keys.py` owns the versioned Odoo 19 governed-reference policy. A
 captured parent relation may authorize a reviewed supporting model outside the
 primary schema only for its exact key, scope, display fields, and read purpose.
@@ -156,10 +190,14 @@ remains outside the migration write scope.
 | Purpose-specific connection check | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
 | Schema governance | [`governance.py`](../../../src/impodo/domain/schema/governance.py) |
 | Matching-rule recommendations | [`business_keys.py`](../../../src/impodo/domain/workspace/business_keys.py) |
+| Supporting-model derivation | [`supporting_models.py`](../../../src/impodo/domain/workspace/supporting_models.py) |
 | Governed supporting references | [`reference_keys.py`](../../../src/impodo/domain/workspace/reference_keys.py) |
+| Workflow issue projection | [`issues.py`](../../../src/impodo/application/workspace/issues.py) |
 | Browser routes | [`schema.py`](../../../src/impodo/web/routers/schema.py) |
 | Browser presenter | [`schema.py`](../../../src/impodo/web/presenters/schema.py) |
+| Supporting-data presenter | [`supporting_models.py`](../../../src/impodo/web/presenters/supporting_models.py) |
 | Browser review | [`workspace_schema.html`](../../../src/impodo/web/templates/workspace_schema.html) |
+| Qualified screenshot capture | [`capture_stage2_matching_rule_screenshots.py`](../../../scripts/capture_stage2_matching_rule_screenshots.py) |
 | Local reader | [`local_odoo_reader.py`](../../../src/impodo/adapters/odoo/local_reader.py) |
 
 ## Evidence and state
@@ -173,13 +211,16 @@ revision.
 
 Stable technical model and field names are evidence; translated UI labels are
 presentation. Numeric database IDs must not become portable identities.
+Supporting groups and workflow issues are derived projections of the current
+schema and model catalogue, not a second mutable evidence store.
 
 ## Completion and navigation
 
 File mode completes only when both the schema catalogue and schema governance
-exist, then unlocks Match data. Odoo source mode completes its first
-responsibility when the eligible schema exists, then unlocks the bounded
-capture and freeze responsibility.
+exist and no required reuse dependency is absent from current model discovery;
+it then unlocks Match data. Odoo source mode completes its first responsibility
+when the eligible schema exists, then unlocks the bounded capture and freeze
+responsibility.
 
 The captured file-mode target is fresh evidence owned by the current
 DataVersion. Optional Recipe publication can compile required portable Odoo
@@ -218,6 +259,10 @@ closes them before returning. This avoids repeated database opens and keeps
 the event loop responsive to other requests. Opening the page does not call
 Odoo or refresh evidence; capture and change checks remain explicit actions.
 
+Supporting-model derivation is one bounded pass over the captured fields plus
+local catalogue joins. It performs no recursive graph walk and adds no network,
+per-model, per-field, or per-row request.
+
 Read capability is explicit and narrow: model catalogue, metadata, target
 fingerprint, and planned record requests. Batch metadata and record reads by
 model. Never call `fields_get`, selection providers, or relationship catalogues
@@ -244,9 +289,13 @@ scope.
 - [`tests/application/workspace/test_odoo_connection.py`](../../../tests/application/workspace/test_odoo_connection.py)
 - [`tests/application/workspace/test_schema_governance.py`](../../../tests/application/workspace/test_schema_governance.py)
 - [`tests/domain/workspace/test_business_keys.py`](../../../tests/domain/workspace/test_business_keys.py)
+- [`tests/domain/workspace/test_supporting_models.py`](../../../tests/domain/workspace/test_supporting_models.py)
+- [`tests/application/workspace/test_workflow_issues.py`](../../../tests/application/workspace/test_workflow_issues.py)
 - [`tests/integration/web/test_schema_presenter.py`](../../../tests/integration/web/test_schema_presenter.py)
+- [`tests/integration/web/test_stage2_supporting_models.py`](../../../tests/integration/web/test_stage2_supporting_models.py)
 - [`tests/integration/web/test_target_workflow.py`](../../../tests/integration/web/test_target_workflow.py)
 - [`tests/integration/web/test_schema_capture_recovery.py`](../../../tests/integration/web/test_schema_capture_recovery.py)
+- [`tests/e2e/test_stage2_matching_rules.py`](../../../tests/e2e/test_stage2_matching_rules.py)
 
 Verify inherited fields, selection normalization, business-key revisioning,
 read-only capability, batched requests, invalidation, and both source modes.
@@ -255,5 +304,5 @@ read-only capability, batched requests, invalidation, and both source modes.
 
 - [User guide: Odoo data](../../user/workflow/02-odoo-data.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
-- [Implementation and qualification record: Stage 2 matching-rule suggestions](../../plans/stage-2-odoo-matching-rule-suggestions.md)
+- [Stage 2 matching-rule acceptance evidence](../../testing/acceptance.md#stage-2-matching-rule-qualification-2026-09-23)
 - [Architecture decisions](../../decisions/README.md)

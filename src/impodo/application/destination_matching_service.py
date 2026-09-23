@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from math import isfinite
 from typing import Mapping, Protocol, Sequence
+from uuid import uuid4
 
 from impodo.domain.odoo.compatibility import (
     OdooOperation,
@@ -30,6 +31,7 @@ from impodo.domain.mapping.create_field_policy import (
     required_create_hook_inputs,
 )
 from impodo.domain.workspace.portable_identity import (
+    portable_components,
     portable_identity,
     record_identity,
 )
@@ -43,6 +45,11 @@ from impodo.domain.workspace.contracts import (
     SourceSelection,
 )
 from impodo.domain.workspace.destination_matching import (
+    DestinationCreateFieldDecision,
+    DestinationCreateFieldEvidence,
+    DestinationCreateFieldEvidenceValue,
+    DestinationCreateIncomingReferenceCandidate,
+    DestinationCreateReferenceCandidate,
     DestinationMatchPlan,
     DestinationModelMatch,
     DestinationRelationshipMatch,
@@ -118,6 +125,7 @@ class _PreparedModel:
     source_row_count: int
     source_counts: Counter[str]
     source_first_values: tuple[str, ...]
+    source_identity_values: tuple[tuple[bool | int | float | str, ...], ...]
     source_fields: tuple[SchemaField, ...]
 
 
@@ -208,6 +216,9 @@ class DestinationMatchingService:
             key_field = key_fields[0]
             source_counts: Counter[str] = Counter()
             first_values: set[str] = set()
+            identity_by_key: dict[
+                str, tuple[bool | int | float | str, ...]
+            ] = {}
             if len(key_fields) == 1:
                 raw_choices = self._source_values.source_value_choices(
                     workspace.workspace_id,
@@ -228,6 +239,9 @@ class DestinationMatchingService:
                         )
                     source_counts[value] += count
                     first_values.add(value)
+                    identity = portable_components((item.get("value"),))
+                    if len(identity) == 1:
+                        identity_by_key[value] = identity
             else:
                 rows = self._source_values.source_key_tuples(
                     workspace.workspace_id,
@@ -247,6 +261,9 @@ class DestinationMatchingService:
                     if value:
                         source_counts[value] += 1
                         first_values.add(portable_identity(row[:1]))
+                        identity = portable_components(row)
+                        if len(identity) == len(key_fields):
+                            identity_by_key[value] = identity
             if len(source_counts) > DESTINATION_MATCH_MAX_DISTINCT_KEYS:
                 raise WorkspaceError(
                     f"{dataset.name} has too many distinct matching values for this stage"
@@ -272,6 +289,11 @@ class DestinationMatchingService:
                     source_row_count=dataset.row_count,
                     source_counts=source_counts,
                     source_first_values=tuple(sorted(first_values)),
+                    source_identity_values=tuple(
+                        identity_by_key[key]
+                        for key in sorted(identity_by_key)
+                        if source_counts[key] == 1
+                    ),
                     source_fields=tuple(
                         field
                         for field in source_model.fields
@@ -349,10 +371,16 @@ class DestinationMatchingService:
                 )
 
         model_results: list[DestinationModelMatch] = []
+        create_field_decisions: list[DestinationCreateFieldDecision] = []
+        create_field_values: list[DestinationCreateFieldEvidenceValue] = []
         destination_counts: dict[str, Counter[str]] = {}
         for item in sorted(prepared, key=lambda current: current.model):
-            result, counts = self._result(item, metadata, records)
+            result, counts, decisions, values = self._result(
+                item, metadata, records, tuple(prepared)
+            )
             model_results.append(result)
+            create_field_decisions.extend(decisions)
+            create_field_values.extend(values)
             destination_counts[item.model] = counts
         relationships = self._relationship_results(
             workspace.workspace_id,
@@ -360,6 +388,24 @@ class DestinationMatchingService:
             source_schema,
             source_origins or {},
             destination_counts,
+        )
+        recorded_at = datetime.now(UTC)
+        schema_snapshot_hash = content_hash(metadata_snapshot_payload(metadata))
+        create_field_evidence = (
+            DestinationCreateFieldEvidence(
+                evidence_id=str(uuid4()),
+                workspace_id=workspace.workspace_id,
+                source_selection_hash=selection.content_hash,
+                source_schema_hash=source_schema.content_hash,
+                destination_target_hash=expected_target_hash,
+                destination_read_principal_hash=read_identity.principal_hash,
+                destination_read_context_hash=read_identity.context_hash,
+                destination_schema_snapshot_hash=schema_snapshot_hash,
+                values=tuple(sorted(create_field_values, key=lambda current: current.key)),
+                recorded_at=recorded_at,
+            )
+            if create_field_values
+            else None
         )
         return DestinationMatchPlan(
             workspace_id=workspace.workspace_id,
@@ -370,16 +416,24 @@ class DestinationMatchingService:
             destination_read_principal_hash=read_identity.principal_hash,
             destination_read_permission_hash=read_identity.permission_hash,
             destination_read_context_hash=read_identity.context_hash,
-            destination_schema_snapshot_hash=content_hash(
-                metadata_snapshot_payload(metadata)
-            ),
+            destination_schema_snapshot_hash=schema_snapshot_hash,
             destination_record_snapshot_hash=content_hash(
                 record_snapshot_payload(records)
             ),
             model_matches=tuple(model_results),
-            recorded_at=datetime.now(UTC),
+            recorded_at=recorded_at,
             recorded_by=recorded_by,
             relationship_matches=relationships,
+            create_field_decisions=tuple(
+                sorted(create_field_decisions, key=lambda current: current.key)
+            ),
+            create_field_evidence_id=(
+                create_field_evidence.evidence_id if create_field_evidence else None
+            ),
+            create_field_evidence_hash=(
+                create_field_evidence.content_hash if create_field_evidence else None
+            ),
+            create_field_evidence=create_field_evidence,
         )
 
     def _result(
@@ -387,7 +441,13 @@ class DestinationMatchingService:
         item: _PreparedModel,
         metadata: MetadataSnapshot,
         records: RecordSnapshot,
-    ) -> tuple[DestinationModelMatch, Counter[str]]:
+        prepared: tuple[_PreparedModel, ...],
+    ) -> tuple[
+        DestinationModelMatch,
+        Counter[str],
+        tuple[DestinationCreateFieldDecision, ...],
+        tuple[DestinationCreateFieldEvidenceValue, ...],
+    ]:
         destination_model = metadata.models.get(item.model)
         compatible: list[str] = []
         missing: list[str] = []
@@ -416,6 +476,18 @@ class DestinationMatchingService:
                 destination_counts[value] += 1
         matched_keys = set(destination_counts)
         source_value_rows = sum(item.source_counts.values())
+        create_count = len(source_keys - matched_keys)
+        unresolved, decisions, values = (
+            _create_field_defaults(
+                item,
+                metadata,
+                tuple(compatible),
+                records,
+                prepared,
+            )
+            if create_count
+            else ((), (), ())
+        )
         result = DestinationModelMatch(
             dataset_id=item.dataset_id,
             dataset_name=item.dataset_name,
@@ -434,7 +506,7 @@ class DestinationMatchingService:
             destination_duplicate_key_count=sum(
                 1 for count in destination_counts.values() if count > 1
             ),
-            destination_create_key_count=len(source_keys - matched_keys),
+            destination_create_key_count=create_count,
             destination_key_binding_hash=_destination_key_binding_hash(
                 item,
                 target_rows,
@@ -442,11 +514,7 @@ class DestinationMatchingService:
             compatible_fields=tuple(sorted(compatible)),
             missing_fields=tuple(sorted(missing)),
             incompatible_fields=tuple(sorted(incompatible)),
-            unresolved_create_fields=_unresolved_create_fields(
-                item,
-                metadata,
-                tuple(compatible),
-            ),
+            unresolved_create_fields=unresolved,
             requires_workflow_handler=bool(
                 destination_model is not None
                 and (state_field := destination_model.fields.get("state")) is not None
@@ -458,7 +526,7 @@ class DestinationMatchingService:
             source_column_keys=item.source_column_keys,
             key_fields=item.key_fields,
         )
-        return result, destination_counts
+        return result, destination_counts, decisions, values
 
     def _relationship_results(
         self,
@@ -582,23 +650,31 @@ class DestinationMatchingService:
         )
 
 
-def _unresolved_create_fields(
+def _create_field_defaults(
     item: _PreparedModel,
     metadata: MetadataSnapshot,
     compatible_fields: tuple[str, ...],
-) -> tuple[str, ...]:
+    records: RecordSnapshot,
+    prepared: tuple[_PreparedModel, ...],
+) -> tuple[
+    tuple[str, ...],
+    tuple[DestinationCreateFieldDecision, ...],
+    tuple[DestinationCreateFieldEvidenceValue, ...],
+]:
     """Find required create inputs absent from the reviewed source projection.
 
     A target default is accepted automatically only when the shared create
-    policy considers it low risk. Other defaults need a future review step.
+    policy considers it low risk. Other defaults retain a review step.
     """
 
     model = metadata.models.get(item.model)
     if model is None:
-        return ()
+        return (), (), ()
     provided = set(compatible_fields)
     defaults = metadata.create_defaults.get(item.model, {})
     unresolved = set(required_create_hook_inputs(item.model, provided) - provided)
+    decisions: list[DestinationCreateFieldDecision] = []
+    evidence_values: list[DestinationCreateFieldEvidenceValue] = []
     for field in model.fields.values():
         if not field.required:
             continue
@@ -629,20 +705,336 @@ def _unresolved_create_fields(
             target_model=item.model,
             odoo_version=metadata.fingerprint.odoo_version,
         )
+        field_contract_hash = content_hash(
+            {
+                "model": item.model,
+                "field": field.name,
+                "type": field.type,
+                "required": field.required,
+                "readonly": field.readonly,
+                "relation": field.relation,
+                "selection": [list(choice) for choice in field.selection],
+                "computed": field.computed,
+                "related": field.related,
+                "company_dependent": field.company_dependent,
+            }
+        )
+        source_candidates = tuple(
+            sorted(
+                (
+                    (source.name, source.label or source.name)
+                    for source in item.source_fields
+                    if _compatible_create_source_field(source, field)
+                ),
+                key=lambda candidate: candidate[0],
+            )
+        )
+        reference_candidates = _create_reference_candidates(
+            field,
+            prepared,
+            records,
+        )
+        incoming_reference_candidates = _create_incoming_reference_candidates(
+            field,
+            item,
+            prepared,
+            records,
+        )
         if assessment.coverage is CreateFieldCoverage.DEFAULT_AVAILABLE:
-            if (
-                decide_verified_create_default(view).action
+            default_decision = decide_verified_create_default(view)
+            reference_candidate = None
+            if field.type == "many2one":
+                reference_candidate = next(
+                    (
+                        candidate
+                        for candidate in reference_candidates
+                        if candidate.odoo_id == default
+                    ),
+                    None,
+                )
+            value_hash = content_hash(
+                {
+                    "model": item.model,
+                    "field": field.name,
+                    "type": field.type,
+                    "value": default,
+                    "reference_choice": (
+                        reference_candidate.choice_hash
+                        if reference_candidate is not None
+                        else None
+                    ),
+                }
+            )
+            automatic = (
+                default_decision.action
                 is VerifiedCreateDefaultAction.APPLY_AUTOMATICALLY
-            ):
-                continue
-            unresolved.add(field.name)
+            )
+            decisions.append(
+                DestinationCreateFieldDecision(
+                    dataset_id=item.dataset_id,
+                    model=item.model,
+                    model_label=item.model_label,
+                    field_name=field.name,
+                    field_label=field.label or field.name,
+                    field_type=field.type,
+                    provider_kind="odoo_default",
+                    decision_kind="automatic" if automatic else "review",
+                    reason=default_decision.reason,
+                    field_contract_hash=field_contract_hash,
+                    value_hash=value_hash,
+                    reviewed=automatic,
+                    related_model=(
+                        reference_candidate.related_model
+                        if reference_candidate is not None
+                        else field.relation
+                    ),
+                    related_identity_fields=(
+                        reference_candidate.identity_fields
+                        if reference_candidate is not None
+                        else ()
+                    ),
+                )
+            )
+            evidence_values.append(
+                DestinationCreateFieldEvidenceValue(
+                    dataset_id=item.dataset_id,
+                    model=item.model,
+                    field_name=field.name,
+                    field_type=field.type,
+                    value=default,
+                    display_value=(
+                        reference_candidate.display_value
+                        if reference_candidate is not None
+                        else (
+                            "Current destination default"
+                            if field.type == "many2one"
+                            else _create_default_display_value(view)
+                        )
+                    ),
+                    field_contract_hash=field_contract_hash,
+                    value_hash=value_hash,
+                    field_label=field.label or field.name,
+                    provider_kind="odoo_default",
+                    source_candidates=source_candidates,
+                    selection=tuple(
+                        sorted(
+                            ((str(key), str(label)) for key, label in field.selection),
+                            key=lambda choice: choice[0],
+                        )
+                    ),
+                    reference_candidates=reference_candidates,
+                    incoming_reference_candidates=(
+                        incoming_reference_candidates
+                    ),
+                )
+            )
+            if not automatic:
+                unresolved.add(field.name)
         elif assessment.coverage in {
             CreateFieldCoverage.REQUIRED_VALUE_MISSING,
             CreateFieldCoverage.DEFAULT_UNVERIFIED,
             CreateFieldCoverage.ODOO_MANAGED_INVALID,
         }:
             unresolved.add(field.name)
-    return tuple(sorted(unresolved))
+            evidence_values.append(
+                DestinationCreateFieldEvidenceValue(
+                    dataset_id=item.dataset_id,
+                    model=item.model,
+                    field_name=field.name,
+                    field_type=field.type,
+                    value=None,
+                    display_value="",
+                    field_contract_hash=field_contract_hash,
+                    value_hash=content_hash(
+                        {
+                            "model": item.model,
+                            "field": field.name,
+                            "provider": "unresolved",
+                        }
+                    ),
+                    field_label=field.label or field.name,
+                    provider_kind="unresolved",
+                    source_candidates=source_candidates,
+                    selection=tuple(
+                        sorted(
+                            (
+                                (str(key), str(label))
+                                for key, label in field.selection
+                            ),
+                            key=lambda choice: choice[0],
+                        )
+                    ),
+                    reference_candidates=reference_candidates,
+                    incoming_reference_candidates=(
+                        incoming_reference_candidates
+                    ),
+                )
+            )
+    return (
+        tuple(sorted(unresolved)),
+        tuple(sorted(decisions, key=lambda current: current.key)),
+        tuple(sorted(evidence_values, key=lambda current: current.key)),
+    )
+
+
+def _compatible_create_source_field(
+    source: SchemaField,
+    destination: object,
+) -> bool:
+    """Return a conservative captured-source candidate for one create field."""
+
+    if getattr(destination, "type", "") not in {
+        "boolean",
+        "char",
+        "date",
+        "datetime",
+        "float",
+        "html",
+        "integer",
+        "monetary",
+        "selection",
+        "text",
+    }:
+        return False
+    if source.type != getattr(destination, "type", ""):
+        return False
+    if source.type == "selection":
+        source_codes = {str(key) for key, _label in source.selection}
+        destination_codes = {
+            str(key) for key, _label in getattr(destination, "selection", ())
+        }
+        return bool(source_codes) and source_codes.issubset(destination_codes)
+    return True
+
+
+def _create_reference_candidates(
+    field: object,
+    prepared: tuple[_PreparedModel, ...],
+    records: RecordSnapshot,
+) -> tuple[DestinationCreateReferenceCandidate, ...]:
+    if getattr(field, "type", "") != "many2one":
+        return ()
+    related_model = getattr(field, "relation", None)
+    related = next(
+        (item for item in prepared if item.model == related_model),
+        None,
+    )
+    if related is None:
+        return ()
+    target_rows = records.records.get(related.model, ())
+    identities = [record_identity(row.values, related.key_fields) for row in target_rows]
+    counts = Counter(identity for identity in identities if identity)
+    candidates = []
+    for row, portable_identity_value in zip(target_rows, identities, strict=True):
+        if not portable_identity_value or counts[portable_identity_value] != 1:
+            continue
+        identity = portable_components(
+            tuple(row.values.get(name) for name in related.key_fields)
+        )
+        if len(identity) != len(related.key_fields):
+            continue
+        binding_hash = target_record_binding_hash(related.model, row.odoo_id)
+        candidates.append(
+            DestinationCreateReferenceCandidate(
+                choice_hash=content_hash(
+                    {
+                        "model": related.model,
+                        "identity_fields": related.key_fields,
+                        "identity": identity,
+                        "target_binding": binding_hash,
+                    }
+                ),
+                related_model=related.model,
+                identity_fields=related.key_fields,
+                identity=identity,
+                display_value=" + ".join(str(value) for value in identity),
+                odoo_id=row.odoo_id,
+                target_binding_hash=binding_hash,
+            )
+        )
+    return tuple(sorted(candidates, key=lambda candidate: candidate.choice_hash))
+
+
+def _create_incoming_reference_candidates(
+    field: object,
+    owner: _PreparedModel,
+    prepared: tuple[_PreparedModel, ...],
+    records: RecordSnapshot,
+) -> tuple[DestinationCreateIncomingReferenceCandidate, ...]:
+    """Offer unique source records from another selected related dataset."""
+
+    if getattr(field, "type", "") != "many2one":
+        return ()
+    related_model = getattr(field, "relation", None)
+    related = next(
+        (
+            item for item in prepared
+            if item.model == related_model and item.dataset_id != owner.dataset_id
+        ),
+        None,
+    )
+    if related is None:
+        return ()
+    target_by_identity: dict[str, list[int]] = {
+        portable_identity(identity): []
+        for identity in related.source_identity_values
+    }
+    for row in records.records.get(related.model, ()):
+        identity = record_identity(row.values, related.key_fields)
+        if identity in target_by_identity:
+            target_by_identity[identity].append(row.odoo_id)
+    candidates = []
+    for identity in related.source_identity_values:
+        portable_key = portable_identity(identity)
+        target_ids = target_by_identity.get(portable_key, ())
+        if len(target_ids) > 1:
+            continue
+        binding_hash = (
+            target_record_binding_hash(related.model, target_ids[0])
+            if target_ids
+            else ""
+        )
+        requires_create = not target_ids
+        candidates.append(
+            DestinationCreateIncomingReferenceCandidate(
+                choice_hash=content_hash(
+                    {
+                        "source_dataset": related.dataset_id,
+                        "model": related.model,
+                        "identity_fields": related.key_fields,
+                        "identity": identity,
+                        "requires_create": requires_create,
+                        "target_binding": binding_hash,
+                    }
+                ),
+                source_dataset_id=related.dataset_id,
+                source_dataset_name=related.dataset_name,
+                related_model=related.model,
+                identity_fields=related.key_fields,
+                identity=identity,
+                display_value=" + ".join(str(value) for value in identity),
+                requires_create=requires_create,
+                target_binding_hash=binding_hash,
+            )
+        )
+    return tuple(sorted(candidates, key=lambda candidate: candidate.choice_hash))
+
+
+def _create_default_display_value(field: SchemaField) -> str:
+    value = field.create_default_value
+    if field.type == "selection":
+        label = next(
+            (
+                str(choice_label)
+                for code, choice_label in field.selection
+                if str(code) == str(value)
+            ),
+            str(value),
+        )
+        return f"{label} ({value})"
+    if field.type == "boolean":
+        return "Yes" if value else "No"
+    return str(value)
 
 
 def _usable_create_default(field_type: str, value: object) -> bool:

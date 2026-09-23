@@ -33,6 +33,9 @@ from impodo.domain.execution.odoo_readback import OdooReadbackError
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.shared.access import AuthorizationError, Capability
 from impodo.domain.source_binding import OdooSourceBinding
+from impodo.domain.workspace.destination_matching import (
+    carry_destination_create_field_reviews,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     SourceMode,
@@ -183,16 +186,52 @@ def _verify_transfer_result(
             actor=context.actor,
             write_identity=verification_identity,
             write_credential_binding_hash=credential.binding_hash,
+            protected_values=_protected_create_values(
+                context,
+                context.queries.get(workspace_id),
+            ),
         )
     except (
         ConnectorError,
         OdooReadbackError,
+        PermissionError,
         ReadinessError,
         WorkspaceError,
         WorkspaceStateError,
     ):
         return False
     return not (verification.unknown_count or verification.fallout_count)
+
+
+def _protected_create_values(context: WebContext, workspace) -> dict[str, object]:
+    """Open exact create-only values only at the write/read-back boundary."""
+
+    plan = workspace.destination_match_plan
+    if plan is None or plan.create_field_evidence_id is None:
+        return {}
+    access = context.workspace_access.resolve(
+        workspace.workspace_id,
+        actor=context.actor,
+        capability=Capability.PROTECTED_EVIDENCE_READ,
+    )
+    evidence = context.destination_create_fields.read(access.project_id, plan)
+    if evidence is None:
+        return {}
+    values: dict[str, object] = {}
+    for item in evidence.values:
+        if item.provider_kind not in {
+            "odoo_default", "fixed_value", "existing_reference"
+        }:
+            continue
+        if item.value is None:
+            raise WorkspaceError(
+                f"Protected create-only value is missing for {item.model}.{item.field_name}"
+            )
+        previous = values.get(item.value_hash, item.value)
+        if previous != item.value:
+            raise WorkspaceError("Protected create-only values are inconsistent")
+        values[item.value_hash] = item.value
+    return values
 
 
 def _render_transfer(
@@ -401,6 +440,23 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 reader=final_reader,
                 recorded_by=context.actor.identity.display_name,
                 source_origins=source_origins,
+            )
+            approved_evidence = None
+            if approved_match.create_field_evidence_id is not None:
+                protected_access = context.workspace_access.resolve(
+                    workspace_id,
+                    actor=context.actor,
+                    capability=Capability.PROTECTED_EVIDENCE_READ,
+                )
+                approved_evidence = await run_in_threadpool(
+                    context.destination_create_fields.read,
+                    protected_access.project_id,
+                    approved_match,
+                )
+            fresh_match = carry_destination_create_field_reviews(
+                fresh_match,
+                approved_match,
+                approved_evidence,
             )
             fresh_report = preflight.build(
                 workspace,
@@ -626,6 +682,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     read_identity=read_identity,
                     credential_binding_hash=credential.binding_hash,
                     write_identity=write_identity,
+                    protected_values=_protected_create_values(context, current),
                     progress=report_writing,
                 )
                 report_verifying(run)
@@ -661,6 +718,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
         except (
             AuthorizationError,
             LoadJobStateError,
+            PermissionError,
             SecretStoreError,
             WorkspaceError,
             WorkspaceStateError,
@@ -879,6 +937,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     actor=context.actor,
                     write_identity=write_identity,
                     write_credential_binding_hash=credential.binding_hash,
+                    protected_values=_protected_create_values(context, current),
                 )
                 executor = context.write_executor_factory(
                     destination,
@@ -896,6 +955,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     read_identity=read_identity,
                     credential_binding_hash=credential.binding_hash,
                     write_identity=write_identity,
+                    protected_values=_protected_create_values(context, current),
                     progress=report_writing,
                 )
                 report_verifying(resumed)
@@ -931,6 +991,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
         except (
             AuthorizationError,
             LoadJobStateError,
+            PermissionError,
             SecretStoreError,
             WorkspaceError,
             WorkspaceStateError,
@@ -1002,11 +1063,13 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
                 write_identity=identity,
                 write_credential_binding_hash=credential.binding_hash,
+                protected_values=_protected_create_values(context, workspace),
             )
         except (
             AuthorizationError,
             ConnectorError,
             OdooReadbackError,
+            PermissionError,
             ReadinessError,
             SecretStoreError,
             WorkspaceError,

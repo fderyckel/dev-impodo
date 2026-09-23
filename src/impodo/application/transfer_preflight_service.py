@@ -72,6 +72,14 @@ class TransferPreflightService:
         approved_models = {item.dataset_id: item for item in package.datasets}
         prior_matches = {item.dataset_id: item for item in approved_match.model_matches}
         fresh_matches = {item.dataset_id: item for item in fresh_match.model_matches}
+        prior_create_fields: dict[str, tuple] = {}
+        fresh_create_fields: dict[str, tuple] = {}
+        for decision in approved_match.create_field_decisions:
+            prior_create_fields.setdefault(decision.model, ())
+            prior_create_fields[decision.model] += (decision,)
+        for decision in fresh_match.create_field_decisions:
+            fresh_create_fields.setdefault(decision.model, ())
+            fresh_create_fields[decision.model] += (decision,)
         if set(approved_models) != set(fresh_matches):
             global_blockers.add("DESTINATION_MODEL_SCOPE_DRIFT")
 
@@ -122,8 +130,12 @@ class TransferPreflightService:
                     blockers.update(fresh.write_blocking_reasons)
                 if (
                     item.destination_create_record_count > 0
-                    and fresh.unresolved_create_fields
-                    != prior.unresolved_create_fields
+                    and (
+                        fresh.unresolved_create_fields
+                        != prior.unresolved_create_fields
+                        or fresh_create_fields.get(item.model, ())
+                        != prior_create_fields.get(item.model, ())
+                    )
                 ):
                     blockers.add("DESTINATION_CREATE_FIELD_DRIFT")
             datasets.append(

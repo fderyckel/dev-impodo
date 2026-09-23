@@ -7,6 +7,7 @@ No credential or business value is printed or written by this runner.
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 import re
@@ -31,6 +32,9 @@ from impodo.domain.workspace.contracts import (
     SourceSelection,
 )
 from impodo.domain.workspace.portable_identity import portable_identity
+from impodo.domain.workspace.destination_matching import (
+    confirm_destination_create_field_defaults,
+)
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     SourceMode,
@@ -79,6 +83,8 @@ def qualify(
     destination_index: int,
     model: str,
     key_fields: tuple[str, ...],
+    *,
+    simulate_missing: bool = False,
 ) -> str:
     if (
         not 1 <= len(key_fields) <= 3
@@ -138,6 +144,10 @@ def qualify(
             f"model={model}; workflow_handler_required="
             f"{state is not None and state.type == 'selection'}"
         )
+
+    source_values = dict(chosen.values)
+    if simulate_missing:
+        source_values[key_fields[0]] = f"Impodo qualification {uuid4()}"
 
     now = datetime.now(UTC)
     workspace_id = str(uuid4())
@@ -239,7 +249,7 @@ def qualify(
         )
 
     plan = DestinationMatchingService(
-        _EphemeralValues(key_fields, dict(chosen.values))
+        _EphemeralValues(key_fields, source_values)
     ).check(
         workspace,
         selection,
@@ -256,6 +266,32 @@ def qualify(
         recorded_by="Read-only qualification",
     )
     result = plan.model_matches[0]
+    create_defaults = tuple(
+        item for item in plan.create_field_decisions if item.model == model
+    )
+    automatic_defaults = tuple(
+        item.field_name
+        for item in create_defaults
+        if item.decision_kind == "automatic"
+    )
+    review_defaults = tuple(
+        item.field_name
+        for item in create_defaults
+        if item.decision_kind == "review"
+    )
+    reviewed_blockers = result.write_blocking_reasons
+    if plan.pending_create_field_decisions and plan.create_field_evidence is not None:
+        stored = replace(
+            plan,
+            protected_create_field_artifact_hash=plan.create_field_evidence_hash,
+            create_field_evidence=None,
+        )
+        confirmed = confirm_destination_create_field_defaults(
+            stored,
+            plan.create_field_evidence,
+            {item.key for item in plan.pending_create_field_decisions},
+        )
+        reviewed_blockers = confirmed.model_matches[0].write_blocking_reasons
     return (
         f"Odoo {source_fingerprint.odoo_version} -> "
         f"{destination_fingerprint.odoo_version}; model={model}; "
@@ -267,6 +303,10 @@ def qualify(
         f"missing_fields={','.join(result.missing_fields) or 'none'}; "
         f"incompatible_fields={','.join(result.incompatible_fields) or 'none'}; "
         f"unresolved_create_fields={','.join(result.unresolved_create_fields) or 'none'}; "
+        f"automatic_create_defaults={','.join(automatic_defaults) or 'none'}; "
+        f"review_create_defaults={','.join(review_defaults) or 'none'}; "
+        f"write_field_blockers_after_default_review="
+        f"{','.join(reviewed_blockers) or 'none'}; "
         f"workflow_handler_required={result.requires_workflow_handler}"
     )
 
@@ -278,6 +318,11 @@ def main() -> int:
     parser.add_argument("--destination-index", type=int, default=2)
     parser.add_argument("--model", default="res.partner")
     parser.add_argument("--key-field", action="append", dest="key_fields")
+    parser.add_argument(
+        "--simulate-missing",
+        action="store_true",
+        help="Use an ephemeral non-existent identity to exercise create-field checks.",
+    )
     args = parser.parse_args()
     try:
         result = qualify(
@@ -286,6 +331,7 @@ def main() -> int:
             args.destination_index,
             args.model,
             tuple(args.key_fields or ("name", "company_type")),
+            simulate_missing=args.simulate_missing,
         )
     except Exception as error:
         # Connector errors can include request context. Never print them here.

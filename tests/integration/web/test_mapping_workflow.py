@@ -643,11 +643,41 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         def readiness_reader(workspace_state, metadata_requests, record_requests):
             calls.append((metadata_requests, record_requests))
             available = _browser_schema(workspace_state)
-            metadata = replace(available, models={})
+            captured_models = {item.name: item for item in schema.models}
+            metadata = replace(
+                available,
+                models={
+                    request.model: ModelMetadata(
+                        model=request.model,
+                        description=captured_models[request.model].label,
+                        fields={
+                            field: FieldMetadata(
+                                **{
+                                    name: getattr(
+                                        next(
+                                            item
+                                            for item in captured_models[
+                                                request.model
+                                            ].fields
+                                            if item.name == field
+                                        ),
+                                        name,
+                                    )
+                                    for name in FieldMetadata.__dataclass_fields__
+                                }
+                            )
+                            for field in request.fields
+                        },
+                    )
+                    for request in metadata_requests
+                },
+            )
             return metadata, RecordSnapshot(
                 fingerprint=metadata.fingerprint,
-                records={},
-                requested_fields={},
+                records={request.model: () for request in record_requests},
+                requested_fields={
+                    request.model: request.fields for request in record_requests
+                },
             )
 
         context.readiness_reader = readiness_reader
@@ -657,9 +687,16 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             credential_roles.append(role)
             return actual_get_target_credential(store, target_workspace, role)
 
-        with patch(
-            "impodo.web.composition.target_readers.get_target_credential",
-            side_effect=credential_reader,
+        with (
+            patch(
+                "impodo.web.composition.target_readers.get_target_credential",
+                side_effect=credential_reader,
+            ),
+            patch.object(
+                context.matching_order._source_keys,
+                "source_identity_key_tuples",
+                return_value=(("P001",),),
+            ),
         ):
             started = self.client.post(
                 f"/workspaces/{workspace_id}/mapping/order/check",
@@ -680,11 +717,18 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(status.json()["status"], "SUCCEEDED", status.text)
         self.assertEqual(credential_roles, [TargetCredentialRole.READ])
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0], ((), ()))
+        self.assertEqual(calls[0][0][0].model, "res.partner")
+        self.assertEqual(calls[0][0][0].fields, ("ref",))
+        self.assertEqual(calls[0][1][0].model, "res.partner")
+        self.assertEqual(calls[0][1][0].fields, ("ref",))
         self.assertNotIn("odoo_id", status.text)
         self.assertNotIn("read-secret", status.text)
+        self.assertNotIn("P001", status.text)
         page = self.client.get(f"/workspaces/{workspace_id}/mapping")
-        self.assertIn("Odoo refinement", page.text)
+        self.assertIn("Identity health", page.text)
+        self.assertIn("Tested on current data", page.text)
+        self.assertIn("New candidates", page.text)
+        self.assertIn("Odoo identity and relationship check", page.text)
         self.assertIn("Current", page.text)
         self.assertIn("Apply recommendation", page.text)
 

@@ -19,6 +19,47 @@ have a functional decision for every required field, stable identity,
 selection value, and relationship. Captured Odoo records keep their protected
 record identity automatically.
 
+### Check identity health before matching fields
+
+At the top of **Match data**, **Identity health** separates three facts that
+must not be confused:
+
+- **Suggested** means Impodo can propose a governed Odoo matching rule, but
+  the current mapping has not saved it.
+- **Chosen - not tested** means the source identifier and Odoo rule are saved,
+  but they have not been proved against current data.
+- **Tested on current data** means the explicit read-only check examined the
+  included source rows and the Odoo records visible to the current read user.
+
+After **Save progress**, select **Check saved identities**. One bounded Odoo
+read also updates the relationship-based table-order suggestion. For each
+direct text, integer, date, date-time, or Selection identity, the card reports
+included rows, unique source identities, blank identity rows, repeated source
+rows and groups, exact and ambiguous Odoo keys, new candidates, existing
+matches, and blocked rows. It never returns source key values or numeric Odoo
+record IDs to the browser.
+
+If a card says **Tested - needs attention**, select **Review matching rule**.
+Blank identities need a source value or a different row rule. Repeated source
+identities need a stronger source identifier or later duplicate resolution.
+Ambiguous Odoo identities need a stronger governed Odoo matching rule. Run the
+check again after saving the correction.
+
+This first identity check does not simplify a complete scoped rule. When an
+identity includes a related record, such as **Category Name within Parent
+Category** or a company relationship, the card remains **Chosen - not tested**
+until Impodo's relationship check can prove the related part. Impodo never
+tests only the name and presents that as proof of the complete identity.
+
+Odoo counts reflect the records visible to the current read user and company
+context. The check cannot claim that an access-hidden record is absent. A
+changed source selection, schema, governed rule, mapping draft, target, or read
+identity changes the card to **Needs refresh**. This authoring result does not
+authorize a load; **Final review** repeats the authoritative destination
+comparison.
+
+![Identity health separates a suggested fictional Contact rule from a current-data test.](../../images/user/11g-mapping-identity-health.png)
+
 ### Use the recommended table order
 
 At the top of **Match data**, **Recommended matching order** shows where to
@@ -34,8 +75,8 @@ position comes from an unambiguous captured Odoo relationship that has not yet
 been confirmed by a saved incoming-table choice. **Starting order** means
 Impodo does not yet know a dependency and keeps the stable source-table order.
 
-After saving the current matching choices, select **Check Odoo and update
-suggestion** when you want Impodo to refine that advice against the current
+After saving the current matching choices, select **Check identities and
+update suggestion** when you want Impodo to refine that advice against the current
 Odoo data. This is an explicit, read-only check. Impodo reads only the exact
 governed relationship keys required by the saved draft and shows aggregate
 counts; source values, Odoo keys, and numeric Odoo record IDs are not returned
@@ -82,8 +123,8 @@ or save any field match.
 ## Steps in Impodo
 
 1. Open **Match data** and review the recommended order. After saving the
-   relevant relationship choices, optionally select **Check Odoo and update
-   suggestion** and then **Apply recommendation**. Work through one table at a
+   relevant relationship choices, optionally select **Check identities and
+   update suggestion** and then **Apply recommendation**. Work through one table at a
    time. You can also select **Reorder tables**, arrange the queue, and select
    **Save table order**.
 2. Under **Rows to use**, keep **Use every row** or select **Use only rows that

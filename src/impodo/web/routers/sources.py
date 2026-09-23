@@ -49,6 +49,7 @@ from ...domain.odoo_source_capture import (
 )
 from impodo.application.workspace.odoo_capture_jobs import OdooCaptureJob, OdooCaptureJobStatus
 from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ...domain.odoo_source_scope import propose_related_odoo_data
 from ...domain.odoo_capture import (
     ODOO_CAPTURE_PAGE_SIZES,
     OdooCaptureRole,
@@ -71,6 +72,7 @@ from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..presenters.odoo_source_scope import build_related_data_scope_view
 from ..presenters.schema import (
     _dataset_choices,
     _dataset_choices_from,
@@ -1081,17 +1083,18 @@ def _render_odoo_capture_selection(
     current_by_model = {item.model: item for item in current_selections}
     models = tuple(schema.models) if schema is not None else ()
     selected_models = {item.name for item in models}
-    unselected_relationships = tuple(
-        (model, field)
-        for model in models
-        for field in model.fields
-        if field.type in {"many2one", "many2many", "one2many"}
-        and field.relation
-        and field.relation not in selected_models
-        and field.exportable is True
-        and field.related is not True
-        and field.company_dependent is False
-        and (field.type == "one2many" or field.readonly is False)
+    model_catalog = context.queries.get_odoo_model_catalog(
+        workspace_state.workspace_id
+    )
+    related_data_scope = build_related_data_scope_view(
+        workspace_state.workspace_id,
+        propose_related_odoo_data(models),
+        model_labels={
+            item.name: item.label
+            for item in (
+                model_catalog.models if model_catalog is not None else ()
+            )
+        },
     )
     linked_models = {
         item.model for item in current_selections
@@ -1252,7 +1255,7 @@ def _render_odoo_capture_selection(
         current=current,
         current_selections=current_selections,
         current_by_model=current_by_model,
-        unselected_relationships=unselected_relationships,
+        related_data_scope=related_data_scope,
         linked_relationships=linked_relationships,
         has_linked_only=has_linked_only,
         plans_complete=plans_complete,

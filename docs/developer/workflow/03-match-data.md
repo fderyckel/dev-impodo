@@ -118,7 +118,29 @@ semantic invalidation callbacks.
 
 `MatchingOrderService.prepare_live_check` accepts only the current saved
 working draft and constructs one immutable `PreflightRequirementPlan` before
-any connector call. A relationship is eligible only when it uses a direct
+any connector call. The same plan owns early direct identity proof and table
+ordering; Stage 3 does not add a second Odoo comparison or connector path.
+
+For each saved file-source dataset, the service first requires the exact
+confirmed governance key and scope. A direct identity is eligible only when
+every component maps one frozen source column to one non-relational Odoo
+`char`, `text`, `selection`, `integer`, `date`, or `datetime` field. The source
+projection applies the saved `RowInclusionPolicy`, so the result describes the
+rows the Recipe would process. A related or resolver-backed key or scope is
+recorded as `INDIRECT_IDENTITY`; it is never reduced to an unscoped name. A
+missing rule, unsupported field, unavailable frozen snapshot, pinned Odoo
+selection, or changed Odoo field contract also produces an explicit
+aggregate-only not-checkable result.
+
+`classify_matching_identity` counts blank source rows, repeated source groups
+and rows, exact target keys, ambiguous target keys, new candidates, existing
+matches, and blocked rows. It applies `upsert`, `create` plus `on_existing`,
+and `reference` semantics. It does not claim update versus unchanged because
+this early plan reads identity fields only. Records hidden from the current
+read user are outside the observed target snapshot; presentation therefore
+states the visibility boundary instead of classifying them as inaccessible.
+
+A relationship is eligible only when it uses a direct
 source value with `TARGET_THEN_DATASET`, has exact confirmed business-key and
 scope governance, maps to non-relational target key fields, and has physical
 frozen source values. Metadata requests are merged by model. Exact record
@@ -141,9 +163,16 @@ projection, and compares the planned field semantics and target fingerprint
 with the Stage 2 catalog before classifying values. Only complete unique target
 coverage removes a conservative incoming dependency. Mixed, incoming,
 missing, ambiguous, schema-changed, and unchecked outcomes retain it. Exact
-source keys and target records are serialized only into the protected
-workspace snapshot row; the public `MatchingOrderCheck` contains aggregate
-counts, hashes, and the proposed dataset order without numeric Odoo IDs.
+source identity and relationship keys and target records are serialized only
+into the protected workspace snapshot row. The public `MatchingOrderCheck`
+contains `MatchingIdentityResult` aggregates, relationship aggregates,
+hashes, and the proposed dataset order without key values or numeric Odoo IDs.
+The
+[identity-health presenter](../../../src/impodo/web/presenters/identity_health.py)
+projects those results into **Suggested**, **Chosen - not tested**, **Tested on
+current data**, **Tested - needs attention**, and **Needs refresh** states.
+`mapping_view.py` remains the page orchestrator and does not duplicate the
+identity classification rules.
 
 Publication is transactional and succeeds as current only when source
 selection, schema, governance, target/read identities, and working-draft
@@ -541,6 +570,7 @@ validation result for the malformed formula.
 | --- | --- |
 | Mapping lifecycle | [`MappingWorkspaceService`](../../../src/impodo/application/workspace/mapping/service.py) |
 | Local Stage 3 ordering recommendation | [`MatchingOrderService`](../../../src/impodo/application/workspace/mapping/order_service.py) |
+| Aggregate identity-health browser projection | [`identity_health.py`](../../../src/impodo/web/presenters/identity_health.py) |
 | Matching-order preference contract | [`MatchingOrderPreference`](../../../src/impodo/domain/matching_order.py) |
 | Matching-order preference persistence | [`MatchingOrderRepository`](../../../src/impodo/adapters/duckdb/matching_order_repository.py) |
 | Matching-order check schema and forward migration | [`workspace_engine.py`](../../../src/impodo/adapters/duckdb/schema/workspace_engine.py) |
@@ -794,9 +824,9 @@ rows.
 fictional Contact and order-line workspaces, serves the current authenticated
 application on
 an ephemeral loopback port, and drives the installed Edge browser at 1440 by
-1024 CSS pixels with device scale factor 1. It captures the relational identity
-origin and incoming-parent controls, the guided combined-source-column
-provider, plus the inline formula error, saved-with-issues,
+1024 CSS pixels with device scale factor 1. It captures Identity health, the
+relational identity origin and incoming-parent controls, the guided
+combined-source-column provider, plus the inline formula error, saved-with-issues,
 stale-tab conflict, and disconnected-server states that the paired user page
 presents. The helper stops the isolated server to
 exercise the real heartbeat; it does not edit an operator workspace or use
@@ -816,6 +846,7 @@ operational source data.
 - [`tests/domain/mapping/test_selection_rules.py`](../../../tests/domain/mapping/test_selection_rules.py)
 - [`tests/integration/web/test_mapping_impact_presenter.py`](../../../tests/integration/web/test_mapping_impact_presenter.py)
 - [`tests/integration/web/test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py)
+- [`tests/integration/web/test_identity_health_presenter.py`](../../../tests/integration/web/test_identity_health_presenter.py)
 - [`tests/integration/web/test_mapping_catalog_scale.py`](../../../tests/integration/web/test_mapping_catalog_scale.py)
 - [`tests/integration/web/test_mapping_catalog_runtime.py`](../../../tests/integration/web/test_mapping_catalog_runtime.py)
 - [`tests/integration/web/test_diagnostics.py`](../../../tests/integration/web/test_diagnostics.py)

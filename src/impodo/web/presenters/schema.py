@@ -44,6 +44,7 @@ from ..target_credentials import (
     get_target_credential,
 )
 from .common import _render
+from .supporting_models import supporting_model_plan_view
 
 
 def _manual_schema_models(
@@ -319,6 +320,8 @@ def _related_dataset_name_default(source_name: str, suffix: str) -> str:
 def _schema_model_choices(
     workspace_state: WorkspaceState,
     catalog: OdooModelCatalog | None,
+    *,
+    suggested_models: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, object], ...]:
     selected = set(workspace_state.intended_models)
     models = list(catalog.models) if catalog else []
@@ -338,7 +341,12 @@ def _schema_model_choices(
             "label": model.label,
             "modules": model.modules,
             "state": model.state,
-            "selected": model.name in selected,
+            "selected": (
+                model.name in selected or model.name in suggested_models
+            ),
+            "suggested": (
+                model.name in suggested_models and model.name not in selected
+            ),
             "in_focus": _model_matches_application_scope(
                 model,
                 workspace_state.intended_applications,
@@ -438,7 +446,6 @@ def _render_schema(
     workspace_state = context.queries.get(workspace_id)
     selection = context.queries.get_source_selection(workspace_id)
     model_catalog = context.queries.get_odoo_model_catalog(workspace_id)
-    model_choices = _schema_model_choices(workspace_state, model_catalog)
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
     try:
         read_credential = get_target_credential(
@@ -555,6 +562,26 @@ def _render_schema(
         "total": len(key_views),
     }
     local_stack = context.local_stack.get(workspace_id)
+    supporting_model_plan = (
+        supporting_model_plan_view(
+            workspace_id,
+            schema,
+            model_catalog,
+        )
+        if workspace_state.source_mode.value == "FILE"
+        and odoo_check_plan is None
+        else supporting_model_plan_view(workspace_id, None, None)
+    )
+    suggested_models = frozenset(
+        item
+        for item in request.query_params.getlist("suggested_model")
+        if item in supporting_model_plan["suggestable_model_names"]
+    )
+    model_choices = _schema_model_choices(
+        workspace_state,
+        model_catalog,
+        suggested_models=suggested_models,
+    )
     return _render(
         request,
         "workspace_schema.html",
@@ -573,6 +600,9 @@ def _render_schema(
         focus_model_count=sum(
             1 for choice in model_choices if choice["in_focus"]
         ),
+        suggested_model_count=sum(
+            1 for choice in model_choices if choice["suggested"]
+        ),
         schema=schema,
         read_credential_present=read_credential_present,
         schema_credential_current=schema_credential_current,
@@ -587,6 +617,8 @@ def _render_schema(
         key_views=key_views,
         key_summary=key_summary,
         business_key_policy_version=BUSINESS_KEY_POLICY_VERSION,
+        supporting_model_plan=supporting_model_plan,
+        workflow_issue_summary=supporting_model_plan["issue_summary"],
         local_stack=local_stack,
         manual_schema_by_model=(
             {model.name: model for model in schema.models}

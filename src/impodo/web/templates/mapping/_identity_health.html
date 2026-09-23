@@ -1,0 +1,72 @@
+{% if identity_health %}
+  <section class="form-card identity-health" aria-labelledby="identity-health-title">
+    <div class="page-heading compact identity-health-heading">
+      <div>
+        <p class="eyebrow">Identity health</p>
+        <h2 id="identity-health-title">Know how records will be identified</h2>
+        <p>
+          A suggested or chosen rule is not proof. Test the saved rule against
+          the included source rows and the Odoo records visible to the current
+          read user.
+        </p>
+      </div>
+      <div class="identity-health-action">
+        {% if identity_health.running %}
+          <span class="status review">Checking Odoo</span>
+        {% else %}
+          <form method="post" action="{{ identity_health.check_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button secondary compact" type="submit" {% if not identity_health.can_start %}disabled{% endif %}>
+              Check saved identities
+            </button>
+          </form>
+        {% endif %}
+        <small class="muted">{{ identity_health.message }}</small>
+      </div>
+    </div>
+
+    <div class="identity-health-list">
+      {% for item in identity_health.cards %}
+        <article class="identity-health-card">
+          <div class="identity-health-card-heading">
+            <div>
+              <h3>{{ item.dataset_name }}</h3>
+              <p class="muted">{{ item.model_label }}</p>
+            </div>
+            <span class="status {{ item.status_class }}">{{ item.status_label }}</span>
+          </div>
+          <dl class="definition-list identity-health-rule">
+            <div><dt>Matching rule</dt><dd>{{ item.rule_label }}</dd></div>
+            <div><dt>Why this rule</dt><dd>{{ item.rule_basis }}</dd></div>
+          </dl>
+          <p>{{ item.message }}</p>
+
+          {% if item.checked %}
+            <div class="metric-grid identity-health-metrics">
+              <div><span>Included source rows</span><strong>{{ "{:,}".format(item.source_row_count) }}</strong></div>
+              <div><span>Unique source identities</span><strong>{{ "{:,}".format(item.source_unique_row_count) }}</strong></div>
+              <div><span>Blank identity rows</span><strong>{{ "{:,}".format(item.source_blank_row_count) }}</strong></div>
+              <div><span>Repeated identity rows</span><strong>{{ "{:,}".format(item.source_repeated_row_count) }}</strong></div>
+              <div><span>Exact Odoo matches</span><strong>{{ "{:,}".format(item.target_unique_key_count) }}</strong></div>
+              <div><span>Ambiguous Odoo keys</span><strong>{{ "{:,}".format(item.target_ambiguous_key_count) }}</strong></div>
+              <div><span>New candidates</span><strong>{{ "{:,}".format(item.expected_new_count) }}</strong></div>
+              <div><span>Existing matches</span><strong>{{ "{:,}".format(item.expected_existing_count) }}</strong></div>
+              <div class="identity-health-blocked"><span>Blocked rows</span><strong>{{ "{:,}".format(item.blocked_count) }}</strong></div>
+            </div>
+            {% if item.source_repeated_group_count %}
+              <p class="muted">
+                {{ item.source_repeated_group_count }} repeated identity group{{ "s" if item.source_repeated_group_count != 1 else "" }} in the included source rows.
+              </p>
+            {% endif %}
+          {% endif %}
+
+          <a class="button secondary compact" href="{{ item.edit_url }}">Review matching rule</a>
+        </article>
+      {% endfor %}
+    </div>
+    <p class="muted identity-health-footnote">
+      This is an authoring check, not permission to load. Final review repeats
+      destination checks before any Odoo write.
+    </p>
+  </section>
+{% endif %}

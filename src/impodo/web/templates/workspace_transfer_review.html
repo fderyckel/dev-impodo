@@ -182,6 +182,18 @@
                 {{ row.dataset.relationship_write_fields|join(', ') if row.dataset.relationship_write_fields else 'None' }}
               </dd>
             </div>
+            <div>
+              <dt>Create-only field providers</dt>
+              <dd>
+                {% if row.dataset.create_field_providers %}
+                  {% for field_name, provider in row.dataset.create_field_providers %}
+                    {{ field_name }}: {{ provider | replace('_', ' ') }}{% if not loop.last %}; {% endif %}
+                  {% endfor %}
+                {% else %}
+                  None
+                {% endif %}
+              </dd>
+            </div>
           </dl>
           {% for relation in row.relationships %}
             <div class="notice">

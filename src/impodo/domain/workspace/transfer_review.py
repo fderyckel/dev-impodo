@@ -23,10 +23,19 @@ from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor, ActorIdentity, Capability
 
 
-TRANSFER_REVIEW_CONTRACT_VERSION = 3
+TRANSFER_REVIEW_CONTRACT_VERSION = 4
 TRANSFER_REVIEW_APPROVAL_CONTRACT_VERSION = 1
 TRANSFER_REVIEW_POLICY_VERSION = "odoo-transfer-review-v3"
 TRANSFER_MODEL_POLICIES = frozenset({"reuse_only", "create_if_missing", "upsert"})
+TRANSFER_CREATE_FIELD_PROVIDERS = frozenset(
+    {
+        "existing_reference",
+        "fixed_value",
+        "incoming_reference",
+        "odoo_default",
+        "source_field",
+    }
+)
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 _SOURCE_HASH_NAMES = frozenset(
@@ -61,6 +70,7 @@ class TransferReviewDataset:
     relationship_write_fields: tuple[str, ...]
     model_policy: str = "upsert"
     key_fields: tuple[str, ...] = ()
+    create_field_providers: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if any(
@@ -116,6 +126,16 @@ class TransferReviewDataset:
             raise ValueError("Transfer-review model policy is invalid")
         if self.model_policy == "reuse_only" and self.destination_create_record_count:
             raise ValueError("Reuse-only models cannot have missing destination records")
+        if self.create_field_providers != tuple(
+            sorted(set(self.create_field_providers), key=lambda item: item[0])
+        ) or any(
+            _TECHNICAL_NAME.fullmatch(field_name) is None
+            or provider not in TRANSFER_CREATE_FIELD_PROVIDERS
+            for field_name, provider in self.create_field_providers
+        ):
+            raise ValueError("Transfer-review create-field providers are invalid")
+        if not self.destination_create_record_count and self.create_field_providers:
+            raise ValueError("Reused-only datasets cannot have create-field providers")
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,7 +272,9 @@ class TransferReviewPackage:
     contract_version: int = TRANSFER_REVIEW_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if self.contract_version not in {1, 2, TRANSFER_REVIEW_CONTRACT_VERSION}:
+        if self.contract_version not in {
+            1, 2, 3, TRANSFER_REVIEW_CONTRACT_VERSION
+        }:
             raise ValueError("Transfer-review contract version is unsupported")
         matched_policy = (
             "update_selected_fields" if self.contract_version == 1 else "per_model"
@@ -398,6 +420,10 @@ class TransferReviewPackage:
                         ),
                         model_policy=str(item.get("model_policy", "upsert")),
                         key_fields=tuple(item.get("key_fields", ())),
+                        create_field_providers=tuple(
+                            (str(choice[0]), str(choice[1]))
+                            for choice in item.get("create_field_providers", ())
+                        ),
                     )
                     for item in payload["datasets"]
                 ),
@@ -621,6 +647,8 @@ def _dataset_dict(
     item: TransferReviewDataset, *, contract_version: int
 ) -> dict[str, Any]:
     payload = asdict(item)
+    if contract_version < 4:
+        payload.pop("create_field_providers")
     if contract_version < 3:
         payload.pop("key_fields")
     if contract_version == 1:

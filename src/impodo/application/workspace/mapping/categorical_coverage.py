@@ -6,7 +6,14 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Mapping, Protocol, Sequence
 
-from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
+from impodo.application.data_version.source_snapshots import (
+    validate_snapshot_for_dataset,
+    validate_source_snapshot_path,
+)
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    DataVersionSourceArtifactStore,
+)
 from impodo.application.shared.columnar_runtime import configure_columnar_runtime
 from impodo.domain.mapping.contracts import (
     MAX_CATEGORICAL_EVIDENCE_VALUES,
@@ -17,14 +24,17 @@ from impodo.domain.mapping.contracts import (
     MappingDefinition,
     RelationshipMapping,
     ResolverOrigin,
+    RowInclusionPolicy,
     ScalarFieldMapping,
     ScalarValueSource,
     relationship_target_fields,
 )
+from impodo.domain.mapping.row_inclusion import row_is_included
 from impodo.domain.mapping.scalar_values import (
     ScalarValueError,
     evaluate_scalar_mapping_value,
 )
+from impodo.domain.mapping.source_conditions import SourceConditionValueError
 from impodo.domain.mapping.validation.evidence import (
     CategoricalCoverageEvidence,
     CategoricalFieldResult,
@@ -32,12 +42,8 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationIssue,
 )
 from impodo.domain.serialization import content_hash
-from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.preparation.source import SourceLoadError
-from impodo.application.data_version.source_snapshots import (
-    validate_snapshot_for_dataset,
-    validate_source_snapshot_path,
-)
+from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SourceDataset,
@@ -256,6 +262,75 @@ class CategoricalCoverageService:
                     if raw is None or raw is False or not str(raw).strip()
                     else str(raw).strip()
                     for raw in row
+                )
+            )
+        return tuple(result)
+
+    def source_identity_key_tuples(
+        self,
+        workspace_id: str,
+        dataset_id: str,
+        source_column_keys: Sequence[str],
+        row_inclusion: RowInclusionPolicy,
+    ) -> tuple[tuple[str | None, ...], ...]:
+        """Return identity keys for the rows included by the saved mapping.
+
+        Identity health must describe the records the current Recipe would
+        process, not every row in the frozen source. The projection remains
+        exact and ephemeral: callers may persist it only in protected,
+        target-specific evidence.
+        """
+
+        keys = tuple(source_column_keys)
+        if not keys or len(keys) != len(set(keys)):
+            raise WorkspaceError("Choose current source identity columns")
+        selection = self.sources.get_source_selection(workspace_id)
+        if selection is None:
+            raise WorkspaceError("Frozen source evidence is incomplete")
+        dataset = next(
+            (item for item in selection.datasets if item.dataset_id == dataset_id),
+            None,
+        )
+        available = (
+            {item.stable_key for item in dataset.columns}
+            if dataset is not None
+            else set()
+        )
+        condition_keys = tuple(
+            dict.fromkeys(
+                condition.source_column_key
+                for condition in row_inclusion.conditions
+            )
+        )
+        projected = tuple(dict.fromkeys((*keys, *condition_keys)))
+        if dataset is None or any(key not in available for key in projected):
+            raise WorkspaceError(
+                "Identity checking is available for original frozen columns"
+            )
+        frame = self._scan_dataset(
+            workspace_id,
+            selection,
+            dataset_id,
+            projected,
+        )
+        result: list[tuple[str | None, ...]] = []
+        for row in frame.select(projected).iter_rows(named=True):
+            try:
+                if not row_is_included(row_inclusion, row):
+                    continue
+            except SourceConditionValueError as error:
+                raise WorkspaceError(
+                    "The saved row-inclusion rule cannot be evaluated on "
+                    "the current frozen source"
+                ) from error
+            result.append(
+                tuple(
+                    None
+                    if row[key] is None
+                    or row[key] is False
+                    or not str(row[key]).strip()
+                    else str(row[key]).strip()
+                    for key in keys
                 )
             )
         return tuple(result)

@@ -2,7 +2,7 @@
 
 Run this helper from the repository root with Playwright available. It creates
 only fictional test data, serves the current application on an ephemeral
-loopback port, authenticates through the normal launch route, and writes seven
+loopback port, authenticates through the normal launch route, and writes eight
 1440 by 1024 PNG files under ``docs/images/user``.
 """
 
@@ -397,6 +397,14 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                     "The current Match data page did not render the fictional "
                     f"formula field. URL={page.url!r}; status={status}; body={summary!r}"
                 )
+
+            identity_health = page.locator(".identity-health")
+            expect(identity_health).to_be_visible()
+            identity_health.scroll_into_view_if_needed()
+            _capture(
+                page,
+                output_directory / "11g-mapping-identity-health.png",
+            )
 
             _configure_concatenation(
                 page,

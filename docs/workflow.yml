@@ -299,21 +299,26 @@ stages:
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.confirm_refresh
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.govern
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.govern_complete
+      - src/impodo/application/workspace/issues.py::WorkflowIssueProjection
       - src/impodo/domain/workspace/business_keys.py::assess_business_key_recommendation
+      - src/impodo/domain/workspace/supporting_models.py::derive_supporting_model_dependencies
       - src/impodo/web/presenters/schema.py::_schema_key_views
+      - src/impodo/web/presenters/supporting_models.py::supporting_model_plan_view
+      - scripts/capture_stage2_matching_rule_screenshots.py::capture
     tests:
       - tests/integration/duckdb/test_workspace.py
       - tests/integration/odoo/test_local_reader.py
       - tests/domain/workspace/test_business_keys.py
+      - tests/domain/workspace/test_supporting_models.py
+      - tests/application/workspace/test_workflow_issues.py
       - tests/application/workspace/test_schema_governance.py
       - tests/integration/web/test_schema_presenter.py
+      - tests/integration/web/test_stage2_supporting_models.py
       - tests/integration/web/test_target_workflow.py
       - tests/integration/web/test_schema_capture_recovery.py
+      - tests/e2e/test_stage2_matching_rules.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
-    references:
-      - docs/plans/stage-2-odoo-matching-rule-suggestions.md
-
   - id: match
     order: 3
     label: Match data
@@ -337,6 +342,7 @@ stages:
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService.prepare_mapping_review_rows
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_key_tuples
+      - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_identity_key_tuples
       - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
       - src/impodo/domain/mapping/contracts.py::RowInclusionPolicy
       - src/impodo/domain/mapping/row_inclusion.py::row_is_included
@@ -357,6 +363,8 @@ stages:
       - src/impodo/domain/matching_order.py::recommend_dataset_matching_order
       - src/impodo/domain/matching_order.py::MatchingOrderPreference
       - src/impodo/domain/matching_order.py::MatchingOrderCheck
+      - src/impodo/domain/matching_order.py::MatchingIdentityResult
+      - src/impodo/domain/matching_order.py::classify_matching_identity
       - src/impodo/domain/matching_order.py::live_matching_order_recommendation
       - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v11_to_v12
       - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v12_to_v13
@@ -382,6 +390,7 @@ stages:
       - src/impodo/web/mapping_catalog_runtime.py::MappingCatalogSearchCoordinator
       - src/impodo/web/presenters/mapping_view.py::_render_mapping
       - src/impodo/web/presenters/mapping_view.py::_matching_order_view
+      - src/impodo/web/presenters/identity_health.py::identity_health_view
       - src/impodo/web/presenters/mapping_view.py::_build_dataset_catalog_projection
     tests:
       - tests/integration/web/test_mapping_forms.py
@@ -393,6 +402,7 @@ stages:
       - tests/application/workspace/test_derived_entities.py
       - tests/integration/web/test_mapping_impact_presenter.py
       - tests/integration/web/test_mapping_workflow.py
+      - tests/integration/web/test_identity_health_presenter.py
       - tests/integration/web/test_mapping_catalog_scale.py
       - tests/integration/web/test_mapping_catalog_runtime.py
       - tests/integration/web/test_diagnostics.py
@@ -581,8 +591,13 @@ stages:
       - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_batch_started
       - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_recovery
       - src/impodo/application/destination_matching_service.py::DestinationMatchingService
+      - src/impodo/domain/workspace/destination_matching.py::DestinationCreateFieldDecision
+      - src/impodo/domain/workspace/destination_matching.py::DestinationCreateIncomingReferenceCandidate
+      - src/impodo/domain/workspace/destination_matching.py::choose_destination_create_field_provider
+      - src/impodo/adapters/protected_destination_create_fields.py::ProtectedDestinationCreateFieldStore
       - src/impodo/application/transfer_order_service.py::TransferOrderService
       - src/impodo/application/transfer_review_service.py::TransferReviewService
+      - src/impodo/domain/workspace/transfer_review.py::TransferReviewDataset
       - src/impodo/application/transfer_preflight_service.py::TransferPreflightService
       - src/impodo/application/transfer_execution_service.py::TransferExecutionService
       - src/impodo/application/transfer_execution_service.py::TransferExecutionService.resume

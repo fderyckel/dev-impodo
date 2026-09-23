@@ -50,6 +50,9 @@ from impodo.domain.workspace.contracts import (
     SourceSelection,
 )
 from impodo.domain.workspace.errors import OdooModelCatalogRefreshRequired, WorkspaceError
+from impodo.domain.workspace.supporting_models import (
+    unavailable_required_supporting_dependencies,
+)
 from ..domain.serialization import content_hash
 
 
@@ -1272,6 +1275,29 @@ class SchemaWorkspaceService:
                 "The Odoo details changed. Review the current matching rules "
                 "before confirming them."
             )
+        if schema.origin is SchemaOrigin.LIVE_API:
+            model_catalog = self.schemas.get_odoo_model_catalog(workspace_id)
+            available_models = (
+                (model.name for model in model_catalog.models)
+                if model_catalog is not None
+                else ()
+            )
+            unavailable = unavailable_required_supporting_dependencies(
+                schema.models,
+                available_models,
+            )
+            if unavailable:
+                related_models = ", ".join(
+                    sorted(
+                        {item.relation_model for item in unavailable},
+                        key=str.casefold,
+                    )
+                )
+                raise WorkspaceError(
+                    "Required related Odoo data is not available for matching: "
+                    f"{related_models}. Review the available Odoo data, then "
+                    "load the selected Odoo details again."
+                )
         counts = {model.name: 0 for model in schema.models}
         for definition in definitions:
             if definition.status is not BusinessKeyStatus.CONFIRMED:

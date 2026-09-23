@@ -51,6 +51,7 @@ class TransferOrderService:
             for index, item in enumerate(models)
         )
         relation_by_edge: dict[DependencyEdge, DestinationRelationshipMatch] = {}
+        incoming_create_by_edge = {}
         edges: list[DependencyEdge] = []
         for relation in match_plan.relationship_matches:
             if relation.incoming_link_count <= 0:
@@ -63,6 +64,28 @@ class TransferOrderService:
             )
             edges.append(edge)
             relation_by_edge[edge] = relation
+        models_by_dataset = {item.dataset_id: item for item in models}
+        for decision in match_plan.create_field_decisions:
+            if (
+                decision.provider_kind != "incoming_reference"
+                or not decision.reviewed
+                or not decision.source_reference_requires_create
+            ):
+                continue
+            dependency = models_by_dataset.get(decision.source_dataset_id or "")
+            owner = models_by_dataset.get(decision.dataset_id)
+            if dependency is None or owner is None:
+                raise WorkspaceError(
+                    "A create-only source-record choice no longer matches the selected data"
+                )
+            edge = DependencyEdge(
+                dependency_row_id=dependency.dataset_id,
+                owner_row_id=owner.dataset_id,
+                owner_field=decision.field_name,
+                strength="hard",
+            )
+            edges.append(edge)
+            incoming_create_by_edge[edge] = (decision, owner, dependency)
 
         schedule = schedule_dependencies(nodes, edges)
         deferred = set(schedule.deferred_edges)
@@ -91,23 +114,39 @@ class TransferOrderService:
             )
             for item in models
         )
+        relationship_dependencies = (
+            TransferOrderDependency(
+                owner_dataset_id=relation.dataset_id,
+                dependency_dataset_id=relation.related_dataset_id,
+                owner_model=relation.model,
+                dependency_model=relation.related_model,
+                field_name=relation.field_name,
+                field_label=relation.field_label,
+                kind=relation.kind,
+                strength=edge.strength,
+                incoming_link_count=relation.incoming_link_count,
+                deferred=edge in deferred,
+            )
+            for edge, relation in relation_by_edge.items()
+        )
+        create_field_dependencies = (
+            TransferOrderDependency(
+                owner_dataset_id=owner.dataset_id,
+                dependency_dataset_id=dependency.dataset_id,
+                owner_model=owner.model,
+                dependency_model=dependency.model,
+                field_name=decision.field_name,
+                field_label=decision.field_label,
+                kind="many2one",
+                strength="hard",
+                incoming_link_count=owner.destination_create_key_count,
+                deferred=False,
+            )
+            for decision, owner, dependency in incoming_create_by_edge.values()
+        )
         dependencies = tuple(
             sorted(
-                (
-                    TransferOrderDependency(
-                        owner_dataset_id=relation.dataset_id,
-                        dependency_dataset_id=relation.related_dataset_id,
-                        owner_model=relation.model,
-                        dependency_model=relation.related_model,
-                        field_name=relation.field_name,
-                        field_label=relation.field_label,
-                        kind=relation.kind,
-                        strength=edge.strength,
-                        incoming_link_count=relation.incoming_link_count,
-                        deferred=edge in deferred,
-                    )
-                    for edge, relation in relation_by_edge.items()
-                ),
+                (*relationship_dependencies, *create_field_dependencies),
                 key=lambda item: (
                     item.owner_model,
                     item.field_name,

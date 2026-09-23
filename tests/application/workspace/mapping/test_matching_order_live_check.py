@@ -15,6 +15,8 @@ from impodo.domain.mapping.contracts import (
     ResolverOrigin,
 )
 from impodo.domain.matching_order import (
+    MatchingIdentityCheckStatus,
+    MatchingIdentityNotCheckableReason,
     MatchingOrderCheckStatus,
     MatchingOrderRelationshipOutcome,
 )
@@ -50,7 +52,17 @@ class _Keys:
         self.calls = []
 
     def source_key_tuples(self, workspace_id, dataset_id, source_column_keys):
-        self.calls.append((workspace_id, dataset_id, source_column_keys))
+        self.calls.append(("relationship", workspace_id, dataset_id, source_column_keys))
+        return self.rows[(dataset_id, source_column_keys)]
+
+    def source_identity_key_tuples(
+        self,
+        workspace_id,
+        dataset_id,
+        source_column_keys,
+        row_inclusion,
+    ):
+        self.calls.append(("identity", workspace_id, dataset_id, source_column_keys))
         return self.rows[(dataset_id, source_column_keys)]
 
 
@@ -156,7 +168,7 @@ class MatchingOrderLiveCheckTests(unittest.TestCase):
             plan.record_requests[0].domain,
             (["ref", "in", ["P001", "P002"]],),
         )
-        self.assertEqual(len(keys.calls), 2)
+        self.assertEqual(len(keys.calls), 3)
         self.assertEqual(
             repository.check.relationship_results[0].outcome,
             MatchingOrderRelationshipOutcome.TARGET,
@@ -165,6 +177,23 @@ class MatchingOrderLiveCheckTests(unittest.TestCase):
             repository.check.ordered_dataset_ids,
             ("dataset:bom", "dataset:article"),
         )
+        identities = {
+            item.dataset_id: item
+            for item in repository.check.identity_results
+        }
+        self.assertEqual(
+            identities["dataset:bom"].not_checkable_reason,
+            MatchingIdentityNotCheckableReason.UNCONFIRMED_MATCHING_RULE,
+        )
+        self.assertEqual(
+            identities["dataset:article"].status,
+            MatchingIdentityCheckStatus.CHECKED,
+        )
+        self.assertEqual(
+            identities["dataset:article"].expected_existing_count,
+            2,
+        )
+        self.assertEqual(identities["dataset:article"].blocked_count, 0)
         self.assertNotIn("P001", repository.check.to_json())
         self.assertNotIn('"id":71', repository.check.to_json())
         self.assertIn("P001", repository.protected)
@@ -232,6 +261,14 @@ class MatchingOrderLiveCheckTests(unittest.TestCase):
         self.assertEqual(
             repository.check.ordered_dataset_ids,
             local.ordered_dataset_ids,
+        )
+        identities = {
+            item.dataset_id: item
+            for item in repository.check.identity_results
+        }
+        self.assertEqual(
+            identities["dataset:article"].not_checkable_reason,
+            MatchingIdentityNotCheckableReason.ODOO_SCHEMA_CHANGED,
         )
 
 

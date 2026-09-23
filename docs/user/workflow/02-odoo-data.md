@@ -8,14 +8,17 @@ status: current
 
 ## Goal
 
-Choose the Odoo 19 record types and fields needed by the current data project
-version, and confirm how Impodo can identify one existing record.
+Choose the top-level Odoo 19 business records needed by the current data
+project version. Let Impodo expose their direct supporting relationships, then
+confirm how it can identify one existing record.
 
 ## Before you start
 
 The current data-version target must be configured. A file-source data version
-also needs frozen source tables. Know the intended Odoo business records and
-agree stable business keys with the functional owner.
+also needs frozen source tables. Know the top-level business records that the
+migration should create or update and agree stable business keys with the
+functional owner. You do not need to know Odoo's supporting record types in
+advance.
 
 For a file source, **Odoo access** is a separate setup page in the sidebar.
 You can check the destination there while finishing Source data, or open it
@@ -41,20 +44,35 @@ same secret. Production continues to require a separate limited write key.
 1. Open **Odoo data**. In an Odoo-source project this is shown first as
    **Odoo source data**.
 2. Select **Show available Odoo data**.
-3. Choose only the record types included in the approved scope.
+3. Choose the top-level business record types included in the approved scope.
 4. Load the selected Odoo details.
-5. Review fields, types, required values, selections, and relationships.
-6. For a file-source migration, review the matching rule that Impodo prepared
+5. Review **Supporting data Impodo found**. Impodo groups direct required
+   relationships and inverse-owned child data as existing Odoo data to reuse,
+   checked defaults, Odoo-managed data, or related business data that you may
+   include explicitly.
+6. Review fields, types, required values, selections, and relationships.
+7. For a file-source migration, review the matching rule that Impodo prepared
    for each supported writable record type. Change a rule when the proposed
    identity does not fit the migration, resolve every **Needs attention** card,
    then confirm the complete set once.
-7. For an Odoo source, confirm the eligible fields needed by the bounded source
+8. For an Odoo source, confirm the eligible fields needed by the bounded source
    capture.
+
+The supporting-data review uses the direct relationships in the captured live
+Odoo schema. **Include incoming data** returns to the record-type choices with
+the related business record preselected for review. It does not save that
+choice or widen the write scope until you save it explicitly. Reused existing
+Odoo data remains outside the migration write scope. Match data must still
+prove which source relationship values are populated and whether they resolve.
+
+![Impodo showing direct supporting Odoo data for a fictional Product migration.](../../images/user/08c-odoo-supporting-data.png)
 
 The matching-rule summary separates **Suggested**, **Confirmed**, **Changed**,
 and **Needs attention** record types. When every card has a proposed or saved
 rule, select **Confirm suggested matching rules**. The suggested values are
 already in the form; you do not need to select a suggestion on every card.
+
+![Stage 2 summary with three suggested matching rules ready for one confirmation.](../../images/user/08b-odoo-business-keys.png)
 
 For a child record, **Within** can identify the owning parent. For example,
 Impodo proposes:
@@ -68,11 +86,22 @@ can legitimately appear more than once in one BoM, so **Component within Parent
 BoM** remains an advanced override rather than the default. Use **Change
 suggested rule** when the functional owner has approved a different identity.
 
+![Suggested Product matching rule with its Odoo-convention warning.](../../images/user/08d-odoo-matching-rule-warning.png)
+
+If you change a suggestion, Impodo keeps the changed values in the form when
+another card needs correction. After confirmation and reopening, the reviewed
+override remains the matching rule instead of being replaced by the original
+suggestion.
+
+![Advanced Product matching-rule override kept after validation.](../../images/user/08e-odoo-matching-rule-override.png)
+
 Impodo leaves a record type as **Needs attention** when Odoo exposes several
 possible unique rules or no reviewed rule. It does not guess from a field name
 or translated label. A convention warning also remains visible because Prepare
 data and Final review must still prove that the actual values are populated and
 unique.
+
+![Unresolved custom record type shown as Needs attention.](../../images/user/08f-odoo-matching-rule-attention.png)
 
 After the first capture, **Check for Odoo changes** reads the same selected
 record types again. If their technical Odoo details are unchanged, Impodo
@@ -98,8 +127,6 @@ turn that supporting record type into data that the project will create or
 update.
 
 ![Current Odoo record-type selection for a fictional data project workspace.](../../images/user/08-odoo-models.png)
-
-![Current confirmed matching rule for finding one existing Odoo Contact.](../../images/user/08b-odoo-business-keys.png)
 
 ## How Recipes reuse this work
 
@@ -132,9 +159,11 @@ current target evidence.
 ## What Complete means
 
 For a file source, every selected writable record type has one confirmed rule.
-The selected schema and complete business-key governance are saved together and
-**Match data** becomes available. For an Odoo source, the eligible schema is
-captured and you next define and freeze the bounded source-record selection.
+Every required direct relationship that must reuse existing Odoo data is also
+available for later matching. The selected schema and complete business-key
+governance are saved together and **Match data** becomes available. For an Odoo
+source, the eligible schema is captured and you next define and freeze the
+bounded source-record selection.
 
 ## What changes and what does not
 
@@ -156,6 +185,13 @@ check finds changed details or access, review the result before selecting
 
 If access changes again during that retry, Impodo stops and keeps the current
 details. Check the read user and company access before retrying.
+
+If **Migration issues** says that required related Odoo data is unavailable,
+use **Review available Odoo data**. The issue names the affected business
+record and field, the correction owner, what remains saved, and the required
+recheck. Refresh the available Odoo record types or correct the read user's
+access, then load the selected Odoo details again. Impodo preserves the
+accepted source data and the selected top-level business records.
 
 Do not continue when the wrong database, model, inherited field, or business
 key is shown. Refresh the available record types or select **Check for Odoo

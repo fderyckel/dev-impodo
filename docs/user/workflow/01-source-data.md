@@ -59,22 +59,32 @@ version.
 1. Open **Download and freeze** after eligible fields have been captured.
 2. Choose each **Odoo record type** in turn. The page shows that record
    type's eligible fields and its own saved plan.
-3. Review the page's related record types outside the selection, then save one
-   bounded plan for every selected type. A Contact, Product, transaction, or
-   supporting record type each has its own plan. Include the fields needed by
-   the migration when they appear among the eligible fields. To limit a root
-   group, choose **Root record filter (optional)** and enter an **Exact value**.
-   For example, filter Contacts by a shared reference code. Impodo keeps the
-   value in protected project evidence and uses it when counting and freezing.
-   For a supporting type, choose **Capture only records linked from the
-   selected source records**. Impodo finds its records through eligible
-   relationships from the root group and other selected supporting types.
-4. If you chose a linked supporting type, review **Relationship fields used to
+3. Review **Review the related data for this migration**. Impodo groups the
+   available links into supporting records needed to preserve meaning,
+   optional business data, destination setup to reuse, records created by
+   Odoo, separate business processes, history to leave out, and links that
+   still need a decision. For Products, **Review recommended supporting data**
+   preselects Product Categories and Units of Measure when those links are
+   available. If the selected unit records reveal a Unit of Measure Category,
+   Impodo recommends that supporting data in the next review. Check the
+   business labels and save the reviewed choices; Impodo does not add them
+   silently.
+4. Save one bounded plan for every selected type. A Contact, Product,
+   transaction, or supporting record type each has its own plan. Include the
+   fields needed by the migration when they appear among the eligible fields.
+   To limit a root group, choose **Root record filter (optional)** and enter an
+   **Exact value**. For example, filter Contacts by a shared reference code.
+   Impodo keeps the value in protected project evidence and uses it when
+   counting and freezing. For a supporting type, choose **Capture only records
+   linked from the selected source records**. Impodo finds its records through
+   eligible relationships from the root group and other selected supporting
+   types.
+5. If you chose a linked supporting type, review **Relationship fields used to
    find linked records** and confirm **I reviewed the selected relationship
    fields above**. Then select **Check matching records and continue**. Impodo
    shows the count and request estimate for each dataset and for the complete
    capture.
-5. Confirm the read-only action and wait while Impodo freezes every dataset as
+6. Confirm the read-only action and wait while Impodo freezes every dataset as
    one source version. A failure leaves the previous complete version current.
 
 The Odoo-source route reads selected business records; it does not authorize a
@@ -82,12 +92,14 @@ write back to Odoo.
 
 Selected record types remain separate datasets. Capturing both ends of a
 relationship gives **Match destination data** the records and protected link
-evidence it needs. A link to an unselected record type is not transferred.
-The related-type warning helps you find types missing from the selection. Once
-you select a supporting type and mark it for linked capture, Impodo finds its
-records from selected relationship fields. It stops if a referenced record is
-missing, inaccessible, or outside the selected root group. Capture alone does
-not authorize recreating records in another Odoo instance.
+evidence it needs. A link to an unselected record type is not transferred. The
+related-data proposal explains why each available link may or may not belong
+in the migration. Its technical model and field names remain under **Support
+details**. Once you select a supporting type and mark it for linked capture,
+Impodo finds its records from selected relationship fields. It stops if a
+referenced record is missing, inaccessible, or outside the selected root
+group. Capture alone does not authorize recreating records in another Odoo
+instance.
 
 The root filter currently matches one direct field by exact value. Editing
 other plan choices keeps a saved filter. Enter a new field and value to replace

@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.shared.models import FieldMetadata
+from impodo.domain.workspace.contracts import SchemaField
 from tests.support.browser_scenarios import (
     BytesIO,
     MANIFEST_NAME,
@@ -191,6 +193,99 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             blocked.text,
         )
         self.assertNotIn("data-source-file-remove-form", blocked.text)
+
+    def test_odoo_source_page_proposes_related_business_scope(self) -> None:
+        workspace_state, schema = self._registered_remote_schema_workspace()
+        product_schema = replace(
+            schema,
+            models=(
+                replace(
+                    schema.models[0],
+                    name="product.template",
+                    label="Product",
+                    fields=(
+                        SchemaField(
+                            name="name",
+                            label="Product Name",
+                            type="char",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                            exportable=True,
+                        ),
+                        SchemaField(
+                            name="categ_id",
+                            label="Product Category",
+                            type="many2one",
+                            required=True,
+                            readonly=False,
+                            relation="product.category",
+                            relation_field=None,
+                            selection=(),
+                            related=False,
+                            company_dependent=False,
+                            exportable=True,
+                        ),
+                        SchemaField(
+                            name="company_id",
+                            label="Company",
+                            type="many2one",
+                            required=False,
+                            readonly=False,
+                            relation="res.company",
+                            relation_field=None,
+                            selection=(),
+                            related=False,
+                            company_dependent=False,
+                            exportable=True,
+                        ),
+                        SchemaField(
+                            name="activity_ids",
+                            label="Activities",
+                            type="one2many",
+                            required=False,
+                            readonly=True,
+                            relation="mail.activity",
+                            relation_field="res_id",
+                            selection=(),
+                            related=False,
+                            company_dependent=False,
+                            exportable=True,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        context = self.app.state.context
+
+        with patch.object(
+            context.queries,
+            "get_odoo_schema_catalog",
+            return_value=product_schema,
+        ):
+            page = self.client.get(
+                f"/workspaces/{workspace_state.workspace_id}/sources"
+            )
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Review the related data for this migration", page.text)
+        self.assertIn("Needed to keep the records meaningful", page.text)
+        self.assertIn("Reuse destination setup", page.text)
+        self.assertIn("Not part of the business-data move", page.text)
+        self.assertIn("Product Category", page.text)
+        self.assertIn("suggested_model=product.category", page.text)
+        self.assertNotIn(
+            "Related record types outside this source selection",
+            page.text,
+        )
+        self.assertEqual(
+            context.queries.get_current_odoo_capture_selections(
+                workspace_state.workspace_id
+            ),
+            (),
+        )
 
     def test_odoo_source_setup_skips_file_export_and_opens_schema_first(
         self,
@@ -721,6 +816,43 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("The destination connection is verified", connected_source_page.text)
         self.assertIn("Match destination data", connected_source_page.text)
 
+        base_destination_reader = self.app.state.context.destination_match_reader
+
+        def destination_reader_with_required_default(*args):
+            metadata, records = base_destination_reader(*args)
+            partner = metadata.models["res.partner"]
+            return replace(
+                metadata,
+                models={
+                    **metadata.models,
+                    "res.partner": replace(
+                        partner,
+                        fields={
+                            **partner.fields,
+                            "group_on": FieldMetadata(
+                                "group_on",
+                                "selection",
+                                "Group purchases by",
+                                required=True,
+                                selection=(("order", "Purchase order"),),
+                                company_dependent=False,
+                            ),
+                        },
+                    ),
+                },
+                create_defaults={
+                    **metadata.create_defaults,
+                    "res.partner": {
+                        **metadata.create_defaults.get("res.partner", {}),
+                        "group_on": "order",
+                    },
+                },
+            ), records
+
+        self.app.state.context.destination_match_reader = (
+            destination_reader_with_required_default
+        )
+
         matching_page = self.client.get(
             f"/workspaces/{workspace_id}/destination-matching"
         )
@@ -757,10 +889,42 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertTrue(matched_state.destination_match_plan.ready)
         matched_page = self.client.get(matching_checked.headers["location"])
         self.assertIn("Destination matching is ready", matched_page.text)
-        self.assertIn("Stage 5 complete", matched_page.text)
         self.assertIn("Existing destination keys", matched_page.text)
         self.assertIn("New destination keys", matched_page.text)
         self.assertIn("Next: validate the transfer order", matched_page.text)
+        self.assertIn("Complete values for new records", matched_page.text)
+        self.assertIn("Purchase order (order)", matched_page.text)
+        self.assertIn("Needs decision", matched_page.text)
+        pending_default = next(
+            item
+            for item in matched_state.destination_match_plan.create_field_decisions
+            if item.field_name == "group_on"
+        )
+        self.assertFalse(pending_default.reviewed)
+        confirmed_defaults = self._post(
+            f"/workspaces/{workspace_id}/destination-matching/defaults",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(matched_state.revision),
+                "match_plan_hash": matched_state.destination_match_plan.content_hash,
+                "default_field": "res.partner::group_on",
+            },
+        )
+        self.assertEqual(confirmed_defaults.status_code, 303, confirmed_defaults.text)
+        matched_state = self.app.state.context.queries.get(workspace_id)
+        confirmed_default = next(
+            item
+            for item in matched_state.destination_match_plan.create_field_decisions
+            if item.field_name == "group_on"
+        )
+        self.assertTrue(confirmed_default.reviewed)
+        self.assertNotIn(
+            "group_on",
+            matched_state.destination_match_plan.model_matches[0].unresolved_create_fields,
+        )
+        confirmed_page = self.client.get(confirmed_defaults.headers["location"])
+        self.assertIn("Stage 5 complete", confirmed_page.text)
+        self.assertIn("Confirmed", confirmed_page.text)
         self.assertIn(
             f'href="/workspaces/{workspace_id}/transfer-order"',
             matched_page.text,

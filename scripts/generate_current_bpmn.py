@@ -248,12 +248,13 @@ def build_specs() -> tuple[ProcessSpec, ...]:
             task("Task_ReadFields", "serviceTask", "Read selected fields and relationships", 740, 330, "Lane_Impodo"),
             task("Task_ReviewSchema", "userTask", "Review fields, types, requirements, selections, and relations", 940, 110, "Lane_DataManager"),
             gateway("Gateway_OdooSourceMode", "Source mode?", 1150, 120, "Lane_DataManager"),
-            task("Task_BusinessKeys", "userTask", "Choose portable business keys", 1260, 80, "Lane_DataManager"),
-            task("Task_ConfirmSchema", "serviceTask", "Confirm schema and matching governance", 1460, 330, "Lane_Impodo"),
-            event("End_FileOdooData", "endEvent", "Match data available", 1660, 347, "Lane_Impodo"),
-            task("Task_EligibleFields", "userTask", "Confirm eligible capture fields", 1260, 190, "Lane_DataManager"),
-            task("Task_SaveCapturePlan", "serviceTask", "Save bounded capture-plan revision", 1460, 420, "Lane_Impodo"),
-            event("End_OdooCapturePlan", "endEvent", "Freeze Odoo records next", 1660, 437, "Lane_Impodo"),
+            task("Task_PrepareMatchingRules", "serviceTask", "Prepare evidence-labelled matching-rule suggestions", 1260, 330, "Lane_Impodo"),
+            task("Task_BusinessKeys", "userTask", "Review suggestions and resolve attention", 1460, 80, "Lane_DataManager"),
+            task("Task_ConfirmSchema", "serviceTask", "Confirm schema and matching governance", 1660, 330, "Lane_Impodo"),
+            event("End_FileOdooData", "endEvent", "Match data available", 1860, 347, "Lane_Impodo"),
+            task("Task_EligibleFields", "userTask", "Confirm eligible capture fields", 1460, 190, "Lane_DataManager"),
+            task("Task_SaveCapturePlan", "serviceTask", "Save bounded capture-plan revision", 1660, 420, "Lane_Impodo"),
+            event("End_OdooCapturePlan", "endEvent", "Freeze Odoo records next", 1860, 437, "Lane_Impodo"),
         ),
         flows=(
             Flow("Flow_OD_01", "Start_OdooData", "Task_ShowModels"),
@@ -262,9 +263,10 @@ def build_specs() -> tuple[ProcessSpec, ...]:
             Flow("Flow_OD_04", "Task_SelectModels", "Task_ReadFields"),
             Flow("Flow_OD_05", "Task_ReadFields", "Task_ReviewSchema"),
             Flow("Flow_OD_06", "Task_ReviewSchema", "Gateway_OdooSourceMode"),
-            Flow("Flow_OD_07", "Gateway_OdooSourceMode", "Task_BusinessKeys", "Files"),
-            Flow("Flow_OD_08", "Task_BusinessKeys", "Task_ConfirmSchema"),
-            Flow("Flow_OD_09", "Task_ConfirmSchema", "End_FileOdooData"),
+            Flow("Flow_OD_07", "Gateway_OdooSourceMode", "Task_PrepareMatchingRules", "Files"),
+            Flow("Flow_OD_08", "Task_PrepareMatchingRules", "Task_BusinessKeys"),
+            Flow("Flow_OD_09", "Task_BusinessKeys", "Task_ConfirmSchema"),
+            Flow("Flow_OD_13", "Task_ConfirmSchema", "End_FileOdooData"),
             Flow("Flow_OD_10", "Gateway_OdooSourceMode", "Task_EligibleFields", "Odoo"),
             Flow("Flow_OD_11", "Task_EligibleFields", "Task_SaveCapturePlan"),
             Flow("Flow_OD_12", "Task_SaveCapturePlan", "End_OdooCapturePlan"),
@@ -783,12 +785,28 @@ def render(spec: ProcessSpec) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true", help="Fail when generated files differ")
+    parser.add_argument(
+        "--stage",
+        action="append",
+        dest="stages",
+        help="Generate or check only the named stage slug; repeat for multiple stages",
+    )
     args = parser.parse_args()
 
     output_dir = Path(__file__).resolve().parents[1] / "docs" / "bpmn" / "current"
     output_dir.mkdir(parents=True, exist_ok=True)
     mismatches: list[str] = []
-    for spec in build_specs():
+    specs = build_specs()
+    if args.stages:
+        requested = set(args.stages)
+        known = {spec.slug for spec in specs}
+        unknown = requested - known
+        if unknown:
+            parser.error(
+                "unknown stage slug: " + ", ".join(sorted(unknown))
+            )
+        specs = tuple(spec for spec in specs if spec.slug in requested)
+    for spec in specs:
         path = output_dir / f"{spec.slug}.bpmn"
         expected = render(spec)
         if args.check:

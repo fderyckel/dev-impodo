@@ -17,9 +17,13 @@ from impodo.domain.mapping.contracts import (
     RelationshipMapping,
     RelationshipValueSource,
     ResolverOrigin,
+    RowInclusionPolicy,
     relationship_target_fields,
 )
 from impodo.domain.matching_order import (
+    MatchingIdentityCheckStatus,
+    MatchingIdentityNotCheckableReason,
+    MatchingIdentityResult,
     MatchingOrderCheck,
     MatchingOrderCheckAttempt,
     MatchingOrderCheckPhase,
@@ -31,6 +35,7 @@ from impodo.domain.matching_order import (
     MatchingOrderRelationshipOutcome,
     MatchingOrderRelationshipResult,
     MatchingOrderSource,
+    classify_matching_identity,
     live_matching_order_recommendation,
     matching_order_recommendation_hash,
     recommend_dataset_matching_order,
@@ -158,6 +163,14 @@ class MatchingOrderSourceKeys(Protocol):
         source_column_keys: tuple[str, ...],
     ) -> tuple[tuple[str | None, ...], ...]: ...
 
+    def source_identity_key_tuples(
+        self,
+        workspace_id: str,
+        dataset_id: str,
+        source_column_keys: tuple[str, ...],
+        row_inclusion: RowInclusionPolicy,
+    ) -> tuple[tuple[str | None, ...], ...]: ...
+
 
 @dataclass(frozen=True, slots=True)
 class MatchingOrderLiveProbe:
@@ -170,6 +183,18 @@ class MatchingOrderLiveProbe:
     target_fields: tuple[str, ...]
     source_keys: tuple[tuple[str, ...], ...]
     incoming_keys: tuple[tuple[str, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MatchingIdentityLiveProbe:
+    """One exact saved direct identity and its ephemeral source keys."""
+
+    dataset_id: str
+    target_model: str
+    target_fields: tuple[str, ...]
+    source_keys: tuple[tuple[str | None, ...], ...]
+    mode: MappingTargetMode
+    on_existing: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +212,8 @@ class MatchingOrderPreparedCheck:
     tie_break_order: tuple[str, ...]
     probes: tuple[MatchingOrderLiveProbe, ...]
     unchecked_relationship_count: int
+    identity_probes: tuple[MatchingIdentityLiveProbe, ...]
+    identity_results: tuple[MatchingIdentityResult, ...]
     requirements: PreflightRequirementPlan
     actor: Actor
 
@@ -195,6 +222,11 @@ MatchingOrderSnapshotReader = Callable[
     [PreflightRequirementPlan],
     tuple[MetadataSnapshot, RecordSnapshot],
 ]
+
+
+_IDENTITY_CHECK_FIELD_TYPES = frozenset(
+    {"char", "date", "datetime", "integer", "selection", "text"}
+)
 
 
 class MatchingOrderService:
@@ -451,6 +483,19 @@ class MatchingOrderService:
             if item.status is BusinessKeyStatus.CONFIRMED
         }
         schema_by_model = {item.name: item for item in schema.models}
+        identity_probes: list[MatchingIdentityLiveProbe] = []
+        identity_results: list[MatchingIdentityResult] = []
+        for dataset in draft.definition.datasets:
+            probe, result = self._identity_probe(
+                workspace_id,
+                dataset,
+                schema_by_model,
+                confirmed_keys,
+            )
+            if probe is not None:
+                identity_probes.append(probe)
+            elif result is not None:
+                identity_results.append(result)
         probes: list[MatchingOrderLiveProbe] = []
         checkable_count = 0
         for owner in draft.definition.datasets:
@@ -474,6 +519,8 @@ class MatchingOrderService:
 
         fields_by_model: dict[str, set[str]] = defaultdict(set)
         for probe in probes:
+            fields_by_model[probe.target_model].update(probe.target_fields)
+        for probe in identity_probes:
             fields_by_model[probe.target_model].update(probe.target_fields)
         metadata_requests = tuple(
             MetadataRequest(model=model, fields=tuple(sorted(fields)))
@@ -504,11 +551,38 @@ class MatchingOrderService:
                 if identity not in seen_requests:
                     seen_requests.add(identity)
                     record_requests.append(request)
+        for probe in identity_probes:
+            for domain in _matching_key_domain_chunks(
+                probe.target_fields,
+                (
+                    tuple(str(value) for value in key)
+                    for key in probe.source_keys
+                    if all(value is not None for value in key)
+                ),
+            ):
+                request = RecordRequest(
+                    model=probe.target_model,
+                    fields=projected_fields[probe.target_model],
+                    domain=tuple(domain),
+                )
+                identity = canonical_json(
+                    {
+                        "model": request.model,
+                        "fields": list(request.fields),
+                        "domain": list(request.domain),
+                    }
+                )
+                if identity not in seen_requests:
+                    seen_requests.add(identity)
+                    record_requests.append(request)
         requirements = PreflightRequirementPlan(
             metadata_requests=metadata_requests,
             record_requests=tuple(record_requests),
             reference_requirements=(),
-            source_record_count=sum(len(item.source_keys) for item in probes),
+            source_record_count=(
+                sum(len(item.source_keys) for item in probes)
+                + sum(len(item.source_keys) for item in identity_probes)
+            ),
         )
         return MatchingOrderPreparedCheck(
             check_id=str(uuid4()),
@@ -524,6 +598,8 @@ class MatchingOrderService:
             ),
             probes=tuple(probes),
             unchecked_relationship_count=max(0, checkable_count - len(probes)),
+            identity_probes=tuple(identity_probes),
+            identity_results=tuple(identity_results),
             requirements=requirements,
             actor=actor,
         )
@@ -663,7 +739,10 @@ class MatchingOrderService:
             workspace_id=prepared.workspace_id,
             status=MatchingOrderCheckStatus.RUNNING,
             phase=MatchingOrderCheckPhase.READING,
-            message="Reading the exact Odoo keys in the saved matching draft",
+            message=(
+                "Reading the exact Odoo identity and relationship keys in "
+                "the saved matching draft"
+            ),
             progress_percent=20,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
@@ -679,7 +758,7 @@ class MatchingOrderService:
             attempt = replace(
                 attempt,
                 phase=MatchingOrderCheckPhase.CLASSIFYING,
-                message="Classifying target and incoming relationship keys",
+                message="Classifying record identities and relationship keys",
                 progress_percent=70,
                 updated_at=datetime.now(timezone.utc),
             )
@@ -692,6 +771,36 @@ class MatchingOrderService:
                     _classify_live_probe(probe, records)
                     for probe in prepared.probes
                 )
+            )
+            checked_identity_results = (
+                tuple(
+                    _not_checkable_identity_result(
+                        dataset_id=probe.dataset_id,
+                        target_model=probe.target_model,
+                        target_fields=probe.target_fields,
+                        reason=(
+                            MatchingIdentityNotCheckableReason.ODOO_SCHEMA_CHANGED
+                        ),
+                    )
+                    for probe in prepared.identity_probes
+                )
+                if schema_changed
+                else tuple(
+                    _classify_identity_probe(probe, records)
+                    for probe in prepared.identity_probes
+                )
+            )
+            identity_by_dataset = {
+                item.dataset_id: item
+                for item in (
+                    *prepared.identity_results,
+                    *checked_identity_results,
+                )
+            }
+            identity_results = tuple(
+                identity_by_dataset[dataset.dataset_id]
+                for dataset in prepared.selection.datasets
+                if dataset.dataset_id in identity_by_dataset
             )
             recommendation = (
                 prepared.local_recommendation
@@ -731,6 +840,7 @@ class MatchingOrderService:
                 actor_issuer=prepared.actor.identity.issuer,
                 actor_subject=prepared.actor.identity.subject_id,
                 actor_display_name=prepared.actor.identity.display_name,
+                identity_results=identity_results,
             )
             protected_snapshot = canonical_json(
                 {
@@ -747,6 +857,17 @@ class MatchingOrderService:
                             "incoming_keys": [list(key) for key in item.incoming_keys],
                         }
                         for item in prepared.probes
+                    ],
+                    "identity_source_keys": [
+                        {
+                            "dataset_id": item.dataset_id,
+                            "target_model": item.target_model,
+                            "target_fields": list(item.target_fields),
+                            "source_keys": [
+                                list(key) for key in item.source_keys
+                            ],
+                        }
+                        for item in prepared.identity_probes
                     ],
                 }
             )
@@ -881,6 +1002,115 @@ class MatchingOrderService:
             target_fields=target_fields,
             source_keys=source_keys,
             incoming_keys=tuple(sorted(incoming_values)),
+        )
+
+    def _identity_probe(
+        self,
+        workspace_id: str,
+        dataset: DatasetMapping,
+        schema_by_model,
+        confirmed_keys,
+    ) -> tuple[MatchingIdentityLiveProbe | None, MatchingIdentityResult | None]:
+        """Prepare one direct identity or one explicit unchecked result."""
+
+        if not dataset.target_model:
+            return None, None
+        key_fields = tuple(
+            field
+            for component in dataset.target_identity
+            for field in component.target_fields
+        )
+        scope_fields = tuple(
+            field
+            for component in dataset.target_scope
+            for field in component.target_fields
+        )
+        target_fields = (*key_fields, *scope_fields)
+        if dataset.mode is MappingTargetMode.ODOO_PINNED_UPDATE:
+            return None, _not_checkable_identity_result(
+                dataset_id=dataset.dataset_id,
+                target_model=dataset.target_model,
+                target_fields=target_fields,
+                reason=MatchingIdentityNotCheckableReason.ODOO_PINNED_SELECTION,
+            )
+        if (
+            not dataset.source_identity_column_keys
+            or not key_fields
+            or len(target_fields) != len(set(target_fields))
+        ):
+            return None, _not_checkable_identity_result(
+                dataset_id=dataset.dataset_id,
+                target_model=dataset.target_model,
+                target_fields=target_fields,
+                reason=MatchingIdentityNotCheckableReason.MAPPING_INCOMPLETE,
+            )
+        if (
+            dataset.target_model,
+            key_fields,
+            scope_fields,
+        ) not in confirmed_keys:
+            return None, _not_checkable_identity_result(
+                dataset_id=dataset.dataset_id,
+                target_model=dataset.target_model,
+                target_fields=target_fields,
+                reason=(
+                    MatchingIdentityNotCheckableReason.UNCONFIRMED_MATCHING_RULE
+                ),
+            )
+        source_by_target = _direct_identity_source_columns(dataset)
+        source_columns = tuple(
+            source_by_target.get(field_name, "")
+            for field_name in target_fields
+        )
+        if any(not item for item in source_columns):
+            return None, _not_checkable_identity_result(
+                dataset_id=dataset.dataset_id,
+                target_model=dataset.target_model,
+                target_fields=target_fields,
+                reason=MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY,
+            )
+        model = schema_by_model.get(dataset.target_model)
+        fields = {item.name: item for item in model.fields} if model else {}
+        if any(
+            field_name not in fields
+            or fields[field_name].type not in _IDENTITY_CHECK_FIELD_TYPES
+            or fields[field_name].exportable is False
+            for field_name in target_fields
+        ):
+            return None, _not_checkable_identity_result(
+                dataset_id=dataset.dataset_id,
+                target_model=dataset.target_model,
+                target_fields=target_fields,
+                reason=(
+                    MatchingIdentityNotCheckableReason.UNSUPPORTED_TARGET_FIELD
+                ),
+            )
+        try:
+            source_keys = self._source_keys.source_identity_key_tuples(
+                workspace_id,
+                dataset.dataset_id,
+                source_columns,
+                dataset.row_inclusion,
+            )
+        except WorkspaceError:
+            return None, _not_checkable_identity_result(
+                dataset_id=dataset.dataset_id,
+                target_model=dataset.target_model,
+                target_fields=target_fields,
+                reason=(
+                    MatchingIdentityNotCheckableReason.SOURCE_EVIDENCE_UNAVAILABLE
+                ),
+            )
+        return (
+            MatchingIdentityLiveProbe(
+                dataset_id=dataset.dataset_id,
+                target_model=dataset.target_model,
+                target_fields=target_fields,
+                source_keys=source_keys,
+                mode=dataset.mode,
+                on_existing=dataset.on_existing,
+            ),
+            None,
         )
 
     @staticmethod
@@ -1220,6 +1450,41 @@ def _classify_live_probe(
         incoming_count=incoming,
         missing_count=missing,
         ambiguous_count=ambiguous,
+    )
+
+
+def _classify_identity_probe(
+    probe: MatchingIdentityLiveProbe,
+    snapshot: RecordSnapshot,
+) -> MatchingIdentityResult:
+    target_keys = tuple(
+        tuple(record.values.get(field) for field in probe.target_fields)
+        for record in snapshot.records.get(probe.target_model, ())
+    )
+    return classify_matching_identity(
+        dataset_id=probe.dataset_id,
+        target_model=probe.target_model,
+        target_fields=probe.target_fields,
+        source_keys=probe.source_keys,
+        target_keys=target_keys,
+        mode=probe.mode,
+        on_existing=probe.on_existing,
+    )
+
+
+def _not_checkable_identity_result(
+    *,
+    dataset_id: str,
+    target_model: str,
+    target_fields: tuple[str, ...],
+    reason: MatchingIdentityNotCheckableReason,
+) -> MatchingIdentityResult:
+    return MatchingIdentityResult(
+        dataset_id=dataset_id,
+        target_model=target_model,
+        target_fields=target_fields,
+        status=MatchingIdentityCheckStatus.NOT_CHECKABLE,
+        not_checkable_reason=reason,
     )
 
 

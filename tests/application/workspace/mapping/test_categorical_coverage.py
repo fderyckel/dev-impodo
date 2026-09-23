@@ -24,6 +24,8 @@ from impodo.domain.mapping.contracts import (
     RelationshipMapping,
     RelationshipResolver,
     ResolverOrigin,
+    RowInclusionMode,
+    RowInclusionPolicy,
     ScalarFieldMapping,
     ScalarValueSource,
     SelectionCondition,
@@ -282,6 +284,42 @@ class CategoricalCoverageTests(unittest.TestCase):
         bound = replace(base, categorical_coverage=collected.evidence)
         self.assertNotEqual(base.validation_hash, bound.validation_hash)
         self.assertEqual(MappingValidationResult.from_json(bound.to_json()), bound)
+
+    def test_identity_keys_follow_the_saved_row_inclusion_policy(self) -> None:
+        service = _RecordingCoverageService(
+            _Sources(self.selection),
+            pl.DataFrame(
+                {
+                    "language": ["English", "German", "English"],
+                    "country": ["LU", "DE", None],
+                }
+            ),
+        )
+        policy = RowInclusionPolicy(
+            mode=RowInclusionMode.MATCHING_ROWS,
+            conditions=(
+                SelectionCondition(
+                    condition_id=str(uuid4()),
+                    source_column_key="language",
+                    operator=SelectionConditionOperator.EQUALS,
+                    comparison_value="English",
+                    value_type="string",
+                ),
+            ),
+        )
+
+        keys = service.source_identity_key_tuples(
+            self.workspace_id,
+            "dataset:customers",
+            ("country",),
+            policy,
+        )
+
+        self.assertEqual(keys, (("LU",), (None,)))
+        self.assertEqual(
+            service.scan_calls,
+            [("dataset:customers", ("country", "language"))],
+        )
 
     def test_collect_without_categorical_rules_needs_no_physical_snapshot(self) -> None:
         definition = replace(

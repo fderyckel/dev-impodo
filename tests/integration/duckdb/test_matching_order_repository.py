@@ -13,6 +13,8 @@ from impodo.adapters.duckdb.workspace_state_repository import (
     WorkspaceStateRepository,
 )
 from impodo.domain.matching_order import (
+    MatchingIdentityCheckStatus,
+    MatchingIdentityResult,
     MatchingOrderCheck,
     MatchingOrderCheckAttempt,
     MatchingOrderCheckPhase,
@@ -311,6 +313,18 @@ class MatchingOrderRepositoryTests(unittest.TestCase):
             actor_issuer=LOCAL_ACTOR.identity.issuer,
             actor_subject=LOCAL_ACTOR.identity.subject_id,
             actor_display_name=LOCAL_ACTOR.identity.display_name,
+            identity_results=(
+                MatchingIdentityResult(
+                    dataset_id="dataset:a",
+                    target_model="x.model",
+                    target_fields=("x_code",),
+                    status=MatchingIdentityCheckStatus.CHECKED,
+                    source_row_count=1,
+                    source_unique_row_count=1,
+                    target_unique_key_count=1,
+                    expected_existing_count=1,
+                ),
+            ),
         )
 
         status = self.repository.publish_check(
@@ -338,6 +352,7 @@ class MatchingOrderRepositoryTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertNotIn("SECRET-KEY", public_json)
         self.assertIn("SECRET-KEY", protected_json)
+        self.assertIn('"expected_existing_count":1', public_json)
 
     def _semantic_rows(self):
         tables = (

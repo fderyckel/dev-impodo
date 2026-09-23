@@ -717,6 +717,7 @@ class ExecutionService:
         read_identity: OdooReadIdentity,
         credential_binding_hash: str,
         write_identity: OdooWriteIdentity,
+        protected_values: Mapping[str, Any] | None = None,
         progress: Callable[[ExecutionRun], None] | None = None,
     ) -> ExecutionRun:
         """Enter the shared writer from a current, confirmed Stage 8B snapshot."""
@@ -842,6 +843,7 @@ class ExecutionService:
             executor,
             actor,
             identity_cache=identity_cache,
+            protected_values=protected_values,
             progress=progress,
             create_with_external_ids=True,
         )
@@ -972,6 +974,7 @@ class ExecutionService:
         read_identity: OdooReadIdentity,
         credential_binding_hash: str,
         write_identity: OdooWriteIdentity,
+        protected_values: Mapping[str, Any] | None = None,
         progress: Callable[[ExecutionRun], None] | None = None,
     ) -> ExecutionRun:
         """Resume one interrupted transfer from exact same-key read-back."""
@@ -1122,6 +1125,7 @@ class ExecutionService:
             executor,
             actor,
             identity_cache=identity_cache,
+            protected_values=protected_values,
             progress=progress,
             create_with_external_ids=True,
         )
@@ -1136,6 +1140,7 @@ class ExecutionService:
         *,
         identity_cache: dict[str, int],
         progress: Callable[[ExecutionRun], None] | None,
+        protected_values: Mapping[str, Any] | None = None,
         create_with_external_ids: bool = False,
     ) -> ExecutionRun:
         """Consume unfinished rows from one durable schedule."""
@@ -1342,6 +1347,7 @@ class ExecutionService:
                             source_cache,
                             identity_cache,
                             executor,
+                            protected_values=protected_values,
                             import_relations=(
                                 create_with_external_ids
                                 or workspace_state.odoo_connection_mode
@@ -1530,6 +1536,7 @@ class ExecutionService:
                         source_cache,
                         identity_cache,
                         executor,
+                        protected_values=protected_values,
                     )
                 except (WorkspaceError, OdooWriteRejected) as error:
                     outcome = replace(
@@ -2522,20 +2529,47 @@ class ExecutionService:
         identity_cache: dict[str, int],
         executor: OdooWriteExecutor,
         *,
+        protected_values: Mapping[str, Any] | None = None,
         import_relations: bool = False,
         skip_fields: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         values: dict[str, Any] = {}
         for intent in row.fields:
-            if intent.action == "OMIT" or intent.field in skip_fields:
+            if intent.action in {"OMIT", "EXPECT_PROTECTED"} or intent.field in skip_fields:
                 continue
             if intent.action == "SET_NULL":
                 values[intent.field] = "" if import_relations else None
+            elif intent.action == "SET_PROTECTED" and intent.kind == "relation":
+                if (
+                    protected_values is None
+                    or intent.protected_value_hash not in protected_values
+                    or type(protected_values[intent.protected_value_hash]) is not int
+                    or protected_values[intent.protected_value_hash] <= 0
+                ):
+                    raise WorkspaceError(
+                        f"Protected relationship is unavailable for "
+                        f"{row.target_model}.{intent.field}"
+                    )
+                identifier = protected_values[intent.protected_value_hash]
+                if import_relations:
+                    values[f"{intent.field}/.id"] = str(identifier)
+                else:
+                    values[intent.field] = identifier
             elif intent.kind == "scalar":
+                raw_value = intent.value
+                if intent.action == "SET_PROTECTED":
+                    if (
+                        protected_values is None
+                        or intent.protected_value_hash not in protected_values
+                    ):
+                        raise WorkspaceError(
+                            f"Protected value is unavailable for {row.target_model}.{intent.field}"
+                        )
+                    raw_value = protected_values[intent.protected_value_hash]
                 values[intent.field] = (
-                    _odoo_import_scalar(intent.value)
+                    _odoo_import_scalar(raw_value)
                     if import_relations
-                    else _odoo_scalar(intent.value)
+                    else _odoo_scalar(raw_value)
                 )
             elif import_relations:
                 field, value = self._import_relation_value(
@@ -3099,10 +3133,11 @@ def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
         if row.disposition not in {"CREATE", "UPDATE"}:
             continue
         for intent in row.fields:
-            if intent.action != "OMIT":
+            if intent.action not in {"OMIT", "EXPECT_PROTECTED"}:
                 write_fields.setdefault(row.target_model, set()).add(intent.field)
+            if intent.action != "OMIT":
                 read_fields.setdefault(row.target_model, set()).add(intent.field)
-            if intent.kind == "relation":
+            if intent.kind == "relation" and intent.action != "EXPECT_PROTECTED":
                 lookup_fields.setdefault(intent.related_model, set()).update(
                     (
                         *intent.related_identity_fields,
@@ -3375,9 +3410,14 @@ def _execution_snapshot_error(
             if not row.proposed_external_id:
                 return f"Dataset {row.dataset} has a create without an External ID"
             for intent in row.fields:
-                if intent.action in {"OMIT", "SET_NULL"}:
+                if intent.action in {"OMIT", "SET_NULL", "EXPECT_PROTECTED"}:
                     continue
                 if intent.kind == "scalar":
+                    continue
+                if (
+                    intent.action == "SET_PROTECTED"
+                    and intent.relation_operation == "replace"
+                ):
                     continue
                 value = intent.value
                 if isinstance(value, tuple):

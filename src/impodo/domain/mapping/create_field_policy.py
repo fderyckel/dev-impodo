@@ -27,6 +27,21 @@ CREATE_DEFAULT_TYPES = frozenset(
     }
 )
 
+CREATE_FIXED_VALUE_TYPES = frozenset(
+    {
+        "boolean",
+        "char",
+        "date",
+        "datetime",
+        "float",
+        "html",
+        "integer",
+        "monetary",
+        "selection",
+        "text",
+    }
+)
+
 # Increment when the automatic-versus-review decision changes. Recipe
 # application bindings include this value so a policy revision cannot be
 # mistaken for the earlier assessment.
@@ -236,6 +251,18 @@ def supports_create_default_capture(field: CreateFieldView) -> bool:
         field.required
         and not field.readonly
         and field.type in CREATE_DEFAULT_TYPES
+    )
+
+
+def supports_fixed_create_value(field: CreateFieldView) -> bool:
+    """Return whether a required field has a generic typed fixed-value editor."""
+
+    return bool(
+        field.required
+        and not field.readonly
+        and field.computed is not True
+        and field.related is not True
+        and field.type in CREATE_FIXED_VALUE_TYPES
     )
 
 

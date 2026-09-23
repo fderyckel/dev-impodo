@@ -91,7 +91,7 @@
     </section>
   {% endif %}
 
-  <section class="form-card">
+  <section class="form-card" id="odoo-data-choices">
     {% if is_recipe_run_setup %}
       {% if is_recipe_run_recovery %}
         <div class="notice" role="status">
@@ -225,6 +225,13 @@
         <strong>The Odoo list is ready.</strong>
         Choose what this migration run needs below.
       </div>
+      {% if suggested_model_count %}
+        <div class="notice" role="status">
+          <strong>Impodo added {{ suggested_model_count }} recommended supporting choice{% if suggested_model_count != 1 %}s{% endif %} for review.</strong>
+          Check the business labels below, remove anything that does not belong
+          to this migration, then save the choices.
+        </div>
+      {% endif %}
       <details>
         <summary>Has Odoo changed?</summary>
         <p>Update this list only when Odoo apps or record types have changed.</p>
@@ -308,6 +315,7 @@
               >
               <span>
                 <strong>{{ choice.label }}</strong>
+                {% if choice.suggested %}<small>Recommended supporting data</small>{% endif %}
               </span>
             </label>
           {% endfor %}
@@ -334,6 +342,65 @@
       {% endif %}
     {% endif %}
     {% endif %}
+
+    {% if supporting_model_plan.groups %}
+      <section id="supporting-odoo-data" aria-labelledby="supporting-odoo-data-title">
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Supporting data Impodo found</p>
+            <h2 id="supporting-odoo-data-title">Impodo checked the direct relationships</h2>
+            <p>
+              You do not need to know the related Odoo record types in advance.
+              Impodo derived these relationships from the selected business records
+              and the captured Odoo fields.
+            </p>
+          </div>
+          <span class="status registered">{{ supporting_model_plan.dependency_count }} found</span>
+        </div>
+        <div class="overview-stage-list">
+          {% for group in supporting_model_plan.groups %}
+            <section class="overview-stage-card complete">
+              <div>
+                <p class="eyebrow">{{ group.status_label }}</p>
+                <h3>{{ group.title }}</h3>
+                <p>{{ group.description }}</p>
+                <ul>
+                  {% for related in group.models %}
+                    <li>
+                      <strong>{{ related.label }}</strong>
+                      {% if related.required %}<span class="status warning">Required relationship</span>{% endif %}
+                      {% if related.availability_relevant and not related.available %}<span class="status blocked">Not available in the current Odoo list</span>{% endif %}
+                      <div>
+                        {% for field in related.fields %}
+                          <small>{{ field.source_label }} · {{ field.field_label }}{% if field.required %} · required by Odoo{% endif %}</small>{% if not loop.last %}<br>{% endif %}
+                        {% endfor %}
+                      </div>
+                      {% if related.include_url %}
+                        <a href="{{ related.include_url }}">{{ related.include_label }}</a>
+                      {% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+                <details class="technical-details">
+                  <summary>Support details</summary>
+                  <ul>
+                    {% for related in group.models %}
+                      {% for field in related.fields %}<li><code>{{ field.technical_name }}</code></li>{% endfor %}
+                    {% endfor %}
+                  </ul>
+                </details>
+              </div>
+            </section>
+          {% endfor %}
+        </div>
+        <p class="muted">
+          Reusing related Odoo records does not authorize Impodo to update them.
+          Selecting an incoming record type remains an explicit write-scope decision.
+        </p>
+      </section>
+    {% endif %}
+
+    {% include "_workflow_issue_summary.html" %}
 
     <p id="odoo-details">{% if is_recipe_run_setup %}Recipe-required Odoo record types{% else %}Odoo choices selected{% endif %}: <strong>{% if is_recipe_run_setup %}{{ odoo_check_models|length }}{% else %}{{ workspace_state.intended_models|length if workspace_state.intended_models else 0 }}{% endif %}</strong></p>
     {% if schema_load_failed %}
@@ -766,13 +833,23 @@
       {% endfor %}
 
       <div class="actions">
-        <button class="button primary" type="submit">
+        <button
+          class="button primary"
+          type="submit"
+          {% if workflow_issue_summary.must_fix_count %}disabled aria-describedby="matching-rules-blocked-reason"{% endif %}
+        >
           {% if key_summary.suggested and not key_summary.needs_attention %}Confirm suggested matching rules{% else %}Confirm matching rules{% endif %}
         </button>
-        {% if governance %}
+        {% if governance and not workflow_issue_summary.must_fix_count %}
           <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping">Continue to match data</a>
         {% endif %}
       </div>
+      {% if workflow_issue_summary.must_fix_count %}
+        <p class="notice warning" id="matching-rules-blocked-reason">
+          Matching rules cannot be confirmed yet. Use the correction action in
+          Migration issues, then return here; your current choices are preserved.
+        </p>
+      {% endif %}
     </form>
     {% endif %}
     {% endif %}

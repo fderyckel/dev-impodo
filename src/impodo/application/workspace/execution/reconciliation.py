@@ -142,6 +142,7 @@ class ReconciliationService:
         actor: Actor,
         write_identity: OdooWriteIdentity | None = None,
         write_credential_binding_hash: str = "",
+        protected_values: Mapping[str, Any] | None = None,
         refresh: bool = False,
     ) -> ReconciliationRun:
         """Verify one completed run and publish a replacement result when needed.
@@ -196,6 +197,7 @@ class ReconciliationService:
             write_credential_binding_hash=write_credential_binding_hash,
             difference_sink=differences,
             target_digits=self._target_digits(workspace_id, snapshot),
+            protected_values=protected_values,
         )
         # Exercise the portable contract before it reaches durable storage.
         report = ReconciliationRun.from_json(report.to_json())
@@ -252,6 +254,7 @@ class ReconciliationService:
         actor: Actor,
         write_identity: OdooWriteIdentity | None = None,
         write_credential_binding_hash: str = "",
+        protected_values: Mapping[str, Any] | None = None,
     ) -> ReconciliationRun:
         """Append a fresh read-only verification for one completed load."""
 
@@ -262,6 +265,7 @@ class ReconciliationService:
             actor=actor,
             write_identity=write_identity,
             write_credential_binding_hash=write_credential_binding_hash,
+            protected_values=protected_values,
             refresh=True,
         )
 
@@ -335,6 +339,7 @@ class ReconciliationService:
         actor: Actor,
         write_identity: OdooWriteIdentity | None = None,
         write_credential_binding_hash: str = "",
+        protected_values: Mapping[str, Any] | None = None,
         targeted: bool = False,
     ) -> ReconciliationRun:
         """Read an interrupted run without publishing final reconciliation.
@@ -382,6 +387,7 @@ class ReconciliationService:
             actor,
             write_identity=write_identity,
             write_credential_binding_hash=write_credential_binding_hash,
+            protected_values=protected_values,
             row_ids=(
                 _targeted_recovery_row_ids(snapshot, run)
                 if targeted else None
@@ -400,6 +406,7 @@ class ReconciliationService:
         write_credential_binding_hash: str,
         difference_sink: list[ReconciliationFieldDifference] | None = None,
         target_digits: Mapping[tuple[str, str], tuple[int, int]] | None = None,
+        protected_values: Mapping[str, Any] | None = None,
         row_ids: frozenset[str] | None = None,
     ) -> ReconciliationRun:
         rows = {
@@ -473,6 +480,7 @@ class ReconciliationService:
                     by_source,
                     resolved_ids,
                     identity_cache,
+                    protected_values=protected_values,
                     difference_sink=difference_sink,
                     target_digits=target_digits or {},
                 )
@@ -977,6 +985,7 @@ class ReconciliationService:
             tuple[int, ...],
         ],
         *,
+        protected_values: Mapping[str, Any] | None = None,
         difference_sink: list[ReconciliationFieldDifference] | None = None,
         target_digits: Mapping[tuple[str, str], tuple[int, int]] | None = None,
     ) -> ReconciliationRow:
@@ -1055,9 +1064,12 @@ class ReconciliationService:
                     by_source,
                     resolved_ids,
                     identity_cache,
+                    protected_values=protected_values,
                 )
                 actual_value = actual.values[intent.field]
-                if intent.kind != "scalar" and intent.action == "SET_VALUE":
+                if intent.kind != "scalar" and intent.action in {
+                    "SET_VALUE", "SET_PROTECTED", "EXPECT_PROTECTED"
+                }:
                     actual_value = (
                         _many2many_ids(actual_value)
                         if isinstance(expected, tuple)
@@ -1083,8 +1095,16 @@ class ReconciliationService:
                                 operation=row.disposition,
                                 odoo_id=actual.odoo_id,
                                 field=intent.field,
-                                expected_value=expected,
-                                observed_value=actual_value,
+                                expected_value=(
+                                    "[protected]"
+                                    if intent.protected_value_hash
+                                    else expected
+                                ),
+                                observed_value=(
+                                    "[protected]"
+                                    if intent.protected_value_hash
+                                    else actual_value
+                                ),
                                 field_type=field_types.get(intent.field, ""),
                                 target_digits=digits,
                                 reason_code=_difference_reason(
@@ -1134,9 +1154,20 @@ class ReconciliationService:
             tuple[str, tuple[tuple[str, str, Any], ...]],
             tuple[int, ...],
         ],
+        *,
+        protected_values: Mapping[str, Any] | None = None,
     ) -> Any:
         if intent.action == "SET_NULL":
             return None
+        if intent.action in {"SET_PROTECTED", "EXPECT_PROTECTED"}:
+            if (
+                protected_values is None
+                or intent.protected_value_hash not in protected_values
+            ):
+                raise WorkspaceError(
+                    f"Protected expectation is unavailable for {intent.field}"
+                )
+            return protected_values[intent.protected_value_hash]
         if intent.kind == "scalar":
             return intent.value
         value = intent.value

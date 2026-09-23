@@ -156,15 +156,27 @@ use one stream for each protected 100-ID chunk. The live
 reader accepts only service-generated requests. It exposes no raw domain,
 arbitrary context, generic method, or caller-selected field path.
 
-The source selection page derives a bounded, read-only list of writable
-many-to-one and many-to-many fields, plus one-to-many child fields, that refer
-to models outside the selected schema. This helps the operator spot missing
-model scope before capture. The
-capture projection still includes relationship origins only when both models
-are selected. A separate relationship review lists eligible links between
-selected models before linked capture assessment. The operator confirms that
-list as a group; individual edge approval and automatic selection of missing
-model types are not yet implemented.
+The source selection page passes writable many-to-one and many-to-many fields,
+plus one-to-many child fields, that refer outside the selected schema through
+`propose_related_odoo_data`. The domain policy classifies captured metadata as
+supporting data, optional business data, destination configuration,
+Odoo-managed records, separate processes, excluded history, or an unresolved
+decision. The first qualified policy is deliberately narrow: Product Category
+and Unit of Measure links from `product.template`, plus the category link from
+`uom.uom`, are recommended supporting data. Unknown custom links fail closed
+into **Needs a decision**. The web presenter owns the data-manager wording and
+keeps technical field paths under **Support details**.
+
+The recommended review URL carries only model names already derived from the
+captured schema. `_render_schema` intersects those names with the current live
+model catalogue and preselects available recommendations for review. A GET
+does not mutate the workspace; the existing revision-checked schema-scope POST
+remains the only save boundary. The capture projection still includes
+relationship origins only when both models are selected. A separate
+relationship review lists eligible links between selected models before linked
+capture assessment. The operator confirms that list as a group; persisted
+individual edge approval and automatic model-scope mutation are not yet
+implemented.
 
 Each identity check computes one small company-scope fingerprint from the
 primary and available company IDs. Assessment performs one identity and schema
@@ -181,6 +193,8 @@ form token.
 | Isolated source workers | [`source_worker.py`](../../../src/impodo/application/data_version/source_worker.py) |
 | Shared source-file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Odoo source capture | [`OdooSourceCaptureService`](../../../src/impodo/application/odoo_source_capture_service.py) |
+| Related Odoo scope policy | [`odoo_source_scope.py`](../../../src/impodo/domain/odoo_source_scope.py) |
+| Related Odoo scope presenter | [`odoo_source_scope.py`](../../../src/impodo/web/presenters/odoo_source_scope.py) |
 | Protected linked-record closure | [`discover_dependency_closure`](../../../src/impodo/application/odoo_dependency_capture.py) |
 | Protected root predicates | [`ProtectedOdooCaptureFilterStore`](../../../src/impodo/adapters/protected_odoo_capture_filters.py) |
 | Atomic Odoo capture-set publication | [`OdooCapturePublicationService`](../../../src/impodo/application/odoo_capture_publication_service.py) |

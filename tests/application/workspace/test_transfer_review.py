@@ -168,6 +168,24 @@ class TransferReviewTests(unittest.TestCase):
         )
         self.assertEqual(TransferReviewPackage.from_json(previous.to_json()), previous)
 
+        previous_composite = replace(
+            current,
+            export_plan=replace(
+                current.export_plan,
+                actions_hash=transfer_review_actions_hash(
+                    current.datasets,
+                    current.relationships,
+                    current.totals,
+                    contract_version=3,
+                ),
+            ),
+            contract_version=3,
+        )
+        self.assertEqual(
+            TransferReviewPackage.from_json(previous_composite.to_json()),
+            previous_composite,
+        )
+
     def test_read_only_destination_field_allows_reuse_but_blocks_updates(self) -> None:
         contact = replace(
             _model("res.partner", "Contact", existing=1),

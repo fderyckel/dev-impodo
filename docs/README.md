@@ -81,9 +81,6 @@ records remain in Git history.
   records the deferred tracks and current row limits.
 - [Odoo 19 and Odoo 20 support](plans/odoo-19-and-20-support.md) proposes shared
   integration, version-specific policies, and qualification for both versions.
-- [Stage 2 Odoo matching-rule suggestions](plans/stage-2-odoo-matching-rule-suggestions.md)
-  records the implemented prefilled, evidence-labelled business keys and the
-  remaining live-Odoo and screenshot qualification.
 - [Maintainable code and focused execution services](plans/maintainable-code-and-execution-services.md)
   proposes coding practices, automated checks, and a focused execution refactor.
 - [End-to-end trial and scenario qualification](plans/end-to-end-trial-and-scenario-qualification.md)
@@ -117,6 +114,10 @@ records remain in Git history.
 - [Stage 4 comparison and deferred record groups](plans/stage4-comparison-and-deferred-record-groups.md)
   proposes one shared Odoo comparison, a reviewed reduced load scope, and a
   workbook of every omitted record.
+- [Six-stage Authoring workflow user support](plans/six-stage-workflow-user-support.md)
+  proposes business-led supporting-model discovery, earlier identity,
+  missing-parent, relationship, and decimal-capacity proof, guided blocked-stage
+  corrections, business-intent review, and clearer load recovery.
 - [Known-fallout repair](plans/load-fallout-source-cell-workbook.md) proposes
   confirmed exact-record repairs after an execution with known differences.
 

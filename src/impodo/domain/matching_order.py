@@ -6,6 +6,7 @@ created each edge and the meaning of the resulting order.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -14,6 +15,7 @@ import json
 from typing import Iterable
 from uuid import UUID
 
+from impodo.domain.mapping.contracts import MappingTargetMode
 from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.workspace.errors import WorkspaceError
 
@@ -266,6 +268,152 @@ class MatchingOrderRelationshipResult:
         )
 
 
+class MatchingIdentityCheckStatus(StrEnum):
+    """Whether current source and target identity values were classified."""
+
+    CHECKED = "CHECKED"
+    NOT_CHECKABLE = "NOT_CHECKABLE"
+
+
+class MatchingIdentityNotCheckableReason(StrEnum):
+    """Why one saved identity was not included in the bounded live check."""
+
+    MAPPING_INCOMPLETE = "MAPPING_INCOMPLETE"
+    UNCONFIRMED_MATCHING_RULE = "UNCONFIRMED_MATCHING_RULE"
+    INDIRECT_IDENTITY = "INDIRECT_IDENTITY"
+    UNSUPPORTED_TARGET_FIELD = "UNSUPPORTED_TARGET_FIELD"
+    SOURCE_EVIDENCE_UNAVAILABLE = "SOURCE_EVIDENCE_UNAVAILABLE"
+    ODOO_PINNED_SELECTION = "ODOO_PINNED_SELECTION"
+    ODOO_SCHEMA_CHANGED = "ODOO_SCHEMA_CHANGED"
+
+
+@dataclass(frozen=True, slots=True)
+class MatchingIdentityResult:
+    """Aggregate-only health for one saved dataset-to-Odoo identity."""
+
+    dataset_id: str
+    target_model: str
+    target_fields: tuple[str, ...]
+    status: MatchingIdentityCheckStatus
+    not_checkable_reason: MatchingIdentityNotCheckableReason | None = None
+    source_row_count: int = 0
+    source_unique_row_count: int = 0
+    source_blank_row_count: int = 0
+    source_repeated_row_count: int = 0
+    source_repeated_group_count: int = 0
+    target_unique_key_count: int = 0
+    target_ambiguous_key_count: int = 0
+    expected_new_count: int = 0
+    expected_existing_count: int = 0
+    blocked_count: int = 0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "status", MatchingIdentityCheckStatus(self.status))
+        if self.not_checkable_reason is not None:
+            object.__setattr__(
+                self,
+                "not_checkable_reason",
+                MatchingIdentityNotCheckableReason(self.not_checkable_reason),
+            )
+        if not self.dataset_id or not self.target_model:
+            raise WorkspaceError("Matching identity result is invalid")
+        if len(self.target_fields) != len(set(self.target_fields)):
+            raise WorkspaceError("Matching identity target fields are invalid")
+        counts = (
+            self.source_row_count,
+            self.source_unique_row_count,
+            self.source_blank_row_count,
+            self.source_repeated_row_count,
+            self.source_repeated_group_count,
+            self.target_unique_key_count,
+            self.target_ambiguous_key_count,
+            self.expected_new_count,
+            self.expected_existing_count,
+            self.blocked_count,
+        )
+        if any(value < 0 for value in counts):
+            raise WorkspaceError("Matching identity counts are invalid")
+        if self.status is MatchingIdentityCheckStatus.CHECKED:
+            if self.not_checkable_reason is not None or not self.target_fields:
+                raise WorkspaceError("Checked matching identity evidence is invalid")
+            if (
+                self.source_unique_row_count
+                + self.source_blank_row_count
+                + self.source_repeated_row_count
+                != self.source_row_count
+            ):
+                raise WorkspaceError("Matching identity source totals are invalid")
+            if (
+                self.expected_new_count
+                + self.expected_existing_count
+                + self.blocked_count
+                != self.source_row_count
+            ):
+                raise WorkspaceError("Matching identity outcome totals are invalid")
+        elif self.not_checkable_reason is None or any(counts):
+            raise WorkspaceError("Unchecked matching identity evidence is invalid")
+
+    @property
+    def checked(self) -> bool:
+        """Return whether the result contains current-data counts."""
+
+        return self.status is MatchingIdentityCheckStatus.CHECKED
+
+    def portable_dict(self) -> dict[str, object]:
+        """Return aggregate evidence without source keys or target records."""
+
+        return {
+            **asdict(self),
+            "status": self.status.value,
+            "not_checkable_reason": (
+                self.not_checkable_reason.value
+                if self.not_checkable_reason is not None
+                else None
+            ),
+            "target_fields": list(self.target_fields),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> "MatchingIdentityResult":
+        """Restore the bounded portable identity-health shape."""
+
+        return cls(
+            dataset_id=str(payload["dataset_id"]),
+            target_model=str(payload["target_model"]),
+            target_fields=tuple(payload.get("target_fields", ())),
+            status=MatchingIdentityCheckStatus(str(payload["status"])),
+            not_checkable_reason=(
+                MatchingIdentityNotCheckableReason(
+                    str(payload["not_checkable_reason"])
+                )
+                if payload.get("not_checkable_reason") is not None
+                else None
+            ),
+            source_row_count=int(payload.get("source_row_count", 0)),
+            source_unique_row_count=int(
+                payload.get("source_unique_row_count", 0)
+            ),
+            source_blank_row_count=int(payload.get("source_blank_row_count", 0)),
+            source_repeated_row_count=int(
+                payload.get("source_repeated_row_count", 0)
+            ),
+            source_repeated_group_count=int(
+                payload.get("source_repeated_group_count", 0)
+            ),
+            target_unique_key_count=int(
+                payload.get("target_unique_key_count", 0)
+            ),
+            target_ambiguous_key_count=int(
+                payload.get("target_ambiguous_key_count", 0)
+            ),
+            expected_new_count=int(payload.get("expected_new_count", 0)),
+            expected_existing_count=int(
+                payload.get("expected_existing_count", 0)
+            ),
+            blocked_count=int(payload.get("blocked_count", 0)),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class MatchingOrderCheck:
     """Immutable aggregate result of one explicit Stage 3 Odoo read.
@@ -295,6 +443,7 @@ class MatchingOrderCheck:
     actor_issuer: str
     actor_subject: str
     actor_display_name: str
+    identity_results: tuple[MatchingIdentityResult, ...] = ()
 
     def __post_init__(self) -> None:
         try:
@@ -321,6 +470,11 @@ class MatchingOrderCheck:
                 raise WorkspaceError("Matching-order check binding is invalid")
         if len(self.ordered_dataset_ids) != len(set(self.ordered_dataset_ids)):
             raise WorkspaceError("Matching-order recommendation is invalid")
+        identity_dataset_ids = tuple(
+            item.dataset_id for item in self.identity_results
+        )
+        if len(identity_dataset_ids) != len(set(identity_dataset_ids)):
+            raise WorkspaceError("Matching identity results are duplicated")
         if self.captured_at.tzinfo is None:
             raise WorkspaceError("Matching-order capture time needs a timezone")
 
@@ -371,6 +525,9 @@ class MatchingOrderCheck:
             "actor_issuer": self.actor_issuer,
             "actor_subject": self.actor_subject,
             "actor_display_name": self.actor_display_name,
+            "identity_results": [
+                item.portable_dict() for item in self.identity_results
+            ],
         }
 
     def to_json(self) -> str:
@@ -417,6 +574,10 @@ class MatchingOrderCheck:
             actor_issuer=str(payload["actor_issuer"]),
             actor_subject=str(payload["actor_subject"]),
             actor_display_name=str(payload["actor_display_name"]),
+            identity_results=tuple(
+                MatchingIdentityResult.from_dict(item)
+                for item in payload.get("identity_results", ())
+            ),
         )
 
 
@@ -455,6 +616,106 @@ class MatchingOrderCheckAttempt:
         object.__setattr__(self, "phase", MatchingOrderCheckPhase(self.phase))
         if not 0 <= self.progress_percent <= 100:
             raise WorkspaceError("Matching-order progress is invalid")
+
+
+def classify_matching_identity(
+    *,
+    dataset_id: str,
+    target_model: str,
+    target_fields: tuple[str, ...],
+    source_keys: Iterable[tuple[object | None, ...]],
+    target_keys: Iterable[tuple[object | None, ...]],
+    mode: MappingTargetMode,
+    on_existing: str | None,
+) -> MatchingIdentityResult:
+    """Classify complete keys without retaining their values in the result."""
+
+    if (
+        not target_fields
+        or any(not item for item in target_fields)
+        or len(target_fields) != len(set(target_fields))
+    ):
+        raise WorkspaceError("Matching identity target fields are invalid")
+    source_rows = tuple(source_keys)
+    target_rows = tuple(target_keys)
+    if any(len(item) != len(target_fields) for item in (*source_rows, *target_rows)):
+        raise WorkspaceError("Matching identity key shape is invalid")
+    normalized_source = tuple(
+        _normalized_identity_key(item) for item in source_rows
+    )
+    blank_source_count = sum(
+        any(value is None for value in key) for key in normalized_source
+    )
+    source_counts = Counter(
+        key
+        for key in normalized_source
+        if all(value is not None for value in key)
+    )
+    normalized_targets = (
+        _normalized_identity_key(item) for item in target_rows
+    )
+    target_counts = Counter(
+        key
+        for key in normalized_targets
+        if all(value is not None for value in key)
+    )
+    unique_source_keys = {
+        key for key, count in source_counts.items() if count == 1
+    }
+    repeated_source = {
+        key: count for key, count in source_counts.items() if count > 1
+    }
+    expected_new = 0
+    expected_existing = 0
+    blocked = blank_source_count + sum(repeated_source.values())
+    normalized_mode = MappingTargetMode(mode)
+    for key in unique_source_keys:
+        match_count = target_counts[key]
+        if match_count > 1:
+            blocked += 1
+        elif match_count == 1:
+            if (
+                normalized_mode is MappingTargetMode.CREATE
+                and on_existing != "unchanged"
+            ):
+                blocked += 1
+            else:
+                expected_existing += 1
+        elif normalized_mode is MappingTargetMode.REFERENCE:
+            blocked += 1
+        else:
+            expected_new += 1
+    return MatchingIdentityResult(
+        dataset_id=dataset_id,
+        target_model=target_model,
+        target_fields=target_fields,
+        status=MatchingIdentityCheckStatus.CHECKED,
+        source_row_count=len(normalized_source),
+        source_unique_row_count=len(unique_source_keys),
+        source_blank_row_count=blank_source_count,
+        source_repeated_row_count=sum(repeated_source.values()),
+        source_repeated_group_count=len(repeated_source),
+        target_unique_key_count=sum(
+            target_counts[key] == 1 for key in source_counts
+        ),
+        target_ambiguous_key_count=sum(
+            target_counts[key] > 1 for key in source_counts
+        ),
+        expected_new_count=expected_new,
+        expected_existing_count=expected_existing,
+        blocked_count=blocked,
+    )
+
+
+def _normalized_identity_key(
+    key: tuple[object | None, ...],
+) -> tuple[str | None, ...]:
+    return tuple(
+        None
+        if value is None or value is False or not str(value).strip()
+        else str(value).strip()
+        for value in key
+    )
 
 
 def live_matching_order_recommendation(

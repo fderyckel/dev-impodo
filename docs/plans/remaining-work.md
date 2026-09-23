@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Status:** Active roadmap, updated 2026-09-22.
+**Status:** Active roadmap, updated 2026-09-23.
 
 This is the broad forward-looking roadmap. Detailed plans remain beside it
 while delivery or qualification is unfinished. The [documentation index](../README.md#plans)
@@ -15,10 +15,6 @@ those current references have been verified.
 
 ## Remaining delivery and qualification
 
-- Finish the [Stage 2 matching-rule qualification](stage-2-odoo-matching-rule-suggestions.md)
-  with representative live-Odoo evidence and updated screenshots. The
-  default-first review, parent-scoped suggestions, complete confirmation, and
-  fail-closed ambiguous path are implemented.
 - Complete the [three-page Production journey](recipe-run-three-page-ui-refactor.md)
   and its user guidance. The Test journey is implemented.
 - Complete the [Windows relationship repeat](scalable-relationship-dependency-planning.md)

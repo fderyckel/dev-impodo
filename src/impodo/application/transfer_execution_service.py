@@ -49,7 +49,10 @@ from impodo.domain.shared.models import (
 )
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
-from impodo.domain.workspace.destination_matching import DestinationMatchPlan
+from impodo.domain.workspace.destination_matching import (
+    DestinationCreateFieldEvidence,
+    DestinationMatchPlan,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.portable_identity import portable_components, record_identity
 from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
@@ -194,6 +197,7 @@ class TransferExecutionService:
             source_origins=origins,
             source_snapshots=snapshot_by_dataset,
             source_manifest_hashes=manifest_hashes,
+            create_field_evidence=fresh_match.create_field_evidence,
         )
 
     def stage(
@@ -292,6 +296,7 @@ class TransferExecutionService:
         read_identity: OdooReadIdentity,
         credential_binding_hash: str,
         write_identity: OdooWriteIdentity,
+        protected_values: Mapping[str, object] | None = None,
         progress=None,
     ) -> ExecutionRun:
         """Execute the exact staged snapshot through the shared journalled writer.
@@ -314,6 +319,7 @@ class TransferExecutionService:
                 read_identity=read_identity,
                 credential_binding_hash=credential_binding_hash,
                 write_identity=write_identity,
+                protected_values=protected_values,
                 progress=progress,
             )
         except Exception:
@@ -340,6 +346,7 @@ class TransferExecutionService:
         read_identity: OdooReadIdentity,
         credential_binding_hash: str,
         write_identity: OdooWriteIdentity,
+        protected_values: Mapping[str, object] | None = None,
         progress=None,
     ) -> ExecutionRun:
         """Resume an interrupted transfer without replacing its journal.
@@ -362,6 +369,7 @@ class TransferExecutionService:
             read_identity=read_identity,
             credential_binding_hash=credential_binding_hash,
             write_identity=write_identity,
+            protected_values=protected_values,
             progress=progress,
         )
 
@@ -379,6 +387,7 @@ def compile_transfer_execution_snapshot(
     source_origins: Mapping[str, tuple[OdooOriginBatch, ...]],
     source_snapshots: Mapping[str, SourceSnapshot],
     source_manifest_hashes: Mapping[str, str],
+    create_field_evidence: DestinationCreateFieldEvidence | None = None,
 ) -> ExecutionSnapshot:
     """Turn generic scalar and relation evidence into the shared write contract.
 
@@ -393,6 +402,28 @@ def compile_transfer_execution_snapshot(
     match_by_id = {item.dataset_id: item for item in fresh_match.model_matches}
     preflight_by_id = {item.dataset_id: item for item in preflight.datasets}
     schema_by_model = {item.name: item for item in schema.models}
+    if create_field_evidence is None:
+        create_field_evidence = fresh_match.create_field_evidence
+    create_decisions_by_dataset: dict[str, list] = {}
+    for decision in fresh_match.create_field_decisions:
+        create_decisions_by_dataset.setdefault(decision.dataset_id, []).append(decision)
+    protected_create_values = (
+        {item.key: item for item in create_field_evidence.values}
+        if create_field_evidence is not None
+        else {}
+    )
+    if fresh_match.create_field_decisions and (
+        create_field_evidence is None
+        or create_field_evidence.evidence_id != fresh_match.create_field_evidence_id
+        or create_field_evidence.content_hash != fresh_match.create_field_evidence_hash
+        or any(
+            (protected := protected_create_values.get(decision.key)) is None
+            or protected.value_hash != decision.value_hash
+            or protected.field_contract_hash != decision.field_contract_hash
+            for decision in fresh_match.create_field_decisions
+        )
+    ):
+        raise WorkspaceError("Protected create-only field evidence is unavailable")
     expected_ids = set(reviewed_by_id)
     if not expected_ids or any(
         set(items) != expected_ids
@@ -491,21 +522,108 @@ def compile_transfer_execution_snapshot(
             for ordinal, identifier in enumerate(origin_ids, start=1)
         }
 
+    incoming_create_references: dict[
+        tuple[str, str],
+        tuple[BusinessReference | LogicalReference, tuple[str, ...]],
+    ] = {}
+    for decision in fresh_match.create_field_decisions:
+        if decision.provider_kind != "incoming_reference":
+            continue
+        protected = protected_create_values.get(decision.key)
+        candidate = (
+            next(
+                (
+                    item for item in protected.incoming_reference_candidates
+                    if item.choice_hash
+                    == protected.incoming_reference_choice_hash
+                ),
+                None,
+            )
+            if protected is not None
+            else None
+        )
+        related_dataset_id = decision.source_dataset_id or ""
+        related_review = reviewed_by_id.get(related_dataset_id)
+        if (
+            candidate is None
+            or related_review is None
+            or candidate.source_dataset_id != related_dataset_id
+            or candidate.related_model != decision.related_model
+            or candidate.identity_fields != decision.related_identity_fields
+            or candidate.identity_fields != related_review.key_fields
+            or candidate.requires_create
+            != decision.source_reference_requires_create
+        ):
+            raise WorkspaceError(
+                f"The reviewed source record changed for "
+                f"{decision.model}.{decision.field_name}"
+            )
+        candidate_rows = tuple(
+            index
+            for index, identity in enumerate(
+                components_by_dataset[related_dataset_id]
+            )
+            if identity == candidate.identity
+        )
+        if len(candidate_rows) != 1:
+            raise WorkspaceError(
+                f"The reviewed source record is no longer unique for "
+                f"{decision.model}.{decision.field_name}"
+            )
+        related_key = keys_by_dataset[related_dataset_id][candidate_rows[0]]
+        target_binding = bindings_by_dataset[related_dataset_id].get(
+            related_key,
+            "",
+        )
+        if (
+            candidate.requires_create != (not target_binding)
+            or candidate.target_binding_hash != target_binding
+        ):
+            raise WorkspaceError(
+                f"The destination status changed for the reviewed source record "
+                f"used by {decision.model}.{decision.field_name}"
+            )
+        if target_binding:
+            reference: BusinessReference | LogicalReference = BusinessReference(
+                model=candidate.related_model,
+                key=candidate.identity,
+            )
+        else:
+            reference = LogicalReference(
+                origin="incoming",
+                key=candidate.identity,
+                dataset=related_review.dataset_name,
+            )
+        incoming_create_references[decision.key] = (
+            reference,
+            (target_binding,),
+        )
+
+    dependencies_by_dataset: dict[str, set[str]] = {
+        item.dataset_id: set() for item in package.datasets
+    }
+    for relationship in package.relationships:
+        if relationship.incoming_link_count > 0:
+            dependencies_by_dataset[relationship.owner_dataset_id].add(
+                reviewed_by_id[relationship.related_dataset_id].dataset_name
+            )
+    for decision in fresh_match.create_field_decisions:
+        incoming = incoming_create_references.get(decision.key)
+        if incoming is None or not isinstance(incoming[0], LogicalReference):
+            continue
+        related = reviewed_by_id.get(decision.source_dataset_id or "")
+        if related is None:
+            raise WorkspaceError(
+                "A reviewed create-only source record is no longer selected"
+            )
+        dependencies_by_dataset[decision.dataset_id].add(related.dataset_name)
+
     execution_datasets = tuple(
         ExecutionDataset(
             dataset=item.dataset_name,
             target_model=item.model,
             sequence=index,
-            dependencies=tuple(
-                sorted(
-                    {
-                        reviewed_by_id[relationship.related_dataset_id].dataset_name
-                        for relationship in package.relationships
-                        if relationship.owner_dataset_id == item.dataset_id
-                        and relationship.incoming_link_count > 0
-                    }
-                )
-            ),
+            dependencies=tuple(sorted(dependencies_by_dataset[item.dataset_id])),
             existing_policy=(
                 "update" if item.model_policy == "upsert" else "reference"
             ),
@@ -513,14 +631,23 @@ def compile_transfer_execution_snapshot(
             scope_fields=(),
             field_types=tuple(
                 sorted(
-                    (
-                        field_name,
-                        _field_type(schema_by_model, item.model, field_name),
-                    )
-                    for field_name in (
-                        *item.scalar_write_fields,
-                        *item.relationship_write_fields,
-                    )
+                    {
+                        **{
+                            field_name: _field_type(
+                                schema_by_model, item.model, field_name
+                            )
+                            for field_name in (
+                                *item.scalar_write_fields,
+                                *item.relationship_write_fields,
+                            )
+                        },
+                        **{
+                            decision.field_name: decision.field_type
+                            for decision in create_decisions_by_dataset.get(
+                                item.dataset_id, ()
+                            )
+                        },
+                    }.items()
                 )
             ),
         )
@@ -559,6 +686,16 @@ def compile_transfer_execution_snapshot(
                 intents.extend(
                     _scalar_intent(field, source_row.values.get(field))
                     for field in reviewed.scalar_write_fields
+                )
+            if disposition == "CREATE":
+                intents.extend(
+                    _create_field_intent(
+                        decision,
+                        protected_create_values[decision.key],
+                        source_row,
+                        incoming_create_references.get(decision.key),
+                    )
+                    for decision in create_decisions_by_dataset.get(dataset_id, ())
                 )
             relationships_to_write = (
                 relationships_by_owner.get(dataset_id, ())
@@ -751,6 +888,76 @@ def _scalar_intent(field: str, value: object) -> FieldIntent:
         field=field,
         action="SET_NULL" if value is None else "SET_VALUE",
         value=None if value is None else value,
+    )
+
+
+def _create_field_intent(
+    decision,
+    protected,
+    source_row: SourceRow,
+    incoming_reference: tuple[
+        BusinessReference | LogicalReference, tuple[str, ...]
+    ] | None = None,
+) -> FieldIntent:
+    if not decision.reviewed:
+        raise WorkspaceError(
+            f"Choose how to provide {decision.model}.{decision.field_name}"
+        )
+    relation_shape = (
+        {
+            "kind": "relation",
+            "relation_operation": "replace",
+            "related_model": decision.related_model or "",
+            "related_identity_fields": decision.related_identity_fields,
+            "dependency_strength": "hard",
+        }
+        if decision.field_type == "many2one"
+        else {}
+    )
+    if decision.provider_kind == "odoo_default":
+        return FieldIntent(
+            field=decision.field_name,
+            action="EXPECT_PROTECTED",
+            protected_value_hash=decision.value_hash,
+            **relation_shape,
+        )
+    if decision.provider_kind == "fixed_value":
+        return FieldIntent(
+            field=decision.field_name,
+            action="SET_PROTECTED",
+            protected_value_hash=decision.value_hash,
+        )
+    if decision.provider_kind == "existing_reference":
+        return FieldIntent(
+            field=decision.field_name,
+            action="SET_PROTECTED",
+            protected_value_hash=decision.value_hash,
+            **relation_shape,
+        )
+    if decision.provider_kind == "incoming_reference":
+        if incoming_reference is None:
+            raise WorkspaceError(
+                f"Reviewed source record is unavailable for "
+                f"{decision.model}.{decision.field_name}"
+            )
+        reference, bindings = incoming_reference
+        return FieldIntent(
+            field=decision.field_name,
+            action="SET_VALUE",
+            value=reference,
+            target_binding_hashes=bindings,
+            **relation_shape,
+        )
+    if decision.provider_kind == "source_field":
+        value = source_row.values.get(decision.source_field_name or "")
+        if value is None or (isinstance(value, str) and not value.strip()):
+            raise WorkspaceError(
+                f"Source row {source_row.number} has no value for required "
+                f"{decision.model}.{decision.field_name}"
+            )
+        return _scalar_intent(decision.field_name, value)
+    raise WorkspaceError(
+        f"Create-only provider changed for {decision.model}.{decision.field_name}"
     )
 
 

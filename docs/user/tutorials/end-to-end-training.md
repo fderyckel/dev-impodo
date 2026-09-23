@@ -299,7 +299,7 @@ For the training project, the scope is:
 | Bill of Materials | mrp.bom | BoM reference (code) |
 | BoM Component | mrp.bom.line | BoM plus line sequence (bom_id, sequence) |
 
-![Current confirmed rule for finding one existing Odoo record.](../../images/user/08b-odoo-business-keys.png)
+![Stage 2 summary with suggested matching rules ready for one confirmation.](../../images/user/08b-odoo-business-keys.png)
 
 A matching rule answers: “How can Impodo find exactly one existing Odoo
 record?” It does not guarantee uniqueness merely because a sample looks

@@ -887,6 +887,119 @@ class ExecutionServiceTests(unittest.TestCase):
         self.assertTrue(all(batch[2] for batch in executor.loads))
         self.assertEqual(executor.creates, [])
 
+    def test_transfer_resolves_fixed_value_and_omits_default_expectation(self):
+        protected_hash = "sha256:" + "9" * 64
+        default_hash = "sha256:" + "8" * 64
+        reference_hash = "sha256:" + "7" * 64
+        relation_default_hash = "sha256:" + "6" * 64
+        base = _snapshot()
+        category = base.rows[0]
+        protected_snapshot = replace(
+            base,
+            rows=(
+                replace(
+                    category,
+                    fields=(
+                        *category.fields,
+                        FieldIntent(
+                            "x_fixed",
+                            "SET_PROTECTED",
+                            protected_value_hash=protected_hash,
+                        ),
+                        FieldIntent(
+                            "x_default",
+                            "EXPECT_PROTECTED",
+                            protected_value_hash=default_hash,
+                        ),
+                        FieldIntent(
+                            "x_parent_id",
+                            "SET_PROTECTED",
+                            kind="relation",
+                            relation_operation="replace",
+                            related_model="product.category",
+                            related_identity_fields=("name",),
+                            dependency_strength="hard",
+                            protected_value_hash=reference_hash,
+                        ),
+                        FieldIntent(
+                            "x_default_parent_id",
+                            "EXPECT_PROTECTED",
+                            kind="relation",
+                            relation_operation="replace",
+                            related_model="res.partner",
+                            protected_value_hash=relation_default_hash,
+                        ),
+                    ),
+                ),
+                *base.rows[1:],
+            ),
+        )
+        service, _journal, snapshot = self._transfer_service(protected_snapshot)
+        scope = execution_api_scope(snapshot)
+        category_scope = next(
+            item for item in scope.models if item.model == "product.category"
+        )
+        self.assertIn("x_fixed", category_scope.write_fields)
+        self.assertNotIn("x_default", category_scope.write_fields)
+        self.assertIn("x_default", category_scope.read_fields)
+        self.assertNotIn("x_default_parent_id", category_scope.write_fields)
+        self.assertIn("x_default_parent_id", category_scope.read_fields)
+        executor = _Executor(
+            scope.semantic_hash,
+            lookup_ids=(),
+            lookup_results={
+                ("res.partner", (("ref", "=", "C1"),)): (50,),
+            },
+        )
+        executor.target_hash = snapshot.target_hash
+        read_identity = OdooReadIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash=HASH,
+            permission_hash=HASH,
+            context_hash=HASH,
+            readable_models=snapshot.readable_models,
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        write_identity = OdooWriteIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash=HASH,
+            permission_hash=HASH,
+            context_hash=HASH,
+            readable_models=tuple(item.model for item in scope.models),
+            writable_models=tuple(
+                item.model for item in scope.models if item.write_fields
+            ),
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        run = service.execute_transfer(
+            snapshot.workspace_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            expected_preflight_hash=HASH,
+            snapshot=snapshot,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+            read_identity=read_identity,
+            credential_binding_hash=HASH,
+            write_identity=write_identity,
+            protected_values={
+                protected_hash: "Only on create",
+                default_hash: "Applied by Odoo",
+                reference_hash: 77,
+                relation_default_hash: 88,
+            },
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        category_values = next(
+            rows for model, rows, _external_ids in executor.loads
+            if model == "product.category"
+        )[0]
+        self.assertEqual(category_values["x_fixed"], "Only on create")
+        self.assertNotIn("x_default", category_values)
+        self.assertNotIn("x_default_parent_id/.id", category_values)
+        self.assertEqual(category_values["x_parent_id/.id"], "77")
+
     def test_transfer_blocks_child_created_by_an_earlier_wave(self):
         service, journal, snapshot = self._transfer_service(_snapshot())
         scope = execution_api_scope(snapshot)

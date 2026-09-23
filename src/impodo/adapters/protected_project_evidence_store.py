@@ -29,6 +29,7 @@ _ARTIFACT_KINDS = frozenset(
         "correction-plans",
         "correction-confirmations",
         "odoo-source-filters",
+        "destination-create-fields",
     }
 )
 

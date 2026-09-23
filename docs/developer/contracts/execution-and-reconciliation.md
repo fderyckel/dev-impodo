@@ -57,6 +57,36 @@ the transfer stops with no journal and no write. New rows carry deterministic
 External IDs and use the import-capable create boundary, so an uncertain caller
 retry cannot silently create an unidentifiable duplicate.
 
+A create-only fixed value remains in encrypted destination evidence. The
+portable execution snapshot carries a `SET_PROTECTED` intent with its value
+hash, and execution resolves the exact value only after all current target and
+identity checks pass. A reviewed Odoo default uses `EXPECT_PROTECTED`: the
+writer omits the field, while reconciliation reads it and compares it with the
+protected expectation. A captured source-field provider compiles the frozen
+row value only for `CREATE`; it never adds that field to an `UPDATE` row.
+Protected expected and observed values are redacted from reconciliation detail
+artifacts.
+
+A create-only existing Many2one choice uses the same protected intent. The
+matching decision binds a unique related business identity and opaque record
+binding, while encrypted evidence retains the target numeric ID. Remote create
+transport opens that ID only long enough to address the import relationship
+field. Read-back compares the resulting Many2one ID with the protected
+expectation. For an Odoo-supplied Many2one default, the writer omits the field
+and read-back can compare the resulting ID directly with protected evidence;
+the related record type does not have to be selected for migration.
+
+A create-only `incoming_reference` binds one protected business identity from
+another selected source dataset. The choice applies only to `CREATE` rows. If
+the related identity is absent from the destination, the transfer order adds a
+hard dependency and the execution snapshot carries a symbolic
+`LogicalReference`. If it already exists, compilation carries a
+`BusinessReference` with its current opaque binding and adds no dependency.
+Neither form writes a numeric Odoo ID into the matching plan.
+Stage 7 records only the create-only field name and provider kind in each
+`TransferReviewDataset`; its action hash binds that summary to approval. The
+chosen fixed value or reference identity is not part of the review package.
+
 The cross-instance workflow has exactly two credential roles: one
 `SOURCE_FETCH` key for the frozen source capture and one
 `DESTINATION_TRANSFER` key for the destination. Stage 8A and the Stage 8B

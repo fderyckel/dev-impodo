@@ -15,7 +15,11 @@ from impodo.application.destination_matching_service import (
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.transfer_preflight_service import TransferPreflightService
 from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.shared.access import Capability
 from impodo.domain.source_binding import OdooSourceBinding
+from impodo.domain.workspace.destination_matching import (
+    carry_destination_create_field_reviews,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     SourceMode,
@@ -271,6 +275,23 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
                 reader=context.destination_match_reader,
                 recorded_by=context.actor.identity.display_name,
                 source_origins=source_origins,
+            )
+            approved_evidence = None
+            if approved_match.create_field_evidence_id is not None:
+                protected_access = context.workspace_access.resolve(
+                    workspace_id,
+                    actor=context.actor,
+                    capability=Capability.PROTECTED_EVIDENCE_READ,
+                )
+                approved_evidence = await run_in_threadpool(
+                    context.destination_create_fields.read,
+                    protected_access.project_id,
+                    approved_match,
+                )
+            fresh_match = carry_destination_create_field_reviews(
+                fresh_match,
+                approved_match,
+                approved_evidence,
             )
             report = preflight.build(
                 workspace_state,

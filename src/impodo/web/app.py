@@ -183,6 +183,9 @@ from ..adapters.protected_odoo_capture_filters import ProtectedOdooCaptureFilter
 from ..adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
 from ..adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
 from ..adapters.protected_correction_store import ProtectedCorrectionStore
+from ..adapters.protected_destination_create_fields import (
+    ProtectedDestinationCreateFieldStore,
+)
 from ..adapters.protected_project_evidence_store import (
     ProtectedProjectEvidenceStore,
 )
@@ -478,6 +481,9 @@ def create_local_app(
         ProtectedOdooComparisonCodec(),
     )
     odoo_capture_filters = ProtectedOdooCaptureFilterStore(
+        ProtectedProjectEvidenceStore(project_root, resolved_secret_store)
+    )
+    destination_create_fields = ProtectedDestinationCreateFieldStore(
         ProtectedProjectEvidenceStore(project_root, resolved_secret_store)
     )
     odoo_source_capture = OdooSourceCaptureService(
@@ -1093,6 +1099,7 @@ def create_local_app(
         odoo_capture_publication=odoo_capture_publication,
         odoo_capture_jobs=odoo_capture_jobs,
         odoo_provenance=odoo_provenance_service,
+        destination_create_fields=destination_create_fields,
         artifacts=artifacts,
         actor=actor,
         authorization=resolved_authorization,

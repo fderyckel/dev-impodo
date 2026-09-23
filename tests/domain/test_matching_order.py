@@ -8,6 +8,7 @@ from impodo.domain.execution_snapshot import (
     ExecutionDataset,
     dependency_ordered_execution_datasets,
 )
+from impodo.domain.mapping.contracts import MappingTargetMode
 from impodo.domain.matching_order import (
     DatasetOrderEdge,
     MatchingOrderConfidence,
@@ -16,6 +17,7 @@ from impodo.domain.matching_order import (
     MatchingOrderRelationshipOutcome,
     MatchingOrderRelationshipResult,
     MatchingOrderSource,
+    classify_matching_identity,
     live_matching_order_recommendation,
     recommend_dataset_matching_order,
     order_dataset_dependency_components,
@@ -47,6 +49,65 @@ def _execution_dataset(
 
 
 class DatasetMatchingOrderTests(unittest.TestCase):
+    def test_identity_health_classifies_source_and_target_collisions(self) -> None:
+        result = classify_matching_identity(
+            dataset_id="products",
+            target_model="product.template",
+            target_fields=("default_code",),
+            source_keys=(
+                ("EXISTING",),
+                ("NEW",),
+                (None,),
+                ("REPEATED",),
+                ("REPEATED",),
+                ("AMBIGUOUS",),
+            ),
+            target_keys=(
+                ("EXISTING",),
+                ("AMBIGUOUS",),
+                ("AMBIGUOUS",),
+            ),
+            mode=MappingTargetMode.UPSERT,
+            on_existing=None,
+        )
+
+        self.assertEqual(result.source_row_count, 6)
+        self.assertEqual(result.source_unique_row_count, 3)
+        self.assertEqual(result.source_blank_row_count, 1)
+        self.assertEqual(result.source_repeated_row_count, 2)
+        self.assertEqual(result.source_repeated_group_count, 1)
+        self.assertEqual(result.target_unique_key_count, 1)
+        self.assertEqual(result.target_ambiguous_key_count, 1)
+        self.assertEqual(result.expected_new_count, 1)
+        self.assertEqual(result.expected_existing_count, 1)
+        self.assertEqual(result.blocked_count, 4)
+
+    def test_identity_health_applies_create_and_reference_policies(self) -> None:
+        create = classify_matching_identity(
+            dataset_id="products",
+            target_model="product.template",
+            target_fields=("default_code",),
+            source_keys=(("EXISTING",), ("NEW",)),
+            target_keys=(("EXISTING",),),
+            mode=MappingTargetMode.CREATE,
+            on_existing="block",
+        )
+        reference = classify_matching_identity(
+            dataset_id="categories",
+            target_model="product.category",
+            target_fields=("complete_name",),
+            source_keys=(("EXISTING",), ("MISSING",)),
+            target_keys=(("EXISTING",),),
+            mode=MappingTargetMode.REFERENCE,
+            on_existing=None,
+        )
+
+        self.assertEqual((create.expected_new_count, create.blocked_count), (1, 1))
+        self.assertEqual(
+            (reference.expected_existing_count, reference.blocked_count),
+            (1, 1),
+        )
+
     def test_live_check_removes_only_a_completely_target_satisfied_edge(self) -> None:
         local = recommend_dataset_matching_order(
             ("bom", "article", "route"),
