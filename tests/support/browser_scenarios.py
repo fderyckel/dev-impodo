@@ -152,7 +152,11 @@ from impodo.domain.shared.models import canonical_json_text
 
 from impodo.domain.execution.odoo_readback import ReadbackRecord
 
-from impodo.domain.workspace.workbench import OdooConnectionMode, WorkspaceStatus, SourceMode
+from impodo.domain.workspace.workbench import (
+    OdooConnectionMode,
+    SourceMode,
+    WorkspaceStatus,
+)
 
 from impodo.application.workspace.preparation.job_models import PreparationJobStatus, PreparationWorkspace
 
@@ -226,32 +230,46 @@ def _source_column_profile(
         maximum_length=len(value),
     )
 
-def _replace_run_target_setup(
+def _register_workspace_through_services(
     context,
-    workspace_id: str,
+    workspace_state,
     *,
-    connection_mode: OdooConnectionMode,
-    base_url: str,
-    database: str,
+    connection_mode: OdooConnectionMode | None = None,
+    base_url: str = "",
+    database: str = "",
     intended_applications: tuple[str, ...] = (),
-) -> None:
-    workspace = context.migration_workspaces.get(
-        workspace_id,
-        actor=context.actor,
-    )
-    current = context.migration_run_target_setup.get(
-        workspace.migration_run_id,
-        actor=context.actor,
-    )
-    context.migration_run_target_setup.replace(
-        workspace.migration_run_id,
-        actor=context.actor,
-        expected_revision=current.revision if current is not None else None,
-        connection_mode=connection_mode.value,
-        base_url=base_url,
-        database=database,
-        intended_applications=intended_applications,
-    )
+    intended_models: tuple[str, ...] = (),
+):
+    """Reach registered test state through the canonical application commands."""
+
+    current = context.queries.get(workspace_state.workspace_id)
+    if current.source_mode is SourceMode.FILE and not current.source_files:
+        context.intake.accept(
+            current.workspace_id,
+            actor=context.actor,
+            expected_revision=current.revision,
+            display_name="browser-fixture.csv",
+            stream=BytesIO(b"code,name\nP001,Example\n"),
+        )
+        current = context.queries.get(current.workspace_id)
+    if connection_mode is not None:
+        current = context.workspace_states.update_target(
+            current.workspace_id,
+            actor=context.actor,
+            expected_revision=current.revision,
+            odoo_connection_mode=connection_mode.value,
+            odoo_base_url=base_url,
+            odoo_database=database,
+            intended_applications=intended_applications,
+            intended_models=intended_models,
+        )
+    if current.status is WorkspaceStatus.DRAFT:
+        return context.workspace_states.register(
+            current.workspace_id,
+            actor=context.actor,
+            expected_revision=current.revision,
+        )
+    return current
 
 def _hold_duckdb_files(
     paths: tuple[str, ...],
@@ -883,32 +901,13 @@ class LocalStackBrowserTestCase(unittest.TestCase):
     def _register_local_project(self, *, database: str = "odoo19_local"):
         context = self.app.state.context
         workspace_state = context.workspace_states.repository.get(self.workspace_id)
-        now = datetime.now(timezone.utc)
-        registered = replace(
-            workspace_state,
-            odoo_connection_mode=OdooConnectionMode.LOCAL,
-            odoo_base_url="http://127.0.0.1:18069",
-            odoo_database=database,
-            status=WorkspaceStatus.REGISTERED,
-            revision=workspace_state.revision + 1,
-            updated_at=now,
-            registered_at=now,
-        )
-        context.workspace_states.repository.save(
-            registered,
-            expected_revision=workspace_state.revision,
-            event_type="WORKSPACE_REGISTERED",
-            event_detail="",
-            actor=context.actor,
-        )
-        _replace_run_target_setup(
+        return _register_workspace_through_services(
             context,
-            self.workspace_id,
+            workspace_state,
             connection_mode=OdooConnectionMode.LOCAL,
             base_url="http://127.0.0.1:18069",
             database=database,
         )
-        return registered
 
 class ProjectSetupBrowserTestCase(unittest.TestCase):
     """Create isolated state for ProjectSetupWizardTests capability tests."""
@@ -1060,31 +1059,13 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
             source_mode="ODOO",
         )
         now = datetime.now(timezone.utc)
-        workspace_state = replace(
-            created,
-            source_mode=SourceMode.ODOO,
-            odoo_connection_mode=OdooConnectionMode.REMOTE,
-            odoo_base_url="https://remote.example.test",
-            odoo_database="production",
-            intended_models=("res.partner",),
-            status=WorkspaceStatus.REGISTERED,
-            revision=created.revision + 1,
-            updated_at=now,
-            registered_at=now,
-        )
-        context.workspace_states.repository.save(
-            workspace_state,
-            expected_revision=created.revision,
-            event_type="WORKSPACE_REGISTERED",
-            event_detail="",
-            actor=context.actor,
-        )
-        _replace_run_target_setup(
+        workspace_state = _register_workspace_through_services(
             context,
-            workspace_state.workspace_id,
+            created,
             connection_mode=OdooConnectionMode.REMOTE,
             base_url="https://remote.example.test",
             database="production",
+            intended_models=("res.partner",),
         )
         snapshot = _browser_schema(workspace_state)
         model = snapshot.models["res.partner"]
@@ -1168,34 +1149,17 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
             source_system="CSV",
         )
         now = datetime.now(timezone.utc)
-        registered = replace(
+        registered = _register_workspace_through_services(
+            context,
             created,
-            odoo_connection_mode=connection_mode,
-            odoo_base_url=(
+            connection_mode=connection_mode,
+            base_url=(
                 "http://127.0.0.1:8069"
                 if connection_mode is OdooConnectionMode.LOCAL
                 else "https://remote.example.test"
             ),
-            odoo_database="odoo19_local",
-            intended_models=(target_model,),
-            status=WorkspaceStatus.REGISTERED,
-            revision=2,
-            updated_at=now,
-            registered_at=now,
-        )
-        context.workspace_states.repository.save(
-            registered,
-            expected_revision=created.revision,
-            event_type="WORKSPACE_REGISTERED",
-            event_detail="",
-            actor=context.actor,
-        )
-        _replace_run_target_setup(
-            context,
-            registered.workspace_id,
-            connection_mode=connection_mode,
-            base_url=registered.odoo_base_url,
             database="odoo19_local",
+            intended_models=(target_model,),
         )
         read_credential_binding_hash = "sha256:" + "1" * 64
         if connection_mode is OdooConnectionMode.REMOTE:

@@ -214,9 +214,9 @@ class RemoteConnectionStatusService:
         elif not assess_odoo_operation(fingerprint.odoo_version, OdooOperation.CONNECT).allowed:
             reported = fingerprint.odoo_version or "unknown"
             message = (
-                "Impodo could not confirm that this target runs Odoo 19."
+                "Impodo could not confirm this target's Odoo version."
                 if reported == "unknown"
-                else f"Impodo requires Odoo 19; this target reported Odoo {reported}."
+                else f"Impodo does not support this operation on Odoo {reported}."
             )
             status = _status(
                 target_hash=expected_hash,

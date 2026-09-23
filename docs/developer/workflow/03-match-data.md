@@ -140,13 +140,40 @@ this early plan reads identity fields only. Records hidden from the current
 read user are outside the observed target snapshot; presentation therefore
 states the visibility boundary instead of classifying them as inaccessible.
 
-A relationship is eligible only when it uses a direct
-source value with `TARGET_THEN_DATASET`, has exact confirmed business-key and
-scope governance, maps to non-relational target key fields, and has physical
-frozen source values. Metadata requests are merged by model. Exact record
-domains are deduplicated and chunked by the existing bounded record-request
-limit, so request count follows model and page count rather than row count.
-Ineligible relationships are reported as unchecked instead of being guessed.
+The same prepared check now simulates every saved Many2one or Many2many field
+mapping whose related key and scope use direct scalar fields. It supports
+`TARGET_CATALOG`, `DATASET`, and `TARGET_THEN_DATASET`, including constant
+existing-record providers. `CategoricalCoverageService.source_included_key_tuples`
+applies the owner dataset's `RowInclusionPolicy`; incoming candidate keys use
+the related dataset's policy. The application counts source-row occurrences
+but sends only distinct keys to Odoo.
+
+`relationship_health.py` owns the pure classification. It keeps exact target,
+exact incoming, missing, ambiguous, case-only, incomplete compound-key, and
+blank outcomes separate. Target-first classification stops on an exact,
+ambiguous, or case-only Odoo candidate before considering incoming fallback.
+Required blanks contribute to `blocked_count`; optional blanks do not. The
+order service projects checked incoming results back to the conservative
+`MatchingOrderRelationshipResult`, so the business-facing diagnosis and the
+authoring-order hint share evidence without sharing responsibilities.
+
+Target read requests are grouped by related model, ordered governed key and
+scope fields, and field types. Keys are deduplicated across relationship
+fields, then chunked by `MAX_KEYS_PER_RECORD_REQUEST`. Text keys use bounded
+`=ilike` candidate reads so the classifier can distinguish an exact value from
+a case-only near match. Dataset-only resolvers perform no relationship-record
+read. Metadata requests remain merged by model. There is no source-row request
+loop, and more than 50,000 distinct relationship or incoming keys produces an
+explicit aggregate-only not-checkable result.
+
+One2many remains owned by the child's inverse Many2one. The simulator records
+`ONE2MANY_INVERSE_REQUIRED`, and the presenter links to the selected child
+dataset and inverse field when that route is available. A missing incoming
+dataset, indirect related identity, relational related-key component,
+unconfirmed target matching rule, unavailable source snapshot, or changed Odoo
+field contract is also reported as not checkable instead of being guessed.
+This slice does not yet make a resolver-backed component of the dataset's own
+identity checkable.
 
 `POST /workspaces/{workspace_id}/mapping/order/check` requires the
 authenticated workspace session, same-origin form policy, CSRF,
@@ -165,14 +192,20 @@ coverage removes a conservative incoming dependency. Mixed, incoming,
 missing, ambiguous, schema-changed, and unchecked outcomes retain it. Exact
 source identity and relationship keys and target records are serialized only
 into the protected workspace snapshot row. The public `MatchingOrderCheck`
-contains `MatchingIdentityResult` aggregates, relationship aggregates,
-hashes, and the proposed dataset order without key values or numeric Odoo IDs.
+contains `MatchingIdentityResult` and `RelationshipHealthResult` aggregates,
+order-only relationship aggregates, hashes, and the proposed dataset order
+without key values or numeric Odoo IDs.
 The
 [identity-health presenter](../../../src/impodo/web/presenters/identity_health.py)
 projects those results into **Suggested**, **Chosen - not tested**, **Tested on
 current data**, **Tested - needs attention**, and **Needs refresh** states.
+The
+[relationship-health presenter](../../../src/impodo/web/presenters/relationship_health.py)
+projects each saved relationship into **Chosen - not tested**, **Ready**,
+**Needs attention**, or **Needs refresh** and supplies the owner-field and
+incoming-table correction routes.
 `mapping_view.py` remains the page orchestrator and does not duplicate the
-identity classification rules.
+identity or relationship classification rules.
 
 Publication is transactional and succeeds as current only when source
 selection, schema, governance, target/read identities, and working-draft
@@ -552,9 +585,10 @@ The recoverable working draft is deliberately non-authoritative. Semantic
 validation creates immutable issues and coverage. Submission then binds the
 exact valid revision to the source and schema evidence, semantic-validation
 warning acknowledgement, and actor. The optional impact preview does not
-authorize submission. Preparation and final review remain responsible for
-row-level uniqueness and relationship resolution; a mapping preview does not
-claim those results.
+authorize submission. Relationship health is an early aggregate check bound to
+the saved draft and current read identity. Preparation and Final review remain
+authoritative for complete row-level uniqueness and relationship resolution;
+the authoring result cannot authorize a load.
 
 Formula authoring issues use the stable `MAPPING_FORMULA_INVALID` code and
 carry severity, correction, optional one-based character position, dataset,
@@ -569,8 +603,11 @@ validation result for the malformed formula.
 | Role | Code |
 | --- | --- |
 | Mapping lifecycle | [`MappingWorkspaceService`](../../../src/impodo/application/workspace/mapping/service.py) |
+| Six-stage user-support plan | [`six-stage-workflow-user-support.md`](../../plans/six-stage-workflow-user-support.md) |
 | Local Stage 3 ordering recommendation | [`MatchingOrderService`](../../../src/impodo/application/workspace/mapping/order_service.py) |
 | Aggregate identity-health browser projection | [`identity_health.py`](../../../src/impodo/web/presenters/identity_health.py) |
+| Aggregate relationship-health domain | [`relationship_health.py`](../../../src/impodo/domain/relationship_health.py) |
+| Aggregate relationship-health browser projection | [`relationship_health.py`](../../../src/impodo/web/presenters/relationship_health.py) |
 | Matching-order preference contract | [`MatchingOrderPreference`](../../../src/impodo/domain/matching_order.py) |
 | Matching-order preference persistence | [`MatchingOrderRepository`](../../../src/impodo/adapters/duckdb/matching_order_repository.py) |
 | Matching-order check schema and forward migration | [`workspace_engine.py`](../../../src/impodo/adapters/duckdb/schema/workspace_engine.py) |
@@ -617,7 +654,7 @@ validation result for the malformed formula.
 | Canonical relationship dependencies | [`relationship_dependencies.py`](../../../src/impodo/domain/relationship_dependencies.py) |
 | Shared dataset component ordering and typed recommendation facts | [`matching_order.py`](../../../src/impodo/domain/matching_order.py) |
 | Recommended-order browser queue | [`_matching_order.html`](../../../src/impodo/web/templates/mapping/_matching_order.html), [`mapping-order.js`](../../../src/impodo/web/static/mapping-order.js), and [`mapping.css`](../../../src/impodo/web/static/mapping.css) |
-| Matching-order domain, service, persistence, migration, and browser tests | [`test_matching_order.py`](../../../tests/domain/test_matching_order.py), [`test_order_service.py`](../../../tests/application/workspace/mapping/test_order_service.py), [`test_matching_order_live_check.py`](../../../tests/application/workspace/mapping/test_matching_order_live_check.py), [`test_matching_order_repository.py`](../../../tests/integration/duckdb/test_matching_order_repository.py), [`test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py), and [`test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py) |
+| Matching-order and relationship-health domain, service, persistence, and browser tests | [`test_matching_order.py`](../../../tests/domain/test_matching_order.py), [`test_relationship_health.py`](../../../tests/domain/test_relationship_health.py), [`test_order_service.py`](../../../tests/application/workspace/mapping/test_order_service.py), [`test_matching_order_live_check.py`](../../../tests/application/workspace/mapping/test_matching_order_live_check.py), [`test_matching_order_repository.py`](../../../tests/integration/duckdb/test_matching_order_repository.py), [`test_identity_health_presenter.py`](../../../tests/integration/web/test_identity_health_presenter.py), [`test_relationship_health_presenter.py`](../../../tests/integration/web/test_relationship_health_presenter.py), [`test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py), and [`test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py) |
 | Batched Odoo read planning | [`planner.py`](../../../src/impodo/domain/execution/planner.py) |
 | Target-first resolution and classification | [`preflight.py`](../../../src/impodo/domain/preparation/preflight.py) |
 | Reviewed execution hand-off | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
@@ -824,8 +861,9 @@ rows.
 fictional Contact and order-line workspaces, serves the current authenticated
 application on
 an ephemeral loopback port, and drives the installed Edge browser at 1440 by
-1024 CSS pixels with device scale factor 1. It captures Identity health, the
-relational identity origin and incoming-parent controls, the guided
+1024 CSS pixels with device scale factor 1. It captures Identity health,
+Relationship health, the relational identity origin and incoming-parent
+controls, the guided
 combined-source-column provider, plus the inline formula error, saved-with-issues,
 stale-tab conflict, and disconnected-server states that the paired user page
 presents. The helper stops the isolated server to
@@ -847,6 +885,7 @@ operational source data.
 - [`tests/integration/web/test_mapping_impact_presenter.py`](../../../tests/integration/web/test_mapping_impact_presenter.py)
 - [`tests/integration/web/test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py)
 - [`tests/integration/web/test_identity_health_presenter.py`](../../../tests/integration/web/test_identity_health_presenter.py)
+- [`tests/integration/web/test_relationship_health_presenter.py`](../../../tests/integration/web/test_relationship_health_presenter.py)
 - [`tests/integration/web/test_mapping_catalog_scale.py`](../../../tests/integration/web/test_mapping_catalog_scale.py)
 - [`tests/integration/web/test_mapping_catalog_runtime.py`](../../../tests/integration/web/test_mapping_catalog_runtime.py)
 - [`tests/integration/web/test_diagnostics.py`](../../../tests/integration/web/test_diagnostics.py)
@@ -856,6 +895,7 @@ operational source data.
 - [`tests/domain/preparation/test_target_first_relationships.py`](../../../tests/domain/preparation/test_target_first_relationships.py)
 - [`tests/domain/test_relationship_dependencies.py`](../../../tests/domain/test_relationship_dependencies.py)
 - [`tests/domain/test_matching_order.py`](../../../tests/domain/test_matching_order.py)
+- [`tests/domain/test_relationship_health.py`](../../../tests/domain/test_relationship_health.py)
 - [`tests/application/workspace/mapping/test_order_service.py`](../../../tests/application/workspace/mapping/test_order_service.py)
 - [`tests/application/workspace/mapping/test_matching_order_live_check.py`](../../../tests/application/workspace/mapping/test_matching_order_live_check.py)
 - [`tests/integration/duckdb/test_matching_order_repository.py`](../../../tests/integration/duckdb/test_matching_order_repository.py)

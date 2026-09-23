@@ -99,12 +99,12 @@ from impodo.domain.recipe.source_binding import (
     normalize_recipe_source_name,
 )
 from impodo.domain.workspace.reference_keys import (
-    REFERENCE_POLICY_HASH,
     GovernedReferenceRequest,
     ReferenceEvidenceKind,
     ReferenceReadPurpose,
     authorize_governed_reference,
     captured_reference_field_contracts,
+    reference_policy_hash,
 )
 from impodo.domain.recipe.value_rules import (
     ScalarTransformPolicy,
@@ -233,7 +233,7 @@ class RecipeApplicationCompiler:
             issues.append(self._block("RECIPE_TARGET_VERSION_INCOMPATIBLE", "The connected Odoo major version does not match this Recipe.", "Choose a compatible Odoo server or publish and retest a new Recipe revision."))
         actual_models = {item.name: item for item in schema.models}
         dependency_projection = []
-        if contract.get("reference_policy_hash") != REFERENCE_POLICY_HASH:
+        if contract.get("reference_policy_hash") != reference_policy_hash(actual_major):
             issues.append(
                 self._block(
                     "RECIPE_REFERENCE_POLICY_CHANGED",

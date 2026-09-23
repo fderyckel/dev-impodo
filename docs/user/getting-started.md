@@ -14,8 +14,9 @@ Recipe to start or finish the work.
 ## Before you start
 
 For a file project, collect the related CSV or XLSX exports from the legacy
-system. For an Odoo-source project, have the exact Odoo 19 address, database
-name, and read-only API key.
+system. For an Odoo-source project, have the exact supported Odoo 19 or final
+Odoo 20 address, database name, and read-only API key. Odoo 20 source reads are
+supported, but Odoo 20 loading and Production are not enabled yet.
 
 ## Steps in Impodo
 

@@ -116,8 +116,8 @@ The authoring workspace retains the six data-manager stages:
 
 1. **Source data** accepts and freezes uploaded CSV or XLSX data, or captures a
    bounded Odoo-source snapshot.
-2. **Odoo data** captures the permitted Odoo 19 model and field contract with
-   a read-only identity.
+2. **Odoo data** captures the permitted Odoo 19 or final Odoo 20 model and
+   field contract with a read-only identity.
 3. **Match data** records governed keys, mappings, transformations,
    relationships, and derived-entity rules.
 4. **Prepare data** builds canonical staging, evaluates quality rules, and
@@ -218,10 +218,11 @@ aliases, dual reads, and dual writes remain absent.
 
 ## Odoo and performance boundaries
 
-Remote access uses closed Odoo 19 JSON-2 operations. Read adapters cannot
+Remote read access uses closed qualified Odoo 19 or final Odoo 20 JSON-2
+operations. Read adapters cannot
 create, write, unlink, import, execute SQL, or call arbitrary model methods.
 The separate writer acts only after exact schema-bound evidence and explicit
-confirmation.
+confirmation. The writer remains disabled for Odoo 20.
 
 Project and run list projections are bounded registry reads. The overview
 currently opens only its one Authoring workspace when computing Recipe

@@ -139,6 +139,32 @@ saved comparison readable and prevents an available shared key from being
 misreported as missing. Reconnection still verifies unchanged schema and access
 meaning before a new comparison can use the replacement credential generation.
 
+### Reviewed deferred record groups
+
+For a file-source report with isolatable blockers,
+`PreflightService.deferred_scope_review` derives root issues and complete
+affected-record closure from the saved manifest, full execution snapshot, and
+frozen prepared dependencies. `preview_deferred_scope` keeps identity parents,
+children, and required siblings together and reconciles prepared, omitted,
+remaining-write, and remaining-problem counts. Exact numeric-precision issues
+are calculated against the intended write rows and captured Odoo digits; the
+path never rounds a value implicitly.
+
+The browser renders the local preview through
+`workspace_deferred_scope.html`. Acceptance posts the comparison identifier,
+preview hash, and selected issue identifiers. The route recalculates the
+preview before `PreflightService.accept_deferred_scope` publishes a compact
+decision, reduced execution snapshot, and compact execution projection. A
+stale comparison or changed preview is rejected. Preview, acceptance,
+navigation, and workbook generation make no Odoo request.
+
+`reduce_execution_snapshot` removes only the reviewed closure and rebuilds the
+remaining relationship schedule. The result is loadable only when no blocker
+remains and at least one safe write remains. The full comparison stays
+immutable. The workbook's **Deferred issues** sheet projects every omitted
+prepared row with its direct or inherited cause. The detailed invariants are
+defined by the [reviewed deferred record groups contract](../contracts/deferred-record-groups.md).
+
 ## Code references
 
 | Role | Code |
@@ -153,8 +179,12 @@ meaning before a new comparison can use the replacement credential generation.
 | Protected comparison contract | [`odoo_comparison.py`](../../../src/impodo/domain/odoo_comparison.py) |
 | Frozen input | [`frozen_input.py`](../../../src/impodo/domain/preflight/frozen_input.py) |
 | Review reports | [`reports.py`](../../../src/impodo/domain/preflight/reports.py) |
+| Deferred-group closure and precision | [`preview_deferred_scope`](../../../src/impodo/domain/preflight/deferred_scope.py) |
+| Reduced execution snapshot | [`reduce_execution_snapshot`](../../../src/impodo/domain/preflight/deferred_execution.py) |
+| Deferred review and acceptance | [`PreflightService.deferred_scope_review`](../../../src/impodo/application/preflight_service.py) and [`PreflightService.accept_deferred_scope`](../../../src/impodo/application/preflight_service.py) |
 | Workbook projection | [`reporting.py`](../../../src/impodo/adapters/artifacts/reporting.py) |
 | Browser routes | [`preflight.py`](../../../src/impodo/web/routers/preflight.py) |
+| Affected-group review page | [`workspace_deferred_scope.html`](../../../src/impodo/web/templates/workspace_deferred_scope.html) |
 | Progress page | [`workspace_preflight_progress.html`](../../../src/impodo/web/templates/workspace_preflight_progress.html) |
 | Failure classification | [`odoo_read_failures.py`](../../../src/impodo/application/odoo_read_failures.py) |
 | Recovery presentation | [`comparison_recovery.py`](../../../src/impodo/web/presenters/comparison_recovery.py) |
@@ -243,13 +273,19 @@ contact Odoo while writing them.
 - [`tests/application/workspace/review/test_preflight.py`](../../../tests/application/workspace/review/test_preflight.py)
 - [`tests/application/workspace/review/test_preflight_jobs.py`](../../../tests/application/workspace/review/test_preflight_jobs.py)
 - [`tests/domain/preflight/test_review_workbook.py`](../../../tests/domain/preflight/test_review_workbook.py)
+- [`tests/domain/preflight/test_deferred_scope.py`](../../../tests/domain/preflight/test_deferred_scope.py)
+- [`tests/domain/preflight/test_deferred_execution.py`](../../../tests/domain/preflight/test_deferred_execution.py)
 - [`tests/performance/test_preflight_scale.py`](../../../tests/performance/test_preflight_scale.py)
+- [`tests/performance/test_deferred_scope_scale.py`](../../../tests/performance/test_deferred_scope_scale.py)
 - [`tests/integration/artifacts/test_reporting_cli.py`](../../../tests/integration/artifacts/test_reporting_cli.py)
 - [`tests/integration/artifacts/test_preflight_outputs.py`](../../../tests/integration/artifacts/test_preflight_outputs.py)
 - [`tests/integration/odoo/test_connectors.py`](../../../tests/integration/odoo/test_connectors.py)
 - [`tests/application/workspace/review/test_odoo_comparison.py`](../../../tests/application/workspace/review/test_odoo_comparison.py)
 - [`tests/integration/web/test_review_workflow.py`](../../../tests/integration/web/test_review_workflow.py)
 - [`tests/integration/web/test_summary_presenter.py`](../../../tests/integration/web/test_summary_presenter.py)
+- [`tests/integration/web/test_deferred_scope_presenter.py`](../../../tests/integration/web/test_deferred_scope_presenter.py)
+- [`tests/integration/web/test_deferred_scope_routes.py`](../../../tests/integration/web/test_deferred_scope_routes.py)
+- [`tests/integration/duckdb/test_preflight_repository.py`](../../../tests/integration/duckdb/test_preflight_repository.py)
 - [`tests/integration/duckdb/test_navigation_repository.py`](../../../tests/integration/duckdb/test_navigation_repository.py)
 - [`tests/architecture/test_workspace_navigation_boundaries.py`](../../../tests/architecture/test_workspace_navigation_boundaries.py)
 - [Recipe comparison and shared-key recovery](../../../tests/integration/web/test_recipe_comparison_recovery.py)
@@ -264,5 +300,6 @@ write capabilities.
 - [User guide: Final review](../../user/workflow/05-final-review.md)
 - [Preflight contract](../contracts/preflight.md)
 - [Quality and quarantine contract](../contracts/quality-and-quarantine.md)
+- [Reviewed deferred record groups contract](../contracts/deferred-record-groups.md)
 - [Architecture decisions](../../decisions/README.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)

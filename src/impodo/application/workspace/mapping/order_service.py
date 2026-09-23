@@ -1,4 +1,4 @@
-"""Build Stage 3 matching-order advice from saved local evidence only."""
+"""Build Stage 3 identity, relationship, and matching-order evidence."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Callable, Iterable, Protocol
 from uuid import uuid4
 
 from impodo.domain.mapping.contracts import (
+    MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
@@ -53,6 +54,11 @@ from impodo.domain.execution.planner import (
     MAX_KEYS_PER_RECORD_REQUEST,
     PreflightRequirementPlan,
 )
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.workspace.reference_keys import (
+    REFERENCE_POLICY_HASH,
+    reference_policy_hash,
+)
 from impodo.domain.schema.governance import (
     BusinessKeyStatus,
     SchemaGovernance,
@@ -60,6 +66,12 @@ from impodo.domain.schema.governance import (
 from impodo.domain.serialization import canonical_json
 from impodo.domain.relationship_dependencies import (
     extract_dataset_dependency_edges,
+)
+from impodo.domain.relationship_health import (
+    RelationshipHealthNotCheckableReason,
+    RelationshipHealthResult,
+    RelationshipHealthStatus,
+    classify_relationship_health,
 )
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.shared.access import (
@@ -171,18 +183,38 @@ class MatchingOrderSourceKeys(Protocol):
         row_inclusion: RowInclusionPolicy,
     ) -> tuple[tuple[str | None, ...], ...]: ...
 
+    def source_included_key_tuples(
+        self,
+        workspace_id: str,
+        dataset_id: str,
+        source_column_keys: tuple[str, ...],
+        row_inclusion: RowInclusionPolicy,
+    ) -> tuple[tuple[str | None, ...], ...]: ...
+
 
 @dataclass(frozen=True, slots=True)
-class MatchingOrderLiveProbe:
-    """One exact in-memory hybrid relationship classification plan."""
+class RelationshipHealthLiveProbe:
+    """One exact in-memory relationship classification plan."""
 
     owner_dataset_id: str
-    dependency_dataset_id: str
+    dependency_dataset_id: str | None
     target_field: str
+    relationship_kind: str
+    resolver_origin: ResolverOrigin
+    required: bool
     target_model: str
     target_fields: tuple[str, ...]
-    source_keys: tuple[tuple[str, ...], ...]
-    incoming_keys: tuple[tuple[str, ...], ...]
+    source_row_count: int
+    source_key_counts: tuple[tuple[tuple[str, ...], int], ...]
+    blank_row_count: int
+    incomplete_row_count: int
+    incoming_key_counts: tuple[tuple[tuple[str, ...], int], ...]
+
+    @property
+    def source_keys(self) -> tuple[tuple[str, ...], ...]:
+        """Return distinct protected keys for bounded Odoo read planning."""
+
+        return tuple(key for key, _count in self.source_key_counts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,8 +242,8 @@ class MatchingOrderPreparedCheck:
     draft_hash: str
     local_recommendation: MatchingOrderRecommendation
     tie_break_order: tuple[str, ...]
-    probes: tuple[MatchingOrderLiveProbe, ...]
-    unchecked_relationship_count: int
+    relationship_probes: tuple[RelationshipHealthLiveProbe, ...]
+    relationship_health_results: tuple[RelationshipHealthResult, ...]
     identity_probes: tuple[MatchingIdentityLiveProbe, ...]
     identity_results: tuple[MatchingIdentityResult, ...]
     requirements: PreflightRequirementPlan
@@ -227,6 +259,7 @@ MatchingOrderSnapshotReader = Callable[
 _IDENTITY_CHECK_FIELD_TYPES = frozenset(
     {"char", "date", "datetime", "integer", "selection", "text"}
 )
+_RELATIONSHIP_CHECK_FIELD_TYPES = _IDENTITY_CHECK_FIELD_TYPES
 
 
 class MatchingOrderService:
@@ -496,17 +529,11 @@ class MatchingOrderService:
                 identity_probes.append(probe)
             elif result is not None:
                 identity_results.append(result)
-        probes: list[MatchingOrderLiveProbe] = []
-        checkable_count = 0
+        relationship_probes: list[RelationshipHealthLiveProbe] = []
+        relationship_health_results: list[RelationshipHealthResult] = []
         for owner in draft.definition.datasets:
             for relationship in owner.relationships:
-                if (
-                    relationship.resolver.dataset_id
-                    and relationship.resolver.origin
-                    in {ResolverOrigin.DATASET, ResolverOrigin.TARGET_THEN_DATASET}
-                ):
-                    checkable_count += 1
-                probe = self._live_probe(
+                probe, result = self._relationship_probe(
                     workspace_id,
                     owner,
                     relationship,
@@ -515,10 +542,12 @@ class MatchingOrderService:
                     confirmed_keys,
                 )
                 if probe is not None:
-                    probes.append(probe)
+                    relationship_probes.append(probe)
+                elif result is not None:
+                    relationship_health_results.append(result)
 
         fields_by_model: dict[str, set[str]] = defaultdict(set)
-        for probe in probes:
+        for probe in relationship_probes:
             fields_by_model[probe.target_model].update(probe.target_fields)
         for probe in identity_probes:
             fields_by_model[probe.target_model].update(probe.target_fields)
@@ -531,14 +560,38 @@ class MatchingOrderService:
         }
         record_requests: list[RecordRequest] = []
         seen_requests: set[str] = set()
-        for probe in probes:
-            for domain in _matching_key_domain_chunks(
+        relationship_keys_by_rule: dict[
+            tuple[str, tuple[str, ...], tuple[str, ...]],
+            set[tuple[str, ...]],
+        ] = defaultdict(set)
+        for probe in relationship_probes:
+            if probe.resolver_origin is ResolverOrigin.DATASET:
+                continue
+            related_fields = {
+                item.name: item
+                for item in schema_by_model[probe.target_model].fields
+            }
+            rule = (
+                probe.target_model,
                 probe.target_fields,
-                probe.source_keys,
+                tuple(
+                    related_fields[field].type for field in probe.target_fields
+                ),
+            )
+            relationship_keys_by_rule[rule].update(probe.source_keys)
+        for (
+            target_model,
+            target_fields,
+            field_types,
+        ), source_keys in sorted(relationship_keys_by_rule.items()):
+            for domain in _relationship_key_domain_chunks(
+                target_fields,
+                source_keys,
+                field_types,
             ):
                 request = RecordRequest(
-                    model=probe.target_model,
-                    fields=projected_fields[probe.target_model],
+                    model=target_model,
+                    fields=projected_fields[target_model],
                     domain=tuple(domain),
                 )
                 identity = canonical_json(
@@ -575,13 +628,25 @@ class MatchingOrderService:
                 if identity not in seen_requests:
                     seen_requests.add(identity)
                     record_requests.append(request)
+        version_decision = assess_odoo_operation(
+            schema.odoo_version,
+            OdooOperation.COMPARE,
+        )
+        current_reference_policy_hash = (
+            reference_policy_hash(version_decision.version.major)
+            if version_decision.allowed
+            else None
+        )
         requirements = PreflightRequirementPlan(
             metadata_requests=metadata_requests,
             record_requests=tuple(record_requests),
             reference_requirements=(),
             source_record_count=(
-                sum(len(item.source_keys) for item in probes)
+                sum(item.source_row_count for item in relationship_probes)
                 + sum(len(item.source_keys) for item in identity_probes)
+            ),
+            reference_policy_hash=(
+                current_reference_policy_hash or REFERENCE_POLICY_HASH
             ),
         )
         return MatchingOrderPreparedCheck(
@@ -596,8 +661,8 @@ class MatchingOrderService:
             tie_break_order=tuple(
                 tie_break_order or local_recommendation.ordered_dataset_ids
             ),
-            probes=tuple(probes),
-            unchecked_relationship_count=max(0, checkable_count - len(probes)),
+            relationship_probes=tuple(relationship_probes),
+            relationship_health_results=tuple(relationship_health_results),
             identity_probes=tuple(identity_probes),
             identity_results=tuple(identity_results),
             requirements=requirements,
@@ -764,12 +829,40 @@ class MatchingOrderService:
             )
             preferences.update_check_attempt(prepared.workspace_id, attempt)
             schema_changed = _matching_schema_changed(prepared.schema, metadata)
+            checked_relationship_health = (
+                tuple(
+                    _not_checkable_relationship_result(
+                        owner_dataset_id=probe.owner_dataset_id,
+                        target_field=probe.target_field,
+                        relationship_kind=probe.relationship_kind,
+                        resolver_origin=probe.resolver_origin,
+                        related_model=probe.target_model,
+                        dependency_dataset_id=probe.dependency_dataset_id,
+                        required=probe.required,
+                        reason=(
+                            RelationshipHealthNotCheckableReason.ODOO_SCHEMA_CHANGED
+                        ),
+                    )
+                    for probe in prepared.relationship_probes
+                )
+                if schema_changed
+                else tuple(
+                    _classify_relationship_probe(probe, records)
+                    for probe in prepared.relationship_probes
+                )
+            )
+            relationship_health_results = (
+                *prepared.relationship_health_results,
+                *checked_relationship_health,
+            )
             results = (
                 ()
                 if schema_changed
                 else tuple(
-                    _classify_live_probe(probe, records)
-                    for probe in prepared.probes
+                    item
+                    for health in checked_relationship_health
+                    if (item := _matching_order_relationship_result(health))
+                    is not None
                 )
             )
             checked_identity_results = (
@@ -828,8 +921,7 @@ class MatchingOrderService:
                 read_context_hash=prepared.schema.read_context_hash,
                 relationship_results=results,
                 unchecked_relationship_count=(
-                    prepared.unchecked_relationship_count
-                    + (len(prepared.probes) if schema_changed else 0)
+                    sum(not item.checked for item in relationship_health_results)
                 ),
                 ordered_dataset_ids=recommendation.ordered_dataset_ids,
                 recommendation_hash=matching_order_recommendation_hash(
@@ -841,6 +933,7 @@ class MatchingOrderService:
                 actor_subject=prepared.actor.identity.subject_id,
                 actor_display_name=prepared.actor.identity.display_name,
                 identity_results=identity_results,
+                relationship_health_results=relationship_health_results,
             )
             protected_snapshot = canonical_json(
                 {
@@ -853,10 +946,16 @@ class MatchingOrderService:
                             "target_field": item.target_field,
                             "target_model": item.target_model,
                             "target_fields": list(item.target_fields),
-                            "source_keys": [list(key) for key in item.source_keys],
-                            "incoming_keys": [list(key) for key in item.incoming_keys],
+                            "source_key_counts": [
+                                {"key": list(key), "count": count}
+                                for key, count in item.source_key_counts
+                            ],
+                            "incoming_key_counts": [
+                                {"key": list(key), "count": count}
+                                for key, count in item.incoming_key_counts
+                            ],
                         }
-                        for item in prepared.probes
+                        for item in prepared.relationship_probes
                     ],
                     "identity_source_keys": [
                         {
@@ -911,7 +1010,7 @@ class MatchingOrderService:
             with self._check_lock:
                 self._running_check_ids.discard(prepared.check_id)
 
-    def _live_probe(
+    def _relationship_probe(
         self,
         workspace_id: str,
         owner: DatasetMapping,
@@ -919,90 +1018,176 @@ class MatchingOrderService:
         mappings: dict[str, DatasetMapping],
         schema_by_model,
         confirmed_keys,
-    ) -> MatchingOrderLiveProbe | None:
+    ) -> tuple[RelationshipHealthLiveProbe | None, RelationshipHealthResult | None]:
+        """Prepare one relationship simulation or one explicit safe reason."""
+
         resolver = relationship.resolver
+        dependency = (
+            mappings.get(resolver.dataset_id) if resolver.dataset_id else None
+        )
+        owner_model = schema_by_model.get(owner.target_model)
+        owner_field = next(
+            (
+                item
+                for item in (owner_model.fields if owner_model is not None else ())
+                if item.name == relationship.target_field
+            ),
+            None,
+        )
+        related_model = resolver.model or (
+            dependency.target_model if dependency is not None else ""
+        ) or (owner_field.relation if owner_field is not None else "")
+        required = relationship.required or relationship.required_on_create
+
+        def unchecked(
+            reason: RelationshipHealthNotCheckableReason,
+        ) -> tuple[None, RelationshipHealthResult]:
+            return None, _not_checkable_relationship_result(
+                owner_dataset_id=owner.dataset_id,
+                target_field=relationship.target_field,
+                relationship_kind=relationship.kind,
+                resolver_origin=resolver.origin,
+                related_model=related_model or "unknown",
+                dependency_dataset_id=resolver.dataset_id,
+                required=required,
+                reason=reason,
+            )
+
+        if relationship.kind == "one2many":
+            return unchecked(
+                RelationshipHealthNotCheckableReason.ONE2MANY_INVERSE_REQUIRED
+            )
+        if relationship.kind not in {"many2one", "many2many"}:
+            return unchecked(
+                RelationshipHealthNotCheckableReason.UNSUPPORTED_RELATIONSHIP
+            )
+        if not related_model:
+            return unchecked(RelationshipHealthNotCheckableReason.MAPPING_INCOMPLETE)
         if (
-            relationship.value_source is not RelationshipValueSource.SOURCE
-            or resolver.origin is not ResolverOrigin.TARGET_THEN_DATASET
-            or not resolver.dataset_id
-            or not resolver.model
-            or resolver.dataset_id == owner.dataset_id
+            owner_field is None
+            or owner_field.type != relationship.kind
+            or owner_field.relation != related_model
         ):
-            return None
+            return unchecked(RelationshipHealthNotCheckableReason.MAPPING_INCOMPLETE)
         key_fields, scope_fields = relationship_target_fields(relationship)
         target_fields = (*key_fields, *scope_fields)
-        if (
-            not key_fields
-            or (resolver.model, key_fields, scope_fields) not in confirmed_keys
-        ):
-            return None
-        model = schema_by_model.get(resolver.model)
+        if not key_fields:
+            return unchecked(RelationshipHealthNotCheckableReason.MAPPING_INCOMPLETE)
+        if resolver.origin in {
+            ResolverOrigin.TARGET_CATALOG,
+            ResolverOrigin.TARGET_THEN_DATASET,
+        } and (related_model, key_fields, scope_fields) not in confirmed_keys:
+            return unchecked(
+                RelationshipHealthNotCheckableReason.UNCONFIRMED_MATCHING_RULE
+            )
+        model = schema_by_model.get(related_model)
         schema_fields = (
             {item.name: item for item in model.fields} if model is not None else {}
         )
         if any(
             field not in schema_fields
-            or schema_fields[field].type in {"many2one", "one2many", "many2many"}
+            or schema_fields[field].type not in _RELATIONSHIP_CHECK_FIELD_TYPES
+            or schema_fields[field].exportable is False
             for field in target_fields
         ):
-            return None
-        source_by_target = {
-            item.target_field: item.source_column_key
-            for item in (*resolver.key_mappings, *resolver.scope_mappings)
-        }
-        source_columns = tuple(source_by_target.get(item, "") for item in target_fields)
-        if any(not item for item in source_columns):
-            return None
-        dependency = mappings.get(resolver.dataset_id)
-        if dependency is None or dependency.target_model != resolver.model:
-            return None
-        incoming_by_target = _direct_identity_source_columns(dependency)
-        incoming_columns = tuple(
-            incoming_by_target.get(item, "") for item in target_fields
-        )
-        if any(not item for item in incoming_columns):
-            return None
+            return unchecked(
+                RelationshipHealthNotCheckableReason.UNSUPPORTED_RELATIONSHIP
+            )
+
+        if relationship.value_source is RelationshipValueSource.SOURCE:
+            source_by_target = {
+                item.target_field: item.source_column_key
+                for item in (*resolver.key_mappings, *resolver.scope_mappings)
+            }
+            source_columns = tuple(
+                source_by_target.get(item, "") for item in target_fields
+            )
+            if any(not item for item in source_columns):
+                return unchecked(
+                    RelationshipHealthNotCheckableReason.MAPPING_INCOMPLETE
+                )
+        else:
+            source_columns = ()
+
+        incoming_columns: tuple[str, ...] = ()
+        if resolver.origin in {
+            ResolverOrigin.DATASET,
+            ResolverOrigin.TARGET_THEN_DATASET,
+        }:
+            if (
+                dependency is None
+                or dependency.dataset_id == owner.dataset_id
+                or dependency.target_model != related_model
+            ):
+                return unchecked(
+                    RelationshipHealthNotCheckableReason.RELATED_DATASET_UNAVAILABLE
+                )
+            incoming_by_target = _direct_identity_source_columns(dependency)
+            incoming_columns = tuple(
+                incoming_by_target.get(item, "") for item in target_fields
+            )
+            if any(not item for item in incoming_columns):
+                return unchecked(
+                    RelationshipHealthNotCheckableReason.RELATED_IDENTITY_UNAVAILABLE
+                )
         try:
-            raw_source = self._source_keys.source_key_tuples(
+            raw_source = self._source_keys.source_included_key_tuples(
                 workspace_id,
                 owner.dataset_id,
                 source_columns,
+                owner.row_inclusion,
             )
-            raw_incoming = self._source_keys.source_key_tuples(
-                workspace_id,
-                dependency.dataset_id,
-                incoming_columns,
+            raw_incoming = (
+                self._source_keys.source_included_key_tuples(
+                    workspace_id,
+                    dependency.dataset_id,
+                    incoming_columns,
+                    dependency.row_inclusion,
+                )
+                if dependency is not None and incoming_columns
+                else ()
             )
         except WorkspaceError:
-            return None
-        translations = {
-            item.source_value: item.target_value for item in resolver.value_mappings
-        }
-        source_values: list[tuple[str, ...]] = []
-        for row in raw_source:
-            expanded = _relationship_row_keys(relationship, row)
-            for key in expanded:
-                if translations and len(key_fields) == 1:
-                    key = (translations.get(key[0], key[0]), *key[1:])
-                if all(value for value in key):
-                    source_values.append(key)
-        incoming_values = tuple(
-            tuple(value for value in row if value is not None)
-            for row in raw_incoming
-            if all(value is not None and value != "" for value in row)
-        )
-        source_keys = tuple(sorted(set(source_values)))
-        if not source_keys:
-            return None
-        return MatchingOrderLiveProbe(
-            owner_dataset_id=owner.dataset_id,
-            dependency_dataset_id=dependency.dataset_id,
-            target_field=relationship.target_field,
-            target_model=resolver.model,
+            return unchecked(
+                RelationshipHealthNotCheckableReason.SOURCE_EVIDENCE_UNAVAILABLE
+            )
+        (
+            source_key_counts,
+            blank_row_count,
+            incomplete_row_count,
+        ) = _relationship_source_key_counts(
+            relationship,
+            raw_source,
             target_fields=target_fields,
-            source_keys=source_keys,
-            incoming_keys=tuple(sorted(incoming_values)),
         )
+        incoming_key_counts = Counter(
+            tuple(str(value).strip() for value in row)
+            for row in raw_incoming
+            if row and all(value is not None and str(value).strip() for value in row)
+        )
+        if (
+            len(source_key_counts) > MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES
+            or len(incoming_key_counts)
+            > MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES
+        ):
+            return unchecked(
+                RelationshipHealthNotCheckableReason.EVIDENCE_LIMIT_EXCEEDED
+            )
+        return RelationshipHealthLiveProbe(
+            owner_dataset_id=owner.dataset_id,
+            dependency_dataset_id=resolver.dataset_id,
+            target_field=relationship.target_field,
+            relationship_kind=relationship.kind,
+            resolver_origin=resolver.origin,
+            required=required,
+            target_model=related_model,
+            target_fields=target_fields,
+            source_row_count=len(raw_source),
+            source_key_counts=tuple(sorted(source_key_counts.items())),
+            blank_row_count=blank_row_count,
+            incomplete_row_count=incomplete_row_count,
+            incoming_key_counts=tuple(sorted(incoming_key_counts.items())),
+        ), None
 
     def _identity_probe(
         self,
@@ -1276,25 +1461,66 @@ def _direct_identity_source_columns(
     return result
 
 
-def _relationship_row_keys(
+def _relationship_source_key_counts(
     relationship: RelationshipMapping,
-    row: tuple[str | None, ...],
-) -> tuple[tuple[str, ...], ...]:
-    """Expand one saved source row without guessing missing key parts."""
+    rows: Iterable[tuple[str | None, ...]],
+    *,
+    target_fields: tuple[str, ...],
+) -> tuple[Counter[tuple[str, ...]], int, int]:
+    """Reduce included source rows to bounded choice counts and row causes."""
 
-    if relationship.kind == "many2many":
-        if len(row) != 1 or row[0] is None:
-            return ()
-        return tuple(
-            (value,)
-            for value in dict.fromkeys(
-                item.strip() for item in row[0].split(relationship.separator)
+    source_counts: Counter[tuple[str, ...]] = Counter()
+    blank_rows = 0
+    incomplete_rows = 0
+    translations = {
+        item.source_value: item.target_value
+        for item in relationship.resolver.value_mappings
+    }
+    constant_key = None
+    if relationship.value_source is RelationshipValueSource.CONSTANT_EXISTING:
+        reference = relationship.constant_reference
+        if reference is not None:
+            constant_key = tuple(
+                item.value.strip()
+                for item in (*reference.key_values, *reference.scope_values)
             )
-            if value
-        )
-    if any(value is None for value in row):
-        return ()
-    return (tuple(str(value) for value in row),)
+    for row in rows:
+        if constant_key is not None:
+            if len(constant_key) != len(target_fields) or any(
+                not item for item in constant_key
+            ):
+                incomplete_rows += 1
+            else:
+                source_counts[constant_key] += 1
+            continue
+        if not row or all(value is None for value in row):
+            blank_rows += 1
+            continue
+        if relationship.kind == "many2many":
+            if len(row) != 1 or len(target_fields) != 1 or row[0] is None:
+                incomplete_rows += 1
+                continue
+            choices = tuple(
+                value
+                for value in dict.fromkeys(
+                    item.strip() for item in row[0].split(relationship.separator)
+                )
+                if value
+            )
+            if not choices:
+                blank_rows += 1
+                continue
+            for value in choices:
+                source_counts[(translations.get(value, value),)] += 1
+            continue
+        if len(row) != len(target_fields) or any(value is None for value in row):
+            incomplete_rows += 1
+            continue
+        key = tuple(str(value) for value in row)
+        if translations and key:
+            key = (translations.get(key[0], key[0]), *key[1:])
+        source_counts[key] += 1
+    return source_counts, blank_rows, incomplete_rows
 
 
 def _matching_key_domain_chunks(
@@ -1315,6 +1541,52 @@ def _matching_key_domain_chunks(
             terms: list[object] = [
                 [field, "=", value]
                 for field, value in zip(fields, key, strict=True)
+            ]
+            expressions.append(["&"] * (len(terms) - 1) + terms)
+        chunks.append(
+            ["|"] * (len(expressions) - 1)
+            + [item for expression in expressions for item in expression]
+        )
+    return tuple(chunks)
+
+
+def _relationship_key_domain_chunks(
+    fields: tuple[str, ...],
+    keys: Iterable[tuple[str, ...]],
+    field_types: tuple[str, ...],
+) -> tuple[list[object], ...]:
+    """Build bounded exact-or-case-only relationship read domains.
+
+    Text fields use ``=ilike`` so the in-memory classifier can distinguish an
+    exact match from a case-only near match. Non-text key parts retain exact
+    comparison semantics. Requests remain grouped by model, rule, and bounded
+    distinct-key batches rather than by source row.
+    """
+
+    if len(fields) != len(field_types):
+        raise WorkspaceError("Relationship read-plan shape is invalid")
+    unique = tuple(sorted(set(keys)))
+    chunks: list[list[object]] = []
+    text_types = {"char", "text", "selection"}
+    for start in range(0, len(unique), MAX_KEYS_PER_RECORD_REQUEST):
+        batch = unique[start : start + MAX_KEYS_PER_RECORD_REQUEST]
+        if len(fields) == 1 and field_types[0] not in text_types:
+            chunks.append([[fields[0], "in", [item[0] for item in batch]]])
+            continue
+        expressions: list[list[object]] = []
+        for key in batch:
+            terms: list[object] = [
+                [
+                    field,
+                    "=ilike" if field_type in text_types else "=",
+                    value,
+                ]
+                for field, field_type, value in zip(
+                    fields,
+                    field_types,
+                    key,
+                    strict=True,
+                )
             ]
             expressions.append(["&"] * (len(terms) - 1) + terms)
         chunks.append(
@@ -1403,53 +1675,87 @@ def _matching_schema_changed(
     return False
 
 
-def _classify_live_probe(
-    probe: MatchingOrderLiveProbe,
+def _classify_relationship_probe(
+    probe: RelationshipHealthLiveProbe,
     snapshot: RecordSnapshot,
-) -> MatchingOrderRelationshipResult:
-    target_counts: Counter[tuple[str, ...]] = Counter()
-    for record in snapshot.records.get(probe.target_model, ()):
-        key = tuple(
-            _matching_key_value(record.values.get(field))
-            for field in probe.target_fields
-        )
-        if all(value is not None for value in key):
-            target_counts[tuple(str(value) for value in key)] += 1
-    incoming_counts = Counter(probe.incoming_keys)
-    target = incoming = missing = ambiguous = 0
-    for key in probe.source_keys:
-        match_count = target_counts[key]
-        if match_count == 1:
-            target += 1
-        elif match_count > 1:
-            ambiguous += 1
-        elif incoming_counts[key] == 1:
-            incoming += 1
-        elif incoming_counts[key] > 1:
-            ambiguous += 1
-        else:
-            missing += 1
+) -> RelationshipHealthResult:
+    target_keys = tuple(
+        tuple(record.values.get(field) for field in probe.target_fields)
+        for record in snapshot.records.get(probe.target_model, ())
+    )
+    return classify_relationship_health(
+        owner_dataset_id=probe.owner_dataset_id,
+        target_field=probe.target_field,
+        relationship_kind=probe.relationship_kind,
+        resolver_origin=probe.resolver_origin,
+        related_model=probe.target_model,
+        dependency_dataset_id=probe.dependency_dataset_id,
+        required=probe.required,
+        source_row_count=probe.source_row_count,
+        source_key_counts=dict(probe.source_key_counts),
+        blank_row_count=probe.blank_row_count,
+        incomplete_row_count=probe.incomplete_row_count,
+        target_keys=target_keys,
+        incoming_key_counts=dict(probe.incoming_key_counts),
+    )
+
+
+def _matching_order_relationship_result(
+    health: RelationshipHealthResult,
+) -> MatchingOrderRelationshipResult | None:
+    """Project relationship coverage back to the conservative order hint."""
+
+    if not health.checked or not health.dependency_dataset_id:
+        return None
+    missing = health.missing_count + health.incomplete_row_count
+    if health.required:
+        missing += health.blank_row_count
+    ambiguous = health.ambiguous_count + health.case_mismatch_count
     if ambiguous:
         outcome = MatchingOrderRelationshipOutcome.AMBIGUOUS
     elif missing:
         outcome = MatchingOrderRelationshipOutcome.MISSING
-    elif target and incoming:
+    elif health.target_count and health.incoming_count:
         outcome = MatchingOrderRelationshipOutcome.MIXED
-    elif target:
+    elif health.target_count:
         outcome = MatchingOrderRelationshipOutcome.TARGET
-    elif incoming:
+    elif health.incoming_count:
         outcome = MatchingOrderRelationshipOutcome.INCOMING
     else:
         outcome = MatchingOrderRelationshipOutcome.UNCHECKED
     return MatchingOrderRelationshipResult(
-        owner_dataset_id=probe.owner_dataset_id,
-        dependency_dataset_id=probe.dependency_dataset_id,
-        target_field=probe.target_field,
+        owner_dataset_id=health.owner_dataset_id,
+        dependency_dataset_id=health.dependency_dataset_id,
+        target_field=health.target_field,
         outcome=outcome,
-        target_count=target,
-        incoming_count=incoming,
+        target_count=health.target_count,
+        incoming_count=health.incoming_count,
         missing_count=missing,
         ambiguous_count=ambiguous,
+    )
+
+
+def _not_checkable_relationship_result(
+    *,
+    owner_dataset_id: str,
+    target_field: str,
+    relationship_kind: str,
+    resolver_origin: ResolverOrigin,
+    related_model: str,
+    dependency_dataset_id: str | None,
+    required: bool,
+    reason: RelationshipHealthNotCheckableReason,
+) -> RelationshipHealthResult:
+    return RelationshipHealthResult(
+        owner_dataset_id=owner_dataset_id,
+        target_field=target_field,
+        relationship_kind=relationship_kind,
+        resolver_origin=resolver_origin,
+        related_model=related_model,
+        dependency_dataset_id=dependency_dataset_id,
+        required=required,
+        status=RelationshipHealthStatus.NOT_CHECKABLE,
+        not_checkable_reason=reason,
     )
 
 

@@ -16,6 +16,7 @@ from typing import Iterable
 from uuid import UUID
 
 from impodo.domain.mapping.contracts import MappingTargetMode
+from impodo.domain.relationship_health import RelationshipHealthResult
 from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.workspace.errors import WorkspaceError
 
@@ -444,6 +445,7 @@ class MatchingOrderCheck:
     actor_subject: str
     actor_display_name: str
     identity_results: tuple[MatchingIdentityResult, ...] = ()
+    relationship_health_results: tuple[RelationshipHealthResult, ...] = ()
 
     def __post_init__(self) -> None:
         try:
@@ -475,6 +477,12 @@ class MatchingOrderCheck:
         )
         if len(identity_dataset_ids) != len(set(identity_dataset_ids)):
             raise WorkspaceError("Matching identity results are duplicated")
+        relationship_ids = tuple(
+            (item.owner_dataset_id, item.target_field)
+            for item in self.relationship_health_results
+        )
+        if len(relationship_ids) != len(set(relationship_ids)):
+            raise WorkspaceError("Relationship health results are duplicated")
         if self.captured_at.tzinfo is None:
             raise WorkspaceError("Matching-order capture time needs a timezone")
 
@@ -488,6 +496,22 @@ class MatchingOrderCheck:
     def counts(self) -> dict[str, int]:
         """Return aggregate reference counts safe for browser display."""
 
+        if self.relationship_health_results:
+            return {
+                "target": sum(
+                    item.target_count for item in self.relationship_health_results
+                ),
+                "incoming": sum(
+                    item.incoming_count for item in self.relationship_health_results
+                ),
+                "missing": sum(
+                    item.missing_count for item in self.relationship_health_results
+                ),
+                "ambiguous": sum(
+                    item.ambiguous_count + item.case_mismatch_count
+                    for item in self.relationship_health_results
+                ),
+            }
         return {
             "target": sum(item.target_count for item in self.relationship_results),
             "incoming": sum(item.incoming_count for item in self.relationship_results),
@@ -527,6 +551,9 @@ class MatchingOrderCheck:
             "actor_display_name": self.actor_display_name,
             "identity_results": [
                 item.portable_dict() for item in self.identity_results
+            ],
+            "relationship_health_results": [
+                item.portable_dict() for item in self.relationship_health_results
             ],
         }
 
@@ -577,6 +604,10 @@ class MatchingOrderCheck:
             identity_results=tuple(
                 MatchingIdentityResult.from_dict(item)
                 for item in payload.get("identity_results", ())
+            ),
+            relationship_health_results=tuple(
+                RelationshipHealthResult.from_dict(item)
+                for item in payload.get("relationship_health_results", ())
             ),
         )
 

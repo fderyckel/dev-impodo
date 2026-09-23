@@ -9,15 +9,18 @@
   padding-bottom: 1.25rem;
 }
 
-.identity-health {
+.identity-health,
+.relationship-health {
   padding-bottom: 1.25rem;
 }
 
-.identity-health-heading {
+.identity-health-heading,
+.relationship-health-heading {
   align-items: flex-start;
 }
 
-.identity-health-action {
+.identity-health-action,
+.relationship-health-action {
   display: grid;
   justify-items: end;
   gap: .45rem;
@@ -25,14 +28,16 @@
   text-align: right;
 }
 
-.identity-health-list {
+.identity-health-list,
+.relationship-health-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
   gap: 1rem;
   margin-top: 1rem;
 }
 
-.identity-health-card {
+.identity-health-card,
+.relationship-health-card {
   display: grid;
   align-content: start;
   gap: .8rem;
@@ -41,7 +46,8 @@
   padding: 1rem;
 }
 
-.identity-health-card-heading {
+.identity-health-card-heading,
+.relationship-health-card-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -50,21 +56,32 @@
 
 .identity-health-card h3,
 .identity-health-card p,
-.identity-health-rule {
+.identity-health-rule,
+.relationship-health-card h3,
+.relationship-health-card p {
   margin: 0;
 }
 
-.identity-health-metrics {
+.identity-health-metrics,
+.relationship-health-metrics {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0;
 }
 
-.identity-health-blocked strong {
+.identity-health-blocked strong,
+.relationship-health-blocked strong {
   color: var(--impodo-red-dark);
 }
 
-.identity-health-footnote {
+.identity-health-footnote,
+.relationship-health-footnote {
   margin: 1rem 0 0;
+}
+
+.relationship-health-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
 }
 
 .mapping-order-heading {
@@ -568,13 +585,15 @@
 }
 
 @media (max-width: 860px) {
-  .identity-health-action {
+  .identity-health-action,
+  .relationship-health-action {
     justify-items: start;
     max-width: none;
     text-align: left;
   }
 
-  .identity-health-metrics {
+  .identity-health-metrics,
+  .relationship-health-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

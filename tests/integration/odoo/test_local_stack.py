@@ -34,7 +34,8 @@ class LocalStackConfigurationTests(unittest.TestCase):
         profile = read_odoo_config(self.config)
         for version, info, allowed in (
             ("19.4", [19, 4, 0, "final", 0, ""], True),
-            ("20.0", [20, 0, 0, "final", 0, ""], False),
+            ("20.0", [20, 0, 0, "final", 0, ""], True),
+            ("20.0rc1", [20, 0, 0, "candidate", 1, ""], False),
             ("19.0", [20, 0, 0, "final", 0, ""], False),
             ("19.0", None, False),
         ):

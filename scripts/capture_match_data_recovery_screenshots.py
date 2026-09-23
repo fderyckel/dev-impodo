@@ -2,7 +2,7 @@
 
 Run this helper from the repository root with Playwright available. It creates
 only fictional test data, serves the current application on an ephemeral
-loopback port, authenticates through the normal launch route, and writes eight
+loopback port, authenticates through the normal launch route, and writes nine
 1440 by 1024 PNG files under ``docs/images/user``.
 """
 
@@ -37,6 +37,15 @@ from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
     SchemaGovernance,
+)
+from impodo.domain.mapping.contracts import (
+    DatasetMapping,
+    IdentityComponentMapping,
+    MappingTargetMode,
+    ReferenceKeyMapping,
+    RelationshipMapping,
+    RelationshipResolver,
+    ResolverOrigin,
 )
 from impodo.domain.workspace.contracts import (
     SchemaField,
@@ -279,6 +288,116 @@ def _configure_relational_scope_workspace(
     return parent_dataset.dataset_id, order_key.key_id
 
 
+def _configure_relationship_health_workspace(
+    fixture: ProjectSetupBrowserTestCase,
+    workspace_id: str,
+    dataset: SourceDataset,
+) -> None:
+    """Save one fictional required Product-to-Category relationship."""
+
+    context = fixture.app.state.context
+    actor = context.actor
+    current_schema = context.schema_workspace.schemas.get_odoo_schema_catalog(
+        workspace_id
+    )
+    if current_schema is None:
+        raise RuntimeError("The relationship-health workspace has no schema.")
+    category_model = SchemaModel(
+        "product.category",
+        "Product Category",
+        (
+            SchemaField(
+                name="ref",
+                label="Category reference",
+                type="char",
+                required=True,
+                readonly=False,
+                relation=None,
+                relation_field=None,
+                selection=(),
+            ),
+        ),
+    )
+    schema = replace(
+        current_schema,
+        captured_at=datetime.now(timezone.utc),
+        models=(*current_schema.models, category_model),
+        content_hash="sha256:" + "8" * 64,
+    )
+    context.schema_workspace.schemas.save_odoo_schema_catalog(
+        workspace_id,
+        schema,
+        actor=actor,
+    )
+    context.schema_workspace.schemas.save_schema_governance(
+        workspace_id,
+        SchemaGovernance(
+            governance_id=str(uuid4()),
+            version=1,
+            workspace_id=workspace_id,
+            catalog_hash=schema.content_hash,
+            permitted_models=("product.template", "product.category"),
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="product.template:ref",
+                    model="product.template",
+                    key_fields=("ref",),
+                    description="Product reference",
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+                BusinessKeyDefinition(
+                    key_id="product.category:ref",
+                    model="product.category",
+                    key_fields=("ref",),
+                    description="Category reference",
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+            recorded_at=datetime.now(timezone.utc),
+            recorded_by=actor.identity.display_name,
+        ),
+        actor=actor,
+    )
+    source_ref = dataset.columns[0].stable_key
+    context.mapping_workspace.save_working_draft(
+        workspace_id,
+        datasets=(
+            DatasetMapping(
+                dataset_id=dataset.dataset_id,
+                target_model="product.template",
+                mode=MappingTargetMode.UPSERT,
+                source_identity_column_keys=(source_ref,),
+                target_identity=(
+                    IdentityComponentMapping(
+                        source_column_keys=(source_ref,),
+                        target_fields=("ref",),
+                    ),
+                ),
+                relationships=(
+                    RelationshipMapping(
+                        target_field="categ_id",
+                        kind="many2one",
+                        source_column_keys=(source_ref,),
+                        resolver=RelationshipResolver(
+                            origin=ResolverOrigin.TARGET_CATALOG,
+                            model="product.category",
+                            key_mappings=(
+                                ReferenceKeyMapping(
+                                    source_column_key=source_ref,
+                                    target_field="ref",
+                                ),
+                            ),
+                        ),
+                        required=True,
+                    ),
+                ),
+            ),
+        ),
+        expected_version=None,
+        actor=actor,
+    )
+
+
 def capture(output_directory: Path, *, browser_channel: str) -> None:
     try:
         from playwright.sync_api import expect, sync_playwright
@@ -290,6 +409,7 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
     output_directory.mkdir(parents=True, exist_ok=True)
     fixture = ProjectSetupBrowserTestCase(methodName="runTest")
     fixture.setUp()
+    application_context = fixture.app.state.context
     server: uvicorn.Server | None = None
     thread: Thread | None = None
     try:
@@ -306,6 +426,43 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 relationship_field_labels=("Product Unit of Measure",),
             )
         )
+        (
+            relationship_workspace_id,
+            relationship_dataset,
+            _relationship_business_key,
+        ) = fixture._mapping_ready_workspace(
+            scalar_field_count=0,
+            relationship_field_count=1,
+            relationship_model="product.category",
+            target_model="product.template",
+            relationship_field_names=("categ_id",),
+            relationship_field_labels=("Product Category",),
+            required_relationship_indexes=(0,),
+        )
+        _configure_relationship_health_workspace(
+            fixture,
+            relationship_workspace_id,
+            relationship_dataset,
+        )
+        source_keys = application_context.matching_order._source_keys
+        original_included_keys = source_keys.source_included_key_tuples
+
+        def relationship_screenshot_keys(
+            requested_workspace_id,
+            dataset_id,
+            source_column_keys,
+            row_inclusion,
+        ):
+            if requested_workspace_id == relationship_workspace_id:
+                return (("P001",),) if source_column_keys else ((),)
+            return original_included_keys(
+                requested_workspace_id,
+                dataset_id,
+                source_column_keys,
+                row_inclusion,
+            )
+
+        source_keys.source_included_key_tuples = relationship_screenshot_keys
         relational_workspace_id, relational_dataset, _relational_key = (
             fixture._mapping_ready_workspace(
                 scalar_field_count=0,
@@ -322,6 +479,50 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
         original_readiness_reader = fixture.app.state.context.readiness_reader
 
         def readiness_reader(workspace_state, metadata_requests, record_requests):
+            if workspace_state.workspace_id == relationship_workspace_id:
+                available = _browser_schema(workspace_state)
+                captured = (
+                    application_context.schema_workspace.schemas
+                    .get_odoo_schema_catalog(relationship_workspace_id)
+                )
+                if captured is None:
+                    raise RuntimeError("Relationship-health schema disappeared.")
+                captured_models = {item.name: item for item in captured.models}
+                metadata = replace(
+                    available,
+                    models={
+                        request.model: ModelMetadata(
+                            model=request.model,
+                            description=captured_models[request.model].label,
+                            fields={
+                                field: FieldMetadata(
+                                    **{
+                                        name: getattr(
+                                            next(
+                                                item
+                                                for item in captured_models[
+                                                    request.model
+                                                ].fields
+                                                if item.name == field
+                                            ),
+                                            name,
+                                        )
+                                        for name in FieldMetadata.__dataclass_fields__
+                                    }
+                                )
+                                for field in request.fields
+                            },
+                        )
+                        for request in metadata_requests
+                    },
+                )
+                return metadata, RecordSnapshot(
+                    fingerprint=metadata.fingerprint,
+                    records={request.model: () for request in record_requests},
+                    requested_fields={
+                        request.model: request.fields for request in record_requests
+                    },
+                )
             if workspace_state.workspace_id != constant_workspace_id:
                 return original_readiness_reader(
                     workspace_state,
@@ -405,6 +606,30 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 page,
                 output_directory / "11g-mapping-identity-health.png",
             )
+
+            relationship_page = context.new_page()
+            relationship_page.goto(
+                f"{base_url}/workspaces/{relationship_workspace_id}/mapping",
+                wait_until="networkidle",
+            )
+            relationship_health = relationship_page.locator(
+                ".relationship-health"
+            )
+            expect(relationship_health).to_be_visible()
+            relationship_health.locator("button").click()
+            expect(relationship_health).to_contain_text(
+                "Needs attention",
+                timeout=15_000,
+            )
+            relationship_health.evaluate(
+                "element => element.scrollIntoView({block: 'start'})"
+            )
+            relationship_page.evaluate("window.scrollBy(0, -24)")
+            _capture(
+                relationship_page,
+                output_directory / "11h-mapping-relationship-health.png",
+            )
+            relationship_page.close()
 
             _configure_concatenation(
                 page,

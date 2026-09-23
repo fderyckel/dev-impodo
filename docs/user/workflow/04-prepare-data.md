@@ -27,7 +27,11 @@ source, schema, key, or transformation decision is still changing.
 6. Review prepared-value groups and accept or reject proposed normalization
    decisions when they are present.
 7. Approve the resolved prepared data only when no required decision remains.
-8. If you want to reuse the revised rules, select **Save reusable rules
+8. Select **Compare with Odoo** when you are ready to check the approved data
+   against the target. This starts the same read-only comparison used by
+   **Final review**; moving between the two stages does not start a second
+   comparison.
+9. If you want to reuse the revised rules, select **Save reusable rules
    (optional)** and publish the first Recipe or a new Recipe version from the
    data project overview.
 
@@ -78,7 +82,9 @@ page you are viewing.
 
 Impodo has a frozen, fully accounted prepared result for the current source,
 schema, and mapping evidence. **Final review** becomes available for the
-current file data version.
+current file data version. Prepare data offers **Compare with Odoo** so that
+target-only relationship and numeric-precision problems can be discovered
+immediately after approval. Final review opens that same saved comparison.
 
 This preparation update preserves complete saved results. You can review a
 current saved preparation in the same workspace without creating a replacement
@@ -87,11 +93,12 @@ matches still require a fresh preparation.
 
 ## What changes and what does not
 
-Preparation saves protected prepared-data evidence. It does not call Odoo, change
-the accepted source, modify the Recipe version, or copy prepared rows between
-data versions. Publishing the reusable rules is a separate explicit action.
-Merge and normalization decisions affect the prepared result, not the original
-evidence.
+Preparation saves protected prepared-data evidence. Preparing and approving
+the data does not call Odoo, change the accepted source, modify the Recipe
+version, or copy prepared rows between data versions. **Compare with Odoo** is
+a separate explicit read-only action owned by Final review. Publishing the
+reusable rules is also a separate explicit action. Merge and normalization
+decisions affect the prepared result, not the original evidence.
 
 ## Needs attention
 

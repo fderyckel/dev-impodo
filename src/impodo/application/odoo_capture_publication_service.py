@@ -22,7 +22,7 @@ from ..domain.odoo_source_capture import (
     OdooCapturePage,
     require_not_cancelled,
 )
-from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ..domain.odoo_source_policy import odoo_source_policy_from_hash
 from ..domain.serialization import content_hash
 from impodo.application.workspace.odoo_capture_jobs import (
     OdooCapturePhase,
@@ -157,7 +157,6 @@ class OdooCapturePublicationService:
     ) -> OdooCapturePublication:
         """Capture every current model plan and promote the set atomically."""
 
-        policy = CURRENT_ODOO_SOURCE_POLICY
         context = self._workspace_access.require(
             actor,
             Capability.SOURCE_CAPTURE,
@@ -169,6 +168,13 @@ class OdooCapturePublicationService:
             actor=actor,
             require_complete=True,
         )
+        if not selections:
+            raise WorkspaceError("Save at least one Odoo capture plan before reading records")
+        policy = odoo_source_policy_from_hash(selections[0].policy_hash)
+        if policy is None:
+            raise WorkspaceError(
+                "Review and save the Odoo capture plan under a current policy"
+            )
         _report_progress(progress, OdooCapturePhase.VERIFYING, total_rows=0)
         self._publications.recover_incomplete_publications(workspace_id)
         self._artifacts.ensure_source_snapshot_capacity(

@@ -2,7 +2,7 @@
 
 The planner supplies batched :class:`MetadataRequest` and
 :class:`RecordRequest` objects.  A connector fulfils those requests either
-from Odoo 19's JSON-2 API or from deterministic JSON snapshots.  Both
+from a qualified Odoo JSON-2 API or from deterministic JSON snapshots. Both
 implementations return the same typed snapshot contracts, so the metadata
 validator, catalog, and engine do not depend on transport details.
 
@@ -369,7 +369,7 @@ Transport = Callable[
 
 
 class Json2ReadConnector:
-    """Odoo 19 JSON-2 adapter with a deliberately closed read surface."""
+    """JSON-2 adapter with a deliberately closed read surface."""
 
     _READ_METHODS = frozenset(
         {
@@ -489,7 +489,7 @@ class Json2ReadConnector:
     ) -> OdooReadIdentity:
         """Probe only the API key's own user and explicit model-read access.
 
-        Odoo 19 documents ``res.users/context_get`` as the JSON-2 mechanism
+        Odoo documents ``res.users/context_get`` as the JSON-2 mechanism
         for retrieving the current user ID from an API key. The returned ID is
         then used in one exact self-record ``search_read``. No broad user,
         group, company, ACL, or rule catalogue is exposed.

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import unittest
 
 from impodo.application.recipe_application_compilation import RecipeApplicationCompiler
-from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
+from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASHES
 
 
 class RecipeOdooVersionBaselineTests(unittest.TestCase):
@@ -16,7 +16,10 @@ class RecipeOdooVersionBaselineTests(unittest.TestCase):
             "contract_versions": {"odoo_target_contract": 2},
             "odoo_target_contract": {
                 "odoo_major_version": recipe_major,
-                "reference_policy_hash": REFERENCE_POLICY_HASH,
+                "reference_policy_hash": REFERENCE_POLICY_HASHES.get(
+                    recipe_major,
+                    REFERENCE_POLICY_HASHES[19],
+                ),
                 "models": [],
             },
             "mapping": {"datasets": []},
@@ -36,8 +39,11 @@ class RecipeOdooVersionBaselineTests(unittest.TestCase):
                 issues = self.assessment(recipe_major, target_version)
                 self.assertIn("RECIPE_TARGET_VERSION_INCOMPATIBLE", {issue.code for issue in issues})
 
-    def test_same_major_does_not_enable_odoo20_or_malformed_recipe_targets(self):
-        for recipe_major, target_version in ((20, "20.0"), (19, "19.garbage"), (19, "unknown")):
+    def test_odoo20_recipe_keeps_same_major_read_assessment_behavior(self):
+        self.assertEqual(self.assessment(20, "20.0"), [])
+
+    def test_malformed_recipe_targets_remain_blocked(self):
+        for recipe_major, target_version in ((19, "19.garbage"), (19, "unknown")):
             with self.subTest(recipe_major=recipe_major, target_version=target_version):
                 issues = self.assessment(recipe_major, target_version)
                 self.assertIn("RECIPE_TARGET_VERSION_UNSUPPORTED", {issue.code for issue in issues})

@@ -137,6 +137,29 @@ class _PreparedRelationship:
     inverse_field: str | None
 
 
+def _is_transferable_relationship_field(
+    field: SchemaField,
+    selected_model_names: set[str],
+) -> bool:
+    """Return whether captured relationship provenance may become a write.
+
+    Odoo-source capture deliberately retains read-only and computed links as
+    provenance. Destination matching must not reinterpret those Odoo-managed
+    links as fields that a generic transfer should write.
+    """
+
+    return bool(
+        field.type in {"many2one", "many2many"}
+        and field.relation in selected_model_names
+        and field.stored is not False
+        and field.related is not True
+        and field.company_dependent is False
+        and field.exportable is True
+        and not (field.computed is True and field.has_inverse is not True)
+        and not (field.readonly and field.has_inverse is not True)
+    )
+
+
 class DestinationMatchingService:
     """Check same-name destination fields and exact natural-key matches."""
 
@@ -298,12 +321,9 @@ class DestinationMatchingService:
                         field
                         for field in source_model.fields
                         if field.name in selected_source_names
-                        or (
-                            field.type in {"many2one", "many2many"}
-                            and field.relation in selected_model_names
-                            and field.related is not True
-                            and field.company_dependent is False
-                            and field.exportable is True
+                        or _is_transferable_relationship_field(
+                            field,
+                            selected_model_names,
                         )
                     ),
                 )

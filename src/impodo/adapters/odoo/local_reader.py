@@ -104,7 +104,7 @@ LocalShellRunner = Callable[
 
 
 class LocalOdooMetadataReader:
-    """Read Odoo 19 schema or bounded preflight snapshots without an API key."""
+    """Read qualified Odoo schema or bounded snapshots without an API key."""
 
     def __init__(
         self,
@@ -470,7 +470,7 @@ class LocalOdooMetadataReader:
         if result.returncode != 0:
             raise LocalOdooReaderError(
                 "Local Odoo metadata capture failed. Verify odoo.conf, the "
-                "database, PostgreSQL readiness, and the Odoo 19 installation."
+                "database, PostgreSQL readiness, and the selected Odoo installation."
             )
         encoded = result.stdout.encode("utf-8", errors="replace")
         if len(encoded) > _MAX_OUTPUT_BYTES:
@@ -516,7 +516,7 @@ class LocalOdooMetadataReader:
         decision = assess_odoo_operation(observed, OdooOperation.CAPTURE_SCHEMA)
         if not decision.allowed:
             raise LocalOdooReaderError(
-                f"Local schema capture requires Odoo 19; received {version or 'unknown'}. "
+                f"Local schema capture does not support Odoo {version or 'unknown'}. "
                 f"Version check: {decision.reason}; version_info: {payload.get('version_info')!r}."
             )
         assert workspace_state.odoo_connection_mode is not None

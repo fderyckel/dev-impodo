@@ -1,7 +1,9 @@
 # Impodo user documentation
 
-This documentation is for the data manager preparing and reviewing an Odoo 19
-migration in the Impodo browser.
+This documentation is for the data manager preparing and reviewing migration
+work in the Impodo browser. Odoo 19 retains the existing load workflow. Final
+Odoo 20 currently supports read-side preparation and Recipe authoring, but not
+loading, recovery, Integrated Test writes, or Production.
 
 Start with [Create a data project](getting-started.md). When you create or
 change the rules in an Authoring workspace, follow its six stages:

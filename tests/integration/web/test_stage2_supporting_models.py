@@ -10,10 +10,9 @@ from impodo.domain.workspace.contracts import SourceSelection
 from tests.support.browser_scenarios import (
     OdooConnectionMode,
     ProjectSetupBrowserTestCase,
-    WorkspaceStatus,
     _browser_model_catalog,
     _browser_schema,
-    _replace_run_target_setup,
+    _register_workspace_through_services,
     _workspace_data_version_id,
 )
 
@@ -28,30 +27,13 @@ class StageTwoSupportingModelBrowserTests(ProjectSetupBrowserTestCase):
             source_system="Fictional workbook",
         )
         now = datetime.now(timezone.utc)
-        workspace = replace(
-            created,
-            odoo_connection_mode=OdooConnectionMode.LOCAL,
-            odoo_base_url="http://127.0.0.1:8069",
-            odoo_database="odoo19_local",
-            intended_models=("product.template",),
-            status=WorkspaceStatus.REGISTERED,
-            revision=created.revision + 1,
-            updated_at=now,
-            registered_at=now,
-        )
-        context.workspace_states.repository.save(
-            workspace,
-            expected_revision=created.revision,
-            event_type="WORKSPACE_REGISTERED",
-            event_detail="",
-            actor=context.actor,
-        )
-        _replace_run_target_setup(
+        workspace = _register_workspace_through_services(
             context,
-            workspace.workspace_id,
+            created,
             connection_mode=OdooConnectionMode.LOCAL,
-            base_url=workspace.odoo_base_url,
-            database=workspace.odoo_database,
+            base_url="http://127.0.0.1:8069",
+            database="odoo19_local",
+            intended_models=("product.template",),
         )
         context.sources.sources.save_source_selection(
             workspace.workspace_id,

@@ -70,6 +70,7 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
 )
+from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from impodo.domain.resolution import (
     FuzzyComparisonField,
     ResolutionPolicy,
@@ -90,9 +91,9 @@ from impodo.application.data_version.inspection import (
 from impodo.application.data_version.intake import CHUNK_BYTES, MAX_SOURCE_BYTES
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
-    WorkspaceStatus,
     SourceFile,
 )
+from impodo.domain.shared.models import target_identity_hash
 
 from impodo.application.data_version import source_files as source_files_module
 from impodo.domain.preparation import source as preparation_source_module
@@ -113,7 +114,13 @@ from impodo.domain.preparation.quality import (
 from impodo.application.workspace.preparation.job_models import PreparationJobStatus, PreparationWorkspace
 from impodo.domain.recipe.value_rules import ScalarTransformPolicy
 from impodo.web.app import create_local_app
-from impodo.domain.workspace.contracts import MappingWorkingDraft
+from impodo.domain.workspace.contracts import (
+    MappingWorkingDraft,
+    OdooSchemaCatalog,
+    SchemaField,
+    SchemaModel,
+    SchemaOrigin,
+)
 
 
 ROOT = REPOSITORY_ROOT
@@ -787,8 +794,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         assert database_size_row is not None
         block_size = int(database_size_row[2])
         database_file_bytes = database_path.stat().st_size
-        project_directories = {
-            (self.root / workspace_id).resolve(),
+        evidence_directories = {
+            self.context.preparation.staging.workspace_directory(workspace_id),
             self.artifacts._workspace_directory(workspace_id),
             *(
                 self.artifacts._data_version_directory(snapshot.data_version_id)
@@ -797,13 +804,13 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         }
         project_storage_bytes = sum(
             item.stat().st_size
-            for directory in project_directories
+            for directory in evidence_directories
             for item in directory.rglob("*")
             if item.is_file()
         )
         parquet_bytes = sum(
             item.stat().st_size
-            for directory in project_directories
+            for directory in evidence_directories
             for item in directory.rglob("*.parquet")
             if item.is_file()
         )
@@ -1671,24 +1678,21 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 )
             )
 
-        registered_workspace_state = replace(
-            workspace_state,
-            odoo_connection_mode=OdooConnectionMode.LOCAL,
+        targeted_workspace_state = self.context.workspace_states.update_target(
+            workspace_state.workspace_id,
+            actor=self.context.actor,
+            expected_revision=workspace_state.revision,
+            odoo_connection_mode=OdooConnectionMode.LOCAL.value,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_scale",
+            intended_applications=(),
             intended_models=("x_custom.document", "x_custom.entry")
             if generic_identity else ("product.template", "mrp.bom.line"),
-            status=WorkspaceStatus.REGISTERED,
-            revision=workspace_state.revision + 1,
-            updated_at=benchmark_now,
-            registered_at=benchmark_now,
         )
-        self.context.workspace_states.repository.save(
-            registered_workspace_state,
-            expected_revision=workspace_state.revision,
-            event_type="WORKSPACE_REGISTERED",
-            event_detail="96k related Product/BOM preparation benchmark",
+        registered_workspace_state = self.context.workspace_states.register(
+            targeted_workspace_state.workspace_id,
             actor=self.context.actor,
+            expected_revision=targeted_workspace_state.revision,
         )
         self.context.sources.sources.save_source_catalogs(
             registered_workspace_state.workspace_id,
@@ -1975,23 +1979,20 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             source_file=source,
         )
         now = benchmark_now
-        registered_workspace_state = replace(
-            workspace_state,
-            odoo_connection_mode=OdooConnectionMode.LOCAL,
+        targeted_workspace_state = self.context.workspace_states.update_target(
+            workspace_state.workspace_id,
+            actor=self.context.actor,
+            expected_revision=workspace_state.revision,
+            odoo_connection_mode=OdooConnectionMode.LOCAL.value,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_scale",
+            intended_applications=(),
             intended_models=(_target_model(PREPARATION_SCALE_WORKLOAD),),
-            status=WorkspaceStatus.REGISTERED,
-            revision=workspace_state.revision + 1,
-            updated_at=now,
-            registered_at=now,
         )
-        self.context.workspace_states.repository.save(
-            registered_workspace_state,
-            expected_revision=workspace_state.revision,
-            event_type="WORKSPACE_REGISTERED",
-            event_detail="100k complete preparation benchmark",
+        registered_workspace_state = self.context.workspace_states.register(
+            targeted_workspace_state.workspace_id,
             actor=self.context.actor,
+            expected_revision=targeted_workspace_state.revision,
         )
 
         catalog = _catalog(
@@ -2138,6 +2139,55 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             definition=definition,
             created_at=now,
             created_by=self.context.actor.identity.display_name,
+        )
+        self.context.schema_workspace.schemas.save_odoo_schema_catalog(
+            registered_workspace_state.workspace_id,
+            OdooSchemaCatalog(
+                workspace_id=registered_workspace_state.workspace_id,
+                policy_hash=ODOO_SOURCE_POLICY_HASH,
+                captured_at=now,
+                captured_by=self.context.actor.identity.display_name,
+                connection_mode=registered_workspace_state.odoo_connection_mode.value,
+                database=registered_workspace_state.odoo_database,
+                odoo_version="19.0",
+                models=(
+                    SchemaModel(
+                        name=_target_model(PREPARATION_SCALE_WORKLOAD),
+                        label=_target_model(PREPARATION_SCALE_WORKLOAD),
+                        fields=tuple(
+                            SchemaField(
+                                name=field.target_field,
+                                label=field.target_field.replace("_", " ").title(),
+                                type=(
+                                    "float"
+                                    if field.value_type == "decimal"
+                                    else "char"
+                                ),
+                                required=field.required,
+                                readonly=False,
+                                relation=None,
+                                relation_field=None,
+                                selection=(),
+                            )
+                            for field in fields
+                        ),
+                    ),
+                ),
+                content_hash=definition.schema_hash,
+                origin=SchemaOrigin.LIVE_API,
+                read_credential_binding_hash="sha256:" + "6" * 64,
+                read_principal_hash="sha256:" + "1" * 64,
+                read_permission_hash="sha256:" + "2" * 64,
+                read_context_hash="sha256:" + "3" * 64,
+                connection_target_hash=target_identity_hash(
+                    connection_mode=(
+                        registered_workspace_state.odoo_connection_mode.value
+                    ),
+                    base_url=registered_workspace_state.odoo_base_url,
+                    database=registered_workspace_state.odoo_database,
+                ),
+            ),
+            actor=self.context.actor,
         )
         mapping_repository = self.context.mapping_workspace.mappings
         mapping_repository.save_mapping_revision(
@@ -2400,7 +2450,9 @@ class BoundedPreparationParityTests(unittest.TestCase):
                     yield row
 
             with patch.object(type(rows), "__iter__", count_rows):
-                legacy = original(**{**kwargs, "definition": None})
+                row_based_reference = original(
+                    **{**kwargs, "definition": None}
+                )
             self.assertEqual(len(scanned), 7)
             with patch.object(type(rows), "__iter__", side_effect=AssertionError("full row scan")):
                 current = original(**kwargs)
@@ -2411,10 +2463,16 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 ):
                     with self.assertRaises(QualityError):
                         original(**{**kwargs, **changes})
-            self.assertEqual(tuple(current.row_results), tuple(legacy.row_results))
-            self.assertEqual(tuple(current.source_accounting), tuple(legacy.source_accounting))
-            self.assertEqual(current.issues, legacy.issues)
-            self.assertEqual(current.quarantine, legacy.quarantine)
+            self.assertEqual(
+                tuple(current.row_results),
+                tuple(row_based_reference.row_results),
+            )
+            self.assertEqual(
+                tuple(current.source_accounting),
+                tuple(row_based_reference.source_accounting),
+            )
+            self.assertEqual(current.issues, row_based_reference.issues)
+            self.assertEqual(current.quarantine, row_based_reference.quarantine)
             calls.append(current)
             return current
 

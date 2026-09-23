@@ -32,7 +32,7 @@ class RunTargetEvidenceUseCase:
         *,
         actor: Actor,
     ) -> tuple[OdooSchemaCatalog, ReferenceBundle | None]:
-        """Return Odoo 19 evidence only when it belongs to this Project."""
+        """Return supported Recipe evidence only when it belongs to this Project."""
 
         project_id = require_uuid(project_id, "project_id")
         workspace_id = require_uuid(workspace_id, "workspace_id")
@@ -49,10 +49,10 @@ class RunTargetEvidenceUseCase:
         schema = self._compiler.schemas.get_odoo_schema_catalog(workspace_id)
         if schema is None or schema.origin.value != "LIVE_API":
             raise self._planning_error(
-                "Capture authenticated Odoo 19 evidence in the authoring workspace first"
+                "Capture authenticated Odoo evidence in the authoring workspace first"
             )
         if not assess_odoo_operation(schema.odoo_version, OdooOperation.RECIPE).allowed:
             raise self._planning_error(
-                "The selected target evidence is not from Odoo 19"
+                "The selected target evidence is not supported for Recipe authoring"
             )
         return schema, self._compiler.references.get_reference_bundle(workspace_id)

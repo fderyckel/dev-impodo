@@ -22,7 +22,7 @@
               {% set relation_index = row.index %}
               {% set mapping = row.mapping %}
               {% set disposition = row.disposition %}
-              <details class="relationship-card" data-relation-mapping-row data-relation-field-row data-target-field="{{ row.metadata.name }}" data-relation-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }} {{ (row.metadata.relation or '')|lower }}" {% if mapping or disposition or row.recommended_dataset_id %}open{% endif %}>
+              <details id="relationship-{{ dataset_index }}-{{ row.metadata.name }}" class="relationship-card" data-relation-mapping-row data-relation-field-row data-target-field="{{ row.metadata.name }}" data-relation-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }} {{ (row.metadata.relation or '')|lower }}" {% if mapping or disposition or row.recommended_dataset_id %}open{% endif %}>
                 <summary>
                   <span><strong>{{ row.metadata.label }}</strong></span>
                   <span class="relationship-card-state">

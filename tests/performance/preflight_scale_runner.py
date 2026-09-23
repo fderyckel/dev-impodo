@@ -6,12 +6,14 @@ import argparse
 from decimal import Decimal
 import json
 from pathlib import Path
-import resource
 import sys
 from time import perf_counter
 from unittest.mock import patch
 
 import psutil
+
+if sys.platform != "win32":
+    import resource
 
 from impodo.application import preflight_service as preflight_module
 from impodo.application.preflight_service import (
@@ -218,10 +220,16 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
             actor=context.actor,
         )
     elapsed = perf_counter() - started
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    peak_bytes = int(peak if sys.platform == "darwin" else peak * 1024)
+    if sys.platform == "win32":
+        peak_bytes = int(psutil.Process().memory_info().peak_wset)
+    else:
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        peak_bytes = int(peak if sys.platform == "darwin" else peak * 1024)
 
-    database_path = root / workspace_id / "workspace-engine.duckdb"
+    database_path = (
+        context.preflight.preflight.workspace_directory(workspace_id)
+        / "workspace-engine.duckdb"
+    )
     with context.preflight.staging._connect(database_path) as connection:
         stored = connection.execute(
             """
@@ -243,10 +251,12 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
         workspace_id, report.run_id, MANIFEST_NAME
     ) as manifest_path:
         manifest_bytes = manifest_path.stat().st_size
+        workbook_started = perf_counter()
         with context.artifacts.prepare_report(
             workspace_id, report.run_id, WORKBOOK_NAME
         ) as workbook_path:
             write_review_workbook(manifest_path, workbook_path)
+        workbook_seconds = perf_counter() - workbook_started
         with context.artifacts.materialize_report(
             workspace_id, report.run_id, WORKBOOK_NAME
         ) as workbook_path:
@@ -281,6 +291,7 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
         "execution_snapshot_bytes": execution_snapshot_bytes,
         "execution_snapshot_hash": execution_snapshot.semantic_hash,
         "workbook_bytes": workbook_bytes,
+        "workbook_seconds": workbook_seconds,
         "persisted_decisions": int(stored[0]),
         "persisted_snapshots": int(stored[1]),
         "readiness_runs": int(stored[3]),

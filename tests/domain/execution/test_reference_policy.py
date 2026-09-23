@@ -7,6 +7,7 @@ import unittest
 
 from impodo.domain.workspace.reference_keys import (
     REFERENCE_POLICY_HASH,
+    REFERENCE_POLICY_HASHES,
     GovernedReferenceRequest,
     ReferenceEvidenceKind,
     ReferencePolicyDenial,
@@ -46,6 +47,37 @@ class GovernedReferencePolicyTests(unittest.TestCase):
             ReferenceEvidenceKind.REVIEWED_STANDARD,
         )
         self.assertEqual(decision.policy_hash, REFERENCE_POLICY_HASH)
+
+    def test_odoo20_uses_distinct_reviewed_reference_evidence(self):
+        request = self._country_request(odoo_major_version=20)
+
+        decision = authorize_governed_reference(
+            request,
+            captured_fields=None,
+        )
+
+        self.assertTrue(decision.accepted)
+        self.assertEqual(decision.policy_hash, REFERENCE_POLICY_HASHES[20])
+        self.assertNotEqual(
+            REFERENCE_POLICY_HASHES[19],
+            REFERENCE_POLICY_HASHES[20],
+        )
+        self.assertEqual(
+            decision.contract,
+            standard_reference_key("res.country", odoo_major_version=20),
+        )
+
+    def test_unqualified_major_has_no_reference_policy(self):
+        decision = authorize_governed_reference(
+            self._country_request(odoo_major_version=21),
+            captured_fields=None,
+        )
+
+        self.assertFalse(decision.accepted)
+        self.assertEqual(
+            decision.denial,
+            ReferencePolicyDenial.ODOO_VERSION_MISMATCH,
+        )
 
     def test_compatible_capture_has_the_same_reviewed_meaning(self):
         country = standard_reference_key("res.country")

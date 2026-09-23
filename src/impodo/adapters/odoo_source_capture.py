@@ -1,4 +1,4 @@
-"""Bounded Odoo 19 JSON-2 adapter for live source capture."""
+"""Bounded JSON-2 adapter for live source capture on qualified Odoo majors."""
 
 from __future__ import annotations
 
@@ -43,7 +43,9 @@ from ..domain.odoo_source_capture import (
     require_not_cancelled,
 )
 from impodo.domain.shared.models import OdooReadIdentity, ProtectedOdooReadContext
-from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from impodo.domain.odoo_source_policy import (
+    odoo_source_policy_from_hash,
+)
 from ..domain.serialization import canonical_json
 from ..domain.odoo_provenance import OdooOriginBatch, OdooRelationshipOriginColumn
 
@@ -268,6 +270,11 @@ class Json2OdooSourceCapture:
             key=lambda item: item.name,
         ))
         relation_fields = tuple(item.name for item in projections)
+        policy = odoo_source_policy_from_hash(request.policy_hash)
+        if policy is None:
+            raise OdooSourceCaptureConfigurationError(
+                "Odoo source capture policy is not current"
+            )
         while row_count < count:
             require_not_cancelled(cancellation)
             limit = min(request.page_size, count - row_count)
@@ -310,7 +317,7 @@ class Json2OdooSourceCapture:
                     values[relation.name].append(_decode_relationship(
                         relation.kind,
                         row[relation.name],
-                        maximum_members=CURRENT_ODOO_SOURCE_POLICY.max_relationship_members_per_row,
+                        maximum_members=policy.max_relationship_members_per_row,
                     ))
             batches.append(OdooOriginBatch(
                 first_row_ordinal=row_count + 1,
@@ -735,6 +742,11 @@ def _decode_page(
     upper_inclusive: int,
     response_bytes: int,
 ) -> OdooCapturePage:
+    policy = odoo_source_policy_from_hash(request.policy_hash)
+    if policy is None:
+        raise OdooSourceCaptureConfigurationError(
+            "Odoo source capture policy is not current"
+        )
     expected = {"id", "write_date", *request.read_field_names}
     identifiers: list[int] = []
     write_dates: list[datetime | None] = []
@@ -789,7 +801,7 @@ def _decode_page(
             )
             if (
                 len(members)
-                > CURRENT_ODOO_SOURCE_POLICY.max_relationship_members_per_row
+                > policy.max_relationship_members_per_row
             ):
                 raise OdooSourceCaptureLimitError(
                     "Odoo relationship exceeds the per-row member limit"

@@ -343,6 +343,7 @@ stages:
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_key_tuples
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_identity_key_tuples
+      - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_included_key_tuples
       - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
       - src/impodo/domain/mapping/contracts.py::RowInclusionPolicy
       - src/impodo/domain/mapping/row_inclusion.py::row_is_included
@@ -366,6 +367,8 @@ stages:
       - src/impodo/domain/matching_order.py::MatchingIdentityResult
       - src/impodo/domain/matching_order.py::classify_matching_identity
       - src/impodo/domain/matching_order.py::live_matching_order_recommendation
+      - src/impodo/domain/relationship_health.py::RelationshipHealthResult
+      - src/impodo/domain/relationship_health.py::classify_relationship_health
       - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v11_to_v12
       - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v12_to_v13
       - src/impodo/domain/execution/planner.py::plan_record_requests
@@ -391,6 +394,7 @@ stages:
       - src/impodo/web/presenters/mapping_view.py::_render_mapping
       - src/impodo/web/presenters/mapping_view.py::_matching_order_view
       - src/impodo/web/presenters/identity_health.py::identity_health_view
+      - src/impodo/web/presenters/relationship_health.py::relationship_health_view
       - src/impodo/web/presenters/mapping_view.py::_build_dataset_catalog_projection
     tests:
       - tests/integration/web/test_mapping_forms.py
@@ -403,6 +407,7 @@ stages:
       - tests/integration/web/test_mapping_impact_presenter.py
       - tests/integration/web/test_mapping_workflow.py
       - tests/integration/web/test_identity_health_presenter.py
+      - tests/integration/web/test_relationship_health_presenter.py
       - tests/integration/web/test_mapping_catalog_scale.py
       - tests/integration/web/test_mapping_catalog_runtime.py
       - tests/integration/web/test_diagnostics.py
@@ -411,6 +416,7 @@ stages:
       - tests/domain/preparation/test_target_first_relationships.py
       - tests/domain/test_relationship_dependencies.py
       - tests/domain/test_matching_order.py
+      - tests/domain/test_relationship_health.py
       - tests/application/workspace/mapping/test_order_service.py
       - tests/application/workspace/mapping/test_matching_order_live_check.py
       - tests/integration/duckdb/test_matching_order_repository.py
@@ -424,6 +430,7 @@ stages:
     references:
       - docs/plans/smart-match-data-ordering.md
       - docs/plans/source-row-inclusion-rules.md
+      - docs/plans/six-stage-workflow-user-support.md
 
   - id: prepare
     order: 4
@@ -496,10 +503,13 @@ stages:
     templates:
       - src/impodo/web/templates/workspace_summary.html
       - src/impodo/web/templates/workspace_preflight_progress.html
+      - src/impodo/web/templates/workspace_deferred_scope.html
     code_references:
       - src/impodo/application/preflight_jobs.py::PreflightJobManager
       - src/impodo/application/preflight_service.py::PreflightService
       - src/impodo/application/preflight_service.py::PreflightService.compare
+      - src/impodo/application/preflight_service.py::PreflightService.deferred_scope_review
+      - src/impodo/application/preflight_service.py::PreflightService.accept_deferred_scope
       - src/impodo/application/workspace/execution/navigation.py::ExecutionPreviewSummary
       - src/impodo/application/workspace/navigation.py::WorkspaceNavigationQueryService
       - src/impodo/adapters/duckdb/navigation_repository.py::WorkspaceNavigationRepository
@@ -508,6 +518,8 @@ stages:
       - src/impodo/application/odoo_comparison_service.py::build_odoo_comparison_publication
       - src/impodo/domain/preflight/reports.py::review_workbook_cell_feedback
       - src/impodo/domain/preflight/reports.py::review_workbook_action_priority
+      - src/impodo/domain/preflight/deferred_scope.py::preview_deferred_scope
+      - src/impodo/domain/preflight/deferred_execution.py::reduce_execution_snapshot
       - src/impodo/adapters/artifacts/reporting.py::write_review_workbook
       - src/impodo/web/presenters/summary.py::_quality_cause_groups
       - src/impodo/web/composition/target_readers.py::LocalOdooRecoveryRequired
@@ -515,13 +527,19 @@ stages:
       - tests/application/workspace/review/test_preflight_jobs.py
       - tests/application/workspace/review/test_preflight.py
       - tests/domain/preflight/test_review_workbook.py
+      - tests/domain/preflight/test_deferred_scope.py
+      - tests/domain/preflight/test_deferred_execution.py
       - tests/performance/test_preflight_scale.py
+      - tests/performance/test_deferred_scope_scale.py
       - tests/integration/artifacts/test_reporting_cli.py
       - tests/integration/artifacts/test_preflight_outputs.py
       - tests/integration/odoo/test_connectors.py
       - tests/application/workspace/review/test_odoo_comparison.py
       - tests/integration/web/test_review_workflow.py
       - tests/integration/web/test_summary_presenter.py
+      - tests/integration/web/test_deferred_scope_presenter.py
+      - tests/integration/web/test_deferred_scope_routes.py
+      - tests/integration/duckdb/test_preflight_repository.py
       - tests/integration/duckdb/test_navigation_repository.py
       - tests/architecture/test_workspace_navigation_boundaries.py
       - tests/integration/web/test_recipe_comparison_recovery.py
@@ -529,6 +547,7 @@ stages:
     contracts:
       - docs/developer/contracts/preflight.md
       - docs/developer/contracts/quality-and-quarantine.md
+      - docs/developer/contracts/deferred-record-groups.md
 
   - id: load
     order: 6

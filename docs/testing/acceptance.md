@@ -63,6 +63,50 @@ Reproduce the evidence with:
 uv run --with playwright python scripts\capture_stage2_matching_rule_screenshots.py --browser-channel msedge
 ```
 
+## Odoo-to-Odoo Contact qualification, 2026-09-23
+
+The first complete Odoo-to-Odoo Contact vertical passed against two distinct
+disposable Odoo 19 Enterprise demo instances. The runner created one synthetic
+Company and Contact in the source and one matching Company plus a deliberate
+duplicate in the destination. The duplicate made the destination identity
+ambiguous and stopped the transfer before an execution journal existed. After
+the duplicate was removed, the authenticated browser workflow reused the
+Company, created the Contact, applied three reviewed required-field defaults,
+resolved the Contact's Company relationship, and verified both records through
+destination read-back. The result contained zero fallout and zero unknown
+outcomes. A repeat destination match found both records and proposed zero
+creates.
+
+The qualification runner uses exact unique synthetic references and a bounded
+source filter. Its `finally` cleanup searches only for those references and
+removes the traces from both instances. The completed result records successful
+source and destination cleanup. It does not record API keys, instance URLs,
+business values, or numeric Odoo IDs.
+
+The authenticated 1440-pixel-wide evidence captures these decision points in
+the ignored `build/acceptance/odoo-to-odoo-contact/` directory:
+
+- `stage-5-destination-matching.png` shows one reuse, one create, three
+  confirmed defaults, and the ready Company relationship.
+- `stage-7-transfer-review.png` shows the approved two-record package, exact
+  scalar fields, one relationship field, and reconciled control totals.
+- `stage-8b-verified-load.png` shows two verified records, zero fallout, and
+  zero unknown outcomes.
+
+Reproduce the qualification only with two disposable instances and a private
+connection file:
+
+```powershell
+uv run --with playwright --python 3.14 python scripts\qualify_odoo_to_odoo_contact.py `
+  --connections-file <private-connection-file> `
+  --source-index 1 `
+  --destination-index 2
+```
+
+This result qualifies the partly populated Contact scenario. It does not
+qualify Product, BOM, empty-destination, interrupted-load, or recovery
+scenarios.
+
 ## Lookup-derived admission, 2026-09-21
 
 Preparation capability now distinguishes a single non-hierarchical lookup

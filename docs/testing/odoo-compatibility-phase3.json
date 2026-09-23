@@ -1,0 +1,138 @@
+{
+  "contract_version": 1,
+  "phase": 3,
+  "status": "PASSED",
+  "support_scope": {
+    "odoo_major": 20,
+    "enabled_operations": [
+      "CONNECT",
+      "CAPTURE_SCHEMA",
+      "CAPTURE_SOURCE",
+      "COMPARE",
+      "RECIPE"
+    ],
+    "disabled_operations": [
+      "WRITE",
+      "RECOVER",
+      "PRODUCTION"
+    ]
+  },
+  "local_community": {
+    "recorded_at": "2026-09-23T13:50:29.378415+00:00",
+    "upstream_commit": "dd5defe77fe1dc3bb02eddaca6e90d7daf34ed3d",
+    "reported_version": "20.0",
+    "python": "3.12.10",
+    "postgresql": "17.6",
+    "modules": {
+      "base": "20.0.1.3",
+      "contacts": "20.0.1.0",
+      "mrp": "20.0.2.0",
+      "product": "20.0.1.2"
+    },
+    "persistent_model_count": 192,
+    "qualified_model_field_counts": {
+      "mrp.bom": 45,
+      "mrp.bom.line": 24,
+      "product.category": 32,
+      "product.template": 121,
+      "res.country": 21,
+      "res.currency": 22,
+      "res.lang": 20,
+      "res.partner": 119,
+      "uom.uom": 17
+    },
+    "bounded_source_capture": {
+      "matching_rows": 2,
+      "captured_rows": 2,
+      "page_count": 1,
+      "record_request_count": 3
+    },
+    "local_json2_required_contracts_match": true,
+    "non_blocking_visibility_differences": {
+      "res.partner": [
+        "tz"
+      ]
+    },
+    "services_stopped_after_run": true
+  },
+  "remote_enterprise": {
+    "recorded_at": "2026-09-23T13:51:12.785253+00:00",
+    "deployment": "temporary Odoo Runbot",
+    "host": "126209162-20-0-all.runbot147.odoo.com",
+    "reported_version": "20.0+e",
+    "modules": {
+      "base": "20.0.1.3",
+      "contacts": "20.0.1.0",
+      "mrp": "20.0.2.0",
+      "product": "20.0.1.2"
+    },
+    "qualified_model_field_counts": {
+      "mrp.bom": 68,
+      "mrp.bom.line": 27,
+      "product.category": 55,
+      "product.template": 272,
+      "res.country": 23,
+      "res.currency": 25,
+      "res.lang": 20,
+      "res.partner": 362,
+      "uom.uom": 25
+    },
+    "bounded_source_capture": {
+      "matching_rows": 2,
+      "captured_rows": 2,
+      "page_count": 1,
+      "record_request_count": 3
+    },
+    "reference_contracts_match": true,
+    "temporary_api_key_revoked_before_receipt": true
+  },
+  "verified_odoo20_schema_differences": {
+    "mrp.bom": {
+      "removed_odoo19_fields": [
+        "product_uom_id"
+      ],
+      "odoo20_fields": [
+        "uom_id"
+      ]
+    },
+    "mrp.bom.line": {
+      "removed_odoo19_fields": [
+        "product_uom_id"
+      ],
+      "odoo20_fields": [
+        "uom_id"
+      ]
+    },
+    "product.template": {
+      "removed_odoo19_fields": [
+        "uom_po_id"
+      ],
+      "odoo20_fields": [
+        "uom_id"
+      ]
+    },
+    "uom.uom": {
+      "removed_odoo19_fields": [
+        "category_id",
+        "rounding",
+        "uom_type"
+      ],
+      "odoo20_fields": [
+        "factor",
+        "relative_factor",
+        "relative_uom_id",
+        "sequence"
+      ]
+    }
+  },
+  "policy": {
+    "reference_policy_hash": "sha256:b0f241e8d0b5a302799ac4a8db0673123fb3d4d6523ed6e3d6dede30bfc359b8",
+    "source_policy_hash": "sha256:ee190373e24ca31d1e5bed314f2fe00e6ff6f5fee035bd4569df78ccae831c67"
+  },
+  "limitations": [
+    "No Odoo 20 business-data write, recovery, Integrated Test write, or Production operation was exercised or enabled.",
+    "No same-major Odoo 20 transfer, custom-module, permission-restriction, multi-company, performance, Odoo Online, or SaaS claim was established.",
+    "The Enterprise Runbot is temporary evidence and must be refreshed after that instance expires or changes.",
+    "Native Odoo 20 field names are preserved; the evidence does not authorize aliases from removed Odoo 19 fields."
+  ]
+}

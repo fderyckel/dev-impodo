@@ -13,7 +13,9 @@ It transforms the rows admitted by the mapping, publishes canonical staging
 and quality evidence, resolves ambiguous source entities, and freezes required
 normalization decisions.
 
-It is target-independent and must not contact Odoo.
+Preparation itself is target-independent and must not contact Odoo. After the
+prepared result is approved, the Stage 4 page may hand the workspace to the
+single read-only comparison owned by Final review.
 
 ## Entry conditions
 
@@ -148,6 +150,22 @@ through `ResolutionService`. `normalization.py` handles reviewable value groups
 through `NormalizationService`. Both publish new evidence rather than mutating
 the frozen source.
 
+### Handoff to the shared Odoo comparison
+
+After normalization approval, `workspace_normalization.html` exposes
+**Compare with Odoo** through the existing `/summary/compare` route. That
+action calls the same `PreflightService.compare` workflow used from Final
+review. Stage 4 does not implement another target-reference checker, save a
+second target snapshot, or compare during page rendering. Opening Final review
+therefore reuses the current saved comparison when its prepared and target
+bindings remain current.
+
+Preparation still completes without Odoo. An unavailable target leaves the
+approved prepared result intact and the comparison incomplete. Source-only
+quality and incoming-parent failures remain preparation responsibilities;
+target-only references and exact intended-write precision remain Final review
+responsibilities.
+
 ### Columnar compilation and execution
 
 Preparation separates mapping meaning from the engine that evaluates it.
@@ -226,6 +244,7 @@ Extending qualification belongs to the
 | Canonical publication validation | [`PreparationStoredRunReader`](../../../src/impodo/adapters/duckdb/preparation_stored_run_reader.py) |
 | Entity resolution | [`ResolutionService`](../../../src/impodo/application/workspace/preparation/resolution_service.py) |
 | Normalization decisions | [`NormalizationService`](../../../src/impodo/application/workspace/preparation/normalization_service.py) |
+| Approved-data comparison handoff | [`workspace_normalization.html`](../../../src/impodo/web/templates/workspace_normalization.html) and [`PreflightService.compare`](../../../src/impodo/application/preflight_service.py) |
 | Canonical hierarchy materialization | [`evaluate_browser_mapping`](../../../src/impodo/domain/staging/evaluator.py) |
 | Canonical row-inclusion decision | [`canonical_row_from_inclusion_decision`](../../../src/impodo/domain/preparation/staging_contracts.py) |
 

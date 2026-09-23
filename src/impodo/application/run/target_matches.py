@@ -26,7 +26,11 @@ from impodo.domain.mapping.scalar_values import (
     evaluate_scalar_mapping_value,
 )
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.reference_keys import standard_reference_key
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.workspace.reference_keys import (
+    reference_policy_hash,
+    standard_reference_key,
+)
 from impodo.domain.workspace.supporting_lookups import (
     SupportingLookupSnapshot, portable_supporting_value,
 )
@@ -701,7 +705,20 @@ def _current_supporting_lookup(
     available_fields = {
         item.name for item in (related_model.fields if related_model else ())
     }
-    standard_key = standard_reference_key(relation_model)
+    version_decision = assess_odoo_operation(
+        setup_schema.odoo_version,
+        OdooOperation.RECIPE,
+    )
+    odoo_major_version = (
+        version_decision.version.major if version_decision.allowed else -1
+    )
+    current_reference_policy_hash = reference_policy_hash(odoo_major_version)
+    if current_reference_policy_hash is None:
+        return None
+    standard_key = standard_reference_key(
+        relation_model,
+        odoo_major_version=odoo_major_version,
+    )
     display_field = (
         standard_key.display_field
         if standard_key is not None
@@ -726,4 +743,5 @@ def _current_supporting_lookup(
         read_principal_hash=setup_schema.read_principal_hash,
         read_context_hash=setup_schema.read_context_hash,
         actor=actor,
+        reference_policy_hash=current_reference_policy_hash,
     )

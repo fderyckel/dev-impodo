@@ -16,7 +16,7 @@ from ..domain.odoo_capture import (
     odoo_capture_selection_set_hash,
     require_consistent_odoo_capture_selection_set,
 )
-from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ..domain.odoo_source_policy import odoo_source_policy_from_hash
 from ..domain.odoo_source_capture import (
     CancellationProbe,
     OdooCaptureAssessment,
@@ -781,7 +781,8 @@ class OdooSourceCaptureService:
                 raise WorkspaceError(
                     "The Odoo capture selection belongs to another DataVersion"
                 )
-            if selection.max_rows != CURRENT_ODOO_SOURCE_POLICY.max_rows:
+            policy = odoo_source_policy_from_hash(selection.policy_hash)
+            if policy is None or selection.max_rows != policy.max_rows:
                 raise WorkspaceError(
                     "Review and save the Odoo capture plan before reading records"
                 )

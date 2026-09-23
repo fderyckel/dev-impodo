@@ -60,6 +60,52 @@ comparison.
 
 ![Identity health separates a suggested fictional Contact rule from a current-data test.](../../images/user/11g-mapping-identity-health.png)
 
+### Find missing parents before preparation
+
+After you save linked fields, **Relationship health** tests the actual values
+used by the included source rows. Select **Check saved relationships**. Impodo
+then groups the distinct keys into bounded read-only requests; it does not make
+one Odoo request for every source row.
+
+Each relationship card keeps the expected origin visible. A value can resolve
+to one existing Odoo record, one record in the selected incoming table, or the
+incoming table only after Odoo has no exact match. Impodo reports missing,
+ambiguous, case-only, and incomplete compound keys separately. It also reports
+blank rows. A blank required parent needs attention, while a blank optional
+relationship can remain valid.
+
+For example, a **BOM Lines -> Parent Bill of Material** card tells you how many
+line rows identify one parent Bill of Material, how many parents already exist
+in Odoo, how many come from the incoming Bills of Materials table, and how many
+cannot be resolved. Select **Review N unresolved choices** to return to the
+exact relationship field. Select **Open Bills of Materials** when the incoming
+parent table itself needs correction.
+
+For **Use Odoo first, otherwise use the incoming table**, an exact Odoo match
+wins. A case-only Odoo match does not fall through silently to the incoming
+table because that could create a near duplicate. The card shows it as a
+separate correction cause. The check never changes an existing Odoo record or
+authorizes an update.
+
+Odoo fills a One2many list from the child records. If a saved One2many choice
+is present, the card directs you to the selected child table and its inverse
+Many2one field instead of suggesting that the parent writes the list.
+
+The result becomes **Needs refresh** when the source selection, saved mapping,
+governed matching rule, Odoo schema, target, or read identity changes. Exact
+source and Odoo keys stay in protected evidence; the browser and portable
+Recipe contain only aggregate counts. **Prepare data** and **Final review**
+still perform the authoritative row and destination checks.
+
+This first relationship-simulator slice checks saved Many2one and Many2many
+field mappings whose related matching rule uses direct scalar key fields. A
+relationship that depends on another related key is shown as **Chosen - not
+tested**. A relational component of the dataset's own identity also remains
+**Chosen - not tested**; Impodo does not reduce it to an unsafe name-only
+check.
+
+![Relationship health identifies a missing fictional parent before preparation.](../../images/user/11h-mapping-relationship-health.png)
+
 ### Use the recommended table order
 
 At the top of **Match data**, **Recommended matching order** shows where to
@@ -123,10 +169,12 @@ or save any field match.
 ## Steps in Impodo
 
 1. Open **Match data** and review the recommended order. After saving the
-   relevant relationship choices, optionally select **Check identities and
-   update suggestion** and then **Apply recommendation**. Work through one table at a
-   time. You can also select **Reorder tables**, arrange the queue, and select
-   **Save table order**.
+   relevant identity and relationship choices, select **Check saved
+   identities** or **Check saved relationships**. The same bounded read updates
+   both health summaries and the table-order suggestion. Select **Apply
+   recommendation** only when you also want to use that suggested order. Work
+   through one table at a time. You can also select **Reorder tables**, arrange
+   the queue, and select **Save table order**.
 2. Under **Rows to use**, keep **Use every row** or select **Use only rows that
    match** and add one to eight source conditions.
 3. Choose whether the table is a reference, create, update, or upsert dataset.

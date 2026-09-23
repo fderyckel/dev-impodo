@@ -498,6 +498,7 @@ def preflight_deferred_issues(
     row_by_trace, row_by_coordinate = _row_indexes(rows)
     issues: dict[str, DeferredIssue] = {}
     matched_row_ids: set[str] = set()
+    represented_blockers: set[tuple[str, str, int | None, str]] = set()
 
     for decision in result.decisions:
         row = _decision_row(decision, row_by_trace, row_by_coordinate)
@@ -520,6 +521,7 @@ def preflight_deferred_issues(
                 "A blocked comparison row has no saved root issue"
             )
         for issue in blocking:
+            represented_blockers.add(_issue_signature(issue))
             projected = _deferred_issue(
                 comparison_id,
                 str(issue.code),
@@ -536,7 +538,7 @@ def preflight_deferred_issues(
         )
 
     for issue in result.issues:
-        if not issue.blocking:
+        if not issue.blocking or _issue_signature(issue) in represented_blockers:
             continue
         projected = _deferred_issue(
             comparison_id,
@@ -599,6 +601,12 @@ def portable_preflight_deferred_issues(
                 issues=tuple(
                     _PortableIssue(
                         code=str(issue["code"]),
+                        dataset=str(issue.get("dataset") or ""),
+                        row=(
+                            int(issue["row"])
+                            if issue.get("row") is not None
+                            else None
+                        ),
                         field=str(issue.get("field") or ""),
                         message=str(issue["message"]),
                         severity=str(issue["severity"]),
@@ -612,6 +620,8 @@ def portable_preflight_deferred_issues(
         source_issues = tuple(
             _PortableIssue(
                 code=str(item["code"]),
+                dataset=str(item.get("dataset") or ""),
+                row=(int(item["row"]) if item.get("row") is not None else None),
                 field=str(item.get("field") or ""),
                 message=str(item["message"]),
                 severity=str(item["severity"]),
@@ -965,6 +975,8 @@ class _SyntheticIssue:
 @dataclass(frozen=True, slots=True)
 class _PortableIssue:
     code: str
+    dataset: str
+    row: int | None
     field: str
     message: str
     severity: str
@@ -1012,6 +1024,18 @@ def _deferred_issue(
         row_id=row_id,
         field=field,
         message=message,
+    )
+
+
+def _issue_signature(issue: object) -> tuple[str, str, int | None, str]:
+    """Identify one engine blocker independent of aggregation counts."""
+
+    row = getattr(issue, "row", None)
+    return (
+        str(getattr(issue, "code", "")),
+        str(getattr(issue, "dataset", "") or ""),
+        int(row) if row is not None else None,
+        str(getattr(issue, "field", "") or ""),
     )
 
 

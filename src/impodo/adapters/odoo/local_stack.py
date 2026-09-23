@@ -1309,7 +1309,7 @@ def _probe_odoo(profile: LocalStackProfile) -> LocalStackCheck:
             key="odoo",
             label="Odoo server",
             level=ReadinessLevel.ERROR,
-            message=f"Expected Odoo 19, received Odoo {version}.",
+            message=f"This Impodo operation does not support Odoo {version}.",
             detail=decision.reason,
             version_blocked=True,
         )

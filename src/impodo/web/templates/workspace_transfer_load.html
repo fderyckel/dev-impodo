@@ -255,7 +255,10 @@
           <tbody>
             {% for row in transfer_dataset_rows %}
               <tr>
-                <th scope="row">{{ row.dataset.model_label }}<small>{{ row.dataset.model }}</small></th>
+                <th scope="row">
+                  <strong>{{ row.dataset.model_label }}</strong>
+                  {% if row.dataset.model_label != row.dataset.model %}<small>{{ row.dataset.model }}</small>{% endif %}
+                </th>
                 <td>{{ row.dataset.destination_existing_record_count if row.dataset.model_policy == 'upsert' else 0 }}</td>
                 <td>{{ row.dataset.destination_existing_record_count if row.dataset.model_policy != 'upsert' else 0 }}</td>
                 <td>{{ row.dataset.destination_create_record_count }}</td>

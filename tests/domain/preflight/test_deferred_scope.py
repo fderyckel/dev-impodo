@@ -7,11 +7,16 @@ import unittest
 from impodo.domain.preflight.deferred_scope import (
     DeferredIssue,
     DeferredIssueScope,
+    DeferredScopeDecision,
     DeferredScopeEvidenceError,
+    exact_numeric_precision_issues,
+    portable_preflight_deferred_issues,
+    portable_reference_resolutions,
     preflight_deferred_issues,
     prepared_dependency_facts,
     preview_deferred_scope,
 )
+from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.shared.models import (
     Classification,
     Decision,
@@ -39,6 +44,7 @@ class _ExecutionRow:
     source_identity: tuple[object, ...]
     target_model: str
     disposition: str
+    fields: tuple[object, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +52,19 @@ class _RelationshipBlocker:
     row_id: str
     code: str
     field: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class _FieldIntent:
+    field: str
+    action: str
+    value: object
+
+
+@dataclass(frozen=True, slots=True)
+class _Dataset:
+    dataset: str
+    field_digits: tuple[tuple[str, tuple[int, int]], ...]
 
 
 def _row(
@@ -189,8 +208,21 @@ class DeferredScopeTests(unittest.TestCase):
                 ),
             )
         )
+        # The engine's aggregate source issue list repeats row blockers already
+        # retained on their decisions; that duplicate must not become run-wide.
+        result = replace(
+            result,
+            issues=tuple(
+                issue
+                for decision in result.decisions
+                for issue in decision.issues
+            ),
+        )
 
         issues = preflight_deferred_issues(COMPARISON_ID, rows, result)
+        self.assertTrue(
+            all(issue.scope is DeferredIssueScope.ROW for issue in issues)
+        )
         dependencies = prepared_dependency_facts(rows, records, ())
         preview = preview_deferred_scope(
             comparison_id=COMPARISON_ID,
@@ -459,6 +491,141 @@ class DeferredScopeTests(unittest.TestCase):
                 (_record(owner, target_identity=(missing,)),),
                 (),
             )
+
+    def test_portable_manifest_restores_issues_and_reference_outcomes(self):
+        parent = _row("1", "parents", 2, ("P",), "CREATE")
+        owner = _row("2", "owners", 3, ("O",), "BLOCKED")
+        hybrid = LogicalReference(
+            origin="target_then_incoming",
+            key=("P",),
+            dataset="parents",
+            model="x.parent",
+            target_fields=("code",),
+            incoming_key=("P",),
+        )
+        result = _result(
+            (
+                Decision(
+                    "parents",
+                    2,
+                    ("P",),
+                    (),
+                    Classification.CREATE,
+                    0,
+                    source_trace_id=parent.source_trace_id,
+                ),
+                Decision(
+                    "owners",
+                    3,
+                    ("O",),
+                    (),
+                    Classification.BLOCKED,
+                    0,
+                    source_trace_id=owner.source_trace_id,
+                    issues=(
+                        Issue(
+                            code="REFERENCE_NOT_FOUND",
+                            message="The parent is missing.",
+                            severity=Severity.ERROR,
+                            dataset="owners",
+                            row=3,
+                            field="parent_id",
+                        ),
+                    ),
+                ),
+            ),
+            resolutions=(
+                ReferenceResolution(
+                    dataset="owners",
+                    field="parent_id",
+                    reference=hybrid,
+                    status="RESOLVED_INCOMING",
+                    match_count=1,
+                ),
+            ),
+        )
+        result = replace(
+            result,
+            issues=tuple(
+                issue
+                for decision in result.decisions
+                for issue in decision.issues
+            ),
+        )
+        manifest = result.to_portable_dict()
+
+        issues = portable_preflight_deferred_issues(
+            COMPARISON_ID,
+            (parent, owner),
+            manifest,
+        )
+        resolutions = portable_reference_resolutions(manifest)
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].row_id, owner.row_id)
+        self.assertEqual(issues[0].scope, DeferredIssueScope.ROW)
+        self.assertEqual(resolutions, result.reference_resolutions)
+
+    def test_exact_numeric_precision_issue_names_only_intended_write(self):
+        unchanged = replace(
+            _row("1", "lines", 2, ("A",), "UNCHANGED"),
+            fields=(
+                _FieldIntent("quantity", "SET_VALUE", "0.003"),
+            ),
+        )
+        update = replace(
+            _row("2", "lines", 3, ("B",), "UPDATE"),
+            fields=(
+                _FieldIntent("quantity", "SET_VALUE", "0.003"),
+            ),
+        )
+
+        issues = exact_numeric_precision_issues(
+            COMPARISON_ID,
+            (unchanged, update),
+            (_Dataset("lines", (("quantity", (16, 2)),)),),
+        )
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].row_id, update.row_id)
+        self.assertEqual(issues[0].code, "TARGET_NUMERIC_PRECISION_LOSS")
+
+    def test_reviewed_decision_round_trip_binds_preview_and_reduced_snapshot(self):
+        blocked = _row("1", "rows", 2, ("A",), "BLOCKED")
+        write = _row("2", "rows", 3, ("B",), "CREATE")
+        issue = DeferredIssue(
+            issue_id="sha256:" + "8" * 64,
+            code="REFERENCE_NOT_FOUND",
+            scope=DeferredIssueScope.ROW,
+            row_id=blocked.row_id,
+        )
+        preview = preview_deferred_scope(
+            comparison_id=COMPARISON_ID,
+            comparison_hash=HASH,
+            execution_snapshot_hash=SNAPSHOT_HASH,
+            rows=(blocked, write),
+            issues=(issue,),
+            dependencies=(),
+            selected_issue_ids=(issue.issue_id,),
+        )
+        restored_preview = type(preview).from_json(preview.to_json())
+        decision = DeferredScopeDecision.accept(
+            workspace_id="workspace-1",
+            preview=restored_preview,
+            reduced_execution_snapshot_hash="sha256:" + "c" * 64,
+            accepted_by=ActorIdentity(
+                issuer="test",
+                subject_id="manager",
+                display_name="Data manager",
+            ),
+            accepted_at=datetime(2026, 9, 23, tzinfo=timezone.utc),
+        )
+
+        restored = DeferredScopeDecision.from_json(decision.to_json())
+
+        self.assertEqual(restored, decision)
+        self.assertEqual(restored.preview_hash, preview.semantic_hash)
+        self.assertEqual(restored.omitted_row_ids, (blocked.row_id,))
 
 
 if __name__ == "__main__":

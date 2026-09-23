@@ -55,6 +55,10 @@ Field compatibility findings remain visible during destination matching, but
 block package creation only when the selected model policy would create or
 update records. This lets an existing record be reused even when a captured
 read-only field cannot be written to the destination.
+Source capture can retain a non-stored, related, computed, or read-only
+relationship as provenance. Destination matching excludes that relationship
+from the generic write plan unless destination metadata proves it is a stored,
+exportable write field or exposes an inverse that makes the write legal.
 Matching reads the full destination field metadata and `default_get` evidence
 for required fields. It uses the shared create-field policy to identify
 required create inputs missing from the captured fields. Low-risk defaults
@@ -394,6 +398,7 @@ recorded outcome.
 | Odoo-to-Odoo review package | [`TransferReviewService`](../../../src/impodo/application/transfer_review_service.py) |
 | Odoo-to-Odoo read-only preflight | [`TransferPreflightService`](../../../src/impodo/application/transfer_preflight_service.py) |
 | Transfer evidence publication and invalidation | [`WorkspaceStateService`](../../../src/impodo/domain/workspace/workbench.py) |
+| Synthetic two-instance Contact qualification | [`qualify_odoo_to_odoo_contact.py`](../../../scripts/qualify_odoo_to_odoo_contact.py) |
 
 ## Evidence and state
 

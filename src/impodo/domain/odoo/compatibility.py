@@ -1,9 +1,10 @@
 """Recognize reported Odoo versions and decide which operations are enabled.
 
-Recognition is separate from support: a recognized Odoo 20 or SaaS version
-does not enable an operation. Phase 2 preserves the existing non-SaaS Odoo 19
-gate, including development builds; acceptance here is not live qualification.
-These transient decisions add no fields to stored fingerprints or policy hashes.
+Recognition is separate from support. Odoo 19 preserves its existing operation
+set, including development builds. Final Odoo 20 enables only the read and
+Recipe-authoring boundaries qualified in Phase 3; writes, recovery, and
+Production remain disabled. These transient decisions add no fields to stored
+fingerprints or policy hashes.
 """
 
 from __future__ import annotations
@@ -89,6 +90,13 @@ _ODOO_19_OPERATIONS = frozenset({
     OdooOperation.RECIPE,
     OdooOperation.PRODUCTION,
 })
+_ODOO_20_READ_OPERATIONS = frozenset({
+    OdooOperation.CONNECT,
+    OdooOperation.CAPTURE_SCHEMA,
+    OdooOperation.CAPTURE_SOURCE,
+    OdooOperation.COMPARE,
+    OdooOperation.RECIPE,
+})
 
 
 def recognize_odoo_version(
@@ -119,24 +127,47 @@ def recognize_odoo_version(
 def assess_odoo_operation(
     version: str | OdooVersion, operation: OdooOperation,
 ) -> OdooSupportDecision:
-    """Apply the current Odoo 19 gate to one named operation.
+    """Apply the qualified version gate to one named operation.
 
     The accepted Odoo 19 release forms retain their previous behavior. SaaS
-    series and all other majors remain disabled until separately qualified.
-    Model, access, schema freshness, and Production checks still apply.
+    series, Odoo 20 prereleases, and all other majors remain disabled. Final
+    Odoo 20 permits only read and Recipe-authoring operations; write-capable
+    operations retain a separate later qualification gate. Model, access,
+    schema freshness, and Production checks still apply.
     """
 
     recognized = version if isinstance(version, OdooVersion) else recognize_odoo_version(version)
     if recognized.problem is not None:
         reason = recognized.problem.value
-    elif recognized.major != 19:
-        reason = "ODOO_MAJOR_DISABLED"
     elif recognized.is_saas:
         reason = "ODOO_SERIES_DISABLED"
-    elif operation not in _ODOO_19_OPERATIONS:
-        reason = "ODOO_OPERATION_DISABLED"
+    elif recognized.major == 19:
+        if operation not in _ODOO_19_OPERATIONS:
+            reason = "ODOO_OPERATION_DISABLED"
+        else:
+            return OdooSupportDecision(
+                recognized,
+                operation,
+                True,
+                "ODOO_19_LEGACY_ACCEPTED",
+            )
+    elif recognized.major == 20:
+        if (
+            recognized.series != "20.0"
+            or recognized.release_stage is not OdooReleaseStage.FINAL
+        ):
+            reason = "ODOO_SERIES_DISABLED"
+        elif operation not in _ODOO_20_READ_OPERATIONS:
+            reason = "ODOO_OPERATION_DISABLED"
+        else:
+            return OdooSupportDecision(
+                recognized,
+                operation,
+                True,
+                "ODOO_20_READ_QUALIFIED",
+            )
     else:
-        return OdooSupportDecision(recognized, operation, True, "ODOO_19_LEGACY_ACCEPTED")
+        reason = "ODOO_MAJOR_DISABLED"
     return OdooSupportDecision(recognized, operation, False, reason)
 
 

@@ -19,6 +19,13 @@ from impodo.domain.preflight.reports import (
     ReviewWorkbookCellEffect,
     ReviewWorkbookEvidence,
 )
+from impodo.domain.preflight.deferred_scope import (
+    DeferredIssue,
+    DeferredIssueGroup,
+    DeferredIssueScope,
+    DeferredOmittedRow,
+    DeferredScopePreview,
+)
 from impodo.domain.shared.models import Issue, PreparedRecord, Severity
 from impodo.web.composition.cli import build_parser, main
 from tests.integration.artifacts.test_preflight_outputs import ROOT, golden_result
@@ -55,6 +62,120 @@ class CliTests(unittest.TestCase):
 
 
 class WorkbookIntegrationTests(unittest.TestCase):
+    def test_reviewed_set_aside_keeps_full_evidence_and_reduces_active_sheets(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = golden_result()
+            prepared_records = _prepared_records(result)
+            manifest_path, workbook_path = write_preflight_outputs(
+                result,
+                Path(directory) / "report",
+                prepared_records=prepared_records,
+            )
+            blocked = next(
+                decision
+                for decision in result.decisions
+                if decision.business_identity == ("P-BLOCK",)
+            )
+            issue_id = "sha256:" + "1" * 64
+            row_id = "sha256:" + "2" * 64
+            preview = DeferredScopePreview(
+                comparison_id="comparison-1",
+                comparison_hash=result.semantic_hash,
+                execution_snapshot_hash="sha256:" + "3" * 64,
+                selected_issue_ids=(issue_id,),
+                groups=(
+                    DeferredIssueGroup(
+                        group_id="sha256:" + "4" * 64,
+                        issue_id=issue_id,
+                        root_row_id=row_id,
+                        row_ids=(row_id,),
+                        counts_by_dataset=((blocked.dataset, 1),),
+                        write_count=0,
+                    ),
+                ),
+                omitted_rows=(
+                    DeferredOmittedRow(
+                        row_id=row_id,
+                        dataset=blocked.dataset,
+                        source_row=blocked.source_row,
+                        source_trace_id=blocked.source_trace_id,
+                        disposition=blocked.classification.value,
+                        direct_issue_ids=(issue_id,),
+                        inherited_issue_ids=(),
+                    ),
+                ),
+                counts_by_dataset=((blocked.dataset, 1),),
+                prepared_record_count=len(result.decisions) + 2,
+                already_set_aside_count=2,
+                original_write_count=2,
+                omitted_write_count=0,
+                remaining_write_count=2,
+                remaining_problem_record_count=0,
+                remaining_run_issue_count=0,
+            )
+            evidence = ReviewWorkbookEvidence(
+                frozen_input_hash="",
+                records=prepared_records,
+                dataset_labels={
+                    item.dataset: item.dataset.replace("_", " ").title()
+                    for item in prepared_records
+                },
+                target_model_labels={},
+                target_field_labels={},
+                normalization_content_hash="",
+                cell_effects=(),
+                target_field_required={},
+            )
+
+            write_review_workbook(
+                manifest_path,
+                workbook_path,
+                review_evidence=evidence,
+                deferred_preview=preview,
+                deferred_issues=(
+                    DeferredIssue(
+                        issue_id=issue_id,
+                        code="REFERENCE_NOT_FOUND",
+                        scope=DeferredIssueScope.ROW,
+                        row_id=row_id,
+                        field="uom_id",
+                        message="The related unit is missing in Odoo.",
+                    ),
+                ),
+            )
+
+            workbook = load_workbook(workbook_path, data_only=True)
+            self.assertIn("Deferred issues", workbook.sheetnames)
+            overview = workbook["Review overview"]
+            self.assertEqual(overview["E5"].value, "Ready with records set aside")
+            self.assertEqual(overview["E7"].value, 2)
+            self.assertEqual(overview["E8"].value, 1)
+            self.assertEqual(overview["E9"].value, 2)
+            active_values = {
+                str(cell.value)
+                for row in workbook["Records to load"].iter_rows(min_row=4)
+                for cell in row
+                if cell.value is not None
+            }
+            self.assertNotIn("P-BLOCK", active_values)
+            deferred = workbook["Deferred issues"]
+            headers = [cell.value for cell in deferred[3]]
+            deferred_row = next(deferred.iter_rows(min_row=4, values_only=True))
+            self.assertEqual(deferred_row[headers.index("Source row")], blocked.source_row)
+            self.assertEqual(deferred_row[headers.index("Record")], "P-BLOCK")
+            self.assertEqual(deferred_row[headers.index("Reason type")], "Direct")
+            self.assertEqual(
+                deferred_row[headers.index("Root issue")],
+                "REFERENCE_NOT_FOUND",
+            )
+            self.assertEqual(
+                deferred_row[headers.index("Comparison")],
+                preview.comparison_id,
+            )
+            workbook.close()
+
     def test_review_workbook_and_manifest_are_generated(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "report"

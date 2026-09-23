@@ -54,7 +54,7 @@ services.
 | --- | --- |
 | Recognize Odoo versions and decide which operations are enabled | `domain/odoo/compatibility.py`; shared by connection, capture, comparison, Recipe, Production, and execution checks |
 | Project, Data version, workspace, Recipe, run, Cutover, and scenario meaning | `domain/project`, `domain/data_version`, `domain/workspace`, `domain/recipe`, `domain/run`, `domain/cutover`, and `domain/scenarios` |
-| Portable Mapping, Preparation, and Execution decisions | `domain/mapping`, `domain/compiler`, `domain/relationship_dependencies.py`, `domain/matching_order.py`, `domain/preparation`, `domain/staging`, `domain/execution_snapshot.py`, and `domain/execution` |
+| Portable Mapping, Preparation, and Execution decisions | `domain/mapping`, `domain/compiler`, `domain/relationship_dependencies.py`, `domain/relationship_health.py`, `domain/matching_order.py`, `domain/preparation`, `domain/staging`, `domain/execution_snapshot.py`, and `domain/execution` |
 | Owner-qualified commands, queries, and ports | `application/project`, `application/data_version`, `application/recipe`, `application/run`, `application/workspace`, and `application/scenarios` |
 | Cross-owner workflow coordinators and stable facades | Named modules directly below `application`, including Project authoring, Recipe compilation and publication, source projection, preflight, Cutover, and Production coordination. |
 | Shared application ports | `application/shared` |
@@ -66,7 +66,7 @@ services.
 | Safe formula authoring feedback | `domain/recipe/value_rules.py` owns parsing; `web/mapping_formula_authoring.py` projects formula-free issues for the mapping route and browser |
 | Reuse arithmetic preparation work | `domain/recipe/value_rules.py` compiles safe arithmetic into bounded Python instructions; `domain/staging/evaluator.py` binds them once per dataset, and `domain/mapping/scalar_values.py` supplies only referenced formula inputs |
 | Replay native prepared evidence | `domain/staging/preparation_session.py` versions the canonical projection; `adapters/duckdb/native_prepared_projection.py` renders canonical reference bytes for new evidence and preserves historical encoding; `adapters/duckdb/preparation_stored_run_reader.py` verifies the bound artifacts and stored hashes |
-| Match data work order and live advisory check | `domain/matching_order.py` owns pure component ordering, typed facts, the isolated preference, and aggregate check contracts; `application/workspace/mapping/order_service.py` derives local advice, builds the bounded read plan, classifies protected exact-key evidence, and reconciles custom order; `adapters/duckdb/matching_order_repository.py` stores the versioned preference plus immutable aggregate and protected check rows; `web/routers/mapping.py`, `web/presenters/mapping_view.py`, `web/templates/mapping/_matching_order.html`, and `web/static/mapping-order.js` own the explicit read-only action, safe progress, and accessible queue without changing stable form indexes, semantic evidence, or execution order |
+| Match data identity, relationship health, work order, and live advisory check | `domain/relationship_health.py` owns aggregate relationship classification; `domain/matching_order.py` owns pure component ordering, typed identity facts, the isolated preference, and the combined aggregate check contract; `application/workspace/mapping/order_service.py` derives local advice, builds one bounded read plan, classifies protected exact-key evidence, and reconciles custom order; `adapters/duckdb/matching_order_repository.py` stores the versioned preference plus immutable aggregate and protected check rows; `web/routers/mapping.py`, `web/presenters/identity_health.py`, `web/presenters/relationship_health.py`, `web/presenters/mapping_view.py`, the mapping health and order templates, and `web/static/mapping-order.js` own the explicit read-only action, safe progress, correction routes, and accessible queue without changing stable form indexes, semantic evidence, or execution order |
 | Guided combined source-column values | `domain/mapping/contracts.py` owns the portable ordered provider; `domain/mapping/scalar_values.py` is the row oracle; `domain/compiler/columnar_transformation.py` and `adapters/polars_transformation.py` own native execution; `web/presenters/mapping_forms.py` and `web/static/mapping-value-rules.js` own bounded authoring |
 | One existing Odoo record for every row | `domain/mapping/contracts.py` owns the portable constant business reference and shared target-field order; `domain/mapping/validation/relationships.py` applies governed-reference policy; `domain/preparation/source.py`, `domain/compiler/columnar_transformation.py`, and `adapters/polars_transformation.py` own row and native reference production; `web/presenters/mapping_forms.py`, `web/templates/mapping/_relationship_catalog.html`, and `web/static/mapping-editor.js` own bounded many2one authoring; Recipe compilation and application preserve the rule without a source binding |
 | Recoverable Match data mutation outcomes | `domain/mapping/mutations.py` defines receipts and structured conflicts; `adapters/duckdb/mapping_repository.py` commits receipts with mapping writes; `web/routers/mapping.py` and `web/static/mapping-editor.js` own read-back and recovery UX |
@@ -320,9 +320,10 @@ Authoring workspace; it must not grow into one workspace open per list row.
 Mapping, preparation, and comparison may stream or batch rows, but they must
 not issue one repository or Odoo request per row, field, or relationship.
 
-Odoo adapters expose closed Odoo 19 operations. Search and schema reads are
-batched by model, target keys are indexed once, and write authority remains
-separate from read capability.
+Odoo adapters expose closed operations. Search and schema reads are qualified
+for Odoo 19 and final Odoo 20 and are batched by model. Target keys are indexed
+once, and write authority remains separate from read capability; Odoo 20 write
+authority is not enabled.
 
 ## Focused verification
 

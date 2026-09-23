@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 import unittest
 from uuid import uuid4
 
 from impodo.application.workspace.mapping.order_service import MatchingOrderService
 from impodo.domain.mapping.contracts import (
+    ConstantBusinessReference,
+    ConstantReferenceComponent,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
     ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
+    RelationshipValueSource,
     ResolverOrigin,
 )
 from impodo.domain.matching_order import (
@@ -63,6 +67,18 @@ class _Keys:
         row_inclusion,
     ):
         self.calls.append(("identity", workspace_id, dataset_id, source_column_keys))
+        return self.rows[(dataset_id, source_column_keys)]
+
+    def source_included_key_tuples(
+        self,
+        workspace_id,
+        dataset_id,
+        source_column_keys,
+        row_inclusion,
+    ):
+        self.calls.append(
+            ("relationship", workspace_id, dataset_id, source_column_keys)
+        )
         return self.rows[(dataset_id, source_column_keys)]
 
 
@@ -163,16 +179,20 @@ class MatchingOrderLiveCheckTests(unittest.TestCase):
             plan.metadata_requests[0].fields,
             ("ref",),
         )
-        self.assertEqual(len(plan.record_requests), 1)
+        self.assertEqual(len(plan.record_requests), 2)
         self.assertEqual(
             plan.record_requests[0].domain,
-            (["ref", "in", ["P001", "P002"]],),
+            ("|", ["ref", "=ilike", "P001"], ["ref", "=ilike", "P002"]),
         )
         self.assertEqual(len(keys.calls), 3)
         self.assertEqual(
             repository.check.relationship_results[0].outcome,
             MatchingOrderRelationshipOutcome.TARGET,
         )
+        relationship_health = repository.check.relationship_health_results[0]
+        self.assertTrue(relationship_health.ready)
+        self.assertEqual(relationship_health.source_row_count, 2)
+        self.assertEqual(relationship_health.target_count, 2)
         self.assertEqual(
             repository.check.ordered_dataset_ids,
             ("dataset:bom", "dataset:article"),
@@ -269,6 +289,260 @@ class MatchingOrderLiveCheckTests(unittest.TestCase):
         self.assertEqual(
             identities["dataset:article"].not_checkable_reason,
             MatchingIdentityNotCheckableReason.ODOO_SCHEMA_CHANGED,
+        )
+
+    def test_target_only_relationship_reports_missing_and_required_blank_rows(self) -> None:
+        evidence = _evidence()
+        original = evidence.draft.definition.datasets[0].relationships[0]
+        relationship = replace(
+            original,
+            resolver=replace(
+                original.resolver,
+                origin=ResolverOrigin.TARGET_CATALOG,
+                dataset_id=None,
+            ),
+            required=True,
+        )
+        evidence.draft = _replace_relationship(evidence.draft, relationship)
+        keys = _Keys(
+            {
+                ("dataset:bom", ("column:article",)): (
+                    ("P001",),
+                    ("P404",),
+                    (None,),
+                ),
+                ("dataset:article", ("column:article-code",)): (("P001",),),
+            }
+        )
+        repository = _Repository()
+        service = MatchingOrderService(
+            repository,
+            CapabilityAuthorizationPolicy(),
+            keys,
+        )
+        local = service.recommend(
+            evidence.selection,
+            evidence.schema,
+            evidence.draft.definition,
+        )
+        prepared = service.prepare_live_check(
+            evidence.workspace_id,
+            evidence.selection,
+            evidence.schema,
+            evidence.governance,
+            evidence.draft,
+            local,
+            actor=LOCAL_ACTOR,
+        )
+
+        service._run_live_check(
+            prepared,
+            lambda _requirements: _product_snapshot(
+                evidence,
+                records=(TargetRecord("product.template", 71, {"ref": "P001"}),),
+            ),
+        )
+
+        result = repository.check.relationship_health_results[0]
+        self.assertEqual(result.target_count, 1)
+        self.assertEqual(result.missing_count, 1)
+        self.assertEqual(result.blank_row_count, 1)
+        self.assertEqual(result.blocked_count, 2)
+        self.assertIsNone(result.dependency_dataset_id)
+
+    def test_incoming_only_relationship_never_adds_an_odoo_relationship_read(self) -> None:
+        evidence = _evidence()
+        original = evidence.draft.definition.datasets[0].relationships[0]
+        relationship = replace(
+            original,
+            resolver=replace(
+                original.resolver,
+                origin=ResolverOrigin.DATASET,
+                model=None,
+            ),
+        )
+        evidence.draft = _replace_relationship(evidence.draft, relationship)
+        keys = _Keys(
+            {
+                ("dataset:bom", ("column:article",)): (
+                    ("P001",),
+                    ("P002",),
+                    ("P404",),
+                ),
+                ("dataset:article", ("column:article-code",)): (
+                    ("P001",),
+                    ("P002",),
+                    ("P002",),
+                ),
+            }
+        )
+        repository = _Repository()
+        service = MatchingOrderService(
+            repository,
+            CapabilityAuthorizationPolicy(),
+            keys,
+        )
+        local = service.recommend(
+            evidence.selection,
+            evidence.schema,
+            evidence.draft.definition,
+        )
+        prepared = service.prepare_live_check(
+            evidence.workspace_id,
+            evidence.selection,
+            evidence.schema,
+            evidence.governance,
+            evidence.draft,
+            local,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(len(prepared.requirements.record_requests), 1)
+        self.assertEqual(
+            prepared.requirements.record_requests[0].domain,
+            (["ref", "in", ["P001", "P002"]],),
+        )
+        service._run_live_check(
+            prepared,
+            lambda _requirements: _product_snapshot(evidence, records=()),
+        )
+
+        result = repository.check.relationship_health_results[0]
+        self.assertEqual(result.incoming_count, 1)
+        self.assertEqual(result.ambiguous_count, 1)
+        self.assertEqual(result.missing_count, 1)
+        self.assertEqual(result.target_count, 0)
+
+    def test_constant_existing_relationship_counts_every_included_owner_row(self) -> None:
+        evidence = _evidence()
+        original = evidence.draft.definition.datasets[0].relationships[0]
+        relationship = replace(
+            original,
+            source_column_keys=(),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.TARGET_CATALOG,
+                model="product.template",
+            ),
+            value_source=RelationshipValueSource.CONSTANT_EXISTING,
+            constant_reference=ConstantBusinessReference(
+                key_values=(ConstantReferenceComponent("ref", "P001"),),
+            ),
+            required=True,
+        )
+        evidence.draft = _replace_relationship(evidence.draft, relationship)
+        keys = _Keys(
+            {
+                ("dataset:bom", ()): ((), ()),
+                ("dataset:article", ("column:article-code",)): (("P001",),),
+            }
+        )
+        repository = _Repository()
+        service = MatchingOrderService(
+            repository,
+            CapabilityAuthorizationPolicy(),
+            keys,
+        )
+        local = service.recommend(
+            evidence.selection,
+            evidence.schema,
+            evidence.draft.definition,
+        )
+        prepared = service.prepare_live_check(
+            evidence.workspace_id,
+            evidence.selection,
+            evidence.schema,
+            evidence.governance,
+            evidence.draft,
+            local,
+            actor=LOCAL_ACTOR,
+        )
+        service._run_live_check(
+            prepared,
+            lambda _requirements: _product_snapshot(
+                evidence,
+                records=(TargetRecord("product.template", 71, {"ref": "P001"}),),
+            ),
+        )
+
+        result = repository.check.relationship_health_results[0]
+        self.assertEqual(result.source_row_count, 2)
+        self.assertEqual(result.populated_choice_count, 2)
+        self.assertEqual(result.target_count, 2)
+        self.assertTrue(result.ready)
+
+    def test_many2many_list_is_expanded_without_a_source_row_request_loop(self) -> None:
+        evidence = _evidence()
+        bom_model = evidence.schema.models[1]
+        relationship_field = replace(
+            bom_model.fields[1],
+            type="many2many",
+        )
+        evidence.schema = replace(
+            evidence.schema,
+            models=(
+                evidence.schema.models[0],
+                replace(
+                    bom_model,
+                    fields=(bom_model.fields[0], relationship_field),
+                ),
+            ),
+        )
+        original = evidence.draft.definition.datasets[0].relationships[0]
+        relationship = replace(
+            original,
+            kind="many2many",
+            resolver=replace(
+                original.resolver,
+                origin=ResolverOrigin.TARGET_CATALOG,
+                dataset_id=None,
+            ),
+            required=True,
+        )
+        evidence.draft = _replace_relationship(evidence.draft, relationship)
+        keys = _Keys(
+            {
+                ("dataset:bom", ("column:article",)): (("P001; P002; P001",),),
+                ("dataset:article", ("column:article-code",)): (("P001",),),
+            }
+        )
+        repository = _Repository()
+        service = MatchingOrderService(
+            repository,
+            CapabilityAuthorizationPolicy(),
+            keys,
+        )
+        local = service.recommend(
+            evidence.selection,
+            evidence.schema,
+            evidence.draft.definition,
+        )
+        prepared = service.prepare_live_check(
+            evidence.workspace_id,
+            evidence.selection,
+            evidence.schema,
+            evidence.governance,
+            evidence.draft,
+            local,
+            actor=LOCAL_ACTOR,
+        )
+        service._run_live_check(
+            prepared,
+            lambda _requirements: _product_snapshot(
+                evidence,
+                records=(
+                    TargetRecord("product.template", 71, {"ref": "P001"}),
+                    TargetRecord("product.template", 72, {"ref": "P002"}),
+                ),
+            ),
+        )
+
+        result = repository.check.relationship_health_results[0]
+        self.assertEqual(result.source_row_count, 1)
+        self.assertEqual(result.populated_choice_count, 2)
+        self.assertEqual(result.target_count, 2)
+        self.assertEqual(
+            prepared.requirements.record_requests[0].domain,
+            ("|", ["ref", "=ilike", "P001"], ["ref", "=ilike", "P002"]),
         )
 
 
@@ -435,6 +709,35 @@ def _evidence():
         updated_by="Data manager",
     )
     return result
+
+
+def _replace_relationship(draft, relationship):
+    definition = replace(
+        draft.definition,
+        datasets=(
+            replace(draft.definition.datasets[0], relationships=(relationship,)),
+            draft.definition.datasets[1],
+        ),
+    )
+    return replace(draft, definition=definition)
+
+
+def _product_snapshot(evidence, *, records):
+    metadata = MetadataSnapshot(
+        fingerprint=evidence.fingerprint,
+        models={
+            "product.template": ModelMetadata(
+                model="product.template",
+                description="Product",
+                fields={"ref": FieldMetadata(name="ref", type="char")},
+            )
+        },
+    )
+    return metadata, RecordSnapshot(
+        fingerprint=evidence.fingerprint,
+        records={"product.template": tuple(records)},
+        requested_fields={"product.template": ("ref",)},
+    )
 
 
 def _source(

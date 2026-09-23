@@ -282,8 +282,33 @@ class CategoricalCoverageService:
         """
 
         keys = tuple(source_column_keys)
-        if not keys or len(keys) != len(set(keys)):
+        if not keys:
             raise WorkspaceError("Choose current source identity columns")
+        return self.source_included_key_tuples(
+            workspace_id,
+            dataset_id,
+            keys,
+            row_inclusion,
+        )
+
+    def source_included_key_tuples(
+        self,
+        workspace_id: str,
+        dataset_id: str,
+        source_column_keys: Sequence[str],
+        row_inclusion: RowInclusionPolicy,
+    ) -> tuple[tuple[str | None, ...], ...]:
+        """Return row-aligned keys after applying the saved row selection.
+
+        Relationship simulation and identity health share this projection so
+        both checks describe the rows the current Recipe would process. Empty
+        keys are allowed for a constant relationship; one empty tuple is then
+        returned for every included source row.
+        """
+
+        keys = tuple(source_column_keys)
+        if len(keys) != len(set(keys)):
+            raise WorkspaceError("Choose current source matching columns")
         selection = self.sources.get_source_selection(workspace_id)
         if selection is None:
             raise WorkspaceError("Frozen source evidence is incomplete")
@@ -305,16 +330,21 @@ class CategoricalCoverageService:
         projected = tuple(dict.fromkeys((*keys, *condition_keys)))
         if dataset is None or any(key not in available for key in projected):
             raise WorkspaceError(
-                "Identity checking is available for original frozen columns"
+                "Current-data checking is available for original frozen columns"
             )
+        scan_keys = projected
+        if not scan_keys:
+            if not dataset.columns:
+                raise WorkspaceError("Frozen source evidence has no columns")
+            scan_keys = (dataset.columns[0].stable_key,)
         frame = self._scan_dataset(
             workspace_id,
             selection,
             dataset_id,
-            projected,
+            scan_keys,
         )
         result: list[tuple[str | None, ...]] = []
-        for row in frame.select(projected).iter_rows(named=True):
+        for row in frame.select(scan_keys).iter_rows(named=True):
             try:
                 if not row_is_included(row_inclusion, row):
                     continue

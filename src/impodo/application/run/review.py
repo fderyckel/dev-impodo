@@ -187,7 +187,7 @@ class RunReviewUseCase:
                 blocking_run_issue(
                     "RUN_TARGET_IDENTITY_MISSING",
                     "The selected Odoo evidence has no exact target identity.",
-                    "Capture current Odoo 19 evidence before starting the "
+                    "Capture current supported Odoo evidence before starting the "
                     f"{purpose.value.title()} run.",
                     tuple(selected_ids),
                 )

@@ -13,6 +13,8 @@
       <h1>Review and compare</h1>
       {% if resolution and resolution.status == 'REVIEW_REQUIRED' %}
         <p>Possible duplicate records need your decision before the prepared-data checks can continue.</p>
+      {% elif deferred_scope and deferred_scope.decision %}
+        <p>The current Odoo comparison is retained in full. Your reviewed decision keeps complete affected groups out of this load and leaves a safe remainder.</p>
       {% elif readiness %}
         <p>Every source row is accounted for. Eligible records were checked against Odoo; unsafe records remain visible but set aside.</p>
       {% elif normalization and normalization.frozen %}
@@ -31,6 +33,8 @@
     </div>
     {% if resolution and resolution.status == 'REVIEW_REQUIRED' %}
       <span class="status review">Duplicate review needed</span>
+    {% elif deferred_scope and deferred_scope.decision %}
+      <span class="status ready">Ready with records set aside</span>
     {% elif readiness %}
       <span class="status {{ readiness.status|lower }}">
         {% if quality and quality.blocked_count %}Fix setup{% elif quality and quality.review_count %}Review needed{% elif staging and staging.failed_control_total_count %}Totals need attention{% elif readiness.status == 'READY' %}Data check complete{% elif readiness.status == 'NEEDS_REVIEW' %}Decisions needed{% else %}Fixes needed{% endif %}
@@ -245,6 +249,9 @@
         {% elif odoo_source and readiness.blocked_count %}
           <h2 id="next-action-title">Refresh the captured Odoo records</h2>
           <p>Odoo changed after these records were captured. Refreshing is the safe way to continue.</p>
+        {% elif deferred_scope_available %}
+          <h2 id="next-action-title">Review complete affected groups</h2>
+          <p>Impodo can calculate whether the problem records and every linked parent, child or sibling can stay out of this load together.</p>
         {% elif readiness.blocked_count %}
           <h2 id="next-action-title">Fix {{ readiness.blocked_count }} row{{ "s" if readiness.blocked_count != 1 else "" }} first</h2>
           <p>These rows cannot continue until their data or field matches are corrected.</p>
@@ -281,6 +288,9 @@
           <a class="button primary" href="?quality_status=review#quality-rows">Review findings</a>
         {% elif odoo_source and readiness.blocked_count %}
           <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Refresh Odoo records</a>
+        {% elif deferred_scope_available %}
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Preview affected groups</a>
+          {% if readiness.blocked_count %}<a class="button secondary" href="?status=blocked#readiness-rows">Show rows to fix</a>{% endif %}
         {% elif readiness.blocked_count %}
           <a class="button primary" href="?status=blocked#readiness-rows">Show rows to fix</a>
         {% elif staging and staging.failed_control_total_count %}
@@ -491,8 +501,8 @@
       </a>
       <a class="readiness-card blocked{% if quality_status == 'quarantined' %} selected{% endif %}" href="?quality_status=quarantined#quality-rows" {% if quality_status == 'quarantined' %}aria-current="true"{% endif %}>
         <span>Set aside</span>
-        <strong>{{ quality.quarantined_count + quality.excluded_count if quality else 0 }}</strong>
-        <small>Not sent to comparison</small>
+        <strong>{{ (quality.quarantined_count + quality.excluded_count if quality else 0) + (deferred_scope.preview.newly_set_aside_count if deferred_scope and deferred_scope.decision else 0) }}</strong>
+        <small>{% if deferred_scope and deferred_scope.decision %}Preparation and reviewed load scope{% else %}Not sent to comparison{% endif %}</small>
       </a>
     </section>
 
@@ -624,14 +634,16 @@
             <h2 id="final-review-complete-title">Continue to Load into Odoo</h2>
             <p>
               {{ load_preview.state.summary.create_count }} new &middot;
-              {{ load_preview.state.summary.update_count }} changed &middot;
-              {{ readiness.attention_count }} needing attention.
+              {{ load_preview.state.summary.update_count }} changed{% if deferred_scope and deferred_scope.decision %} &middot;
+              {{ deferred_scope.preview.newly_set_aside_count }} set aside{% else %} &middot;
+              {{ readiness.attention_count }} needing attention{% endif %}.
               The next page is read-only; nothing will be written yet.
             </p>
           {% endif %}
         </div>
         <div class="next-action-buttons">
           <a class="button primary" href="/workspaces/{{ workspace_id }}/load">{% if load_preview.current_run %}View verification result{% else %}Continue to Load into Odoo{% endif %}</a>
+          {% if deferred_scope and deferred_scope.decision %}<a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Review set-aside decision</a>{% endif %}
           {% if review_workbook_ready %}
             <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/workbook">Download review workbook</a>
             <form method="post" action="/workspaces/{{ workspace_id }}/summary/package">

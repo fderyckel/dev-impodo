@@ -8,7 +8,8 @@ status: current
 
 ## Responsibility
 
-Odoo data captures selected Odoo 19 model and field metadata. The shared
+Odoo data captures selected qualified Odoo 19 or final Odoo 20 model and field
+metadata. The shared
 **Odoo access** page configures the destination and checking credential outside
 the numbered file-source stages. In file mode, Odoo data also governs the
 business keys used by mapping and comparison. It owns
@@ -93,9 +94,11 @@ Connection and capture checks use the shared operation policy in
 [`domain/odoo/compatibility.py`](../../../src/impodo/domain/odoo/compatibility.py).
 The adapters cross-check structured version information when Odoo provides it.
 Unknown, malformed, or contradictory evidence cannot authorize capture. Odoo
-19 retains its existing acceptance rules; Odoo 20 remains disabled. See the
-[Phase 2 report](../../testing/odoo-compatibility-phase2.md) for the accepted
-version forms and the distinction between acceptance and live qualification.
+19 retains its existing acceptance rules. Final Odoo 20 enables connection,
+schema capture, bounded source capture, comparison reads, and Recipe authoring;
+write, recovery, and Production operations remain disabled. See the
+[Phase 3 report](../../testing/odoo-compatibility-phase3.md) for the live
+Community and Enterprise evidence and exact limitations.
 
 Target evidence is either verified `LIVE_API` capture or an unverified
 `LOCAL_MANUAL` draft. A manual draft may support mapping work but cannot
@@ -120,8 +123,9 @@ unavailable inverse-owned child model remains a **Review** finding. This proves
 model availability only; Stage 3 and later checks still own source-value
 coverage, identity, ambiguity, and record-level relationship resolution.
 
-Field capture records the effective inherited Odoo 19 field set. For each
-field, it records requirements, read-only state, relationships, inverse fields,
+Field capture records the effective inherited field set from the connected
+Odoo major. For each field, it records requirements, read-only state,
+relationships, inverse fields,
 and selection codes. It performs one `fields_get` request per selected model,
 then at most one `default_get` request for that model's supported required
 writable fields; neither request runs per field or source row. A positive
@@ -130,6 +134,15 @@ context. Other relational defaults and unusable scalar values are not retained.
 Impodo fetches optional uniqueness metadata in one bounded model batch. If it
 cannot read that metadata, it does not present a recommendation as confirmed
 governance.
+
+Final Odoo 20 uses `uom_id` on `mrp.bom` and `mrp.bom.line`, removes
+`product.template.uom_po_id`, and replaces the Odoo 19 Unit of Measure category,
+rounding, and unit-type shape with `relative_uom_id`, `relative_factor`, and a
+stored `factor`. The schema adapter preserves those native contracts. It does
+not introduce field aliases. The Odoo 19 curated Unit name within Category
+recommendation therefore does not match the Odoo 20 schema; an Odoo 20 unit
+identity needs an explicit reviewed rule until a separate version-specific
+recommendation is approved.
 
 Business keys are explicit, versioned, and actor-confirmed. A recommendation
 may come from one exact supported rule or one unambiguous Odoo uniqueness
@@ -143,7 +156,7 @@ cannot choose safely. A curated rule is an exact model, field type, and relation
 contract; a translated label or a field merely named `code`, `ref`, or `name`
 does not qualify another model.
 
-The current curated Odoo 19 policy covers Country code, Language code,
+The current Odoo 19 matching-rule policy covers Country code, Language code,
 Currency code, Contact reference, Company name, Product and Product variant
 Internal Reference, Product category name within its parent, Unit name within
 its category, BoM reference, BoM line sequence within its parent BoM, and Work
@@ -175,7 +188,8 @@ visible unresolved custom-model blocker. Connector call vectors are recorded
 after capture and must remain unchanged across every review and confirmation
 request.
 
-`reference_keys.py` owns the versioned Odoo 19 governed-reference policy. A
+`reference_keys.py` owns separate Odoo 19 and Odoo 20 governed-reference
+policies. A
 captured parent relation may authorize a reviewed supporting model outside the
 primary schema only for its exact key, scope, display fields, and read purpose.
 The policy rejects write use, unrestricted metadata, extra fields, wrong

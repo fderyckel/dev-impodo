@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Review affected groups · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Stage 5 of 6 · Final review</p>
+      <h1>Review complete affected groups</h1>
+      <p>Choose root problems to set aside. Impodo keeps linked parents, children and sibling records together when their identity or load safety requires it.</p>
+    </div>
+    {% if deferred_review and deferred_review.decision %}
+      <span class="status ready">Ready with records set aside</span>
+    {% elif deferred_review and deferred_review.preview %}
+      <span class="status review">Preview ready</span>
+    {% else %}
+      <span class="status review">Choose problems</span>
+    {% endif %}
+  </div>
+
+  {% if error %}<p class="notice warning" role="alert">{{ error }}</p>{% endif %}
+
+  {% if deferred_review %}
+    {% set preview = deferred_review.preview %}
+    {% if deferred_review.decision and preview %}
+      <section class="next-action-card ready" aria-labelledby="accepted-scope-title">
+        <div>
+          <p class="eyebrow">Reviewed decision</p>
+          <h2 id="accepted-scope-title">Ready with records set aside</h2>
+          <p>
+            {{ preview.newly_set_aside_count }} affected record{{ "s" if preview.newly_set_aside_count != 1 else "" }}
+            will stay out of this load. {{ preview.remaining_write_count }} safe write{{ "s" if preview.remaining_write_count != 1 else "" }} remain.
+          </p>
+          <small>Accepted by {{ deferred_review.decision.accepted_by.display_name }} on {{ deferred_review.decision.accepted_at.strftime("%Y-%m-%d %H:%M") }} UTC.</small>
+        </div>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/summary">Return to Final review</a>
+      </section>
+    {% else %}
+      <section class="form-card" aria-labelledby="root-problems-title">
+        <p class="eyebrow">Root problems</p>
+        <h2 id="root-problems-title">Choose the groups to preview</h2>
+        <p>Run-wide failures cannot be set aside. Correct those failures and compare again.</p>
+        <form method="post" action="/workspaces/{{ workspace_id }}/summary/deferred-groups/preview">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="choice-grid">
+            {% for candidate in deferred_review.candidates %}
+              <label class="mode-card">
+                {% if candidate.selectable %}
+                  <input type="checkbox" name="issue_id" value="{{ candidate.issue.issue_id }}"{% if preview and candidate.issue.issue_id in preview.selected_issue_ids %} checked{% endif %}>
+                {% endif %}
+                <span>
+                  <strong>{{ candidate.issue.message or candidate.issue.code.replace('_', ' ')|title }}</strong>
+                  {% if candidate.selectable %}
+                    <small class="row-field">
+                      {{ candidate.dataset.replace('_', ' ')|title }} · source row {{ candidate.source_row }}
+                      {% if candidate.issue.field %} · field {{ candidate.issue.field }}{% endif %}
+                    </small>
+                    {% if candidate.source_identity %}<small class="row-field">Record: {{ candidate.source_identity|join(' / ') }}</small>{% endif %}
+                  {% else %}
+                    <small class="row-field">This affects the complete comparison and must be corrected.</small>
+                  {% endif %}
+                </span>
+              </label>
+            {% else %}
+              <div class="empty-state compact">
+                <h3>No isolatable problems</h3>
+                <p>The current comparison has no record group that can be safely set aside.</p>
+              </div>
+            {% endfor %}
+          </div>
+          {% if deferred_review.candidates %}
+            <div class="actions">
+              <button class="button primary" type="submit">Preview affected groups</button>
+              <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Cancel</a>
+            </div>
+          {% endif %}
+        </form>
+      </section>
+    {% endif %}
+
+    {% if preview %}
+      <section class="readiness-cards quality-cards" aria-label="Reduced load overview">
+        <article class="readiness-card"><span>Prepared</span><strong>{{ preview.prepared_record_count }}</strong><small>Before this decision</small></article>
+        <article class="readiness-card blocked"><span>Already set aside</span><strong>{{ preview.already_set_aside_count }}</strong><small>During preparation</small></article>
+        <article class="readiness-card blocked"><span>Proposed set aside</span><strong>{{ preview.newly_set_aside_count }}</strong><small>Complete affected groups</small></article>
+        <article class="readiness-card ready"><span>Writes remaining</span><strong>{{ preview.remaining_write_count }}</strong><small>Creates and updates</small></article>
+        <article class="readiness-card review"><span>Still blocked</span><strong>{{ preview.remaining_problem_record_count + preview.remaining_run_issue_count }}</strong><small>Problems outside the selected groups</small></article>
+      </section>
+
+      <section class="form-card" aria-labelledby="group-impact-title">
+        <p class="eyebrow">Impact by table</p>
+        <h2 id="group-impact-title">Records that would stay out of this load</h2>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Table</th><th>Records omitted</th></tr></thead>
+            <tbody>
+              {% for dataset, count in preview.counts_by_dataset %}
+                <tr><th>{{ dataset.replace('_', ' ')|title }}</th><td>{{ count }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <h3>Record sample</h3>
+        <div class="table-scroll">
+          <table class="data-table readiness-row-table">
+            <thead><tr><th>Table</th><th>Source row</th><th>Reason</th><th>Load status</th></tr></thead>
+            <tbody>
+              {% for row in preview.omitted_rows[:100] %}
+                <tr>
+                  <td>{{ row.dataset.replace('_', ' ')|title }}</td>
+                  <td>{{ row.source_row }}</td>
+                  <td>{{ "Direct problem" if row.direct else "Inherited from a linked record" }}</td>
+                  <td>Set aside</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if preview.omitted_rows|length > 100 %}<p class="muted">Showing 100 of {{ preview.omitted_rows|length }} records. The review workbook retains every omitted record.</p>{% endif %}
+      </section>
+
+      {% if not deferred_review.decision %}
+        <section class="next-action-card {% if preview.ready_with_records_set_aside %}ready{% else %}blocked{% endif %}" aria-labelledby="accept-scope-title">
+          <div>
+            <p class="eyebrow">Decision</p>
+            {% if preview.ready_with_records_set_aside %}
+              <h2 id="accept-scope-title">Set aside these complete groups</h2>
+              <p>This decision applies only to the current saved comparison. It does not change the source, matching rules or Odoo.</p>
+            {% else %}
+              <h2 id="accept-scope-title">The remainder is not safe yet</h2>
+              <p>Select every isolatable problem, or correct the remaining run-wide failure and compare again. At least one safe write must remain.</p>
+            {% endif %}
+          </div>
+          {% if preview.ready_with_records_set_aside %}
+            <form method="post" action="/workspaces/{{ workspace_id }}/summary/deferred-groups/accept">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="comparison_id" value="{{ deferred_review.comparison_id }}">
+              <input type="hidden" name="preview_hash" value="{{ preview.semantic_hash }}">
+              {% for issue_id in preview.selected_issue_ids %}<input type="hidden" name="issue_id" value="{{ issue_id }}">{% endfor %}
+              <button class="button primary" type="submit">Set aside affected groups for this load</button>
+            </form>
+          {% endif %}
+        </section>
+      {% endif %}
+    {% endif %}
+  {% endif %}
+{% endblock %}

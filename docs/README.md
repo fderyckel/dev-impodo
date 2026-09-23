@@ -79,8 +79,8 @@ records remain in Git history.
 
 - [Impodo remaining work](plans/remaining-work.md) is the broad roadmap and
   records the deferred tracks and current row limits.
-- [Odoo 19 and Odoo 20 support](plans/odoo-19-and-20-support.md) proposes shared
-  integration, version-specific policies, and qualification for both versions.
+- [Odoo 19 and Odoo 20 support](plans/odoo-19-and-20-support.md) records the
+  implemented Odoo 20 read boundary and the remaining write and release gates.
 - [Maintainable code and focused execution services](plans/maintainable-code-and-execution-services.md)
   proposes coding practices, automated checks, and a focused execution refactor.
 - [End-to-end trial and scenario qualification](plans/end-to-end-trial-and-scenario-qualification.md)
@@ -111,9 +111,6 @@ records remain in Git history.
 - [Final review recovery and performance](plans/responsive-final-review-comparison.md)
   retains durable attempts, the remaining detailed compact preview, and measured
   publication qualification.
-- [Stage 4 comparison and deferred record groups](plans/stage4-comparison-and-deferred-record-groups.md)
-  proposes one shared Odoo comparison, a reviewed reduced load scope, and a
-  workbook of every omitted record.
 - [Six-stage Authoring workflow user support](plans/six-stage-workflow-user-support.md)
   proposes business-led supporting-model discovery, earlier identity,
   missing-parent, relationship, and decimal-capacity proof, guided blocked-stage
@@ -162,6 +159,9 @@ setup, CLI, release, and acceptance procedures live under
   slice, determinism checks, and acceptance traceability.
 - [Odoo dual-support Phase 2 policy](testing/odoo-compatibility-phase2.md)
   records shared version decisions, preserved Odoo 19 behavior, and verification.
+- [Odoo dual-support Phase 3 reads](testing/odoo-compatibility-phase3.md)
+  records final Odoo 20 Community and Enterprise read qualification, native
+  schema differences, and the write operations that remain blocked.
 - [Odoo dual-support Phase 1 baseline](testing/odoo-compatibility-phase1.md)
   — pinned local Odoo builds, live Odoo 19 scenario evidence, preserved policy
   hashes, and the version and storage inventory for implementation.

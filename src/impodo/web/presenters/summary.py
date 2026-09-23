@@ -8,6 +8,8 @@ from urllib.parse import urlencode
 from fastapi import HTTPException, Request
 
 from impodo.domain.errors import ReadinessError
+from impodo.domain.preflight.deferred_scope import DeferredScopeEvidenceError
+from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.domain.compiler.browser_mapping_compiler import browser_mapping_labels
 from impodo.domain.shared.access import AuthorizationError, Capability
 from ...application.workspace.preparation.bounded_preparation import (
@@ -30,6 +32,7 @@ from ...domain.staging.scale import (
 from impodo.adapters.odoo.local_stack import LocalStackError, LocalStackStatus
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, SourceMode
 from impodo.adapters.artifacts.reporting import WORKBOOK_NAME
+from impodo.application.preflight_service import DEFERRED_SCOPE_DECISION_NAME
 from ..constants import (
     DEFAULT_SUMMARY_ROWS_PER_PAGE,
     NORMALIZATION_GROUPS_PER_PAGE,
@@ -397,6 +400,33 @@ def _render_summary(
     summary_evidence_ms = (perf_counter() - evidence_started) * 1000
     readiness_started = perf_counter()
     report = context.preflight.current_report(workspace_id)
+    deferred_scope = None
+    deferred_scope_available = bool(
+        report is not None
+        and workspace_state.source_mode is not SourceMode.ODOO
+        and report.attention_count
+    )
+    decision_exists = False
+    if report is not None:
+        try:
+            decision_exists = context.artifacts.report_exists(
+                workspace_id,
+                report.run_id,
+                DEFERRED_SCOPE_DECISION_NAME,
+            )
+        except ArtifactStoreError as scope_error:
+            if error is None:
+                error = str(scope_error)
+    if decision_exists:
+        try:
+            deferred_scope = context.preflight.deferred_scope_review(workspace_id)
+        except (
+            ArtifactStoreError,
+            DeferredScopeEvidenceError,
+            ReadinessError,
+        ) as scope_error:
+            if error is None:
+                error = str(scope_error)
     missing_parent_views = []
     missing_parent_evidence_error = ""
     if report is not None:
@@ -500,6 +530,15 @@ def _render_summary(
     summary_readiness_ms = (perf_counter() - readiness_started) * 1000
     execution_started = perf_counter()
     load_preview = navigation_snapshot.facts.execution_preview
+    deferred_scope_available = bool(
+        deferred_scope_available
+        or (
+            report is not None
+            and workspace_state.source_mode is not SourceMode.ODOO
+            and load_preview is not None
+            and load_preview.scope_error == "The reviewed load shape needs attention"
+        )
+    )
     summary_execution_ms = (perf_counter() - execution_started) * 1000
     quality_status = request.query_params.get("quality_status", "").strip()
     if quality_status not in {"", "ready", "review", "quarantined", "blocked"}:
@@ -654,6 +693,8 @@ def _render_summary(
             else None
         ),
         readiness=report,
+        deferred_scope=deferred_scope,
+        deferred_scope_available=deferred_scope_available,
         missing_parent_views=tuple(missing_parent_views),
         missing_parent_evidence_error=missing_parent_evidence_error,
         load_preview=load_preview,

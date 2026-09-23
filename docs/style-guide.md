@@ -178,8 +178,9 @@ states.
 - Name exact routes, services, methods, evidence, and focused tests.
 - Explain entry conditions, exit conditions, invalidation, and recovery.
 - Record security, authorization, idempotency, and concurrency boundaries.
-- For Odoo integration, state the Odoo 19 API boundary and whether calls are
-  read-only or write-capable.
+- For Odoo integration, state the qualified Odoo major, the API boundary, and
+  whether calls are read-only or write-capable. Do not imply that Odoo 20 read
+  support enables Odoo 20 writes or Production.
 - Identify batching behavior and any N+1 risk. Never document an unmeasured
   performance assumption as a guarantee.
 - Prefer a file link plus an exact symbol name over a hard-coded line-number

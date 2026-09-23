@@ -11,11 +11,16 @@ from uuid import uuid4
 
 from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.application.preflight_service import (
+    DEFERRED_SCOPE_DECISION_NAME,
+    DEFERRED_SCOPE_PREVIEW_NAME,
     EXECUTION_SNAPSHOT_NAME,
     MANIFEST_NAME,
+    REDUCED_EXECUTION_SNAPSHOT_NAME,
+    DeferredScopeReview,
     PreflightService,
     _validate_snapshot_projection,
 )
+from impodo.application.workspace.execution.navigation import ExecutionPreviewSummary
 from impodo.domain.errors import ReadinessError
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
@@ -28,6 +33,13 @@ from impodo.domain.odoo.contracts import (
     record_snapshot_payload,
 )
 from impodo.domain.preflight.reports import ReadinessReport
+from impodo.domain.preflight.deferred_scope import (
+    DeferredIssue,
+    DeferredIssueGroup,
+    DeferredIssueScope,
+    DeferredOmittedRow,
+    DeferredScopePreview,
+)
 from impodo.domain.shared.access import (
     Actor,
     ActorIdentity,
@@ -49,6 +61,143 @@ from impodo.domain.workspace.workbench import OdooConnectionMode, SourceMode
 
 
 class PreflightPublicationTests(unittest.TestCase):
+    def test_accepting_deferred_scope_publishes_local_reduced_evidence(self) -> None:
+        workspace_id = str(uuid4())
+        run_id = str(uuid4())
+        issue_id = "sha256:" + "1" * 64
+        row_id = "sha256:" + "2" * 64
+        full_hash = "sha256:" + "3" * 64
+        reduced_hash = "sha256:" + "4" * 64
+        preview = DeferredScopePreview(
+            comparison_id=run_id,
+            comparison_hash="sha256:" + "5" * 64,
+            execution_snapshot_hash=full_hash,
+            selected_issue_ids=(issue_id,),
+            groups=(
+                DeferredIssueGroup(
+                    group_id="sha256:" + "6" * 64,
+                    issue_id=issue_id,
+                    root_row_id=row_id,
+                    row_ids=(row_id,),
+                    counts_by_dataset=(("contacts", 1),),
+                    write_count=0,
+                ),
+            ),
+            omitted_rows=(
+                DeferredOmittedRow(
+                    row_id=row_id,
+                    dataset="contacts",
+                    source_row=2,
+                    source_trace_id="trace-1",
+                    disposition="BLOCKED",
+                    direct_issue_ids=(issue_id,),
+                    inherited_issue_ids=(),
+                ),
+            ),
+            counts_by_dataset=(("contacts", 1),),
+            prepared_record_count=3,
+            already_set_aside_count=0,
+            original_write_count=2,
+            omitted_write_count=0,
+            remaining_write_count=2,
+            remaining_problem_record_count=0,
+            remaining_run_issue_count=0,
+        )
+        issue = DeferredIssue(
+            issue_id=issue_id,
+            code="REFERENCE_NOT_FOUND",
+            scope=DeferredIssueScope.ROW,
+            row_id=row_id,
+        )
+        review = DeferredScopeReview(
+            comparison_id=run_id,
+            comparison_hash=preview.comparison_hash,
+            issues=(issue,),
+            candidates=(),
+            preview=preview,
+        )
+        repositories = [MagicMock() for _ in range(7)]
+        artifacts = MagicMock()
+        service = PreflightService(
+            staging=repositories[0],
+            quality=repositories[1],
+            normalization=repositories[2],
+            mappings=repositories[3],
+            workspaces=repositories[4],
+            sources=repositories[5],
+            preflight=repositories[6],
+            artifacts=artifacts,
+            authorization=CapabilityAuthorizationPolicy(),
+        )
+        service.deferred_scope_review = MagicMock(return_value=review)
+        service._full_execution_snapshot = MagicMock(
+            return_value=SimpleNamespace(semantic_hash=full_hash)
+        )
+        service.current_report = MagicMock(
+            return_value=SimpleNamespace(run_id=run_id)
+        )
+        reduced = SimpleNamespace(
+            semantic_hash=reduced_hash,
+            to_json=lambda: '{"reduced":true}',
+            target_odoo_version="19.0",
+            relationship_plan=SimpleNamespace(blockers=()),
+        )
+        execution_summary = ExecutionPreviewSummary(
+            preflight_run_id=run_id,
+            snapshot_hash=reduced_hash,
+            snapshot_root_hash="sha256:" + "7" * 64,
+            comparison_status="BLOCKED",
+            create_count=1,
+            update_count=1,
+            unchanged_count=0,
+            blocked_count=0,
+            ambiguous_count=0,
+            relationship_blocker_count=0,
+            target_hash="sha256:" + "8" * 64,
+            target_odoo_version="19.0",
+            read_credential_binding_hash="",
+            read_principal_hash="",
+            read_permission_hash="",
+            read_context_hash="",
+            execution_shape_ready=True,
+        )
+        actor = Actor(
+            identity=ActorIdentity("test", "manager", "Data manager"),
+            capabilities=frozenset({Capability.PREFLIGHT_RUN}),
+        )
+
+        with (
+            patch(
+                "impodo.application.preflight_service.reduce_execution_snapshot",
+                return_value=reduced,
+            ) as reducer,
+            patch(
+                "impodo.application.preflight_service.build_execution_preview_summary",
+                return_value=execution_summary,
+            ),
+        ):
+            acceptance = service.accept_deferred_scope(
+                workspace_id,
+                selected_issue_ids=(issue_id,),
+                actor=actor,
+            )
+
+        self.assertEqual(acceptance.snapshot, reduced)
+        reducer.assert_called_once()
+        self.assertEqual(
+            {call.args[2] for call in artifacts.write_report.call_args_list},
+            {
+                DEFERRED_SCOPE_PREVIEW_NAME,
+                REDUCED_EXECUTION_SNAPSHOT_NAME,
+                DEFERRED_SCOPE_DECISION_NAME,
+            },
+        )
+        repositories[6].save_deferred_scope_projection.assert_called_once()
+        saved = repositories[6].save_deferred_scope_projection.call_args
+        self.assertEqual(saved.args[:2], (workspace_id, run_id))
+        self.assertEqual(saved.kwargs["execution_summary"].comparison_status, "READY")
+        self.assertTrue(saved.kwargs["decision_hash"].startswith("sha256:"))
+
     def test_failed_repository_save_deletes_unpublished_manifest(self) -> None:
         workspace_id = str(uuid4())
         migration_project_id = str(uuid4())
@@ -139,6 +288,7 @@ class PreflightPublicationTests(unittest.TestCase):
             return_value=SimpleNamespace(
                 plan=SimpleNamespace(semantic_hash="sha256:" + "8" * 64),
                 prepared=SimpleNamespace(records=()),
+                captured_schema=SimpleNamespace(odoo_version="19.0"),
                 revision=object(),
                 dataset_labels={},
                 source_field_labels={},
@@ -187,6 +337,8 @@ class PreflightPublicationTests(unittest.TestCase):
                     target_hash=report.target_hash,
                     preflight_result_hash=report.result_hash,
                     counts={},
+                    rows=(),
+                    datasets=(),
                     relationship_plan=SimpleNamespace(
                         blocker_count=0,
                         blockers=(),

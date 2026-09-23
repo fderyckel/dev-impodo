@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from ...odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ...odoo.compatibility import OdooOperation, assess_odoo_operation
 from ...relationship_dependencies import extract_dataset_dependency_edges
 from ...source_binding import OdooSourceBinding, SourceOriginKind
 from ...schema.governance import SchemaGovernance
@@ -37,6 +38,10 @@ from ..create_field_policy import (
     required_create_hook_inputs,
 )
 from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
+from impodo.domain.workspace.reference_keys import (
+    REFERENCE_POLICY_HASH,
+    reference_policy_hash,
+)
 from .control_totals import _validate_control_totals
 from .dependencies import _validate_dependencies
 from .evidence import (
@@ -852,6 +857,15 @@ class MappingSemanticValidator:
                 else MappingValidationStatus.VALID
             )
         )
+        version_decision = assess_odoo_operation(
+            schema_catalog.odoo_version,
+            OdooOperation.COMPARE,
+        )
+        current_reference_policy_hash = (
+            reference_policy_hash(version_decision.version.major)
+            if version_decision.allowed
+            else None
+        )
         return MappingValidationResult(
             mapping_content_hash=definition.content_hash,
             source_selection_hash=definition.source_selection_hash,
@@ -866,5 +880,8 @@ class MappingSemanticValidator:
                     deferred,
                     key=lambda item: (item.dataset_id, item.code),
                 )
+            ),
+            reference_policy_hash=(
+                current_reference_policy_hash or REFERENCE_POLICY_HASH
             ),
         )

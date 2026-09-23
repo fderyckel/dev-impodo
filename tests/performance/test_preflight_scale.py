@@ -13,7 +13,6 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 
-from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.web.app import create_local_app
 
 from tests.performance import test_preparation_scale as preparation_scale
@@ -21,6 +20,9 @@ from tests.performance import test_preparation_scale as preparation_scale
 
 ROOT = REPOSITORY_ROOT
 PREFLIGHT_SCALE_ROWS = int(os.environ.get("IMPODO_PREFLIGHT_SCALE_ROWS", "25000"))
+PREFLIGHT_SCALE_TIMEOUT_SECONDS = int(
+    os.environ.get("IMPODO_PREFLIGHT_SCALE_TIMEOUT_SECONDS", "900")
+)
 
 
 @unittest.skipUnless(
@@ -33,19 +35,21 @@ class DurablePreflightScaleTests(unittest.TestCase):
     def test_durable_preflight_workflow(self) -> None:
         if PREFLIGHT_SCALE_ROWS < 1:
             self.fail("The durable preflight scale row count must be positive")
+        if PREFLIGHT_SCALE_TIMEOUT_SECONDS < 1:
+            self.fail("The durable preflight scale timeout must be positive")
         (ROOT / ".tmp").mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as directory:
             root = Path(directory)
-            artifacts = LocalArtifactStore(root)
-            app = create_local_app(root, artifact_store=artifacts)
+            app = create_local_app(root)
             context = app.state.context
+            artifacts = context.artifacts
             fixture = SimpleNamespace(
                 root=root,
                 artifacts=artifacts,
                 context=context,
             )
             fixture_builder = preparation_scale.PreparationWorkflowScaleTests
-            project_id, _source_hash, _source_bytes = (
+            workspace_id, _source_hash, _source_bytes = (
                 fixture_builder._prepare_project_and_evidence(
                     fixture,
                     row_count=PREFLIGHT_SCALE_ROWS,
@@ -53,15 +57,15 @@ class DurablePreflightScaleTests(unittest.TestCase):
                     mapped_field_count=3,
                 )
             )
-            context.preparation.prepare(project_id, actor=context.actor)
-            review = context.normalization.current_review(project_id)
+            context.preparation.prepare(workspace_id, actor=context.actor)
+            review = context.normalization.current_review(workspace_id)
             assert review is not None
             summary, evaluation, _dry_run = review
             for group in evaluation.groups:
                 if not group.requires_decision:
                     continue
                 summary = context.normalization.decide_group(
-                    project_id,
+                    workspace_id,
                     summary.run_id,
                     group.group_id,
                     approve=True,
@@ -69,16 +73,24 @@ class DurablePreflightScaleTests(unittest.TestCase):
                     actor=context.actor,
                 )
             summary = context.normalization.approve(
-                project_id,
+                workspace_id,
                 summary.run_id,
                 expected_version=summary.lifecycle_version,
                 actor=context.actor,
             )
             self.assertTrue(summary.frozen)
 
-            project = context.workspace_states.repository.get(project_id)
-            for source in project.source_files:
-                artifacts.delete_source(project_id, source.stored_name)
+            workspace = context.workspace_states.repository.get(workspace_id)
+            workspace_root = context.migration_workspaces.get(
+                workspace_id,
+                actor=context.actor,
+            )
+            for source in workspace.source_files:
+                artifacts.delete_source(
+                    workspace_root.data_version_id,
+                    source.stored_name,
+                )
+            (root / "preparation-scale-input.csv").unlink(missing_ok=True)
 
             completed = subprocess.run(
                 [
@@ -87,8 +99,8 @@ class DurablePreflightScaleTests(unittest.TestCase):
                     "tests.performance.preflight_scale_runner",
                     "--root",
                     str(root),
-                    "--project-id",
-                    project_id,
+                    "--workspace-id",
+                    workspace_id,
                     "--rows",
                     str(PREFLIGHT_SCALE_ROWS),
                 ],
@@ -96,7 +108,7 @@ class DurablePreflightScaleTests(unittest.TestCase):
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=180,
+                timeout=PREFLIGHT_SCALE_TIMEOUT_SECONDS,
             )
             self.assertEqual(
                 completed.returncode,

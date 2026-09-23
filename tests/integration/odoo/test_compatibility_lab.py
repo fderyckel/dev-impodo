@@ -16,10 +16,13 @@ from scripts.prepare_odoo_compatibility_lab import (
 
 
 class CompatibilityLabTests(unittest.TestCase):
-    def test_two_targets_have_distinct_pins_databases_and_ports(self):
+    def test_targets_have_distinct_pins_databases_and_ports(self):
         targets = json.loads(MANIFEST.read_text(encoding="utf-8"))["targets"]
         for key in ("commit", "database", "http_port", "postgres_port"):
-            self.assertNotEqual(targets["baseline"][key], targets["preview"][key])
+            self.assertEqual(
+                len({target[key] for target in targets.values()}),
+                len(targets),
+            )
         for name, target in targets.items():
             config = configuration(target, Path("C:/lab/source"), LAB_ROOT / name)
             self.assertIn("http_interface = 127.0.0.1\n", config)
@@ -27,6 +30,16 @@ class CompatibilityLabTests(unittest.TestCase):
             self.assertIn(f"dbfilter = ^{target['database']}$\n", config)
             self.assertIn("list_db = False\n", config)
             self.assertIn("max_cron_threads = 0\n", config)
+
+    def test_final_odoo20_target_is_pinned_and_not_the_preview(self):
+        targets = json.loads(MANIFEST.read_text(encoding="utf-8"))["targets"]
+
+        self.assertEqual(targets["odoo20"]["reported_version"], "20.0")
+        self.assertRegex(targets["odoo20"]["commit"], r"^[0-9a-f]{40}$")
+        self.assertNotEqual(
+            targets["odoo20"]["commit"],
+            targets["preview"]["commit"],
+        )
 
     def test_existing_lab_is_rejected_before_any_process_runs(self):
         with patch.object(Path, "exists", return_value=True), patch(

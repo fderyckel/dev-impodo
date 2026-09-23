@@ -61,6 +61,10 @@ from impodo.domain.workspace.workbench import WorkspaceState
 from impodo.application.data_version.source_snapshots import load_source_snapshot_table, validate_snapshot_for_dataset
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField, SourceSelection
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.reference_keys import (
+    REFERENCE_POLICY_HASH,
+    reference_policy_hash,
+)
 from .odoo_provenance_service import (
     OdooProvenanceService,
     ProtectedOdooComparisonCandidate,
@@ -152,12 +156,24 @@ def build_odoo_comparison_publication(
         fields,
         record_ids,
     )
+    version_decision = assess_odoo_operation(
+        frozen.captured_schema.odoo_version,
+        OdooOperation.COMPARE,
+    )
+    current_reference_policy_hash = (
+        reference_policy_hash(version_decision.version.major)
+        if version_decision.allowed
+        else None
+    )
     metadata, records = reader(
         PreflightRequirementPlan(
             metadata_requests=metadata_requests,
             record_requests=record_requests,
             reference_requirements=(),
             source_record_count=len(prepared),
+            reference_policy_hash=(
+                current_reference_policy_hash or REFERENCE_POLICY_HASH
+            ),
         )
     )
     metadata, records = bind_snapshot_hashes(metadata, records)

@@ -55,7 +55,11 @@ from impodo.domain.mapping.validation.evidence import (
     mapping_issue_fingerprint,
 )
 from impodo.domain.mapping.validation.validator import MappingSemanticValidator
-from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH, standard_reference_key
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.workspace.reference_keys import (
+    reference_policy_hash,
+    standard_reference_key,
+)
 from impodo.domain.workspace.supporting_lookups import (
     SupportingLookupSnapshot,
     supporting_lookup_key,
@@ -1103,11 +1107,20 @@ class MappingWorkspaceService:
             workspace_id,
             revision.version,
         )
+        version_decision = assess_odoo_operation(
+            schema.odoo_version,
+            OdooOperation.COMPARE,
+        )
+        expected_reference_policy_hash = (
+            reference_policy_hash(version_decision.version.major)
+            if version_decision.allowed
+            else None
+        )
         if (
             validation is None
             or validation.mapping_content_hash
             != revision.definition.content_hash
-            or validation.reference_policy_hash != REFERENCE_POLICY_HASH
+            or validation.reference_policy_hash != expected_reference_policy_hash
         ):
             raise WorkspaceError(
                 "Check the current field matches before confirming them"
@@ -1287,6 +1300,16 @@ class MappingWorkspaceService:
 
         if self.supporting_lookups is None:
             return ()
+        version_decision = assess_odoo_operation(
+            schema.odoo_version,
+            OdooOperation.COMPARE,
+        )
+        odoo_major_version = (
+            version_decision.version.major if version_decision.allowed else -1
+        )
+        current_reference_policy_hash = reference_policy_hash(odoo_major_version)
+        if current_reference_policy_hash is None:
+            return ()
         primary_models = {item.name for item in schema.models}
         lookup_keys: set[str] = set()
         resolver_requests = []
@@ -1329,7 +1352,10 @@ class MappingWorkspaceService:
                 continue
             if not key_fields:
                 continue
-            standard = standard_reference_key(resolver.model)
+            standard = standard_reference_key(
+                resolver.model,
+                odoo_major_version=odoo_major_version,
+            )
             display_field = (
                 standard.display_field
                 if standard is not None
@@ -1342,6 +1368,7 @@ class MappingWorkspaceService:
                 key_fields=key_fields,
                 scope_fields=scope_fields,
                 display_field=display_field,
+                reference_policy_hash=current_reference_policy_hash,
             )
             lookup_keys.add(lookup_key)
 
@@ -1358,7 +1385,8 @@ class MappingWorkspaceService:
                 == schema.read_credential_binding_hash
                 and snapshot.read_principal_hash == schema.read_principal_hash
                 and snapshot.read_context_hash == schema.read_context_hash
-                and snapshot.reference_policy_hash == REFERENCE_POLICY_HASH
+                and snapshot.reference_policy_hash
+                == current_reference_policy_hash
             ):
                 snapshots.append(snapshot)
         return tuple(snapshots)

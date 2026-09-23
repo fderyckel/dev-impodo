@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from hashlib import sha256
+from typing import Iterable, Mapping
 from uuid import uuid4
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
@@ -36,6 +38,10 @@ from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import SourceMode
+from impodo.domain.workspace.reference_keys import (
+    REFERENCE_POLICY_HASH,
+    reference_policy_hash,
+)
 
 from ..domain.compiler.browser_mapping_compiler import (
     browser_mapping_labels,
@@ -54,6 +60,18 @@ from ..domain.preflight.frozen_input import (
 from ..domain.preflight.missing_parents import (
     MissingParentGroup,
     missing_parent_groups,
+)
+from ..domain.preflight.deferred_execution import reduce_execution_snapshot
+from ..domain.preflight.deferred_scope import (
+    DeferredIssue,
+    DeferredScopeDecision,
+    DeferredScopeEvidenceError,
+    DeferredScopePreview,
+    exact_numeric_precision_issues,
+    portable_preflight_deferred_issues,
+    portable_reference_resolutions,
+    prepared_dependency_facts,
+    preview_deferred_scope,
 )
 from ..domain.preflight.reports import (
     ReadinessReport,
@@ -86,12 +104,51 @@ from .workspace.execution.navigation import build_execution_preview_summary
 
 MANIFEST_NAME = "impodo_preflight_manifest.json"
 EXECUTION_SNAPSHOT_NAME = "impodo_execution_snapshot.json"
+DEFERRED_SCOPE_PREVIEW_NAME = "impodo_deferred_scope_preview.json"
+DEFERRED_SCOPE_DECISION_NAME = "impodo_deferred_scope_decision.json"
+REDUCED_EXECUTION_SNAPSHOT_NAME = "impodo_reduced_execution_snapshot.json"
 
 ReadinessReader = Callable[
     [PreflightRequirementPlan],
     tuple[MetadataSnapshot, RecordSnapshot],
 ]
 PreflightProgress = Callable[[str], None]
+
+
+@dataclass(frozen=True, slots=True)
+class DeferredScopeReview:
+    """Current isolatable issues and an optional locally calculated preview."""
+
+    comparison_id: str
+    comparison_hash: str
+    issues: tuple[DeferredIssue, ...]
+    candidates: tuple["DeferredIssueCandidate", ...]
+    preview: DeferredScopePreview | None
+    decision: DeferredScopeDecision | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeferredScopeAcceptance:
+    """Verified stored decision, preview, and exact reduced write snapshot."""
+
+    decision: DeferredScopeDecision
+    preview: DeferredScopePreview
+    snapshot: ExecutionSnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class DeferredIssueCandidate:
+    """Business-row context for one issue shown in the review page."""
+
+    issue: DeferredIssue
+    dataset: str = ""
+    source_row: int = 0
+    source_identity: tuple[object, ...] = ()
+    target_model: str = ""
+
+    @property
+    def selectable(self) -> bool:
+        return bool(self.issue.row_id)
 
 
 def _report_progress(progress: PreflightProgress | None, phase: str) -> None:
@@ -306,7 +363,7 @@ class PreflightService:
         )
 
     def current_execution_snapshot(self, workspace_id: str) -> ExecutionSnapshot | None:
-        """Load the automatically generated snapshot for current evidence.
+        """Load the full or explicitly reviewed reduced current snapshot.
 
         The artifact is usable only while the current report still matches all
         source, normalization, mapping, and target bindings.  Corrupt or
@@ -323,34 +380,38 @@ class PreflightService:
         if report is None:
             return None
         try:
-            snapshot = self.execution_snapshot(workspace_id, report.run_id)
-            with self.artifacts.materialize_report(
+            full_snapshot = self._full_execution_snapshot(
                 workspace_id,
                 report.run_id,
-                MANIFEST_NAME,
-            ) as path:
-                manifest_content = path.read_bytes()
-            manifest = json.loads(manifest_content)
-            if not isinstance(manifest, dict) or not isinstance(
-                manifest.get("preflight_evidence"), dict
-            ):
-                raise ValueError("Preflight manifest evidence is invalid")
-            manifest_evidence = manifest["preflight_evidence"]
-        except (ArtifactStoreError, OSError, ValueError) as error:
+            )
+            manifest, manifest_content = self._verified_manifest(report)
+            acceptance = self._deferred_scope_acceptance(
+                workspace_id,
+                report.run_id,
+                full_snapshot,
+                comparison_hash=report.result_hash,
+            )
+        except (
+            ArtifactStoreError,
+            DeferredScopeEvidenceError,
+            OSError,
+            ValueError,
+        ) as error:
             raise ReadinessError(
                 "The execution snapshot is missing or invalid. Run the Odoo "
                 "comparison again."
             ) from error
-        if not _snapshot_matches_report(snapshot, report) or not (
+        manifest_evidence = dict(manifest["preflight_evidence"])
+        if not _snapshot_matches_report(full_snapshot, report) or not (
             "sha256:" + sha256(manifest_content).hexdigest() == report.manifest_hash
             and manifest_evidence.get("execution_snapshot_hash")
-            == snapshot.semantic_hash
+            == full_snapshot.semantic_hash
         ):
             raise ReadinessError(
                 "The execution snapshot no longer matches the current Odoo "
                 "comparison. Run the comparison again."
             )
-        return snapshot
+        return acceptance.snapshot if acceptance is not None else full_snapshot
 
     def execution_snapshot(
         self,
@@ -365,23 +426,354 @@ class PreflightService:
         """
 
         try:
-            with self.artifacts.materialize_report(
+            full_snapshot = self._full_execution_snapshot(
                 workspace_id,
                 preflight_run_id,
-                EXECUTION_SNAPSHOT_NAME,
-            ) as path:
-                snapshot = ExecutionSnapshot.from_json(path.read_text("utf-8"))
-        except (ArtifactStoreError, OSError, ValueError) as error:
+            )
+            acceptance = self._deferred_scope_acceptance(
+                workspace_id,
+                preflight_run_id,
+                full_snapshot,
+                comparison_hash=full_snapshot.preflight_result_hash,
+            )
+        except (
+            ArtifactStoreError,
+            DeferredScopeEvidenceError,
+            OSError,
+            ValueError,
+        ) as error:
             raise ReadinessError(
                 "The saved load preview is missing or invalid. Compare with "
                 "Odoo again before another load."
             ) from error
+        return acceptance.snapshot if acceptance is not None else full_snapshot
+
+    def deferred_scope_review(
+        self,
+        workspace_id: str,
+        *,
+        selected_issue_ids: Iterable[str] = (),
+    ) -> DeferredScopeReview | None:
+        """Build or load a bounded group preview without another Odoo read."""
+
+        report = self.current_report(workspace_id)
+        if report is None or (
+            getattr(self.workspaces.get(workspace_id), "source_mode", SourceMode.FILE)
+            is SourceMode.ODOO
+        ):
+            return None
+        full_snapshot = self._full_execution_snapshot(workspace_id, report.run_id)
+        manifest, _content = self._verified_manifest(report)
+        acceptance = self._deferred_scope_acceptance(
+            workspace_id,
+            report.run_id,
+            full_snapshot,
+            comparison_hash=report.result_hash,
+        )
+        issues = self._deferred_issues(
+            report.run_id,
+            full_snapshot,
+            manifest,
+        )
+        candidates = self._deferred_issue_candidates(issues, full_snapshot)
+        if acceptance is not None:
+            return DeferredScopeReview(
+                comparison_id=report.run_id,
+                comparison_hash=report.result_hash,
+                issues=issues,
+                candidates=candidates,
+                preview=acceptance.preview,
+                decision=acceptance.decision,
+            )
+        selected = tuple(sorted(set(selected_issue_ids)))
+        preview = None
+        if selected:
+            frozen = self._load_frozen_input(workspace_id)
+            dependencies = prepared_dependency_facts(
+                full_snapshot.rows,
+                tuple(frozen.prepared.records),
+                portable_reference_resolutions(manifest),
+            )
+            preview = preview_deferred_scope(
+                comparison_id=report.run_id,
+                comparison_hash=report.result_hash,
+                execution_snapshot_hash=full_snapshot.semantic_hash,
+                rows=full_snapshot.rows,
+                issues=issues,
+                dependencies=dependencies,
+                selected_issue_ids=selected,
+                already_set_aside_count=(
+                    frozen.quality.quarantined_count
+                    + frozen.quality.excluded_count
+                ),
+            )
+        return DeferredScopeReview(
+            comparison_id=report.run_id,
+            comparison_hash=report.result_hash,
+            issues=issues,
+            candidates=candidates,
+            preview=preview,
+        )
+
+    def accept_deferred_scope(
+        self,
+        workspace_id: str,
+        *,
+        selected_issue_ids: Iterable[str],
+        actor: Actor,
+    ) -> DeferredScopeAcceptance:
+        """Persist one reviewed safe remainder; this performs no target read."""
+
+        self.authorization.require(
+            actor,
+            Capability.PREFLIGHT_RUN,
+            workspace_id=workspace_id,
+        )
+        review = self.deferred_scope_review(
+            workspace_id,
+            selected_issue_ids=selected_issue_ids,
+        )
+        if review is None or review.preview is None:
+            raise DeferredScopeEvidenceError(
+                "A current group preview is required before accepting set-aside rows"
+            )
+        if review.decision is not None:
+            raise DeferredScopeEvidenceError(
+                "The current comparison already has a reviewed set-aside decision"
+            )
+        full_snapshot = self._full_execution_snapshot(
+            workspace_id,
+            review.comparison_id,
+        )
+        reduced = reduce_execution_snapshot(full_snapshot, review.preview)
+        decision = DeferredScopeDecision.accept(
+            workspace_id=workspace_id,
+            preview=review.preview,
+            reduced_execution_snapshot_hash=reduced.semantic_hash,
+            accepted_by=actor.identity,
+            accepted_at=datetime.now(timezone.utc),
+        )
+        report = self.current_report(workspace_id)
+        if report is None or report.run_id != review.comparison_id:
+            raise DeferredScopeEvidenceError(
+                "The comparison changed before the set-aside decision was saved"
+            )
+        execution_summary = replace(
+            build_execution_preview_summary(
+                report,
+                reduced,
+                execution_shape_ready=(
+                    assess_odoo_operation(
+                        reduced.target_odoo_version,
+                        OdooOperation.WRITE,
+                    ).allowed
+                    and not reduced.relationship_plan.blockers
+                ),
+            ),
+            comparison_status="READY",
+        )
+        payloads = (
+            (
+                DEFERRED_SCOPE_PREVIEW_NAME,
+                review.preview.to_json().encode("utf-8") + b"\n",
+            ),
+            (
+                REDUCED_EXECUTION_SNAPSHOT_NAME,
+                reduced.to_json().encode("utf-8") + b"\n",
+            ),
+            (
+                DEFERRED_SCOPE_DECISION_NAME,
+                decision.to_json().encode("utf-8") + b"\n",
+            ),
+        )
+        try:
+            for filename, content in payloads:
+                self.artifacts.write_report(
+                    workspace_id,
+                    review.comparison_id,
+                    filename,
+                    content,
+                )
+            self.preflight.save_deferred_scope_projection(
+                workspace_id,
+                review.comparison_id,
+                execution_summary=execution_summary,
+                decision_hash=decision.semantic_hash,
+                actor=actor,
+            )
+        except Exception:
+            for filename, _content in payloads:
+                try:
+                    self.artifacts.delete_report(
+                        workspace_id,
+                        review.comparison_id,
+                        filename,
+                    )
+                except Exception:
+                    pass
+            raise
+        return DeferredScopeAcceptance(
+            decision=decision,
+            preview=review.preview,
+            snapshot=reduced,
+        )
+
+    def _full_execution_snapshot(
+        self,
+        workspace_id: str,
+        preflight_run_id: str,
+    ) -> ExecutionSnapshot:
+        with self.artifacts.materialize_report(
+            workspace_id,
+            preflight_run_id,
+            EXECUTION_SNAPSHOT_NAME,
+        ) as path:
+            snapshot = ExecutionSnapshot.from_json(path.read_text("utf-8"))
         if (
             snapshot.workspace_id != workspace_id
             or snapshot.preflight_run_id != preflight_run_id
         ):
-            raise ReadinessError("The saved load preview does not match this workspace")
+            raise DeferredScopeEvidenceError(
+                "The full execution snapshot does not match this workspace"
+            )
         return snapshot
+
+    def _verified_manifest(
+        self,
+        report: ReadinessReport,
+    ) -> tuple[dict[str, object], bytes]:
+        with self.artifacts.materialize_report(
+            report.workspace_id,
+            report.run_id,
+            MANIFEST_NAME,
+        ) as path:
+            content = path.read_bytes()
+        manifest = json.loads(content)
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("semantic_hash") != report.result_hash
+            or not isinstance(manifest.get("preflight_evidence"), dict)
+            or "sha256:" + sha256(content).hexdigest() != report.manifest_hash
+        ):
+            raise DeferredScopeEvidenceError(
+                "The saved comparison manifest is not current"
+            )
+        return manifest, content
+
+    def _deferred_scope_acceptance(
+        self,
+        workspace_id: str,
+        preflight_run_id: str,
+        full_snapshot: ExecutionSnapshot,
+        *,
+        comparison_hash: str,
+    ) -> DeferredScopeAcceptance | None:
+        if not self.artifacts.report_exists(
+            workspace_id,
+            preflight_run_id,
+            DEFERRED_SCOPE_DECISION_NAME,
+        ):
+            return None
+        with (
+            self.artifacts.materialize_report(
+                workspace_id,
+                preflight_run_id,
+                DEFERRED_SCOPE_DECISION_NAME,
+            ) as decision_path,
+            self.artifacts.materialize_report(
+                workspace_id,
+                preflight_run_id,
+                DEFERRED_SCOPE_PREVIEW_NAME,
+            ) as preview_path,
+            self.artifacts.materialize_report(
+                workspace_id,
+                preflight_run_id,
+                REDUCED_EXECUTION_SNAPSHOT_NAME,
+            ) as snapshot_path,
+        ):
+            decision = DeferredScopeDecision.from_json(
+                decision_path.read_text("utf-8")
+            )
+            preview = DeferredScopePreview.from_json(
+                preview_path.read_text("utf-8")
+            )
+            reduced = ExecutionSnapshot.from_json(
+                snapshot_path.read_text("utf-8")
+            )
+        omitted_ids = set(decision.omitted_row_ids)
+        full_ids = {row.row_id for row in full_snapshot.rows}
+        reduced_ids = {row.row_id for row in reduced.rows}
+        if (
+            decision.workspace_id != workspace_id
+            or decision.comparison_id != preflight_run_id
+            or decision.comparison_hash != comparison_hash
+            or decision.full_execution_snapshot_hash != full_snapshot.semantic_hash
+            or decision.preview_hash != preview.semantic_hash
+            or decision.reduced_execution_snapshot_hash != reduced.semantic_hash
+            or preview.comparison_id != preflight_run_id
+            or preview.comparison_hash != comparison_hash
+            or preview.execution_snapshot_hash != full_snapshot.semantic_hash
+            or preview.selected_issue_ids != decision.selected_issue_ids
+            or {row.row_id for row in preview.omitted_rows} != omitted_ids
+            or reduced.workspace_id != workspace_id
+            or reduced.preflight_run_id != preflight_run_id
+            or full_ids - omitted_ids != reduced_ids
+            or reduced_ids & omitted_ids
+            or reduced.write_count != preview.remaining_write_count
+        ):
+            raise DeferredScopeEvidenceError(
+                "The reviewed deferred scope no longer matches its comparison"
+            )
+        return DeferredScopeAcceptance(
+            decision=decision,
+            preview=preview,
+            snapshot=reduced,
+        )
+
+    @staticmethod
+    def _deferred_issues(
+        comparison_id: str,
+        full_snapshot: ExecutionSnapshot,
+        manifest: Mapping[str, object],
+    ) -> tuple[DeferredIssue, ...]:
+        issues = {
+            item.issue_id: item
+            for item in portable_preflight_deferred_issues(
+                comparison_id,
+                full_snapshot.rows,
+                manifest,
+                relationship_blockers=full_snapshot.relationship_plan.blockers,
+            )
+        }
+        for item in exact_numeric_precision_issues(
+            comparison_id,
+            full_snapshot.rows,
+            full_snapshot.datasets,
+        ):
+            issues[item.issue_id] = item
+        return tuple(sorted(issues.values(), key=lambda item: item.issue_id))
+
+    @staticmethod
+    def _deferred_issue_candidates(
+        issues: tuple[DeferredIssue, ...],
+        snapshot: ExecutionSnapshot,
+    ) -> tuple[DeferredIssueCandidate, ...]:
+        rows = {row.row_id: row for row in snapshot.rows}
+        candidates = []
+        for issue in issues:
+            row = rows.get(issue.row_id)
+            candidates.append(
+                DeferredIssueCandidate(
+                    issue=issue,
+                    dataset=row.dataset if row is not None else "",
+                    source_row=row.source_row if row is not None else 0,
+                    source_identity=(
+                        tuple(row.source_identity) if row is not None else ()
+                    ),
+                    target_model=row.target_model if row is not None else "",
+                )
+            )
+        return tuple(candidates)
 
     def readiness_rows(
         self,
@@ -465,9 +857,21 @@ class PreflightService:
                 progress=progress,
             )
         frozen = self._load_frozen_input(workspace_id)
+        version_decision = assess_odoo_operation(
+            frozen.captured_schema.odoo_version,
+            OdooOperation.COMPARE,
+        )
+        current_reference_policy_hash = (
+            reference_policy_hash(version_decision.version.major)
+            if version_decision.allowed
+            else None
+        )
         requirements = plan_preflight_requirements(
             frozen.plan,
             frozen.prepared.records,
+            reference_policy_hash=(
+                current_reference_policy_hash or REFERENCE_POLICY_HASH
+            ),
         )
         if any(not request.domain for request in requirements.record_requests):
             raise OdooReadWorkflowError(
@@ -517,6 +921,11 @@ class PreflightService:
             preflight_run_id=run_id,
             frozen=frozen,
             result=result,
+        )
+        precision_issues = exact_numeric_precision_issues(
+            run_id,
+            execution_snapshot.rows,
+            execution_snapshot.datasets,
         )
         execution_snapshot_content = (
             execution_snapshot.to_json().encode("utf-8") + b"\n"
@@ -568,6 +977,7 @@ class PreflightService:
                     execution_snapshot.target_odoo_version, OdooOperation.WRITE,
                 ).allowed
                 and not execution_snapshot.relationship_plan.blockers
+                and not precision_issues
             ),
         )
         decision_count = len(report.rows)

@@ -41,6 +41,10 @@ from impodo.domain.preflight.reports import (
     review_workbook_action_priority,
     review_workbook_cell_feedback,
 )
+from impodo.domain.preflight.deferred_scope import (
+    DeferredIssue,
+    DeferredScopePreview,
+)
 from impodo.domain.shared.models import (
     BusinessReference,
     Classification,
@@ -195,6 +199,8 @@ def write_review_workbook(
     *,
     preview_directory: str | Path | None = None,
     review_evidence: ReviewWorkbookEvidence | None = None,
+    deferred_preview: DeferredScopePreview | None = None,
+    deferred_issues: Sequence[DeferredIssue] = (),
 ) -> Path:
     """Build the Excel review projection from an existing manifest."""
 
@@ -208,6 +214,8 @@ def write_review_workbook(
         workbook,
         preview_directory=preview_directory,
         review_evidence=review_evidence,
+        deferred_preview=deferred_preview,
+        deferred_issues=deferred_issues,
     )
     return workbook
 
@@ -218,6 +226,8 @@ def _build_workbook(
     *,
     preview_directory: str | Path | None,
     review_evidence: ReviewWorkbookEvidence | None,
+    deferred_preview: DeferredScopePreview | None = None,
+    deferred_issues: Sequence[DeferredIssue] = (),
 ) -> None:
     """Create the business-facing workbook with the bundled Python runtime."""
 
@@ -227,26 +237,40 @@ def _build_workbook(
         raise ReportGenerationError("The readiness manifest is invalid") from error
 
     decisions = tuple(manifest.get("decisions", ()))
-    prepared_by_trace = _prepared_records_by_trace(
+    omitted_traces = {
+        row.source_trace_id
+        for row in (deferred_preview.omitted_rows if deferred_preview else ())
+    }
+    active_decisions = tuple(
+        item
+        for item in decisions
+        if str(item.get("source_trace_id") or "") not in omitted_traces
+    )
+    all_prepared_by_trace = _prepared_records_by_trace(
         manifest,
         decisions,
         review_evidence,
     )
+    prepared_by_trace = {
+        source_trace_id: record
+        for source_trace_id, record in all_prepared_by_trace.items()
+        if source_trace_id not in omitted_traces
+    }
     cell_effects = _cell_effects_by_coordinate(
         manifest,
-        prepared_by_trace,
+        all_prepared_by_trace,
         review_evidence,
     )
     record_projection = _record_sheet_projection(
         manifest,
-        decisions,
+        active_decisions,
         prepared_by_trace,
         review_evidence,
         cell_effects,
     )
     attention_items = _attention_items(
         manifest,
-        decisions,
+        active_decisions,
         prepared_by_trace,
         review_evidence,
     )
@@ -263,12 +287,15 @@ def _build_workbook(
             "Evidence",
         )
     }
+    if deferred_preview is not None:
+        sheets["Deferred issues"] = workbook.create_sheet("Deferred issues")
 
     _write_review_overview(
         overview,
-        manifest,
+        {**manifest, "decisions": active_decisions},
         attention_items,
         record_projection.feedback_counts,
+        deferred_preview=deferred_preview,
     )
     attention_rows = [item.workbook_row() for item in attention_items]
     _write_data_sheet(
@@ -326,7 +353,7 @@ def _build_workbook(
     )
 
     change_rows = _change_rows(
-        decisions,
+        active_decisions,
         prepared_by_trace,
         review_evidence,
     )
@@ -376,6 +403,28 @@ def _build_workbook(
         _COLORS["brand"],
     )
 
+    if deferred_preview is not None:
+        _write_data_sheet(
+            sheets["Deferred issues"],
+            [
+                "Source dataset",
+                "Source row",
+                "Record",
+                "Affected group",
+                "Reason type",
+                "Root issue",
+                "Details",
+                "Suggested correction",
+                "Comparison",
+            ],
+            _deferred_issue_rows(
+                deferred_preview,
+                deferred_issues,
+                all_prepared_by_trace,
+            ),
+            _COLORS["danger"],
+        )
+
     temporary = workbook_path.with_name(f".{workbook_path.name}.partial")
     try:
         workbook.save(temporary)
@@ -396,6 +445,8 @@ def _write_review_overview(
     manifest: dict[str, Any],
     attention_items: Sequence[_ReviewActionProjection],
     feedback_counts: Mapping[str, int],
+    *,
+    deferred_preview: DeferredScopePreview | None = None,
 ) -> None:
     _title_band(
         sheet,
@@ -490,15 +541,35 @@ def _write_review_overview(
         )
         if item
     )
-    decision_rows = [
-        ["Review decision", ""],
-        ["Status", review_status],
-        ["Must fix items", must_fix_count],
-        ["Review items", review_count],
-        ["Next action", next_action],
-        ["Target", target_label],
-        ["Checked against Odoo", target.get("snapshot_timestamp")],
-    ]
+    if deferred_preview is not None:
+        review_status = (
+            "Ready with records set aside"
+            if deferred_preview.ready_with_records_set_aside
+            else "Cannot proceed"
+        )
+        decision_rows = [
+            ["Reviewed load scope", ""],
+            ["Status", review_status],
+            ["Prepared", deferred_preview.prepared_record_count],
+            ["Already set aside", deferred_preview.already_set_aside_count],
+            ["Newly set aside", deferred_preview.newly_set_aside_count],
+            ["Ready to write", deferred_preview.remaining_write_count],
+            [
+                "Still blocked",
+                deferred_preview.remaining_problem_record_count
+                + deferred_preview.remaining_run_issue_count,
+            ],
+        ]
+    else:
+        decision_rows = [
+            ["Review decision", ""],
+            ["Status", review_status],
+            ["Must fix items", must_fix_count],
+            ["Review items", review_count],
+            ["Next action", next_action],
+            ["Target", target_label],
+            ["Checked against Odoo", target.get("snapshot_timestamp")],
+        ]
     for row_index, values in enumerate(decision_rows, start=4):
         sheet.cell(row=row_index, column=4, value=values[0])
         sheet.cell(row=row_index, column=5, value=_safe_cell(values[1]))
@@ -513,12 +584,18 @@ def _write_review_overview(
         sheet.cell(row=row_index, column=4).font = Font(
             bold=True, color=_COLORS["charcoal_dark"]
         )
-    for row_index in (6, 7):
+    for row_index in range(6, 11):
         sheet.cell(row=row_index, column=5).number_format = "#,##0"
-    _style_status_cell(sheet["E6"], "danger")
-    _style_status_cell(sheet["E7"], "warning")
-    sheet["E8"].alignment = Alignment(vertical="top", wrap_text=True)
-    sheet.row_dimensions[8].height = 44
+    if deferred_preview is not None:
+        _style_status_cell(
+            sheet["E5"],
+            "ready" if deferred_preview.ready_with_records_set_aside else "danger",
+        )
+    else:
+        _style_status_cell(sheet["E6"], "danger")
+        _style_status_cell(sheet["E7"], "warning")
+        sheet["E8"].alignment = Alignment(vertical="top", wrap_text=True)
+        sheet.row_dimensions[8].height = 44
 
     preparation_rows = [
         ["Prepared value feedback", "Cells", "Meaning"],
@@ -1151,6 +1228,86 @@ def _prepared_feedback_summary(
     if as_provided:
         notable.append(f"{as_provided} as provided")
     return "; ".join(notable)
+
+
+def _deferred_issue_rows(
+    preview: DeferredScopePreview,
+    issues: Sequence[DeferredIssue],
+    prepared_by_trace: Mapping[str, PreparedRecord],
+) -> list[list[Any]]:
+    """Project every omitted record once while retaining its root causes."""
+
+    issue_by_id = {item.issue_id: item for item in issues}
+    if len(issue_by_id) != len(issues):
+        raise ReportGenerationError("Deferred issue evidence is not unique")
+    omitted_by_id = {item.row_id: item for item in preview.omitted_rows}
+    rows: list[list[Any]] = []
+    for omitted in preview.omitted_rows:
+        issue_ids = (*omitted.direct_issue_ids, *omitted.inherited_issue_ids)
+        try:
+            root_issues = tuple(issue_by_id[issue_id] for issue_id in issue_ids)
+        except KeyError as error:
+            raise ReportGenerationError(
+                "Deferred row evidence is missing its root issue"
+            ) from error
+        groups = tuple(
+            group for group in preview.groups if omitted.row_id in group.row_ids
+        )
+        if not groups:
+            raise ReportGenerationError(
+                "Deferred row evidence is missing its affected group"
+            )
+        group_labels = []
+        for group in groups:
+            root_row = omitted_by_id.get(group.root_row_id)
+            root_record = (
+                prepared_by_trace.get(root_row.source_trace_id)
+                if root_row is not None
+                else None
+            )
+            group_labels.append(
+                str(
+                    _display_value(root_record.source_identity)
+                    if root_record is not None
+                    else group.root_row_id
+                )
+            )
+        record = prepared_by_trace.get(omitted.source_trace_id)
+        actions = []
+        for issue in root_issues:
+            _reason, action = plain_readiness_guidance(
+                issue.code,
+                Classification.BLOCKED,
+            )
+            if action not in actions:
+                actions.append(action)
+        reason_type = (
+            "Direct and inherited"
+            if omitted.direct_issue_ids and omitted.inherited_issue_ids
+            else ("Direct" if omitted.direct_issue_ids else "Inherited")
+        )
+        rows.append(
+            [
+                omitted.dataset,
+                omitted.source_row,
+                (
+                    _display_value(record.source_identity)
+                    if record is not None
+                    else omitted.source_trace_id
+                ),
+                "; ".join(dict.fromkeys(group_labels)),
+                reason_type,
+                "; ".join(dict.fromkeys(issue.code for issue in root_issues)),
+                "; ".join(
+                    dict.fromkeys(
+                        issue.message for issue in root_issues if issue.message
+                    )
+                ),
+                "; ".join(actions),
+                preview.comparison_id,
+            ]
+        )
+    return rows
 
 
 def _change_rows(

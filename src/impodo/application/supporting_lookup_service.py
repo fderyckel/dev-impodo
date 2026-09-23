@@ -65,6 +65,7 @@ class SupportingLookupService:
         read_principal_hash: str,
         read_context_hash: str,
         actor: Actor,
+        reference_policy_hash: str = REFERENCE_POLICY_HASH,
     ) -> SupportingLookupSnapshot | None:
         """Return current choices only when target and read context still match."""
 
@@ -78,6 +79,7 @@ class SupportingLookupService:
             key_fields=key_fields,
             scope_fields=scope_fields,
             display_field=display_field,
+            reference_policy_hash=reference_policy_hash,
         )
         snapshot = self._repository.get_current(workspace_id, lookup_key)
         if snapshot is None:
@@ -99,7 +101,7 @@ class SupportingLookupService:
         return (
             snapshot
             if actual == expected
-            and snapshot.reference_policy_hash == REFERENCE_POLICY_HASH
+            and snapshot.reference_policy_hash == reference_policy_hash
             else None
         )
 
@@ -115,6 +117,7 @@ class SupportingLookupService:
         read_principal_hash: str,
         read_context_hash: str,
         actor: Actor,
+        reference_policy_hash: str = REFERENCE_POLICY_HASH,
     ) -> SupportingLookupSnapshot | None:
         """Resolve exact target-bound evidence for a preflight reference.
 
@@ -138,7 +141,7 @@ class SupportingLookupService:
             read_credential_binding_hash,
             read_principal_hash,
             read_context_hash,
-            REFERENCE_POLICY_HASH,
+            reference_policy_hash,
         )
         candidates = []
         for snapshot in self._repository.list_current_for_model(
@@ -180,6 +183,7 @@ class SupportingLookupService:
         choices: tuple[SupportingLookupChoice, ...],
         ambiguous_values: tuple[str, ...],
         actor: Actor,
+        reference_policy_hash: str = REFERENCE_POLICY_HASH,
     ) -> SupportingLookupSnapshot:
         """Persist one immutable lookup revision and make it current."""
 
@@ -206,6 +210,7 @@ class SupportingLookupService:
             ),
             choices=choices,
             ambiguous_values=ambiguous_values,
+            reference_policy_hash=reference_policy_hash,
         )
         self._repository.save(workspace_id, snapshot, actor=actor)
         return snapshot

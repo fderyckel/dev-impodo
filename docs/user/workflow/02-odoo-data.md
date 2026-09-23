@@ -8,7 +8,7 @@ status: current
 
 ## Goal
 
-Choose the top-level Odoo 19 business records needed by the current data
+Choose the top-level Odoo 19 or final Odoo 20 business records needed by the current data
 project version. Let Impodo expose their direct supporting relationships, then
 confirm how it can identify one existing record.
 
@@ -27,17 +27,21 @@ you choose Odoo record types and inspect their fields. If you opened Odoo
 access from **Separate combined information**, Impodo returns to that Source
 data choice after it loads the record types.
 
-Impodo currently supports Odoo 19. If the connected server reports an unknown
-or conflicting version, resolve that connection check before capturing its
-details. Odoo 20 support is being prepared and is not enabled yet. A Recipe
-applies only to its authored Odoo major version, and an Odoo source and
-destination must use the same major version.
+Impodo supports its existing Odoo 19 workflow and final Odoo 20 read workflows.
+For Odoo 20, you can check the connection, capture the live schema, freeze a
+bounded Odoo source, read matching values, and author an Odoo 20 Recipe. Odoo
+20 loading, recovery, Integrated Test writes, and Production are not enabled
+yet. If the server reports an unknown, prerelease, SaaS, later-minor, or
+conflicting version, resolve that connection check before capturing details.
+A Recipe applies only to its authored Odoo major version, and an Odoo source
+and destination must use the same major version.
 
 When you connect a Remote Odoo target, enter the API key that Impodo should
 use for checking. You can keep it for checking only, or select **Use this key
 for checking and loading** when the same Odoo account is approved to write.
 Impodo keeps the checking and loading access separately even when they use the
 same secret. Production continues to require a separate limited write key.
+Saving a write key for an Odoo 20 workspace does not enable Odoo 20 loading.
 
 ## Steps in Impodo
 
@@ -120,11 +124,19 @@ Use portable values such as customer reference, internal product reference,
 country code, or BoM reference. Do not choose an Odoo numeric database ID as a
 portable business key.
 
-A reviewed standard reference, such as Country matched by its Odoo 19 country
-code, can remain outside the migration record-type scope. Impodo may read only
+A reviewed standard reference, such as Country matched by its version-specific
+country code, can remain outside the migration record-type scope. Impodo may read only
 the bounded reference values needed for matching and Final review. It does not
 turn that supporting record type into data that the project will create or
 update.
+
+Odoo 20 changed several unit fields. Bills of Materials and their lines use
+`uom_id` instead of `product_uom_id`; Product no longer has `uom_po_id`; and a
+Unit of Measure uses a reference-unit relationship instead of the Odoo 19
+category, rounding, and unit-type fields. Impodo shows the native fields from
+the connected database. It does not treat an Odoo 19 field as an automatic
+alias, and it does not treat a unit category and a reference unit as the same
+business concept.
 
 ![Current Odoo record-type selection for a fictional data project workspace.](../../images/user/08-odoo-models.png)
 

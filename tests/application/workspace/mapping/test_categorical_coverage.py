@@ -321,6 +321,42 @@ class CategoricalCoverageTests(unittest.TestCase):
             [("dataset:customers", ("country", "language"))],
         )
 
+    def test_constant_relationship_counts_only_included_rows(self) -> None:
+        service = _RecordingCoverageService(
+            _Sources(self.selection),
+            pl.DataFrame(
+                {
+                    "language": ["English", "German", "English"],
+                    "country": ["LU", "DE", None],
+                }
+            ),
+        )
+        policy = RowInclusionPolicy(
+            mode=RowInclusionMode.MATCHING_ROWS,
+            conditions=(
+                SelectionCondition(
+                    condition_id=str(uuid4()),
+                    source_column_key="language",
+                    operator=SelectionConditionOperator.EQUALS,
+                    comparison_value="English",
+                    value_type="string",
+                ),
+            ),
+        )
+
+        keys = service.source_included_key_tuples(
+            self.workspace_id,
+            "dataset:customers",
+            (),
+            policy,
+        )
+
+        self.assertEqual(keys, ((), ()))
+        self.assertEqual(
+            service.scan_calls,
+            [("dataset:customers", ("language",))],
+        )
+
     def test_collect_without_categorical_rules_needs_no_physical_snapshot(self) -> None:
         definition = replace(
             self.definition,

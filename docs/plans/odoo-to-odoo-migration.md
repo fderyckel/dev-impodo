@@ -52,8 +52,9 @@ destination read to 1,001 rows; a wide first-field match is blocked.
 Matching now reads all destination field definitions and their available
 required-field defaults. It blocks a proposed create when required inputs
 are neither captured nor automatically safe to leave to Odoo. Preflight
-rechecks that coverage. Review of a business-sensitive destination default
-is not yet implemented, so such a default remains a blocker.
+rechecks that coverage. The data manager can review a business-sensitive
+destination default, choose a typed fixed value or captured source field, or
+choose a governed related record where that provider is supported.
 Models whose destination metadata exposes a Selection field named `state`
 now require a qualified workflow handler before generic creates or updates.
 Existing destination records can still be reused. This guard does not detect
@@ -90,6 +91,26 @@ BOM line was missing and remains blocked.
 This is a check of one selected field surface per model. The exact gaps can
 change when the manager captures more source fields or the destination's
 modules and defaults change.
+
+On 2026-09-23, the first complete Contact vertical passed through the
+authenticated browser workflow against two distinct disposable Odoo 19
+Enterprise demo instances. The synthetic frozen source contained one Company
+and its Contact. The destination already contained the Company, while the
+Contact was absent. Destination matching reused one record and proposed one
+create. The data manager reviewed the three required Odoo defaults listed
+above, approved the Contact's parent relationship, and loaded the exact
+package. Automatic read-back verified both records with no fallout or unknown
+outcome. A fresh destination match then found two existing records and
+proposed zero creates. A deliberate duplicate Company test stopped before an
+execution journal existed. The runner removed every uniquely tagged synthetic
+record from both instances after the check.
+
+That qualification also found source relationship provenance that Odoo does
+not allow a generic transfer to write. Destination matching now excludes
+non-stored, related, company-dependent, unexportable, computed-without-inverse,
+and read-only-without-inverse relationship fields from the transferable field
+plan. Writable stored relationships such as a Contact's parent remain eligible.
+This is a generic metadata rule rather than a Contact-specific exception.
 The demo source had no sampled `sale.order` identity in its first 20 rows,
 so no order transfer was qualified. Its destination metadata does expose a
 Selection field named `state`, which activates the workflow-handler guard.
@@ -393,6 +414,12 @@ existing journal, writer, recovery, and reconciliation boundaries.
 and partly populated disposable destinations through the browser. An
 interrupted load resumes only work that read-back proves safe.
 
+**Implementation status (2026-09-23):** The Contact portion of this gate has
+passed for a partly populated destination, including required defaults,
+Company reuse, Contact creation, relationship read-back, ambiguous-key
+blocking, repeat matching, authenticated screenshots, and cleanup. Product,
+BOM, empty-destination, and interrupted-load qualification remain open.
+
 ## Phase 4: reduce operator work
 
 The browser starts from the selected root records and shows one dependency
@@ -429,12 +456,12 @@ evidence is accepted.
 
 ## First vertical scenario
 
-Start with fictional Contacts in source A. Destination B contains one matching
-Company and one existing Contact. Another Contact and its reviewed supporting
-record are absent. The first pass shows exact reuse and create decisions
-before writing. The confirmed load creates the approved missing records and
-verifies their fields and links. The second pass proposes no duplicate
-creates. An ambiguous Company match blocks before a journal is created.
+This vertical passed on 2026-09-23 with fictional Contacts. Source A contained
+one Company and one Contact. Destination B contained the matching Company and
+did not contain the Contact. The first pass showed one reuse and one create
+before writing. The confirmed load created the missing Contact and verified
+its fields and Company link. The second pass proposed no duplicate creates.
+A separate ambiguous Company check blocked before a journal was created.
 
 Apply the same contracts next to Products and a BOM with lines and operations.
 The BOM scenario exercises composite line identities and generated Product

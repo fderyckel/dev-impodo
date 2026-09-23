@@ -427,21 +427,6 @@ class PreparationService:
                         "The captured Odoo field details changed after matching. "
                         "Refresh the Odoo data and check field matches again."
                     )
-                prepared_rows = (
-                    (item.canonical_row for item in effective.rows)
-                    if effective is not None
-                    else canonical_run.rows
-                )
-                precision_error = prepared_target_precision_error(
-                    prepared_rows,
-                    quality_run.eligible_row_ids,
-                    revision.definition,
-                    effective_selection,
-                    schema,
-                    target_float_digits=self.target_float_digits,
-                )
-                if precision_error is not None:
-                    raise ReadinessError(precision_error)
             report_progress(
                 PreparationPhase.NORMALIZING,
                 total_rows,
@@ -496,7 +481,12 @@ def prepared_target_precision_error(
     *,
     target_float_digits: tuple[tuple[str, str, tuple[int, int]], ...] = (),
 ) -> str | None:
-    """Find numeric loss after formulas and exclusions, before Odoo comparison."""
+    """Describe potential numeric loss before an intended write set exists.
+
+    This diagnostic deliberately does not gate preparation. The shared Odoo
+    comparison later applies the same exact decimal rule only to CREATE and
+    UPDATE field intents, where unchanged values cannot become false blockers.
+    """
 
     dataset_names = {item.dataset_id: item.name for item in selection.datasets}
     write_fields = {

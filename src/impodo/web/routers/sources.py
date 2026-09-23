@@ -48,7 +48,10 @@ from ...domain.odoo_source_capture import (
     plan_odoo_source_capture,
 )
 from impodo.application.workspace.odoo_capture_jobs import OdooCaptureJob, OdooCaptureJobStatus
-from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ...domain.odoo_source_policy import (
+    CURRENT_ODOO_SOURCE_POLICY,
+    odoo_source_policy_from_hash,
+)
 from ...domain.odoo_source_scope import propose_related_odoo_data
 from ...domain.odoo_capture import (
     ODOO_CAPTURE_PAGE_SIZES,
@@ -385,7 +388,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     "Odoo capture plans."
                 )
             if any(
-                selection.max_rows != CURRENT_ODOO_SOURCE_POLICY.max_rows
+                not _selection_uses_current_capture_policy(selection)
                 for selection in selections
             ):
                 raise WorkspaceError(
@@ -1172,8 +1175,7 @@ def _render_odoo_capture_selection(
                         workspace_state.workspace_id, actor=context.actor
                     )
                 if (
-                    saved_selection.max_rows
-                    != CURRENT_ODOO_SOURCE_POLICY.max_rows
+                    not _selection_uses_current_capture_policy(saved_selection)
                     or saved_selection.page_size not in ODOO_CAPTURE_PAGE_SIZES
                 ):
                     raise OdooSourceCaptureConfigurationError(
@@ -1272,7 +1274,7 @@ def _render_odoo_capture_selection(
         read_credential_matches_schema=read_credential_matches_schema,
         capture_ready_to_assess=capture_ready_to_assess,
         show_capture_plan_editor=show_capture_plan_editor,
-        capture_policy=CURRENT_ODOO_SOURCE_POLICY,
+        capture_policy=_display_capture_policy(schema),
         capture_page_sizes=ODOO_CAPTURE_PAGE_SIZES,
         assessment=assessment,
         access_refresh_required=access_refresh_required,
@@ -1287,6 +1289,20 @@ def _odoo_capture_manager(context: WebContext):
     if context.odoo_capture_jobs is None:
         raise OdooCaptureJobStateError("Background Odoo captures are unavailable")
     return context.odoo_capture_jobs
+
+
+def _selection_uses_current_capture_policy(selection) -> bool:
+    policy = odoo_source_policy_from_hash(selection.policy_hash)
+    return policy is not None and selection.max_rows == policy.max_rows
+
+
+def _display_capture_policy(schema):
+    if schema is None:
+        return CURRENT_ODOO_SOURCE_POLICY
+    return (
+        odoo_source_policy_from_hash(schema.policy_hash)
+        or CURRENT_ODOO_SOURCE_POLICY
+    )
 
 
 def _get_odoo_capture_job(

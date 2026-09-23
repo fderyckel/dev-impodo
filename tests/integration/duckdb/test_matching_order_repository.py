@@ -26,6 +26,11 @@ from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
+    ResolverOrigin,
+)
+from impodo.domain.relationship_health import (
+    RelationshipHealthResult,
+    RelationshipHealthStatus,
 )
 from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
@@ -325,6 +330,22 @@ class MatchingOrderRepositoryTests(unittest.TestCase):
                     expected_existing_count=1,
                 ),
             ),
+            relationship_health_results=(
+                RelationshipHealthResult(
+                    owner_dataset_id="dataset:a",
+                    target_field="parent_id",
+                    relationship_kind="many2one",
+                    resolver_origin=ResolverOrigin.TARGET_CATALOG,
+                    related_model="x.b",
+                    dependency_dataset_id=None,
+                    required=True,
+                    status=RelationshipHealthStatus.CHECKED,
+                    source_row_count=2,
+                    populated_choice_count=2,
+                    target_count=1,
+                    missing_count=1,
+                ),
+            ),
         )
 
         status = self.repository.publish_check(
@@ -353,6 +374,7 @@ class MatchingOrderRepositoryTests(unittest.TestCase):
         self.assertNotIn("SECRET-KEY", public_json)
         self.assertIn("SECRET-KEY", protected_json)
         self.assertIn('"expected_existing_count":1', public_json)
+        self.assertIn('"missing_count":1', public_json)
 
     def _semantic_rows(self):
         tables = (

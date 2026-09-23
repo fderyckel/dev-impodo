@@ -122,6 +122,7 @@ class SupportingLookupSnapshot:
         captured_by: str,
         choices: tuple[SupportingLookupChoice, ...],
         ambiguous_values: tuple[str, ...],
+        reference_policy_hash: str = REFERENCE_POLICY_HASH,
     ) -> "SupportingLookupSnapshot":
         """Build and hash one normalized snapshot."""
 
@@ -134,7 +135,7 @@ class SupportingLookupSnapshot:
             key_fields=key_fields,
             scope_fields=scope_fields,
             display_field=display_field,
-            reference_policy_hash=REFERENCE_POLICY_HASH,
+            reference_policy_hash=reference_policy_hash,
         )
         normalized_choices = tuple(
             sorted(choices, key=lambda item: (item.label.casefold(), item.value))
@@ -185,7 +186,7 @@ class SupportingLookupSnapshot:
             "read_principal_hash": read_principal_hash,
             "read_permission_hash": read_permission_hash,
             "read_context_hash": read_context_hash,
-            "reference_policy_hash": REFERENCE_POLICY_HASH,
+            "reference_policy_hash": reference_policy_hash,
             "choices": [
                 {"value": item.value, "label": item.label}
                 for item in normalized_choices
@@ -211,7 +212,7 @@ class SupportingLookupSnapshot:
             choices=normalized_choices,
             ambiguous_values=normalized_ambiguous,
             content_hash=content_hash(semantic),
-            reference_policy_hash=REFERENCE_POLICY_HASH,
+            reference_policy_hash=reference_policy_hash,
             contract_version=SUPPORTING_LOOKUP_CONTRACT_VERSION,
         )
 

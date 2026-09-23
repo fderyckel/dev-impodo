@@ -1,0 +1,71 @@
+{% if relationship_health %}
+  <section class="form-card relationship-health" aria-labelledby="relationship-health-title">
+    <div class="page-heading compact relationship-health-heading">
+      <div>
+        <p class="eyebrow">Relationship health</p>
+        <h2 id="relationship-health-title">Find missing parents before preparation</h2>
+        <p>
+          Test whether every saved linked value identifies one existing Odoo
+          record, one record in the chosen incoming table, or a choice that
+          needs correction.
+        </p>
+      </div>
+      <div class="relationship-health-action">
+        {% if relationship_health.running %}
+          <span class="status review">Checking Odoo</span>
+        {% else %}
+          <form method="post" action="{{ relationship_health.check_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button secondary compact" type="submit" {% if not relationship_health.can_start %}disabled{% endif %}>
+              Check saved relationships
+            </button>
+          </form>
+        {% endif %}
+        <small class="muted">{{ relationship_health.message }}</small>
+      </div>
+    </div>
+
+    <div class="relationship-health-list">
+      {% for item in relationship_health.cards %}
+        <article class="relationship-health-card">
+          <div class="relationship-health-card-heading">
+            <div>
+              <h3>{{ item.dataset_name }} -> {{ item.field_label }}</h3>
+              <p class="muted">{{ item.related_model_label }} · {{ item.origin_label }}</p>
+            </div>
+            <span class="status {{ item.status_class }}">{{ item.status_label }}</span>
+          </div>
+          <p>{{ item.message }}</p>
+
+          {% if item.checked %}
+            <div class="metric-grid relationship-health-metrics">
+              <div><span>Rows checked</span><strong>{{ "{:,}".format(item.source_row_count) }}</strong></div>
+              <div><span>Populated choices</span><strong>{{ "{:,}".format(item.populated_choice_count) }}</strong></div>
+              {% if item.show_target_count %}<div><span>Already in Odoo</span><strong>{{ "{:,}".format(item.target_count) }}</strong></div>{% endif %}
+              {% if item.show_incoming_count %}<div><span>Use incoming table</span><strong>{{ "{:,}".format(item.incoming_count) }}</strong></div>{% endif %}
+              <div class="relationship-health-blocked"><span>Missing</span><strong>{{ "{:,}".format(item.missing_count) }}</strong></div>
+              <div class="relationship-health-blocked"><span>Matches more than one</span><strong>{{ "{:,}".format(item.ambiguous_count) }}</strong></div>
+              <div class="relationship-health-blocked"><span>Case-only mismatch</span><strong>{{ "{:,}".format(item.case_mismatch_count) }}</strong></div>
+              <div class="relationship-health-blocked"><span>Incomplete compound key</span><strong>{{ "{:,}".format(item.incomplete_row_count) }}</strong></div>
+              <div><span>Blank rows{% if item.required %} (required){% endif %}</span><strong>{{ "{:,}".format(item.blank_row_count) }}</strong></div>
+            </div>
+          {% endif %}
+
+          <div class="relationship-health-actions">
+            <a class="button secondary compact" href="{{ item.edit_url }}">{{ item.edit_label }}</a>
+            {% if item.related_url %}
+              <a class="button secondary compact" href="{{ item.related_url }}">{{ item.related_action_label }}</a>
+            {% endif %}
+            {% if item.inverse_action %}
+              <a class="button secondary compact" href="{{ item.inverse_action.url }}">{{ item.inverse_action.label }}</a>
+            {% endif %}
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+    <p class="muted relationship-health-footnote">
+      This check uses the saved row selection and matching rules. Prepare data
+      and Final review still perform the authoritative row and destination checks.
+    </p>
+  </section>
+{% endif %}

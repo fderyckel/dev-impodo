@@ -713,12 +713,49 @@ class DestinationMatchingTests(unittest.TestCase):
             "product.template",
             relation_field="uom_id",
         )
+        managed_relationships = (
+            replace(
+                _relation(
+                    "commercial_uom_id",
+                    "Commercial Unit",
+                    "many2one",
+                    "uom.uom",
+                ),
+                computed=True,
+                has_inverse=False,
+                readonly=True,
+            ),
+            replace(
+                _relation(
+                    "self_uom_id",
+                    "Self Unit",
+                    "many2one",
+                    "uom.uom",
+                ),
+                computed=False,
+                has_inverse=False,
+                readonly=True,
+            ),
+            replace(
+                _relation(
+                    "derived_uom_ids",
+                    "Derived Units",
+                    "many2many",
+                    "uom.uom",
+                ),
+                stored=False,
+            ),
+        )
         schema = replace(
             self.schema,
             models=(
                 replace(
                     product_model,
-                    fields=product_model.fields + (many2many, many2one),
+                    fields=(
+                        product_model.fields
+                        + (many2many, many2one)
+                        + managed_relationships
+                    ),
                 ),
                 replace(
                     uom_model,
@@ -783,6 +820,14 @@ class DestinationMatchingTests(unittest.TestCase):
         self.assertTrue(plan.ready)
         by_field = {item.field_name: item for item in plan.relationship_matches}
         self.assertEqual(set(by_field), {"alternate_uom_ids", "uom_id"})
+        self.assertEqual(
+            next(
+                item
+                for item in plan.model_matches
+                if item.model == "product.template"
+            ).incompatible_fields,
+            (),
+        )
         self.assertEqual(by_field["uom_id"].kind, "many2one")
         self.assertEqual(by_field["uom_id"].operation, "set")
         self.assertEqual(by_field["uom_id"].inverse_field, "product_ids")

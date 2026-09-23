@@ -732,7 +732,9 @@ class WorkspaceStateService:
                 "The checked Odoo destination no longer matches the saved destination"
             )
         if not assess_odoo_operation(odoo_version, OdooOperation.CONNECT).allowed:
-            raise WorkspaceStateError("The destination must run Odoo 19")
+            raise WorkspaceStateError(
+                "The destination Odoo version is not supported for connection"
+            )
         updated = replace(
             workspace,
             destination_verified_target_hash=target_hash,

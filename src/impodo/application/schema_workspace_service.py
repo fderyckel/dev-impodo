@@ -31,7 +31,10 @@ from ..domain.schema.governance import (
 )
 from ..domain.mapping.create_field_policy import supports_create_default_capture
 from impodo.domain.shared.models import FieldMetadata, OdooReadIdentity, target_identity_hash
-from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
+from ..domain.odoo_source_policy import (
+    ODOO_SOURCE_POLICY_HASH,
+    odoo_source_policy_hash,
+)
 from impodo.domain.workspace.workbench import (
     WorkspaceState,
     OdooConnectionMode,
@@ -242,10 +245,14 @@ class SchemaWorkspaceService:
             raise WorkspaceError(
                 "Odoo model database does not match the project"
             )
-        if not assess_odoo_operation(
+        version_decision = assess_odoo_operation(
             snapshot.fingerprint.odoo_version, OdooOperation.CAPTURE_SCHEMA,
-        ).allowed:
-            raise WorkspaceError("Odoo model discovery requires Odoo 19")
+        )
+        if not version_decision.allowed:
+            raise WorkspaceError("Odoo model discovery requires a supported Odoo version")
+        policy_hash = odoo_source_policy_hash(version_decision.version.major)
+        if policy_hash is None:
+            raise WorkspaceError("Odoo model discovery has no qualified source policy")
         if set(snapshot.records) != {"ir.model"}:
             raise WorkspaceError(
                 "Odoo model discovery returned an unexpected model"
@@ -294,7 +301,7 @@ class SchemaWorkspaceService:
         connection_target_hash = _target_identity_hash(workspace_state)
         content = {
             "connection_target_hash": connection_target_hash,
-            "policy_hash": ODOO_SOURCE_POLICY_HASH,
+            "policy_hash": policy_hash,
             "read_credential_binding_hash": read_credential_binding_hash,
             **identity_hashes,
             "fingerprint": snapshot.fingerprint.portable_dict(),
@@ -303,7 +310,7 @@ class SchemaWorkspaceService:
         catalog = OdooModelCatalog(
             workspace_id=workspace_id,
             connection_target_hash=connection_target_hash,
-            policy_hash=ODOO_SOURCE_POLICY_HASH,
+            policy_hash=policy_hash,
             captured_at=datetime.now(timezone.utc),
             captured_by=actor.identity.display_name,
             connection_mode=snapshot.fingerprint.connection_mode,
@@ -692,7 +699,8 @@ class SchemaWorkspaceService:
             )
         if (
             pending.connection_target_hash != _target_identity_hash(workspace_state)
-            or pending.policy_hash != ODOO_SOURCE_POLICY_HASH
+            or pending.policy_hash
+            != _live_source_policy_hash(pending.odoo_version)
             or {model.name for model in pending.models} != permitted
         ):
             raise WorkspaceError(
@@ -763,7 +771,7 @@ class SchemaWorkspaceService:
         if not assess_odoo_operation(
             snapshot.fingerprint.odoo_version, OdooOperation.CAPTURE_SCHEMA,
         ).allowed:
-            raise WorkspaceError("Odoo schema capture requires Odoo 19")
+            raise WorkspaceError("Odoo schema capture requires a supported Odoo version")
         identity_hashes = _validate_read_identity(
             workspace_state,
             read_identity,
@@ -864,7 +872,7 @@ class SchemaWorkspaceService:
         if not assess_odoo_operation(
             snapshot.fingerprint.odoo_version, OdooOperation.CAPTURE_SCHEMA,
         ).allowed:
-            raise WorkspaceError("Odoo schema capture requires Odoo 19")
+            raise WorkspaceError("Odoo schema capture requires a supported Odoo version")
         identity_hashes = _validate_read_identity(
             workspace_state,
             read_identity,
@@ -1019,7 +1027,8 @@ class SchemaWorkspaceService:
             if model_catalog
             and model_catalog.connection_target_hash
             == _target_identity_hash(workspace_state)
-            and model_catalog.policy_hash == ODOO_SOURCE_POLICY_HASH
+            and model_catalog.policy_hash
+            == _live_source_policy_hash(snapshot.fingerprint.odoo_version)
             else {}
         )
         missing_discovered = permitted - set(discovered_labels)
@@ -1124,9 +1133,14 @@ class SchemaWorkspaceService:
     ) -> OdooSchemaCatalog:
         """Build current-shaped evidence without publishing a current pointer."""
 
+        policy_hash = (
+            _live_source_policy_hash(odoo_version)
+            if origin is SchemaOrigin.LIVE_API
+            else ODOO_SOURCE_POLICY_HASH
+        )
         content = {
             "connection_target_hash": str(fingerprint["target_hash"]),
-            "policy_hash": ODOO_SOURCE_POLICY_HASH,
+            "policy_hash": policy_hash,
             "read_credential_binding_hash": read_credential_binding_hash,
             **identity_hashes,
             "fingerprint": fingerprint,
@@ -1136,7 +1150,7 @@ class SchemaWorkspaceService:
         observed_at = datetime.now(timezone.utc)
         return OdooSchemaCatalog(
             workspace_id=workspace_state.workspace_id,
-            policy_hash=ODOO_SOURCE_POLICY_HASH,
+            policy_hash=policy_hash,
             captured_at=observed_at,
             captured_by=actor.identity.display_name,
             connection_mode=connection_mode,
@@ -1650,6 +1664,20 @@ def _target_identity_hash(workspace_state: WorkspaceState) -> str:
         base_url=workspace_state.odoo_base_url,
         database=workspace_state.odoo_database,
     )
+
+
+def _live_source_policy_hash(odoo_version: str) -> str:
+    """Resolve the immutable source policy for qualified live evidence."""
+
+    decision = assess_odoo_operation(odoo_version, OdooOperation.CAPTURE_SCHEMA)
+    policy_hash = (
+        odoo_source_policy_hash(decision.version.major)
+        if decision.allowed
+        else None
+    )
+    if policy_hash is None:
+        raise WorkspaceError("Odoo schema evidence has no qualified source policy")
+    return policy_hash
 
 
 def _validate_read_credential_binding_hash(value: str) -> None:

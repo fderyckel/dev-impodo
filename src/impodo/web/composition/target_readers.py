@@ -31,19 +31,19 @@ from impodo.domain.odoo.contracts import (
 from impodo.adapters.odoo.local_stack import LocalStackProfile
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
 from impodo.domain.shared.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
-from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
+from impodo.domain.odoo_source_policy import odoo_source_policy_hash
 from impodo.domain.execution.planner import (
     PreflightRequirementPlan,
     ReferenceReadRequirement,
 )
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStateError, SourceMode
 from impodo.domain.workspace.reference_keys import (
-    REFERENCE_POLICY_HASH,
     GovernedReferenceRequest,
     ReferenceReadPurpose,
     authorize_governed_reference,
     authorize_supporting_match_probe,
     captured_reference_field_contracts,
+    reference_policy_hash,
     standard_reference_key,
 )
 from impodo.application.shared.secrets import SecretStoreError
@@ -328,9 +328,19 @@ def _existing_catalog_model(
         base_url=workspace_state.odoo_base_url,
         database=workspace_state.odoo_database,
     )
+    version_decision = assess_odoo_operation(
+        catalog.odoo_version,
+        OdooOperation.CAPTURE_SCHEMA,
+    )
+    expected_policy_hash = (
+        odoo_source_policy_hash(version_decision.version.major)
+        if version_decision.allowed
+        else None
+    )
     if (
         catalog.connection_target_hash != expected_target_hash
-        or catalog.policy_hash != ODOO_SOURCE_POLICY_HASH
+        or expected_policy_hash is None
+        or catalog.policy_hash != expected_policy_hash
     ):
         raise WorkspaceError(
             "The saved Odoo record list belongs to a different target; "
@@ -382,6 +392,7 @@ def _current_preflight_supporting_references(
             read_principal_hash=schema.read_principal_hash,
             read_context_hash=schema.read_context_hash,
             actor=context.actor,
+            reference_policy_hash=requirements.reference_policy_hash,
         )
         if snapshot is not None:
             snapshots[snapshot.snapshot_id] = snapshot
@@ -438,7 +449,16 @@ def _authorized_supplemental_models(
 ) -> tuple[str, ...]:
     """Authorize every planned model outside captured schema from its relation."""
 
-    if requirements.reference_policy_hash != REFERENCE_POLICY_HASH:
+    version_decision = assess_odoo_operation(
+        schema.odoo_version,
+        OdooOperation.COMPARE,
+    )
+    expected_policy_hash = (
+        reference_policy_hash(version_decision.version.major)
+        if version_decision.allowed
+        else None
+    )
+    if requirements.reference_policy_hash != expected_policy_hash:
         raise OdooReadWorkflowError(
             OdooReadFailureCode.REFERENCE_POLICY_MISMATCH,
             "The supporting-reference policy changed; check the field matches again",
@@ -1042,7 +1062,12 @@ def _relationship_value_choices(
         else {}
     )
     available_fields = set(field_by_name)
-    standard_key = standard_reference_key(field.relation or "")
+    version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.COMPARE)
+    odoo_major_version = version_decision.version.major if version_decision.allowed else -1
+    standard_key = standard_reference_key(
+        field.relation or "",
+        odoo_major_version=odoo_major_version,
+    )
     display_field = (
         standard_key.display_field
         if standard_key is not None
@@ -1053,8 +1078,6 @@ def _relationship_value_choices(
     requested_fields = tuple(
         dict.fromkeys((key_field, *key.scope_fields, display_field))
     )
-    version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.COMPARE)
-    odoo_major_version = version_decision.version.major if version_decision.allowed else -1
     reference_request = GovernedReferenceRequest(
         parent_model=parent_model,
         relationship_field=field.name,
@@ -1120,6 +1143,7 @@ def _relationship_value_choices(
             read_principal_hash=schema.read_principal_hash,
             read_context_hash=schema.read_context_hash,
             actor=context.actor,
+            reference_policy_hash=decision.policy_hash,
         )
         if current is not None:
             cached_decision = authorize_governed_reference(
@@ -1257,6 +1281,7 @@ def _relationship_value_choices(
         ),
         ambiguous_values=ambiguous,
         actor=context.actor,
+        reference_policy_hash=decision.policy_hash,
     )
     return (
         tuple(
@@ -1298,7 +1323,10 @@ def _capture_recipe_supporting_values(
     version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.RECIPE)
     odoo_major_version = version_decision.version.major if version_decision.allowed else -1
     if not version_decision.allowed:
-        raise WorkspaceError("This Recipe run requires current Odoo 19 details")
+        raise WorkspaceError("This Recipe run requires a supported Odoo version")
+    current_reference_policy_hash = reference_policy_hash(odoo_major_version)
+    if current_reference_policy_hash is None:
+        raise WorkspaceError("This Recipe run has no qualified reference policy")
 
     models = {item.name: item for item in schema.models}
     prepared: list[_PreparedSupportingLookup] = []
@@ -1309,7 +1337,10 @@ def _capture_recipe_supporting_values(
                 f"Odoo did not return {requirement.model_name}, which a Recipe relationship needs"
             )
         fields = {item.name: item for item in related_model.fields}
-        standard_key = standard_reference_key(requirement.model_name)
+        standard_key = standard_reference_key(
+            requirement.model_name,
+            odoo_major_version=odoo_major_version,
+        )
         display_field = (
             standard_key.display_field
             if standard_key is not None
@@ -1483,6 +1514,7 @@ def _capture_recipe_supporting_values(
                 choices=tuple(choices),
                 ambiguous_values=ambiguous_values,
                 actor=context.actor,
+                reference_policy_hash=current_reference_policy_hash,
             )
         )
     return tuple(stored)

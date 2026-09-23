@@ -1,8 +1,9 @@
 # Impodo developer documentation
 
 This is the entry point for developers and technical operators working on
-Impodo. Impodo targets Odoo 19 and keeps migration evidence, approval
-boundaries, and read-versus-write capabilities explicit.
+Impodo. Impodo retains its Odoo 19 workflow and supports final Odoo 20 reads
+and Recipe authoring. Odoo 20 writes and Production remain disabled. Migration
+evidence, approval boundaries, and read-versus-write capabilities stay explicit.
 
 ## Workflow implementation
 

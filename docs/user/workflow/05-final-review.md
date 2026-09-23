@@ -27,9 +27,13 @@ Use a reachable Odoo 19 target with the approved read access.
 4. Review totals for **New in Odoo**, **Different from Odoo**, **Already
    matches**, **Needs attention**, and **Set aside**.
 5. Inspect field-level differences and relationship resolutions.
-6. Resolve every ambiguous or blocked row upstream, then prepare and compare
-   again.
-7. Download the workbook when you need to review the proposed load in Excel or
+6. When Impodo offers **Preview affected groups**, choose the root problems and
+   review the complete parent, child, and sibling records that would stay out
+   of this load.
+7. Select **Set aside affected groups for this load** only when the preview
+   leaves a safe remainder. Resolve any remaining or run-wide blocker upstream,
+   then prepare and compare again.
+8. Download the workbook when you need to review the proposed load in Excel or
    keep a durable rehearsal record.
 
 Before comparison, the prepared-data section can show records that Impodo set
@@ -43,6 +47,16 @@ percentage. Delayed progress updates do not start another comparison. Selecting
 **Compare with Odoo** again while the same workspace already has an active
 comparison returns to that attempt.
 
+The affected-group preview is calculated from the saved comparison. It shows
+the prepared count, records already set aside during preparation, records that
+the new decision would omit, writes remaining, and problems still blocking the
+remainder. Accepting the preview makes no Odoo request and applies only to the
+current comparison. It does not edit the source, matching rules, or Odoo. If
+the comparison or preview has changed, Impodo rejects the old confirmation and
+asks you to review it again.
+
+![Reviewing complete affected groups before accepting a reduced load.](../../images/user/16c-review-affected-groups.png)
+
 If Impodo closes before the comparison is saved, the previously current review
 remains unchanged. Reopen **Final review** and compare again. A completed report
 is published atomically, so an interrupted attempt cannot make a partial review
@@ -53,7 +67,8 @@ whether anything needs attention, and what you should do next. Use **Needs
 attention** before reviewing **Records to load**. For a file source, **Records
 to load** shows the prepared values that Impodo will use. **Changes to Odoo**
 shows the new value first and retains the current Odoo value as supporting
-evidence.
+evidence. After an affected-group decision, **Deferred issues** retains every
+omitted record with its source row and direct or inherited reason.
 
 The workbook uses status words as well as colours. A neutral blank is not a
 problem by itself; **Cannot proceed** identifies a record that Impodo will hold
@@ -142,6 +157,8 @@ still requires a new data version and fresh Odoo evidence.
 - Unchanged rows require no write.
 - Every changed field is expected and approved.
 - No relationship points to an unresolved or ambiguous record.
+- Every intended numeric write fits the captured Odoo field precision exactly;
+  Impodo does not round a value or choose a rounding method automatically.
 - A rerun against refreshed Odoo evidence gives an explainable result.
 
 For an update-only reload of existing records, any nonzero **Create** count is
@@ -149,9 +166,11 @@ a hard stop until the identity or target evidence is corrected.
 
 ## What Complete means
 
-The current report is **Ready** with no ambiguous or blocked rows and remains
-bound to the exact prepared and target evidence. The load stage can become
-available for the current data version.
+The current report is **Ready** with no ambiguous or blocked rows, or **Ready
+with records set aside** after a reviewed complete-group decision. It remains
+bound to the exact prepared and target evidence. At least one safe write must
+remain before the load stage can become available for the current data
+version.
 
 ## What changes and what does not
 

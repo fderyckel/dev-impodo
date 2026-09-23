@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Iterable, Protocol
 
@@ -45,7 +45,7 @@ class ReferencePolicyDenial(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class StandardReferenceFieldContract:
-    """Exact Odoo 19 metadata for one reviewed reference field."""
+    """Exact major-version metadata for one reviewed reference field."""
 
     name: str
     field_type: str
@@ -162,21 +162,46 @@ CURRENCY_REFERENCE_KEY = StandardReferenceKey(
     reason="Odoo uses the ISO currency code as the stable currency identity.",
 )
 
+ODOO_20_COUNTRY_REFERENCE_KEY = replace(
+    COUNTRY_REFERENCE_KEY,
+    odoo_major_version=20,
+)
+ODOO_20_LANGUAGE_REFERENCE_KEY = replace(
+    LANGUAGE_REFERENCE_KEY,
+    odoo_major_version=20,
+)
+ODOO_20_CURRENCY_REFERENCE_KEY = replace(
+    CURRENCY_REFERENCE_KEY,
+    odoo_major_version=20,
+)
+
 
 # This allowlist is intentionally narrower than general business-key
 # recommendations. Each entry must be stable and unambiguous without caveats.
-_STANDARD_REFERENCE_KEYS = {
-    item.model: item
-    for item in (
-        COUNTRY_REFERENCE_KEY,
-        LANGUAGE_REFERENCE_KEY,
-        CURRENCY_REFERENCE_KEY,
-    )
+_STANDARD_REFERENCE_KEYS_BY_MAJOR = {
+    19: {
+        item.model: item
+        for item in (
+            COUNTRY_REFERENCE_KEY,
+            LANGUAGE_REFERENCE_KEY,
+            CURRENCY_REFERENCE_KEY,
+        )
+    },
+    20: {
+        item.model: item
+        for item in (
+            ODOO_20_COUNTRY_REFERENCE_KEY,
+            ODOO_20_LANGUAGE_REFERENCE_KEY,
+            ODOO_20_CURRENCY_REFERENCE_KEY,
+        )
+    },
 }
 
 
-REFERENCE_POLICY_HASH = content_hash(
-    {
+def _reference_policy_hash(
+    references: dict[str, StandardReferenceKey],
+) -> str:
+    return content_hash({
         "contract": "governed-reference-policy",
         "version": REFERENCE_POLICY_VERSION,
         "bounded_match_probe": {
@@ -215,12 +240,31 @@ REFERENCE_POLICY_HASH = content_hash(
                 ],
             }
             for item in sorted(
-                _STANDARD_REFERENCE_KEYS.values(),
+                references.values(),
                 key=lambda reference: reference.model,
             )
         ],
-    }
+    })
+
+
+REFERENCE_POLICY_HASHES = {
+    major: _reference_policy_hash(references)
+    for major, references in _STANDARD_REFERENCE_KEYS_BY_MAJOR.items()
+}
+# Compatibility alias for existing Odoo 19 Recipes and evidence.
+REFERENCE_POLICY_HASH = REFERENCE_POLICY_HASHES[19]
+PREVIOUS_REFERENCE_POLICY_HASH = (
+    "sha256:462e13bfba360a4c4ddc1124a8ed3426fad99755bb6d62f98305d6ecf1fe5a11"
 )
+READABLE_REFERENCE_POLICY_HASHES = frozenset(
+    {*REFERENCE_POLICY_HASHES.values(), PREVIOUS_REFERENCE_POLICY_HASH}
+)
+
+
+def reference_policy_hash(odoo_major_version: int) -> str | None:
+    """Return the reviewed policy identity for one Odoo major."""
+
+    return REFERENCE_POLICY_HASHES.get(odoo_major_version)
 
 
 def authorize_supporting_match_probe(
@@ -241,8 +285,10 @@ def authorize_supporting_match_probe(
         request.scope_fields == ("company_id",)
         and request.requested_fields == ("name", "company_id")
     )
+    current_policy_hash = reference_policy_hash(request.odoo_major_version)
     accepted = bool(
-        request.purpose is ReferenceReadPurpose.MATCH_CHOICES
+        current_policy_hash is not None
+        and request.purpose is ReferenceReadPurpose.MATCH_CHOICES
         and request.relationship_type == "many2one"
         and request.relationship_model == request.related_model
         and bool(request.parent_model)
@@ -272,15 +318,27 @@ def authorize_supporting_match_probe(
         evidence_kind=(
             ReferenceEvidenceKind.BOUNDED_MATCH_PROBE if accepted else None
         ),
-        policy_hash=REFERENCE_POLICY_HASH,
-        denial=(None if accepted else ReferencePolicyDenial.MODEL_NOT_REVIEWED),
+        policy_hash=current_policy_hash or REFERENCE_POLICY_HASH,
+        denial=(
+            None
+            if accepted
+            else (
+                ReferencePolicyDenial.ODOO_VERSION_MISMATCH
+                if current_policy_hash is None
+                else ReferencePolicyDenial.MODEL_NOT_REVIEWED
+            )
+        ),
     )
 
 
-def standard_reference_key(model: str) -> StandardReferenceKey | None:
+def standard_reference_key(
+    model: str,
+    *,
+    odoo_major_version: int = 19,
+) -> StandardReferenceKey | None:
     """Return an exact reviewed reference rule, never a field-name guess."""
 
-    return _STANDARD_REFERENCE_KEYS.get(model)
+    return _STANDARD_REFERENCE_KEYS_BY_MAJOR.get(odoo_major_version, {}).get(model)
 
 
 def captured_reference_field_contracts(
@@ -312,6 +370,8 @@ def authorize_governed_reference(
     types into this small domain contract before requesting a decision.
     """
 
+    current_policy_hash = reference_policy_hash(request.odoo_major_version)
+
     def reject(
         denial: ReferencePolicyDenial,
         *,
@@ -321,12 +381,14 @@ def authorize_governed_reference(
         return GovernedReferenceDecision(
             accepted=False,
             evidence_kind=None,
-            policy_hash=REFERENCE_POLICY_HASH,
+            policy_hash=current_policy_hash or REFERENCE_POLICY_HASH,
             contract=contract,
             denial=denial,
             affected_field=affected_field,
         )
 
+    if current_policy_hash is None:
+        return reject(ReferencePolicyDenial.ODOO_VERSION_MISMATCH)
     if (
         not request.parent_model
         or not request.relationship_field
@@ -339,7 +401,10 @@ def authorize_governed_reference(
     if request.all_fields or request.include_unique_constraints:
         return reject(ReferencePolicyDenial.UNBOUNDED_METADATA)
 
-    standard = standard_reference_key(request.related_model)
+    standard = standard_reference_key(
+        request.related_model,
+        odoo_major_version=request.odoo_major_version,
+    )
     standard_identity = bool(
         standard is not None
         and standard.key_fields == request.key_fields
@@ -380,7 +445,7 @@ def authorize_governed_reference(
         return GovernedReferenceDecision(
             accepted=True,
             evidence_kind=ReferenceEvidenceKind.REVIEWED_STANDARD,
-            policy_hash=REFERENCE_POLICY_HASH,
+            policy_hash=current_policy_hash,
             contract=standard,
         )
 
@@ -425,7 +490,7 @@ def authorize_governed_reference(
         return GovernedReferenceDecision(
             accepted=True,
             evidence_kind=ReferenceEvidenceKind.REVIEWED_STANDARD,
-            policy_hash=REFERENCE_POLICY_HASH,
+            policy_hash=current_policy_hash,
             contract=standard,
         )
 
@@ -437,6 +502,6 @@ def authorize_governed_reference(
     return GovernedReferenceDecision(
         accepted=True,
         evidence_kind=ReferenceEvidenceKind.CAPTURED_GOVERNED,
-        policy_hash=REFERENCE_POLICY_HASH,
+        policy_hash=current_policy_hash,
         contract=None,
     )

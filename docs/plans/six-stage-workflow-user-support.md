@@ -3,9 +3,10 @@
 ## Status and decision
 
 **Status:** In progress, 2026-09-23. The first Stage 2 slice of Proposals 1 and
-2 and the direct-identity slice of Proposal 3 are implemented. Every remaining
-change is still proposed unless a section explicitly marks it as current
-behavior.
+2, the direct-identity slice of Proposal 3, and the first relationship-simulator
+slice of Proposal 6 are implemented. Proposal 9's shared comparison and
+reviewed deferred-record workflow are also implemented. Every remaining change
+is still proposed unless a section explicitly marks it as current behavior.
 
 This plan is for the product owner and the developers who own Impodo's
 six-stage Authoring workflow. It proposes how Impodo should help a data manager
@@ -44,14 +45,51 @@ IDs.
 
 This slice deliberately does not weaken a relational identity into an
 unscoped scalar check. A parent-, company-, or other related-record component
-remains explicitly not tested until Proposal 6 provides the relationship
-simulator. Final review remains authoritative.
+remains explicitly not tested. The first Proposal 6 slice checks saved
+relationship fields but does not yet complete a dataset's resolver-backed
+identity. Final review remains authoritative.
 
 This slice does not yet pair dependencies with accepted source tables, derive
 recursive Recipe or Odoo-source capture closure, authorize supporting reads,
 include optional many-to-one or many-to-many fields without source or Recipe
 intent, prove relationship values, or add the issue summary to global
 navigation.
+
+### Implemented third slice
+
+Stage 3 now adds **Relationship health** to the same explicit bounded check.
+For saved Many2one and Many2many fields with direct scalar related keys, it
+checks target-only, incoming-only, and target-first providers against the
+included owner rows and included related rows. It reports aggregate existing
+Odoo, incoming, missing, ambiguous, case-only, incomplete compound-key, and
+blank counts. A required blank blocks readiness; an optional blank does not.
+
+The read planner groups distinct keys by related model and matching rule,
+chunks them through the existing read-only path, and never makes a request per
+source row. Dataset-only relationships do not read related Odoo records. Exact
+keys and numeric Odoo IDs remain protected; the browser and portable Recipe
+receive only counts and correction routes.
+
+The slice also points an invalid One2many choice to the child dataset's inverse
+Many2one when that selected route exists. It does not yet publish a protected
+unresolved-value review page, simulate a relationship whose governed key
+contains another related field, or complete resolver-backed dataset identity.
+
+### Implemented fourth slice
+
+After approved preparation, Stage 4 now exposes the same **Compare with Odoo**
+action owned by Final review. Both entry points use one comparison job and one
+saved result. Stage 4 does not introduce another target-reference checker or
+Odoo scan.
+
+For file-source comparisons with isolatable blockers, Stage 5 now offers
+**Preview affected groups** and a reviewed **Set aside affected groups for this
+load** decision. Dependency closure keeps required parents, children, and
+siblings together; the reduced execution snapshot is rebuilt locally and the
+workbook retains every omitted record with its direct or inherited reason.
+Exact numeric-precision findings are evaluated against intended writes. The
+preview, acceptance, and workbook do not contact Odoo, and stale comparison or
+preview evidence is rejected.
 
 The impact score measures the benefit to the data manager, not implementation
 cost:
@@ -579,6 +617,14 @@ suggestion accelerates work but cannot prove that current values are safe.
 **Owning stage:** Match data.  
 **User impact:** **10/10**.
 
+**Current delivery:** The first field-mapping slice is implemented. Direct
+scalar Many2one and Many2many related keys, all three resolver origins,
+constant existing-record providers, required-parent counts, case-only
+protection, aggregate correction routes, and inverse One2many guidance are
+current. Protected unresolved-value review and nested relational keys remain
+planned. Resolver-backed components of the dataset's own identity also remain
+planned.
+
 ### Process improvement
 
 For every Many2one or Many2many mapping, an explicit read-only check should
@@ -783,6 +829,9 @@ the Load page.
 **Owning stages:** Prepare data and Final review.  
 **User impact:** **9.5/10**.
 
+**Delivery:** Implemented 2026-09-23. See
+[Reviewed deferred record groups](../developer/contracts/deferred-record-groups.md).
+
 ### Process improvement
 
 After Stage 4 freezes resolved and normalized prepared data, the data manager
@@ -806,9 +855,10 @@ records that would actually write a value Odoo cannot represent without loss.
 This finding must appear in Stage 5, before **Load into Odoo** becomes
 available.
 
-This proposal adopts the detailed safety and performance boundaries in the
-[Stage 4 comparison and deferred-record plan](stage4-comparison-and-deferred-record-groups.md)
-rather than creating a second target-reference checker.
+The implemented workflow follows the detailed safety and performance
+boundaries in the [reviewed deferred record groups
+contract](../developer/contracts/deferred-record-groups.md) rather than
+creating a second target-reference checker.
 
 ### Interface improvement
 
@@ -936,19 +986,19 @@ the highest-risk stage, so it receives a near-maximum score.
 | --- | --- | --- |
 | **1 - delivered** | First slice of 1. Issue register and 2. Supporting-model derivation | Remove hidden Stage 2 Odoo knowledge first and establish the shared issue language. Direct schema discovery and the Stage 2 blocker are implemented. |
 | **2 - delivered in part** | 3. Identity proof | Direct scalar identities are now proved. Relational scope and protected duplicate-group review remain. |
-| **3 - next slice** | 6. Relationship simulator | Reuse proven identities to find missing and ambiguous parents before preparation or Final review, and complete relational identity scope. |
-| **4** | 8. Root-cause repair plans; first slice of 9. Shared comparison | Consolidate dependent failures and move exact precision findings earlier without adding a second normal comparison. |
-| **5** | Second slice of 9. Reviewed set-aside; 10. Migration intent and load cockpit | Permit a reviewed safe remainder, then bind loading to an explicit business result. |
-| **6** | 4. Defaults assistant; 5. Mapping starter; 7. Inline rule effects | Reduce setup effort after the identity, relationship, and shared issue contracts are stable. |
+| **3 - delivered in part** | 6. Relationship simulator | Saved direct-key relationship fields now expose missing and ambiguous parents before preparation or Final review. Nested relational keys, protected unresolved-value review, and resolver-backed dataset identity remain. |
+| **4 - delivered in part** | 8. Root-cause repair plans | Preparation already distinguishes direct and inherited dependency findings. The broader correction-route and potential-precision experience remains. |
+| **5 - delivered** | 9. Shared comparison and reviewed set-aside | One comparison can start after Stage 4 approval; Stage 5 can retain a reviewed safe remainder with exact intended-write precision evidence. |
+| **6** | 10. Migration intent and load cockpit | Bind loading to an explicit business result after the safe technical scope is known. |
+| **7** | 4. Defaults assistant; 5. Mapping starter; 7. Inline rule effects | Reduce setup effort after the identity, relationship, and shared issue contracts are stable. |
 
-The first two slices establish the issue vocabulary, direct Stage 2 dependency
-boundary, and direct Stage 3 identity proof. The next implementation slice
-should make relationship checks reuse the same bounded target-read planning
-rather than inventing a new connector or comparison path.
+The delivered slices establish the issue vocabulary, direct Stage 2 dependency
+boundary, direct Stage 3 identity proof and relationship checks, and one shared
+Stage 4-to-Stage 5 comparison path.
 
-The second delivery should expose the existing comparison from Stage 4 before
-adding reviewed set-aside decisions. That sequence first proves that the normal
-journey still performs one comparison and retains current responsiveness.
+The shared Stage 4 comparison and reviewed Stage 5 set-aside delivery is now
+complete. The next safety slice should finish Proposal 8's root-cause repair
+routes before Proposal 10 binds the load to migration intent.
 
 ## End-to-end acceptance scenario
 
@@ -1049,6 +1099,6 @@ mock-up must not replace authenticated acceptance evidence.
 - [Final review workflow](../developer/workflow/05-final-review.md)
 - [Load into Odoo workflow](../developer/workflow/06-load-into-odoo.md)
 - [Odoo data workflow](../developer/workflow/02-odoo-data.md)
-- [Stage 4 comparison and deferred record groups](stage4-comparison-and-deferred-record-groups.md)
+- [Reviewed deferred record groups contract](../developer/contracts/deferred-record-groups.md)
 - [Match data ordering qualification](smart-match-data-ordering.md)
 - [Workflow responsiveness qualification](responsive-workflow-liveness-and-navigation.md)

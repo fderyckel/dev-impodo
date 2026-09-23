@@ -15,7 +15,7 @@ contain the detailed endpoint-provisioning checklist.
 | Recipe state | Bounded registry plus AES-256-GCM protected immutable Recipe and qualification payloads |
 | DataVersion data | Owner-protected local files, immutable Parquet snapshots, and one contained DuckDB workspace |
 | Source intake | Governed `.csv` and `.xlsx` only |
-| Odoo reads | Fixed local reads or closed remote Odoo 19 JSON-2 `fields_get` and `search_read` |
+| Odoo reads | Fixed local reads or closed remote Odoo 19/final Odoo 20 JSON-2 `fields_get` and `search_read` |
 | Odoo writes | Separate explicit local or remote JSON-2 load/create/update capability, bound to one reviewed preview |
 | Execution evidence | Durable per-row journal plus hash-bound read-back reconciliation and fallout export |
 | Current scale | 100,000 verified native-columnar direct rows; 50,000 Python-fallback direct rows; 25,000 derived/materialized rows |
@@ -40,7 +40,7 @@ Managed workstation
         | fixed literal-loopback metadata/record reads, no API key
         | or outbound HTTPS read-only JSON-2 with a read account
         v
-  authorised Odoo 19 target
+  authorised Odoo 19 or final Odoo 20 read target
 
   Separate explicit load path
         |
@@ -193,7 +193,7 @@ without establishing a coherent confidentiality boundary.
 ### Odoo access
 
 The remote read connector requires HTTPS outside literal loopback and exposes
-only Odoo 19 JSON-2 `fields_get`, `search_read`, and the fixed identity sequence
+only qualified Odoo 19 or final Odoo 20 JSON-2 `fields_get`, `search_read`, and the fixed identity sequence
 above. Reads are projected, batched by model, and paginated deterministically.
 The separately confirmed writer described below does not widen that read
 connector.

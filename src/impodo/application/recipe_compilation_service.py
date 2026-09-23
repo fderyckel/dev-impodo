@@ -38,7 +38,6 @@ from ..domain.recipe_envelope import (
 )
 from impodo.domain.preparation.quality import QualityRuleSet, QualityRuleSource
 from impodo.domain.workspace.reference_keys import (
-    REFERENCE_POLICY_HASH,
     GovernedReferenceDecision,
     GovernedReferenceRequest,
     ReferenceEvidenceKind,
@@ -46,6 +45,7 @@ from impodo.domain.workspace.reference_keys import (
     ReferenceReadPurpose,
     authorize_governed_reference,
     captured_reference_field_contracts,
+    reference_policy_hash,
 )
 from ..domain.recipe.models import (
     RecipeConflictError,
@@ -1304,7 +1304,9 @@ class RecipeCompiler:
                 ),
                 "models": model_payload,
                 "odoo_major_version": odoo_major_version,
-                "reference_policy_hash": REFERENCE_POLICY_HASH,
+                "reference_policy_hash": reference_policy_hash(
+                    odoo_major_version
+                ),
                 "required_applications": [],
             },
             {"dependencies": dependencies},

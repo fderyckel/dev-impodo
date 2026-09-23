@@ -44,6 +44,7 @@ from ...application.preflight_jobs import (
 from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.domain.odoo.contracts import ConnectorError
 from ...domain.errors import ReadinessError
+from ...domain.preflight.deferred_scope import DeferredScopeEvidenceError
 from impodo.domain.project.foundation import MigrationFoundationError
 from ...domain.run.models import MigrationRunPurpose
 from impodo.adapters.artifacts.reporting import (
@@ -490,6 +491,165 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             _preflight_job_payload(job)
         )
 
+    @router.get(
+        "/workspaces/{workspace_id}/summary/deferred-groups",
+        response_class=HTMLResponse,
+    )
+    async def review_deferred_groups(request: Request, workspace_id: str):
+        require_session(request)
+        context.workspace_access.resolve(
+            workspace_id,
+            actor=context.actor,
+            capability=Capability.PROTECTED_EVIDENCE_READ,
+        )
+        try:
+            review = await run_in_threadpool(
+                context.preflight.deferred_scope_review,
+                workspace_id,
+            )
+        except (
+            ArtifactStoreError,
+            DeferredScopeEvidenceError,
+            ReadinessError,
+            WorkspaceError,
+        ) as error:
+            return _render_deferred_scope(
+                request,
+                context,
+                workspace_id,
+                review=None,
+                error=str(error),
+                status_code=422,
+            )
+        if review is None:
+            _flash(
+                request,
+                "Compare the approved prepared data with Odoo before reviewing groups.",
+            )
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/summary",
+                status_code=303,
+            )
+        return _render_deferred_scope(
+            request,
+            context,
+            workspace_id,
+            review=review,
+        )
+
+    @router.post(
+        "/workspaces/{workspace_id}/summary/deferred-groups/preview",
+        response_class=HTMLResponse,
+    )
+    async def preview_deferred_groups(request: Request, workspace_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "issue_id"})
+        context.workspace_access.resolve(
+            workspace_id,
+            actor=context.actor,
+            capability=Capability.PROTECTED_EVIDENCE_READ,
+        )
+        selected = tuple(str(item) for item in form.getlist("issue_id"))
+        try:
+            review = await run_in_threadpool(
+                context.preflight.deferred_scope_review,
+                workspace_id,
+                selected_issue_ids=selected,
+            )
+        except (
+            ArtifactStoreError,
+            DeferredScopeEvidenceError,
+            ReadinessError,
+            WorkspaceError,
+        ) as error:
+            review = await run_in_threadpool(
+                _recover_deferred_scope_review,
+                context,
+                workspace_id,
+            )
+            return _render_deferred_scope(
+                request,
+                context,
+                workspace_id,
+                review=review,
+                error=str(error),
+                status_code=422,
+            )
+        return _render_deferred_scope(
+            request,
+            context,
+            workspace_id,
+            review=review,
+        )
+
+    @router.post(
+        "/workspaces/{workspace_id}/summary/deferred-groups/accept"
+    )
+    async def accept_deferred_groups(request: Request, workspace_id: str):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "issue_id", "comparison_id", "preview_hash"},
+        )
+        context.workspace_access.resolve(
+            workspace_id,
+            actor=context.actor,
+            capability=Capability.PREFLIGHT_RUN,
+        )
+        selected = tuple(str(item) for item in form.getlist("issue_id"))
+        try:
+            review = await run_in_threadpool(
+                context.preflight.deferred_scope_review,
+                workspace_id,
+                selected_issue_ids=selected,
+            )
+            if (
+                review is None
+                or review.preview is None
+                or _text(form, "comparison_id") != review.comparison_id
+                or _text(form, "preview_hash") != review.preview.semantic_hash
+            ):
+                raise DeferredScopeEvidenceError(
+                    "The group preview changed. Review it again before accepting."
+                )
+            acceptance = await run_in_threadpool(
+                context.preflight.accept_deferred_scope,
+                workspace_id,
+                selected_issue_ids=selected,
+                actor=context.actor,
+            )
+        except (
+            ArtifactStoreError,
+            DeferredScopeEvidenceError,
+            ReadinessError,
+            WorkspaceError,
+        ) as error:
+            current = await run_in_threadpool(
+                _recover_deferred_scope_review,
+                context,
+                workspace_id,
+            )
+            return _render_deferred_scope(
+                request,
+                context,
+                workspace_id,
+                review=current,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            f"Set aside {acceptance.preview.newly_set_aside_count} affected "
+            f"record{'s' if acceptance.preview.newly_set_aside_count != 1 else ''}. "
+            f"{acceptance.preview.remaining_write_count} write"
+            f"{'s' if acceptance.preview.remaining_write_count != 1 else ''} remain.",
+        )
+        return RedirectResponse(
+            f"/workspaces/{workspace_id}/summary",
+            status_code=303,
+        )
+
     @router.get("/workspaces/{workspace_id}/summary/manifest")
     async def download_readiness_manifest(request: Request, workspace_id: str):
         require_session(request)
@@ -571,7 +731,35 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 ),
                 status_code=422,
             )
-        if report.status != "READY":
+        try:
+            deferred_review = await run_in_threadpool(
+                context.preflight.deferred_scope_review,
+                workspace_id,
+            )
+        except (
+            ArtifactStoreError,
+            DeferredScopeEvidenceError,
+            OSError,
+            ReadinessError,
+            WorkspaceError,
+        ) as error:
+            return await run_in_threadpool(
+                _render_summary,
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=422,
+            )
+        accepted_deferred_review = (
+            deferred_review
+            if deferred_review is not None
+            and deferred_review.decision is not None
+            and deferred_review.preview is not None
+            and deferred_review.preview.ready_with_records_set_aside
+            else None
+        )
+        if report.status != "READY" and accepted_deferred_review is None:
             return await run_in_threadpool(
                 _render_summary,
                 request,
@@ -599,6 +787,16 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                         manifest_path,
                         workbook_path,
                         review_evidence=review_evidence,
+                        deferred_preview=(
+                            accepted_deferred_review.preview
+                            if accepted_deferred_review is not None
+                            else None
+                        ),
+                        deferred_issues=(
+                            accepted_deferred_review.issues
+                            if accepted_deferred_review is not None
+                            else ()
+                        ),
                     )
 
         try:
@@ -660,6 +858,41 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         )
 
     return router
+
+
+def _render_deferred_scope(
+    request: Request,
+    context: WebContext,
+    workspace_id: str,
+    *,
+    review,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    """Render one local group review without reading Odoo."""
+
+    return _render(
+        request,
+        "workspace_deferred_scope.html",
+        workspace_state=context.queries.get(workspace_id),
+        deferred_review=review,
+        error=error,
+        status_code=status_code,
+    )
+
+
+def _recover_deferred_scope_review(context: WebContext, workspace_id: str):
+    """Return current review evidence when possible after a rejected form."""
+
+    try:
+        return context.preflight.deferred_scope_review(workspace_id)
+    except (
+        ArtifactStoreError,
+        DeferredScopeEvidenceError,
+        ReadinessError,
+        WorkspaceError,
+    ):
+        return None
 
 
 def _preflight_manager(context: WebContext) -> PreflightJobManager:

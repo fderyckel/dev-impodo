@@ -1,4 +1,4 @@
-"""One current policy contract for governed Odoo-source capture.
+"""Per-major current policy contracts for governed Odoo-source capture.
 
 The policy is deliberately executable evidence rather than release prose.  A
 capture selection binds its hash, so changing identity, limits, field scope,
@@ -8,7 +8,7 @@ silently widening it.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 
 from .serialization import content_hash
@@ -75,7 +75,7 @@ class OdooSourcePolicy:
 
         return asdict(self)
 
-CURRENT_ODOO_SOURCE_POLICY = OdooSourcePolicy(
+ODOO_19_SOURCE_POLICY = OdooSourcePolicy(
     contract_version=ODOO_SOURCE_POLICY_CONTRACT_VERSION,
     odoo_major_version=19,
     api="JSON-2",
@@ -129,9 +129,53 @@ CURRENT_ODOO_SOURCE_POLICY = OdooSourcePolicy(
     deletion_rule="RETENTION_EXPIRY_OR_PROJECT_DELETION",
 )
 
+# Final Odoo 20 uses the same bounded read shape after Phase 3 qualification.
+# Its separate object and hash prevent a later policy change for one major
+# from silently changing evidence created for the other.
+ODOO_20_SOURCE_POLICY = replace(
+    ODOO_19_SOURCE_POLICY,
+    odoo_major_version=20,
+)
+ODOO_SOURCE_POLICIES = {
+    19: ODOO_19_SOURCE_POLICY,
+    20: ODOO_20_SOURCE_POLICY,
+}
+
+# Compatibility aliases keep existing Odoo 19 artifacts and callers stable.
+CURRENT_ODOO_SOURCE_POLICY = ODOO_19_SOURCE_POLICY
+
 # The policy is immutable process metadata. Canonicalize and hash it exactly
 # once, then reuse this fixed boundary value in every catalog and manifest.
-ODOO_SOURCE_POLICY_HASH = content_hash(CURRENT_ODOO_SOURCE_POLICY.to_dict())
+ODOO_SOURCE_POLICY_HASHES = {
+    major: content_hash(policy.to_dict())
+    for major, policy in ODOO_SOURCE_POLICIES.items()
+}
+ODOO_SOURCE_POLICY_HASH = ODOO_SOURCE_POLICY_HASHES[19]
+
+
+def odoo_source_policy(odoo_major_version: int) -> OdooSourcePolicy | None:
+    """Return the reviewed source-capture policy for one Odoo major."""
+
+    return ODOO_SOURCE_POLICIES.get(odoo_major_version)
+
+
+def odoo_source_policy_hash(odoo_major_version: int) -> str | None:
+    """Return the distinct current policy identity for one Odoo major."""
+
+    return ODOO_SOURCE_POLICY_HASHES.get(odoo_major_version)
+
+
+def odoo_source_policy_from_hash(policy_hash: str) -> OdooSourcePolicy | None:
+    """Resolve only a current policy hash; historical hashes stay read-only."""
+
+    return next(
+        (
+            ODOO_SOURCE_POLICIES[major]
+            for major, candidate in ODOO_SOURCE_POLICY_HASHES.items()
+            if candidate == policy_hash
+        ),
+        None,
+    )
 
 # Earlier selections remain readable as historical evidence. Planning a new
 # capture still requires ODOO_SOURCE_POLICY_HASH and an updated selection.
@@ -139,5 +183,5 @@ PREVIOUS_ODOO_SOURCE_POLICY_HASH = (
     "sha256:403be4a671a9e2a25ddee994ff0c337e0b271438a7ae47a60d68f5be3572ac01"
 )
 READABLE_ODOO_SOURCE_POLICY_HASHES = frozenset(
-    {ODOO_SOURCE_POLICY_HASH, PREVIOUS_ODOO_SOURCE_POLICY_HASH}
+    {*ODOO_SOURCE_POLICY_HASHES.values(), PREVIOUS_ODOO_SOURCE_POLICY_HASH}
 )

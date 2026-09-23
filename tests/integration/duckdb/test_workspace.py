@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
+from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASHES
 from impodo.application.data_version.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
@@ -162,9 +163,12 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def _capture_authenticated_schema(self, snapshot=None):
+        snapshot = snapshot or _metadata_snapshot()
         self.schemas.discover_models(
             self.workspace_state.workspace_id,
-            _model_catalog_snapshot(),
+            _model_catalog_snapshot(
+                odoo_version=snapshot.fingerprint.odoo_version,
+            ),
             read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             read_identity=_read_identity(("ir.model",)),
             actor=LOCAL_ACTOR,
@@ -183,7 +187,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         return self.schemas.capture(
             self.workspace_state.workspace_id,
-            snapshot or _metadata_snapshot(),
+            snapshot,
             read_credential_binding_hash="sha256:" + "8" * 64,
             read_identity=_read_identity(("res.partner",)),
             actor=LOCAL_ACTOR,
@@ -386,6 +390,14 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
         self.assertEqual(schema.read_principal_hash, "sha256:" + "1" * 64)
         self.assertEqual(schema.read_context_hash, "sha256:" + "4" * 64)
+
+    def test_final_odoo20_capture_binds_the_odoo20_source_policy(self) -> None:
+        schema = self._capture_authenticated_schema(
+            _metadata_snapshot(odoo_version="20.0"),
+        )
+
+        self.assertEqual(schema.odoo_version, "20.0")
+        self.assertEqual(schema.policy_hash, ODOO_SOURCE_POLICY_HASHES[20])
 
     def test_equivalent_schema_access_rebind_preserves_governance(self) -> None:
         schema = self._capture_authenticated_schema()
@@ -1733,7 +1745,9 @@ def _catalog(
 def _metadata_snapshot(
     *,
     create_defaults=None,
+    odoo_version: str = "19.0",
 ) -> MetadataSnapshot:
+    major = odoo_version.split(".", 1)[0]
     return MetadataSnapshot(
         fingerprint=TargetFingerprint(
             target_hash=target_identity_hash(
@@ -1743,9 +1757,9 @@ def _metadata_snapshot(
             ),
             connection_mode="LOCAL",
             database="odoo19_local",
-            odoo_version="19.0",
+            odoo_version=odoo_version,
             snapshot_timestamp="2026-07-29T12:00:00Z",
-            module_versions={"base": "19.0.1.0"},
+            module_versions={"base": f"{major}.0.1.0"},
         ),
         models={
             "res.partner": ModelMetadata(
@@ -1845,7 +1859,8 @@ def _read_identity(
     )
 
 
-def _model_catalog_snapshot() -> RecordSnapshot:
+def _model_catalog_snapshot(*, odoo_version: str = "19.0") -> RecordSnapshot:
+    major = odoo_version.split(".", 1)[0]
     fingerprint = TargetFingerprint(
         target_hash=target_identity_hash(
             connection_mode="LOCAL",
@@ -1854,9 +1869,9 @@ def _model_catalog_snapshot() -> RecordSnapshot:
         ),
         connection_mode="LOCAL",
         database="odoo19_local",
-        odoo_version="19.0",
+        odoo_version=odoo_version,
         snapshot_timestamp="2026-07-30T12:00:00Z",
-        module_versions={"base": "19.0.1.0"},
+        module_versions={"base": f"{major}.0.1.0"},
     )
     return RecordSnapshot(
         fingerprint=fingerprint,

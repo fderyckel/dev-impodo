@@ -33,7 +33,7 @@ silently dropping it.
 ## Odoo read boundary
 
 The preflight port exposes only the target fingerprint, requested model
-metadata, and requested records. The live Odoo 19 JSON-2 adapter allowlists
+metadata, and requested records. The live qualified-version JSON-2 adapter allowlists
 `fields_get` and `search_read`. It exposes no generic method, mutation, SQL,
 import, server action, or caller-supplied context.
 

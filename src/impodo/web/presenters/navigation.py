@@ -215,6 +215,7 @@ _TEMPLATE_LOCATION = {
     "workspace_resolution.html": ("prepare", "Review possible duplicates"),
     "workspace_normalization.html": ("prepare", "Approve prepared data"),
     "workspace_summary.html": ("review", "Final review"),
+    "workspace_deferred_scope.html": ("review", "Review affected groups"),
     "workspace_load.html": ("load", "Load into Odoo"),
     "workspace_load_progress.html": ("load", "Loading into Odoo"),
 }

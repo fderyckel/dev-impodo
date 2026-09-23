@@ -102,11 +102,13 @@ def prepare(target_name: str, source: Path, python: Path, postgres_bin: Path) ->
     if _output(["git", "-C", str(source), "status", "--porcelain", "--untracked-files=all"]):
         raise ValueError("Use a clean Odoo checkout, without extra addons or configuration")
     python_version = _output([str(python), "--version"])
-    if not python_version.startswith("Python 3.12."):
-        raise ValueError("This baseline requires Python 3.12")
+    expected_python = str(target["python_major_minor"])
+    if not python_version.startswith(f"Python {expected_python}."):
+        raise ValueError(f"This target requires Python {expected_python}")
     postgres_version = _output([str(postgres_bin / "postgres.exe"), "--version"])
-    if not re.search(r"PostgreSQL\) 17\.", postgres_version):
-        raise ValueError("This baseline requires PostgreSQL 17")
+    expected_postgres = int(target["postgres_major"])
+    if not re.search(rf"PostgreSQL\) {expected_postgres}\.", postgres_version):
+        raise ValueError(f"This target requires PostgreSQL {expected_postgres}")
     for port in (target["http_port"], target["postgres_port"]):
         _require_free_port(port)
     config = configuration(target, source, destination)
@@ -174,7 +176,11 @@ def prepare(target_name: str, source: Path, python: Path, postgres_bin: Path) ->
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", choices=("baseline", "preview"), required=True)
+    parser.add_argument(
+        "--target",
+        choices=("baseline", "preview", "odoo20"),
+        required=True,
+    )
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--python", type=Path, required=True)
     parser.add_argument("--postgres-bin", type=Path, required=True)

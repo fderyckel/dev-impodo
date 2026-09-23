@@ -15,11 +15,10 @@ from tests.support.browser_scenarios import (
     SchemaOrigin,
     SourceSelection,
     TargetCredentialRole,
-    WorkspaceStatus,
     _browser_model_catalog,
     _browser_schema,
     _created_workspace_id,
-    _replace_run_target_setup,
+    _register_workspace_through_services,
     _workspace_data_version_id,
     datetime,
     get_target_credential,
@@ -37,19 +36,9 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             source_system="Other",
         )
         now = datetime.now(timezone.utc)
-        workspace_state = replace(
+        workspace_state = _register_workspace_through_services(
+            context,
             created,
-            status=WorkspaceStatus.REGISTERED,
-            revision=created.revision + 1,
-            updated_at=now,
-            registered_at=now,
-        )
-        context.workspace_states.repository.save(
-            workspace_state,
-            expected_revision=created.revision,
-            event_type="WORKSPACE_REGISTERED",
-            event_detail="",
-            actor=context.actor,
         )
         workspace_id = workspace_state.workspace_id
         context.sources.sources.save_source_selection(
@@ -337,20 +326,9 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             name="One approved Odoo key",
             source_system="Other",
         )
-        now = datetime.now(timezone.utc)
-        workspace_state = replace(
+        workspace_state = _register_workspace_through_services(
+            context,
             created,
-            status=WorkspaceStatus.REGISTERED,
-            revision=created.revision + 1,
-            updated_at=now,
-            registered_at=now,
-        )
-        context.workspace_states.repository.save(
-            workspace_state,
-            expected_revision=created.revision,
-            event_type="WORKSPACE_REGISTERED",
-            event_detail="",
-            actor=context.actor,
         )
         workspace_id = workspace_state.workspace_id
 
@@ -581,7 +559,7 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         cases = (
             (
                 wrong_version,
-                "Impodo requires Odoo 19; this target reported Odoo 18.0.",
+                "Impodo does not support this operation on Odoo 18.0.",
                 "ODOO_VERSION_UNSUPPORTED",
             ),
             (
@@ -638,30 +616,13 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             source_system="CSV",
         )
         now = datetime.now(timezone.utc)
-        registered = replace(
-            created,
-            odoo_connection_mode=OdooConnectionMode.LOCAL,
-            odoo_base_url="http://127.0.0.1:8069",
-            odoo_database="odoo19_local",
-            intended_models=("res.partner",),
-            status=WorkspaceStatus.REGISTERED,
-            revision=2,
-            updated_at=now,
-            registered_at=now,
-        )
-        context.workspace_states.repository.save(
-            registered,
-            expected_revision=created.revision,
-            event_type="WORKSPACE_REGISTERED",
-            event_detail="",
-            actor=context.actor,
-        )
-        _replace_run_target_setup(
+        registered = _register_workspace_through_services(
             context,
-            registered.workspace_id,
+            created,
             connection_mode=OdooConnectionMode.LOCAL,
             base_url="http://127.0.0.1:8069",
             database="odoo19_local",
+            intended_models=("res.partner",),
         )
         context.sources.sources.save_source_selection(
             registered.workspace_id,
@@ -709,27 +670,9 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             source_system="CSV",
         )
         now = datetime.now(timezone.utc)
-        registered = replace(
-            created,
-            odoo_connection_mode=OdooConnectionMode.LOCAL,
-            odoo_base_url="http://127.0.0.1:18069",
-            odoo_database="odoo19_local",
-            intended_applications=("Contacts",),
-            status=WorkspaceStatus.REGISTERED,
-            revision=2,
-            updated_at=now,
-            registered_at=now,
-        )
-        context.workspace_states.repository.save(
-            registered,
-            expected_revision=created.revision,
-            event_type="WORKSPACE_REGISTERED",
-            event_detail="",
-            actor=context.actor,
-        )
-        _replace_run_target_setup(
+        registered = _register_workspace_through_services(
             context,
-            registered.workspace_id,
+            created,
             connection_mode=OdooConnectionMode.LOCAL,
             base_url="http://127.0.0.1:18069",
             database="odoo19_local",

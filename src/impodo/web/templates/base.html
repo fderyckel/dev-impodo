@@ -43,7 +43,7 @@
         </div>
       </div>
       <span class="boundary">
-        {% if "/load" in current_path or "/correction" in current_path %}Odoo change · explicit action only{% else %}Safe preview · Odoo stays unchanged{% endif %}
+        {% if "/load" in current_path or "/transfer-load" in current_path or "/correction" in current_path %}Odoo change · explicit action only{% else %}Safe preview · Odoo stays unchanged{% endif %}
         {{ app_icon("shield-check") }}
       </span>
     </header>

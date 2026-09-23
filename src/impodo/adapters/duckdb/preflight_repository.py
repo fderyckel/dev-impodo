@@ -522,6 +522,132 @@ class PreflightRepository(DuckDbRepository):
                 raise
         self._workspaces.synchronize_registration_artifacts(workspace_id)
 
+    def save_deferred_scope_projection(
+        self,
+        workspace_id: str,
+        run_id: str,
+        *,
+        execution_summary: ExecutionPreviewSummary,
+        decision_hash: str,
+        actor: Actor,
+    ) -> None:
+        """Publish the compact load projection for one reviewed safe remainder."""
+
+        self._assert_workspace_mutable(workspace_id)
+        try:
+            canonical_run_id = str(UUID(run_id))
+        except (ValueError, AttributeError) as error:
+            raise WorkspaceError("Readiness run identifier is invalid") from error
+        if (
+            execution_summary.preflight_run_id != canonical_run_id
+            or execution_summary.comparison_status != "READY"
+            or execution_summary.has_attention
+            or not decision_hash.startswith("sha256:")
+            or len(decision_hash) != 71
+        ):
+            raise WorkspaceError("Deferred-scope execution projection is invalid")
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            connection.begin()
+            try:
+                current = connection.execute(
+                    "SELECT run_id FROM preflight_current WHERE singleton_id = 1"
+                ).fetchone()
+                if current is None or str(current[0]) != canonical_run_id:
+                    raise WorkspaceError(
+                        "The reviewed set-aside scope is no longer current"
+                    )
+                connection.execute(
+                    """
+                    UPDATE preflight_execution_projection
+                       SET snapshot_hash = ?, snapshot_root_hash = ?,
+                           comparison_status = ?, create_count = ?,
+                           update_count = ?, unchanged_count = ?,
+                           blocked_count = ?, ambiguous_count = ?,
+                           relationship_blocker_count = ?, target_hash = ?,
+                           target_odoo_version = ?,
+                           read_credential_binding_hash = ?,
+                           read_principal_hash = ?, read_permission_hash = ?,
+                           read_context_hash = ?, execution_shape_ready = ?,
+                           contract_version = ?
+                     WHERE run_id = ?
+                    """,
+                    [
+                        execution_summary.snapshot_hash,
+                        execution_summary.snapshot_root_hash,
+                        execution_summary.comparison_status,
+                        execution_summary.create_count,
+                        execution_summary.update_count,
+                        execution_summary.unchanged_count,
+                        execution_summary.blocked_count,
+                        execution_summary.ambiguous_count,
+                        execution_summary.relationship_blocker_count,
+                        execution_summary.target_hash,
+                        execution_summary.target_odoo_version,
+                        execution_summary.read_credential_binding_hash,
+                        execution_summary.read_principal_hash,
+                        execution_summary.read_permission_hash,
+                        execution_summary.read_context_hash,
+                        execution_summary.execution_shape_ready,
+                        execution_summary.contract_version,
+                        canonical_run_id,
+                    ],
+                )
+                saved = connection.execute(
+                    """
+                    SELECT snapshot_hash, comparison_status
+                      FROM preflight_execution_projection
+                     WHERE run_id = ?
+                    """,
+                    [canonical_run_id],
+                ).fetchone()
+                if saved != (
+                    execution_summary.snapshot_hash,
+                    execution_summary.comparison_status,
+                ):
+                    raise WorkspaceError(
+                        "Deferred-scope execution projection was not saved"
+                    )
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO preflight_transition
+                    VALUES (?, 'DEFERRED_SCOPE_ACCEPTED', ?, ?, ?)
+                    """,
+                    [
+                        canonical_run_id,
+                        datetime.now(timezone.utc).isoformat(),
+                        actor.identity.display_name,
+                        decision_hash,
+                    ],
+                )
+                connection.execute(
+                    """
+                    UPDATE workspace_projection_cache
+                       SET current_run_id = ?, approval_status = 'APPROVED'
+                    """,
+                    [canonical_run_id],
+                )
+                revision = self._workspace_revision(connection)
+                self._insert_workspace_audit(
+                    connection,
+                    revision=revision,
+                    event_type="DEFERRED_SCOPE_ACCEPTED",
+                    detail=(
+                        f"run {canonical_run_id}: "
+                        f"{execution_summary.write_count} write(s) remain; "
+                        f"decision {decision_hash}"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        self._workspaces.synchronize_registration_artifacts(workspace_id)
+
     def get_readiness_rows(
         self,
         workspace_id: str,

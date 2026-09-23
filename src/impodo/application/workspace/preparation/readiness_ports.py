@@ -576,6 +576,18 @@ class PreflightRepository(Protocol):
         """Atomically store header, streamed rows, snapshots, pointer, and audit."""
         ...
 
+    def save_deferred_scope_projection(
+        self,
+        workspace_id: str,
+        run_id: str,
+        *,
+        execution_summary: ExecutionPreviewSummary,
+        decision_hash: str,
+        actor: Actor,
+    ) -> None:
+        """Replace the current load projection after reviewed local reduction."""
+        ...
+
     def get_readiness_rows(
         self,
         workspace_id: str,

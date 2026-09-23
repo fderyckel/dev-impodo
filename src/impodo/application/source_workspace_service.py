@@ -43,7 +43,8 @@ from ..domain.odoo_source_capture import (
     is_odoo_capture_value_field,
     plan_odoo_source_capture,
 )
-from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
+from ..domain.odoo_source_policy import odoo_source_policy_hash
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from ..domain.source_binding import FileSourceBinding, require_file_source
 from impodo.application.data_version.inspection import (
     SourceFileCatalog,
@@ -274,8 +275,18 @@ class SourceWorkspaceService:
             raise WorkspaceError(
                 "Replace the unverified local schema draft with a live capture"
             )
+        version_decision = assess_odoo_operation(
+            schema.odoo_version,
+            OdooOperation.CAPTURE_SOURCE,
+        )
+        expected_policy_hash = (
+            odoo_source_policy_hash(version_decision.version.major)
+            if version_decision.allowed
+            else None
+        )
         if not (
-            schema.policy_hash == ODOO_SOURCE_POLICY_HASH
+            expected_policy_hash is not None
+            and schema.policy_hash == expected_policy_hash
             and schema.connection_target_hash
             and schema.read_principal_hash
             and schema.read_permission_hash
@@ -424,6 +435,7 @@ class SourceWorkspaceService:
                 ),
                 max_rows=MAX_ODOO_CAPTURE_ROWS,
                 page_size=parsed_page_size,
+                policy_hash=schema.policy_hash,
                 connection_target_hash=schema.connection_target_hash,
                 schema_scope_hash=schema.content_hash,
                 read_principal_hash=schema.read_principal_hash,
@@ -459,6 +471,7 @@ class SourceWorkspaceService:
                     filter_policy=selection.filter_policy,
                     max_rows=selection.max_rows,
                     page_size=selection.page_size,
+                    policy_hash=selection.policy_hash,
                     protected_filter_artifact_hash=artifact_hash,
                     connection_target_hash=selection.connection_target_hash,
                     schema_scope_hash=selection.schema_scope_hash,

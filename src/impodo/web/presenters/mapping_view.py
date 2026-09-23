@@ -88,6 +88,7 @@ from ..mapping_formula_authoring import (
 from ..mapping_catalog_runtime import MappingCatalogProjectionCache
 from .common import _render
 from .identity_health import identity_health_view
+from .relationship_health import relationship_health_view
 from .mapping_forms import (
     _canonical_mapping_type,
     _related_business_keys,
@@ -494,6 +495,14 @@ def _render_mapping(
         check_attempt=matching_order_attempt,
         working_draft_is_current=working_draft_is_current,
     )
+    relationship_health = relationship_health_view(
+        workspace_id=workspace_id,
+        dataset_views=dataset_views,
+        live_check=matching_order_check,
+        live_check_current=matching_order_check_current,
+        check_attempt=matching_order_attempt,
+        working_draft_is_current=working_draft_is_current,
+    )
     mapping_review_workbook_ready = False
     if revision is not None and validation is not None and not has_unvalidated_changes:
         try:
@@ -571,6 +580,7 @@ def _render_mapping(
         dataset_views=dataset_views,
         collision_draft=collision_draft,
         identity_health=identity_health,
+        relationship_health=relationship_health,
         matching_order=matching_order_view,
         warning_issues=warning_issues,
         readonly_field_recovery=readonly_field_recovery,
@@ -1204,7 +1214,14 @@ def _matching_order_view(
             ),
             "partial": bool(live_check is not None and live_check.partial),
             "checked_relationship_count": (
-                len(live_check.relationship_results)
+                (
+                    sum(
+                        item.checked
+                        for item in live_check.relationship_health_results
+                    )
+                    if live_check.relationship_health_results
+                    else len(live_check.relationship_results)
+                )
                 if live_check is not None
                 else 0
             ),

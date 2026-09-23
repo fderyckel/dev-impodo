@@ -29,8 +29,8 @@ from .odoo_capture import (
 from .odoo_provenance import OdooOriginBatch, OdooRelationshipOriginColumn
 from .odoo_source_policy import (
     CURRENT_ODOO_SOURCE_POLICY,
-    ODOO_SOURCE_POLICY_HASH,
     TargetInstanceAssurance,
+    odoo_source_policy_from_hash,
 )
 from .serialization import canonical_json
 
@@ -183,7 +183,7 @@ class OdooSourceCaptureRequest:
     member_ids: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
-        policy = CURRENT_ODOO_SOURCE_POLICY
+        policy = odoo_source_policy_from_hash(self.policy_hash)
         object.__setattr__(self, "capture_role", OdooCaptureRole(self.capture_role))
         try:
             UUID(self.data_version_id)
@@ -232,24 +232,26 @@ class OdooSourceCaptureRequest:
                 "Odoo capture request limits are invalid"
             )
         if (
-            self.policy_hash != ODOO_SOURCE_POLICY_HASH
+            policy is None
             or not isinstance(self.filter_policy, OdooCaptureFilterPolicy)
             or self.consistency
             is not OdooCaptureConsistency.KEYSET_HIGH_WATER_INTERVAL
             or self.page_size not in ODOO_CAPTURE_PAGE_SIZES
             or self.maximum_rows < 1
-            or self.maximum_rows > policy.max_rows
-            or not 1 <= self.max_sample_rows <= policy.max_sample_rows
-            or not 1 <= self.max_request_bytes <= policy.max_request_bytes
-            or not 1 <= self.max_response_bytes <= policy.max_response_bytes
-            or not 1 <= self.max_value_bytes <= policy.max_value_bytes
-            or not 1 <= self.max_row_bytes <= policy.max_row_bytes
-            or not 1 <= self.max_snapshot_bytes <= policy.max_snapshot_bytes
-            or self.target_instance_assurance is not policy.target_instance_assurance
+            or self.maximum_rows > (policy.max_rows if policy is not None else 0)
+            or not 1 <= self.max_sample_rows <= (policy.max_sample_rows if policy is not None else 0)
+            or not 1 <= self.max_request_bytes <= (policy.max_request_bytes if policy is not None else 0)
+            or not 1 <= self.max_response_bytes <= (policy.max_response_bytes if policy is not None else 0)
+            or not 1 <= self.max_value_bytes <= (policy.max_value_bytes if policy is not None else 0)
+            or not 1 <= self.max_row_bytes <= (policy.max_row_bytes if policy is not None else 0)
+            or not 1 <= self.max_snapshot_bytes <= (policy.max_snapshot_bytes if policy is not None else 0)
+            or self.target_instance_assurance
+            is not (policy.target_instance_assurance if policy is not None else None)
         ):
             raise OdooSourceCaptureConfigurationError(
                 "Odoo capture request does not match the current policy"
             )
+        assert policy is not None
         projection = tuple(self.projection)
         if (
             not projection
@@ -567,8 +569,10 @@ def plan_odoo_source_capture(
 ) -> OdooSourceCaptureRequest:
     """Build the only request shape accepted by the live capture adapter."""
 
+    policy = odoo_source_policy_from_hash(selection.policy_hash)
     if (
-        selection.policy_hash != schema.policy_hash
+        policy is None
+        or selection.policy_hash != schema.policy_hash
         or selection.schema_scope_hash != schema.content_hash
         or selection.connection_target_hash != schema.connection_target_hash
         or selection.read_principal_hash != schema.read_principal_hash
@@ -578,6 +582,7 @@ def plan_odoo_source_capture(
         raise OdooSourceCaptureConfigurationError(
             "Odoo capture selection no longer matches the current schema evidence"
         )
+    assert policy is not None
     schema_model = next(
         (item for item in schema.models if item.name == selection.model),
         None,
@@ -648,12 +653,12 @@ def plan_odoo_source_capture(
             )
         clauses = selection.filter_clauses
     if (
-        len(clauses) > CURRENT_ODOO_SOURCE_POLICY.max_filter_clauses
+        len(clauses) > policy.max_filter_clauses
         or tuple(sorted(clauses, key=lambda item: item.field_name)) != clauses
         or len({item.field_name for item in clauses}) != len(clauses)
         or any(item.field_name in {"id", "write_date"} for item in clauses)
         or len(canonical_json([item.to_dict() for item in clauses]).encode("utf-8"))
-        > CURRENT_ODOO_SOURCE_POLICY.max_filter_bytes
+        > policy.max_filter_bytes
     ):
         raise OdooSourceCaptureConfigurationError("Odoo source filters are invalid or exceed the limit")
     for clause in clauses:
@@ -664,7 +669,6 @@ def plan_odoo_source_capture(
             )
         assert field is not None
         _validate_filter_values(clause, field)
-    policy = CURRENT_ODOO_SOURCE_POLICY
     return OdooSourceCaptureRequest(
         data_version_id=selection.data_version_id,
         selection_id=selection.selection_id,

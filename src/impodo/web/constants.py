@@ -6,6 +6,7 @@ SOURCE_SYSTEMS = (
     "Dynamics AX 2012",
     "Dynamics 365",
     "Odoo 19",
+    "Odoo 20",
     "Salesforce",
     "Excel or manual files",
     "Another ERP or CRM",

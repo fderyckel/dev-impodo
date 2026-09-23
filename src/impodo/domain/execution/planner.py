@@ -156,6 +156,7 @@ def plan_preflight_requirements(
     records: Iterable[PreparedRecord],
     *,
     maximum_keys_per_request: int = MAX_KEYS_PER_RECORD_REQUEST,
+    reference_policy_hash: str = REFERENCE_POLICY_HASH,
 ) -> PreflightRequirementPlan:
     """Build one deterministic plan whose record reads are always narrowed.
 
@@ -298,6 +299,7 @@ def plan_preflight_requirements(
         reference_requirements=plan_reference_read_requirements(plan),
         source_record_count=len(prepared_records),
         dependency_edges=plan.dependency_edges,
+        reference_policy_hash=reference_policy_hash,
     )
 
 

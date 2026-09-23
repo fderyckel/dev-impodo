@@ -9,9 +9,17 @@ from impodo.domain.odoo.contracts import (
     record_snapshot_from_json,
     record_snapshot_json,
 )
-from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
+from impodo.domain.odoo_source_policy import (
+    ODOO_SOURCE_POLICY_HASH,
+    ODOO_SOURCE_POLICY_HASHES,
+    READABLE_ODOO_SOURCE_POLICY_HASHES,
+)
 from impodo.domain.shared.models import target_identity_hash
-from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
+from impodo.domain.workspace.reference_keys import (
+    REFERENCE_POLICY_HASH,
+    REFERENCE_POLICY_HASHES,
+    READABLE_REFERENCE_POLICY_HASHES,
+)
 from tests.support.paths import REPOSITORY_ROOT
 
 
@@ -21,8 +29,26 @@ BASELINE = json.loads((FIXTURES / "odoo19-baseline.json").read_text(encoding="ut
 
 class Odoo19CompatibilityBaselineTests(unittest.TestCase):
     def test_existing_odoo19_policy_hashes_remain_stable(self):
-        self.assertEqual(ODOO_SOURCE_POLICY_HASH, BASELINE["source_policy_hash"])
-        self.assertEqual(REFERENCE_POLICY_HASH, BASELINE["reference_policy_hash"])
+        self.assertIn(
+            BASELINE["source_policy_hash"],
+            READABLE_ODOO_SOURCE_POLICY_HASHES,
+        )
+        self.assertEqual(ODOO_SOURCE_POLICY_HASH, ODOO_SOURCE_POLICY_HASHES[19])
+        self.assertIn(
+            BASELINE["reference_policy_hash"],
+            READABLE_REFERENCE_POLICY_HASHES,
+        )
+        self.assertEqual(REFERENCE_POLICY_HASH, REFERENCE_POLICY_HASHES[19])
+
+    def test_odoo20_has_distinct_current_source_policy_evidence(self):
+        self.assertNotEqual(
+            ODOO_SOURCE_POLICY_HASHES[19],
+            ODOO_SOURCE_POLICY_HASHES[20],
+        )
+        self.assertTrue(
+            {ODOO_SOURCE_POLICY_HASHES[19], ODOO_SOURCE_POLICY_HASHES[20]}
+            <= READABLE_ODOO_SOURCE_POLICY_HASHES
+        )
 
     def test_connection_identity_keeps_existing_canonical_hash(self):
         self.assertEqual(

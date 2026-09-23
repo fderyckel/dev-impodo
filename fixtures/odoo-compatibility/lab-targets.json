@@ -6,6 +6,8 @@
       "commit": "157874aad3aebef5bc9268de6e17530641107e31",
       "reported_version": "19.0",
       "python_lock": "requirements-windows-py312-baseline.txt",
+      "python_major_minor": "3.12",
+      "postgres_major": 17,
       "purpose": "Odoo 19 regression baseline",
       "database": "impodo_scenario_v19_baseline",
       "http_port": 18019,
@@ -15,10 +17,23 @@
       "commit": "f582f290ae4e775d0f4fe477ab9d5131f9e48598",
       "reported_version": "19.5a1",
       "python_lock": "requirements-windows-py312-preview.txt",
+      "python_major_minor": "3.12",
+      "postgres_major": 17,
       "purpose": "Odoo 20 investigation; not final Odoo 20 qualification",
       "database": "impodo_scenario_v20_preview",
       "http_port": 18020,
       "postgres_port": 55420
+    },
+    "odoo20": {
+      "commit": "dd5defe77fe1dc3bb02eddaca6e90d7daf34ed3d",
+      "reported_version": "20.0",
+      "python_lock": "requirements-windows-py312-odoo20.txt",
+      "python_major_minor": "3.12",
+      "postgres_major": 17,
+      "purpose": "Pinned final Odoo 20 read qualification",
+      "database": "impodo_scenario_v20_read_qualification",
+      "http_port": 18021,
+      "postgres_port": 55421
     }
   },
   "modules": ["base", "contacts", "product", "mrp"]

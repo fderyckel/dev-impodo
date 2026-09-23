@@ -28,15 +28,12 @@ those current references have been verified.
   the remaining grouped dependency explanations.
 - Complete [comparison recovery and performance work](responsive-final-review-comparison.md)
   and design [exact-record repair for known fallout](load-fallout-source-cell-workbook.md).
-- Design a [Stage 4 comparison and reviewed set-aside](stage4-comparison-and-deferred-record-groups.md)
-  so Stage 4 exposes target relationship failures through the existing Odoo
-  comparison, safe records can proceed, and the workbook retains every
-  omitted record for later repair.
 - Extend [scenario qualification](end-to-end-trial-and-scenario-qualification.md)
   through the full lifecycle and remaining target and browser lanes.
 - Deliver the [generic Odoo-to-Odoo migration](odoo-to-odoo-migration.md)
-  through complete source capture, reviewed destination policies, verified
-  loading, and measured qualification across supported model classes.
+  beyond its completed synthetic Contact vertical. Product, BOM,
+  empty-destination, interruption, recovery, and measured multi-model
+  qualification remain before the plan is complete.
 
 Each detailed plan retains its own status and prerequisites. Listing a
 proposal here does not activate a deferred track or authorize external writes.

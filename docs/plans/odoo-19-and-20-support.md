@@ -1,19 +1,23 @@
 ---
 audience: developer
 kind: plan
-status: proposed
+status: active
 ---
 
 # Support Odoo 19 and Odoo 20
 
 ## Decision summary
 
-**Status:** Phases 1 and 2 are implemented as of 2026-09-15. The Odoo 19
+**Status:** Phases 1 and 2 were implemented on 2026-09-15. Phase 3 was
+implemented and live-qualified on 2026-09-23. The Odoo 19
 baseline and isolated prerelease lab are recorded in the
 [Phase 1 report](../testing/odoo-compatibility-phase1.md). The shared version
 policy and its validation are recorded in the
-[Phase 2 report](../testing/odoo-compatibility-phase2.md). Phases 3 through 5
-remain proposed. Odoo 20 support has not been enabled or qualified.
+[Phase 2 report](../testing/odoo-compatibility-phase2.md). Final Odoo 20
+Community and Enterprise read qualification is recorded in the
+[Phase 3 report](../testing/odoo-compatibility-phase3.md). Phases 4 and 5 remain
+open. Odoo 20 writes, recovery, Integrated Test qualification, and Production
+remain disabled.
 
 **Reader:** Impodo maintainers deciding how to implement, test, and release
 dual-version support.
@@ -57,21 +61,23 @@ before destination matching. It resolves relationships in the destination
 using reviewed identities. A source database's numeric record IDs never
 become destination record IDs merely because both servers run the same version.
 
-These are proposed behaviors. Existing browser instructions remain the source
-of truth until implementation and qualification are complete.
+The same-major rule and final Odoo 20 read boundary are implemented. The
+write, recovery, transfer-execution, and release behaviors described later in
+this plan remain proposed until Phases 4 and 5 are complete.
 
 ## Release evidence and assumptions
 
-The official Odoo Experience event runs on September 24–26, 2026. Treat that
-as the planning window; the event page alone does not establish the exact
-availability of the final Odoo 20 packages.
+The official Odoo Experience event runs on September 24–26, 2026. The event
+page was planning context only; final-release qualification now rests on the
+pinned upstream build and live databases recorded in the Phase 3 report.
 [Official event information](https://www.odoo.com/event/odoo-experience-2026-9099/page/oxp26-be-practical-information).
 
-At inspection, Odoo's development branch declares version `19.5a1`. Its
-version definition also allows SaaS series names. A development or SaaS build
-must retain its actual identity; it must not be relabelled as final Odoo 20.
-The final Odoo 20 API and model differences remain release qualification
-inputs, rather than established changes in this proposal.
+The earlier development pin declared version `19.5a1`. It remains historical
+investigation evidence and was not relabelled as final Odoo 20. Final Odoo 20
+is pinned separately at commit
+`dd5defe77fe1dc3bb02eddaca6e90d7daf34ed3d`; its verified model differences
+are recorded in the Phase 3 report. SaaS builds still retain their own series
+identity and remain outside this qualification.
 [Upstream version definition](https://raw.githubusercontent.com/odoo/odoo/master/odoo/release.py).
 
 JSON-2 was introduced in Odoo 19. It exposes database-specific models and
@@ -89,9 +95,10 @@ does not require an emergency protocol migration. Impodo already uses JSON-2.
 
 ## Baseline implementation and required changes
 
-Phase 1 found version assumptions across the integration. Phase 2 centralizes
-the runtime gates below; version-specific policies and execution compatibility
-evidence remain later work.
+Phase 1 found version assumptions across the integration. Phase 2 centralized
+the runtime gates. Phase 3 added distinct Odoo 20 source and reference policy
+identities and enabled only the live-qualified read boundaries. Execution
+compatibility evidence remains later work.
 
 | Area | Phase 1 evidence | Proposed change |
 | --- | --- | --- |
@@ -134,8 +141,8 @@ does not establish support for every module or custom database.
 | Workflow | Initial dual-support objective |
 | --- | --- |
 | File source to Odoo 19 | Preserve the current preparation, Test, load, and qualified Production behavior. |
-| File source to Odoo 20 | Qualify the same supported operations, with Production enabled after Odoo 20 Integrated Test and rollout checks. |
-| Odoo source capture | Qualify bounded capture separately for Odoo 19 and Odoo 20. |
+| File source to Odoo 20 | Connection, schema capture, comparison reads, and Recipe authoring are qualified. Test writes and Production remain blocked pending Phases 4 and 5. |
+| Odoo source capture | Bounded Odoo 20 capture is qualified locally and over remote HTTPS; write-back remains blocked. |
 | Odoo-to-Odoo transfer | Preserve 19 → 19 and qualify 20 → 20 within the existing transfer scope. |
 | Cross-version transfer | Block both 19 → 20 and 20 → 19. Defer these to a separate future proposal. |
 | Recipe application | Apply an Odoo 19 Recipe only to Odoo 19, and an Odoo 20 Recipe only to Odoo 20. No cross-version conversion is included. |
@@ -288,7 +295,7 @@ assuming accessible test installations. Re-estimate after the Odoo 20 probe.
 | --- | --- | --- |
 | 1. Establish the baseline | Record Odoo 19 builds, modules, and representative results. Inventory version checks and serialized evidence. Prepare an isolated, pinned development database for Odoo 20 investigation. | 1–2 days |
 | 2. Centralize policy | Introduce version recognition and operation decisions; route all current checks through them. Preserve Odoo 19 behavior, policy hashes, and Recipe fixtures. | 2–3 days |
-| 3. Qualify Odoo 20 reads | Capture sanitized metadata and response fixtures, add the Odoo 20 policies, and fix verified adapter differences. Exercise local and remote capture, matching, references, and Recipe assessment. | 2–3 days |
+| 3. Qualify Odoo 20 reads | Completed 2026-09-23: final Community and Enterprise reads passed, separate policies were added, and native Odoo 20 UoM/BOM changes were recorded. | Completed |
 | 4. Qualify execution and version boundaries | Bind compatibility evidence, revalidate before writes and recovery, qualify Odoo 20 Recipes and 20 → 20 transfers, and verify that cross-version use is blocked. | 3–5 days |
 | 5. Release and document | Re-run against final Odoo 20, complete the deployment matrix and browser checks, publish evidence and support scope, and enable qualified operations. | 2–3 days |
 
@@ -426,9 +433,14 @@ documentation-quality and code-documentation test modules, and
 `git diff --check`. The test modules live under `tests.architecture`; the
 documentation skill's older test-module path was resolved to that location.
 
-No Odoo server was contacted, no live migration was run, and no runtime
-compatibility claim was validated during the original proposal drafting. Browser tests,
-screenshots, and the live Odoo matrix belong to the implementation slices.
+The original proposal contacted no Odoo server. Phase 3 supersedes that
+historical limitation for reads: a pinned local final Odoo 20 Community
+database and a temporary remote Enterprise Runbot were contacted and passed
+the sanitized read qualification. No Odoo 20 business-data write, recovery,
+or Production operation was run.
+
+Browser write tests, screenshots, and the remaining live write matrix belong
+to Phases 4 and 5.
 The installed architecture advisor was unavailable because its Windows
 preflight could not start; the proposal therefore has no independent advisor
 endorsement.
