@@ -75,6 +75,7 @@ class OdooCaptureJobManagerTests(unittest.TestCase):
         self.assertEqual(terminal.status, OdooCaptureJobStatus.SUCCEEDED)
         self.assertEqual(terminal.completed_rows, 2)
         self.assertEqual(terminal.page_count, 1)
+        self.assertEqual(terminal.relationship_check_page_count, 2)
         self.assertEqual(terminal.response_bytes, 102)
         self.assertEqual(terminal.normalized_bytes, 20)
         self.assertEqual(terminal.manifest_id, "manifest-1")
@@ -135,6 +136,17 @@ class _Publication:
                 page_count=1,
                 response_bytes=100,
                 normalized_bytes=20,
+            )
+        )
+        progress(
+            OdooCaptureProgress(
+                phase=OdooCapturePhase.RECHECKING_RELATIONSHIPS,
+                completed_rows=2,
+                total_rows=1_000,
+                page_count=1,
+                response_bytes=100,
+                normalized_bytes=20,
+                relationship_check_page_count=2,
             )
         )
         progress(

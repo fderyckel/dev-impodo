@@ -283,7 +283,11 @@ document.addEventListener("DOMContentLoaded", () => {
           : "No record page completed yet";
       }
       if (accounting) {
-        accounting.textContent = `${Number(job.page_count).toLocaleString()} page(s) · ${Number(job.response_bytes).toLocaleString()} response bytes · ${Number(job.normalized_bytes).toLocaleString()} normalized bytes`;
+        const relationshipPages = Number(job.relationship_check_page_count || 0);
+        const relationshipAccounting = relationshipPages
+          ? ` · ${relationshipPages.toLocaleString()} relationship check page(s)`
+          : "";
+        accounting.textContent = `${Number(job.page_count).toLocaleString()} record page(s)${relationshipAccounting} · ${Number(job.response_bytes).toLocaleString()} response bytes · ${Number(job.normalized_bytes).toLocaleString()} normalized bytes`;
       }
       if (spinner) spinner.hidden = !active;
       if (activeActions) activeActions.hidden = !active;

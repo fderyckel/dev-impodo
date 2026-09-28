@@ -1,4 +1,4 @@
-"""Stage 6 deterministic transfer-order planning for Odoo-to-Odoo."""
+"""Deterministic transfer-order planning for Odoo-to-Odoo."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Build deterministic Stage 6 dataset ordering without contacting Odoo."""
+"""Build deterministic transfer ordering without contacting Odoo."""
 
 from __future__ import annotations
 

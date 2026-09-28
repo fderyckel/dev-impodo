@@ -1,4 +1,4 @@
-"""Compare a fresh destination read with an exact approved Stage 7 package."""
+"""Compare a fresh destination read with an exact approved transfer package."""
 
 from __future__ import annotations
 

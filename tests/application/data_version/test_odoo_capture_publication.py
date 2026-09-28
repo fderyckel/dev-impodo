@@ -423,9 +423,18 @@ class OdooCapturePublicationTests(unittest.TestCase):
             )
 
         class Gateway(_Gateway):
-            def scan_origins(self, request, context, *, cancellation=None):
+            def scan_origins(
+                self,
+                request,
+                context,
+                *,
+                cancellation=None,
+                observe_page=None,
+            ):
                 if request.model != "res.partner" or request.member_ids:
                     raise AssertionError("Only root membership needs a scan")
+                if observe_page is not None:
+                    observe_page(2, 2)
                 return (OdooOriginBatch(
                     1, (41, 42), (self.now, self.now + timedelta(seconds=1)), (),
                 ),)
@@ -435,15 +444,26 @@ class OdooCapturePublicationTests(unittest.TestCase):
                     raise AssertionError("An empty linked model must not be read")
                 return super().open_capture(request, context, cancellation=cancellation)
 
+        updates = []
         publication = self.service.publish(
             self.workspace_state.workspace_id, Gateway(schema, self.now),
             actor=LOCAL_ACTOR,
+            progress=updates.append,
         )
         self.assertEqual(
             tuple(item.row_count for item in publication.source_selection.datasets),
             (2, 0),
         )
         self.assertEqual(tuple(item.row_count for item in publication.manifests), (2, 0))
+        relationship_updates = [
+            update
+            for update in updates
+            if update.phase is OdooCapturePhase.RECHECKING_RELATIONSHIPS
+        ]
+        self.assertEqual(
+            [update.relationship_check_page_count for update in relationship_updates],
+            [0, 1],
+        )
 
     def test_protected_origins_can_follow_data_version_artifact_ownership(
         self,

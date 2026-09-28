@@ -186,6 +186,7 @@ class OdooCapturePublicationService:
         captured: list[_CapturedDatasetCandidate] = []
         completed_rows = 0
         page_count = 0
+        relationship_check_page_count = 0
         response_bytes = 0
         normalized_bytes = 0
         try:
@@ -275,6 +276,23 @@ class OdooCapturePublicationService:
                 ) -> None:
                     matching_by_model[selection.model] = matching_rows
 
+                def observe_relationship_recheck(page_completed: bool) -> None:
+                    nonlocal relationship_check_page_count
+                    if page_completed:
+                        relationship_check_page_count += 1
+                    _report_progress(
+                        progress,
+                        OdooCapturePhase.RECHECKING_RELATIONSHIPS,
+                        completed_rows=completed_rows,
+                        total_rows=sum(matching_by_model.values()),
+                        page_count=page_count,
+                        response_bytes=response_bytes,
+                        normalized_bytes=normalized_bytes,
+                        relationship_check_page_count=(
+                            relationship_check_page_count
+                        ),
+                    )
+
                 results = self._captures.capture_all(
                     workspace_id,
                     gateway,
@@ -282,6 +300,7 @@ class OdooCapturePublicationService:
                     actor=actor,
                     cancellation=cancellation,
                     observe_matching_rows=observe_matching_rows,
+                    observe_relationship_recheck=observe_relationship_recheck,
                 )
 
                 _require_captured_relationship_coverage(
@@ -334,6 +353,7 @@ class OdooCapturePublicationService:
                     page_count=page_count,
                     response_bytes=response_bytes,
                     normalized_bytes=normalized_bytes,
+                    relationship_check_page_count=relationship_check_page_count,
                 )
                 datasets = tuple(
                     SourceDataset(
@@ -405,6 +425,7 @@ class OdooCapturePublicationService:
                     page_count=page_count,
                     response_bytes=response_bytes,
                     normalized_bytes=normalized_bytes,
+                    relationship_check_page_count=relationship_check_page_count,
                 )
                 self._publications.publish_complete_captures(
                     workspace_id,
@@ -483,6 +504,7 @@ def _report_progress(
     page_count: int = 0,
     response_bytes: int = 0,
     normalized_bytes: int = 0,
+    relationship_check_page_count: int = 0,
 ) -> None:
     """Report counters already produced by the stream; never rescan or rehash."""
 
@@ -495,6 +517,7 @@ def _report_progress(
                 page_count=page_count,
                 response_bytes=response_bytes,
                 normalized_bytes=normalized_bytes,
+                relationship_check_page_count=relationship_check_page_count,
             )
         )
 

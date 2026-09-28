@@ -1,4 +1,4 @@
-"""Stage 5 destination matching for frozen Odoo-source transfers."""
+"""Destination matching for frozen Odoo-source transfers."""
 
 from __future__ import annotations
 

@@ -15,10 +15,10 @@ read-back capability.
 
 It exposes no generic Odoo client and provides no whole-migration rollback.
 
-The Odoo-to-Odoo Stage 8A preflight is deliberately outside execution. It
+The Odoo-to-Odoo read-only preflight in Stage 6 is deliberately outside execution. It
 repeats bounded destination reads and records aggregate drift evidence for an
-approved transfer package. A ready Stage 8A report does not authorize a write,
-create an execution journal, or count as reconciliation. Stage 8B first repeats
+approved transfer package. A ready preflight report does not authorize a write,
+create an execution journal, or count as reconciliation. Load preparation first repeats
 that read and stages an exact execution snapshot without constructing a writer.
 Only a separate confirmation, bound to the current workspace revision,
 preflight hash, and snapshot hash, may enter execution.
@@ -83,15 +83,15 @@ hard dependency and the execution snapshot carries a symbolic
 `LogicalReference`. If it already exists, compilation carries a
 `BusinessReference` with its current opaque binding and adds no dependency.
 Neither form writes a numeric Odoo ID into the matching plan.
-Stage 7 records only the create-only field name and provider kind in each
+Stage 5 records only the create-only field name and provider kind in each
 `TransferReviewDataset`; its action hash binds that summary to approval. The
 chosen fixed value or reference identity is not part of the review package.
 
 The cross-instance workflow has exactly two credential roles: one
 `SOURCE_FETCH` key for the frozen source capture and one
-`DESTINATION_TRANSFER` key for the destination. Stage 8A and the Stage 8B
-preparation use the destination key only through read interfaces. After the
-explicit Stage 8B confirmation, execution re-probes that same destination key
+`DESTINATION_TRANSFER` key for the destination. Preflight and load preparation
+use the destination key only through read interfaces. After the explicit load
+confirmation, execution re-probes that same destination key
 for the exact readable and writable API scope and requires the same principal
 and company context. No third key or implicit source-key substitution exists.
 
@@ -189,7 +189,7 @@ receipt, another target, or another principal stops prepared-data resume. A
 changed earlier transfer component also stops transfer resume. Known rejections
 and terminal `OUTCOME_UNKNOWN` runs require a new **Check changes** result.
 
-Stage 8B automatically attempts read-back after a completed transfer and also
+Stage 6 automatically attempts read-back after a completed transfer and also
 offers manual verification of its saved journal. A `RUNNING` transfer exposes
 the separate **Assess and resume interrupted transfer** action. That action
 assesses read-back before constructing the writer and then resumes only rows

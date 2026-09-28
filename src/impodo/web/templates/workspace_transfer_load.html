@@ -33,7 +33,7 @@
   {% if transfer_step == 'prepare' %}
     <div class="page-heading">
       <div>
-        <p class="eyebrow">Stage 8B of 8 &middot; Prepare exact load</p>
+        <p class="eyebrow">Stage 6 of 6 &middot; Prepare exact load</p>
         <h1>Prepare the destination load</h1>
         <p>Impodo will perform one final destination read and compile the exact values and generic relationships to load. This step cannot write to Odoo.</p>
       </div>
@@ -76,7 +76,7 @@
   {% elif transfer_step == 'confirm' %}
     <div class="page-heading">
       <div>
-        <p class="eyebrow">Stage 8B of 8 &middot; Explicit load confirmation</p>
+        <p class="eyebrow">Stage 6 of 6 &middot; Explicit load confirmation</p>
         <h1>Confirm the destination Odoo load</h1>
         <p>The final read passed and the exact hash-bound load is ready. This is the only action on this workflow that can begin writing.</p>
       </div>
@@ -183,7 +183,7 @@
   {% else %}
     <div class="page-heading">
       <div>
-        <p class="eyebrow">Stage 8B of 8 &middot; Verify result</p>
+        <p class="eyebrow">Stage 6 of 6 &middot; Verify result</p>
         <h1>Verify the destination Odoo result</h1>
         <p>The durable journal prevents this approved transfer from being loaded twice. Verification reads the actual destination records with the same transfer key.</p>
       </div>

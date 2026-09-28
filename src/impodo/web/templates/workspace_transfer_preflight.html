@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 8A of 8 &middot; Read-only destination preflight</p>
+      <p class="eyebrow">Stage 6 of 6 &middot; Load destination Odoo</p>
       <h1>Recheck the destination before loading</h1>
       <p>
         Read the approved matching scope again with the destination transfer key,
@@ -25,7 +25,7 @@
   <div class="notice warning">
     <strong>8A cannot write to Odoo.</strong>
     It uses the second API key only for identity, metadata, matching-key, and
-    relationship-resolution reads. Stage 8B requires a separate, explicit
+    relationship-resolution reads. Loading requires a separate, explicit
     confirmation before the same destination transfer key may write.
   </div>
 
@@ -217,14 +217,14 @@
           <div>
             <p class="eyebrow">8A passed &middot; zero writes attempted</p>
             <h2>Continue to the guarded destination load</h2>
-            <p>Stage 8B performs one final no-write read, prepares the exact load, then asks you to confirm the destination and record count before writing.</p>
+            <p>Impodo performs one final no-write read, prepares the exact load, then asks you to confirm the destination and record count before writing.</p>
           </div>
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-load">Continue to Stage 8B</a>
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-load">Prepare exact destination load</a>
         </section>
       {% else %}
         <div class="notice warning">
           <strong>Loading is blocked.</strong>
-          Return to Stage 5, refresh destination matching, then rebuild the order,
+          Return to Stage 4, refresh destination matching, then rebuild the order,
           review, and approval before running preflight again.
         </div>
       {% endif %}

@@ -226,42 +226,51 @@ class Json2OdooSourceCapture:
         context: ProtectedOdooReadContext,
         *,
         cancellation: CancellationProbe | None = None,
+        observe_page: Callable[[int, int], None] | None = None,
     ) -> tuple[OdooOriginBatch, ...]:
         """Read bounded IDs and approved links without scalar business values."""
 
         require_not_cancelled(cancellation)
         base_domain = _base_domain(request)
-        raw, first_bytes = self._search_read(
-            request, context, domain=base_domain, fields=("id",),
-            limit=1, order="id desc", cancellation=cancellation,
-        )
-        rows = _require_rows(raw, maximum=1)
-        if not rows:
-            return ()
-        if set(rows[0]) != {"id"}:
-            raise OdooSourceCaptureConsistencyError(
-                "Odoo relationship scan high-water response is invalid"
+        if request.member_ids:
+            # Linked membership is already a protected, sorted set of at most
+            # 100 IDs. Its exact-domain page proves both presence and facts;
+            # separate high-water and count requests add no evidence.
+            high_water_id = request.member_ids[-1]
+            count = len(request.member_ids)
+            response_total = 0
+        else:
+            raw, first_bytes = self._search_read(
+                request, context, domain=base_domain, fields=("id",),
+                limit=1, order="id desc", cancellation=cancellation,
             )
-        high_water_id = _require_id(rows[0]["id"])
-        count, count_bytes = self._search_count(
-            request, context,
-            domain=[*base_domain, ["id", "<=", high_water_id]],
-            limit=request.maximum_rows + 1,
-            cancellation=cancellation,
-        )
-        if count > request.maximum_rows:
-            raise OdooSourceCaptureLimitError(
-                "Odoo relationship scan exceeds the selected row limit"
+            rows = _require_rows(raw, maximum=1)
+            if not rows:
+                return ()
+            if set(rows[0]) != {"id"}:
+                raise OdooSourceCaptureConsistencyError(
+                    "Odoo relationship scan high-water response is invalid"
+                )
+            high_water_id = _require_id(rows[0]["id"])
+            count, count_bytes = self._search_count(
+                request, context,
+                domain=[*base_domain, ["id", "<=", high_water_id]],
+                limit=request.maximum_rows + 1,
+                cancellation=cancellation,
             )
-        response_total = first_bytes + count_bytes
-        if response_total > request.max_snapshot_bytes:
-            raise OdooSourceCaptureLimitError(
-                "Odoo relationship scan exceeds the fixed byte limit"
-            )
-        if count == 0:
-            raise OdooSourceCaptureConsistencyError(
-                "Odoo relationship membership changed during scan"
-            )
+            if count > request.maximum_rows:
+                raise OdooSourceCaptureLimitError(
+                    "Odoo relationship scan exceeds the selected row limit"
+                )
+            response_total = first_bytes + count_bytes
+            if response_total > request.max_snapshot_bytes:
+                raise OdooSourceCaptureLimitError(
+                    "Odoo relationship scan exceeds the fixed byte limit"
+                )
+            if count == 0:
+                raise OdooSourceCaptureConsistencyError(
+                    "Odoo relationship membership changed during scan"
+                )
         batches: list[OdooOriginBatch] = []
         last_id = 0
         row_count = 0
@@ -277,13 +286,27 @@ class Json2OdooSourceCapture:
             )
         while row_count < count:
             require_not_cancelled(cancellation)
-            limit = min(request.page_size, count - row_count)
-            raw, response_bytes = self._search_read(
-                request, context,
-                domain=[*base_domain, ["id", ">", last_id], ["id", "<=", high_water_id]],
-                fields=("id", "write_date", *relation_fields),
-                limit=limit, order="id asc", cancellation=cancellation,
-            )
+            # Relationship evidence is much narrower than the selected value
+            # projection. Use the policy's bounded page size so a cautious
+            # value-page choice does not multiply consistency-check requests.
+            limit = min(policy.page_size, count - row_count)
+            while True:
+                try:
+                    raw, response_bytes = self._search_read(
+                        request, context,
+                        domain=[
+                            *base_domain,
+                            ["id", ">", last_id],
+                            ["id", "<=", high_water_id],
+                        ],
+                        fields=("id", "write_date", *relation_fields),
+                        limit=limit, order="id asc", cancellation=cancellation,
+                    )
+                    break
+                except OdooSourceCaptureLimitError:
+                    if limit <= request.page_size:
+                        raise
+                    limit = max(request.page_size, limit // 2)
             response_total += response_bytes
             if response_total > request.max_snapshot_bytes:
                 raise OdooSourceCaptureLimitError(
@@ -332,6 +355,8 @@ class Json2OdooSourceCapture:
             ))
             row_count += len(ids)
             last_id = ids[-1]
+            if observe_page is not None:
+                observe_page(row_count, count)
         if row_count != count:
             raise OdooSourceCaptureConsistencyError(
                 "Odoo relationship membership changed during scan"

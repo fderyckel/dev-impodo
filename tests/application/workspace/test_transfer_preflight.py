@@ -255,7 +255,7 @@ def _fresh(
         destination_schema_snapshot_hash="sha256:" + "7" * 64,
         destination_record_snapshot_hash="sha256:" + "8" * 64,
         recorded_at=datetime.now(UTC),
-        recorded_by="Stage 8A preflight",
+        recorded_by="Stage 6 preflight",
     )
 
 

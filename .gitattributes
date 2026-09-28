@@ -1,3 +1,6 @@
 fixtures/recipes/phase-r0/*.csv text eol=lf
 fixtures/odoo-compatibility/*.json text eol=lf
 fixtures/odoo-compatibility/*.txt text eol=lf
+scenarios/**/*.csv text eol=lf
+scenarios/**/*.json text eol=lf
+scenarios/**/*.yaml text eol=lf

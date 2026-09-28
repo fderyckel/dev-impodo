@@ -652,7 +652,7 @@ class ExecutionService:
         workspace_state = self.workspaces.get(workspace_id)
         if workspace_state.source_mode is SourceMode.ODOO:
             raise WorkspaceError(
-                "Use the confirmed Stage 8B transfer route for an Odoo-to-Odoo load."
+                "Use the confirmed transfer route for an Odoo-to-Odoo load."
             )
         create_batch_rows = validated_create_batch_rows(batch_rows)
         preview = self.current_preview(workspace_id)
@@ -779,7 +779,7 @@ class ExecutionService:
         safeguards of ``execute`` while additionally validates the frozen
         source-finalization and transfer-preflight evidence.
         """
-        """Enter the shared writer from a current, confirmed Stage 8B snapshot."""
+        """Enter the shared writer from a current, confirmed transfer snapshot."""
 
         self.authorization.require(
             actor,
@@ -788,7 +788,7 @@ class ExecutionService:
         )
         source_workspace = self.workspaces.get(workspace_id)
         if source_workspace.source_mode is not SourceMode.ODOO:
-            raise WorkspaceError("Stage 8B requires a frozen Odoo source")
+            raise WorkspaceError("The destination load requires a frozen Odoo source")
         report = source_workspace.transfer_preflight_report
         if (
             report is None
@@ -935,7 +935,7 @@ class ExecutionService:
         workspace_state = self.workspaces.get(workspace_id)
         if workspace_state.source_mode is SourceMode.ODOO:
             raise WorkspaceError(
-                "Use the Stage 8B transfer recovery action for an interrupted "
+                "Use the transfer recovery action for an interrupted "
                 "Odoo-to-Odoo load."
             )
         snapshot = self.preflight.current_execution_snapshot(workspace_id)
@@ -1959,7 +1959,7 @@ class ExecutionService:
         workspace_state = self.workspaces.get(workspace_id)
         if workspace_state.source_mode is SourceMode.ODOO:
             raise WorkspaceError(
-                "Use the Stage 8B transfer outcome to complete an Odoo-to-Odoo load."
+                "Use the transfer outcome to complete an Odoo-to-Odoo load."
             )
         preview = self.current_preview(workspace_id)
         if preview is None:

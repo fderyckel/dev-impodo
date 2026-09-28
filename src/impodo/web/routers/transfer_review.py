@@ -1,4 +1,4 @@
-"""Stage 7 Odoo transfer review and exact export-plan approval."""
+"""Odoo transfer review and exact export-plan approval."""
 
 from __future__ import annotations
 

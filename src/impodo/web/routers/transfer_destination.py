@@ -245,7 +245,7 @@ def build_transfer_destination_router(context: WebContext) -> APIRouter:
             "Destination Odoo connection verified. Nothing was changed in Odoo.",
         )
         return RedirectResponse(
-            f"/workspaces/{workspace_id}/transfer-destination",
+            f"/workspaces/{workspace_id}/transfer-destination#destination-connected",
             status_code=303,
         )
 

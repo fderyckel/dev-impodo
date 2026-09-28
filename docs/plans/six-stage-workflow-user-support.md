@@ -1086,9 +1086,10 @@ mock-up must not replace authenticated acceptance evidence.
 - It does not replace Final review with an earlier advisory check.
 - It does not add a second Odoo comparison to the normal Stage 4-to-Stage 5
   journey.
-- It does not change the separate
-  [generic Odoo-to-Odoo migration plan](odoo-to-odoo-migration.md) or describe
-  its Stage 8A and Stage 8B path as part of the six-stage Authoring workflow.
+- It does not weaken the separate preflight, confirmation, journaling, or
+  reconciliation boundaries in the
+  [generic Odoo-to-Odoo migration plan](odoo-to-odoo-migration.md), even though
+  those pages now appear together inside Stage 6 of the Authoring workflow.
 
 ## Related documentation
 

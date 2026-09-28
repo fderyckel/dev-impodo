@@ -1,18 +1,18 @@
 {
   "application_to_adapter_edges": [],
   "cycles_including_type_only": [],
-  "import_edge_digest": "0bd452fb7cd5b0be475c90c5c8465ef109855cbd4d2a288fa6e32eb637081a4a",
-  "module_count": 452,
-  "module_digest": "6401ab679160f2fd4a517f671c78aa1b345b6aa44e931bee73beeed31ce88716",
+  "import_edge_digest": "085444c894ddaf0b128a7462a1c62376844dd6455ecf4c3a48c5e4b8c3fd3689",
+  "module_count": 471,
+  "module_digest": "a42a7bda31bb253056023cc0838cf59d94de3e4fa88af068b82964e6d41e9787",
   "modules_by_location": {
-    "adapters": 124,
-    "application": 124,
-    "domain": 135,
+    "adapters": 127,
+    "application": 127,
+    "domain": 143,
     "package_root": 2,
-    "web": 67
+    "web": 72
   },
   "runtime_cycles": [],
-  "runtime_import_edge_count": 2685,
+  "runtime_import_edge_count": 2788,
   "schema_version": 1,
   "type_only_import_edge_count": 4,
   "unclassified_modules": []

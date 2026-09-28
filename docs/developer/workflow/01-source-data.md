@@ -241,18 +241,18 @@ File mode completes when a source selection exists and then unlocks Odoo data.
 Odoo mode deliberately reverses the first two responsibilities. **Select data
 to download** captures eligible fields and model-specific plans, then
 **Download and freeze** publishes the selection. It then unlocks the separately
-bound cross-instance destination workflow. Stages 4 through 7 connect that
-destination, match every selected model, derive generic relationship order,
-and approve an exact aggregate transfer package. Stage 8A rechecks that
-package through a fresh read-only destination call. Stage 8B performs one more
+bound cross-instance destination workflow. Stage 4 connects that destination
+and matches every selected model. Stage 5 derives the generic relationship
+order and approves an exact aggregate transfer package. Stage 6 rechecks that
+package through a fresh read-only destination call, then performs one more
 no-write destination check, stages an exact execution snapshot, requires a
 separate hash-bound confirmation, then journals, loads, and reads back the
 approved destination changes.
 
 The source capture and destination checks use two distinct credential roles.
 The source-fetch key cannot satisfy destination matching. The one destination
-transfer key supports destination matching, Stage 8A, and the no-write Stage 8B
-preparation. Only the explicit Stage 8B confirmation re-probes that same key
+transfer key supports destination matching, read-only preflight, and no-write
+load preparation. Only the explicit Stage 6 load confirmation re-probes that same key
 for the exact write and read-back scope. No third credential role is used.
 
 ## Invalidation and recovery

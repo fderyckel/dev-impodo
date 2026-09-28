@@ -327,24 +327,24 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         mapping_page = self.client.get(f"/workspaces/{workspace_id}/mapping")
 
         self.assertEqual(mapping_page.status_code, 200, mapping_page.text)
-        self.assertIn('aria-label="Odoo data pages"', mapping_page.text)
         self.assertIn(
             f'href="/workspaces/{workspace_id}/target"',
             mapping_page.text,
         )
-        self.assertIn("Connection &amp; credentials", mapping_page.text)
+        self.assertIn('title="Odoo access"', mapping_page.text)
+        self.assertIn("Odoo access", mapping_page.text)
         self.assertIn(
             f'href="/workspaces/{workspace_id}/schema"',
             mapping_page.text,
         )
-        self.assertIn("Choose Odoo records", mapping_page.text)
+        self.assertIn("Odoo data", mapping_page.text)
 
         target_page = self.client.get(f"/workspaces/{workspace_id}/target")
 
         self.assertEqual(target_page.status_code, 200, target_page.text)
         self.assertRegex(
             target_page.text,
-            rf'class="sidebar-subnav-link active"\s+'
+            rf'class="sidebar-link active"\s+'
             rf'href="/workspaces/{workspace_id}/target"\s+'
             r'aria-current="page"',
         )

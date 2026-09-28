@@ -316,17 +316,23 @@ class InternalReleaseGateTests(unittest.TestCase):
             ):
                 (bundle / name).write_text("release evidence\n", encoding="utf-8")
             release_id = "impodo-0.0.0-123456789abc"
-            manifest = _release_manifest(
-                release_id=release_id,
-                version="0.0.0",
-                revision="123456789abcdef",
-                artifacts=tuple(bundle.iterdir()),
-            )
+            with patch("scripts.internal_release.sys.version_info") as version_info:
+                version_info.major = 3
+                version_info.minor = 12
+                version_info.micro = 10
+                manifest = _release_manifest(
+                    release_id=release_id,
+                    version="0.0.0",
+                    revision="123456789abcdef",
+                    artifacts=tuple(bundle.iterdir()),
+                )
             (bundle / "release-manifest.json").write_text(
                 json.dumps(manifest), encoding="utf-8",
             )
             install_root = Path(temporary) / "install"
             (install_root / release_id).mkdir(parents=True)
+            python_executable = Path(temporary) / "python312.cmd"
+            python_executable.write_text("@echo 3.12 64\n", encoding="utf-8")
 
             completed = subprocess.run(
                 (
@@ -340,7 +346,7 @@ class InternalReleaseGateTests(unittest.TestCase):
                     "-InstallRoot",
                     str(install_root),
                     "-PythonExecutable",
-                    sys.executable,
+                    str(python_executable),
                 ),
                 check=False,
                 capture_output=True,
@@ -372,12 +378,16 @@ class InternalReleaseGateTests(unittest.TestCase):
                 (bundle / name).write_text("release evidence\n", encoding="utf-8")
 
             artifacts = tuple(bundle.iterdir())
-            manifest = _release_manifest(
-                release_id="impodo-0.0.0-123456789abc",
-                version="0.0.0",
-                revision="123456789abcdef",
-                artifacts=artifacts,
-            )
+            with patch("scripts.internal_release.sys.version_info") as version_info:
+                version_info.major = 3
+                version_info.minor = 12
+                version_info.micro = 10
+                manifest = _release_manifest(
+                    release_id="impodo-0.0.0-123456789abc",
+                    version="0.0.0",
+                    revision="123456789abcdef",
+                    artifacts=artifacts,
+                )
             (bundle / "release-manifest.json").write_text(
                 json.dumps(manifest),
                 encoding="utf-8",

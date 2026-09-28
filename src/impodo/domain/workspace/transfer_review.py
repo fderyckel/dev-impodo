@@ -1,6 +1,6 @@
-"""Portable Stage 7 review and approval evidence for Odoo transfers.
+"""Portable review and approval evidence for Odoo transfers.
 
-The review package binds the exact Stage 5 matching decision, Stage 6 order,
+The review package binds the exact destination-matching decision, transfer order,
 destination snapshot, write scope, relationship operations, and control totals
 to the canonical frozen export-plan contract. It contains no business values,
 numeric Odoo identifiers, credentials, or write receipts.

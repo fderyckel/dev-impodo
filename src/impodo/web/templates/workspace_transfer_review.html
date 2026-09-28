@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 7 of 8 &middot; Review transfer</p>
+      <p class="eyebrow">Stage 5 of 6 &middot; Review transfer</p>
       <h1>Approve the exact Odoo transfer package</h1>
       <p>
         Review the records, selected write fields, relationship operations,
@@ -24,7 +24,7 @@
 
   <div class="notice warning">
     <strong>No Odoo write happens in this stage.</strong>
-    Approval is bound to this exact package. Stage 8 must still recheck the
+    Approval is bound to this exact package. Stage 6 must still recheck the
     destination and request a final load confirmation before using the destination
     transfer key.
   </div>
@@ -88,14 +88,14 @@
           </p>
         </div>
         <span class="status {% if transfer_review_approved %}ready{% else %}review{% endif %}">
-          {% if transfer_review_approved %}Stage 7 complete{% else %}Review and approve{% endif %}
+          {% if transfer_review_approved %}Stage 5 complete{% else %}Review and approve{% endif %}
         </span>
       </div>
 
       <div class="notice">
         <strong>Exact destination behavior</strong>
         Each record type follows the policy shown below. Destination records
-        outside this source package remain unchanged.
+        outside this incoming data remain unchanged.
       </div>
 
       <dl class="definition-list capture-summary">
@@ -236,7 +236,7 @@
         </div>
         <div class="notice">
           <strong>Next: run the read-only destination preflight.</strong>
-          Stage 8A will re-read matching keys, fields, permissions, and relationship
+          Stage 6 will re-read matching keys, fields, permissions, and relationship
           resolution with the destination transfer key. It cannot write to Odoo.
         </div>
         <div class="actions">

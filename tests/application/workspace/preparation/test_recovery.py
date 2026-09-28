@@ -118,7 +118,11 @@ class PreparationResultRecoveryTests(TestCase):
     def test_retry_carries_the_confirmed_recipe_mapping_into_the_worker_request(self):
         previous = self.job()
         self.manager.registry.mark_failed(previous.job_id, "BAD_SOURCE", "Review source")
-        context = NS(preparation_jobs=self.manager, actor=LOCAL_ACTOR)
+        context = NS(
+            preparation_jobs=self.manager,
+            actor=LOCAL_ACTOR,
+            queries=NS(get_odoo_schema_catalog=Mock(return_value=None)),
+        )
         with patch("impodo.web.run_commands._preparation_workspace", return_value=replace(self.workspace, mapping_content_hash=None)), \
              patch("impodo.web.run_commands._assert_recipe_application_can_prepare", return_value=self.workspace), \
              patch("impodo.web.run_commands.recover_run_preparation", return_value=None), \

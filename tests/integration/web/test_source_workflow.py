@@ -10,6 +10,10 @@ from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.shared.models import FieldMetadata
 from impodo.domain.workspace.contracts import SchemaField
+from impodo.web.target_credentials import (
+    TargetCredentialRole,
+    store_target_credential,
+)
 from tests.support.browser_scenarios import (
     BytesIO,
     MANIFEST_NAME,
@@ -310,6 +314,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Match in destination", page.text)
         self.assertIn("Not included", page.text)
         self.assertIn("Save related-data choices", page.text)
+        self.assertIn(
+            'data-submitting-label="Saving choices and loading their Odoo fields..."',
+            page.text,
+        )
         self.assertNotIn("Review recommended supporting data", page.text)
         self.assertNotIn(
             "Related record types outside this source selection",
@@ -397,17 +405,19 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 capture_schema,
             ),
         ):
-            saved = self._post(
-                f"/workspaces/{workspace_state.workspace_id}"
-                "/sources/odoo-related-data",
-                {
-                    "csrf_token": self.csrf,
-                    "revision": str(workspace_state.revision),
-                    "related_models": "product.category",
-                },
-            )
+            with collect_duckdb_request_timings() as related_data_timings:
+                saved = self._post(
+                    f"/workspaces/{workspace_state.workspace_id}"
+                    "/sources/odoo-related-data",
+                    {
+                        "csrf_token": self.csrf,
+                        "revision": str(workspace_state.revision),
+                        "related_models": "product.category",
+                    },
+                )
 
         self.assertEqual(saved.status_code, 303)
+        self.assertLessEqual(related_data_timings.connection_count, 8)
         self.assertEqual(
             saved.headers["location"],
             f"/workspaces/{workspace_state.workspace_id}"
@@ -492,6 +502,214 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertIn("Recommended for this supporting data", page.text)
         self.assertIn("Archived records are included", page.text)
+
+    def test_completed_capture_action_is_inside_current_evidence(self) -> None:
+        workspace_state, schema = self._registered_remote_schema_workspace()
+        context = self.app.state.context
+        credential = store_target_credential(
+            self.secrets,
+            workspace_state,
+            TargetCredentialRole.READ,
+            "read-secret",
+            persistent=False,
+        )
+        schema = replace(
+            schema,
+            read_credential_binding_hash=credential.binding_hash,
+        )
+        context.schema_workspace.schemas.save_odoo_schema_catalog(
+            workspace_state.workspace_id,
+            schema,
+            actor=context.actor,
+        )
+
+        with collect_duckdb_request_timings() as selection_timings:
+            selected = self._post(
+                f"/workspaces/{workspace_state.workspace_id}"
+                "/sources/odoo-selection",
+                {
+                    "csrf_token": self.csrf,
+                    "dataset_name": "odoo_contacts",
+                    "model": schema.models[0].name,
+                    "field_names": "name",
+                    "include_archived": "",
+                    "page_size": "100",
+                },
+            )
+
+        self.assertEqual(selected.status_code, 303)
+        self.assertLessEqual(selection_timings.connection_count, 8)
+        page = self.client.get(selected.headers["location"])
+        current_evidence = page.text.index("Current protected evidence")
+        next_action = page.text.index("Capture plans complete")
+        section_end = page.text.index("</section>", current_evidence)
+        self.assertLess(current_evidence, next_action)
+        self.assertLess(next_action, section_end)
+        self.assertIn(
+            'data-submitting-label="Checking matching records in Odoo..."',
+            page.text,
+        )
+
+    def test_linked_relationship_review_is_inside_current_evidence(self) -> None:
+        workspace_state, schema = self._registered_remote_schema_workspace()
+        context = self.app.state.context
+        workspace_state = context.workspace_states.update_schema_scope(
+            workspace_state.workspace_id,
+            actor=context.actor,
+            expected_revision=workspace_state.revision,
+            permitted_models=("product.template", "product.category"),
+        )
+        base_model = schema.models[0]
+        product = replace(
+            base_model,
+            name="product.template",
+            label="Products",
+            fields=(
+                SchemaField(
+                    name="name",
+                    label="Product Name",
+                    type="char",
+                    required=True,
+                    readonly=False,
+                    relation=None,
+                    relation_field=None,
+                    selection=(),
+                    stored=True,
+                    related=False,
+                    company_dependent=False,
+                    searchable=True,
+                    exportable=True,
+                ),
+                SchemaField(
+                    name="write_date",
+                    label="Last Updated",
+                    type="datetime",
+                    required=False,
+                    readonly=True,
+                    relation=None,
+                    relation_field=None,
+                    selection=(),
+                    stored=True,
+                    related=False,
+                    company_dependent=False,
+                    searchable=True,
+                    sortable=True,
+                    exportable=True,
+                ),
+                SchemaField(
+                    name="categ_id",
+                    label="Product Category",
+                    type="many2one",
+                    required=True,
+                    readonly=False,
+                    relation="product.category",
+                    relation_field=None,
+                    selection=(),
+                    stored=True,
+                    related=False,
+                    company_dependent=False,
+                    searchable=True,
+                    exportable=True,
+                ),
+            ),
+        )
+        category = replace(
+            base_model,
+            name="product.category",
+            label="Product Categories",
+            fields=(
+                SchemaField(
+                    name="name",
+                    label="Category Name",
+                    type="char",
+                    required=True,
+                    readonly=False,
+                    relation=None,
+                    relation_field=None,
+                    selection=(),
+                    stored=True,
+                    related=False,
+                    company_dependent=False,
+                    searchable=True,
+                    exportable=True,
+                ),
+                SchemaField(
+                    name="write_date",
+                    label="Last Updated",
+                    type="datetime",
+                    required=False,
+                    readonly=True,
+                    relation=None,
+                    relation_field=None,
+                    selection=(),
+                    stored=True,
+                    related=False,
+                    company_dependent=False,
+                    searchable=True,
+                    sortable=True,
+                    exportable=True,
+                ),
+            ),
+        )
+        credential = store_target_credential(
+            self.secrets,
+            workspace_state,
+            TargetCredentialRole.READ,
+            "read-secret",
+            persistent=False,
+        )
+        schema = replace(
+            schema,
+            models=(product, category),
+            read_credential_binding_hash=credential.binding_hash,
+        )
+        context.schema_workspace.schemas.save_odoo_schema_catalog(
+            workspace_state.workspace_id,
+            schema,
+            actor=context.actor,
+        )
+
+        root = self._post(
+            f"/workspaces/{workspace_state.workspace_id}/sources/odoo-selection",
+            {
+                "csrf_token": self.csrf,
+                "dataset_name": "products",
+                "model": "product.template",
+                "field_names": "name",
+                "include_archived": "",
+                "page_size": "100",
+            },
+        )
+        self.assertEqual(root.status_code, 303, root.text)
+        linked = self._post(
+            f"/workspaces/{workspace_state.workspace_id}/sources/odoo-selection",
+            {
+                "csrf_token": self.csrf,
+                "dataset_name": "product_categories",
+                "model": "product.category",
+                "field_names": "name",
+                "include_archived": "",
+                "page_size": "100",
+                "linked_only": "1",
+            },
+        )
+        self.assertEqual(linked.status_code, 303, linked.text)
+
+        page = self.client.get(linked.headers["location"])
+        current_evidence = page.text.index("Current protected evidence")
+        relationship_review = page.text.index(
+            "Relationship fields used to find linked records"
+        )
+        next_action = page.text.index("Capture plans complete")
+        section_end = page.text.index("</section>", current_evidence)
+        self.assertLess(current_evidence, relationship_review)
+        self.assertLess(relationship_review, next_action)
+        self.assertLess(next_action, section_end)
+        self.assertIn(
+            "Products.Product Category (product.template.categ_id) refers to "
+            "product.category",
+            page.text,
+        )
 
     def test_odoo_source_setup_skips_file_export_and_opens_schema_first(
         self,
@@ -594,7 +812,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(workspace_state.source_files, ())
 
         schema_page = self.client.get(f"/workspaces/{workspace_id}/schema")
-        self.assertIn("Stage 2 of 8", schema_page.text)
+        self.assertIn("Stage 2 of 6", schema_page.text)
         self.assertIn("Select data to download", schema_page.text)
         self.assertIn("Choose the Odoo source record type", schema_page.text)
 
@@ -621,7 +839,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         source_page = self.client.get(f"/workspaces/{workspace_id}/sources")
         self.assertEqual(source_page.status_code, 200)
-        self.assertIn("Stage 2 of 8", source_page.text)
+        self.assertIn("Stage 2 of 6", source_page.text)
         self.assertIn("Define a bounded Odoo capture", source_page.text)
         self.assertIn("Freezing is read-only", source_page.text)
         self.assertIn('name="filter_field"', source_page.text)
@@ -673,18 +891,20 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Unit of Measure Name", uom_page.text)
         self.assertNotIn("Product Name", uom_page.text)
         calls_before_selection = len(self.schema_calls)
-        selected = self._post(
-            f"/workspaces/{workspace_id}/sources/odoo-selection",
-            {
-                "csrf_token": self.csrf,
-                "dataset_name": "odoo_contacts",
-                "model": "res.partner",
-                "field_names": "name",
-                "include_archived": "",
-                "page_size": "100",
-            },
-        )
+        with collect_duckdb_request_timings() as selection_timings:
+            selected = self._post(
+                f"/workspaces/{workspace_id}/sources/odoo-selection",
+                {
+                    "csrf_token": self.csrf,
+                    "dataset_name": "odoo_contacts",
+                    "model": "res.partner",
+                    "field_names": "name",
+                    "include_archived": "",
+                    "page_size": "100",
+                },
+            )
         self.assertEqual(selected.status_code, 303)
+        self.assertLessEqual(selection_timings.connection_count, 8)
         self.assertEqual(
             selected.headers["location"],
             f"/workspaces/{workspace_id}/sources#capture-next-action",
@@ -700,8 +920,16 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Capture plan version 1", saved_page.text)
         self.assertIn("Check matching records", saved_page.text)
         self.assertIn("Capture plans complete", saved_page.text)
-        self.assertIn("Stage 3 of 8", saved_page.text)
+        self.assertLess(
+            saved_page.text.index("Current protected evidence"),
+            saved_page.text.index("Capture plans complete"),
+        )
+        self.assertIn("Stage 3 of 6", saved_page.text)
         self.assertIn("Check matching records and continue", saved_page.text)
+        self.assertIn(
+            'data-submitting-label="Checking matching records in Odoo..."',
+            saved_page.text,
+        )
         self.assertIn("Review and freeze the Odoo source", saved_page.text)
         self.assertIn("Edit saved capture plans", saved_page.text)
         self.assertNotIn("Eligible fields from", saved_page.text)
@@ -929,17 +1157,23 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Select data to download", progress_page.text)
         self.assertIn("Download and freeze", progress_page.text)
         self.assertIn("Capture progress", progress_page.text)
-        self.assertIn("Connect destination Odoo", progress_page.text)
+        self.assertIn(
+            "For linked-record captures, Impodo then repeats the protected "
+            "relationship check",
+            progress_page.text,
+        )
+        self.assertIn("Connect and match destination", progress_page.text)
         finished = _wait_for_odoo_capture(self.client, progress_url, timeout=30.0)
         self.assertEqual(finished["status"], "SUCCEEDED", finished)
         self.assertEqual(finished["completed_rows"], 2)
         self.assertEqual(finished["page_count"], 1)
+        self.assertEqual(finished["relationship_check_page_count"], 0)
         calls_after_capture = tuple(gateway.calls)
 
         frozen_page = self.client.get(finished["redirect_url"])
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
         self.assertIn("Current frozen Odoo source", frozen_page.text)
-        self.assertIn("Stage 3 of 8", frozen_page.text)
+        self.assertIn("Stage 3 of 6", frozen_page.text)
         self.assertIn("2</dd>", frozen_page.text)
         self.assertIn("Protected history", frozen_page.text)
         self.assertIn("Frozen versions", frozen_page.text)
@@ -949,9 +1183,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Connect source Odoo", frozen_page.text)
         self.assertIn("Select data to download", frozen_page.text)
         self.assertIn("Download and freeze", frozen_page.text)
-        self.assertIn("Connect destination Odoo", frozen_page.text)
-        self.assertIn("Match destination data", frozen_page.text)
-        self.assertIn("Validate transfer order", frozen_page.text)
+        self.assertIn("Connect and match destination", frozen_page.text)
         self.assertIn("Review transfer", frozen_page.text)
         self.assertIn("Load destination Odoo", frozen_page.text)
 
@@ -959,7 +1191,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             f"/workspaces/{workspace_id}/transfer-destination"
         )
         self.assertEqual(destination_page.status_code, 200)
-        self.assertIn("Stage 4 of 8", destination_page.text)
+        self.assertIn("Stage 4 of 6", destination_page.text)
         self.assertIn(
             "Connect the Odoo instance that will receive the data",
             destination_page.text,
@@ -1000,7 +1232,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(destination_checked.status_code, 303)
         self.assertEqual(
             destination_checked.headers["location"],
-            f"/workspaces/{workspace_id}/transfer-destination",
+            f"/workspaces/{workspace_id}/transfer-destination#destination-connected",
         )
         destination_state = self.app.state.context.queries.get(workspace_id)
         self.assertTrue(destination_state.destination_verified)
@@ -1019,9 +1251,13 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(destination_state.odoo_database, "odoo_review")
         connected_page = self.client.get(destination_checked.headers["location"])
         self.assertIn("Destination connection complete", connected_page.text)
-        self.assertIn("Stage 4 complete", connected_page.text)
+        self.assertIn("Connection complete", connected_page.text)
         self.assertIn("Match destination data", connected_page.text)
         self.assertIn("Destination matching required", connected_page.text)
+        self.assertLess(
+            connected_page.text.index("Latest destination check"),
+            connected_page.text.index("Destination connection complete"),
+        )
         connected_source_page = self.client.get(
             f"/workspaces/{workspace_id}/sources#download-complete"
         )
@@ -1069,11 +1305,13 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             f"/workspaces/{workspace_id}/destination-matching"
         )
         self.assertEqual(matching_page.status_code, 200)
-        self.assertIn("Stage 5 of 8", matching_page.text)
+        self.assertIn("Stage 4 of 6", matching_page.text)
         self.assertIn(
-            "Decide how source records find destination records",
+            "Tell Impodo how to recognise the same record",
             matching_page.text,
         )
+        self.assertIn("data-matching-builder", matching_page.text)
+        self.assertIn("data-optional-match-field", matching_page.text)
         frozen_selection = self.app.state.context.queries.get_source_selection(
             workspace_id
         )
@@ -1101,9 +1339,9 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertTrue(matched_state.destination_match_plan.ready)
         matched_page = self.client.get(matching_checked.headers["location"])
         self.assertIn("Destination matching is ready", matched_page.text)
-        self.assertIn("Existing destination keys", matched_page.text)
-        self.assertIn("New destination keys", matched_page.text)
-        self.assertIn("Next: validate the transfer order", matched_page.text)
+        self.assertIn("<dt>Reuse</dt>", matched_page.text)
+        self.assertIn("<dt>Create</dt>", matched_page.text)
+        self.assertIn("Next: review the transfer", matched_page.text)
         self.assertIn("Complete values for new records", matched_page.text)
         self.assertIn("Purchase order (order)", matched_page.text)
         self.assertIn("Needs decision", matched_page.text)
@@ -1135,19 +1373,19 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             matched_state.destination_match_plan.model_matches[0].unresolved_create_fields,
         )
         confirmed_page = self.client.get(confirmed_defaults.headers["location"])
-        self.assertIn("Stage 5 complete", confirmed_page.text)
+        self.assertIn("Stage 4 complete", confirmed_page.text)
         self.assertIn("Confirmed", confirmed_page.text)
         self.assertIn(
             f'href="/workspaces/{workspace_id}/transfer-order"',
             matched_page.text,
         )
-        self.assertIn("Transfer order required", matched_page.text)
+        self.assertIn("Validate transfer order", matched_page.text)
 
         order_page = self.client.get(
             f"/workspaces/{workspace_id}/transfer-order"
         )
         self.assertEqual(order_page.status_code, 200)
-        self.assertIn("Stage 6 of 8", order_page.text)
+        self.assertIn("Stage 5 of 6", order_page.text)
         self.assertIn("Put related Odoo records in a safe transfer order", order_page.text)
         order_checked = self._post(
             f"/workspaces/{workspace_id}/transfer-order",
@@ -1166,9 +1404,9 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertTrue(ordered_state.transfer_order_plan.ready)
         ordered_page = self.client.get(order_checked.headers["location"])
         self.assertIn("Transfer order is ready", ordered_page.text)
-        self.assertIn("Stage 6 complete", ordered_page.text)
+        self.assertIn("Order ready", ordered_page.text)
         self.assertIn("Wave 1", ordered_page.text)
-        self.assertIn("Next: review the complete transfer", ordered_page.text)
+        self.assertIn("Next: choose and approve the transfer policy", ordered_page.text)
         self.assertIn(
             f'href="/workspaces/{workspace_id}/transfer-review"',
             ordered_page.text,
@@ -1178,7 +1416,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             f"/workspaces/{workspace_id}/transfer-review"
         )
         self.assertEqual(review_page.status_code, 200)
-        self.assertIn("Stage 7 of 8", review_page.text)
+        self.assertIn("Stage 5 of 6", review_page.text)
         self.assertIn("Approve the exact Odoo transfer package", review_page.text)
         review_built = self._post(
             f"/workspaces/{workspace_id}/transfer-review/build",
@@ -1211,7 +1449,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         approved_transfer_page = self.client.get(
             review_approved.headers["location"]
         )
-        self.assertIn("Stage 7 complete", approved_transfer_page.text)
+        self.assertIn("Stage 5 complete", approved_transfer_page.text)
         self.assertIn("Exact transfer package approved", approved_transfer_page.text)
         self.assertIn("Continue to destination preflight", approved_transfer_page.text)
 

@@ -25,8 +25,8 @@ from tests.application.workspace.test_transfer_preflight import _fresh
 
 
 class TransferOrderNavigationTests(unittest.TestCase):
-    def test_stage_six_completion_unlocks_the_next_work_boundary(self) -> None:
-        workspace, selection, schema = _stage_six_state()
+    def test_order_completion_opens_the_review_page_inside_stage_five(self) -> None:
+        workspace, selection, schema = _stage_five_state()
         navigation = build_workspace_navigation(
             _facts(workspace, selection, schema),
             workspace,
@@ -34,11 +34,11 @@ class TransferOrderNavigationTests(unittest.TestCase):
         )
 
         by_id = {stage.stage_id: stage for stage in navigation.stages}
-        self.assertEqual(by_id["destination-match"].status, "complete")
-        self.assertEqual(by_id["transfer-order"].status, "complete")
+        self.assertEqual(len(navigation.stages), 6)
+        self.assertEqual(by_id["destination"].status, "complete")
         self.assertEqual(
-            by_id["transfer-order"].href,
-            f"/workspaces/{workspace.workspace_id}/transfer-order",
+            tuple(page.page_id for page in by_id["destination"].pages),
+            ("transfer-destination", "destination-matching"),
         )
         self.assertEqual(by_id["transfer-review"].status, "current")
         self.assertEqual(
@@ -49,10 +49,14 @@ class TransferOrderNavigationTests(unittest.TestCase):
             by_id["destination-load"].status_label,
             "Transfer approval required",
         )
-        self.assertEqual(navigation.viewed_stage_id, "transfer-order")
+        self.assertEqual(
+            tuple(page.page_id for page in by_id["transfer-review"].pages),
+            ("transfer-order", "transfer-review"),
+        )
+        self.assertEqual(navigation.viewed_stage_id, "transfer-review")
 
-    def test_exact_approval_completes_stage_seven(self) -> None:
-        workspace, selection, schema = _stage_six_state()
+    def test_exact_approval_completes_stage_five(self) -> None:
+        workspace, selection, schema = _stage_five_state()
         assert workspace.destination_match_plan is not None
         assert workspace.transfer_order_plan is not None
         package = TransferReviewService().build(
@@ -94,8 +98,8 @@ class TransferOrderNavigationTests(unittest.TestCase):
         )
         self.assertEqual(navigation.viewed_stage_id, "transfer-review")
 
-    def test_passed_preflight_completes_8a_without_claiming_a_load(self) -> None:
-        workspace, selection, schema = _stage_six_state()
+    def test_passed_preflight_advances_stage_six_without_claiming_a_load(self) -> None:
+        workspace, selection, schema = _stage_five_state()
         match = workspace.destination_match_plan
         order = workspace.transfer_order_plan
         assert match is not None and order is not None
@@ -146,7 +150,7 @@ class TransferOrderNavigationTests(unittest.TestCase):
         self.assertEqual(navigation.viewed_stage_id, "destination-load")
 
 
-def _stage_six_state():
+def _stage_five_state():
     now = datetime.now(UTC)
     selection = _selection(now)
     product = _model("product.template", "Product", create=2)

@@ -189,6 +189,7 @@ class OdooCaptureNavigationTests(unittest.TestCase):
             completed_rows=10,
             total_rows=20,
             page_count=1,
+            relationship_check_page_count=0,
             response_bytes=100,
             normalized_bytes=80,
             progress_percent=44,
@@ -202,10 +203,10 @@ class OdooCaptureNavigationTests(unittest.TestCase):
             failure_message="",
         )
 
-    def test_running_capture_keeps_the_eight_stage_sidebar_visible(self) -> None:
+    def test_running_capture_keeps_the_six_stage_sidebar_visible(self) -> None:
         navigation = build_odoo_capture_workspace_navigation(self.job)
 
-        self.assertEqual(len(navigation.stages), 8)
+        self.assertEqual(len(navigation.stages), 6)
         self.assertEqual(navigation.current_stage_id, "download")
         self.assertEqual(navigation.viewed_stage_id, "download")
         self.assertEqual(navigation.stages[2].status, "current")
@@ -217,7 +218,7 @@ class OdooCaptureNavigationTests(unittest.TestCase):
                 "Connect source Odoo",
                 "Select data to download",
                 "Download and freeze",
-                "Connect destination Odoo",
+                "Connect and match destination",
             ],
         )
 

@@ -8,22 +8,20 @@ status: current
 
 ## Result
 
-The Windows Product and Bill of Materials qualification passed on 2026-09-28
-at revision `dc44b130fec328ef1291e32b60a492d440968e86`. The run used an isolated,
-clean clone on Windows 11 with Python 3.14.7. It did not stop or connect to the
-operator's running Impodo process.
+The Windows Product and Bill of Materials qualification passed on 2026-09-28.
+The final retirement repeat used isolated clean candidate revision
+`0e601da96fb7d547d22f11852c41f0632eaa910b` on Windows 11 with Python
+3.14.7. It did not stop or connect to the operator's running Impodo process.
 
 The current 25,000-row boundary passed its execution and preparation budgets.
 The focused correctness gate also passed. The authenticated eligible-field
 screenshot was captured from an isolated loopback server with fictional
 Product data.
 
-This result closes the Windows-specific measurements and visual evidence. It
-does not yet retire the relationship plan because the required repository-wide
-clean test discovery was not green. The diagnostic run found failures in
-separate target-match, preparation, scenario-fixture, browser-copy, and Polars
-timezone paths, then stalled in a Production-readiness browser test. The
-relationship-owned tests listed below passed before that diagnostic run.
+This result closes the Windows-specific measurements, visual evidence, and
+clean repository gate. The relationship qualification plan is retired. A
+future increase beyond 25,000 scheduled records remains a separate deferred
+qualification.
 
 ## Three fresh execution runs
 
@@ -34,9 +32,9 @@ Every run completed all rows in the order `uoms`, `products`, `boms`, then
 
 | Run | Fixture build | Load | Peak RSS | Snapshot | Connector calls |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 8.090 s | 1.548 s | 448.516 MiB | 36,713,978 bytes | 501 |
-| 2 | 8.561 s | 1.603 s | 448.344 MiB | 36,713,978 bytes | 501 |
-| 3 | 8.193 s | 2.137 s | 448.613 MiB | 36,713,978 bytes | 501 |
+| 1 | 11.109 s | 1.823 s | 448.723 MiB | 36,713,978 bytes | 501 |
+| 2 | 9.996 s | 2.187 s | 447.355 MiB | 36,713,978 bytes | 501 |
+| 3 | 10.954 s | 2.112 s | 449.184 MiB | 36,713,978 bytes | 501 |
 
 All three runs produced these exact stable values:
 
@@ -55,15 +53,15 @@ immutable prepared snapshot.
 
 | Run | First wall | First peak | Repeat wall | Repeat peak | First project | Repeat project |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 17.174 s | 337.156 MiB | 17.444 s | 326.062 MiB | 112,396,533 bytes | 138,610,933 bytes |
-| 2 | 16.943 s | 331.004 MiB | 17.710 s | 321.074 MiB | 112,920,821 bytes | 138,610,933 bytes |
-| 3 | 16.378 s | 337.195 MiB | 17.589 s | 325.922 MiB | 113,969,397 bytes | 140,970,229 bytes |
+| 1 | 22.289 s | 326.125 MiB | 21.705 s | 326.449 MiB | 113,707,253 bytes | 139,659,509 bytes |
+| 2 | 20.496 s | 323.375 MiB | 21.845 s | 325.590 MiB | 113,182,965 bytes | 140,970,229 bytes |
+| 3 | 20.521 s | 324.445 MiB | 22.765 s | 323.379 MiB | 113,707,253 bytes | 140,708,085 bytes |
 
 Every pair reused the prepared snapshot, reopened no source, and exited both
 workers. The fixture was 2,595,207 bytes and retained one exact SHA-256 hash.
 The staging, normalization, and quality hashes were also identical across all
-three pairs. The worst wall time was 17.710 seconds against the 120-second
-budget. The worst worker peak was 337.195 MiB against the 900-MiB budget.
+three pairs. The worst wall time was 22.765 seconds against the 120-second
+budget. The worst worker peak was 326.449 MiB against the 900-MiB budget.
 
 ## Determinism and connector bounds
 
@@ -72,6 +70,12 @@ and 200. Every variant retained the same snapshot semantic hash, row count,
 edge count, dataset schedule, snapshot size, and completed status. The
 transport-dependent call sequences changed as expected: 1,001, 501, and 151
 bounded calls respectively.
+
+The batch-size call-sequence hashes were
+`sha256:0d393cf543831dc15cd434c466d82c212cf0ac3c98e6db9a52a55bd508e0d12e`
+for 25 and
+`sha256:d8ca6ef2d505fc9c91d6544a6781d47e7623787d755d9e5ba7cdca3013681649`
+for 200. The batch-50 hash is recorded above.
 
 The domain permutation checks proved that reversing row inputs does not change
 the row schedule and that dataset input permutations do not change compiled or
@@ -119,17 +123,35 @@ The non-secret JSON artifacts remain under `.tmp` in the working checkout:
 
 | Artifact | File size | SHA-256 |
 | --- | ---: | --- |
-| `scalable-relationship-phase6-execution-25k-windows.json` | 6,009 bytes | `de4ae651f80a977ecc417805d7c4082e4153c5352ecab1bdb381e564463b3330` |
-| `scalable-relationship-phase6-worker-25k-windows.json` | 9,529 bytes | `85f63dca44fe5f27c177c054eaebce03c15035902c44afedc49c9b6ec5344933` |
-| `scalable-relationship-phase6-execution-25k-batch25-windows.json` | 2,831 bytes | `ea12010afbf6ceda8f5b898dec18c5e6e94060ecf8e55f21660fa12d1ea33715` |
-| `scalable-relationship-phase6-execution-25k-batch200-windows.json` | 2,830 bytes | `8a38d65af8bce12a9e35c4ec9baa240931caec352f98f18bcfce3ddc1ac957f0` |
+| `scalable-relationship-phase6-execution-25k-windows-final.json` | 6,013 bytes | `2ea8138a99c117dab8a94c1faee16ed2e41d4c41dcae7266c79d038aa0023962` |
+| `scalable-relationship-phase6-worker-25k-windows-final.json` | 9,538 bytes | `34fbb2cd0c33b62d385cee61e3cac6d0dc46fdda5f0468fefd48d63b475bb7e8` |
+| `scalable-relationship-phase6-execution-25k-batch25-windows-final.json` | 2,834 bytes | `d000dc40182988e9d272605d27c665f85fa231f9524e5068d0aabfebd0d3123b` |
+| `scalable-relationship-phase6-execution-25k-batch200-windows-final.json` | 2,833 bytes | `057536f14d054055b388aa03b246ec902f6a623fc53929befda12bc6b2ffeb61` |
 
 The raw artifacts are intentionally ignored by Git. This report retains the
 portable measurements and hashes needed to review the result.
 
-## Remaining retirement gate
+## Retirement verification
 
-Run the complete discovery suite from a clean revision after the independent
-baseline failures are resolved. Then run the architecture, documentation, and
-owner checks and remove the relationship qualification plan if they pass. A
-future increase beyond 25,000 scheduled records remains a separate track.
+The clean isolated candidate passed every repository test partition:
+
+- application: 544 tests in 782.869 seconds;
+- architecture: 65 tests in 53.778 seconds;
+- domain: 418 tests in 11.292 seconds, with 2 expected skips;
+- integration: 667 tests in 2,666.616 seconds, with 3 expected skips;
+- end to end: 13 tests in 241.410 seconds, with 8 expected skips;
+- performance: 61 tests in 710.717 seconds, with 8 expected skips.
+
+The earlier apparent Production-readiness stall was a slow test: its isolated
+run passed in 198.268 seconds. The final integration repeat also removed a
+two-second test-client redirect race around the one-use launch token; the
+corrected server-restart test passed both alone and inside the 667-test clean
+partition.
+
+The independent baseline repairs covered the target-match fixture version,
+preparation recovery context, line-ending-stable scenario fixtures, current
+browser labels, Windows timezone data, snapshot-contract fixtures, internal
+release Python-version isolation, architecture inventory, and registered
+repository documentation skills. Architecture, documentation ownership,
+lockfile, and diff checks pass on the retirement documentation. The separate
+100,000-row track remains deferred and unchanged.

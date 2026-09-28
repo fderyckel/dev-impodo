@@ -174,11 +174,11 @@ _TEMPLATE_LOCATION = {
         "Connect destination Odoo",
     ),
     "workspace_destination_matching.html": (
-        "destination-match",
+        "destination",
         "Match destination data",
     ),
     "workspace_transfer_order.html": (
-        "transfer-order",
+        "transfer-review",
         "Validate transfer order",
     ),
     "workspace_transfer_review.html": (
@@ -409,7 +409,7 @@ def _build_authoring_workspace_navigation(
             viewed_stage_id = "select"
             viewed_page_label = "Choose record types and fields"
         elif template_name == "mapping/page.html":
-            viewed_stage_id = "destination-match"
+            viewed_stage_id = "destination"
 
         stages = [
             _stage(
@@ -512,46 +512,13 @@ def _build_authoring_workspace_navigation(
             WorkflowStage(
                 stage_id="destination",
                 number=4,
-                label="Connect destination Odoo",
-                href=(
-                    f"/workspaces/{workspace_id}/transfer-destination"
-                    if frozen_source_hash
-                    else None
-                ),
-                status=(
-                    "complete"
-                    if current_workspace_state.destination_verified
-                    else ("current" if frozen_source_hash else "locked")
-                ),
-                status_label=(
-                    "Connected"
-                    if current_workspace_state.destination_verified
-                    else (
-                        "Current"
-                        if frozen_source_hash
-                        else "Download source first"
-                    )
-                ),
-                pages=(
-                    _page(
-                        workspace_id,
-                        "transfer-destination",
-                        "Connect destination Odoo",
-                        "/transfer-destination",
-                        complete=current_workspace_state.destination_verified,
-                    ),
-                )
-                if frozen_source_hash
-                else (),
-            ),
-            WorkflowStage(
-                stage_id="destination-match",
-                number=5,
-                label="Match destination data",
+                label="Connect and match destination",
                 href=(
                     f"/workspaces/{workspace_id}/destination-matching"
                     if current_workspace_state.destination_verified
                     and frozen_source_hash
+                    else f"/workspaces/{workspace_id}/transfer-destination"
+                    if frozen_source_hash
                     else None
                 ),
                 status=(
@@ -561,12 +528,7 @@ def _build_authoring_workspace_navigation(
                         "attention"
                         if current_workspace_state.destination_match_plan is not None
                         and current_workspace_state.destination_verified
-                        else (
-                            "current"
-                            if current_workspace_state.destination_verified
-                            and frozen_source_hash
-                            else "locked"
-                        )
+                        else ("current" if frozen_source_hash else "locked")
                     )
                 ),
                 status_label=(
@@ -577,86 +539,58 @@ def _build_authoring_workspace_navigation(
                         if current_workspace_state.destination_match_plan is not None
                         and current_workspace_state.destination_verified
                         else (
-                            "Current"
+                            "Match destination data"
                             if current_workspace_state.destination_verified
                             and frozen_source_hash
-                            else "Destination required"
+                            else (
+                                "Connect destination"
+                                if frozen_source_hash
+                                else "Download source first"
+                            )
                         )
                     )
                 ),
                 pages=(
-                    _page(
-                        workspace_id,
-                        "destination-matching",
-                        "Match destination data",
-                        "/destination-matching",
-                        complete=destination_match_ready,
-                        attention=(
-                            current_workspace_state.destination_match_plan is not None
-                            and not destination_match_ready
+                    (
+                        _page(
+                            workspace_id,
+                            "transfer-destination",
+                            "Connect destination Odoo",
+                            "/transfer-destination",
+                            complete=current_workspace_state.destination_verified,
                         ),
-                    ),
-                )
-                if current_workspace_state.destination_verified
-                and frozen_source_hash
-                else (),
-            ),
-            WorkflowStage(
-                stage_id="transfer-order",
-                number=6,
-                label="Validate transfer order",
-                href=(
-                    f"/workspaces/{workspace_id}/transfer-order"
-                    if destination_match_ready
-                    else None
-                ),
-                status=(
-                    "complete"
-                    if transfer_order_ready
-                    else (
-                        "attention"
-                        if current_workspace_state.transfer_order_plan is not None
-                        and destination_match_ready
-                        else ("current" if destination_match_ready else "locked")
                     )
-                ),
-                status_label=(
-                    "Order ready"
-                    if transfer_order_ready
-                    else (
-                        "Review order"
-                        if current_workspace_state.transfer_order_plan is not None
-                        and destination_match_ready
-                        else (
-                            "Current"
-                            if destination_match_ready
-                            else "Destination matching required"
+                    + (
+                        (
+                            _page(
+                                workspace_id,
+                                "destination-matching",
+                                "Match destination data",
+                                "/destination-matching",
+                                complete=destination_match_ready,
+                                attention=(
+                                    current_workspace_state.destination_match_plan
+                                    is not None
+                                    and not destination_match_ready
+                                ),
+                            ),
                         )
+                        if current_workspace_state.destination_verified
+                        else ()
                     )
+                    if frozen_source_hash
+                    else ()
                 ),
-                pages=(
-                    _page(
-                        workspace_id,
-                        "transfer-order",
-                        "Validate transfer order",
-                        "/transfer-order",
-                        complete=transfer_order_ready,
-                        attention=(
-                            current_workspace_state.transfer_order_plan is not None
-                            and not transfer_order_ready
-                        ),
-                    ),
-                )
-                if destination_match_ready
-                else (),
             ),
             WorkflowStage(
                 stage_id="transfer-review",
-                number=7,
+                number=5,
                 label="Review transfer",
                 href=(
                     f"/workspaces/{workspace_id}/transfer-review"
                     if transfer_order_ready
+                    else f"/workspaces/{workspace_id}/transfer-order"
+                    if destination_match_ready
                     else None
                 ),
                 status=(
@@ -664,9 +598,15 @@ def _build_authoring_workspace_navigation(
                     if transfer_review_approved
                     else (
                         "attention"
-                        if current_workspace_state.transfer_review_package is not None
-                        and transfer_order_ready
-                        else ("current" if transfer_order_ready else "locked")
+                        if (
+                            current_workspace_state.transfer_order_plan is not None
+                            and not transfer_order_ready
+                        )
+                        or (
+                            current_workspace_state.transfer_review_package is not None
+                            and not transfer_review_approved
+                        )
+                        else ("current" if destination_match_ready else "locked")
                     )
                 ),
                 status_label=(
@@ -681,33 +621,62 @@ def _build_authoring_workspace_navigation(
                             is not None
                             and transfer_order_ready
                             else (
-                                "Current"
-                                if transfer_order_ready
-                                else "Transfer order required"
+                                "Review transfer order"
+                                if current_workspace_state.transfer_order_plan
+                                is not None
+                                and not transfer_order_ready
+                                else (
+                                    "Choose transfer policies"
+                                    if transfer_order_ready
+                                    else (
+                                        "Validate transfer order"
+                                        if destination_match_ready
+                                        else "Destination matching required"
+                                    )
+                                )
                             )
                         )
                     )
                 ),
                 pages=(
-                    _page(
-                        workspace_id,
-                        "transfer-review",
-                        "Review transfer",
-                        "/transfer-review",
-                        complete=transfer_review_approved,
-                        attention=(
-                            current_workspace_state.transfer_review_package
-                            is not None
-                            and not transfer_review_approved
+                    (
+                        _page(
+                            workspace_id,
+                            "transfer-order",
+                            "Validate transfer order",
+                            "/transfer-order",
+                            complete=transfer_order_ready,
+                            attention=(
+                                current_workspace_state.transfer_order_plan is not None
+                                and not transfer_order_ready
+                            ),
                         ),
-                    ),
-                )
-                if transfer_order_ready
-                else (),
+                    )
+                    + (
+                        (
+                            _page(
+                                workspace_id,
+                                "transfer-review",
+                                "Review transfer",
+                                "/transfer-review",
+                                complete=transfer_review_approved,
+                                attention=(
+                                    current_workspace_state.transfer_review_package
+                                    is not None
+                                    and not transfer_review_approved
+                                ),
+                            ),
+                        )
+                        if transfer_order_ready
+                        else ()
+                    )
+                    if destination_match_ready
+                    else ()
+                ),
             ),
             WorkflowStage(
                 stage_id="destination-load",
-                number=8,
+                number=6,
                 label="Load destination Odoo",
                 href=(
                     f"/workspaces/{workspace_id}/transfer-load/outcome"
@@ -1637,7 +1606,7 @@ def build_odoo_capture_workspace_navigation(
         WorkflowStage(
             stage_id="destination",
             number=4,
-            label="Connect destination Odoo",
+            label="Connect and match destination",
             href=(
                 f"/workspaces/{workspace_id}/transfer-destination"
                 if job.status is OdooCaptureJobStatus.SUCCEEDED
@@ -1649,38 +1618,22 @@ def build_odoo_capture_workspace_navigation(
                 else "locked"
             ),
             status_label=(
-                "Current"
+                "Connect destination"
                 if job.status is OdooCaptureJobStatus.SUCCEEDED
                 else "Download source first"
             ),
         ),
         WorkflowStage(
-            "destination-match",
+            "transfer-review",
             5,
-            "Match destination data",
-            None,
-            "locked",
-            "Destination required",
-        ),
-        WorkflowStage(
-            "transfer-order",
-            6,
-            "Validate transfer order",
+            "Review transfer",
             None,
             "locked",
             "Destination matching required",
         ),
         WorkflowStage(
-            "transfer-review",
-            7,
-            "Review transfer",
-            None,
-            "locked",
-            "Transfer order required",
-        ),
-        WorkflowStage(
             "destination-load",
-            8,
+            6,
             "Load destination Odoo",
             None,
             "locked",

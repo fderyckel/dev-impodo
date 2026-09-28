@@ -22,7 +22,7 @@ order must still match. The target must be explicitly allowed for the practical
 rehearsal path and the actor must provide or have already stored the required
 write-role credential.
 
-## Odoo-to-Odoo transfer boundary through Stage 8B
+## Odoo-to-Odoo transfer boundary in Stage 6
 
 The Odoo-source Authoring variant binds exactly two credentials. `SOURCE_FETCH`
 captures and freezes the source. `DESTINATION_TRANSFER` is the second and final
@@ -46,7 +46,7 @@ identities remain separate work. `TransferOrderService` derives dependency waves
 fields, relationship operations, later relationship passes, and control totals.
 The browser defaults to `create_if_missing`, so existing supporting records
 are used without changing their fields. `reuse_only` requires every selected
-source key to have exactly one destination match. Stage 8B compiles matched
+source key to have exactly one destination match. The load compiler represents matched
 rows under either reuse policy as `UNCHANGED` with no write intents; their
 binding can still resolve selected relationships. The policy is part of the
 review action hash and changing it requires new approval. Legacy version 1
@@ -101,7 +101,7 @@ hard dataset edge. Compilation restores the protected identity as a
 `LogicalReference`; when the record already exists, it emits a
 `BusinessReference` and adds no ordering edge.
 [`TransferReviewDataset`](../../../src/impodo/domain/workspace/transfer_review.py)
-binds its `create_field_providers` value-safe summary into the Stage 7 action
+binds its `create_field_providers` value-safe summary into the Stage 5 action
 hash. Exact fixed values, defaults, and selected reference identities remain
 outside the review package.
 If the full destination metadata exposes a Selection field named `state`,
@@ -112,7 +112,7 @@ business actions.
 Approval authorizes only that immutable package; it does not authorize
 transport.
 
-Stage 8A starts at `POST /workspaces/{workspace_id}/transfer-preflight`. The
+The Stage 6 read-only preflight starts at `POST /workspaces/{workspace_id}/transfer-preflight`. The
 route resolves the `DESTINATION_TRANSFER` vault entry and calls only the
 read-identity probe and bounded destination readers. `TransferPreflightService`
 compares the fresh aggregate result with the exact approved package. A changed
@@ -121,7 +121,7 @@ classification, record identity, or relationship resolution produces immutable
 blocker evidence. The route never constructs `OdooWriteExecutor`, creates no
 journal, and writes no Odoo record.
 
-Stage 8B is deliberately split in two. `POST .../transfer-load/prepare` repeats
+The confirmed load boundary is deliberately split in two. `POST .../transfer-load/prepare` repeats
 the destination read with the same transfer key, saves that fresh preflight,
 and stops on drift. When it is ready, `TransferExecutionService` combines the
 frozen Parquet tables, protected source relationship evidence, exact
@@ -333,8 +333,8 @@ read-back to govern recovery. The browser derives bounded progressive guidance
 from that same snapshot. The current 25,000-row Product/BOM macOS and
 [Windows](../../testing/relationship-execution-windows-2026-09-28.md)
 qualifications pass, as does the bounded Odoo 19 generated-variant probe. The
-[relationship qualification plan](../../plans/scalable-relationship-dependency-planning.md)
-now retains only the repository-wide clean-discovery retirement gate.
+Windows report also records the green clean-revision repository gate that
+retired the relationship qualification plan.
 
 ## Browser guidance and progress
 
@@ -598,5 +598,4 @@ Odoo 19 target.
 - [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)
 - [Windows relationship qualification evidence](../../testing/relationship-execution-windows-2026-09-28.md)
-- [Remaining relationship plan retirement gate](../../plans/scalable-relationship-dependency-planning.md)
 - [Proposed exact-record repair for known fallout](../../plans/load-fallout-source-cell-workbook.md)

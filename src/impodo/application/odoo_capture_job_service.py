@@ -108,6 +108,7 @@ class OdooCaptureJobManager:
                 completed_rows=0,
                 total_rows=max(0, int(maximum_rows)),
                 page_count=0,
+                relationship_check_page_count=0,
                 response_bytes=0,
                 normalized_bytes=0,
                 progress_percent=0,
@@ -256,6 +257,10 @@ class OdooCaptureJobManager:
                     completed_rows=max(job.completed_rows, progress.completed_rows),
                     total_rows=max(job.total_rows, progress.total_rows),
                     page_count=max(job.page_count, progress.page_count),
+                    relationship_check_page_count=max(
+                        job.relationship_check_page_count,
+                        progress.relationship_check_page_count,
+                    ),
                     response_bytes=max(job.response_bytes, progress.response_bytes),
                     normalized_bytes=max(
                         job.normalized_bytes,

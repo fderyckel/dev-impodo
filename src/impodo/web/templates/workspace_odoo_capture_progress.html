@@ -12,7 +12,7 @@
   >
     <section class="page-heading">
       <div>
-        <p class="eyebrow">Stage 3 of 8 · Download and freeze</p>
+        <p class="eyebrow">Stage 3 of 6 · Download and freeze</p>
         <h1>Freezing {{ job.migration_project_name }}</h1>
         <p>You can leave this page. Impodo makes the new data version current only after the complete capture finishes.</p>
       </div>
@@ -34,10 +34,10 @@
         <strong data-odoo-capture-percent>{{ job.progress_percent }}%</strong>
         <span data-odoo-capture-rows>{% if job.completed_rows %}{{ "{:,}".format(job.completed_rows) }} records read{% else %}No record page completed yet{% endif %}</span>
       </div>
-      <p class="muted" data-odoo-capture-accounting>{{ job.page_count }} page(s) · {{ "{:,}".format(job.response_bytes) }} response bytes · {{ "{:,}".format(job.normalized_bytes) }} normalized bytes</p>
+      <p class="muted" data-odoo-capture-accounting>{{ job.page_count }} record page(s){% if job.relationship_check_page_count %} · {{ job.relationship_check_page_count }} relationship check page(s){% endif %} · {{ "{:,}".format(job.response_bytes) }} response bytes · {{ "{:,}".format(job.normalized_bytes) }} normalized bytes</p>
       <details class="technical-evidence">
         <summary>Support details</summary>
-        <p>Progress uses counters produced by the same bounded page stream. It does not run an extra count, scan, serialization, or hash pass.</p>
+        <p>Record values are read once. For linked-record captures, Impodo then repeats the protected relationship check before publication so changed links cannot enter the frozen version. This check reads identifiers, timestamps, and selected links; it does not download or serialize the business values again.</p>
       </details>
     </section>
 

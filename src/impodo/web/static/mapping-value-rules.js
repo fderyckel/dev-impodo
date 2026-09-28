@@ -1,19 +1,14 @@
 "use strict";
-
 document.addEventListener("DOMContentLoaded", () => {
   const {
     initializeLazySourceSelect,
   } = window.impodoMappingEditor;
   const { displayPreviewValue, defaultTextStep } =
     window.impodoMappingValueRuleHelpers;
-
-
   const textStepPreset = (step) =>
     step.kind === "remove_separators_between_digits"
       ? "remove_separators_between_digits"
       : step.search_mode || "literal";
-
-
   const internationalPhoneTextSteps = () => [
     {
       ...defaultTextStep("starts_with"),
@@ -63,8 +58,7 @@ document.addEventListener("DOMContentLoaded", () => {
           : Boolean(card.querySelector("[data-text-step-replace-all]")?.checked),
         characters: separators,
       };
-    });
-
+  });
   const syncTextStepStorage = (builder) => {
     const stepCount = builder.querySelectorAll("[data-text-step]").length;
     const storage = builder.querySelector("[data-text-step-storage]");

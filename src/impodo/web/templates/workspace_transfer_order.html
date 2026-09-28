@@ -3,11 +3,11 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 6 of 8 · Validate transfer order</p>
+      <p class="eyebrow">Stage 5 of 6 · Review transfer</p>
       <h1>Put related Odoo records in a safe transfer order</h1>
       <p>
         Impodo derives creation waves and any post-create relationship pass from
-        the current Stage 5 evidence. This stage is local and does not contact or
+        the current Stage 4 evidence. This step is local and does not contact or
         write to either Odoo instance.
       </p>
     </div>
@@ -32,7 +32,7 @@
     <div class="notice warning">
       <strong>The saved order is no longer current.</strong>
       Source evidence, destination matching, or destination identity changed.
-      Build the order again from the current Stage 5 plan.
+      Build the order again from the current Stage 4 matching plan.
     </div>
   {% endif %}
 
@@ -77,7 +77,7 @@
           </p>
         </div>
         <span class="status {% if transfer_order_ready %}ready{% else %}blocked{% endif %}">
-          {% if transfer_order_ready %}Stage 6 complete{% else %}Blocked{% endif %}
+          {% if transfer_order_ready %}Order ready{% else %}Blocked{% endif %}
         </span>
       </div>
 
@@ -174,7 +174,7 @@
         <section class="next-action-card ready">
           <div>
             <p class="eyebrow">Transfer order complete</p>
-            <h2>Next: review the complete transfer</h2>
+            <h2>Next: choose and approve the transfer policy</h2>
             <p>
               Freeze matching, creation waves, deferred links, selected field
               writes, and control totals into one approval package. Destination
@@ -182,7 +182,7 @@
             </p>
           </div>
           <div class="next-action-buttons">
-            <span class="status ready">Stage 6 complete</span>
+            <span class="status ready">Order ready</span>
             <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-review">Review transfer</a>
           </div>
         </section>

@@ -1170,7 +1170,7 @@ def _upgrade_workspace_engine_v5_to_v6(
 def _upgrade_workspace_engine_v6_to_v7(
     connection: duckdb.DuckDBPyConnection,
 ) -> None:
-    """Add current Stage 6 transfer-order evidence."""
+    """Add current Odoo-to-Odoo transfer-order evidence."""
 
     connection.execute(
         """
@@ -1183,7 +1183,7 @@ def _upgrade_workspace_engine_v6_to_v7(
 def _upgrade_workspace_engine_v7_to_v8(
     connection: duckdb.DuckDBPyConnection,
 ) -> None:
-    """Add frozen Stage 7 review and approval evidence."""
+    """Add frozen Odoo-to-Odoo review and approval evidence."""
 
     connection.execute(
         """
@@ -1198,7 +1198,7 @@ def _upgrade_workspace_engine_v7_to_v8(
 def _upgrade_workspace_engine_v8_to_v9(
     connection: duckdb.DuckDBPyConnection,
 ) -> None:
-    """Add immutable Stage 8A read-only preflight evidence."""
+    """Add immutable Odoo-to-Odoo read-only preflight evidence."""
 
     connection.execute(
         """

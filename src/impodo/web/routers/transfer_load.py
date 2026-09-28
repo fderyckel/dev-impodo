@@ -1,4 +1,4 @@
-"""Stage 8B guarded Odoo-to-Odoo execution and read-back workflow."""
+"""Guarded Odoo-to-Odoo execution and read-back workflow."""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ def _destination_models(selection) -> tuple[str, ...]:
         )
     )
     if len(models) != len(selection.datasets):
-        raise WorkspaceError("Stage 8B requires frozen Odoo source tables")
+        raise WorkspaceError("The destination load requires frozen Odoo source tables")
     return models
 
 

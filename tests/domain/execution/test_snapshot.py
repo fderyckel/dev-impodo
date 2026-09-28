@@ -126,7 +126,7 @@ class ExecutionSnapshotTests(unittest.TestCase):
         )
         restored = ExecutionSnapshot.from_json(snapshot.to_json())
 
-        self.assertEqual(restored.contract_version, 8)
+        self.assertEqual(restored.contract_version, 9)
         self.assertTrue(
             all(
                 row.target_binding_hash.startswith("sha256:")
@@ -517,6 +517,7 @@ class ExecutionSnapshotTests(unittest.TestCase):
         )
         manifest_content = json.dumps(
             {
+                "semantic_hash": snapshot.preflight_result_hash,
                 "preflight_evidence": {
                     "execution_snapshot_hash": snapshot.semantic_hash,
                 }

@@ -46,6 +46,7 @@ class TargetMatchServiceTests(TestCase):
         self.coverage = NS(evidence=self.evidence, issues=())
         self.schema = NS(
             content_hash=content_hash("schema"), connection_target_hash=content_hash("target"),
+            odoo_version="19.0",
             read_credential_binding_hash=content_hash("credential"), read_principal_hash=content_hash("principal"),
             read_permission_hash=content_hash("permission"), read_context_hash=content_hash("context"),
             models=(NS(name="res.partner", label="Contacts", fields=tuple(

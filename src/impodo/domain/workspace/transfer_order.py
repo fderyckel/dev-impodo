@@ -1,4 +1,4 @@
-"""Portable Stage 6 ordering evidence for Odoo-to-Odoo transfers.
+"""Portable ordering evidence for Odoo-to-Odoo transfers.
 
 The contract stores dataset identities, relationship semantics, deterministic
 creation waves, and blockers. It never contains Odoo numeric identifiers,

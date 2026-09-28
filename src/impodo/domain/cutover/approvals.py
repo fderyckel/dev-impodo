@@ -1,7 +1,7 @@
 """Immutable approval evidence used by normalization and frozen export plans.
 
 ``ApprovalEvidence`` is integrated into the Stage-G ``DryRun`` decision state.
-The Odoo-to-Odoo Stage 7 review package now binds its exact portable action
+The Odoo-to-Odoo transfer review package binds its exact portable action
 scope through ``FrozenExportPlan`` and records ``ExportPlanApproval``. That
 approval remains review evidence only and is not itself an Odoo write command.
 

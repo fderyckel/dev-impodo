@@ -17,10 +17,6 @@ those current references have been verified.
 
 - Complete the [three-page Production journey](recipe-run-three-page-ui-refactor.md)
   and its user guidance. The Test journey is implemented.
-- Restore green clean-revision discovery, then retire the
-  [relationship qualification plan](scalable-relationship-dependency-planning.md).
-  The planner, bounded execution, recovery, macOS and Windows measurements,
-  and authenticated visual evidence are complete at 25,000 scheduled records.
 - Finish [Match data ordering qualification](smart-match-data-ordering.md) and
   [row-inclusion visual and native follow-up](source-row-inclusion-rules.md).
 - Qualify [macOS saves](resilient-match-data-saving.md),

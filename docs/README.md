@@ -92,9 +92,6 @@ records remain in Git history.
 - [VM deployment with DuckDB and managed workers](plans/vm-deployment-duckdb-worker-management.md)
   proposes internal VM deployment, Entra sign-in, durable worker coordination,
   resource controls, recovery, and pilot acceptance.
-- [Relationship qualification retirement](plans/scalable-relationship-dependency-planning.md)
-  retains the clean repository-wide discovery gate after the Windows repeat
-  and authenticated visual evidence passed at 25,000 scheduled records.
 - [Match data ordering qualification](plans/smart-match-data-ordering.md)
   retains documentation, visual, and performance checks for the implemented
   queue, custom ordering, and explicit live Odoo refinement.

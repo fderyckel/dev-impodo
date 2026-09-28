@@ -1,4 +1,4 @@
-"""Stage 8A read-only destination preflight and aggregate dry-run preview."""
+"""Read-only destination preflight and aggregate dry-run preview."""
 
 from __future__ import annotations
 

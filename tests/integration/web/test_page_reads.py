@@ -6,7 +6,7 @@ from threading import Event, get_ident
 import unittest
 from unittest.mock import patch
 
-from impodo.web.composition.page_reads import run_page_read
+from impodo.web.composition.page_reads import run_local_operation, run_page_read
 
 
 class PageReadWorkerTests(unittest.IsolatedAsyncioTestCase):
@@ -60,3 +60,29 @@ class PageReadWorkerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(ValueError, "invalid saved evidence"):
                 await run_page_read(fail)
         self.assertEqual(closed, [True])
+
+    async def test_local_operation_uses_bounded_worker_scope(self) -> None:
+        loop_thread = get_ident()
+        events = []
+
+        @contextmanager
+        def scope():
+            events.append(("open", get_ident()))
+            try:
+                yield
+            finally:
+                events.append(("close", get_ident()))
+
+        def operate():
+            events.append(("operate", get_ident()))
+            return "saved"
+
+        with patch(
+            "impodo.web.composition.page_reads.retain_databases_for_operation",
+            scope,
+        ):
+            self.assertEqual(await run_local_operation(operate), "saved")
+
+        self.assertEqual([name for name, _ in events], ["open", "operate", "close"])
+        self.assertEqual(len({thread for _, thread in events}), 1)
+        self.assertNotEqual(events[0][1], loop_thread)

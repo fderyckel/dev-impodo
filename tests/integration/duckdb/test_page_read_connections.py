@@ -13,6 +13,7 @@ import duckdb
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.adapters.duckdb.unit_of_work import (
     DuckDbConnectionFactory,
+    retain_databases_for_operation,
     retain_databases_for_read,
 )
 from tests.support.paths import REPOSITORY_ROOT
@@ -62,6 +63,17 @@ class PageReadConnectionTests(unittest.TestCase):
                     failed.execute("INSERT INTO values_to_read VALUES (10)")
                     raise ValueError("failed work")
             self.assertEqual(self.read(), 3)
+
+    def test_local_operation_reuses_owner_for_committed_write_and_read(self) -> None:
+        with collect_duckdb_request_timings() as timings:
+            with retain_databases_for_operation():
+                with self.factory.connect(self.path) as connection:
+                    connection.begin()
+                    connection.execute("INSERT INTO values_to_read VALUES (2)")
+                    connection.commit()
+                self.assertEqual(self.read(), 3)
+
+        self.assertEqual(timings.connection_count, 1)
 
     def test_scope_releases_every_database_even_when_rendering_fails(self) -> None:
         opened = []

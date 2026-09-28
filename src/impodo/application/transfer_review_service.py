@@ -1,4 +1,4 @@
-"""Build a frozen Stage 7 Odoo transfer review without contacting Odoo."""
+"""Build a frozen Odoo transfer review without contacting Odoo."""
 
 from __future__ import annotations
 

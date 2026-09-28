@@ -540,6 +540,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-multipart" },
     { name = "pyyaml" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
     { name = "uvicorn" },
 ]
 
@@ -577,6 +578,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.20,<1" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
     { name = "setuptools", marker = "extra == 'release'", specifier = "==83.0.0" },
+    { name = "tzdata", marker = "sys_platform == 'win32'", specifier = ">=2026.3" },
     { name = "uvicorn", specifier = ">=0.30,<1" },
 ]
 provides-extras = ["test", "release"]

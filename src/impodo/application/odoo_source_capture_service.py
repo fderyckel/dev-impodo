@@ -125,6 +125,7 @@ class OdooSourceCapturePort(Protocol):
         context: ProtectedOdooReadContext,
         *,
         cancellation: CancellationProbe | None = None,
+        observe_page: Callable[[int, int], None] | None = None,
     ) -> tuple[OdooOriginBatch, ...]: ...
 
     def sample(
@@ -244,6 +245,7 @@ class OdooSourceCaptureService:
         cancellation: CancellationProbe | None = None,
         observe_matching_rows: Callable[[OdooCaptureSelection, int], None]
         | None = None,
+        observe_relationship_recheck: Callable[[bool], None] | None = None,
     ) -> tuple[OdooSourceCaptureResult, ...]:
         """Capture the complete model set under one pair of live checks."""
 
@@ -261,6 +263,7 @@ class OdooSourceCaptureService:
                 consume_page_factory=consume_page_factory,
                 cancellation=cancellation,
                 observe_matching_rows=observe_matching_rows,
+                observe_relationship_recheck=observe_relationship_recheck,
             )
         return self._capture_contexts(
             workspace_id,
@@ -347,11 +350,15 @@ class OdooSourceCaptureService:
         protected_context: ProtectedOdooReadContext,
         *,
         cancellation: CancellationProbe | None,
+        observe_scan_page: Callable[[int, int], None] | None = None,
     ) -> ProtectedDependencyClosure:
         return discover_dependency_closure(
             tuple(request for request, _, _ in contexts),
             lambda request: gateway.scan_origins(
-                request, protected_context, cancellation=cancellation
+                request,
+                protected_context,
+                cancellation=cancellation,
+                observe_page=observe_scan_page,
             ),
         )
 
@@ -370,6 +377,7 @@ class OdooSourceCaptureService:
         ],
         cancellation: CancellationProbe | None,
         observe_matching_rows: Callable[[OdooCaptureSelection, int], None] | None,
+        observe_relationship_recheck: Callable[[bool], None] | None,
     ) -> tuple[OdooSourceCaptureResult, ...]:
         first_request, schema, _ = contexts[0]
         protected_context = self._verify_start(
@@ -461,8 +469,26 @@ class OdooSourceCaptureService:
                 accounting=accounting,
                 matching_rows=len(expected_ids),
             ))
+        if observe_relationship_recheck is not None:
+            observe_relationship_recheck(False)
+
+        def observe_recheck_page(
+            _completed_rows: int,
+            _total_rows: int,
+        ) -> None:
+            if observe_relationship_recheck is not None:
+                observe_relationship_recheck(True)
+
         end_closure = self._discover_dependencies(
-            gateway, contexts, protected_context, cancellation=cancellation
+            gateway,
+            contexts,
+            protected_context,
+            cancellation=cancellation,
+            observe_scan_page=(
+                observe_recheck_page
+                if observe_relationship_recheck is not None
+                else None
+            ),
         )
         if end_closure != closure:
             raise OdooSourceCaptureConsistencyError(

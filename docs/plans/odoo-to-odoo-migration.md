@@ -181,7 +181,7 @@ one read-only destination key.
   `TargetIdentitySpec` component and scope semantics, then adapt frozen Odoo
   rows to those semantics instead of adding model-name matching rules.
 - The manager can choose `reuse_only`, `create_if_missing`, or `upsert` for
-  each model in Stage 7. The browser defaults to `create_if_missing`, so
+  each model in Stage 5. The browser defaults to `create_if_missing`, so
   capturing a supporting model does not automatically make its existing
   records update candidates. Broader identity and preflight checks remain.
 - Check destination uniqueness, permissions, required create fields, usable
@@ -215,7 +215,7 @@ frozen source row. Neither provider changes a reused destination record.
 
 An Odoo default now produces a separate protected read-back expectation. The
 create request omits that field, then reconciliation reads it and compares the
-result with the exact reviewed default. Stage 8A and Stage 8B carry a reviewed
+result with the exact reviewed default. Stage 6 preflight and load preparation carry a reviewed
 choice only while its field contract, provider, and value hash remain
 unchanged. A changed default or provider returns as
 `DESTINATION_CREATE_FIELD_DRIFT` before a write. The live Contact qualification
@@ -309,11 +309,11 @@ expectation binds the exact reviewed destination record. It also retains the
 portable identity when the related type is in matching scope; it never copies
 the numeric ID into another target or portable run artifact.
 
-Stage 7 now binds the destination-matching plan hash and lists each create-only
+Stage 5 now binds the destination-matching plan hash and lists each create-only
 field with its provider kind without including the chosen business value.
-Stage 8A should repeat `fields_get` and one
+Stage 6 preflight should repeat `fields_get` and one
 bounded `default_get` request per affected model, then compare the resulting
-field contracts and default evidence with the approved plan. Stage 8B should
+field contracts and default evidence with the approved plan. Load preparation should
 repeat that check before it stages the execution snapshot. A changed default,
 company context, field definition, model policy, or provider invalidates the
 decision and returns the user to **Complete values for new records** with the
@@ -397,7 +397,7 @@ preflight make no destination writes.
 
 ## Phase 3: load and verify one approved plan
 
-The confirmed Stage 8B load uses the approved per-model policies and the
+The confirmed Stage 6 load uses the approved per-model policies and the
 existing journal, writer, recovery, and reconciliation boundaries.
 
 - Create approved missing dependencies before rows that refer to them.

@@ -25,6 +25,7 @@ class OdooCapturePhase(StrEnum):
     QUEUED = "QUEUED"
     VERIFYING = "VERIFYING"
     READING = "READING"
+    RECHECKING_RELATIONSHIPS = "RECHECKING_RELATIONSHIPS"
     FINALIZING = "FINALIZING"
     PUBLISHING = "PUBLISHING"
     COMPLETE = "COMPLETE"
@@ -34,6 +35,9 @@ CAPTURE_PHASE_LABELS: dict[OdooCapturePhase, str] = {
     OdooCapturePhase.QUEUED: "Waiting to start",
     OdooCapturePhase.VERIFYING: "Verifying the saved Odoo connection",
     OdooCapturePhase.READING: "Reading the selected Odoo records",
+    OdooCapturePhase.RECHECKING_RELATIONSHIPS: (
+        "Rechecking that linked records have not changed"
+    ),
     OdooCapturePhase.FINALIZING: "Checking the complete capture",
     OdooCapturePhase.PUBLISHING: "Making the frozen version current",
     OdooCapturePhase.COMPLETE: "Odoo records frozen",
@@ -50,6 +54,7 @@ class OdooCaptureProgress:
     page_count: int
     response_bytes: int
     normalized_bytes: int
+    relationship_check_page_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +71,7 @@ class OdooCaptureJob:
     completed_rows: int
     total_rows: int
     page_count: int
+    relationship_check_page_count: int
     response_bytes: int
     normalized_bytes: int
     progress_percent: int
@@ -107,7 +113,8 @@ def odoo_capture_progress_percent(progress: OdooCaptureProgress) -> int:
         )
         return min(80, 8 + round(72 * max(0.0, min(1.0, fraction))))
     return {
-        OdooCapturePhase.FINALIZING: 86,
+        OdooCapturePhase.RECHECKING_RELATIONSHIPS: 84,
+        OdooCapturePhase.FINALIZING: 88,
         OdooCapturePhase.PUBLISHING: 94,
         OdooCapturePhase.COMPLETE: 100,
     }[progress.phase]

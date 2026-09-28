@@ -17,7 +17,12 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import HTTPCookieProcessor, Request, build_opener
+from urllib.request import (
+    HTTPCookieProcessor,
+    HTTPRedirectHandler,
+    Request,
+    build_opener,
+)
 from uuid import uuid4
 from zipfile import ZipFile
 
@@ -827,7 +832,22 @@ class ServerSupervisorTests(unittest.TestCase):
                 development_mode=True,
             )
             children = []
-            opener = build_opener(HTTPCookieProcessor(CookieJar()))
+            class _NoRedirectHandler(HTTPRedirectHandler):
+                def redirect_request(
+                    self,
+                    req,
+                    fp,
+                    code,
+                    msg,
+                    headers,
+                    newurl,
+                ):
+                    return None
+
+            opener = build_opener(
+                HTTPCookieProcessor(CookieJar()),
+                _NoRedirectHandler(),
+            )
 
             def wait_for(path: str, status_code: int):
                 deadline = perf_counter() + 30
@@ -838,7 +858,12 @@ class ServerSupervisorTests(unittest.TestCase):
                             if response.status == status_code:
                                 return response.read(), response.status
                         last_error = AssertionError(response.status)
-                    except (HTTPError, URLError, TimeoutError) as error:
+                    except HTTPError as error:
+                        if error.code == status_code:
+                            with error:
+                                return error.read(), error.code
+                        last_error = error
+                    except (URLError, TimeoutError) as error:
                         last_error = error
                     sleep(0.05)
                 raise AssertionError(
@@ -863,7 +888,7 @@ class ServerSupervisorTests(unittest.TestCase):
                 children.append(first)
                 first.start()
                 listener.close()
-                wait_for("/launch?token=spawn-launch-token", 200)
+                wait_for("/launch?token=spawn-launch-token", 303)
                 projects, _status = wait_for("/projects", 200)
                 stopped_status, _body = post(
                     "/quit",

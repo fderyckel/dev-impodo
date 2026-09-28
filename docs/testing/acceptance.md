@@ -86,11 +86,11 @@ business values, or numeric Odoo IDs.
 The authenticated 1440-pixel-wide evidence captures these decision points in
 the ignored `build/acceptance/odoo-to-odoo-contact/` directory:
 
-- `stage-5-destination-matching.png` shows one reuse, one create, three
+- `stage-4-destination-matching.png` shows one reuse, one create, three
   confirmed defaults, and the ready Company relationship.
-- `stage-7-transfer-review.png` shows the approved two-record package, exact
+- `stage-5-transfer-review.png` shows the approved two-record package, exact
   scalar fields, one relationship field, and reconciled control totals.
-- `stage-8b-verified-load.png` shows two verified records, zero fallout, and
+- `stage-6-verified-load.png` shows two verified records, zero fallout, and
   zero unknown outcomes.
 
 Reproduce the qualification only with two disposable instances and a private
@@ -543,8 +543,8 @@ PYTHONPATH=src:. .venv/bin/python \
   --output .tmp/scalable-relationship-phase6-worker-25k.json
 ```
 
-The Windows repeat passed on clean isolated revision
-`dc44b130fec328ef1291e32b60a492d440968e86` on 2026-09-28. The
+The final Windows retirement repeat passed on clean isolated candidate revision
+`0e601da96fb7d547d22f11852c41f0632eaa910b` on 2026-09-28. The
 [Windows relationship execution report](relationship-execution-windows-2026-09-28.md)
 records the exact three-run measurements, worker first/repeat pairs, hashes,
 artifact sizes, batch-size variants, focused recovery and read-back checks,
@@ -580,10 +580,11 @@ and exact final relationship read-back. The authenticated
 [eligible Product fields screenshot](../images/user/08g-odoo-source-eligible-fields.png)
 was captured from the current interface with fictional data at 1440 by 1024.
 
-The relationship plan remains open only because the required repository-wide
-clean discovery gate is not green. The 2026-09-28 diagnostic run found
-independent failures and later stalled; the focused relationship result is not
-used as a substitute for that retirement gate.
+The relationship qualification plan is retired. The clean candidate passed
+all application, architecture, domain, integration, end-to-end, and
+performance partitions after the independent baseline failures and the
+one-use launch-token test race were repaired. The deferred 100,000-row track
+remains separate and does not change the supported 25,000-row boundary.
 
 P4 passed on 2026-08-06 against the isolated `impodo_p4_20260806` database:
 125 creates, 20 updates, 5 unchanged, 145 committed writes, 150 verified by

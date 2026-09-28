@@ -7,7 +7,7 @@
   {% set download_stage = current_manifests or (plans_complete and schema and not schema.pending_refresh) %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage {% if download_stage %}3{% else %}2{% endif %} of 8 · {% if download_stage %}Download and freeze{% else %}Select data to download{% endif %}</p>
+      <p class="eyebrow">Stage {% if download_stage %}3{% else %}2{% endif %} of 6 · {% if download_stage %}Download and freeze{% else %}Select data to download{% endif %}</p>
       {% if plans_complete and not show_capture_plan_editor %}
         <h1>Review and freeze the Odoo source</h1>
         <p>The capture plans are saved. Check the matching records, then freeze all datasets as one source version.</p>
@@ -44,7 +44,7 @@
       </div>
 
       {% if related_data_scope.selectable_model_names %}
-        <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-related-data">
+        <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-related-data" data-single-submit>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
       {% endif %}
@@ -122,7 +122,7 @@
 
           <div class="actions">
             {% if related_data_scope.selectable_model_names %}
-              <button class="button primary" type="submit">Save related-data choices</button>
+              <button class="button primary" type="submit" data-submitting-label="Saving choices and loading their Odoo fields...">Save related-data choices</button>
             {% endif %}
             <a class="button secondary" href="{{ related_data_scope.all_choices_url }}">Review all available Odoo data</a>
           </div>
@@ -204,7 +204,7 @@
       {% endif %}
 
       {% if selected_model %}
-        <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-selection">
+        <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-selection" data-single-submit>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="model" value="{{ selected_model.name }}">
 
@@ -281,7 +281,7 @@
 
           <div class="actions">
             <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Back to Odoo fields</a>
-            <button class="button primary" type="submit" {% if not fields %}disabled{% endif %}>Save bounded capture plan</button>
+            <button class="button primary" type="submit" data-submitting-label="Saving capture plan..." {% if not fields %}disabled{% endif %}>Save bounded capture plan</button>
           </div>
         </form>
       {% endif %}
@@ -370,7 +370,7 @@
               </p>
             </div>
             <div class="next-action-buttons">
-              <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-assessment">
+              <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-assessment" data-single-submit>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="selection_id" value="{{ current_selections[0].selection_id }}">
                 <input type="hidden" name="selection_hash" value="{{ selection_set_hash }}">
@@ -380,7 +380,7 @@
                     I reviewed the selected relationship fields above
                   </label>
                 {% endif %}
-                <button class="button primary" type="submit">Check matching records and continue</button>
+                <button class="button primary" type="submit" data-submitting-label="Checking matching records in Odoo...">Check matching records and continue</button>
               </form>
             </div>
           </div>

@@ -1,7 +1,7 @@
-"""Portable Stage 8A read-only destination preflight evidence.
+"""Portable read-only destination preflight evidence.
 
 The report compares a fresh, bounded destination read with one exact approved
-Stage 7 package.  It deliberately contains only technical identities,
+approved transfer package.  It deliberately contains only technical identities,
 aggregate counts, and one-way hashes: business-key values, numeric Odoo IDs,
 credentials, and write receipts stay outside this contract.
 """

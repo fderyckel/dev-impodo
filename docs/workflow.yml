@@ -661,5 +661,4 @@ stages:
       - docs/architecture/security-and-infrastructure.md
       - docs/testing/acceptance.md
       - docs/testing/relationship-execution-windows-2026-09-28.md
-      - docs/plans/scalable-relationship-dependency-planning.md
       - docs/plans/load-fallout-source-cell-workbook.md

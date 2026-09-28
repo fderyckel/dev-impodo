@@ -16,7 +16,7 @@ continue through the existing load and verification steps. An Odoo-to-Odoo
 workspace can continue from its read-only destination preflight through a
 separate preparation, explicit load confirmation, and destination read-back.
 
-## Odoo-to-Odoo transfer through Stage 8B
+## Odoo-to-Odoo transfer through the six-stage workflow
 
 When you download records from one Odoo database for transfer to another,
 Impodo keeps the source-fetch key separate from the destination transfer key.
@@ -25,16 +25,18 @@ uses it for read-only matching and preflight. It uses that same destination key
 for loading and verification only after you explicitly confirm the prepared
 load. There is no third API key.
 
-1. Complete **Connect destination Odoo** with the destination transfer key.
-2. In **Match destination data**, choose a stable text field for every record
-   type. If that field repeats within a record type, add a second or third
+1. In Stage 4, **Connect and match destination**, complete **Connect
+   destination Odoo** with the destination transfer key.
+2. Still in Stage 4, open **Match destination data** and choose a stable text
+   field for every record type. If that field repeats within a record type, add a second or third
    captured text or integer field. Impodo matches the complete combination
    and classifies each unique source record as existing or missing. A parent
    record or company relationship cannot yet be used as one of these fields.
-3. Review **Validate transfer order**. Supporting records appear before the
+3. In Stage 5, **Review transfer**, start with **Validate transfer order**.
+   Supporting records appear before the
    records that refer to them, while safe optional cycles use a later
    relationship pass.
-4. In **Review transfer**, choose a policy for each record type: **Reuse
+4. Continue the same stage and choose a policy for each record type: **Reuse
    existing, create missing** (the browser default), **Reuse existing only**,
    or **Update existing, create missing**. This applies to Contacts, Products,
    supporting records, and any other selected model. A reuse-only choice stops
@@ -64,12 +66,12 @@ load. There is no third API key.
    If the destination record type has a **State** field, Impodo can reuse
    existing records but stops ordinary create or update until its business
    workflow has been qualified.
-5. Select **Continue to destination preflight**, then select **Run read-only
-   preflight**.
+5. After approval, continue to Stage 6, **Load destination Odoo**, then select
+   **Run read-only preflight**.
 6. Compare the approved and freshly observed reuse, create, field, and
-   relationship totals. If the page shows **Preflight passed**, Stage 8A is
-   complete. No record has been written to Odoo.
-7. Select **Continue to Stage 8B**, then **Prepare exact load confirmation**.
+   relationship totals. If the page shows **Preflight passed**, the read-only
+   preflight is complete. No record has been written to Odoo.
+7. Select **Prepare exact destination load**, then **Prepare exact load confirmation**.
    Impodo performs one last destination read and compiles the exact load. This
    action still cannot write to Odoo.
 8. On **Confirm and load**, check the destination database, total records,
@@ -112,8 +114,8 @@ authority to another data project, data version, or future rollout.
 
 ## Steps in Impodo
 
-The following steps apply to a prepared-data workspace. Use the Stage 8A and
-Stage 8B sequence above for an Odoo-to-Odoo workspace.
+The following steps apply to a prepared-data workspace. Use the Stage 6
+sequence above for an Odoo-to-Odoo workspace.
 
 1. Open **Load into Odoo**, then review **Check changes**.
 2. Confirm the target, exact snapshot, new and changed totals, field scope, and
@@ -274,9 +276,9 @@ Either the reviewed snapshot required no writes, or execution finished and
 reconciliation verified the expected Odoo state. A successful HTTP response
 alone is not completion evidence.
 
-For the Odoo-to-Odoo path, **Preflight passed** completes only Stage 8A.
-**Load destination Odoo** becomes complete only after the confirmed Stage 8B
-load has a verified destination read-back. A prepared confirmation or accepted
+For the Odoo-to-Odoo path, **Preflight passed** completes only the read-only
+preflight within Stage 6. **Load destination Odoo** becomes complete only after
+the confirmed load has a verified destination read-back. A prepared confirmation or accepted
 Odoo response alone is not completion evidence.
 
 For a completed-load correction, Complete means its automatic exact-record

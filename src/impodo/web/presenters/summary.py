@@ -434,9 +434,9 @@ def _render_summary(
             missing_parent_groups = context.preflight.current_missing_parent_groups(
                 workspace_id
             )
-        except ReadinessError as error:
+        except ReadinessError as readiness_error:
             missing_parent_groups = ()
-            missing_parent_evidence_error = str(error)
+            missing_parent_evidence_error = str(readiness_error)
         if missing_parent_groups:
             allow_missing_parent_draft = (
                 context.workspace_views.get(

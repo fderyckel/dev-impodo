@@ -148,6 +148,74 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
             "name" not in call.get("fields", ()) for call in transport.calls
         ))
 
+    def test_relationship_scan_uses_bounded_policy_pages_and_reports_each_page(
+        self,
+    ) -> None:
+        transport = DatasetTransport(_rows(501))
+        observed = []
+
+        batches = self._adapter(transport).scan_origins(
+            _request(page_size=10, maximum_rows=1_000),
+            _context(),
+            observe_page=lambda completed, total: observed.append(
+                (completed, total)
+            ),
+        )
+
+        scan_calls = [
+            call
+            for call in transport.calls
+            if call.get("fields") == ["id", "write_date"]
+        ]
+        self.assertEqual([call["limit"] for call in scan_calls], [500, 1])
+        self.assertEqual([batch.row_count for batch in batches], [500, 1])
+        self.assertEqual(observed, [(500, 501), (501, 501)])
+
+    def test_relationship_scan_falls_back_to_selected_page_size(self) -> None:
+        dataset = DatasetTransport(_rows(101))
+        attempted_limits = []
+
+        def transport(url, headers, body, timeout, method, maximum_bytes):
+            payload = json.loads(body)
+            if payload.get("fields") == ["id", "write_date"]:
+                attempted_limits.append(payload["limit"])
+                if payload["limit"] > 100:
+                    raise OdooSourceCaptureLimitError("bounded response")
+            return dataset(url, headers, body, timeout, method, maximum_bytes)
+
+        observed = []
+        batches = self._adapter(transport).scan_origins(
+            _request(page_size=100, maximum_rows=1_000),
+            _context(),
+            observe_page=lambda completed, total: observed.append(
+                (completed, total)
+            ),
+        )
+
+        self.assertEqual(attempted_limits, [101, 100, 1])
+        self.assertEqual([batch.row_count for batch in batches], [100, 1])
+        self.assertEqual(observed, [(100, 101), (101, 101)])
+
+    def test_linked_relationship_scan_uses_one_exact_membership_request(self) -> None:
+        transport = DatasetTransport(_rows(2))
+        observed = []
+
+        batches = self._adapter(transport).scan_origins(
+            _request(
+                capture_role=OdooCaptureRole.LINKED_ONLY,
+                member_ids=(1, 2),
+            ),
+            _context(),
+            observe_page=lambda completed, total: observed.append(
+                (completed, total)
+            ),
+        )
+
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual(transport.calls[0]["limit"], 2)
+        self.assertEqual(batches[0].odoo_ids, (1, 2))
+        self.assertEqual(observed, [(2, 2)])
+
     def test_linked_request_without_members_cannot_read_all_records(self) -> None:
         request = _request(capture_role=OdooCaptureRole.LINKED_ONLY)
         transport = DatasetTransport(_rows(2))
@@ -1113,7 +1181,14 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
                 self.opened = []
                 self.missing = False
 
-            def scan_origins(self, request, context, *, cancellation=None):
+            def scan_origins(
+                self,
+                request,
+                context,
+                *,
+                cancellation=None,
+                observe_page=None,
+            ):
                 self.scanned.append((request.model, request.member_ids))
                 if request.model == related_name and self.missing:
                     return ()
@@ -1123,6 +1198,8 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
                         "category_id", "many2one", related_name, ((7,),)
                     ),) if request.model == "res.partner" else ()
                 )
+                if observe_page is not None:
+                    observe_page(1, 1)
                 return (OdooOriginBatch(1, (identifier,), (now,), relations),)
 
             def open_capture(self, request, context, *, cancellation=None):
@@ -1171,16 +1248,23 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
             ("res.partner", ()), (related_name, (7,))
         ])
         pages = []
+        relationship_rechecks = []
         results = service.capture_all(
             self.workspace_id, gateway,
             consume_page_factory=lambda request, selection: pages.append,
             actor=LOCAL_ACTOR,
+            observe_relationship_recheck=(
+                lambda page_completed: relationship_rechecks.append(
+                    page_completed
+                )
+            ),
         )
         self.assertEqual([item.accounting.row_count for item in results], [1, 1])
         self.assertEqual([page.odoo_ids for page in pages], [(41,), (7,)])
         self.assertEqual(gateway.opened, [
             ("res.partner", ()), (related_name, (7,))
         ])
+        self.assertEqual(relationship_rechecks, [False, True, True])
         gateway.missing = True
         with self.assertRaisesRegex(
             OdooSourceCaptureConsistencyError, "missing or inaccessible"

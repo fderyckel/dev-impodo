@@ -352,6 +352,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "revision", "related_models"},
         )
+
         def save_related_scope():
             workspace_state = context.queries.get(workspace_id)
             if (
@@ -410,7 +411,6 @@ def build_sources_router(context: WebContext) -> APIRouter:
             )
             return workspace_state, saved_workspace_state
 
-        workspace_state = None
         try:
             workspace_state, saved_workspace_state = await run_local_operation(
                 save_related_scope
@@ -1504,6 +1504,7 @@ def _odoo_capture_job_payload(job: OdooCaptureJob) -> dict[str, object]:
         "completed_rows": job.completed_rows,
         "total_rows": job.total_rows,
         "page_count": job.page_count,
+        "relationship_check_page_count": job.relationship_check_page_count,
         "response_bytes": job.response_bytes,
         "normalized_bytes": job.normalized_bytes,
         "progress_percent": job.progress_percent,

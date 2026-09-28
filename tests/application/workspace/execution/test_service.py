@@ -2619,7 +2619,7 @@ class ExecutionServiceTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(
                     WorkspaceError,
-                    "no longer matches exactly one record",
+                    f"matched {len(lookup_ids)} records; compare again",
                 ):
                     service.execute(
                         relationship_snapshot.workspace_id,
@@ -2673,7 +2673,7 @@ class ExecutionServiceTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(
                     WorkspaceError,
-                    "no longer matches exactly one record",
+                    f"matched {len(lookup_ids)} records; compare again",
                 ):
                     service.execute(
                         snapshot.workspace_id,
@@ -2752,7 +2752,7 @@ class ExecutionServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             WorkspaceError,
-            "no longer matches exactly one record",
+            "matched 0 records; compare again",
         ):
             service.execute(
                 update_snapshot.workspace_id,
@@ -2976,7 +2976,7 @@ class ExecutionServiceTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(
                     WorkspaceError,
-                    "no longer matches exactly one record",
+                    f"matched {len(blue_ids)} records; compare again",
                 ):
                     service.execute(
                         snapshot.workspace_id,

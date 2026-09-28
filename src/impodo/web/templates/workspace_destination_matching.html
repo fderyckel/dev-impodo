@@ -1,346 +1,216 @@
 {% extends "base.html" %}
-{% block title %}Match destination data · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block title %}Match destination data &middot; {{ migration_project.display_name }} &middot; Impodo{% endblock %}
+{% block body_class %}destination-matching-page{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='/destination-matching.css') }}">
+{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/destination-matching.js') }}" defer></script>
+{% endblock %}
 {% block content %}
-  <div class="page-heading">
+  <div class="page-heading matching-page-heading">
     <div>
-      <p class="eyebrow">Stage 5 of 8 · Match destination data</p>
-      <h1>Decide how source records find destination records</h1>
-      <p>Choose a stable text field and, when needed, up to two more scalar fields per record type. Impodo checks exact combined values without writing anything.</p>
+      <p class="eyebrow">Stage 4 of 6 &middot; Connect and match destination</p>
+      <h1>Tell Impodo how to recognise the same record</h1>
+      <p>Choose the business fields that identify each record type. Impodo will then check the destination for exact matches.</p>
     </div>
-    <span class="status {% if match_plan_create_defaults_pending %}review{% elif match_plan_ready %}ready{% elif match_plan %}review{% else %}review{% endif %}">
-      {% if match_plan_create_defaults_pending %}Values need decision{% elif match_plan_ready %}Matching ready{% elif match_plan %}Review required{% else %}Check required{% endif %}
+    <span class="status {% if match_plan_create_defaults_pending %}review{% elif match_plan_ready %}ready{% else %}review{% endif %}">
+      {% if match_plan_create_defaults_pending %}Values need decision{% elif match_plan_ready %}Matching ready{% elif match_plan %}Review required{% else %}{{ matching_rows|length }} record types to check{% endif %}
     </span>
   </div>
 
-  <div class="notice warning">
-    <strong>This is a read-only destination check.</strong>
-    Raw matching values and destination numeric record IDs are not saved in this plan. Only technical field names, counts, and evidence hashes are retained.
+  <ol class="matching-progress" aria-label="Destination matching progress">
+    <li class="{% if not match_plan %}current{% else %}complete{% endif %}"><span>1</span><div><strong>Choose identifiers</strong><small>Select the business fields</small></div></li>
+    <li class="{% if match_plan and not match_plan_ready %}current{% elif match_plan_ready %}complete{% endif %}"><span>2</span><div><strong>Check destination</strong><small>Find reuse and create records</small></div></li>
+    <li class="{% if match_plan_ready %}complete{% elif match_plan %}current{% endif %}"><span>3</span><div><strong>Review results</strong><small>Resolve only what needs attention</small></div></li>
+  </ol>
+
+  <div class="matching-safety-note">
+    {{ app_icon("shield-check") }}
+    <div><strong>Safe, read-only destination check</strong><span>Nothing will be created or changed in Odoo.</span></div>
+    <details><summary>What is retained?</summary><p>Raw matching values and destination numeric record IDs are not saved in this plan. Only technical field names, counts, and evidence hashes are retained.</p></details>
   </div>
 
   {% if match_plan_stale %}
-    <div class="notice warning">
-      <strong>The saved matching check is no longer current.</strong>
-      The source selection, source fields, destination identity, credential generation, or authenticated principal changed. Check matching again.
-    </div>
+    <div class="notice warning"><strong>The saved matching check is no longer current.</strong> The source selection, source fields, destination identity, credential generation, or authenticated principal changed. Check matching again.</div>
   {% endif %}
 
-  <section class="form-card">
-    <div class="page-heading compact">
-      <div>
-        <p class="eyebrow">Natural record identity</p>
-        <h2>Choose the fields used to find each record</h2>
-        <p>Choose fields whose combined values identify one record in each database. If a first field repeats, add another captured scalar field.</p>
-      </div>
-      <span class="status {% if destination_credential_status.available %}registered{% else %}blocked{% endif %}">Key: {{ destination_credential_status.label }}</span>
+  <section class="matching-builder-shell">
+    <div class="matching-section-heading">
+      <div><p class="eyebrow">Record identity</p><h2>How should each record type be identified?</h2><p>Start with one stable field. Add another only when one field does not uniquely identify a record.</p></div>
+      <span class="credential-pill {% if destination_credential_status.available %}ready{% else %}blocked{% endif %}">{{ app_icon("key") }} Destination key {{ destination_credential_status.label|lower }}</span>
     </div>
 
-    <form method="post" action="/workspaces/{{ workspace_id }}/destination-matching">
+    <form method="post" action="/workspaces/{{ workspace_id }}/destination-matching" data-matching-builder data-single-submit>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
-      <div class="stacked-fields">
+      <div class="matching-model-list">
         {% for row in matching_rows %}
-          <div>
-            <strong>{{ row.dataset.name }}</strong> <small>({{ row.model }}, {{ "{:,}".format(row.dataset.row_count) }} source records)</small>
+          <article class="matching-model-card{% if row.result and row.result.ready %} is-ready{% elif row.result %} needs-review{% endif %}" data-matching-model>
+            <header class="matching-model-header">
+              <div class="matching-model-title"><span class="matching-model-icon">{{ app_icon("collection") }}</span><div><h3>{{ row.dataset.name }}</h3><p>{{ "{:,}".format(row.dataset.row_count) }} source record{% if row.dataset.row_count != 1 %}s{% endif %}</p></div></div>
+              <span class="status {% if row.result and row.result.ready %}ready{% elif row.result %}blocked{% else %}current{% endif %}">{% if row.result and row.result.ready %}Checked{% elif row.result %}Needs review{% else %}Ready to check{% endif %}</span>
+            </header>
+
             {% if row.primary_candidates %}
-              <label for="match-key-{{ loop.index }}">First field</label>
-              <select id="match-key-{{ loop.index }}" name="match_key" required>
-                {% for candidate in row.primary_candidates %}
-                  <option value="{{ candidate.value }}" {% if candidate.stable_key == row.selected_keys[0] %}selected{% endif %}>
-                    {{ candidate.label }} ({{ candidate.field_name }})
-                  </option>
-                {% endfor %}
-              </select>
-              <label for="match-key-extra-1-{{ loop.index }}">Second field (optional)</label>
-              <select id="match-key-extra-1-{{ loop.index }}" name="match_key_extra">
-                <option value="">None</option>
-                {% for candidate in row.candidates %}
-                  <option value="{{ candidate.value }}" {% if row.selected_keys|length > 1 and candidate.stable_key == row.selected_keys[1] %}selected{% endif %}>{{ candidate.label }} ({{ candidate.field_name }})</option>
-                {% endfor %}
-              </select>
-              <label for="match-key-extra-2-{{ loop.index }}">Third field (optional)</label>
-              <select id="match-key-extra-2-{{ loop.index }}" name="match_key_extra">
-                <option value="">None</option>
-                {% for candidate in row.candidates %}
-                  <option value="{{ candidate.value }}" {% if row.selected_keys|length > 2 and candidate.stable_key == row.selected_keys[2] %}selected{% endif %}>{{ candidate.label }} ({{ candidate.field_name }})</option>
-                {% endfor %}
-              </select>
+              <div class="identity-question"><span>Match {{ row.dataset.name }} using</span><div class="identity-expression" data-identity-summary aria-live="polite"></div></div>
+              <div class="identity-fields">
+                <div class="identity-field primary-identity-field">
+                  <label for="match-key-{{ loop.index }}"><span>Primary identifier</span><small>The first field Impodo compares</small></label>
+                  <select id="match-key-{{ loop.index }}" name="match_key" required data-match-field>
+                    {% for candidate in row.primary_candidates %}<option value="{{ candidate.value }}" {% if candidate.stable_key == row.selected_keys[0] %}selected{% endif %}>{{ candidate.label }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="identity-field optional-identity-field" data-optional-match-field>
+                  <label for="match-key-extra-1-{{ loop.index }}"><span>Second identifier</span><small>Used together with the first field</small></label>
+                  <div class="identity-field-control">
+                    <select id="match-key-extra-1-{{ loop.index }}" name="match_key_extra" data-match-field><option value="">None</option>{% for candidate in row.candidates %}<option value="{{ candidate.value }}" {% if row.selected_keys|length > 1 and candidate.stable_key == row.selected_keys[1] %}selected{% endif %}>{{ candidate.label }}</option>{% endfor %}</select>
+                    <button class="identity-remove" type="button" data-remove-match-field aria-label="Remove second identifier">{{ app_icon("x-lg") }}</button>
+                  </div>
+                </div>
+                <div class="identity-field optional-identity-field" data-optional-match-field>
+                  <label for="match-key-extra-2-{{ loop.index }}"><span>Third identifier</span><small>Use only when two fields still repeat</small></label>
+                  <div class="identity-field-control">
+                    <select id="match-key-extra-2-{{ loop.index }}" name="match_key_extra" data-match-field><option value="">None</option>{% for candidate in row.candidates %}<option value="{{ candidate.value }}" {% if row.selected_keys|length > 2 and candidate.stable_key == row.selected_keys[2] %}selected{% endif %}>{{ candidate.label }}</option>{% endfor %}</select>
+                    <button class="identity-remove" type="button" data-remove-match-field aria-label="Remove third identifier">{{ app_icon("x-lg") }}</button>
+                  </div>
+                </div>
+              </div>
+              <button class="add-identity-field" type="button" data-add-match-field>{{ app_icon("plus-circle") }} Add another field</button>
+              <details class="matching-technical-details">
+                <summary>Technical details</summary>
+                <p>Odoo model <code>{{ row.model }}</code>. Exact combined values are compared; values are not normalised or matched approximately.</p>
+                <ul class="matching-field-reference">{% for candidate in row.candidates %}<li><span>{{ candidate.label }}</span><code>{{ candidate.field_name }}</code></li>{% endfor %}</ul>
+              </details>
             {% else %}
-              <span class="field-error">No captured text field is available. Return to the source selection and include a stable text identifier.</span>
+              <div class="matching-card-error">{{ app_icon("exclamation-triangle") }}<div><strong>No captured text field is available.</strong><span>Return to the source selection and include a stable text identifier.</span></div></div>
             {% endif %}
-          </div>
+          </article>
         {% endfor %}
       </div>
-      <div class="actions">
+
+      <div class="matching-action-bar">
         <a class="button secondary" href="/workspaces/{{ workspace_id }}/transfer-destination">Back to destination connection</a>
-        <button class="button primary" type="submit" {% if not destination_credential_status.available or not matching_can_check %}disabled{% endif %}>Check destination matches</button>
+        <div><small>Checks {{ matching_rows|length }} record type{% if matching_rows|length != 1 %}s{% endif %} without writing to Odoo</small><button class="button primary" type="submit" data-submitting-label="Checking destination..." {% if not destination_credential_status.available or not matching_can_check %}disabled{% endif %}>Check destination matches</button></div>
       </div>
-      {% if not destination_credential_status.available %}
-        <p><a href="/workspaces/{{ workspace_id }}/transfer-destination#destination-connection">Enter or restore the destination transfer key</a> before checking matches.</p>
-      {% endif %}
+      {% if not destination_credential_status.available %}<p class="matching-key-blocker"><a href="/workspaces/{{ workspace_id }}/transfer-destination#destination-connection">Enter or restore the destination transfer key</a> before checking matches.</p>{% endif %}
     </form>
   </section>
 
   {% if match_plan %}
-    <section class="form-card" id="matching-results">
-      <div class="page-heading compact">
-        <div>
-          <p class="eyebrow">Latest bounded check</p>
-          <h2>{% if match_plan_create_defaults_pending %}Destination matching is ready; complete create-only values{% elif match_plan_ready %}Destination matching is ready{% else %}Review destination matching{% endif %}</h2>
-          <p>Checked {{ match_plan.recorded_at.strftime('%Y-%m-%d %H:%M UTC') }}. No Odoo records were changed.</p>
-        </div>
-        <span class="status {% if match_plan_create_defaults_pending %}review{% elif match_plan_ready %}ready{% else %}blocked{% endif %}">{% if match_plan_create_defaults_pending %}Needs decision{% elif match_plan_ready %}Stage 5 complete{% else %}Blocked{% endif %}</span>
+    <section class="matching-results-shell" id="matching-results">
+      <div class="matching-section-heading">
+        <div><p class="eyebrow">Latest destination check</p><h2>{% if match_plan_create_defaults_pending %}Matches checked; complete the remaining decisions{% elif match_plan_ready %}Destination matching is ready{% else %}Review the records that need attention{% endif %}</h2><p>Checked {{ match_plan.recorded_at.strftime('%Y-%m-%d %H:%M UTC') }}. No Odoo records were changed.</p></div>
+        <span class="status {% if match_plan_create_defaults_pending %}review{% elif match_plan_ready %}ready{% else %}blocked{% endif %}">{% if match_plan_create_defaults_pending %}Needs decision{% elif match_plan_ready %}Stage 4 complete{% else %}Blocked{% endif %}</span>
       </div>
 
-      {% for row in matching_rows %}
-        {% if row.result %}
-          <article class="dataset-card">
-            <div class="page-heading compact">
-              <div>
-                <h3>{{ row.result.model_label }}</h3>
-                <p>{{ row.result.model }} · match by {{ row.result.key_fields|join(' + ') }}</p>
-              </div>
-              <span class="status {% if row.result.ready %}ready{% else %}blocked{% endif %}">{% if row.result.ready %}Ready{% else %}Needs review{% endif %}</span>
-            </div>
-            <dl class="definition-list capture-summary">
-              <div><dt>Source records</dt><dd>{{ "{:,}".format(row.result.source_row_count) }}</dd></div>
-              <div><dt>Distinct source keys</dt><dd>{{ "{:,}".format(row.result.source_distinct_key_count) }}</dd></div>
-              <div><dt>Existing destination keys</dt><dd>{{ "{:,}".format(row.result.destination_existing_key_count) }}</dd></div>
-              <div><dt>New destination keys</dt><dd>{{ "{:,}".format(row.result.destination_create_key_count) }}</dd></div>
-              <div><dt>Compatible fields</dt><dd>{{ row.result.compatible_fields|length }}</dd></div>
-            </dl>
-            {% if not row.result.ready %}
-              <div class="notice warning">
-                <strong>This record type cannot advance yet.</strong>
-                <ul>
-                  {% if row.result.source_blank_row_count %}<li>{{ row.result.source_blank_row_count }} source record(s) have a blank matching field.</li>{% endif %}
-                  {% if row.result.source_duplicate_key_count %}<li>{{ row.result.source_duplicate_key_count }} source key(s) occur more than once.</li>{% endif %}
-                  {% if row.result.destination_duplicate_key_count %}<li>{{ row.result.destination_duplicate_key_count }} destination key(s) identify more than one record.</li>{% endif %}
-                  {% if row.result.destination_limit_reached %}<li>The bounded destination result limit was reached.</li>{% endif %}
-                </ul>
-              </div>
-            {% endif %}
-            {% if row.result.write_blocking_reasons %}
-              <div class="notice warning">
-                <strong>Creating or updating this record type needs field review.</strong>
-                <p>Matching can continue so you can review a reuse policy. A model policy that writes records will be blocked until these fields are resolved.</p>
-                <ul>
-                  {% if row.result.missing_fields %}<li>Missing destination fields: {{ row.result.missing_fields|join(', ') }}.</li>{% endif %}
-                  {% if row.result.incompatible_fields %}<li>Incompatible destination fields: {{ row.result.incompatible_fields|join(', ') }}.</li>{% endif %}
-                  {% if row.result.unresolved_create_fields and row.result.destination_create_key_count %}<li>Required destination create fields that still need a decision: {{ row.result.unresolved_create_fields|join(', ') }}. Complete the supported choices below; fields without a safe provider remain named.</li>{% endif %}
-                  {% if row.result.requires_workflow_handler %}<li>This model has a State field. Creating or updating it needs a qualified business workflow handler.</li>{% endif %}
-                </ul>
-              </div>
-            {% endif %}
-          </article>
-        {% endif %}
-      {% endfor %}
+      <div class="matching-result-list">
+        {% for row in matching_rows %}
+          {% if row.result %}
+            <article class="matching-result-card{% if row.result.ready %} is-ready{% else %} needs-review{% endif %}">
+              <header><div><h3>{{ row.result.model_label }}</h3><p>Match by <strong>{{ row.result.key_fields|join(' + ') }}</strong></p></div><span class="status {% if row.result.ready %}ready{% else %}blocked{% endif %}">{% if row.result.ready %}Ready{% else %}Needs review{% endif %}</span></header>
+              <dl class="matching-result-metrics">
+                <div><dt>Source</dt><dd>{{ "{:,}".format(row.result.source_row_count) }}</dd><small>records checked</small></div>
+                <div class="reuse"><dt>Reuse</dt><dd>{{ "{:,}".format(row.result.destination_existing_key_count) }}</dd><small>destination keys</small></div>
+                <div class="create"><dt>Create</dt><dd>{{ "{:,}".format(row.result.destination_create_key_count) }}</dd><small>new keys</small></div>
+                <div class="{% if row.result.source_blank_row_count or row.result.source_duplicate_key_count or row.result.destination_duplicate_key_count %}issue{% else %}clear{% endif %}"><dt>Identity issues</dt><dd>{{ row.result.source_blank_row_count + row.result.source_duplicate_key_count + row.result.destination_duplicate_key_count }}</dd><small>blank or repeated keys</small></div>
+              </dl>
+              {% if not row.result.ready %}
+                <div class="matching-result-attention"><strong>This record type cannot advance yet.</strong><ul>{% if row.result.source_blank_row_count %}<li>{{ row.result.source_blank_row_count }} source record(s) have a blank matching field.</li>{% endif %}{% if row.result.source_duplicate_key_count %}<li>{{ row.result.source_duplicate_key_count }} source key(s) occur more than once.</li>{% endif %}{% if row.result.destination_duplicate_key_count %}<li>{{ row.result.destination_duplicate_key_count }} destination key(s) identify more than one record.</li>{% endif %}{% if row.result.destination_limit_reached %}<li>The bounded destination result limit was reached.</li>{% endif %}</ul></div>
+              {% endif %}
+              {% if row.result.write_blocking_reasons %}
+                <div class="matching-result-attention secondary"><strong>Creating or updating this record type needs field review.</strong><p>Matching can continue so you can review a reuse policy. A model policy that writes records will be blocked until these fields are resolved.</p><ul>{% if row.result.missing_fields %}<li>Missing destination fields: {{ row.result.missing_fields|join(', ') }}.</li>{% endif %}{% if row.result.incompatible_fields %}<li>Incompatible destination fields: {{ row.result.incompatible_fields|join(', ') }}.</li>{% endif %}{% if row.result.unresolved_create_fields and row.result.destination_create_key_count %}<li>Required destination create fields that still need a decision: {{ row.result.unresolved_create_fields|join(', ') }}. Complete the supported choices below; fields without a safe provider remain named.</li>{% endif %}{% if row.result.requires_workflow_handler %}<li>This model has a State field. Creating or updating it needs a qualified business workflow handler.</li>{% endif %}</ul></div>
+              {% endif %}
+              <details class="matching-technical-details result-details"><summary>More check details</summary><dl class="definition-list"><div><dt>Odoo model</dt><dd><code>{{ row.result.model }}</code></dd></div><div><dt>Distinct source keys</dt><dd>{{ "{:,}".format(row.result.source_distinct_key_count) }}</dd></div><div><dt>Compatible fields</dt><dd>{{ row.result.compatible_fields|length }}</dd></div></dl></details>
+            </article>
+          {% endif %}
+        {% endfor %}
+      </div>
 
       {% if create_field_rows %}
-        <div class="page-heading compact">
-          <div>
-            <p class="eyebrow">Create-only values</p>
-            <h2>Complete values for new records</h2>
-            <p>These choices apply only when Impodo creates a record. They do not overwrite records that already exist in the destination.</p>
-          </div>
-          <span class="status {% if match_plan.create_field_defaults_complete %}ready{% else %}review{% endif %}">
-            {% if match_plan.create_field_defaults_complete %}Complete{% else %}Needs decision{% endif %}
-          </span>
-        </div>
-
+        <div class="decision-section-heading"><div><p class="eyebrow">Create-only values</p><h2>Complete values for new records</h2><p>These choices apply only when Impodo creates a record. They do not overwrite records that already exist.</p></div><span class="status {% if match_plan.create_field_defaults_complete %}ready{% else %}review{% endif %}">{% if match_plan.create_field_defaults_complete %}Complete{% else %}Needs decision{% endif %}</span></div>
         {% if create_default_evidence_error %}
-          <div class="notice warning">
-            <strong>The exact destination defaults cannot be opened.</strong>
-            <p>{{ create_default_evidence_error }}</p>
-          </div>
+          <div class="notice warning"><strong>The exact destination defaults cannot be opened.</strong><p>{{ create_default_evidence_error }}</p></div>
         {% else %}
-          <form method="post" action="/workspaces/{{ workspace_id }}/destination-matching/defaults">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
-            <input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}">
+          <form class="create-defaults-form" method="post" action="/workspaces/{{ workspace_id }}/destination-matching/defaults" data-single-submit>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ workspace_state.revision }}"><input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}">
             {% for dataset_id, defaults in default_create_field_rows.items() %}
               {% if defaults %}
-                <article class="dataset-card">
-                  <h3>{{ defaults[0].model_label }}</h3>
-                  <p>{{ defaults[0].evidence.model }} &middot; These choices apply only to new records.</p>
-                  <div class="stacked-fields">
+                <article class="decision-group-card">
+                  <header><div><h3>{{ defaults[0].model_label }}</h3><p>{{ defaults[0].evidence.model }} &middot; Current Odoo defaults for new records</p></div></header>
+                  <div class="default-decision-list">
                     {% for item in defaults %}
-                      <div>
-                        {% if item.decision.decision_kind == 'review' and not item.decision.reviewed %}
-                          <label>
-                            <input type="checkbox" name="default_field" value="{{ item.form_value }}" required>
-                            Use the current Odoo default for <strong>{{ item.decision.field_label }}</strong> ({{ item.decision.field_name }}): <strong>{{ item.value }}</strong>
-                          </label>
-                          <small>{{ item.decision.reason }}</small>
-                        {% else %}
-                          <strong>{{ item.decision.field_label }}</strong> ({{ item.decision.field_name }}): {{ item.value }}
-                          <span class="status ready">{% if item.decision.decision_kind == 'automatic' %}Handled automatically{% else %}Confirmed{% endif %}</span>
-                          <p><small>{{ item.decision.reason }}</small></p>
-                        {% endif %}
-                      </div>
+                      {% if item.decision.decision_kind == 'review' and not item.decision.reviewed %}
+                        <label class="default-decision-option"><input type="checkbox" name="default_field" value="{{ item.form_value }}" required><span><strong>Use {{ item.value }} for {{ item.decision.field_label }}</strong><small>{{ item.decision.reason }} &middot; <code>{{ item.decision.field_name }}</code></small></span></label>
+                      {% else %}
+                        <div class="default-decision-option confirmed">{{ app_icon("check-circle-fill") }}<span><strong>{{ item.decision.field_label }}: {{ item.value }}</strong><small>{{ item.decision.reason }} &middot; <code>{{ item.decision.field_name }}</code></small></span><span class="status ready">{% if item.decision.decision_kind == 'automatic' %}Automatic{% else %}Confirmed{% endif %}</span></div>
+                      {% endif %}
                     {% endfor %}
                   </div>
                 </article>
               {% endif %}
             {% endfor %}
-            {% if match_plan.pending_create_field_decisions %}
-              <div class="actions">
-                <button class="button primary" type="submit">Confirm current Odoo defaults</button>
-              </div>
-            {% endif %}
+            {% if match_plan.pending_create_field_decisions %}<div class="decision-actions"><button class="button primary" type="submit" data-submitting-label="Confirming defaults...">Confirm current Odoo defaults</button></div>{% endif %}
           </form>
 
-          {% for dataset_id, create_fields in create_field_rows.items() %}
-            {% for item in create_fields %}
-              {% if not item.decision %}
-                <article class="dataset-card">
-                  <h3>{{ item.model_label }} &middot; {{ item.evidence.field_label }}</h3>
-                  <p>{{ item.evidence.model }}.{{ item.evidence.field_name }} is required when Impodo creates a record. Choose one supported source of value.</p>
-                  {% if item.fixed_supported or item.evidence.source_candidates or item.reference_supported or item.incoming_reference_supported %}
-                    <form method="post" action="/workspaces/{{ workspace_id }}/destination-matching/create-fields">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
-                      <input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}">
-                      <input type="hidden" name="field_key" value="{{ item.form_value }}">
-                      <div class="stacked-fields">
+          <div class="create-field-decisions">
+            {% for dataset_id, create_fields in create_field_rows.items() %}
+              {% for item in create_fields %}
+                {% if not item.decision %}
+                  <article class="decision-card">
+                    <header><div><p class="decision-model">{{ item.model_label }}</p><h3>{{ item.evidence.field_label }}</h3><p>Required when Impodo creates a new record.</p></div><span class="status review">Decision required</span></header>
+                    {% if item.fixed_supported or item.evidence.source_candidates or item.reference_supported or item.incoming_reference_supported %}
+                      <form method="post" action="/workspaces/{{ workspace_id }}/destination-matching/create-fields" data-create-field-form data-single-submit>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ workspace_state.revision }}"><input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}"><input type="hidden" name="field_key" value="{{ item.form_value }}">
                         {% if item.evidence.source_candidates or item.reference_supported or item.incoming_reference_supported %}
-                          <label>Value source
-                            <select name="provider" required>
-                              {% if item.fixed_supported %}<option value="fixed_value">Set one value for new records</option>{% endif %}
-                              {% if item.evidence.source_candidates %}<option value="source_field">Use a captured source field</option>{% endif %}
-                              {% if item.reference_supported %}<option value="existing_reference">Use an existing destination record</option>{% endif %}
-                              {% if item.incoming_reference_supported %}<option value="incoming_reference">Use one selected source record</option>{% endif %}
-                            </select>
-                          </label>
-                          {% if item.evidence.source_candidates %}
-                            <label>Captured source field
-                              <select name="source_field">
-                                <option value="">Choose when using a source field</option>
-                                {% for field_name, field_label in item.evidence.source_candidates %}
-                                  <option value="{{ field_name }}">{{ field_label }} ({{ field_name }})</option>
-                                {% endfor %}
-                              </select>
-                            </label>
-                          {% endif %}
-                          {% if item.reference_supported %}
-                            <label>Existing destination record
-                              <select name="reference_choice">
-                                <option value="">Choose by the reviewed business key</option>
-                                {% for choice in item.evidence.reference_candidates %}
-                                  <option value="{{ choice.choice_hash }}">{{ choice.display_value }}</option>
-                                {% endfor %}
-                              </select>
-                            </label>
-                          {% endif %}
-                          {% if item.incoming_reference_supported %}
-                            <label>Selected source record
-                              <select name="incoming_reference_choice">
-                                <option value="">Choose by the selected source business key</option>
-                                {% for choice in item.evidence.incoming_reference_candidates %}
-                                  <option value="{{ choice.choice_hash }}">{{ choice.source_dataset_name }}: {{ choice.display_value }}</option>
-                                {% endfor %}
-                              </select>
-                            </label>
-                          {% endif %}
-                        {% else %}
-                          <input type="hidden" name="provider" value="fixed_value">
-                        {% endif %}
+                          <label>Where should the value come from?<select name="provider" required data-provider-select>{% if item.fixed_supported %}<option value="fixed_value">Set one value for new records</option>{% endif %}{% if item.evidence.source_candidates %}<option value="source_field">Use a captured source field</option>{% endif %}{% if item.reference_supported %}<option value="existing_reference">Use an existing destination record</option>{% endif %}{% if item.incoming_reference_supported %}<option value="incoming_reference">Use one selected source record</option>{% endif %}</select></label>
+                          {% if item.evidence.source_candidates %}<label data-provider-control="source_field">Captured source field<select name="source_field"><option value="">Choose when using a source field</option>{% for field_name, field_label in item.evidence.source_candidates %}<option value="{{ field_name }}">{{ field_label }} ({{ field_name }})</option>{% endfor %}</select></label>{% endif %}
+                          {% if item.reference_supported %}<label data-provider-control="existing_reference">Existing destination record<select name="reference_choice"><option value="">Choose by the reviewed business key</option>{% for choice in item.evidence.reference_candidates %}<option value="{{ choice.choice_hash }}">{{ choice.display_value }}</option>{% endfor %}</select></label>{% endif %}
+                          {% if item.incoming_reference_supported %}<label data-provider-control="incoming_reference">Selected source record<select name="incoming_reference_choice"><option value="">Choose by the selected source business key</option>{% for choice in item.evidence.incoming_reference_candidates %}<option value="{{ choice.choice_hash }}">{{ choice.source_dataset_name }}: {{ choice.display_value }}</option>{% endfor %}</select></label>{% endif %}
+                        {% else %}<input type="hidden" name="provider" value="fixed_value">{% endif %}
                         {% if item.fixed_supported %}
-                          <label>Value for new records
-                            {% if item.evidence.field_type == 'boolean' %}
-                              <select name="fixed_value"><option value="true">Yes</option><option value="false">No</option></select>
-                            {% elif item.evidence.field_type == 'selection' %}
-                              <select name="fixed_value">
-                                <option value="">Choose a current destination value</option>
-                                {% for key, label in item.evidence.selection %}<option value="{{ key }}">{{ label }} ({{ key }})</option>{% endfor %}
-                              </select>
-                            {% elif item.evidence.field_type == 'integer' %}
-                              <input type="number" step="1" name="fixed_value">
-                            {% elif item.evidence.field_type in ['float', 'monetary'] %}
-                              <input type="number" step="any" name="fixed_value">
-                            {% elif item.evidence.field_type == 'date' %}
-                              <input type="date" name="fixed_value">
-                            {% elif item.evidence.field_type == 'datetime' %}
-                              <input type="datetime-local" name="fixed_value">
-                            {% else %}
-                              <input type="text" name="fixed_value">
-                            {% endif %}
+                          <label data-provider-control="fixed_value">Value for new records
+                            {% if item.evidence.field_type == 'boolean' %}<select name="fixed_value"><option value="true">Yes</option><option value="false">No</option></select>
+                            {% elif item.evidence.field_type == 'selection' %}<select name="fixed_value"><option value="">Choose a current destination value</option>{% for key, label in item.evidence.selection %}<option value="{{ key }}">{{ label }} ({{ key }})</option>{% endfor %}</select>
+                            {% elif item.evidence.field_type == 'integer' %}<input type="number" step="1" name="fixed_value">
+                            {% elif item.evidence.field_type in ['float', 'monetary'] %}<input type="number" step="any" name="fixed_value">
+                            {% elif item.evidence.field_type == 'date' %}<input type="date" name="fixed_value">
+                            {% elif item.evidence.field_type == 'datetime' %}<input type="datetime-local" name="fixed_value">
+                            {% else %}<input type="text" name="fixed_value">{% endif %}
                           </label>
                         {% endif %}
-                      </div>
-                      <div class="actions"><button class="button primary" type="submit">Save create-only choice</button></div>
-                    </form>
-                  {% else %}
-                    <div class="notice warning"><strong>No generic provider is safe for this field yet.</strong><p>A governed related-record choice or qualified workflow handler is required.</p></div>
-                  {% endif %}
-                </article>
-              {% elif item.decision.provider_kind in ['fixed_value', 'source_field', 'existing_reference', 'incoming_reference'] %}
-                <article class="dataset-card">
-                  <h3>{{ item.model_label }} &middot; {{ item.decision.field_label }}</h3>
-                  <p>{{ item.decision.reason }}</p>
-                  <strong>{{ item.value }}</strong> <span class="status ready">Confirmed</span>
-                </article>
-              {% endif %}
+                        <details class="matching-technical-details"><summary>Technical details</summary><p><code>{{ item.evidence.model }}.{{ item.evidence.field_name }}</code></p></details>
+                        <div class="decision-actions"><button class="button primary" type="submit" data-submitting-label="Saving choice...">Save choice</button></div>
+                      </form>
+                    {% else %}<div class="matching-result-attention"><strong>No generic provider is safe for this field yet.</strong><p>A governed related-record choice or qualified workflow handler is required.</p></div>{% endif %}
+                  </article>
+                {% elif item.decision.provider_kind in ['fixed_value', 'source_field', 'existing_reference', 'incoming_reference'] %}
+                  <article class="decision-card confirmed"><header><div><p class="decision-model">{{ item.model_label }}</p><h3>{{ item.decision.field_label }}</h3><p>{{ item.decision.reason }}</p><strong>{{ item.value }}</strong></div><span class="status ready">Confirmed</span></header></article>
+                {% endif %}
+              {% endfor %}
             {% endfor %}
-          {% endfor %}
+          </div>
         {% endif %}
       {% endif %}
 
       {% if match_plan.relationship_matches %}
-        <div class="page-heading compact">
-          <div>
-            <p class="eyebrow">Portable relationships</p>
-            <h2>Related records resolve through their selected business keys</h2>
-            <p>Source Odoo IDs are used only inside protected evidence. They are translated to the related table's selected key before the transfer plan is retained.</p>
-          </div>
+        <div class="decision-section-heading relationship-heading"><div><p class="eyebrow">Portable relationships</p><h2>Related records</h2><p>Relationships resolve through the business identifiers selected above.</p></div></div>
+        <div class="relationship-list">
+          {% for relation in match_plan.relationship_matches %}
+            <details class="relationship-card{% if relation.ready %} is-ready{% else %} needs-review{% endif %}" {% if not relation.ready %}open{% endif %}>
+              <summary><div><h3>{{ relation.model_label }} &middot; {{ relation.field_label }}</h3><p>{{ relation.related_model }} matched by {{ relation.related_key_fields|join(' + ') }}</p></div><span class="status {% if relation.ready %}ready{% else %}blocked{% endif %}">{% if relation.ready %}Ready{% else %}Needs review{% endif %}</span></summary>
+              <div class="relationship-card-body">
+                <p class="relationship-technical"><code>{{ relation.model }}.{{ relation.field_name }}</code> &rarr; <code>{{ relation.related_model }}.{{ relation.related_key_fields|join(' + ') }}</code> &middot; {{ relation.kind }} &middot; {{ relation.operation }}{% if relation.inverse_field %} &middot; inverse one2many <code>{{ relation.related_model }}.{{ relation.inverse_field }}</code>{% endif %}</p>
+                {% if relation.source_evidence_available %}<dl class="matching-result-metrics relationship-metrics"><div><dt>Source links</dt><dd>{{ "{:,}".format(relation.source_link_count) }}</dd></div><div class="reuse"><dt>Reuse destination</dt><dd>{{ "{:,}".format(relation.destination_reused_link_count) }}</dd></div><div class="create"><dt>Incoming data</dt><dd>{{ "{:,}".format(relation.incoming_link_count) }}</dd></div><div><dt>Blank owners</dt><dd>{{ "{:,}".format(relation.source_blank_owner_count) }}</dd></div></dl>{% endif %}
+                {% if not relation.ready %}<div class="matching-result-attention"><strong>This relationship cannot advance yet.</strong><ul>{% if not relation.source_evidence_available %}<li>The current capture has no protected relationship evidence. Return to Stage 3 and recapture the selected tables.</li>{% endif %}{% if relation.required and relation.source_blank_owner_count %}<li>{{ relation.source_blank_owner_count }} owner record(s) have a blank required relationship.</li>{% endif %}{% if relation.missing_related_record_count %}<li>{{ relation.missing_related_record_count }} link(s) point outside the captured related table or to a blank related key.</li>{% endif %}{% if relation.ambiguous_destination_link_count %}<li>{{ relation.ambiguous_destination_link_count }} link(s) resolve to duplicate destination keys.</li>{% endif %}</ul></div>{% endif %}
+              </div>
+            </details>
+          {% endfor %}
         </div>
-        {% for relation in match_plan.relationship_matches %}
-          <article class="dataset-card">
-            <div class="page-heading compact">
-              <div>
-                <h3>{{ relation.model_label }} &middot; {{ relation.field_label }}</h3>
-                <p>
-                  {{ relation.model }}.{{ relation.field_name }} &rarr; {{ relation.related_model }}.{{ relation.related_key_fields|join(' + ') }}
-                  &middot; {{ relation.kind }} &middot; {{ relation.operation }}
-                  {% if relation.inverse_field %}&middot; inverse one2many {{ relation.related_model }}.{{ relation.inverse_field }}{% endif %}
-                </p>
-              </div>
-              <span class="status {% if relation.ready %}ready{% else %}blocked{% endif %}">{% if relation.ready %}Ready{% else %}Needs review{% endif %}</span>
-            </div>
-            {% if relation.source_evidence_available %}
-              <dl class="definition-list capture-summary">
-                <div><dt>Source links</dt><dd>{{ "{:,}".format(relation.source_link_count) }}</dd></div>
-                <div><dt>Reuse destination</dt><dd>{{ "{:,}".format(relation.destination_reused_link_count) }}</dd></div>
-                <div><dt>Resolve from incoming data</dt><dd>{{ "{:,}".format(relation.incoming_link_count) }}</dd></div>
-                <div><dt>Blank owners</dt><dd>{{ "{:,}".format(relation.source_blank_owner_count) }}</dd></div>
-              </dl>
-            {% endif %}
-            {% if not relation.ready %}
-              <div class="notice warning">
-                <strong>This relationship cannot advance yet.</strong>
-                <ul>
-                  {% if not relation.source_evidence_available %}<li>The current capture has no protected relationship evidence. Return to Stage 3 and recapture the selected tables.</li>{% endif %}
-                  {% if relation.required and relation.source_blank_owner_count %}<li>{{ relation.source_blank_owner_count }} owner record(s) have a blank required relationship.</li>{% endif %}
-                  {% if relation.missing_related_record_count %}<li>{{ relation.missing_related_record_count }} link(s) point outside the captured related table or to a blank related key.</li>{% endif %}
-                  {% if relation.ambiguous_destination_link_count %}<li>{{ relation.ambiguous_destination_link_count }} link(s) resolve to duplicate destination keys.</li>{% endif %}
-                </ul>
-              </div>
-            {% endif %}
-          </article>
-        {% endfor %}
       {% endif %}
 
       {% if match_plan_ready %}
-        <section class="next-action-card ready">
-          <div>
-            <p class="eyebrow">Destination matching complete</p>
-            <h2>Next: validate the transfer order</h2>
-            <p>Derive creation waves and safe post-create links from these generic relationships. No destination writes are enabled.</p>
-          </div>
-          <div class="next-action-buttons">
-            <span class="status ready">Stage 5 complete</span>
-            <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-order">Validate transfer order</a>
-          </div>
-        </section>
+        <section class="next-action-card ready matching-next-action"><div><p class="eyebrow">Destination matching complete</p><h2>Next: review the transfer</h2><p>Start by validating creation waves and safe post-create links from these relationships. No destination writes are enabled.</p></div><div class="next-action-buttons"><span class="status ready">Stage 4 complete</span><a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-order">Review transfer</a></div></section>
       {% endif %}
     </section>
   {% endif %}

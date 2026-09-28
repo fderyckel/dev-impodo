@@ -214,7 +214,7 @@ class WorkspaceState:
         source_selection_hash: str,
         source_schema_hash: str,
     ) -> bool:
-        """Whether Stage 5 evidence matches every current upstream binding."""
+        """Whether destination-matching evidence matches every upstream binding."""
 
         plan = self.destination_match_plan
         return bool(
@@ -239,7 +239,7 @@ class WorkspaceState:
         source_selection_hash: str,
         source_schema_hash: str,
     ) -> bool:
-        """Whether current Stage 5 evidence has no matching blockers."""
+        """Whether current destination-matching evidence has no blockers."""
 
         return bool(
             self.destination_match_current(
@@ -256,7 +256,7 @@ class WorkspaceState:
         source_selection_hash: str,
         source_schema_hash: str,
     ) -> bool:
-        """Whether Stage 6 is bound to the exact current Stage 5 decision."""
+        """Whether transfer order is bound to the current matching decision."""
 
         plan = self.transfer_order_plan
         match_plan = self.destination_match_plan
@@ -282,7 +282,7 @@ class WorkspaceState:
         source_selection_hash: str,
         source_schema_hash: str,
     ) -> bool:
-        """Whether current Stage 6 evidence has no dependency blockers."""
+        """Whether current transfer-order evidence has no dependency blockers."""
 
         return bool(
             self.transfer_order_current(
@@ -299,7 +299,7 @@ class WorkspaceState:
         source_selection_hash: str,
         source_schema_hash: str,
     ) -> bool:
-        """Whether Stage 7 is bound to the exact current matching and order."""
+        """Whether transfer review is bound to the current matching and order."""
 
         package = self.transfer_review_package
         match_plan = self.destination_match_plan
@@ -328,7 +328,7 @@ class WorkspaceState:
         source_selection_hash: str,
         source_schema_hash: str,
     ) -> bool:
-        """Whether a current Stage 7 package has exact export-plan approval."""
+        """Whether a current transfer package has exact export-plan approval."""
 
         package = self.transfer_review_package
         approval = self.transfer_review_approval
@@ -348,7 +348,7 @@ class WorkspaceState:
         source_selection_hash: str,
         source_schema_hash: str,
     ) -> bool:
-        """Whether Stage 8A evidence checks the exact current approval."""
+        """Whether preflight evidence checks the exact current approval."""
 
         report = self.transfer_preflight_report
         package = self.transfer_review_package
@@ -384,7 +384,7 @@ class WorkspaceState:
         source_selection_hash: str,
         source_schema_hash: str,
     ) -> bool:
-        """Whether current Stage 8A evidence found no destination drift."""
+        """Whether current preflight evidence found no destination drift."""
 
         return bool(
             self.transfer_preflight_current(
@@ -765,7 +765,7 @@ class WorkspaceStateService:
         expected_revision: int,
         plan: DestinationMatchPlan,
     ) -> WorkspaceState:
-        """Publish current Stage 5 evidence after its bounded destination read."""
+        """Publish current matching evidence after its bounded destination read."""
 
         workspace = self._target_editable(
             workspace_id,
@@ -823,7 +823,7 @@ class WorkspaceStateService:
         expected_revision: int,
         plan: TransferOrderPlan,
     ) -> WorkspaceState:
-        """Publish Stage 6 ordering derived from current Stage 5 evidence."""
+        """Publish transfer ordering derived from current matching evidence."""
 
         workspace = self._target_editable(
             workspace_id,
@@ -873,7 +873,7 @@ class WorkspaceStateService:
         expected_revision: int,
         package: TransferReviewPackage,
     ) -> WorkspaceState:
-        """Freeze Stage 7 scope and controls without authorizing a write."""
+        """Freeze transfer-review scope and controls without authorizing a write."""
 
         workspace = self._target_editable(
             workspace_id,
@@ -925,7 +925,7 @@ class WorkspaceStateService:
         expected_revision: int,
         approval: TransferReviewApproval,
     ) -> WorkspaceState:
-        """Approve one exact current Stage 7 package, still without Odoo writes."""
+        """Approve one exact current transfer package without Odoo writes."""
 
         workspace = self._transfer_review_approvable(
             workspace_id,
@@ -970,7 +970,7 @@ class WorkspaceStateService:
         expected_revision: int,
         report: TransferPreflightReport,
     ) -> WorkspaceState:
-        """Publish Stage 8A read-only evidence without authorizing a write."""
+        """Publish read-only preflight evidence without authorizing a write."""
 
         workspace = self._target_editable(
             workspace_id,

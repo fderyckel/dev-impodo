@@ -35,7 +35,7 @@ HASHES = tuple("sha256:" + character * 64 for character in "abcde")
 
 
 class TransferOrderPersistenceTests(unittest.TestCase):
-    def test_workspace_engine_round_trips_stage_six_evidence(self) -> None:
+    def test_workspace_engine_round_trips_transfer_order_evidence(self) -> None:
         workspace_id = str(uuid4())
         dataset_id = str(uuid4())
         now = datetime.now(UTC)
@@ -84,7 +84,7 @@ class TransferOrderPersistenceTests(unittest.TestCase):
         self.assertEqual(restored.transfer_order_plan, plan)
         self.assertEqual(restored.transfer_order_plan.content_hash, plan.content_hash)
 
-    def test_workspace_engine_round_trips_stage_seven_approval(self) -> None:
+    def test_workspace_engine_round_trips_transfer_review_approval(self) -> None:
         product = _model("product.template", "Product", create=1)
         match = _match_plan((product,), ())
         order = _build(match)
@@ -114,7 +114,7 @@ class TransferOrderPersistenceTests(unittest.TestCase):
             destination_schema_snapshot_hash="sha256:" + "7" * 64,
             destination_record_snapshot_hash="sha256:" + "8" * 64,
             recorded_at=datetime.now(UTC),
-            recorded_by="Stage 8A preflight",
+            recorded_by="Stage 6 preflight",
         )
         report = TransferPreflightService().build(
             workspace,

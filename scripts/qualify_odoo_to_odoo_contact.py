@@ -239,9 +239,9 @@ def _screenshots(
     server = None
     thread = None
     paths = (
-        output_directory / "stage-5-destination-matching.png",
-        output_directory / "stage-7-transfer-review.png",
-        output_directory / "stage-8b-verified-load.png",
+        output_directory / "stage-4-destination-matching.png",
+        output_directory / "stage-5-transfer-review.png",
+        output_directory / "stage-6-verified-load.png",
     )
     try:
         server, thread, port = _start_server(app)

@@ -371,7 +371,6 @@
                         </div>
                         <small>For money, confirm the currency precision before rounding.</small>
                       </div>
-
                       {% set value_rules_configured = mapping and (
                         transform.text_steps
                         or transform.case_mode != 'preserve'
@@ -427,7 +426,6 @@
                               <button class="button secondary compact" type="button" data-add-text-step>Add cleanup step</button>
                             </div>
                             <p class="muted" data-text-step-limit role="status" aria-live="polite" hidden>You have reached the maximum of 20 cleanup steps for this field.</p>
-
                             <label class="compact-control">Capitalisation after cleanup
                               <select name="scalar_case_{{ dataset_index }}_{{ field_index }}" data-transform-case>
                                 {% set case_mode = mapping.transform.case_mode if mapping else 'preserve' %}
@@ -508,7 +506,6 @@
                               <small>Most users should use the guided checks above. Impodo validates advanced patterns before any row is checked.</small>
                             </details>
                           </div>
-
                           <details class="advanced-rule" {% if formula_issue %}open{% endif %} data-formula-control {% if value_source == 'concatenate' %}hidden{% endif %}>
                             <summary>Advanced: formula or custom calculation</summary>
                             <label>
@@ -542,8 +539,8 @@
                               {% endfor %}
                             </small>
                           </details>
-                        </div>
-                      </details>
+                            </div>
+                          </details>
                     </td>
                     <th data-target="{{ view.selected_model }}::{{ row.metadata.name }}">
                       {{ row.metadata.label }}

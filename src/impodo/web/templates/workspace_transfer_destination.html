@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 4 of 8 · Connect destination Odoo</p>
+      <p class="eyebrow">Stage 4 of 6 · Connect and match destination</p>
       <h1>Connect the Odoo instance that will receive the data</h1>
       <p>Save and verify a destination that is separate from the frozen Odoo source. This stage performs read-only identity and access checks.</p>
     </div>
@@ -42,28 +42,6 @@
       </div>
     </dl>
   </section>
-
-  {% if workspace_state.destination_verified %}
-    <section class="next-action-card ready" id="destination-connected">
-      <div>
-        <p class="eyebrow">Destination connection complete</p>
-        <h2>The destination identity and read access are verified</h2>
-        <p>
-          Verified Odoo {{ workspace_state.destination_verified_odoo_version }}
-          at {{ workspace_state.destination_verified_at.strftime('%Y-%m-%d %H:%M UTC') }}.
-          Rechecking the form below remains read-only.
-        </p>
-        <div class="notice">
-          <strong>Next: match destination data.</strong>
-          Choose the stable fields used to find existing Product, Unit of Measure, and other selected records. The next stage remains read-only.
-        </div>
-      </div>
-      <div class="next-action-buttons">
-        <span class="status ready">Stage 4 complete</span>
-        <a class="button primary" href="/workspaces/{{ workspace_id }}/destination-matching">Match destination data</a>
-      </div>
-    </section>
-  {% endif %}
 
   <section class="form-card" id="destination-connection">
     <div class="page-heading compact">
@@ -151,6 +129,28 @@
       {% if destination_connection.support_code %}
         <details class="technical-details"><summary>Support details</summary><code>{{ destination_connection.support_code }}</code></details>
       {% endif %}
+    </section>
+  {% endif %}
+
+  {% if workspace_state.destination_verified %}
+    <section class="next-action-card ready" id="destination-connected">
+      <div>
+        <p class="eyebrow">Destination connection complete</p>
+        <h2>The destination identity and read access are verified</h2>
+        <p>
+          Verified Odoo {{ workspace_state.destination_verified_odoo_version }}
+          at {{ workspace_state.destination_verified_at.strftime('%Y-%m-%d %H:%M UTC') }}.
+          Rechecking the form above remains read-only.
+        </p>
+        <div class="notice">
+          <strong>Next: match destination data.</strong>
+          Choose the stable fields used to find existing Product, Unit of Measure, and other selected records. The next stage remains read-only.
+        </div>
+      </div>
+      <div class="next-action-buttons">
+        <span class="status ready">Connection complete</span>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/destination-matching">Match destination data</a>
+      </div>
     </section>
   {% endif %}
 {% endblock %}

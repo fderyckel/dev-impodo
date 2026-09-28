@@ -1,6 +1,6 @@
-"""Compile and publish the confirmed Odoo-to-Odoo Stage 8B load input.
+"""Compile and publish the confirmed Odoo-to-Odoo load input.
 
-Stage 8B turns the final read-only transfer evidence into one exact execution
+The load step turns the final read-only transfer evidence into one exact execution
 snapshot.  Staging is still not a write decision.  A separate confirmation
 passes the saved snapshot to the shared journalled loader, which rechecks the
 destination before it contacts Odoo.
@@ -67,7 +67,7 @@ _MODEL_TOKEN = re.compile(r"[^a-z0-9_]+")
 
 
 class TransferExecutionSourceRepository(Protocol):
-    """Structural source-reader contract used by the Stage 8B compiler."""
+    """Structural source-reader contract used by the transfer compiler."""
 
     def get_current_source_snapshots(
         self, workspace_id: str
@@ -111,11 +111,11 @@ class TransferExecutionService:
 
         Every input must match the current approved transfer package.  The
         result contains protected source relationship evidence and is suitable
-        only for the immediately following Stage 8B confirmation.
+        only for the immediately following load confirmation.
         """
 
         if workspace.source_mode is not SourceMode.ODOO:
-            raise WorkspaceError("Stage 8B requires a frozen Odoo source")
+            raise WorkspaceError("The destination load requires a frozen Odoo source")
         if (
             workspace.transfer_review_package != package
             or workspace.transfer_preflight_report != preflight
@@ -437,7 +437,7 @@ def compile_transfer_execution_snapshot(
             source_manifest_hashes,
         )
     ):
-        raise WorkspaceError("Stage 8B source and review datasets do not align")
+        raise WorkspaceError("The load source and review datasets do not align")
 
     target_ids_by_dataset: dict[str, dict[str, int]] = {}
     keys_by_dataset: dict[str, tuple[str, ...]] = {}
@@ -823,7 +823,7 @@ def compile_transfer_execution_snapshot(
         or counts["CREATE"] != package.totals.destination_create_record_count
         or len(planned_rows) != package.totals.source_record_count
     ):
-        raise WorkspaceError("Stage 8B record controls do not reconcile")
+        raise WorkspaceError("The load record controls do not reconcile")
 
     frozen_input_hash = content_hash(
         {
@@ -880,7 +880,7 @@ def compile_transfer_execution_snapshot(
     try:
         return ExecutionSnapshot.from_json(snapshot.to_json())
     except ValueError as error:
-        raise WorkspaceError("The Stage 8B execution snapshot is invalid") from error
+        raise WorkspaceError("The transfer execution snapshot is invalid") from error
 
 
 def _scalar_intent(field: str, value: object) -> FieldIntent:

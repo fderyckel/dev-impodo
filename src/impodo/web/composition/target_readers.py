@@ -208,7 +208,7 @@ def _read_destination_match(
     metadata_requests: tuple[MetadataRequest, ...],
     record_requests: tuple[RecordRequest, ...],
 ) -> tuple[MetadataSnapshot, RecordSnapshot]:
-    """Read only the destination fields and natural-key rows planned by Stage 5."""
+    """Read only the fields and natural-key rows planned by destination matching."""
 
     connector = Json2ReadConnector(_target_json2_config(workspace_state, api_key))
     return (
