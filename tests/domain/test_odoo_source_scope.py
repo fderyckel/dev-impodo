@@ -90,11 +90,24 @@ class OdooSourceScopeTests(unittest.TestCase):
                     "x.value",
                     company_dependent=True,
                 ),
+                _relationship(
+                    "parent_id",
+                    "Parent Product",
+                    "product.template",
+                ),
             ),
         )
         uom = SchemaModel(name="uom.uom", label="Unit of Measure", fields=())
 
         self.assertEqual(propose_related_odoo_data((product, uom)), ())
+        included = propose_related_odoo_data(
+            (product, uom),
+            include_selected=True,
+        )
+        self.assertEqual(
+            tuple(item.relation_model for item in included),
+            ("uom.uom",),
+        )
 
     def test_unit_category_is_supporting_data_when_discovered(self) -> None:
         suggestions = propose_related_odoo_data(

@@ -35,4 +35,10 @@ class MappingFieldCatalogQueryRepository(Protocol):
     def get_mapping_field_catalog_snapshot(
         self,
         workspace_id: str,
-    ) -> MappingFieldCatalogSnapshot: ...
+    ) -> MappingFieldCatalogSnapshot:
+        """Read one coherent saved-evidence set for the field-catalog query.
+
+        Called by the mapping search presenter. Implementations must not query
+        live Odoo or reconstruct source values while serving this bounded view.
+        """
+        ...

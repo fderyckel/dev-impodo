@@ -64,7 +64,13 @@ class ColumnarTransformationPort(Protocol):
         source_snapshot: SourceSnapshot,
         program: ColumnarTransformationProgram,
         destination: str | Path,
-    ) -> ColumnarPreparedSnapshotCandidate: ...
+    ) -> ColumnarPreparedSnapshotCandidate:
+        """Write candidate physical evidence for bounded-preparation publication.
+
+        Called by the application preparation service; the adapter owns native
+        execution only, while the service validates and publishes the result.
+        """
+        ...
 
     def iter_prepared_batches(
         self,
@@ -76,11 +82,15 @@ class ColumnarTransformationPort(Protocol):
         batch_size: int,
         materialize_records: bool,
         collect_impacts: bool = True,
-    ) -> Iterator[ColumnarTransformationBatch]: ...
+    ) -> Iterator[ColumnarTransformationBatch]:
+        """Stream bounded prepared batches for session publication and review."""
+        ...
 
     def summarize_rule_impacts(
         self,
         path: str | Path,
         prepared_snapshot: PreparedSnapshot,
         program: ColumnarTransformationProgram,
-    ) -> tuple[TransformationRuleImpact, ...]: ...
+    ) -> tuple[TransformationRuleImpact, ...]:
+        """Summarize stored native impacts without re-materializing every row."""
+        ...

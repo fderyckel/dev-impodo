@@ -215,6 +215,14 @@ class DestinationMatchingTests(unittest.TestCase):
                     "x_incoming_uom_id", "many2one", "Selected Source Unit",
                     required=True, relation="uom.uom", company_dependent=False,
                 ),
+                "product_variant_ids": FieldMetadata(
+                    "product_variant_ids",
+                    "one2many",
+                    "Product Variants",
+                    required=True,
+                    relation="product.product",
+                    company_dependent=False,
+                ),
             }
             return replace(
                 metadata,
@@ -259,6 +267,7 @@ class DestinationMatchingTests(unittest.TestCase):
         self.assertTrue(product.requires_workflow_handler)
         self.assertIn("DESTINATION_CREATE_FIELDS_UNRESOLVED", product.write_blocking_reasons)
         self.assertIn("DESTINATION_WORKFLOW_HANDLER_REQUIRED", product.write_blocking_reasons)
+        self.assertNotIn("product_variant_ids", product.unresolved_create_fields)
         self.assertEqual(DestinationMatchPlan.from_json(plan.to_json()), plan)
         self.assertEqual(
             type(plan.create_field_evidence).from_json(

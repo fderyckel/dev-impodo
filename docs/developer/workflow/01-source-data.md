@@ -167,15 +167,28 @@ and Unit of Measure links from `product.template`, plus the category link from
 into **Needs a decision**. The web presenter owns the data-manager wording and
 keeps technical field paths under **Support details**.
 
-The recommended review URL carries only model names already derived from the
-captured schema. `_render_schema` intersects those names with the current live
-model catalogue and preselects available recommendations for review. A GET
-does not mutate the workspace; the existing revision-checked schema-scope POST
-remains the only save boundary. The capture projection still includes
-relationship origins only when both models are selected. A separate
-relationship review lists eligible links between selected models before linked
-capture assessment. The operator confirms that list as a group; persisted
-individual edge approval and automatic model-scope mutation are not yet
+The source page keeps related-model selection beside this explanation. It
+groups repeated relationship fields under one related model and shows a
+checkbox only for supporting or optional source data that is present in the
+current live model catalogue. A visible label marks recommendations, but their
+checkboxes remain unchecked until they belong to the saved model scope. This
+keeps an intentionally excluded recommendation from appearing selected again
+after a save. The operator selects **Save related-data choices** to persist the
+checked models.
+
+The revision-checked
+`POST /workspaces/{workspace_id}/sources/odoo-related-data` validates every
+submitted model against the current schema-derived policy and model catalogue. It
+preserves unrelated model choices, replaces the selectable related subset, and
+then refreshes authenticated field evidence through the existing closed schema
+reader. A changed model scope invalidates the prior schema, current capture
+plans, manifests, key governance, mapping, and later evidence through
+`WorkspaceStateService.update_schema_scope` before the new schema is saved.
+
+The capture projection still includes relationship origins only when both
+models are selected. A separate relationship review lists eligible links
+between selected models before linked capture assessment. The operator confirms
+that list as a group; persisted individual edge approval is not yet
 implemented.
 
 Each identity check computes one small company-scope fingerprint from the

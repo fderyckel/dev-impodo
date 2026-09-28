@@ -66,6 +66,16 @@ _ODOO_19_CREATE_HOOKS = {
         relation="resource.resource",
         required_inputs=("name",),
     ),
+    # product.template.create() generates its product.product variant records.
+    # Odoo 19 exposes product_variant_ids as a required writable one2many even
+    # though callers must not copy source variant identifiers into a new
+    # database. Bind the exception to the exact captured field shape and keep
+    # the Product name as an independently checked create input.
+    ("product.template", "product_variant_ids"): OdooCreateHookContract(
+        field_type="one2many",
+        relation="product.product",
+        required_inputs=("name",),
+    ),
 }
 
 

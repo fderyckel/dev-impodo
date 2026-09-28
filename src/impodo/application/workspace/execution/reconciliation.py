@@ -70,9 +70,13 @@ class ReconciliationExecutionRepository(Protocol):
         self,
         workspace_id: str,
         snapshot_hash: str | None = None,
-    ) -> ExecutionRun | None: ...
+    ) -> ExecutionRun | None:
+        """Return the current journal for reconciliation and recovery checks."""
+        ...
 
-    def get_run(self, workspace_id: str, run_id: str) -> ExecutionRun | None: ...
+    def get_run(self, workspace_id: str, run_id: str) -> ExecutionRun | None:
+        """Return one execution journal for an expected reconciliation command."""
+        ...
 
 
 class ReconciliationResultRepository(Protocol):
@@ -80,7 +84,9 @@ class ReconciliationResultRepository(Protocol):
         self,
         workspace_id: str,
         execution_run_id: str | None = None,
-    ) -> ReconciliationRun | None: ...
+    ) -> ReconciliationRun | None:
+        """Return the current immutable result for ``ReconciliationService.current``."""
+        ...
 
     def publish(
         self,
@@ -89,17 +95,23 @@ class ReconciliationResultRepository(Protocol):
         *,
         actor: Actor,
         detail: ReconciliationDetailManifest | None = None,
-    ) -> None: ...
+    ) -> None:
+        """Publish the compact result after optional evidence publication succeeds."""
+        ...
 
     def get_detail_manifest(
         self,
         workspace_id: str,
         reconciliation_id: str,
-    ) -> ReconciliationDetailManifest | None: ...
+    ) -> ReconciliationDetailManifest | None:
+        """Return protected-detail metadata for the current-result read path."""
+        ...
 
 
 class ReconciliationSchemaReader(Protocol):
-    def get_odoo_schema_catalog(self, workspace_id: str): ...
+    def get_odoo_schema_catalog(self, workspace_id: str):
+        """Supply numeric precision only when the snapshot did not preserve it."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,6 +302,11 @@ class ReconciliationService:
         return self.evidence.open(report, manifest, actor=actor)
 
     def current_detail_available(self, workspace_id: str) -> bool:
+        """Tell page composition whether current protected details can be opened.
+
+        Called before rendering evidence controls. It intentionally avoids
+        opening the artifact; ``current_detail`` remains the authorized read.
+        """
         report = self.current(workspace_id)
         reconciliation_id = getattr(report, "reconciliation_id", "")
         return bool(
@@ -1058,6 +1075,7 @@ class ReconciliationService:
             for intent in row.fields:
                 if intent.action == "OMIT":
                     continue
+                field_type = field_types.get(intent.field, "")
                 expected = self._expected_value(
                     intent,
                     metadata,
@@ -1068,17 +1086,20 @@ class ReconciliationService:
                 )
                 actual_value = actual.values[intent.field]
                 if intent.kind != "scalar" and intent.action in {
-                    "SET_VALUE", "SET_PROTECTED", "EXPECT_PROTECTED"
+                    "SET_NULL", "SET_VALUE", "SET_PROTECTED", "EXPECT_PROTECTED"
                 }:
-                    actual_value = (
-                        _many2many_ids(actual_value)
-                        if isinstance(expected, tuple)
-                        else _many2one_id(actual_value)
-                    )
+                    if field_type in {"many2many", "one2many"} or isinstance(
+                        expected, tuple
+                    ):
+                        actual_value = _many2many_ids(actual_value)
+                        if expected is None:
+                            expected = ()
+                    else:
+                        actual_value = _many2one_id(actual_value)
                 if not _values_equal(
                     expected,
                     actual_value,
-                    field_type=field_types.get(intent.field, ""),
+                    field_type=field_type,
                 ):
                     differing.append(intent.field)
                     if difference_sink is not None:
@@ -1105,7 +1126,7 @@ class ReconciliationService:
                                     if intent.protected_value_hash
                                     else actual_value
                                 ),
-                                field_type=field_types.get(intent.field, ""),
+                                field_type=field_type,
                                 target_digits=digits,
                                 reason_code=_difference_reason(
                                     expected,

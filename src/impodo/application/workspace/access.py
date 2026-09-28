@@ -81,7 +81,14 @@ class WorkspaceAccessRepository(Protocol):
     def resolve_workspace_access_context(
         self,
         workspace_id: str,
-    ) -> WorkspaceAccessContext: ...
+    ) -> WorkspaceAccessContext:
+        """Return verified workspace lineage for ``WorkspaceAccessService``.
+
+        The access service is its only application caller. Implementations
+        must use the canonical registry and must not open data-version,
+        evidence, credential, or Odoo stores as a side effect.
+        """
+        ...
 
 
 class WorkspaceAccessService:

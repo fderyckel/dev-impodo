@@ -40,19 +40,25 @@ class RowInclusionReviewRepository(Protocol):
         operation_id: str | None = None,
         working_draft_version: int | None = None,
         mapping_revision_version: int | None = None,
-    ) -> RowInclusionReviewSnapshot: ...
+    ) -> RowInclusionReviewSnapshot:
+        """Atomically replace review evidence published by ``check_current``."""
+        ...
 
     def get_current_review(
         self,
         workspace_id: str,
         identity: RowInclusionReviewIdentity,
-    ) -> RowInclusionReviewSnapshot | None: ...
+    ) -> RowInclusionReviewSnapshot | None:
+        """Return the exact identity-bound review used by ``current``."""
+        ...
 
     def get_confirmation(
         self,
         workspace_id: str,
         snapshot_hash: str,
-    ) -> RowInclusionReviewConfirmation | None: ...
+    ) -> RowInclusionReviewConfirmation | None:
+        """Return existing confirmation evidence for the requested snapshot."""
+        ...
 
     def confirm_current_review(
         self,
@@ -63,7 +69,9 @@ class RowInclusionReviewRepository(Protocol):
         operation_id: str | None = None,
         working_draft_version: int | None = None,
         mapping_revision_version: int | None = None,
-    ) -> RowInclusionReviewConfirmation: ...
+    ) -> RowInclusionReviewConfirmation:
+        """Persist manager confirmation after the service validates freshness."""
+        ...
 
     def get_review_page(
         self,
@@ -74,7 +82,9 @@ class RowInclusionReviewRepository(Protocol):
         page_size: int,
         after: int | None = None,
         before: int | None = None,
-    ) -> RowInclusionReviewPage: ...
+    ) -> RowInclusionReviewPage:
+        """Page protected inclusion evidence for ``RowInclusionReviewService.page``."""
+        ...
 
 
 class RowInclusionReviewService:

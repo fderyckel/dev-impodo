@@ -42,11 +42,15 @@ class PreparationRecoveryRepository(Protocol):
 
     def read_current(
         self, workspace_id: str, inputs: PreparationRecoveryInputs,
-    ) -> RecoveredPreparation | None: ...
+    ) -> RecoveredPreparation | None:
+        """Read a publication chain only when every supplied dependency matches."""
+        ...
 
 
 class WorkspaceStateReader(Protocol):
-    def get(self, workspace_id: str) -> WorkspaceState: ...
+    def get(self, workspace_id: str) -> WorkspaceState:
+        """Return state used to bind recovery to its retention context."""
+        ...
 
 
 class PreparationRecoveryService:

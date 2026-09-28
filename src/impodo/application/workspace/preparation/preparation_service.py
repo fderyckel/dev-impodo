@@ -76,7 +76,9 @@ class PreparationOdooProvenance(Protocol):
         *,
         actor: Actor,
         dataset_id: str | None = None,
-    ) -> OdooCaptureManifest | None: ...
+    ) -> OdooCaptureManifest | None:
+        """Return the protected capture root used to validate offline preparation."""
+        ...
 
     def read_current_origins(
         self,
@@ -84,7 +86,9 @@ class PreparationOdooProvenance(Protocol):
         *,
         actor: Actor,
         dataset_id: str | None = None,
-    ) -> tuple[OdooCaptureOriginHeader, tuple[OdooOriginBatch, ...]] | None: ...
+    ) -> tuple[OdooCaptureOriginHeader, tuple[OdooOriginBatch, ...]] | None:
+        """Return capture origin headers used to bind prepared Odoo provenance."""
+        ...
 from .normalization_service import NormalizationService
 from .preparation_capability import compile_preparation_capability
 from .quality_service import QualityService

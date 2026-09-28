@@ -63,12 +63,19 @@ version.
    available links into supporting records needed to preserve meaning,
    optional business data, destination setup to reuse, records created by
    Odoo, separate business processes, history to leave out, and links that
-   still need a decision. For Products, **Review recommended supporting data**
-   preselects Product Categories and Units of Measure when those links are
-   available. If the selected unit records reveal a Unit of Measure Category,
-   Impodo recommends that supporting data in the next review. Check the
-   business labels and save the reviewed choices; Impodo does not add them
-   silently.
+   still need a decision. Select related source records directly in this
+   section. For Products, Impodo marks Product Categories and Units of Measure
+   as recommendations when those record types are available. Select the related
+   record types that belong in this migration, then select **Save related-data
+   choices**. A checked box always means that the record type is already in the
+   current source choices. Rows for destination setup, Odoo-managed records,
+   separate processes, and excluded history show their handling instead of
+   presenting a misleading source-data checkbox. If the selected unit records
+   reveal a Unit of Measure Category,
+   Impodo recommends that supporting data in the next review on the same page.
+   Saving a changed model choice refreshes its eligible fields from Odoo and
+   requires you to review the affected capture plans again. Use **Review all
+   available Odoo data** only when you need to change the wider model scope.
 4. Save one bounded plan for every selected type. A Contact, Product,
    transaction, or supporting record type each has its own plan. Include the
    fields needed by the migration when they appear among the eligible fields.

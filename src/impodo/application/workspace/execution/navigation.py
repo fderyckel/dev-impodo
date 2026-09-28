@@ -63,10 +63,16 @@ class ExecutionPreviewSummary:
 
     @property
     def write_count(self) -> int:
+        """Return planned creates plus updates for navigation presentation."""
         return self.create_count + self.update_count
 
     @property
     def has_attention(self) -> bool:
+        """Return whether navigation must send the operator back to review.
+
+        Used by ``ExecutionNavigationPreview.can_load``. It is deliberately
+        conservative and does not replace full snapshot validation at load.
+        """
         return bool(
             self.comparison_status != "READY"
             or self.blocked_count

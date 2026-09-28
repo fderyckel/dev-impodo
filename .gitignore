@@ -17,6 +17,11 @@ env/
 .python/
 .uv-cache/
 .tools/
+
+# Project-local Typst CLI and generated diagram previews
+/.venv/tools/typst/
+/.venv/Scripts/typst.cmd
+/docs/bpmn/typst/*.pdf
 .env
 .env.*
 !.env.example

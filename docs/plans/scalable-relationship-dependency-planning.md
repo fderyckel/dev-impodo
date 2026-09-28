@@ -1,11 +1,12 @@
-# Complete Windows qualification for relationship execution
+# Retire relationship execution qualification
 
 ## Status and authority
 
 **Status:** The generic dataset and row planner, bounded execution, component
 recovery, and browser guidance are implemented. Qualification at 25,000
-scheduled records passed on macOS; the clean Windows repeat remains open as
-of 2026-09-15.
+scheduled records passed on macOS and Windows. The authenticated eligible-field
+screenshot is current. Plan retirement remains open because the clean
+repository-wide test discovery is not green as of 2026-09-28.
 
 The [Load into Odoo developer workflow](../developer/workflow/06-load-into-odoo.md#current-relationship-ordering)
 and [execution contract](../developer/contracts/execution-and-reconciliation.md)
@@ -17,51 +18,30 @@ materialized boundary. It does not raise row limits or authorize a Production
 load. The 16,000-Product and 80,000-BOM-line workload remains in the separate
 [deferred 100,000-row track](remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
 
-## Remaining Windows qualification
+The [Windows qualification report](../testing/relationship-execution-windows-2026-09-28.md)
+records three fresh execution runs, three fresh worker first/repeat pairs,
+batch-size and input-order determinism, bounded connector calls, interruption
+recovery, generated identifiers, exact relationship read-back, artifact sizes,
+and the authenticated screenshot. These checks passed from a clean isolated
+revision without stopping the operator's running Impodo process.
 
-Run the [current-boundary qualification protocol](../testing/acceptance.md#phase-6-current-boundary-qualification)
-for the worker and disposable Odoo 19 paths from a clean revision. Use no more
-than 25,000 scheduled records across Products, BOM headers, component lines,
-and supporting datasets.
+## Remaining retirement gate
 
-1. Run three fresh execution trials and three fresh production-worker
-   first/repeat pairs. Record the revision, runtime, fixture, hashes,
-   connector-call classes and counts, wall time, peak memory, artifact sizes,
-   snapshot reuse, and worker exit.
-2. Verify deterministic dataset and row schedules under input permutations and
-   batch-size changes. Acyclic hierarchies and BOMs must require no deferred
-   relationship write.
-3. Verify existing-target precedence, bounded crosswalk revalidation, optional
-   cycle completion, and required-cycle rejection before target I/O.
-4. Inject interruption around journal-before-transport and generated-receipt
-   publication. Resume only after exact read-back verifies earlier components
-   and classifies uncertain rows, without recreating a parent.
-5. Compare local returned identifiers and remote External IDs through exact
-   final read-back. Retain generated-link and optional generated-record
-   projection coverage.
-6. Complete the outstanding authenticated eligible-field screenshot capture
-   with fictional data and verify the paired user and developer guidance.
+Restore a green clean-revision discovery run. The 2026-09-28 diagnostic run
+found independent target-match, preparation, scenario-fixture, browser-copy,
+and Polars timezone failures before it stalled in a Production-readiness
+browser test. The relationship-owned focused gate passed, but the repository's
+retirement rule does not permit that focused result to replace full discovery.
 
-## Representative fixture
+After the baseline is green:
 
-Include shared units and categories, supported Product templates and variants,
-BOM headers and components, a reused component, a multilevel dependency, and
-missing, ambiguous, and quarantined supporting rows. Add an optional cycle
-outside the BOM business fixture and a required cycle that must block.
+1. Run full test discovery from the clean revision with Windows temporary
+   storage and timezone data available.
+2. Run the architecture, owner, browser, and documentation checks required by
+   the [current-boundary qualification protocol](../testing/acceptance.md#phase-6-current-boundary-qualification).
+3. Confirm that the Windows evidence report and paired user and developer
+   guidance still describe the current implementation.
+4. Remove this plan and its roadmap links.
 
-Assert exact connector-call classes and documented upper bounds. No target
-lookup, crosswalk scan, or read-back may grow one-for-one with source rows.
-Retain a measured gate for any remaining per-row write path. Wall time alone
-cannot qualify the implementation.
-
-## Completion gate
-
-The clean Windows repeat must pass correctness, deterministic hashes, current
-time and memory budgets, bounded request counts, restart recovery, generated
-bindings, and exact read-back. Run the relevant architecture, owner, browser,
-and full test-discovery checks required by the existing qualification protocol.
-Keep older completed evidence readable and reject stale pending previews.
-
-Record the repeat evidence in `docs/testing/` and the current acceptance
-references, then remove this plan. Any later limit increase requires separate
-qualification and an explicit change to the supported boundary.
+Any later increase beyond 25,000 scheduled records remains a separate
+qualification and requires an explicit change to the supported boundary.

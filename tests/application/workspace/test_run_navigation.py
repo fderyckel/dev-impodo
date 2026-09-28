@@ -1,14 +1,23 @@
 """Keep Recipe setup navigation aligned with accepted data and activation."""
 
+from dataclasses import replace
+from datetime import datetime, timezone
 from types import SimpleNamespace
 import unittest
 from uuid import uuid4
 
+from impodo.application.workspace.access import WorkspaceAccessContext
+from impodo.application.workspace.odoo_capture_jobs import (
+    OdooCaptureJob,
+    OdooCaptureJobStatus,
+    OdooCapturePhase,
+)
 from impodo.domain.data_version.models import DataVersionState
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.web.presenters.navigation import (
     WorkflowStage,
     WorkspaceNavigation,
+    build_odoo_capture_workspace_navigation,
     build_recipe_run_navigation,
     _recipe_run_setup_navigation,
 )
@@ -157,6 +166,73 @@ class RunSetupNavigationTests(unittest.TestCase):
                     "attention" if attention else "complete")
                 self.assertEqual(navigation.stages[2].status, expected_status)
                 self.assertTrue(navigation.stages[2].active)
+
+
+class OdooCaptureNavigationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.workspace_id = str(uuid4())
+        self.project_id = str(uuid4())
+        self.run_id = str(uuid4())
+        self.job = OdooCaptureJob(
+            job_id=str(uuid4()),
+            access_context=WorkspaceAccessContext(
+                project_id=self.project_id,
+                workspace_id=self.workspace_id,
+                data_version_id=str(uuid4()),
+                migration_run_id=self.run_id,
+            ),
+            workspace_id=self.workspace_id,
+            migration_project_name="Products",
+            status=OdooCaptureJobStatus.RUNNING,
+            phase=OdooCapturePhase.READING,
+            message="Reading the selected Odoo records",
+            completed_rows=10,
+            total_rows=20,
+            page_count=1,
+            response_bytes=100,
+            normalized_bytes=80,
+            progress_percent=44,
+            attempt=1,
+            cancel_requested=False,
+            created_at=datetime.now(timezone.utc),
+            started_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+            finished_at=None,
+            manifest_id="",
+            failure_message="",
+        )
+
+    def test_running_capture_keeps_the_eight_stage_sidebar_visible(self) -> None:
+        navigation = build_odoo_capture_workspace_navigation(self.job)
+
+        self.assertEqual(len(navigation.stages), 8)
+        self.assertEqual(navigation.current_stage_id, "download")
+        self.assertEqual(navigation.viewed_stage_id, "download")
+        self.assertEqual(navigation.stages[2].status, "current")
+        self.assertTrue(navigation.stages[2].active)
+        self.assertTrue(navigation.stages[2].pages[1].current)
+        self.assertEqual(
+            [stage.label for stage in navigation.stages[:4]],
+            [
+                "Connect source Odoo",
+                "Select data to download",
+                "Download and freeze",
+                "Connect destination Odoo",
+            ],
+        )
+
+    def test_completed_capture_opens_the_destination_stage(self) -> None:
+        navigation = build_odoo_capture_workspace_navigation(
+            replace(self.job, status=OdooCaptureJobStatus.SUCCEEDED)
+        )
+
+        self.assertEqual(navigation.stages[2].status, "complete")
+        self.assertEqual(navigation.current_stage_id, "destination")
+        self.assertEqual(navigation.stages[3].status, "current")
+        self.assertEqual(
+            navigation.stages[3].href,
+            f"/workspaces/{self.workspace_id}/transfer-destination",
+        )
 
 
 if __name__ == "__main__":

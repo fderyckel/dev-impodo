@@ -12,6 +12,10 @@ from dataclasses import dataclass, replace
 
 from ...domain.reconciliation import ReconciliationRunStatus
 from impodo.application.preflight_jobs import PreflightJob
+from impodo.application.workspace.odoo_capture_jobs import (
+    OdooCaptureJob,
+    OdooCaptureJobStatus,
+)
 from impodo.application.workspace.execution.job_models import LoadJob
 from impodo.application.workspace.navigation import WorkspaceNavigationFacts
 from impodo.application.workspace.preparation.job_models import PreparationJob
@@ -1534,6 +1538,174 @@ def _find_stage(
     stage_id: str,
 ) -> WorkflowStage | None:
     return next((stage for stage in stages if stage.stage_id == stage_id), None)
+
+
+def build_odoo_capture_workspace_navigation(
+    job: OdooCaptureJob,
+) -> WorkspaceNavigation:
+    """Keep the Odoo-transfer sidebar visible without opening a busy store."""
+
+    workspace_id = job.workspace_id
+    progress_url = (
+        f"/workspaces/{workspace_id}/sources/odoo-capture/{job.job_id}"
+    )
+    if job.status is OdooCaptureJobStatus.SUCCEEDED:
+        download_status, download_label = "complete", "Download complete"
+    elif job.status is OdooCaptureJobStatus.FAILED:
+        download_status, download_label = "attention", "Needs attention"
+    elif job.status is OdooCaptureJobStatus.CANCELLED:
+        download_status, download_label = "attention", "Stopped safely"
+    else:
+        download_status, download_label = "current", "In progress"
+
+    stages = (
+        WorkflowStage(
+            stage_id="connection",
+            number=1,
+            label="Connect source Odoo",
+            href=f"/workspaces/{workspace_id}/target",
+            status="complete",
+            status_label="Connected",
+            pages=(
+                WorkflowPage(
+                    page_id="source-connection",
+                    label="Source connection",
+                    href=f"/workspaces/{workspace_id}/target",
+                    status="complete",
+                    status_label="Complete",
+                ),
+            ),
+        ),
+        WorkflowStage(
+            stage_id="select",
+            number=2,
+            label="Select data to download",
+            href=f"/workspaces/{workspace_id}/schema",
+            status="complete",
+            status_label="Selection complete",
+            pages=(
+                WorkflowPage(
+                    page_id="odoo-fields",
+                    label="Choose record types and fields",
+                    href=f"/workspaces/{workspace_id}/schema",
+                    status="complete",
+                    status_label="Complete",
+                ),
+                WorkflowPage(
+                    page_id="odoo-capture-selection",
+                    label="Define capture plans",
+                    href=f"/workspaces/{workspace_id}/sources",
+                    status="complete",
+                    status_label="Complete",
+                ),
+            ),
+        ),
+        WorkflowStage(
+            stage_id="download",
+            number=3,
+            label="Download and freeze",
+            href=progress_url,
+            status=download_status,
+            status_label=download_label,
+            pages=(
+                WorkflowPage(
+                    page_id="odoo-capture",
+                    label="Freeze source datasets",
+                    href=f"/workspaces/{workspace_id}/sources#current-capture",
+                    status=(
+                        "complete"
+                        if job.status is OdooCaptureJobStatus.SUCCEEDED
+                        else "available"
+                    ),
+                    status_label=(
+                        "Complete"
+                        if job.status is OdooCaptureJobStatus.SUCCEEDED
+                        else "Available"
+                    ),
+                ),
+                WorkflowPage(
+                    page_id="odoo-capture-progress",
+                    label="Capture progress",
+                    href=progress_url,
+                    status=download_status,
+                    status_label=download_label,
+                    current=True,
+                ),
+            ),
+            active=True,
+        ),
+        WorkflowStage(
+            stage_id="destination",
+            number=4,
+            label="Connect destination Odoo",
+            href=(
+                f"/workspaces/{workspace_id}/transfer-destination"
+                if job.status is OdooCaptureJobStatus.SUCCEEDED
+                else None
+            ),
+            status=(
+                "current"
+                if job.status is OdooCaptureJobStatus.SUCCEEDED
+                else "locked"
+            ),
+            status_label=(
+                "Current"
+                if job.status is OdooCaptureJobStatus.SUCCEEDED
+                else "Download source first"
+            ),
+        ),
+        WorkflowStage(
+            "destination-match",
+            5,
+            "Match destination data",
+            None,
+            "locked",
+            "Destination required",
+        ),
+        WorkflowStage(
+            "transfer-order",
+            6,
+            "Validate transfer order",
+            None,
+            "locked",
+            "Destination matching required",
+        ),
+        WorkflowStage(
+            "transfer-review",
+            7,
+            "Review transfer",
+            None,
+            "locked",
+            "Transfer order required",
+        ),
+        WorkflowStage(
+            "destination-load",
+            8,
+            "Load destination Odoo",
+            None,
+            "locked",
+            "Transfer approval required",
+        ),
+    )
+    current_stage = (
+        stages[3]
+        if job.status is OdooCaptureJobStatus.SUCCEEDED
+        else stages[2]
+    )
+    return WorkspaceNavigation(
+        workspace_id=workspace_id,
+        migration_project_name=job.migration_project_name,
+        registered=True,
+        setup_active=False,
+        setup_href=f"/workspaces/{workspace_id}/overview",
+        overview_href=f"/workspaces/{workspace_id}/overview",
+        overview_active=False,
+        current_stage_id=current_stage.stage_id,
+        current_stage_label=current_stage.label,
+        viewed_stage_id="download",
+        viewed_page_label="Capture progress",
+        stages=stages,
+    )
 
 
 def _activate_run_stages(

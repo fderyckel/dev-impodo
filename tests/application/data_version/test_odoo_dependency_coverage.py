@@ -36,7 +36,10 @@ class CapturedDependencyCoverageTests(unittest.TestCase):
                 ),
             ),
         )
-        with self.assertRaisesRegex(WorkspaceError, "outside the captured res.partner"):
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "outside the captured res.partner.*linked records only",
+        ):
             _require_captured_relationship_coverage(
                 (result,),
                 {"sale.order": [owner], "res.partner": []},

@@ -50,26 +50,32 @@ class WorkspaceOwnerView:
 
     @property
     def project_id(self) -> str:
+        """Expose the verified parent-project identifier for page presenters."""
         return self.migration_project.project_id
 
     @property
     def workspace_id(self) -> str:
+        """Expose this view's verified workspace identifier for page links."""
         return self.migration_workspace.workspace_id
 
     @property
     def data_version_id(self) -> str:
+        """Expose the workspace's verified source-version identifier."""
         return self.data_version.data_version_id
 
     @property
     def data_version_number(self) -> int:
+        """Expose the human-visible immutable source-version number."""
         return self.data_version.version_number
 
     @property
     def data_version_purpose(self) -> str:
+        """Expose the source version's purpose for page labels and warnings."""
         return self.data_version.purpose.value
 
     @property
     def migration_run_id(self) -> str:
+        """Expose the verified migration-run identifier for page links."""
         return self.migration_run.migration_run_id
 
 
@@ -81,6 +87,12 @@ class WorkspaceOwnerViewService:
         self.access = access
 
     def get(self, workspace_id: str, *, actor: Actor) -> WorkspaceOwnerView:
+        """Build the canonical-owner read model for workspace page composition.
+
+        Called by workspace web routes before they render a page.  It resolves
+        Project authorization first, then asks its repository for all owners
+        in that verified lineage; it does not provide editable workflow state.
+        """
         context = self.access.resolve(
             workspace_id,
             actor=actor,

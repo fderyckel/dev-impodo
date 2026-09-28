@@ -75,18 +75,31 @@ class LoadJob:
 
     @property
     def active(self) -> bool:
+        """Return whether the job manager may still advance this attempt.
+
+        Used by load-job polling, navigation enrichment, and ``terminal``;
+        it is a session-control classification, not execution-journal truth.
+        """
         return self.status in {LoadJobStatus.QUEUED, LoadJobStatus.RUNNING}
 
     @property
     def terminal(self) -> bool:
+        """Return whether this browser-side job has reached a final state."""
         return not self.active
 
     @property
     def not_completed_count(self) -> int:
+        """Return remaining primary rows for progress presentation only."""
         return max(0, self.total_rows - self.completed_rows)
 
     @property
     def relationship_completed_count(self) -> int:
+        """Return completed deferred links once their phase has begun.
+
+        The load-job manager uses this in status snapshots. It intentionally
+        reports zero before relationship work starts, even when a total is
+        already known.
+        """
         if self.phase not in {
             LoadPhase.RELATIONSHIPS,
             LoadPhase.VERIFYING,

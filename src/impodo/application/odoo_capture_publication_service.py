@@ -469,7 +469,9 @@ def _require_captured_relationship_coverage(
                 raise WorkspaceError(
                     f"{result.selection.model}.{projection.name} has a link "
                     f"outside the captured {projection.relation_model} rows. "
-                    "Expand the related selection or narrow the source records."
+                    f"Review the {projection.relation_model} capture plan: "
+                    "capture supporting data as linked records only, or widen "
+                    "its root filter (including archived records when applicable)."
                 )
 
 def _report_progress(

@@ -165,6 +165,11 @@ class LoadJobManager:
             return job
 
     def get(self, workspace_id: str, job_id: str) -> LoadJob:
+        """Return one browser job after enforcing workspace ownership.
+
+        Called by load-progress routes. It reads only the in-memory control
+        record; callers must use the execution journal for durable outcomes.
+        """
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None or job.workspace_id != workspace_id:
@@ -172,10 +177,16 @@ class LoadJobManager:
             return job
 
     def active(self, workspace_id: str) -> LoadJob | None:
+        """Return the workspace's queued or running job for navigation/routes."""
         with self._lock:
             return self._active_locked(workspace_id)
 
     def latest(self, workspace_id: str) -> LoadJob | None:
+        """Return the newest session job for a workspace progress page.
+
+        Unlike ``active``, this may be terminal and therefore is unsuitable
+        for deciding whether a new governed load may be started.
+        """
         with self._lock:
             return max(
                 (

@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Status:** Active roadmap, updated 2026-09-23.
+**Status:** Active roadmap, updated 2026-09-28.
 
 This is the broad forward-looking roadmap. Detailed plans remain beside it
 while delivery or qualification is unfinished. The [documentation index](../README.md#plans)
@@ -17,9 +17,10 @@ those current references have been verified.
 
 - Complete the [three-page Production journey](recipe-run-three-page-ui-refactor.md)
   and its user guidance. The Test journey is implemented.
-- Complete the [Windows relationship repeat](scalable-relationship-dependency-planning.md)
-  at 25,000 scheduled records. The planner, bounded execution, recovery, and
-  macOS qualification are implemented.
+- Restore green clean-revision discovery, then retire the
+  [relationship qualification plan](scalable-relationship-dependency-planning.md).
+  The planner, bounded execution, recovery, macOS and Windows measurements,
+  and authenticated visual evidence are complete at 25,000 scheduled records.
 - Finish [Match data ordering qualification](smart-match-data-ordering.md) and
   [row-inclusion visual and native follow-up](source-row-inclusion-rules.md).
 - Qualify [macOS saves](resilient-match-data-saving.md),
@@ -75,9 +76,9 @@ The unfinished outcome is a bounded Product/BOM workflow for approximately
 production, logical projection, relationship accounting, and dependency
 propagation without whole-run Python collections.
 
-The [relationship qualification plan](scalable-relationship-dependency-planning.md)
-retains the Windows repeat at the current 25,000-row boundary. Completing that
-repeat does not activate this deferred high-volume track or raise a row limit.
+The [Windows relationship qualification report](../testing/relationship-execution-windows-2026-09-28.md)
+retains the completed current-boundary evidence. That result does not activate
+this deferred high-volume track or raise a row limit.
 
 Before raising any limit, the release evidence must prove:
 

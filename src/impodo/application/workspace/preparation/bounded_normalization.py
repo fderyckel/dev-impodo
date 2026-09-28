@@ -160,6 +160,12 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
         self._impact_rows = impact_rows
 
     def prepare(self) -> dict[str, object]:
+        """Build durable normalization facts through the session-backed index.
+
+        Called by the normalization service's bounded route. The wrapped store
+        owns indexing and persistence; this adapter only supplies factories for
+        domain-shaped effects and findings.
+        """
         preparer = getattr(self._impact_rows, "prepare_normalization_facts")
         return preparer(
             effect_builder=self._build_effects,
@@ -168,6 +174,7 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
 
     @property
     def prepared_run_id(self) -> str:
+        """Expose the source run identifier required by the durable publisher."""
         return str(getattr(self._impact_rows, "normalization_run_id"))
 
     def _build_effects(self, rows):
@@ -221,6 +228,7 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
         )()
 
     def copy_to_run(self, connection, run_id: str) -> int:
+        """Copy indexed effects into the published run without materializing them."""
         return int(
             getattr(self._impact_rows, "copy_normalization_effects")(
                 connection,
@@ -229,6 +237,7 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
         )
 
     def iter_encoded_batches(self, connection, batch_size: int):
+        """Stream encoded durable effects for consumers that need batch access."""
         yield from getattr(
             self._impact_rows,
             "iter_normalization_effect_json_batches",

@@ -1328,6 +1328,53 @@ class ReconciliationServiceTests(unittest.TestCase):
         self.assertEqual(report.status, ReconciliationRunStatus.VERIFIED)
         self.assertEqual(report.rows[1].status, ReconciliationRowStatus.VERIFIED)
 
+    def test_empty_many2many_set_null_matches_odoo_empty_list(self):
+        base = _snapshot()
+        snapshot = replace(
+            base,
+            datasets=tuple(
+                replace(
+                    item,
+                    field_types=(*item.field_types, ("x_tag_ids", "many2many")),
+                )
+                if item.dataset == "products"
+                else item
+                for item in base.datasets
+            ),
+            rows=(
+                base.rows[0],
+                replace(
+                    base.rows[1],
+                    fields=(
+                        *base.rows[1].fields,
+                        FieldIntent(
+                            "x_tag_ids",
+                            "SET_NULL",
+                            kind="relation",
+                            relation_operation="replace",
+                            related_model="x.tag",
+                            related_identity_fields=("code",),
+                        ),
+                    ),
+                ),
+                base.rows[2],
+            ),
+        )
+        run = _run(snapshot)
+        service, _results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.records[("product.template", 11)]["x_tag_ids"] = []
+
+        report = service.reconcile(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(report.status, ReconciliationRunStatus.VERIFIED)
+        self.assertEqual(report.rows[1].status, ReconciliationRowStatus.VERIFIED)
+
     def test_verifies_schema_bound_custom_many2many_fields(self):
         snapshot = _snapshot()
         contact = replace(

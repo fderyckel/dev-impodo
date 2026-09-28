@@ -46,7 +46,9 @@ class RecipeQualitySeedRepository(Protocol):
         self,
         workspace_id: str,
         mapping_content_hash: str,
-    ) -> tuple[QualityRule, ...]: ...
+    ) -> tuple[QualityRule, ...]:
+        """Return reusable Recipe checks when a matching draft is being published."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

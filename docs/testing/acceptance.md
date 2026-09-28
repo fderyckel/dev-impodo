@@ -543,7 +543,14 @@ PYTHONPATH=src:. .venv/bin/python \
   --output .tmp/scalable-relationship-phase6-worker-25k.json
 ```
 
-The remaining Windows gate uses the same clean revision and fixture:
+The Windows repeat passed on clean isolated revision
+`dc44b130fec328ef1291e32b60a492d440968e86` on 2026-09-28. The
+[Windows relationship execution report](relationship-execution-windows-2026-09-28.md)
+records the exact three-run measurements, worker first/repeat pairs, hashes,
+artifact sizes, batch-size variants, focused recovery and read-back checks,
+and authenticated visual evidence.
+
+Reproduce the primary Windows measurements with:
 
 ```powershell
 git status --short
@@ -560,16 +567,23 @@ $env:PYTHONPATH = "src;."
 ```
 
 `git status --short` must print nothing. Do not pass
-`--allow-dirty-worktree`. The Windows result must preserve the macOS semantic
-and call-sequence hashes, complete all rows, keep both worker wall times below
-120 seconds, keep both worker peak measurements below 900 MiB, reuse both
-prepared snapshots, reopen no source, and exit every worker.
+`--allow-dirty-worktree`. The completed Windows result preserved its semantic
+and call-sequence hashes across all three primary runs, completed every row,
+kept both worker wall times below 120 seconds and both worker peaks below
+900 MiB, reused every prepared snapshot, reopened no source, and exited every
+worker. Batch sizes 25, 50, and 200 retained the same snapshot semantic hash.
 
-Focused browser integration covers the generated-link choice. The existing
-relationship-catalog screenshot remains accurate, but the current in-app
-browser policy blocked a new local eligible-field capture and prohibited an
-alternate capture route. This is retained as documentation debt, not used as
-a substitute for the executable browser gate.
+The focused 19-test relationship gate passed. It covers input permutations,
+existing-target precedence, bounded crosswalk revalidation, optional and
+required cycles, journal-before-transport recovery, generated-receipt restart,
+and exact final relationship read-back. The authenticated
+[eligible Product fields screenshot](../images/user/08g-odoo-source-eligible-fields.png)
+was captured from the current interface with fictional data at 1440 by 1024.
+
+The relationship plan remains open only because the required repository-wide
+clean discovery gate is not green. The 2026-09-28 diagnostic run found
+independent failures and later stalled; the focused relationship result is not
+used as a substitute for that retirement gate.
 
 P4 passed on 2026-08-06 against the isolated `impodo_p4_20260806` database:
 125 creates, 20 updates, 5 unchanged, 145 committed writes, 150 verified by

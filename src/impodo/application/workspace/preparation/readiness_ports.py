@@ -154,21 +154,27 @@ class PreparationSessionRepository(Protocol):
         bindings: PreparationSessionBindings,
         *,
         actor: Actor,
-    ) -> PreparationSessionSummary: ...
+    ) -> PreparationSessionSummary:
+        """Open the unpublished bounded session used by direct preparation."""
+        ...
 
     def append_impacts(
         self,
         workspace_id: str,
         session_id: str,
         rows: Sequence[TransformationImpactRow],
-    ) -> None: ...
+    ) -> None:
+        """Append bounded transformation impacts before session finalization."""
+        ...
 
     def append_direct_rows(
         self,
         workspace_id: str,
         session_id: str,
         rows: Sequence[CanonicalPreparedSessionRow],
-    ) -> None: ...
+    ) -> None:
+        """Append canonical direct rows produced by the bounded evaluator."""
+        ...
 
     def append_native_prepared_projection(
         self,
@@ -178,7 +184,9 @@ class PreparationSessionRepository(Protocol):
         projection: PreparedCanonicalProjection,
         path: object,
         control_fields: tuple[str, ...] = (),
-    ) -> object | None: ...
+    ) -> object | None:
+        """Bind a native prepared projection to its unpublished session."""
+        ...
 
     def finalize_direct_session(
         self,
@@ -192,21 +200,27 @@ class PreparationSessionRepository(Protocol):
         run_issues: Sequence[Issue],
         control_totals: Sequence[CanonicalControlTotal],
         impact_report: TransformationImpactReport,
-    ) -> StoredCanonicalStagingRun: ...
+    ) -> StoredCanonicalStagingRun:
+        """Finalize accumulated batches into canonical evidence ready to publish."""
+        ...
 
     def find_prepared_snapshot(
         self,
         workspace_id: str,
         dataset_id: str,
         logical_hash: str,
-    ) -> PreparedSnapshot | None: ...
+    ) -> PreparedSnapshot | None:
+        """Find reusable prepared physical evidence by its logical identity."""
+        ...
 
     def bind_prepared_snapshot(
         self,
         workspace_id: str,
         session_id: str,
         snapshot: PreparedSnapshot,
-    ) -> None: ...
+    ) -> None:
+        """Record a prepared snapshot as owned by the unpublished session."""
+        ...
 
     def bind_prepared_canonical_projection(
         self,
@@ -214,60 +228,82 @@ class PreparationSessionRepository(Protocol):
         session_id: str,
         snapshot: PreparedSnapshot,
         projection: PreparedCanonicalProjection,
-    ) -> None: ...
+    ) -> None:
+        """Record the canonical projection corresponding to a prepared snapshot."""
+        ...
 
-    def prepared_snapshot_storage_keys(self, workspace_id: str) -> frozenset[str]: ...
+    def prepared_snapshot_storage_keys(self, workspace_id: str) -> frozenset[str]:
+        """Return protected storage keys retained by current prepared evidence."""
+        ...
 
     def find_derived_value_artifact(
         self,
         workspace_id: str,
         dataset_id: str,
         logical_hash: str,
-    ) -> DerivedValueArtifact | None: ...
+    ) -> DerivedValueArtifact | None:
+        """Find reusable materialized derived values by logical identity."""
+        ...
 
     def bind_derived_value_artifact(
         self,
         workspace_id: str,
         session_id: str,
         artifact: DerivedValueArtifact,
-    ) -> None: ...
+    ) -> None:
+        """Bind a derived-value artifact to the unpublished preparation session."""
+        ...
 
     def session_derived_value_artifacts(
         self,
         workspace_id: str,
         session_id: str,
-    ) -> tuple[DerivedValueArtifact, ...]: ...
+    ) -> tuple[DerivedValueArtifact, ...]:
+        """Return artifacts created or adopted by one unfinished session."""
+        ...
 
     def current_derived_value_artifacts(
         self,
         workspace_id: str,
-    ) -> tuple[DerivedValueArtifact, ...]: ...
+    ) -> tuple[DerivedValueArtifact, ...]:
+        """Return artifacts belonging to the currently published preparation."""
+        ...
 
     def derived_value_artifact_storage_keys(
         self,
         workspace_id: str,
-    ) -> frozenset[str]: ...
+    ) -> frozenset[str]:
+        """Return protected storage keys retained by current derived evidence."""
+        ...
 
     def physical_rows(
         self,
         workspace_id: str,
         session_id: str,
-    ) -> dict[str, tuple[int, ...]]: ...
+    ) -> dict[str, tuple[int, ...]]:
+        """Return physical source-row lineage for bounded diagnostic publication."""
+        ...
 
     def iter_impacts(
         self,
         workspace_id: str,
         session_id: str,
-    ) -> Iterable[TransformationImpactRow]: ...
+    ) -> Iterable[TransformationImpactRow]:
+        """Stream the session's impacts into transformation-impact evidence."""
+        ...
 
-    def mark_published(self, workspace_id: str, session_id: str) -> None: ...
+    def mark_published(self, workspace_id: str, session_id: str) -> None:
+        """Mark the session published after canonical staging persistence succeeds."""
+        ...
 
     def fail_session(
         self,
         workspace_id: str,
         session_id: str,
         failure_code: str,
-    ) -> None: ...
+    ) -> None:
+        """Record safe abandonment so recovery cannot publish incomplete batches."""
+        ...
 
 
 class QualityMappingRepository(Protocol):

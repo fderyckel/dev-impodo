@@ -62,6 +62,13 @@ Saving a write key for an Odoo 20 workspace does not enable Odoo 20 loading.
 8. For an Odoo source, confirm the eligible fields needed by the bounded source
    capture.
 
+For an Odoo source, select only the fields that the migration needs. The
+**Records per Odoo request** choice changes how Impodo batches the read; it
+does not add or remove records. Numeric Odoo record identifiers and modification
+timestamps remain protected provenance and are not selectable source values.
+
+![Authenticated Odoo source capture plan with fictional eligible Product fields.](../../images/user/08g-odoo-source-eligible-fields.png)
+
 The supporting-data review uses the direct relationships in the captured live
 Odoo schema. **Include incoming data** returns to the record-type choices with
 the related business record preselected for review. It does not save that

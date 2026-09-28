@@ -219,10 +219,12 @@ class PreparationJob:
 
     @property
     def active(self) -> bool:
+        """Return whether the session registry may still advance this job."""
         return self.status in ACTIVE_PREPARATION_JOB_STATUSES
 
     @property
     def terminal(self) -> bool:
+        """Return whether this session-only job has reached a final outcome."""
         return self.status in TERMINAL_PREPARATION_JOB_STATUSES
 
     @property

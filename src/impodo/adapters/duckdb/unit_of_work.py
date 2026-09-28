@@ -47,13 +47,15 @@ _read_databases = local()
 
 
 @contextmanager
-def retain_databases_for_read() -> Iterator[None]:
-    """Keep database instances open for one synchronous page read.
+def retain_databases_for_operation() -> Iterator[None]:
+    """Keep database instances open for one bounded synchronous operation.
 
     Each repository still gets a fresh connection and independent transaction.
     Only the expensive database opening is shared, on the calling thread, until
-    this scope exits. Do not span awaits, background work, or remote calls with
-    this scope: closing it promptly releases the files for other processes.
+    this scope exits. The operation may contain local repository writes because
+    their cursor transactions remain independent. Do not span awaits,
+    background work, or remote calls with this scope: closing it promptly
+    releases the files for other processes.
     """
 
     if getattr(_read_databases, "connections", None) is not None:
@@ -67,6 +69,14 @@ def retain_databases_for_read() -> Iterator[None]:
         finally:
             del _read_databases.connections
             del _read_databases.stack
+
+
+@contextmanager
+def retain_databases_for_read() -> Iterator[None]:
+    """Keep database instances open for one synchronous page read."""
+
+    with retain_databases_for_operation():
+        yield
 
 
 class DuckDbConnectionFactory:

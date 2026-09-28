@@ -123,13 +123,17 @@ class MappingWorkspaceRepository(Protocol):
         submitted_working_draft_version: int | None,
         submitted_mapping_revision_version: int | None,
         actor: Actor,
-    ) -> MappingMutationReceipt: ...
+    ) -> MappingMutationReceipt:
+        """Reserve an idempotent mutation for mapping command service methods."""
+        ...
 
     def get_mapping_mutation_receipt(
         self,
         workspace_id: str,
         operation_id: str,
-    ) -> MappingMutationReceipt | None: ...
+    ) -> MappingMutationReceipt | None:
+        """Return the mutation receipt used to resume an idempotent command."""
+        ...
 
     def reject_mapping_mutation(
         self,
@@ -140,7 +144,9 @@ class MappingWorkspaceRepository(Protocol):
         failure_detail: str,
         working_draft_version: int | None,
         mapping_revision_version: int | None,
-    ) -> MappingMutationReceipt: ...
+    ) -> MappingMutationReceipt:
+        """Record an expected command rejection without changing checked evidence."""
+        ...
 
     def complete_mapping_mutation(
         self,
@@ -148,7 +154,9 @@ class MappingWorkspaceRepository(Protocol):
         operation_id: str,
         *,
         content_identity: str = "",
-    ) -> MappingMutationReceipt: ...
+    ) -> MappingMutationReceipt:
+        """Mark a reserved mutation complete after its durable write succeeds."""
+        ...
 
     def save_mapping_working_draft(
         self,
@@ -239,7 +247,9 @@ class MappingSupportingLookupRepository(Protocol):
         self,
         workspace_id: str,
         lookup_key: str,
-    ) -> SupportingLookupSnapshot | None: ...
+    ) -> SupportingLookupSnapshot | None:
+        """Return current supporting evidence for mapping validation callers."""
+        ...
 
 
 class MappingDownstreamInvalidator(Protocol):
@@ -251,7 +261,9 @@ class MappingDownstreamInvalidator(Protocol):
         *,
         mapping_hash: str,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Clear downstream correction evidence before mapping intent changes."""
+        ...
 
 
 class RecipeMappingPolicy(Protocol):
@@ -259,7 +271,9 @@ class RecipeMappingPolicy(Protocol):
 
     def assert_mapping_adaptation(
         self, workspace_id: str, definition: MappingDefinition,
-    ) -> None: ...
+    ) -> None:
+        """Reject a mapping mutation that violates the applied-recipe policy."""
+        ...
 
 
 class MappingRowInclusionConfirmationRepository(Protocol):
@@ -271,7 +285,9 @@ class MappingRowInclusionConfirmationRepository(Protocol):
         *,
         mapping_content_hash: str,
         source_selection_hash: str,
-    ) -> bool: ...
+    ) -> bool:
+        """Tell submission validation whether current row admission is confirmed."""
+        ...
 
 
 class MappingWorkspaceService:

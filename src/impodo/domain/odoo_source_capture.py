@@ -632,7 +632,10 @@ def plan_odoo_source_capture(
         for field in sorted(schema_model.fields, key=lambda item: item.name)
         if is_odoo_capture_relationship_field(
             field, selected_models=selected_models
-        ) and field.type == "one2many" and field.relation in linked_models
+        )
+        and field.type == "one2many"
+        and field.relation in linked_models
+        and field.relation != selection.model
     )
     if selection.filter_policy is not OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS:
         active = fields.get("active")

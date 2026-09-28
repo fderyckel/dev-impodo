@@ -147,6 +147,7 @@ class _BoundedQualityRows(Sequence[QualityRowResult]):
             yield self._result(row)
 
     def iter_batches(self, connection, batch_size: int):
+        """Stream replayed quality results from compact row-to-issue links."""
         encoded_batches = getattr(self._rows, "iter_encoded_batches", None)
         if not callable(encoded_batches):
             for start in range(0, len(self), batch_size):
@@ -280,6 +281,7 @@ class _IndexedQualityRows(Sequence[QualityRowResult]):
                 yield self._result(fact)
 
     def iter_batches(self, connection, batch_size: int):
+        """Stream indexed quality facts through the publisher's open connection."""
         reader = getattr(self._rows, "iter_quality_index_batches")
         for batch in reader(connection, batch_size):
             yield tuple(self._result(fact) for fact in batch)
@@ -350,6 +352,7 @@ class _IndexedSourceAccounting(Sequence[SourceAccountingEntry]):
             yield from (self._entry(fact) for fact in batch)
 
     def iter_batches(self, connection, batch_size: int):
+        """Stream indexed source-accounting entries without rebuilding the index."""
         reader = getattr(self._rows, "iter_accounting_index_batches")
         for batch in reader(connection, batch_size):
             yield tuple(self._entry(fact) for fact in batch)

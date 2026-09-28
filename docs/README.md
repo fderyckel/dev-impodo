@@ -92,9 +92,9 @@ records remain in Git history.
 - [VM deployment with DuckDB and managed workers](plans/vm-deployment-duckdb-worker-management.md)
   proposes internal VM deployment, Entra sign-in, durable worker coordination,
   resource controls, recovery, and pilot acceptance.
-- [Windows relationship qualification](plans/scalable-relationship-dependency-planning.md)
-  retains the clean Windows repeat and outstanding visual evidence for the
-  implemented planner and executor at 25,000 scheduled records.
+- [Relationship qualification retirement](plans/scalable-relationship-dependency-planning.md)
+  retains the clean repository-wide discovery gate after the Windows repeat
+  and authenticated visual evidence passed at 25,000 scheduled records.
 - [Match data ordering qualification](plans/smart-match-data-ordering.md)
   retains documentation, visual, and performance checks for the implemented
   queue, custom ordering, and explicit live Odoo refinement.
@@ -157,6 +157,9 @@ setup, CLI, release, and acceptance procedures live under
   and connector cases.
 - [Acceptance and test strategy](testing/acceptance.md) — test layers, golden
   slice, determinism checks, and acceptance traceability.
+- [Windows relationship execution qualification](testing/relationship-execution-windows-2026-09-28.md)
+  records current-boundary Product and Bill of Materials measurements,
+  determinism, recovery, exact read-back, and authenticated visual evidence.
 - [Odoo dual-support Phase 2 policy](testing/odoo-compatibility-phase2.md)
   records shared version decisions, preserved Odoo 19 behavior, and verification.
 - [Odoo dual-support Phase 3 reads](testing/odoo-compatibility-phase3.md)

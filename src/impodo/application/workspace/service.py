@@ -46,6 +46,14 @@ class MigrationWorkspaceService:
         operation_id: str | None = None,
         fault: FaultInjector | None = None,
     ) -> MigrationWorkspace:
+        """Create the workspace root for an already-authorized project command.
+
+        Called by project-authoring and production-cutover orchestration; web
+        routes reach it through those application services rather than writing
+        a workspace directly.  This boundary owns authorization, identifier
+        validation, lifecycle defaults, and the idempotency payload.  The
+        repository owns durable persistence and event publication.
+        """
         project_id = require_uuid(project_id, "project_id")
         data_version_id = require_uuid(data_version_id, "data_version_id")
         migration_run_id = require_uuid(migration_run_id, "migration_run_id")
@@ -100,6 +108,12 @@ class MigrationWorkspaceService:
         actor: Actor,
         expected_revision: int,
     ) -> MigrationWorkspace:
+        """Close an open workspace after checking its current revision.
+
+        Called by the correction workflow and its browser route.  Closing is
+        intentionally a lifecycle command only: it neither deletes workspace
+        evidence nor attempts to finish unfinished workflow stages.
+        """
         self.authorization.require(actor, Capability.MIGRATION_WORKSPACE_EDIT)
         current = self.repository.get_migration_workspace(
             require_uuid(workspace_id, "workspace_id")
@@ -166,6 +180,12 @@ class MigrationWorkspaceService:
         )
 
     def get(self, workspace_id: str, *, actor: Actor) -> MigrationWorkspace:
+        """Read one workspace after resolving and authorizing its project.
+
+        This is the narrow lifecycle read used by application orchestration.
+        Page composition should use :class:`WorkspaceOwnerViewService` when it
+        needs the complete verified owner lineage.
+        """
         self.authorization.require(actor, Capability.PROJECT_VIEW)
         workspace = self.repository.get_migration_workspace(
             require_uuid(workspace_id, "workspace_id")
@@ -183,6 +203,12 @@ class MigrationWorkspaceService:
         *,
         actor: Actor,
     ) -> tuple[MigrationWorkspace, ...]:
+        """List the project-owned workspaces visible to ``actor``.
+
+        Called by migration-project pages and project setup scenarios.  It
+        authorizes the parent project before delegating the unfiltered list to
+        the repository; it does not decide which workspace is active.
+        """
         project_id = require_uuid(project_id, "project_id")
         self.authorization.require(
             actor,

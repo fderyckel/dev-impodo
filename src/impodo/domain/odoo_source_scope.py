@@ -101,14 +101,27 @@ _SEPARATE_PROCESS_MODELS = frozenset(
 )
 
 
+_SELECTABLE_HANDLINGS = frozenset(
+    {
+        RelatedDataHandling.INCLUDE_SUPPORTING,
+        RelatedDataHandling.OPTIONAL_BUSINESS_DATA,
+    }
+)
+
+
 def propose_related_odoo_data(
     models: Iterable[SchemaModel],
+    *,
+    include_selected: bool = False,
 ) -> tuple[RelatedDataSuggestion, ...]:
     """Return deterministic suggestions for eligible links leaving the scope.
 
     Only relationships already present in captured schema evidence are
-    considered. Unknown and custom relationships fail closed into an explicit
-    decision instead of being followed automatically.
+    considered. By default the result contains links outside the selected
+    scope. ``include_selected`` also retains selected supporting and optional
+    models so the browser can show their saved checkbox state. Unknown and
+    custom relationships fail closed into an explicit decision instead of
+    being followed automatically.
     """
 
     captured_models = tuple(models)
@@ -125,7 +138,12 @@ def propose_related_odoo_data(
         )
         for model in captured_models
         for field in model.fields
-        if _is_scope_candidate(field, selected_names)
+        if _is_scope_candidate(
+            model.name,
+            field,
+            selected_names,
+            include_selected=include_selected,
+        )
         and field.relation is not None
     )
     return tuple(
@@ -141,13 +159,33 @@ def propose_related_odoo_data(
     )
 
 
-def _is_scope_candidate(field: SchemaField, selected_names: set[str]) -> bool:
+def related_model_can_be_selected(handling: RelatedDataHandling) -> bool:
+    """Return whether this handling permits an inline source-scope choice."""
+
+    return handling in _SELECTABLE_HANDLINGS
+
+
+def _is_scope_candidate(
+    source_model: str,
+    field: SchemaField,
+    selected_names: set[str],
+    *,
+    include_selected: bool,
+) -> bool:
     """Keep the capture engine's existing closed relationship eligibility."""
 
     return bool(
         field.type in {"many2one", "many2many", "one2many"}
         and field.relation
-        and field.relation not in selected_names
+        and (
+            field.relation not in selected_names
+            or (
+                include_selected
+                and related_model_can_be_selected(
+                    _classify_relationship(source_model, field)
+                )
+            )
+        )
         and field.exportable is True
         and field.related is not True
         and field.company_dependent is False

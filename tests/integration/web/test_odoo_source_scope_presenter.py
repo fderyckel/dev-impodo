@@ -14,7 +14,7 @@ from impodo.web.presenters.schema import _schema_model_choices
 
 
 class OdooSourceScopePresenterTests(unittest.TestCase):
-    def test_recommended_models_are_bound_to_the_schema_review_link(self) -> None:
+    def test_recommended_models_are_exposed_as_inline_choices(self) -> None:
         view = build_related_data_scope_view(
             "workspace-1",
             (
@@ -40,7 +40,12 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
             model_labels={
                 "product.category": "Product Categories",
                 "uom.uom": "Units of Measure",
+                "mrp.bom": "Bills of Materials",
             },
+            selected_models=frozenset({"product.template"}),
+            available_models=frozenset(
+                {"product.category", "uom.uom", "mrp.bom"}
+            ),
         )
 
         self.assertEqual(
@@ -51,15 +56,36 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            view.recommended_review_url,
-            "/workspaces/workspace-1/schema?"
-            "suggested_model=product.category&suggested_model=uom.uom"
-            "#odoo-data-choices",
+            view.selectable_model_names,
+            ("product.category", "uom.uom"),
         )
         self.assertEqual(
-            tuple(item.relation_label for item in view.groups[0].items),
-            ("Units of Measure", "Product Categories"),
+            tuple(model.label for model in view.groups[0].models),
+            ("Product Categories", "Units of Measure"),
         )
+        self.assertFalse(any(model.checked for model in view.groups[0].models))
+        self.assertTrue(all(model.recommended for model in view.groups[0].models))
+        self.assertFalse(view.groups[1].models[0].can_select)
+
+        saved_view = build_related_data_scope_view(
+            "workspace-1",
+            (
+                _suggestion(
+                    "categ_id",
+                    "Product Category",
+                    "product.category",
+                    RelatedDataHandling.INCLUDE_SUPPORTING,
+                ),
+            ),
+            model_labels={"product.category": "Product Categories"},
+            selected_models=frozenset(
+                {"product.template", "product.category"}
+            ),
+            available_models=frozenset({"product.category"}),
+        )
+        saved_model = saved_view.groups[0].models[0]
+        self.assertTrue(saved_model.checked)
+        self.assertFalse(saved_model.recommended)
 
     def test_schema_review_preselects_only_available_suggestions(self) -> None:
         workspace = SimpleNamespace(
@@ -87,6 +113,36 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
         self.assertTrue(by_name["product.category"]["selected"])
         self.assertTrue(by_name["product.category"]["suggested"])
         self.assertNotIn("not.available", by_name)
+
+    def test_one_related_model_gets_one_selection_control(self) -> None:
+        view = build_related_data_scope_view(
+            "workspace-1",
+            (
+                _suggestion(
+                    "uom_id",
+                    "Unit of Measure",
+                    "uom.uom",
+                    RelatedDataHandling.INCLUDE_SUPPORTING,
+                ),
+                _suggestion(
+                    "x_other_uom_id",
+                    "Other Unit",
+                    "uom.uom",
+                    RelatedDataHandling.OPTIONAL_BUSINESS_DATA,
+                ),
+            ),
+            model_labels={"uom.uom": "Units of Measure"},
+            available_models=frozenset({"uom.uom"}),
+        )
+
+        self.assertEqual(
+            sum(
+                model.can_select
+                for group in view.groups
+                for model in group.models
+            ),
+            1,
+        )
 
 
 def _suggestion(

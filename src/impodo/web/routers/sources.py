@@ -52,7 +52,11 @@ from ...domain.odoo_source_policy import (
     CURRENT_ODOO_SOURCE_POLICY,
     odoo_source_policy_from_hash,
 )
-from ...domain.odoo_source_scope import propose_related_odoo_data
+from ...domain.odoo_source_scope import (
+    RelatedDataHandling,
+    propose_related_odoo_data,
+    related_model_can_be_selected,
+)
 from ...domain.odoo_capture import (
     ODOO_CAPTURE_PAGE_SIZES,
     OdooCaptureRole,
@@ -71,16 +75,18 @@ from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
-from ..composition.page_reads import run_page_read
+from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.odoo_source_scope import build_related_data_scope_view
+from ..presenters.navigation import build_odoo_capture_workspace_navigation
 from ..presenters.schema import (
     _dataset_choices,
     _dataset_choices_from,
     _decode_delimiter,
 )
+from .schema import _capture_selected_schema
 from ..target_credentials import (
     TargetCredentialRole,
     audit_stored_target_credential,
@@ -271,10 +277,9 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 "linked_only",
             },
         )
-        workspace_state = context.queries.get(workspace_id)
-        try:
-            selection = await run_in_threadpool(
-                context.sources.define_odoo_capture_selection,
+
+        def save_selection():
+            selection = context.sources.define_odoo_capture_selection(
                 workspace_id,
                 dataset_name=_text(form, "dataset_name"),
                 model=_text(form, "model"),
@@ -287,27 +292,34 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 linked_only=bool(_text(form, "linked_only")),
                 actor=context.actor,
             )
-        except WorkspaceError as error:
-            return _render_odoo_capture_selection(
-                request,
-                context,
-                workspace_state,
-                error=str(error),
-                status_code=422,
+            request.session.pop(_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY, None)
+            schema = context.queries.get_odoo_schema_catalog(workspace_id)
+            current_selections = (
+                context.queries.get_current_odoo_capture_selections(workspace_id)
+                if schema is not None
+                else ()
             )
-        request.session.pop(_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY, None)
-        schema = context.queries.get_odoo_schema_catalog(workspace_id)
-        current_selections = (
-            context.queries.get_current_odoo_capture_selections(workspace_id)
-            if schema is not None
-            else ()
-        )
-        planned_models = {item.model for item in current_selections}
-        missing_models = tuple(
-            item
-            for item in (schema.models if schema is not None else ())
-            if item.name not in planned_models
-        )
+            planned_models = {item.model for item in current_selections}
+            missing_models = tuple(
+                item
+                for item in (schema.models if schema is not None else ())
+                if item.name not in planned_models
+            )
+            return selection, missing_models
+
+        try:
+            selection, missing_models = await run_local_operation(save_selection)
+        except WorkspaceError as error:
+            def render_error():
+                return _render_odoo_capture_selection(
+                    request,
+                    context,
+                    context.queries.get(workspace_id),
+                    error=str(error),
+                    status_code=422,
+                )
+
+            return await run_page_read(render_error)
         if missing_models:
             next_model = missing_models[0]
             _flash(
@@ -327,6 +339,109 @@ def build_sources_router(context: WebContext) -> APIRouter:
         )
         return RedirectResponse(
             f"/workspaces/{workspace_id}/sources#capture-next-action",
+            status_code=303,
+        )
+
+    @router.post("/workspaces/{workspace_id}/sources/odoo-related-data")
+    async def save_odoo_related_data(request: Request, workspace_id: str):
+        """Save inline related-model choices and refresh their field evidence."""
+
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "revision", "related_models"},
+        )
+        def save_related_scope():
+            workspace_state = context.queries.get(workspace_id)
+            if (
+                workspace_state.status is not WorkspaceStatus.REGISTERED
+                or workspace_state.source_mode is not SourceMode.ODOO
+            ):
+                raise WorkspaceStateError(
+                    "Related Odoo data can be changed only for a registered Odoo source"
+                )
+            schema = context.queries.get_odoo_schema_catalog(workspace_id)
+            model_catalog = context.queries.get_odoo_model_catalog(workspace_id)
+            if schema is None or model_catalog is None:
+                raise WorkspaceStateError(
+                    "Load the available Odoo record types and fields before choosing related data"
+                )
+            if schema.pending_refresh is not None:
+                raise WorkspaceStateError(
+                    "Review the changed Odoo details before choosing related data"
+                )
+            suggestions = propose_related_odoo_data(
+                schema.models,
+                include_selected=True,
+            )
+            selectable = {
+                item.relation_model
+                for item in suggestions
+                if related_model_can_be_selected(item.handling)
+            }
+            available = {item.name for item in model_catalog.models}
+            allowed = selectable & available
+            submitted = {
+                str(item).strip()
+                for item in form.getlist("related_models")
+                if str(item).strip()
+            }
+            unknown = sorted(submitted - allowed)
+            if unknown:
+                raise WorkspaceStateError(
+                    f"{unknown[0]} is not an available related-data choice"
+                )
+            current_models = workspace_state.intended_models
+            next_models = tuple(
+                model
+                for model in current_models
+                if model not in allowed or model in submitted
+            ) + tuple(
+                model
+                for model in sorted(submitted)
+                if model not in current_models
+            )
+            saved_workspace_state = context.workspace_states.update_schema_scope(
+                workspace_id,
+                actor=context.actor,
+                expected_revision=_revision(form),
+                permitted_models=next_models,
+            )
+            return workspace_state, saved_workspace_state
+
+        workspace_state = None
+        try:
+            workspace_state, saved_workspace_state = await run_local_operation(
+                save_related_scope
+            )
+            if saved_workspace_state.revision != workspace_state.revision:
+                await _capture_selected_schema(context, saved_workspace_state)
+        except (
+            ConnectorError,
+            WorkspaceStateError,
+            SecretStoreError,
+            WorkspaceError,
+        ) as error:
+            def render_error():
+                current = context.queries.get(workspace_id)
+                return _render_odoo_capture_selection(
+                    request,
+                    context,
+                    current,
+                    error=str(error),
+                    status_code=422,
+                )
+
+            return await run_page_read(render_error)
+        request.session.pop(_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY, None)
+        _flash(
+            request,
+            "Saved the related Odoo data. Review and save a capture plan for "
+            "each selected record type.",
+        )
+        return RedirectResponse(
+            f"/workspaces/{workspace_id}/sources#related-data-scope",
             status_code=303,
         )
 
@@ -1089,15 +1204,26 @@ def _render_odoo_capture_selection(
     model_catalog = context.queries.get_odoo_model_catalog(
         workspace_state.workspace_id
     )
+    related_data_suggestions = propose_related_odoo_data(
+        models,
+        include_selected=True,
+    )
     related_data_scope = build_related_data_scope_view(
         workspace_state.workspace_id,
-        propose_related_odoo_data(models),
+        related_data_suggestions,
         model_labels={
             item.name: item.label
             for item in (
                 model_catalog.models if model_catalog is not None else ()
             )
         },
+        selected_models=frozenset(workspace_state.intended_models),
+        available_models=frozenset(
+            item.name
+            for item in (
+                model_catalog.models if model_catalog is not None else ()
+            )
+        ),
     )
     linked_models = {
         item.model for item in current_selections
@@ -1134,6 +1260,21 @@ def _render_odoo_capture_selection(
         current_by_model.get(selected_model.name)
         if selected_model is not None
         else None
+    )
+    supporting_models = frozenset(
+        item.relation_model
+        for item in related_data_suggestions
+        if item.handling is RelatedDataHandling.INCLUDE_SUPPORTING
+    )
+    recommend_linked_only = bool(
+        selected_model is not None
+        and selected_model.name in supporting_models
+        and current is None
+    )
+    supporting_plan_is_root = bool(
+        current is not None
+        and current.model in supporting_models
+        and current.capture_role is OdooCaptureRole.ROOT
     )
     fields = tuple(
         sorted(
@@ -1255,6 +1396,8 @@ def _render_odoo_capture_selection(
         selected_field_names=selected_field_names,
         dataset_name_default=dataset_name_default,
         current=current,
+        recommend_linked_only=recommend_linked_only,
+        supporting_plan_is_root=supporting_plan_is_root,
         current_selections=current_selections,
         current_by_model=current_by_model,
         related_data_scope=related_data_scope,
@@ -1338,6 +1481,13 @@ def _render_odoo_capture_progress(request: Request, job: OdooCaptureJob):
             name=job.migration_project_name,
             registered_at=True,
         ),
+        workspace_navigation=build_odoo_capture_workspace_navigation(job),
+        migration_context={
+            "project_id": job.access_context.project_id,
+            "data_version_id": job.access_context.data_version_id,
+            "migration_run_id": job.access_context.migration_run_id,
+            "workspace_id": job.access_context.workspace_id,
+        },
         job=job,
         failure_message=job.failure_message,
     )

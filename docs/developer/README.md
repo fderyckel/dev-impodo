@@ -70,7 +70,8 @@ routes, services, implementation status, performance risks, and focused tests.
 - [Acceptance and test strategy](../testing/acceptance.md)
 - [Code-organization regression baseline](../testing/code-organization-phase0-baseline.md)
 - [Examples and edge cases](reference/examples-and-edge-cases.md)
-- [Remaining Windows relationship qualification](../plans/scalable-relationship-dependency-planning.md)
+- [Windows relationship qualification evidence](../testing/relationship-execution-windows-2026-09-28.md)
+- [Remaining relationship plan retirement gate](../plans/scalable-relationship-dependency-planning.md)
 - [Documentation style guide](../style-guide.md)
 
 Before changing an Odoo-backed loop, verify that record access is bounded and

@@ -211,7 +211,8 @@ remains outside the migration write scope.
 | Browser presenter | [`schema.py`](../../../src/impodo/web/presenters/schema.py) |
 | Supporting-data presenter | [`supporting_models.py`](../../../src/impodo/web/presenters/supporting_models.py) |
 | Browser review | [`workspace_schema.html`](../../../src/impodo/web/templates/workspace_schema.html) |
-| Qualified screenshot capture | [`capture_stage2_matching_rule_screenshots.py`](../../../scripts/capture_stage2_matching_rule_screenshots.py) |
+| Matching-rule screenshot capture | [`capture_stage2_matching_rule_screenshots.py`](../../../scripts/capture_stage2_matching_rule_screenshots.py) |
+| Odoo-source eligible-field screenshot capture | [`capture_odoo_source_eligible_fields.py`](../../../scripts/capture_odoo_source_eligible_fields.py) |
 | Local reader | [`local_odoo_reader.py`](../../../src/impodo/adapters/odoo/local_reader.py) |
 
 ## Evidence and state

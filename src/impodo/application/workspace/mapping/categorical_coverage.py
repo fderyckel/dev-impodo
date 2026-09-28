@@ -98,15 +98,21 @@ CATEGORICAL_PROVIDER_SEMANTICS_HASH = content_hash(
 class CategoricalSourceRepository(Protocol):
     """Read frozen source selections and their current immutable snapshots."""
 
-    def get_source_selection(self, workspace_id: str) -> SourceSelection | None: ...
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None:
+        """Return the physical selection used to anchor coverage evidence."""
+        ...
 
     def get_mapping_source_selection(
         self, workspace_id: str
-    ) -> SourceSelection | None: ...
+    ) -> SourceSelection | None:
+        """Return the physical-plus-derived selection for mapping coverage."""
+        ...
 
     def get_current_source_snapshots(
         self, workspace_id: str
-    ) -> tuple[SourceSnapshot, ...]: ...
+    ) -> tuple[SourceSnapshot, ...]:
+        """Return frozen snapshots read by ``CategoricalCoverageService.collect``."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

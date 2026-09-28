@@ -211,6 +211,23 @@ label.model-choice input {
   margin-top: .2rem;
 }
 
+.related-data-model + .related-data-model {
+  margin-top: .9rem;
+  border-top: 1px solid var(--line);
+  padding-top: .9rem;
+}
+
+.related-data-model > ul {
+  margin-bottom: .55rem;
+}
+
+.related-data-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
 .advanced-schema-draft > summary {
   cursor: pointer;
   font-weight: 750;

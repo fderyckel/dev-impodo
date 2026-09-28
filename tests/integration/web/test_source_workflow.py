@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.project.foundation import MigrationFoundationError
@@ -259,11 +260,38 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             ),
         )
         context = self.app.state.context
+        model_catalog = SimpleNamespace(
+            models=(
+                SimpleNamespace(
+                    name="product.template",
+                    label="Products",
+                ),
+                SimpleNamespace(
+                    name="product.category",
+                    label="Product Categories",
+                ),
+                SimpleNamespace(
+                    name="res.company",
+                    label="Companies",
+                ),
+                SimpleNamespace(
+                    name="mail.activity",
+                    label="Activities",
+                ),
+            )
+        )
 
-        with patch.object(
-            context.queries,
-            "get_odoo_schema_catalog",
-            return_value=product_schema,
+        with (
+            patch.object(
+                context.queries,
+                "get_odoo_schema_catalog",
+                return_value=product_schema,
+            ),
+            patch.object(
+                context.queries,
+                "get_odoo_model_catalog",
+                return_value=model_catalog,
+            ),
         ):
             page = self.client.get(
                 f"/workspaces/{workspace_state.workspace_id}/sources"
@@ -275,7 +303,14 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Reuse destination setup", page.text)
         self.assertIn("Not part of the business-data move", page.text)
         self.assertIn("Product Category", page.text)
-        self.assertIn("suggested_model=product.category", page.text)
+        self.assertIn('name="related_models"', page.text)
+        self.assertIn('value="product.category"', page.text)
+        self.assertIn("Recommended by Impodo · select and save to include", page.text)
+        self.assertIn("This link is required", page.text)
+        self.assertIn("Match in destination", page.text)
+        self.assertIn("Not included", page.text)
+        self.assertIn("Save related-data choices", page.text)
+        self.assertNotIn("Review recommended supporting data", page.text)
         self.assertNotIn(
             "Related record types outside this source selection",
             page.text,
@@ -286,6 +321,177 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             ),
             (),
         )
+
+    def test_odoo_source_page_saves_related_data_without_backtracking(self) -> None:
+        workspace_state, schema = self._registered_remote_schema_workspace()
+        context = self.app.state.context
+        workspace_state = context.workspace_states.update_schema_scope(
+            workspace_state.workspace_id,
+            actor=context.actor,
+            expected_revision=workspace_state.revision,
+            permitted_models=("product.template",),
+        )
+        product_schema = replace(
+            schema,
+            models=(
+                replace(
+                    schema.models[0],
+                    name="product.template",
+                    label="Products",
+                    fields=(
+                        SchemaField(
+                            name="name",
+                            label="Product Name",
+                            type="char",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                            exportable=True,
+                        ),
+                        SchemaField(
+                            name="categ_id",
+                            label="Product Category",
+                            type="many2one",
+                            required=True,
+                            readonly=False,
+                            relation="product.category",
+                            relation_field=None,
+                            selection=(),
+                            related=False,
+                            company_dependent=False,
+                            exportable=True,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        model_catalog = SimpleNamespace(
+            models=(
+                SimpleNamespace(
+                    name="product.template",
+                    label="Products",
+                ),
+                SimpleNamespace(
+                    name="product.category",
+                    label="Product Categories",
+                ),
+            )
+        )
+        capture_schema = AsyncMock(return_value=product_schema)
+
+        with (
+            patch.object(
+                context.queries,
+                "get_odoo_schema_catalog",
+                return_value=product_schema,
+            ),
+            patch.object(
+                context.queries,
+                "get_odoo_model_catalog",
+                return_value=model_catalog,
+            ),
+            patch(
+                "impodo.web.routers.sources._capture_selected_schema",
+                capture_schema,
+            ),
+        ):
+            saved = self._post(
+                f"/workspaces/{workspace_state.workspace_id}"
+                "/sources/odoo-related-data",
+                {
+                    "csrf_token": self.csrf,
+                    "revision": str(workspace_state.revision),
+                    "related_models": "product.category",
+                },
+            )
+
+        self.assertEqual(saved.status_code, 303)
+        self.assertEqual(
+            saved.headers["location"],
+            f"/workspaces/{workspace_state.workspace_id}"
+            "/sources#related-data-scope",
+        )
+        self.assertEqual(
+            context.queries.get(workspace_state.workspace_id).intended_models,
+            ("product.category", "product.template"),
+        )
+        capture_schema.assert_awaited_once()
+
+    def test_recommended_supporting_model_defaults_to_linked_only(self) -> None:
+        workspace_state, schema = self._registered_remote_schema_workspace()
+        context = self.app.state.context
+        workspace_state = context.workspace_states.update_schema_scope(
+            workspace_state.workspace_id,
+            actor=context.actor,
+            expected_revision=workspace_state.revision,
+            permitted_models=("product.category", "product.template"),
+        )
+        product = replace(
+            schema.models[0],
+            name="product.template",
+            label="Products",
+            fields=(
+                *schema.models[0].fields,
+                SchemaField(
+                    name="categ_id",
+                    label="Product Category",
+                    type="many2one",
+                    required=True,
+                    readonly=False,
+                    relation="product.category",
+                    relation_field=None,
+                    selection=(),
+                    related=False,
+                    company_dependent=False,
+                    exportable=True,
+                ),
+            ),
+        )
+        category = replace(
+            schema.models[0],
+            name="product.category",
+            label="Product Categories",
+        )
+        product_schema = replace(schema, models=(product, category))
+        model_catalog = SimpleNamespace(
+            models=(
+                SimpleNamespace(
+                    name="product.category",
+                    label="Product Categories",
+                ),
+                SimpleNamespace(
+                    name="product.template",
+                    label="Products",
+                ),
+            )
+        )
+
+        with (
+            patch.object(
+                context.queries,
+                "get_odoo_schema_catalog",
+                return_value=product_schema,
+            ),
+            patch.object(
+                context.queries,
+                "get_odoo_model_catalog",
+                return_value=model_catalog,
+            ),
+        ):
+            page = self.client.get(
+                f"/workspaces/{workspace_state.workspace_id}/sources"
+                "?model=product.category&edit=1"
+            )
+
+        self.assertEqual(page.status_code, 200)
+        self.assertRegex(
+            page.text,
+            r'name="linked_only" value="1"\s+checked',
+        )
+        self.assertIn("Recommended for this supporting data", page.text)
+        self.assertIn("Archived records are included", page.text)
 
     def test_odoo_source_setup_skips_file_export_and_opens_schema_first(
         self,
@@ -718,6 +924,12 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         progress_url = started.headers["location"]
         progress_page = self.client.get(progress_url)
         self.assertIn("data-odoo-capture-job", progress_page.text)
+        self.assertIn('id="app-sidebar"', progress_page.text)
+        self.assertIn("Connect source Odoo", progress_page.text)
+        self.assertIn("Select data to download", progress_page.text)
+        self.assertIn("Download and freeze", progress_page.text)
+        self.assertIn("Capture progress", progress_page.text)
+        self.assertIn("Connect destination Odoo", progress_page.text)
         finished = _wait_for_odoo_capture(self.client, progress_url, timeout=30.0)
         self.assertEqual(finished["status"], "SUCCEEDED", finished)
         self.assertEqual(finished["completed_rows"], 2)

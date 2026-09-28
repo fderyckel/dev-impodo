@@ -51,18 +51,38 @@ class WorkspaceNavigationFacts:
 
     @property
     def source_complete(self) -> bool:
+        """Tell navigation whether a frozen source selection exists.
+
+        Called by the navigation presenter and stage-gating templates; it is a
+        display-level fact, not proof that source data is fit for preparation.
+        """
         return bool(self.source_selection_hash)
 
     @property
     def schema_complete(self) -> bool:
+        """Tell navigation whether both schema capture and governance exist.
+
+        Called by the navigation presenter. It deliberately does not inspect
+        mapping completeness, because schema and mapping have separate gates.
+        """
         return self.schema_present and self.governance_present
 
     @property
     def normalization_frozen(self) -> bool:
+        """Expose whether the normalization decision set is immutable.
+
+        Called by stage navigation and readiness presentation; the
+        normalization service remains responsible for state transitions.
+        """
         return self.normalization_status == "FROZEN"
 
     @property
     def normalization_decisions_left(self) -> int:
+        """Return the non-negative remaining manager-review count.
+
+        Called by navigation presentation to show progress. The count is
+        derived from persisted facts and never changes workflow state.
+        """
         return max(
             0,
             self.normalization_decision_count - self.normalization_reviewed_count,
@@ -78,13 +98,25 @@ class WorkspaceNavigationSnapshot:
 
 
 class WorkspaceNavigationRepository(Protocol):
-    def get(self, workspace_id: str) -> WorkspaceNavigationFacts: ...
+    """Read compact navigation facts without performing workflow decisions."""
 
-    def get_snapshot(self, workspace_id: str) -> WorkspaceNavigationSnapshot: ...
+    def get(self, workspace_id: str) -> WorkspaceNavigationFacts:
+        """Read facts for ``WorkspaceNavigationQueryService.get``.
+
+        This compatibility read need not share a transaction with the
+        workbench state; page composition should prefer ``get_snapshot``.
+        """
+        ...
+
+    def get_snapshot(self, workspace_id: str) -> WorkspaceNavigationSnapshot:
+        """Read state and facts consistently for ``get_for_workspace``."""
+        ...
 
 
 class ActiveJobReader(Protocol):
-    def active(self, workspace_id: str): ...
+    def active(self, workspace_id: str):
+        """Return the in-flight job used to enrich navigation, if any."""
+        ...
 
 
 class WorkspaceNavigationQueryService:
@@ -104,6 +136,12 @@ class WorkspaceNavigationQueryService:
         self.load_jobs = load_jobs
 
     def get(self, workspace_state: WorkspaceState) -> WorkspaceNavigationFacts:
+        """Enrich already-read workbench state with live job and load facts.
+
+        Compatibility callers that already hold ``WorkspaceState`` use this
+        method. New page routes call ``get_for_workspace`` so the durable state
+        and facts come from one repository snapshot.
+        """
         facts = self.repository.get(workspace_state.workspace_id)
         return self._with_runtime_facts(facts, workspace_state)
 

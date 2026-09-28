@@ -644,6 +644,39 @@ class OdooDependencyClosureTests(unittest.TestCase):
             ("category_ids",),
         )
 
+    def test_linked_self_parent_does_not_expand_through_children(self) -> None:
+        workspace_id = "00000000-0000-0000-0000-000000000001"
+        schema = _schema(workspace_id)
+        category = replace(
+            schema.models[0],
+            name="product.category",
+            label="Product Category",
+        )
+        child_field = replace(
+            category.fields[0],
+            name="child_id",
+            label="Child Categories",
+            type="one2many",
+            relation=category.name,
+            relation_field="parent_id",
+        )
+        schema = replace(
+            schema,
+            models=(replace(category, fields=(*category.fields, child_field)),),
+        )
+        selection = _selection(
+            workspace_id,
+            schema,
+            model=category.name,
+            capture_role=OdooCaptureRole.LINKED_ONLY,
+        )
+        planned = plan_odoo_source_capture(
+            selection,
+            schema,
+            linked_models=frozenset({category.name}),
+        )
+        self.assertEqual(planned.discovery_relationship_projection, ())
+
     def test_parent_one2many_discovers_children_without_duplicate_portable_link(self) -> None:
         models = ("mrp.bom", "mrp.bom.line")
         root = _request(
@@ -1403,6 +1436,7 @@ def _selection(
     selection_id: str = "00000000-0000-0000-0000-000000000002",
     dataset_name: str = "contacts",
     model: str = "res.partner",
+    capture_role: OdooCaptureRole = OdooCaptureRole.ROOT,
 ) -> OdooCaptureSelection:
     return OdooCaptureSelection.create(
         selection_id=selection_id,
@@ -1411,6 +1445,7 @@ def _selection(
         dataset_name=dataset_name,
         model=model,
         field_names=("name",),
+        capture_role=capture_role,
         filter_policy=OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS,
         max_rows=10_000,
         connection_target_hash=schema.connection_target_hash,

@@ -330,10 +330,11 @@ The implemented relationship planner publishes immutable row edges and
 schedules with exact cycle classification. Execution revalidates bounded
 crosswalks, requires receipts before releasing dependent components, and uses
 read-back to govern recovery. The browser derives bounded progressive guidance
-from that same snapshot. The current 25,000-row Product/BOM macOS qualification
-and bounded Odoo 19 generated-variant probe pass. The
-[remaining relationship qualification](../../plans/scalable-relationship-dependency-planning.md)
-covers the clean Windows repeat and outstanding browser evidence.
+from that same snapshot. The current 25,000-row Product/BOM macOS and
+[Windows](../../testing/relationship-execution-windows-2026-09-28.md)
+qualifications pass, as does the bounded Odoo 19 generated-variant probe. The
+[relationship qualification plan](../../plans/scalable-relationship-dependency-planning.md)
+now retains only the repository-wide clean-discovery retirement gate.
 
 ## Browser guidance and progress
 
@@ -596,5 +597,6 @@ Odoo 19 target.
 - [Acceptance and test strategy](../../testing/acceptance.md)
 - [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)
-- [Remaining Windows relationship qualification](../../plans/scalable-relationship-dependency-planning.md)
+- [Windows relationship qualification evidence](../../testing/relationship-execution-windows-2026-09-28.md)
+- [Remaining relationship plan retirement gate](../../plans/scalable-relationship-dependency-planning.md)
 - [Proposed exact-record repair for known fallout](../../plans/load-fallout-source-cell-workbook.md)

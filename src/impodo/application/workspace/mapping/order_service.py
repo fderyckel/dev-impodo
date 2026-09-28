@@ -98,7 +98,9 @@ class MatchingOrderPreferenceRepository(Protocol):
     def get_preference(
         self,
         workspace_id: str,
-    ) -> MatchingOrderPreference | None: ...
+    ) -> MatchingOrderPreference | None:
+        """Return the preference used by matching-order query and edit commands."""
+        ...
 
     def save_preference(
         self,
@@ -107,7 +109,9 @@ class MatchingOrderPreferenceRepository(Protocol):
         *,
         expected_version: int | None,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Persist an authorized preference replacement from ``save_preference``."""
+        ...
 
     def reset_preference(
         self,
@@ -115,7 +119,9 @@ class MatchingOrderPreferenceRepository(Protocol):
         *,
         expected_version: int | None,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Remove the expected preference version for ``reset_preference``."""
+        ...
 
     def begin_check(
         self,
@@ -123,13 +129,17 @@ class MatchingOrderPreferenceRepository(Protocol):
         attempt: MatchingOrderCheckAttempt,
         *,
         actor: Actor,
-    ) -> tuple[MatchingOrderCheckAttempt, bool]: ...
+    ) -> tuple[MatchingOrderCheckAttempt, bool]:
+        """Create or reuse the idempotent live-check attempt before Odoo opens."""
+        ...
 
     def update_check_attempt(
         self,
         workspace_id: str,
         attempt: MatchingOrderCheckAttempt,
-    ) -> None: ...
+    ) -> None:
+        """Persist progress from the background live-check worker."""
+        ...
 
     def publish_check(
         self,
@@ -138,7 +148,9 @@ class MatchingOrderPreferenceRepository(Protocol):
         *,
         protected_snapshot_json: str,
         actor: Actor,
-    ) -> MatchingOrderCheckStatus: ...
+    ) -> MatchingOrderCheckStatus:
+        """Publish a completed check and its protected snapshot atomically."""
+        ...
 
     def fail_check(
         self,
@@ -146,23 +158,31 @@ class MatchingOrderPreferenceRepository(Protocol):
         attempt: MatchingOrderCheckAttempt,
         *,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Persist an expected terminal failure from the live-check worker."""
+        ...
 
     def get_check_attempt(
         self,
         workspace_id: str,
         check_id: str,
-    ) -> MatchingOrderCheckAttempt | None: ...
+    ) -> MatchingOrderCheckAttempt | None:
+        """Return the named attempt for the check-status route."""
+        ...
 
     def get_active_check_attempt(
         self,
         workspace_id: str,
-    ) -> MatchingOrderCheckAttempt | None: ...
+    ) -> MatchingOrderCheckAttempt | None:
+        """Return the in-progress attempt used to avoid duplicate workers."""
+        ...
 
     def get_current_check(
         self,
         workspace_id: str,
-    ) -> MatchingOrderCheck | None: ...
+    ) -> MatchingOrderCheck | None:
+        """Return the last published check for matching-order presentation."""
+        ...
 
 
 class MatchingOrderSourceKeys(Protocol):
@@ -173,7 +193,9 @@ class MatchingOrderSourceKeys(Protocol):
         workspace_id: str,
         dataset_id: str,
         source_column_keys: tuple[str, ...],
-    ) -> tuple[tuple[str | None, ...], ...]: ...
+    ) -> tuple[tuple[str | None, ...], ...]:
+        """Read exact source keys for direct live identity checks."""
+        ...
 
     def source_identity_key_tuples(
         self,
@@ -181,7 +203,9 @@ class MatchingOrderSourceKeys(Protocol):
         dataset_id: str,
         source_column_keys: tuple[str, ...],
         row_inclusion: RowInclusionPolicy,
-    ) -> tuple[tuple[str | None, ...], ...]: ...
+    ) -> tuple[tuple[str | None, ...], ...]:
+        """Read identity keys subject to the mapping's row-inclusion policy."""
+        ...
 
     def source_included_key_tuples(
         self,
@@ -189,7 +213,9 @@ class MatchingOrderSourceKeys(Protocol):
         dataset_id: str,
         source_column_keys: tuple[str, ...],
         row_inclusion: RowInclusionPolicy,
-    ) -> tuple[tuple[str | None, ...], ...]: ...
+    ) -> tuple[tuple[str | None, ...], ...]:
+        """Read relationship keys subject to the mapping's row-inclusion policy."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +313,12 @@ class MatchingOrderService:
         derived_links: Iterable[DerivedDatasetLink] = (),
         tie_break_order: Iterable[str] | None = None,
     ) -> MatchingOrderRecommendation:
+        """Derive a deterministic local table order from saved mapping evidence.
+
+        Called by matching-order pages and ``prepare_live_check``. It never
+        opens Odoo: the optional live refinement starts only through
+        ``start_live_check`` after its protected read plan is assembled.
+        """
         dataset_ids = tuple(item.dataset_id for item in selection.datasets)
         known = set(dataset_ids)
         related_link_tuple = tuple(related_links)
@@ -711,6 +743,7 @@ class MatchingOrderService:
         *,
         actor: Actor,
     ) -> MatchingOrderCheck | None:
+        """Return the latest completed live check after workspace authorization."""
         preferences, authorization = self._preference_dependencies()
         authorization.require(actor, Capability.MAPPING_EDIT, workspace_id=workspace_id)
         return preferences.get_current_check(workspace_id)
@@ -721,6 +754,7 @@ class MatchingOrderService:
         *,
         actor: Actor,
     ) -> MatchingOrderCheckAttempt | None:
+        """Return the active live-check attempt for polling and duplicate control."""
         preferences, authorization = self._preference_dependencies()
         authorization.require(actor, Capability.MAPPING_EDIT, workspace_id=workspace_id)
         attempt = preferences.get_active_check_attempt(workspace_id)
@@ -757,6 +791,7 @@ class MatchingOrderService:
         *,
         actor: Actor,
     ) -> MatchingOrderCheckAttempt:
+        """Return one live-check attempt after bounded workspace authorization."""
         preferences, authorization = self._preference_dependencies()
         authorization.require(actor, Capability.MAPPING_EDIT, workspace_id=workspace_id)
         attempt = preferences.get_check_attempt(workspace_id, check_id)

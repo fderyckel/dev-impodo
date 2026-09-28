@@ -115,11 +115,13 @@ class _ImpactBatchSink:
         self.rows: list[TransformationImpactRow] = []
 
     def add(self, row: TransformationImpactRow) -> None:
+        """Buffer one impact and flush at the bounded source-batch threshold."""
         self.rows.append(row)
         if len(self.rows) >= BOUNDED_SOURCE_BATCH_SIZE:
             self.flush()
 
     def flush(self) -> None:
+        """Append the buffered impacts to the session before memory grows further."""
         if not self.rows:
             return
         self.repository.append_impacts(

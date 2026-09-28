@@ -21,19 +21,32 @@ class MigrationWorkspaceRepository(Protocol):
         request_hash: str,
         actor: Actor,
         fault: FaultInjector | None = None,
-    ) -> MigrationWorkspace: ...
+    ) -> MigrationWorkspace:
+        """Persist the root requested by ``MigrationWorkspaceService.create``.
 
-    def get_migration_workspace(self, workspace_id: str) -> MigrationWorkspace: ...
+        Implementations own atomic idempotency, optimistic parent revision,
+        and lifecycle-event persistence; this port carries no authorization
+        policy and must not invent workspace lineage.
+        """
+        ...
+
+    def get_migration_workspace(self, workspace_id: str) -> MigrationWorkspace:
+        """Read one root for lifecycle commands after service authorization."""
+        ...
 
     def list_migration_workspaces(
         self,
         migration_run_id: str,
-    ) -> tuple[MigrationWorkspace, ...]: ...
+    ) -> tuple[MigrationWorkspace, ...]:
+        """List roots for a run; retained for run-level application callers."""
+        ...
 
     def list_project_migration_workspaces(
         self,
         project_id: str,
-    ) -> tuple[MigrationWorkspace, ...]: ...
+    ) -> tuple[MigrationWorkspace, ...]:
+        """List roots for ``MigrationWorkspaceService.list_for_project``."""
+        ...
 
     def save_migration_workspace(
         self,
@@ -42,4 +55,6 @@ class MigrationWorkspaceRepository(Protocol):
         expected_revision: int,
         event_type: str,
         actor: Actor,
-    ) -> MigrationWorkspace: ...
+    ) -> MigrationWorkspace:
+        """Save a lifecycle transition requested by the workspace service."""
+        ...

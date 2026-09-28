@@ -87,6 +87,11 @@ class PreparationJobRegistry:
             return job, True
 
     def get(self, workspace_id: str, job_id: str) -> PreparationJob:
+        """Return a job only when it belongs to the requested workspace.
+
+        Called by progress and cancellation routes; it exposes session control
+        state, never the durable staging or review result.
+        """
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None or job.workspace_id != workspace_id:
@@ -94,10 +99,12 @@ class PreparationJobRegistry:
             return job
 
     def get_by_id(self, job_id: str) -> PreparationJob:
+        """Return a worker-owned job without a workspace lookup."""
         with self._lock:
             return self._get_by_id_locked(job_id)
 
     def active(self, workspace_id: str) -> PreparationJob | None:
+        """Return the active preparation job for navigation and duplicate control."""
         with self._lock:
             return self._active_locked(workspace_id)
 
@@ -125,6 +132,7 @@ class PreparationJobRegistry:
             return latest
 
     def delete_workspace_history(self, workspace_id: str) -> None:
+        """Forget terminal session history after refusing to disrupt active work."""
         with self._lock:
             if self._active_locked(workspace_id) is not None:
                 raise PreparationJobStateError(
@@ -137,6 +145,7 @@ class PreparationJobRegistry:
             }
 
     def mark_running(self, job_id: str) -> PreparationJob:
+        """Advance a queued job when the worker begins governed preparation."""
         with self._lock:
             job = self._get_by_id_locked(job_id)
             if job.status is PreparationJobStatus.RUNNING:
@@ -167,6 +176,11 @@ class PreparationJobRegistry:
         total_rows: int,
         message: str = "",
     ) -> PreparationJob:
+        """Publish monotonic coarse progress from the running worker.
+
+        Called by preparation-stage callbacks. It never marks data durable;
+        terminal methods are called only after the service outcome is known.
+        """
         with self._lock:
             job = self._get_by_id_locked(job_id)
             if job.terminal:
@@ -196,6 +210,7 @@ class PreparationJobRegistry:
             )
 
     def request_cancel(self, workspace_id: str, job_id: str) -> PreparationJob:
+        """Record cooperative cancellation for the active worker's next checkpoint."""
         with self._lock:
             job = self.get(workspace_id, job_id)
             if job.terminal:
@@ -212,6 +227,7 @@ class PreparationJobRegistry:
             )
 
     def mark_succeeded(self, job_id: str, result_run_id: str) -> PreparationJob:
+        """Finish the job after a publishable preparation result is available."""
         return self._finish(
             job_id,
             status=PreparationJobStatus.SUCCEEDED,
@@ -220,6 +236,7 @@ class PreparationJobRegistry:
         )
 
     def mark_review_required(self, job_id: str, *, result_run_id: str = "") -> PreparationJob:
+        """Finish the job with a durable result that requires manager review."""
         return self._finish(
             job_id,
             status=PreparationJobStatus.REVIEW_REQUIRED,
@@ -228,6 +245,7 @@ class PreparationJobRegistry:
         )
 
     def mark_cancelled(self, job_id: str) -> PreparationJob:
+        """Finish a cooperatively stopped job without claiming publication."""
         return self._finish(
             job_id,
             status=PreparationJobStatus.CANCELLED,
@@ -241,6 +259,7 @@ class PreparationJobRegistry:
         failure_code: str,
         failure_message: str,
     ) -> PreparationJob:
+        """Finish a failed job with a bounded diagnostic safe for browser display."""
         return self._finish(
             job_id,
             status=PreparationJobStatus.FAILED,

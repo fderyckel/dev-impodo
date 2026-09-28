@@ -119,7 +119,9 @@ class TransformationImpactRepository(Protocol):
         rule_fingerprint: str,
         *,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Persist acknowledgement of one saved rule after impact review."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

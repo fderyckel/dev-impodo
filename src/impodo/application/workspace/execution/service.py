@@ -176,14 +176,20 @@ def _targeted_recovery_row_ids(
 
 
 class ExecutionWorkspaceRepository(Protocol):
-    def get(self, workspace_id: str) -> WorkspaceState: ...
+    """Read the target configuration needed to validate an execution snapshot."""
+
+    def get(self, workspace_id: str) -> WorkspaceState:
+        """Return state for preview, execute, resume, and completion commands."""
+        ...
 
 
 class ExecutionJournalRepository(Protocol):
     def close_interrupted_run_for_recomparison(
         self, workspace_id: str, expected_run: ExecutionRun,
         expected_preflight_run_id: str, *, actor: Actor,
-    ) -> ExecutionRun: ...
+    ) -> ExecutionRun:
+        """Close an interrupted run after ``ExecutionService`` verifies recheck evidence."""
+        ...
 
     def start_run(
         self,
@@ -192,21 +198,27 @@ class ExecutionJournalRepository(Protocol):
         *,
         actor: Actor,
         transfer_preflight_hash: str = "",
-    ) -> None: ...
+    ) -> None:
+        """Durably start the run that ``ExecutionService`` has authorized."""
+        ...
 
     def record_outcomes(
         self,
         workspace_id: str,
         run_id: str,
         rows: Sequence[ExecutionRowAttempt],
-    ) -> None: ...
+    ) -> None:
+        """Persist terminal row outcomes reported by the Odoo write executor."""
+        ...
 
     def record_batch_started(
         self,
         workspace_id: str,
         run_id: str,
         rows: Sequence[ExecutionRowAttempt],
-    ) -> None: ...
+    ) -> None:
+        """Persist the uncertain batch boundary before a remote Odoo write."""
+        ...
 
     def record_recovery(
         self,
@@ -215,7 +227,9 @@ class ExecutionJournalRepository(Protocol):
         rows: Sequence[ExecutionRowAttempt],
         *,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Persist read-back recovery outcomes before an interrupted run resumes."""
+        ...
 
     def finish_run(
         self,
@@ -224,15 +238,21 @@ class ExecutionJournalRepository(Protocol):
         status: ExecutionRunStatus,
         *,
         actor: Actor,
-    ) -> ExecutionRun: ...
+    ) -> ExecutionRun:
+        """Close the journal after the execution service reaches a final outcome."""
+        ...
 
     def get_current_run(
         self,
         workspace_id: str,
         snapshot_hash: str | None = None,
-    ) -> ExecutionRun | None: ...
+    ) -> ExecutionRun | None:
+        """Return the current run, optionally only when its snapshot still matches."""
+        ...
 
-    def get_run(self, workspace_id: str, run_id: str) -> ExecutionRun | None: ...
+    def get_run(self, workspace_id: str, run_id: str) -> ExecutionRun | None:
+        """Return one run for execution, recovery, and reconciliation services."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,6 +327,12 @@ class ExecutionPreview:
 
     @property
     def can_load(self) -> bool:
+        """Say whether the reviewed snapshot is eligible to begin a load.
+
+        Used by web confirmation routes and ``ExecutionService.execute`` as a
+        pre-check. The service repeats full identity and snapshot validation
+        before starting the durable journal.
+        """
         return (
             self.snapshot.write_count > 0
             and int(self.snapshot.counts.get("BLOCKED", 0)) == 0
@@ -317,6 +343,12 @@ class ExecutionPreview:
 
     @property
     def can_complete_without_load(self) -> bool:
+        """Say whether a no-write snapshot may be recorded as complete.
+
+        Used by the completion route and ``complete_no_changes``. It excludes
+        blocked, ambiguous, or stale-target evidence even though no Odoo write
+        is planned.
+        """
         return (
             self.snapshot.write_count == 0
             and int(self.snapshot.counts.get("BLOCKED", 0)) == 0
@@ -342,10 +374,12 @@ class ExecutionNavigationPreview:
 
     @property
     def write_count(self) -> int:
+        """Expose the scalar write total supplied by navigation state."""
         return self.state.summary.write_count
 
     @property
     def current_run_id(self) -> str:
+        """Expose the current durable run identifier for navigation controls."""
         return self.state.execution_run_id
 
     @property
@@ -356,6 +390,11 @@ class ExecutionNavigationPreview:
 
     @property
     def can_load(self) -> bool:
+        """Return the navigation-level eligibility of the Load action.
+
+        ``WorkspaceNavigationQueryService`` consumes this compact result. The
+        full ``ExecutionPreview.can_load`` remains the command-time authority.
+        """
         return bool(
             self.write_count
             and not self.current_run_id
@@ -389,6 +428,13 @@ class ExecutionService:
         self.current_read_credential_binding = current_read_credential_binding
 
     def current_preview(self, workspace_id: str) -> ExecutionPreview | None:
+        """Build full load-review evidence for one workspace.
+
+        Called by load-review routes, transfer execution, resume, and
+        no-change completion commands.  It combines the current immutable
+        preflight snapshot with current target configuration and journal state,
+        but does not authorize or change either one.
+        """
         snapshot = self.preflight.current_execution_snapshot(workspace_id)
         if snapshot is None:
             return None
@@ -591,6 +637,13 @@ class ExecutionService:
         write_credential_binding_hash: str = "",
         progress: Callable[[ExecutionRun], None] | None = None,
     ) -> ExecutionRun:
+        """Start and carry out a reviewed conventional Odoo load.
+
+        Called by the confirmed-load worker after its browser job is queued.
+        It revalidates the immutable preflight snapshot, target identity,
+        credentials, and authority before journaling any remote write; the
+        lower-level ``_continue_run`` owns batch transport and receipts.
+        """
         self.authorization.require(
             actor,
             Capability.EXPORT_PLAN_EXECUTE,
@@ -720,6 +773,12 @@ class ExecutionService:
         protected_values: Mapping[str, Any] | None = None,
         progress: Callable[[ExecutionRun], None] | None = None,
     ) -> ExecutionRun:
+        """Start a governed Odoo-to-Odoo transfer from a qualified source.
+
+        Called by the transfer-load worker. It shares the journal and write
+        safeguards of ``execute`` while additionally validates the frozen
+        source-finalization and transfer-preflight evidence.
+        """
         """Enter the shared writer from a current, confirmed Stage 8B snapshot."""
 
         self.authorization.require(
@@ -860,6 +919,12 @@ class ExecutionService:
         write_credential_binding_hash: str = "",
         progress: Callable[[ExecutionRun], None] | None = None,
     ) -> ExecutionRun:
+        """Recover an interrupted conventional load before attempting retries.
+
+        Called by the confirmed-load worker for an active interrupted journal.
+        It delegates read-back classification to reconciliation, persists that
+        recovery, and only then calls ``_continue_run`` for retry-safe rows.
+        """
         """Resume an interrupted journal only from exact read-back evidence."""
 
         self.authorization.require(
@@ -977,6 +1042,11 @@ class ExecutionService:
         protected_values: Mapping[str, Any] | None = None,
         progress: Callable[[ExecutionRun], None] | None = None,
     ) -> ExecutionRun:
+        """Recover an interrupted Odoo-to-Odoo transfer after source rechecks.
+
+        Called by the transfer-load worker. It mirrors ``resume`` but preserves
+        transfer-specific source evidence and external-ID create semantics.
+        """
         """Resume one interrupted transfer from exact same-key read-back."""
 
         self.authorization.require(
@@ -1873,6 +1943,12 @@ class ExecutionService:
         expected_snapshot_hash: str,
         actor: Actor,
     ) -> ExecutionRun:
+        """Record completion for a reviewed snapshot with no Odoo writes.
+
+        Called by the no-changes confirmation route. It still validates target,
+        snapshot, and authorization so a stale or blocked comparison cannot be
+        marked complete merely because its write count is zero.
+        """
         """Record a reviewed zero-write comparison without contacting Odoo."""
 
         self.authorization.require(

@@ -43,85 +43,101 @@
         </div>
       </div>
 
-      <div class="overview-stage-list">
-        {% for group in related_data_scope.groups %}
-          <section class="overview-stage-card{% if group.attention %} attention{% endif %}">
-            <div>
-              <h3>{{ group.title }}</h3>
-              <p>{{ group.description }}</p>
-              <ul>
-                {% for item in group.items %}
-                  <li>
-                    <strong>{{ item.field_label }}</strong> for {{ item.source_label }}
-                    &mdash; {{ item.relation_label }}
-                    {% if item.required %}<span class="status warning">Required by Odoo</span>{% endif %}
-                  </li>
-                {% endfor %}
-              </ul>
-              <details class="technical-details">
-                <summary>Support details</summary>
-                <ul>
-                  {% for item in group.items %}
-                    <li><code>{{ item.technical_name }}</code></li>
-                  {% endfor %}
-                </ul>
-              </details>
-            </div>
-          </section>
-        {% endfor %}
-      </div>
-
-      <div class="actions">
-        {% if related_data_scope.recommended_review_url %}
-          <a class="button primary" href="{{ related_data_scope.recommended_review_url }}">Review recommended supporting data</a>
-        {% endif %}
-        <a class="button secondary" href="{{ related_data_scope.all_choices_url }}">Change included business data</a>
-      </div>
-      <p class="muted">
-        Nothing is added silently. Save the reviewed choices before freezing;
-        links to data left outside the scope will not be transferred.
-      </p>
-    </section>
-  {% endif %}
-
-  {% if has_linked_only %}
-    <section class="notice warning" id="linked-record-scope">
-      <strong>Relationship fields used to find linked records</strong>
-      <p>Impodo follows the eligible links below between selected record types, up to four relationship steps. It stops if a linked record is missing or inaccessible.</p>
-      <ul>
-        {% for model, field in linked_relationships %}
-          <li>{{ model.label }}.{{ field.label }} ({{ model.name }}.{{ field.name }}) refers to {{ field.relation }}</li>
-        {% else %}
-          <li>No eligible links connect the selected record types.</li>
-        {% endfor %}
-      </ul>
-    </section>
-  {% endif %}
-
-  {% if capture_ready_to_assess and not assessment %}
-    <section class="next-action-card ready" id="capture-next-action">
-      <div>
-        <p class="eyebrow">Capture plans complete</p>
-        <h2>Check the records, then freeze {% if current_selections|length == 1 %}the dataset{% else %}the datasets together{% endif %}</h2>
-        <p>
-          All {{ current_selections|length }} record type plans are saved. Impodo will first count
-          the matching records without downloading their business values.
-        </p>
-      </div>
-      <div class="next-action-buttons">
-        <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-assessment">
+      {% if related_data_scope.selectable_model_names %}
+        <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-related-data">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="selection_id" value="{{ current_selections[0].selection_id }}">
-          <input type="hidden" name="selection_hash" value="{{ selection_set_hash }}">
-          {% if has_linked_only %}
-            <label class="checkbox">
-              <input type="checkbox" name="confirm_linked_relationships" value="1" required>
-              I reviewed the selected relationship fields above
-            </label>
-          {% endif %}
-          <button class="button primary" type="submit">Check matching records and continue</button>
+          <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+      {% endif %}
+          <div class="overview-stage-list">
+            {% for group in related_data_scope.groups %}
+              <section class="overview-stage-card{% if group.attention %} attention{% endif %}">
+                <div>
+                  <h3>{{ group.title }}</h3>
+                  <p>{{ group.description }}</p>
+                  {% for model in group.models %}
+                    <div class="related-data-model">
+                      {% if model.can_select %}
+                        <label class="model-choice">
+                          <input
+                            type="checkbox"
+                            name="related_models"
+                            value="{{ model.name }}"
+                            {% if model.checked %}checked{% endif %}
+                          >
+                          <span>
+                            <strong>{{ model.label }}</strong>
+                            {% if model.selected %}
+                              <small>Included in the current source choices</small>
+                            {% elif model.recommended %}
+                              <small>Recommended by Impodo · select and save to include</small>
+                            {% else %}
+                              <small>Optional related business data</small>
+                            {% endif %}
+                          </span>
+                        </label>
+                      {% else %}
+                        <div class="related-data-status">
+                          <strong>{{ model.label }}</strong>
+                          {% if model.selected %}
+                            <span class="status complete">Already selected</span>
+                          {% elif not model.available %}
+                            <span class="status attention">Not available</span>
+                          {% elif group.handling.value == "REUSE_DESTINATION" %}
+                            <span class="status current">Match in destination</span>
+                          {% elif group.handling.value == "ODOO_MANAGED" %}
+                            <span class="status current">Handled by Odoo</span>
+                          {% elif group.handling.value == "EXCLUDE_HISTORY" %}
+                            <span class="status current">Not included</span>
+                          {% elif group.handling.value == "SEPARATE_PROCESS" %}
+                            <span class="status attention">Separate scope</span>
+                          {% elif group.handling.value == "INCLUDE_SUPPORTING" or group.handling.value == "OPTIONAL_BUSINESS_DATA" %}
+                            <span class="status current">Choice shown above</span>
+                          {% else %}
+                            <span class="status attention">Decision needed</span>
+                          {% endif %}
+                        </div>
+                      {% endif %}
+                      <ul>
+                        {% for item in model.items %}
+                          <li>
+                            <strong>{{ item.field_label }}</strong> for {{ item.source_label }}
+                            {% if item.required %}<span class="status warning">This link is required</span>{% endif %}
+                          </li>
+                        {% endfor %}
+                      </ul>
+                      <details class="technical-details">
+                        <summary>Support details</summary>
+                        <ul>
+                          {% for item in model.items %}
+                            <li><code>{{ item.technical_name }}</code></li>
+                          {% endfor %}
+                        </ul>
+                      </details>
+                    </div>
+                  {% endfor %}
+                </div>
+              </section>
+            {% endfor %}
+          </div>
+
+          <div class="actions">
+            {% if related_data_scope.selectable_model_names %}
+              <button class="button primary" type="submit">Save related-data choices</button>
+            {% endif %}
+            <a class="button secondary" href="{{ related_data_scope.all_choices_url }}">Review all available Odoo data</a>
+          </div>
+          <p class="muted">
+            A checked box means that record type is included in the current source
+            choices. Saving refreshes its eligible fields from Odoo; it does not
+            download business records.
+            {% if current_selections %}
+              Changing a check clears the current capture plans so you can review
+              every selected record type against the refreshed fields.
+            {% endif %}
+          </p>
+      {% if related_data_scope.selectable_model_names %}
         </form>
-      </div>
+      {% endif %}
     </section>
   {% endif %}
 
@@ -210,10 +226,16 @@
           </div>
 
           <label class="checkbox">
-            <input type="checkbox" name="linked_only" value="1" {% if current and current.capture_role.value == 'LINKED_ONLY' %}checked{% endif %}>
+            <input type="checkbox" name="linked_only" value="1" {% if (current and current.capture_role.value == 'LINKED_ONLY') or recommend_linked_only %}checked{% endif %}>
             Capture only records linked from the selected source records
           </label>
-          <p class="muted">Use this for a supporting record type. Impodo includes archived linked records. Keep at least one root record type.</p>
+          {% if recommend_linked_only %}
+            <p class="notice success"><strong>Recommended for this supporting data.</strong> Impodo preselected linked records so relationships stay complete without downloading every record of this type. Archived records are included when a selected record links to them.</p>
+          {% elif supporting_plan_is_root %}
+            <p class="notice warning"><strong>This recommended supporting data is currently a root dataset.</strong> Select linked records only when it should follow the main business records. Leave it as a root only when you deliberately want every matching record of this type.</p>
+          {% else %}
+            <p class="muted">Use this for a supporting record type. Impodo includes archived linked records. Keep at least one root record type.</p>
+          {% endif %}
 
           <div class="form-grid compact-grid">
             <label>
@@ -295,13 +317,26 @@
       <div class="capture-history-list">
         {% for plan in current_selections %}
           <details class="technical-evidence" {% if current and plan.model == current.model %}open{% endif %}>
-            <summary>{{ plan.dataset_name }} · {{ plan.model }} · {{ plan.field_names|length }} fields</summary>
-            <p>This dataset will read all matching records in batches of up to {{ plan.page_size }}. Impodo stops before downloading its values if more than {{ "{:,}".format(capture_policy.max_rows) }} records match.</p>
+            <summary>{{ plan.dataset_name }} · {{ plan.model }} · {% if plan.capture_role.value == 'LINKED_ONLY' %}linked records only{% else %}root records{% endif %} · {{ plan.field_names|length }} fields</summary>
+            <p>{% if plan.capture_role.value == 'LINKED_ONLY' %}This supporting dataset will include only records reached through the reviewed links, including archived linked records{% else %}This root dataset will read all matching records{% if plan.filter_policy.value == 'ACTIVE_RECORDS' %}, excluding archived records{% endif %}{% endif %}, in batches of up to {{ plan.page_size }}. Impodo stops before downloading its values if more than {{ "{:,}".format(capture_policy.max_rows) }} records match.</p>
             <p>Selection version {{ plan.version }} · <code>{{ plan.content_hash }}</code></p>
             <p>Source-binding hash: <code>{{ plan.source_binding.source_evidence_hash }}</code></p>
           </details>
         {% endfor %}
       </div>
+      {% if has_linked_only %}
+        <div class="notice warning" id="linked-record-scope">
+          <strong>Relationship fields used to find linked records</strong>
+          <p>Impodo follows the eligible links below between selected record types, up to four relationship steps. It stops if a linked record is missing or inaccessible.</p>
+          <ul>
+            {% for model, field in linked_relationships %}
+              <li>{{ model.label }}.{{ field.label }} ({{ model.name }}.{{ field.name }}) refers to {{ field.relation }}</li>
+            {% else %}
+              <li>No eligible links connect the selected record types.</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
       {% if not plans_complete %}
         <div class="notice warning" role="alert">
           <strong>Save the remaining record type plans.</strong>
@@ -324,12 +359,32 @@
           <button class="button primary" type="submit">Refresh Odoo details and continue</button>
         </form>
       {% elif capture_ready_to_assess %}
-        <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-assessment">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="selection_id" value="{{ current_selections[0].selection_id }}">
-          <input type="hidden" name="selection_hash" value="{{ selection_set_hash }}">
-          <button class="button primary" type="submit">Check matching records</button>
-        </form>
+        {% if not assessment %}
+          <div class="next-action-card ready" id="capture-next-action">
+            <div>
+              <p class="eyebrow">Capture plans complete</p>
+              <h2>Check the records, then freeze {% if current_selections|length == 1 %}the dataset{% else %}the datasets together{% endif %}</h2>
+              <p>
+                All {{ current_selections|length }} record type plans are saved. Impodo will first count
+                the matching records without downloading their business values.
+              </p>
+            </div>
+            <div class="next-action-buttons">
+              <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-assessment">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="selection_id" value="{{ current_selections[0].selection_id }}">
+                <input type="hidden" name="selection_hash" value="{{ selection_set_hash }}">
+                {% if has_linked_only %}
+                  <label class="checkbox">
+                    <input type="checkbox" name="confirm_linked_relationships" value="1" required>
+                    I reviewed the selected relationship fields above
+                  </label>
+                {% endif %}
+                <button class="button primary" type="submit">Check matching records and continue</button>
+              </form>
+            </div>
+          </div>
+        {% endif %}
       {% else %}
         {% if schema and schema.pending_refresh %}
           <p><a class="button primary" href="/workspaces/{{ workspace_id }}/schema#odoo-schema-changes">Review Odoo changes</a></p>

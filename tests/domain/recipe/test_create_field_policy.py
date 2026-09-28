@@ -194,6 +194,53 @@ class CreateFieldPolicyTests(unittest.TestCase):
             CreateFieldCoverage.DEFAULT_UNVERIFIED,
         )
 
+    def test_product_variants_are_generated_by_odoo_when_name_is_supplied(self) -> None:
+        variants = replace(
+            self.field,
+            name="product_variant_ids",
+            type="one2many",
+            relation="product.product",
+            selection=(),
+        )
+
+        self.assertIs(
+            evaluate_create_field(
+                variants,
+                provided=False,
+                handling=None,
+                target_model="product.template",
+                odoo_version="19.0+e",
+            ).coverage,
+            CreateFieldCoverage.ODOO_MANAGED_CONFIRMED,
+        )
+        self.assertEqual(
+            required_create_hook_inputs("product.template", {"default_code"}),
+            {"name"},
+        )
+        self.assertEqual(
+            required_create_hook_inputs(
+                "product.template", {"name", "product_variant_ids"}
+            ),
+            set(),
+        )
+
+        for field, model, version in (
+            (variants, "product.product", "19.0+e"),
+            (replace(variants, relation="product.template"), "product.template", "19.0+e"),
+            (variants, "product.template", "20.0+e"),
+        ):
+            with self.subTest(model=model, version=version, relation=field.relation):
+                self.assertIs(
+                    evaluate_create_field(
+                        field,
+                        provided=False,
+                        handling=None,
+                        target_model=model,
+                        odoo_version=version,
+                    ).coverage,
+                    CreateFieldCoverage.REQUIRED_VALUE_MISSING,
+                )
+
     def test_context_sensitive_defaults_retain_review(self) -> None:
         cases = (
             (replace(self.field, create_default_present=True), "workflow"),

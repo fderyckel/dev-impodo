@@ -80,6 +80,7 @@ class OdooCaptureJob:
 
     @property
     def active(self) -> bool:
+        """Return whether job polling and cancellation controls remain valid."""
         return self.status in {
             OdooCaptureJobStatus.QUEUED,
             OdooCaptureJobStatus.RUNNING,
@@ -87,6 +88,7 @@ class OdooCaptureJob:
 
     @property
     def terminal(self) -> bool:
+        """Return whether the capture manager has reached a final outcome."""
         return not self.active
 
 

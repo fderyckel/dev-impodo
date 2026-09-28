@@ -28,6 +28,22 @@ The files use standard BPMN 2.0 XML and BPMN Diagram Interchange coordinates.
 They can be opened in BPMN-compatible tools such as the bpmn.io modeler or
 Camunda Modeler.
 
+## Typst print-layout trial
+
+The [Typst Project setup diagram](typst/00-project-setup.typ) is the first
+one-page print layout for a non-technical reader. It presents the same current
+journey in plain language, while the editable [BPMN 2.0 model](current/00-project-setup.bpmn)
+remains the semantic workflow model.
+
+The project uses a portable Typst CLI under its ignored `.venv` directory.
+When the virtual environment is active, compile it to a local printable PDF
+with:
+
+```powershell
+typst compile docs/bpmn/typst/00-project-setup.typ docs/bpmn/typst/00-project-setup.pdf
+```
+
+
 ## Current capability boundary
 
 The overview deliberately shows two source-mode paths:
