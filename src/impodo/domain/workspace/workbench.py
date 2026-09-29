@@ -248,6 +248,12 @@ class WorkspaceState:
             )
             and self.destination_match_plan is not None
             and self.destination_match_plan.ready
+            and self.destination_match_plan.create_field_defaults_complete
+            and all(
+                not item.write_blocking_reasons
+                for item in self.destination_match_plan.model_matches
+                if item.destination_create_key_count
+            )
         )
 
     def transfer_order_current(

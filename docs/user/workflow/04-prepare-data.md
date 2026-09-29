@@ -31,9 +31,9 @@ source, schema, key, or transformation decision is still changing.
    against the target. This starts the same read-only comparison used by
    **Final review**; moving between the two stages does not start a second
    comparison.
-9. If you want to reuse the revised rules, select **Save reusable rules
-   (optional)** and publish the first Recipe or a new Recipe version from the
-   data project overview.
+9. If you want to reuse the revised rules, select **Review and save Recipe**.
+   This opens the data project; it does not save by itself. Review readiness,
+   then select **Save as a new Recipe** or **Save a new Recipe version**.
 
 ![Current prepared-data review inside a fictional data project workspace.](../../images/user/15-prepared-data-review.png)
 

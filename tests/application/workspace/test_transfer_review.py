@@ -35,6 +35,8 @@ class TransferReviewTests(unittest.TestCase):
             compatible_fields=("default_code", "name", "uom_id"),
             key_field="default_code",
             key_field_label="Internal Reference",
+            excluded_missing_fields=("version",),
+            excluded_source_row_numbers=(3,),
         )
         uom = _model("uom.uom", "Unit of Measure", existing=1, create=1)
         relation = replace(
@@ -65,6 +67,8 @@ class TransferReviewTests(unittest.TestCase):
             ("default_code", "name"),
         )
         self.assertEqual(product_scope.relationship_write_fields, ("uom_id",))
+        self.assertEqual(product_scope.excluded_source_fields, ("version",))
+        self.assertEqual(product_scope.excluded_source_record_count, 1)
         self.assertEqual(package.relationships[0].operation, "set")
         self.assertEqual(package.relationships[0].inverse_field, "product_ids")
         self.assertEqual(package.relationships[0].phase, "create_or_update")
@@ -186,6 +190,42 @@ class TransferReviewTests(unittest.TestCase):
             previous_composite,
         )
 
+        previous_create_fields = replace(
+            current,
+            export_plan=replace(
+                current.export_plan,
+                actions_hash=transfer_review_actions_hash(
+                    current.datasets,
+                    current.relationships,
+                    current.totals,
+                    contract_version=4,
+                ),
+            ),
+            contract_version=4,
+        )
+        self.assertEqual(
+            TransferReviewPackage.from_json(previous_create_fields.to_json()),
+            previous_create_fields,
+        )
+
+        previous_field_exclusions = replace(
+            current,
+            export_plan=replace(
+                current.export_plan,
+                actions_hash=transfer_review_actions_hash(
+                    current.datasets,
+                    current.relationships,
+                    current.totals,
+                    contract_version=5,
+                ),
+            ),
+            contract_version=5,
+        )
+        self.assertEqual(
+            TransferReviewPackage.from_json(previous_field_exclusions.to_json()),
+            previous_field_exclusions,
+        )
+
     def test_read_only_destination_field_allows_reuse_but_blocks_updates(self) -> None:
         contact = replace(
             _model("res.partner", "Contact", existing=1),
@@ -240,7 +280,7 @@ class TransferReviewTests(unittest.TestCase):
         incoming = replace(existing, destination_create_key_count=1,
                            source_row_count=2, source_distinct_key_count=2)
         incoming_match = _match_plan((incoming,), ())
-        with self.assertRaisesRegex(WorkspaceError, "unresolved required create fields"):
+        with self.assertRaisesRegex(WorkspaceError, "destination matching"):
             _package(incoming_match)
 
     def test_stateful_model_can_be_reused_but_cannot_use_plain_orm_writes(self) -> None:

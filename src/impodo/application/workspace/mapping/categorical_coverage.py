@@ -124,6 +124,17 @@ class CategoricalCoverageCollection:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceIdentityIssueRow:
+    """One bounded, ephemeral source row that needs identity correction."""
+
+    row_number: int
+    issue_kind: str
+    display_field: str
+    display_value: str
+    matching_value: str
+
+
+@dataclass(frozen=True, slots=True)
 class _CoverageField:
     path: str
     dataset: DatasetMapping
@@ -184,6 +195,59 @@ class CategoricalCoverageService:
         return tuple(
             {"value": value, "count": count}
             for value, count in sorted(
+                counts.items(),
+                key=lambda item: (item[0].casefold(), item[0]),
+            )
+        )
+
+    def source_identity_counts(
+        self,
+        workspace_id: str,
+        dataset_id: str,
+        source_column_key: str,
+        *,
+        maximum_distinct_values: int,
+    ) -> tuple[tuple[str, int], ...]:
+        """Return bounded exact-key counts without the quick-match UI ceiling.
+
+        Destination identity checks compare frozen business keys automatically;
+        they do not render every value for manual review.  Keeping this method
+        separate prevents that read from inheriting the smaller limit used by
+        the interactive value-matching control.
+        """
+
+        if maximum_distinct_values < 1:
+            raise ValueError("maximum_distinct_values must be positive")
+        selection = self.sources.get_source_selection(workspace_id)
+        if selection is None:
+            raise WorkspaceError("Frozen source evidence is incomplete")
+        dataset = next(
+            (item for item in selection.datasets if item.dataset_id == dataset_id),
+            None,
+        )
+        if dataset is None:
+            raise WorkspaceError(
+                "Destination matching is available for original frozen datasets"
+            )
+        if source_column_key not in {
+            item.stable_key for item in dataset.columns
+        }:
+            raise WorkspaceError("Choose one current source matching column")
+        frame = self._scan_dataset(
+            workspace_id,
+            selection,
+            dataset_id,
+            (source_column_key,),
+        )
+        counts = _single_column_counts(frame, source_column_key)
+        if len(counts) > maximum_distinct_values:
+            raise WorkspaceError(
+                f"{dataset.name} has {len(counts):,} distinct matching values; "
+                "destination matching supports up to "
+                f"{maximum_distinct_values:,}"
+            )
+        return tuple(
+            sorted(
                 counts.items(),
                 key=lambda item: (item[0].casefold(), item[0]),
             )
@@ -270,6 +334,130 @@ class CategoricalCoverageService:
                     for raw in row
                 )
             )
+        return tuple(result)
+
+    def source_identity_issue_rows(
+        self,
+        workspace_id: str,
+        dataset_id: str,
+        source_column_keys: Sequence[str],
+        *,
+        maximum_rows: int = 20,
+        excluded_row_numbers: Sequence[int] = (),
+    ) -> tuple[SourceIdentityIssueRow, ...]:
+        """Return bounded row labels for blank or repeated matching identities.
+
+        The projection is rendered only to an authorized data manager. Callers
+        must not persist its business values in the portable matching plan.
+        """
+
+        keys = tuple(source_column_keys)
+        excluded = set(excluded_row_numbers)
+        if (
+            not keys
+            or len(keys) != len(set(keys))
+            or maximum_rows < 1
+            or any(not isinstance(number, int) or number < 1 for number in excluded)
+        ):
+            raise WorkspaceError("Choose current source matching columns")
+        selection = self.sources.get_source_selection(workspace_id)
+        if selection is None:
+            raise WorkspaceError("Frozen source evidence is incomplete")
+        dataset = next(
+            (item for item in selection.datasets if item.dataset_id == dataset_id),
+            None,
+        )
+        available = (
+            {item.stable_key: item for item in dataset.columns}
+            if dataset is not None
+            else {}
+        )
+        if dataset is None or any(key not in available for key in keys):
+            raise WorkspaceError("Choose current source matching columns")
+        display_column = next(
+            (
+                column
+                for preferred in ("name", "display_name")
+                for column in dataset.columns
+                if column.source_name.casefold() == preferred
+            ),
+            next(
+                (
+                    column
+                    for column in dataset.columns
+                    if column.stable_key not in keys
+                ),
+                None,
+            ),
+        )
+        projected = tuple(
+            dict.fromkeys(
+                (
+                    *keys,
+                    *((display_column.stable_key,) if display_column is not None else ()),
+                )
+            )
+        )
+        frame = self._scan_dataset(
+            workspace_id,
+            selection,
+            dataset_id,
+            projected,
+        )
+        normalized: list[tuple[str | None, ...]] = []
+        for row in frame.select(keys).iter_rows():
+            normalized.append(
+                tuple(
+                    None
+                    if raw is None or raw is False or not str(raw).strip()
+                    else str(raw).strip()
+                    for raw in row
+                )
+            )
+        counts = Counter(
+            values
+            for index, values in enumerate(normalized, start=1)
+            if index not in excluded and all(value is not None for value in values)
+        )
+        display_values = (
+            frame.get_column(display_column.stable_key).to_list()
+            if display_column is not None
+            else [None] * frame.height
+        )
+        result: list[SourceIdentityIssueRow] = []
+        for index, (values, raw_display) in enumerate(
+            zip(normalized, display_values, strict=True),
+            start=1,
+        ):
+            if index in excluded:
+                continue
+            issue_kind = (
+                "blank"
+                if any(value is None for value in values)
+                else "duplicate" if counts[values] > 1 else ""
+            )
+            if not issue_kind:
+                continue
+            display_value = (
+                str(raw_display).strip()
+                if raw_display is not None and str(raw_display).strip()
+                else f"Source row {index}"
+            )
+            result.append(
+                SourceIdentityIssueRow(
+                    row_number=index,
+                    issue_kind=issue_kind,
+                    display_field=(
+                        display_column.source_name
+                        if display_column is not None
+                        else "Source record"
+                    ),
+                    display_value=display_value,
+                    matching_value=" + ".join(value or "Blank" for value in values),
+                )
+            )
+            if len(result) >= maximum_rows:
+                break
         return tuple(result)
 
     def source_identity_key_tuples(

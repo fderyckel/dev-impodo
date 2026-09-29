@@ -18,9 +18,9 @@ from uuid import UUID, uuid4
 from impodo.domain.serialization import canonical_json, content_hash
 
 
-DESTINATION_MATCH_CONTRACT_VERSION = 8
+DESTINATION_MATCH_CONTRACT_VERSION = 11
 _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset(
-    {1, 2, 3, 4, 5, 6, 7, 8}
+    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
 )
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
@@ -516,6 +516,9 @@ class DestinationModelMatch:
     key_fields: tuple[str, ...] = ()
     unresolved_create_fields: tuple[str, ...] = ()
     requires_workflow_handler: bool = False
+    excluded_missing_fields: tuple[str, ...] = ()
+    excluded_incompatible_fields: tuple[str, ...] = ()
+    excluded_source_row_numbers: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         text_values = (
@@ -569,18 +572,52 @@ class DestinationModelMatch:
             raise ValueError("Destination key classification binding is invalid")
         if not isinstance(self.requires_workflow_handler, bool):
             raise ValueError("Destination workflow requirement is invalid")
+        if (
+            self.excluded_source_row_numbers
+            != tuple(sorted(set(self.excluded_source_row_numbers)))
+            or any(number < 1 for number in self.excluded_source_row_numbers)
+            or (
+                self.excluded_source_row_numbers
+                and self.excluded_source_row_numbers[-1]
+                > self.source_row_count + len(self.excluded_source_row_numbers)
+            )
+        ):
+            raise ValueError("Destination excluded source rows are invalid")
         field_groups = (
             self.compatible_fields,
             self.missing_fields,
             self.incompatible_fields,
             self.unresolved_create_fields,
+            self.excluded_missing_fields,
+            self.excluded_incompatible_fields,
         )
         if any(group != tuple(sorted(set(group))) for group in field_groups):
             raise ValueError("Destination field results must be sorted and unique")
-        if len(set().union(*map(set, field_groups[:3]))) != sum(
-            len(group) for group in field_groups[:3]
+        write_field_groups = (
+            self.compatible_fields,
+            self.missing_fields,
+            self.incompatible_fields,
+            self.excluded_missing_fields,
+            self.excluded_incompatible_fields,
+        )
+        if len(set().union(*map(set, write_field_groups))) != sum(
+            len(group) for group in write_field_groups
         ):
             raise ValueError("Destination field results overlap")
+
+    @property
+    def excluded_fields(self) -> tuple[str, ...]:
+        """Source fields explicitly kept outside this transfer."""
+
+        return tuple(
+            sorted(self.excluded_missing_fields + self.excluded_incompatible_fields)
+        )
+
+    @property
+    def frozen_source_row_count(self) -> int:
+        """Total frozen rows before explicit identity exclusions."""
+
+        return self.source_row_count + len(self.excluded_source_row_numbers)
 
     @property
     def blocking_reasons(self) -> tuple[str, ...]:
@@ -937,6 +974,17 @@ class DestinationMatchPlan:
                             "unresolved_create_fields", "requires_workflow_handler"
                         }
                     )
+                    and (
+                        self.contract_version >= 10
+                        or name not in {
+                            "excluded_missing_fields",
+                            "excluded_incompatible_fields",
+                        }
+                    )
+                    and (
+                        self.contract_version >= 11
+                        or name != "excluded_source_row_numbers"
+                    )
                 }
                 for item in self.model_matches
             ],
@@ -1042,6 +1090,18 @@ class DestinationMatchPlan:
                         ),
                         requires_workflow_handler=bool(
                             item.get("requires_workflow_handler", False)
+                        ),
+                        excluded_missing_fields=tuple(
+                            item.get("excluded_missing_fields", ())
+                        ),
+                        excluded_incompatible_fields=tuple(
+                            item.get("excluded_incompatible_fields", ())
+                        ),
+                        excluded_source_row_numbers=tuple(
+                            int(number)
+                            for number in item.get(
+                                "excluded_source_row_numbers", ()
+                            )
                         ),
                     )
                     for item in payload["model_matches"]
@@ -1154,6 +1214,72 @@ class DestinationMatchPlan:
         if payload.get("content_hash") != result.content_hash:
             raise ValueError("Stored destination matching plan hash is invalid")
         return result
+
+
+def set_destination_field_exclusion(
+    plan: DestinationMatchPlan,
+    *,
+    model: str,
+    field_name: str,
+    excluded: bool,
+) -> DestinationMatchPlan:
+    """Explicitly keep one unresolved source field outside or inside writes."""
+
+    if plan.contract_version != DESTINATION_MATCH_CONTRACT_VERSION:
+        raise ValueError("Check destination matching again before changing field scope")
+    if (
+        _TECHNICAL_NAME.fullmatch(model) is None
+        or _TECHNICAL_NAME.fullmatch(field_name) is None
+    ):
+        raise ValueError("Choose a current destination field issue")
+    matches = {item.model: item for item in plan.model_matches}
+    current = matches.get(model)
+    if current is None:
+        raise ValueError("The destination record type is no longer current")
+    if field_name in current.key_fields:
+        raise ValueError("A matching field cannot be put aside")
+    if any(
+        relation.model == model and relation.field_name == field_name
+        for relation in plan.relationship_matches
+    ):
+        raise ValueError(
+            "A related-record field cannot be put aside after relationship review"
+        )
+
+    missing = set(current.missing_fields)
+    incompatible = set(current.incompatible_fields)
+    excluded_missing = set(current.excluded_missing_fields)
+    excluded_incompatible = set(current.excluded_incompatible_fields)
+    if excluded:
+        if field_name in missing:
+            missing.remove(field_name)
+            excluded_missing.add(field_name)
+        elif field_name in incompatible:
+            incompatible.remove(field_name)
+            excluded_incompatible.add(field_name)
+        elif field_name not in excluded_missing | excluded_incompatible:
+            raise ValueError("Choose a current missing or incompatible field")
+    else:
+        if field_name in excluded_missing:
+            excluded_missing.remove(field_name)
+            missing.add(field_name)
+        elif field_name in excluded_incompatible:
+            excluded_incompatible.remove(field_name)
+            incompatible.add(field_name)
+        else:
+            raise ValueError("Choose a field that is currently put aside")
+
+    matches[model] = replace(
+        current,
+        missing_fields=tuple(sorted(missing)),
+        incompatible_fields=tuple(sorted(incompatible)),
+        excluded_missing_fields=tuple(sorted(excluded_missing)),
+        excluded_incompatible_fields=tuple(sorted(excluded_incompatible)),
+    )
+    return replace(
+        plan,
+        model_matches=tuple(sorted(matches.values(), key=lambda item: item.model)),
+    )
 
 
 def confirm_destination_create_field_defaults(
@@ -1468,7 +1594,7 @@ def carry_destination_create_field_reviews(
     approved: DestinationMatchPlan,
     approved_evidence: DestinationCreateFieldEvidence | None = None,
 ) -> DestinationMatchPlan:
-    """Carry reviews only when fresh field contracts and exact values still match."""
+    """Carry field-scope and create-value reviews only while evidence still matches."""
 
     if (
         fresh.workspace_id != approved.workspace_id
@@ -1480,6 +1606,37 @@ def carry_destination_create_field_reviews(
         or fresh.destination_read_context_hash != approved.destination_read_context_hash
     ):
         return fresh
+    approved_models = {item.model: item for item in approved.model_matches}
+    carried_models: list[DestinationModelMatch] = []
+    for current in fresh.model_matches:
+        prior = approved_models.get(current.model)
+        if prior is None:
+            carried_models.append(current)
+            continue
+        missing = set(current.missing_fields)
+        incompatible = set(current.incompatible_fields)
+        excluded_missing = {
+            field_name
+            for field_name in prior.excluded_missing_fields
+            if field_name in missing
+        }
+        excluded_incompatible = {
+            field_name
+            for field_name in prior.excluded_incompatible_fields
+            if field_name in incompatible
+        }
+        missing.difference_update(excluded_missing)
+        incompatible.difference_update(excluded_incompatible)
+        carried_models.append(
+            replace(
+                current,
+                missing_fields=tuple(sorted(missing)),
+                incompatible_fields=tuple(sorted(incompatible)),
+                excluded_missing_fields=tuple(sorted(excluded_missing)),
+                excluded_incompatible_fields=tuple(sorted(excluded_incompatible)),
+            )
+        )
+    fresh = replace(fresh, model_matches=tuple(carried_models))
     approved_by_key = {item.key: item for item in approved.create_field_decisions}
     fresh_by_key = {item.key: item for item in fresh.create_field_decisions}
     fresh_evidence = fresh.create_field_evidence

@@ -72,6 +72,10 @@ overview. You can then:
 - select **Save as a new Recipe** to preserve reusable rules; or
 - select **Save a new Recipe version** after reusable rules change.
 
+After saving, select **Open Recipe** beside its name to review exactly what
+that saved version will reuse. If saving is blocked, the project explains why
+and provides one action that returns you to the stage that needs work.
+
 A Recipe saves logical source shapes, transformations, mappings, relationships,
 Odoo requirements, and reusable checks. It does not save source rows, server
 addresses, API keys, numeric Odoo record IDs, approvals, or load results.

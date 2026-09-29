@@ -41,6 +41,11 @@ if TYPE_CHECKING:
     from ..diagnostics import LocalDiagnosticRecorder
 
 
+PREPARATION_WORKER_GRACEFUL_SHUTDOWN_SECONDS = 5.0
+PREPARATION_WORKER_TERMINATE_SECONDS = 5.0
+PREPARATION_WORKER_KILL_SECONDS = 2.0
+
+
 class PreparationCancelled(RuntimeError):
     """Stop source ingestion at a safe batch boundary."""
 
@@ -231,7 +236,7 @@ class PreparationJobManager:
             return int(worker.process.pid)
 
     def shutdown(self) -> None:
-        """Request safe stops; daemon workers are reclaimed with the app process."""
+        """Stop every owned worker before the web process releases control."""
 
         with self._lock:
             workers = tuple(self._workers.values())
@@ -244,8 +249,56 @@ class PreparationJobManager:
                 pass
         for worker in workers:
             worker.cancel.set()
+        self._join_supervisors(
+            workers,
+            timeout=PREPARATION_WORKER_GRACEFUL_SHUTDOWN_SECONDS,
+        )
+
+        remaining = tuple(
+            worker for worker in workers if worker.process.is_alive()
+        )
+        for worker in remaining:
+            worker.process.terminate()
+        self._join_processes(
+            remaining,
+            timeout=PREPARATION_WORKER_TERMINATE_SECONDS,
+        )
+
+        stubborn = tuple(
+            worker for worker in remaining if worker.process.is_alive()
+        )
+        for worker in stubborn:
+            kill = getattr(worker.process, "kill", None)
+            if kill is not None:
+                kill()
+        self._join_processes(
+            stubborn,
+            timeout=PREPARATION_WORKER_KILL_SECONDS,
+        )
+        self._join_supervisors(
+            workers,
+            timeout=PREPARATION_WORKER_KILL_SECONDS,
+        )
+
+    @staticmethod
+    def _join_supervisors(
+        workers: tuple[_RunningWorker, ...],
+        *,
+        timeout: float,
+    ) -> None:
+        deadline = perf_counter() + timeout
         for worker in workers:
-            worker.supervisor.join(timeout=0.25)
+            worker.supervisor.join(timeout=max(0.0, deadline - perf_counter()))
+
+    @staticmethod
+    def _join_processes(
+        workers: tuple[_RunningWorker, ...],
+        *,
+        timeout: float,
+    ) -> None:
+        deadline = perf_counter() + timeout
+        for worker in workers:
+            worker.process.join(timeout=max(0.0, deadline - perf_counter()))
 
     def _schedule_locked(self) -> None:
         """Start queued attempts up to the configured local RAM guardrail."""

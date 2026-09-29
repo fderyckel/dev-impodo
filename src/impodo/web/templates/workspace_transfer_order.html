@@ -6,9 +6,7 @@
       <p class="eyebrow">Stage 5 of 6 · Review transfer</p>
       <h1>Put related Odoo records in a safe transfer order</h1>
       <p>
-        Impodo derives creation waves and any post-create relationship pass from
-        the current Stage 4 evidence. This step is local and does not contact or
-        write to either Odoo instance.
+        This step is local and does not contact or write to either Odoo instance.
       </p>
     </div>
     <span class="status {% if transfer_order_ready %}ready{% elif transfer_order_plan %}blocked{% else %}review{% endif %}">
@@ -42,8 +40,7 @@
         <p class="eyebrow">Dependency planning</p>
         <h2>Derive the order from every incoming relationship</h2>
         <p>
-          Existing destination records do not create an incoming dependency. New
-          related records are scheduled before their owners unless the relationship
+          New related records are scheduled before their owners unless the relationship
           is safely deferred.
         </p>
       </div>

@@ -8,6 +8,7 @@ from uuid import uuid4
 from impodo.application.destination_matching_service import (
     DestinationMatchKeyChoice,
     DestinationMatchingService,
+    destination_governed_key_choices,
 )
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.odoo_provenance import (
@@ -37,6 +38,7 @@ from impodo.domain.workspace.destination_matching import (
     carry_destination_create_field_reviews,
     choose_destination_create_field_provider,
     confirm_destination_create_field_defaults,
+    set_destination_field_exclusion,
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
@@ -61,6 +63,19 @@ class _SourceValues:
 
     def source_value_choices(self, _workspace_id, dataset_id, source_column_key):
         return self.values[(dataset_id, source_column_key)]
+
+    def source_identity_counts(
+        self,
+        _workspace_id,
+        dataset_id,
+        source_column_key,
+        *,
+        maximum_distinct_values,
+    ):
+        choices = self.values[(dataset_id, source_column_key)]
+        if len(choices) > maximum_distinct_values:
+            raise WorkspaceError("identity limit exceeded")
+        return tuple((item["value"], item["count"]) for item in choices)
 
     def source_key_rows(self, _workspace_id, dataset_id, source_column_key):
         return self.rows[(dataset_id, source_column_key)]
@@ -168,6 +183,490 @@ class DestinationMatchingTests(unittest.TestCase):
             DestinationMatchPlan.from_json(previous_full_fields.to_json()),
             previous_full_fields,
         )
+        previous_chunked_identity = replace(plan, contract_version=9)
+        self.assertEqual(
+            DestinationMatchPlan.from_json(previous_chunked_identity.to_json()),
+            previous_chunked_identity,
+        )
+        previous_field_exclusions = replace(plan, contract_version=10)
+        self.assertEqual(
+            DestinationMatchPlan.from_json(previous_field_exclusions.to_json()),
+            previous_field_exclusions,
+        )
+        previous_matching_contract = replace(plan, contract_version=8)
+        self.assertEqual(
+            DestinationMatchPlan.from_json(previous_matching_contract.to_json()),
+            previous_matching_contract,
+        )
+        self.assertFalse(previous_matching_contract.ready)
+
+    def test_missing_source_field_can_be_explicitly_put_aside_and_restored(self) -> None:
+        plan = DestinationMatchingService(self.source_values).check(
+            self.workspace,
+            self.selection,
+            self.schema,
+            (
+                DestinationMatchKeyChoice(self.product.dataset_id, "product-code"),
+                DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=_destination_reader(self.workspace),
+            recorded_by="Data manager",
+        )
+        models = tuple(
+            replace(item, missing_fields=("version",))
+            if item.model == "product.template"
+            else item
+            for item in plan.model_matches
+        )
+        plan = replace(plan, model_matches=models)
+
+        excluded = set_destination_field_exclusion(
+            plan,
+            model="product.template",
+            field_name="version",
+            excluded=True,
+        )
+        product = next(
+            item for item in excluded.model_matches
+            if item.model == "product.template"
+        )
+        self.assertEqual(product.missing_fields, ())
+        self.assertEqual(product.excluded_fields, ("version",))
+        self.assertEqual(DestinationMatchPlan.from_json(excluded.to_json()), excluded)
+
+        fresh = carry_destination_create_field_reviews(plan, excluded)
+        fresh_product = next(
+            item for item in fresh.model_matches
+            if item.model == "product.template"
+        )
+        self.assertEqual(fresh_product.excluded_fields, ("version",))
+        self.assertEqual(fresh_product.missing_fields, ())
+
+        restored = set_destination_field_exclusion(
+            excluded,
+            model="product.template",
+            field_name="version",
+            excluded=False,
+        )
+        restored_product = next(
+            item for item in restored.model_matches
+            if item.model == "product.template"
+        )
+        self.assertEqual(restored_product.excluded_fields, ())
+        self.assertEqual(restored_product.missing_fields, ("version",))
+        with self.assertRaisesRegex(ValueError, "matching field"):
+            set_destination_field_exclusion(
+                plan,
+                model="product.template",
+                field_name="default_code",
+                excluded=True,
+            )
+        relation_plan = replace(
+            plan,
+            relationship_matches=(
+                replace(
+                    plan.relationship_matches[0],
+                    model="product.template",
+                    field_name="uom_id",
+                ),
+            ) if plan.relationship_matches else (),
+        )
+        if relation_plan.relationship_matches:
+            with self.assertRaisesRegex(ValueError, "related-record field"):
+                set_destination_field_exclusion(
+                    relation_plan,
+                    model="product.template",
+                    field_name="uom_id",
+                    excluded=True,
+                )
+
+    def test_identity_issue_record_can_be_put_aside_without_hiding_source_evidence(
+        self,
+    ) -> None:
+        selection = replace(
+            self.selection,
+            datasets=(replace(self.product, row_count=3), self.uom),
+            content_hash="sha256:" + "6" * 64,
+        )
+        source_values = _SourceValues(
+            {
+                (self.product.dataset_id, "product-code"): (
+                    {"value": "P001", "count": 1},
+                    {"value": "P002", "count": 1},
+                ),
+                (self.uom.dataset_id, "uom-name"): (
+                    {"value": "Kilogram", "count": 1},
+                    {"value": "Unit", "count": 1},
+                ),
+            },
+            {
+                (self.product.dataset_id, ("product-code",)): (
+                    (None,),
+                    ("P001",),
+                    ("P002",),
+                ),
+                (self.uom.dataset_id, ("uom-name",)): (
+                    ("Kilogram",),
+                    ("Unit",),
+                ),
+            },
+        )
+        arguments = dict(
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=_destination_reader(self.workspace),
+            recorded_by="Data manager",
+        )
+        choices = (
+            DestinationMatchKeyChoice(self.product.dataset_id, "product-code"),
+            DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+        )
+        blocked = DestinationMatchingService(source_values).check(
+            self.workspace,
+            selection,
+            self.schema,
+            choices,
+            **arguments,
+        )
+        blocked_product = next(
+            item for item in blocked.model_matches
+            if item.model == "product.template"
+        )
+        self.assertEqual(blocked_product.source_blank_row_count, 1)
+        self.assertEqual(blocked_product.source_row_count, 3)
+
+        excluded = DestinationMatchingService(source_values).check(
+            self.workspace,
+            selection,
+            self.schema,
+            choices,
+            excluded_source_rows={self.product.dataset_id: (1,)},
+            **arguments,
+        )
+        product = next(
+            item for item in excluded.model_matches
+            if item.model == "product.template"
+        )
+        self.assertEqual(product.source_blank_row_count, 0)
+        self.assertEqual(product.source_row_count, 2)
+        self.assertEqual(product.frozen_source_row_count, 3)
+        self.assertEqual(product.excluded_source_row_numbers, (1,))
+        self.assertEqual(DestinationMatchPlan.from_json(excluded.to_json()), excluded)
+        with self.assertRaisesRegex(WorkspaceError, "Only current identity issues"):
+            DestinationMatchingService(source_values).check(
+                self.workspace,
+                selection,
+                self.schema,
+                choices,
+                excluded_source_rows={self.product.dataset_id: (2,)},
+                **arguments,
+            )
+
+    def test_destination_reads_more_than_quick_match_limit_in_bounded_chunks(
+        self,
+    ) -> None:
+        product_count = 1_205
+        selection = replace(
+            self.selection,
+            datasets=(
+                replace(self.product, row_count=product_count),
+                self.uom,
+            ),
+            content_hash="sha256:" + "6" * 64,
+        )
+        source_values = _SourceValues(
+            {
+                (self.product.dataset_id, "product-code"): tuple(
+                    {"value": f"P{index:04d}", "count": 1}
+                    for index in range(product_count)
+                ),
+                (self.uom.dataset_id, "uom-name"): (
+                    {"value": "Kilogram", "count": 1},
+                    {"value": "Unit", "count": 1},
+                ),
+            }
+        )
+        base_reader = _destination_reader(self.workspace)
+
+        def reader(*args):
+            product_requests = tuple(
+                item for item in args[3] if item.model == "product.template"
+            )
+            self.assertEqual(len(product_requests), 3)
+            self.assertEqual(
+                tuple(len(item.domain[0][2]) for item in product_requests),
+                (500, 500, 205),
+            )
+            self.assertTrue(all(item.limit == 501 for item in product_requests))
+            metadata, records = base_reader(*args)
+            return metadata, replace(
+                records,
+                records={
+                    **records.records,
+                    "product.template": tuple(
+                        TargetRecord(
+                            "product.template",
+                            1_000 + index,
+                            {"default_code": f"P{index:04d}"},
+                        )
+                        for index in range(product_count)
+                    ),
+                },
+            )
+
+        plan = DestinationMatchingService(source_values).check(
+            self.workspace,
+            selection,
+            self.schema,
+            (
+                DestinationMatchKeyChoice(self.product.dataset_id, "product-code"),
+                DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=reader,
+            recorded_by="Data manager",
+        )
+
+        product = next(
+            item for item in plan.model_matches
+            if item.model == "product.template"
+        )
+        self.assertFalse(product.destination_limit_reached)
+        self.assertEqual(product.source_distinct_key_count, product_count)
+        self.assertEqual(product.destination_existing_key_count, product_count)
+        self.assertEqual(product.destination_create_key_count, 0)
+
+    def test_product_category_identity_is_name_within_parent_via_complete_path(
+        self,
+    ) -> None:
+        parent = SchemaField(
+            name="parent_id",
+            label="Parent Category",
+            type="many2one",
+            required=False,
+            readonly=False,
+            relation="product.category",
+            relation_field=None,
+            selection=(),
+            stored=True,
+            computed=False,
+            related=False,
+            company_dependent=False,
+            exportable=True,
+        )
+        category = SourceDataset(
+            dataset_id=str(uuid4()),
+            name="Product Categories",
+            source=_binding("product.category"),
+            row_count=2,
+            columns=(
+                SourceDatasetColumn(1, "name", "category-name", "TEXT"),
+                SourceDatasetColumn(
+                    2, "complete_name", "category-path", "TEXT"
+                ),
+            ),
+        )
+        selection = replace(
+            self.selection,
+            datasets=(category,),
+            content_hash="sha256:" + "7" * 64,
+        )
+        text = lambda name, label: SchemaField(
+            name=name,
+            label=label,
+            type="char",
+            required=False,
+            readonly=name == "complete_name",
+            relation=None,
+            relation_field=None,
+            selection=(),
+        )
+        schema = replace(
+            self.schema,
+            models=(
+                SchemaModel(
+                    "product.category",
+                    "Product Category",
+                    (
+                        text("name", "Name"),
+                        text("complete_name", "Complete Name"),
+                        parent,
+                    ),
+                ),
+            ),
+            content_hash="sha256:" + "8" * 64,
+        )
+
+        governed = destination_governed_key_choices(selection, schema)[
+            category.dataset_id
+        ]
+
+        self.assertEqual(governed.title, "Category name within parent category")
+        self.assertEqual(governed.source_column_keys, ("category-path",))
+        self.assertEqual(governed.key_fields, ("complete_name",))
+        self.assertEqual(
+            tuple((item.field_name, item.scope) for item in governed.components),
+            (("name", False), ("parent_id", True)),
+        )
+        self.assertTrue(governed.relationship_scoped)
+
+        source_values = _SourceValues(
+            {
+                (category.dataset_id, "category-path"): (
+                    {"value": "All", "count": 1},
+                    {"value": "All / Sale", "count": 1},
+                ),
+            },
+            {
+                (category.dataset_id, "category-path"): (
+                    "All",
+                    "All / Sale",
+                ),
+            },
+        )
+        fingerprint = TargetFingerprint(
+            target_hash=self.workspace.destination_verified_target_hash,
+            connection_mode="REMOTE",
+            database="destination",
+            odoo_version="19.0",
+            snapshot_timestamp=self.now.isoformat(),
+        )
+
+        def reader(_destination, _api_key, metadata_requests, record_requests):
+            self.assertEqual(
+                tuple(item.model for item in metadata_requests),
+                ("product.category",),
+            )
+            self.assertEqual(len(record_requests), 1)
+            self.assertEqual(record_requests[0].fields, ("complete_name",))
+            self.assertEqual(
+                record_requests[0].domain,
+                (("complete_name", "in", ("All", "All / Sale")),),
+            )
+            target_fields = {
+                "name": FieldMetadata("name", "char", "Name"),
+                "complete_name": FieldMetadata(
+                    "complete_name",
+                    "char",
+                    "Complete Name",
+                    readonly=True,
+                ),
+                "parent_id": FieldMetadata(
+                    "parent_id",
+                    "many2one",
+                    "Parent Category",
+                    relation="product.category",
+                ),
+            }
+            return (
+                MetadataSnapshot(
+                    fingerprint=fingerprint,
+                    models={
+                        "product.category": ModelMetadata(
+                            "product.category",
+                            "Product Category",
+                            target_fields,
+                        ),
+                    },
+                ),
+                RecordSnapshot(
+                    fingerprint=fingerprint,
+                    records={
+                        "product.category": (
+                            TargetRecord(
+                                "product.category",
+                                50,
+                                {"complete_name": "All"},
+                            ),
+                        ),
+                    },
+                    requested_fields={
+                        "product.category": ("complete_name",),
+                    },
+                ),
+            )
+
+        plan = DestinationMatchingService(source_values).check(
+            self.workspace,
+            selection,
+            schema,
+            (
+                DestinationMatchKeyChoice(
+                    category.dataset_id,
+                    "category-path",
+                ),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=replace(
+                _identity(self.workspace),
+                readable_models=("product.category",),
+            ),
+            reader=reader,
+            recorded_by="Data manager",
+            source_origins={
+                category.dataset_id: (
+                    OdooOriginBatch(
+                        first_row_ordinal=1,
+                        odoo_ids=(10, 11),
+                        write_dates=(self.now, self.now),
+                        relationships=(
+                            OdooRelationshipOriginColumn(
+                                field_name="parent_id",
+                                kind="many2one",
+                                relation_model="product.category",
+                                values=((), (10,)),
+                            ),
+                        ),
+                    ),
+                ),
+            },
+        )
+
+        category_match = plan.model_matches[0]
+        self.assertTrue(plan.ready)
+        self.assertEqual(category_match.key_fields, ("complete_name",))
+        self.assertEqual(category_match.compatible_fields, ("name", "parent_id"))
+        self.assertEqual(category_match.incompatible_fields, ())
+
+        missing_path_selection = replace(
+            selection,
+            datasets=(
+                replace(category, columns=(category.columns[0],)),
+            ),
+            content_hash="sha256:" + "9" * 64,
+        )
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "requires captured Complete Name and Parent Category evidence",
+        ):
+            DestinationMatchingService(source_values).check(
+                self.workspace,
+                missing_path_selection,
+                schema,
+                (
+                    DestinationMatchKeyChoice(
+                        category.dataset_id,
+                        "category-name",
+                    ),
+                ),
+                api_key="destination-secret",
+                credential_binding_hash=BINDING_HASH,
+                read_identity=replace(
+                    _identity(self.workspace),
+                    readable_models=("product.category",),
+                ),
+                reader=lambda *_args: self.fail(
+                    "unsafe category matching must fail before a destination read"
+                ),
+                recorded_by="Data manager",
+            )
 
     def test_required_destination_create_fields_are_checked_from_full_metadata(self) -> None:
         base_reader = _destination_reader(self.workspace)
@@ -596,14 +1095,33 @@ class DestinationMatchingTests(unittest.TestCase):
             requests = args[3]
             product_request = next(item for item in requests if item.model == "product.template")
             self.assertEqual(product_request.fields, ("default_code", "name"))
-            self.assertEqual(product_request.domain, (("default_code", "in", ("P001",)),))
+            self.assertEqual(
+                product_request.domain,
+                (
+                    "|",
+                    "&",
+                    ("default_code", "=", "P001"),
+                    ("name", "=", "Blue"),
+                    "&",
+                    ("default_code", "=", "P001"),
+                    ("name", "=", "Red"),
+                ),
+            )
             return metadata, replace(
                 records,
                 records={
                     **records.records,
                     "product.template": (
-                        TargetRecord("product.template", 41, {"default_code": "P001", "name": "Blue"}),
-                        TargetRecord("product.template", 42, {"default_code": "P001", "name": "Other"}),
+                        TargetRecord(
+                            "product.template",
+                            41,
+                            {"default_code": "P001", "name": "Blue"},
+                        ),
+                        TargetRecord(
+                            "product.template",
+                            42,
+                            {"default_code": "P001", "name": "Other"},
+                        ),
                     ),
                 },
             )
@@ -848,6 +1366,53 @@ class DestinationMatchingTests(unittest.TestCase):
         self.assertNotIn("odoo_ids", plan.to_json())
         self.assertNotIn("Kilogram", plan.to_json())
         self.assertEqual(DestinationMatchPlan.from_json(plan.to_json()), plan)
+
+        source_with_invalid_product = _SourceValues(
+            {
+                (self.product.dataset_id, "product-code"): (
+                    {"value": "P001", "count": 1},
+                ),
+                (self.uom.dataset_id, "uom-name"): (
+                    {"value": "Kilogram", "count": 1},
+                    {"value": "Unit", "count": 1},
+                ),
+            },
+            {
+                (self.product.dataset_id, "product-code"): ("P001", None),
+                (self.product.dataset_id, ("product-code",)): (
+                    ("P001",),
+                    (None,),
+                ),
+                (self.uom.dataset_id, "uom-name"): ("Unit", "Kilogram"),
+            },
+        )
+        scoped = DestinationMatchingService(source_with_invalid_product).check(
+            self.workspace,
+            self.selection,
+            schema,
+            (
+                DestinationMatchKeyChoice(self.product.dataset_id, "product-code"),
+                DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=_destination_reader(self.workspace, with_relationships=True),
+            recorded_by="Data manager",
+            source_origins=origins,
+            excluded_source_rows={self.product.dataset_id: (2,)},
+        )
+
+        self.assertTrue(scoped.ready)
+        scoped_by_field = {
+            item.field_name: item for item in scoped.relationship_matches
+        }
+        self.assertEqual(scoped_by_field["uom_id"].source_owner_count, 1)
+        self.assertEqual(scoped_by_field["uom_id"].source_link_count, 1)
+        self.assertEqual(
+            scoped_by_field["alternate_uom_ids"].source_link_count,
+            2,
+        )
 
 
 def _workspace(now: datetime) -> WorkspaceState:

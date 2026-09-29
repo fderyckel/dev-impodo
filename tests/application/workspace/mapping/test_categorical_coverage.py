@@ -8,7 +8,6 @@ from uuid import uuid4
 
 import polars as pl
 
-from impodo.domain.shared.access import ActorIdentity
 from impodo.application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
 )
@@ -42,6 +41,7 @@ from impodo.domain.mapping.validation.evidence import (
 )
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.recipe.value_rules import ScalarTransformPolicy
+from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -51,6 +51,7 @@ from impodo.domain.workspace.contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 NOW = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
@@ -320,6 +321,100 @@ class CategoricalCoverageTests(unittest.TestCase):
             service.scan_calls,
             [("dataset:customers", ("country", "language"))],
         )
+
+    def test_destination_identity_counts_are_not_limited_by_quick_choices(
+        self,
+    ) -> None:
+        distinct_count = MAX_VALUE_MAPPINGS + 205
+        frame = pl.DataFrame(
+            {
+                "language": [
+                    f"PRODUCT-{index:04d}" for index in range(distinct_count)
+                ],
+                "country": ["LU"] * distinct_count,
+            }
+        )
+        service = _RecordingCoverageService(_Sources(self.selection), frame)
+
+        counts = service.source_identity_counts(
+            self.workspace_id,
+            "dataset:customers",
+            "language",
+            maximum_distinct_values=10_000,
+        )
+
+        self.assertEqual(len(counts), distinct_count)
+        self.assertEqual(counts[0], ("PRODUCT-0000", 1))
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "Customers has 1,205 distinct matching values",
+        ):
+            service.source_identity_counts(
+                self.workspace_id,
+                "dataset:customers",
+                "language",
+                maximum_distinct_values=MAX_VALUE_MAPPINGS,
+            )
+
+    def test_identity_issue_rows_name_blank_and_repeated_source_records(self) -> None:
+        dataset = self.selection.datasets[0]
+        selection = replace(
+            self.selection,
+            datasets=(
+                replace(
+                    dataset,
+                    columns=(
+                        *dataset.columns,
+                        SourceDatasetColumn(3, "name", "name", "string"),
+                    ),
+                ),
+            ),
+        )
+        service = _RecordingCoverageService(
+            _Sources(selection),
+            pl.DataFrame(
+                {
+                    "language": [None, "en", "en", "de"],
+                    "country": ["LU", "LU", "BE", "DE"],
+                    "name": ["No code", "First duplicate", "Second duplicate", "Unique"],
+                }
+            ),
+        )
+
+        issues = service.source_identity_issue_rows(
+            self.workspace_id,
+            "dataset:customers",
+            ("language",),
+        )
+
+        self.assertEqual(
+            tuple(
+                (item.row_number, item.issue_kind, item.display_value, item.matching_value)
+                for item in issues
+            ),
+            (
+                (1, "blank", "No code", "Blank"),
+                (2, "duplicate", "First duplicate", "en"),
+                (3, "duplicate", "Second duplicate", "en"),
+            ),
+        )
+
+        composite_issues = service.source_identity_issue_rows(
+            self.workspace_id,
+            "dataset:customers",
+            ("name", "language"),
+        )
+        self.assertEqual(len(composite_issues), 1)
+        self.assertEqual(composite_issues[0].display_field, "name")
+        self.assertEqual(composite_issues[0].display_value, "No code")
+
+        remaining = service.source_identity_issue_rows(
+            self.workspace_id,
+            "dataset:customers",
+            ("language",),
+            excluded_row_numbers=(1, 2),
+        )
+        self.assertEqual(remaining, ())
 
     def test_constant_relationship_counts_only_included_rows(self) -> None:
         service = _RecordingCoverageService(

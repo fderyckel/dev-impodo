@@ -430,6 +430,47 @@ class _RecordingPreparationJobManager(PreparationJobManager):
         )
 
 
+class _ShutdownProcess:
+    def __init__(self, *, stop_on_terminate: bool = True) -> None:
+        self.alive = True
+        self.stop_on_terminate = stop_on_terminate
+        self.terminate_calls = 0
+        self.kill_calls = 0
+        self.join_timeouts: list[float] = []
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        if self.stop_on_terminate:
+            self.alive = False
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+        self.alive = False
+
+    def join(self, timeout: float) -> None:
+        self.join_timeouts.append(timeout)
+
+
+class _ShutdownSupervisor:
+    def __init__(
+        self,
+        process: _ShutdownProcess,
+        *,
+        stop_gracefully: bool = False,
+    ) -> None:
+        self.process = process
+        self.stop_gracefully = stop_gracefully
+        self.join_timeouts: list[float] = []
+
+    def join(self, timeout: float) -> None:
+        self.join_timeouts.append(timeout)
+        if self.stop_gracefully:
+            self.process.alive = False
+
+
 class PreparationJobSchedulingTests(unittest.TestCase):
     def test_manager_does_not_create_a_second_database(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
@@ -510,6 +551,64 @@ class PreparationJobSchedulingTests(unittest.TestCase):
             )
         finally:
             shutil.rmtree(temporary, ignore_errors=True)
+
+    def test_shutdown_waits_for_a_cooperative_worker(self) -> None:
+        process = _ShutdownProcess()
+        supervisor = _ShutdownSupervisor(process, stop_gracefully=True)
+        cancel = MagicMock()
+        manager = PreparationJobManager(".tmp/preparation-shutdown-graceful")
+        manager._workers["job"] = SimpleNamespace(
+            process=process,
+            events=MagicMock(),
+            cancel=cancel,
+            supervisor=supervisor,
+        )
+
+        manager.shutdown()
+
+        cancel.set.assert_called_once_with()
+        self.assertFalse(process.alive)
+        self.assertEqual(process.terminate_calls, 0)
+        self.assertEqual(process.kill_calls, 0)
+        self.assertTrue(supervisor.join_timeouts)
+
+    def test_shutdown_terminates_a_worker_that_ignores_cancellation(self) -> None:
+        process = _ShutdownProcess()
+        supervisor = _ShutdownSupervisor(process)
+        cancel = MagicMock()
+        manager = PreparationJobManager(".tmp/preparation-shutdown-terminate")
+        manager._workers["job"] = SimpleNamespace(
+            process=process,
+            events=MagicMock(),
+            cancel=cancel,
+            supervisor=supervisor,
+        )
+
+        manager.shutdown()
+
+        cancel.set.assert_called_once_with()
+        self.assertFalse(process.alive)
+        self.assertEqual(process.terminate_calls, 1)
+        self.assertEqual(process.kill_calls, 0)
+        self.assertTrue(process.join_timeouts)
+
+    def test_shutdown_kills_a_worker_that_ignores_termination(self) -> None:
+        process = _ShutdownProcess(stop_on_terminate=False)
+        supervisor = _ShutdownSupervisor(process)
+        manager = PreparationJobManager(".tmp/preparation-shutdown-kill")
+        manager._workers["job"] = SimpleNamespace(
+            process=process,
+            events=MagicMock(),
+            cancel=MagicMock(),
+            supervisor=supervisor,
+        )
+
+        manager.shutdown()
+
+        self.assertFalse(process.alive)
+        self.assertEqual(process.terminate_calls, 1)
+        self.assertEqual(process.kill_calls, 1)
+        self.assertEqual(len(process.join_timeouts), 2)
 
 
 class PreparationWorkerFailureTests(unittest.TestCase):

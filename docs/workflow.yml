@@ -34,6 +34,7 @@ stages:
       - src/impodo/web/templates/project_list.html
       - src/impodo/web/templates/project_new.html
       - src/impodo/web/templates/project_business_overview.html
+      - src/impodo/web/templates/project_recipe_detail.html
       - src/impodo/web/templates/workspace_overview.html
       - src/impodo/web/templates/workspace_files.html
       - src/impodo/web/templates/workspace_review.html
@@ -61,9 +62,11 @@ stages:
       - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.register
       - src/impodo/web/source_file_commands.py::accept_source_uploads
       - src/impodo/application/recipe_compilation_service.py::RecipeCompiler.compile_workspace
+      - src/impodo/application/recipe_application_compilation.py::RecipeApplicationCompiler._field
       - src/impodo/application/odoo_connection_service.py::OdooConnectionTestService
       - src/impodo/web/presenters/navigation.py::build_workspace_navigation
       - src/impodo/web/presenters/concepts.py::ConceptHelp
+      - src/impodo/web/presenters/recipes.py::build_recipe_definition_view
     tests:
       - tests/integration/web/test_concept_help.py
       - tests/application/project/test_authoring.py
@@ -610,9 +613,14 @@ stages:
       - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_batch_started
       - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_recovery
       - src/impodo/application/destination_matching_service.py::DestinationMatchingService
+      - src/impodo/application/destination_matching_service.py::destination_governed_key_choices
+      - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_identity_counts
+      - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_identity_issue_rows
       - src/impodo/domain/workspace/destination_matching.py::DestinationCreateFieldDecision
       - src/impodo/domain/workspace/destination_matching.py::DestinationCreateIncomingReferenceCandidate
+      - src/impodo/domain/workspace/destination_matching.py::DestinationModelMatch
       - src/impodo/domain/workspace/destination_matching.py::choose_destination_create_field_provider
+      - src/impodo/domain/workspace/destination_matching.py::set_destination_field_exclusion
       - src/impodo/adapters/protected_destination_create_fields.py::ProtectedDestinationCreateFieldStore
       - src/impodo/application/transfer_order_service.py::TransferOrderService
       - src/impodo/application/transfer_review_service.py::TransferReviewService
@@ -646,10 +654,12 @@ stages:
       - tests/integration/columnar/test_polars_correction.py
       - tests/performance/test_correction_qualification.py
       - tests/application/workspace/test_destination_matching.py
+      - tests/application/workspace/mapping/test_categorical_coverage.py
       - tests/application/workspace/test_transfer_order.py
       - tests/application/workspace/test_transfer_review.py
       - tests/application/workspace/test_transfer_preflight.py
       - tests/application/workspace/test_transfer_execution.py
+      - tests/integration/web/test_source_workflow.py
       - tests/integration/web/test_transfer_order_navigation.py
       - tests/integration/web/test_transfer_review_routes.py
       - tests/integration/web/test_transfer_preflight_routes.py

@@ -29,6 +29,19 @@
     confirmation before the same destination transfer key may write.
   </div>
 
+  <section class="form-card" aria-labelledby="preflight-destination-title">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Destination for this transfer</p>
+        <h2 id="preflight-destination-title">
+          Your data will go to {{ workspace_state.destination_odoo_database }}
+        </h2>
+        <p>{{ workspace_state.destination_odoo_base_url }}</p>
+      </div>
+      <span class="status ready">Verified destination</span>
+    </div>
+  </section>
+
   {% if transfer_preflight_stale %}
     <div class="notice warning">
       <strong>The saved preflight is no longer current.</strong>

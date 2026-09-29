@@ -33,14 +33,43 @@ key is never substituted for it and no third credential role is introduced.
 `DestinationMatchingService` performs bounded metadata and natural-key reads
 for every frozen source model. It resolves generic many-to-one and many-to-many
 evidence and normalizes inverse one-to-many metadata to the writable
-many-to-one field. Each model can select one text key and up to two additional
-text or integer components. The first component bounds the destination read;
-the full ordered tuple is used for match counts, binding hashes, review,
-preflight, relationship resolution, and execution. A first-component query
-that reaches the 1,001-row destination limit blocks the plan. The capture
-publisher rejects selected links that point outside the captured related
-rows. Automatic capture of missing related rows and relationally scoped
-identities remain separate work. `TransferOrderService` derives dependency waves, while
+many-to-one field. Most models can select one text key and up to two additional
+text or integer components. `CategoricalCoverageService.source_identity_counts`
+keeps this exact identity scan separate from the 1,000-choice interactive
+value-matching control. Destination reads use exact key domains in deterministic
+chunks of 500 and allow one additional row per chunk to detect truncation. The
+full ordered tuple is used for match counts, binding hashes, review, preflight,
+relationship resolution, and execution. This supports the current 10,000-row
+Odoo capture boundary without one broad first-field query.
+When that tuple is blank or repeated,
+`CategoricalCoverageService.source_identity_issue_rows` scans only the selected
+key columns and one bounded display column. The authenticated Stage 4 page
+shows at most 20 affected rows. Their business values remain ephemeral and do
+not enter `DestinationMatchPlan`. The data manager may exclude one of those
+exact blank or duplicate rows. `DestinationModelMatch` stores only the sorted
+physical frozen row numbers in `excluded_source_row_numbers`. A fresh check
+validates that each requested exclusion is still an identity issue before it
+recomputes matching from the retained rows. A valid source row cannot be put
+aside through this boundary.
+
+Record exclusion changes every downstream total. Destination matching skips
+excluded owner rows while it counts relationships. It also removes excluded
+supporting rows from the source-ID-to-business-key crosswalk, so a retained
+owner that still refers to one remains an explicit missing-related-record
+blocker. `TransferReviewDataset.excluded_source_record_count` binds the count
+to Stage 5 approval. `compile_transfer_execution_snapshot` verifies the full
+physical frozen row count and then omits the approved row numbers from its
+execution rows. The source snapshot and protected provenance remain unchanged.
+
+Product Category has a model-aware exception. Its governed semantic identity
+is `name` within `parent_id`, shown as checked read-only components in the
+browser. The operational comparison uses the frozen `complete_name` path, while
+the protected `parent_id` provenance remains the writable self-relationship.
+The read-only computed path is excluded from the write-field compatibility
+projection. Other business-key recommendations remain non-binding choices.
+The capture publisher rejects selected links that point outside the captured
+related rows. Automatic capture of missing related rows and other relationally
+scoped identities remain separate work. `TransferOrderService` derives dependency waves, while
 `TransferReviewService` freezes a reviewed policy per model (`reuse_only`,
 `create_if_missing`, or `upsert`), create and existing-match counts, write
 fields, relationship operations, later relationship passes, and control totals.
@@ -55,6 +84,19 @@ Field compatibility findings remain visible during destination matching, but
 block package creation only when the selected model policy would create or
 update records. This lets an existing record be reused even when a captured
 read-only field cannot be written to the destination.
+For a missing or incompatible scalar field, the data manager can explicitly
+put that field aside for the current transfer. `set_destination_field_exclusion`
+moves the technical field name into the matching plan's excluded field scope;
+it never permits an identity field to be excluded. The frozen source remains
+unchanged. A later action can restore the field to its original blocking
+classification. `carry_destination_create_field_reviews` carries the choice
+through fresh destination checks only while the same field remains missing or
+incompatible. `TransferReviewDataset.excluded_source_fields` repeats the
+choice and binds it into the Stage 5 action hash.
+Stage 4 readiness additionally requires every reviewed create-only default to
+be confirmed and every create policy's write-field blockers to be resolved.
+An identity-only match result cannot unlock Stage 5 while those decisions are
+still pending.
 Source capture can retain a non-stored, related, computed, or read-only
 relationship as provenance. Destination matching excludes that relationship
 from the generic write plan unless destination metadata proves it is a stored,
@@ -395,6 +437,7 @@ recorded outcome.
 | Native sparse review pipeline | [`NativeCorrectionReviewPipeline`](../../../src/impodo/adapters/correction_review_pipeline.py) |
 | Polars and Parquet sparse reduction | [`write_polars_correction_candidates`](../../../src/impodo/adapters/polars_correction.py) |
 | Odoo-to-Odoo destination matching | [`DestinationMatchingService`](../../../src/impodo/application/destination_matching_service.py) |
+| Frozen destination-identity counts | [`CategoricalCoverageService.source_identity_counts`](../../../src/impodo/application/workspace/mapping/categorical_coverage.py) |
 | Odoo-to-Odoo relationship order | [`TransferOrderService`](../../../src/impodo/application/transfer_order_service.py) |
 | Odoo-to-Odoo review package | [`TransferReviewService`](../../../src/impodo/application/transfer_review_service.py) |
 | Odoo-to-Odoo read-only preflight | [`TransferPreflightService`](../../../src/impodo/application/transfer_preflight_service.py) |
@@ -506,6 +549,12 @@ blocks the dependent component.
 
 ## Odoo 19 and performance
 
+Destination matching contract version 11 binds the exact chunked-read,
+Product Category path, explicit source-field exclusion, and explicit
+identity-issue row exclusion semantics. Older matching plans remain readable as
+historical evidence but are not current readiness evidence; the data manager
+must run the read-only destination check again.
+
 Remote writes use the Odoo 19 JSON-2 boundary with named, scoped operations.
 Creates are grouped by compatible field shape and sent in bounded batches.
 Existing-row and target-relationship identities are resolved in bounded bulk
@@ -574,10 +623,12 @@ qualify another remote topology.
 - [`tests/integration/columnar/test_polars_correction.py`](../../../tests/integration/columnar/test_polars_correction.py)
 - [`tests/performance/test_correction_qualification.py`](../../../tests/performance/test_correction_qualification.py)
 - [`tests/application/workspace/test_destination_matching.py`](../../../tests/application/workspace/test_destination_matching.py)
+- [`tests/application/workspace/mapping/test_categorical_coverage.py`](../../../tests/application/workspace/mapping/test_categorical_coverage.py)
 - [`tests/application/workspace/test_transfer_order.py`](../../../tests/application/workspace/test_transfer_order.py)
 - [`tests/application/workspace/test_transfer_review.py`](../../../tests/application/workspace/test_transfer_review.py)
 - [`tests/application/workspace/test_transfer_preflight.py`](../../../tests/application/workspace/test_transfer_preflight.py)
 - [`tests/application/workspace/test_transfer_execution.py`](../../../tests/application/workspace/test_transfer_execution.py)
+- [`tests/integration/web/test_source_workflow.py`](../../../tests/integration/web/test_source_workflow.py)
 - [`tests/integration/web/test_transfer_order_navigation.py`](../../../tests/integration/web/test_transfer_order_navigation.py)
 - [`tests/integration/web/test_transfer_review_routes.py`](../../../tests/integration/web/test_transfer_review_routes.py)
 - [`tests/integration/web/test_transfer_preflight_routes.py`](../../../tests/integration/web/test_transfer_preflight_routes.py)

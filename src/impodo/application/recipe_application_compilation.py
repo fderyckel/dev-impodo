@@ -1003,7 +1003,15 @@ class RecipeApplicationCompiler:
             logical_dataset = str(dataset["logical_dataset_id"])
             physical_dataset = bindings[logical_dataset]
             mode = MappingTargetMode(str(dataset["mode"]).casefold())
-            fields = tuple(self._field(item, bindings, reference_by_logical) for item in dataset.get("fields", ()))
+            fields = tuple(
+                self._field(
+                    item,
+                    bindings,
+                    reference_by_logical,
+                    logical_dataset=logical_dataset,
+                )
+                for item in dataset.get("fields", ())
+            )
             relationships = tuple(self._relationship(item, bindings) for item in dataset.get("relationships", ()))
             definitions = tuple(
                 BusinessControlDefinition(
@@ -1110,7 +1118,7 @@ class RecipeApplicationCompiler:
             conditions=conditions,
         )
 
-    def _field(self, item, bindings, references):
+    def _field(self, item, bindings, references, *, logical_dataset):
         """Bind one portable scalar rule to current source and reference keys."""
 
         provider = dict(item["provider"])
@@ -1130,15 +1138,31 @@ class RecipeApplicationCompiler:
             )
         selection_rules = None
         if kind == "CONDITIONAL_RULES":
+            target_field = str(item["target_field"])
             selection_rules = SelectionRuleSet(
                 rules=tuple(
                     SelectionRule(
-                        rule_id=str(rule["rule_id"]),
+                        rule_id=str(
+                            uuid5(
+                                NAMESPACE_URL,
+                                "impodo:"
+                                f"{logical_dataset}:field:{target_field}:"
+                                f"selection-rule:{rule_index}",
+                            )
+                        ),
                         join=SelectionRuleJoin(str(rule["join"])),
                         target_value=str(rule["target_value"]),
                         conditions=tuple(
                             SelectionCondition(
-                                condition_id=str(condition["condition_id"]),
+                                condition_id=str(
+                                    uuid5(
+                                        NAMESPACE_URL,
+                                        "impodo:"
+                                        f"{logical_dataset}:field:{target_field}:"
+                                        f"selection-rule:{rule_index}:"
+                                        f"condition:{condition_index}",
+                                    )
+                                ),
                                 source_column_key=bindings[
                                     str(condition["source_column_id"])
                                 ],
@@ -1152,10 +1176,16 @@ class RecipeApplicationCompiler:
                                 ),
                                 value_type=str(condition["value_type"]),
                             )
-                            for condition in rule["conditions"]
+                            for condition_index, condition in enumerate(
+                                rule["conditions"],
+                                start=1,
+                            )
                         ),
                     )
-                    for rule in provider.get("rules", ())
+                    for rule_index, rule in enumerate(
+                        provider.get("rules", ()),
+                        start=1,
+                    )
                 ),
                 otherwise_value=(
                     str(provider["otherwise_value"])

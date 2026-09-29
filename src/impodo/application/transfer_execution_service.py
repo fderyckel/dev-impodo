@@ -444,6 +444,7 @@ def compile_transfer_execution_snapshot(
     components_by_dataset: dict[str, tuple[tuple[str, ...], ...]] = {}
     bindings_by_dataset: dict[str, dict[str, str]] = {}
     source_id_to_row: dict[str, dict[int, int]] = {}
+    included_rows_by_dataset: dict[str, tuple[SourceRow, ...]] = {}
     relationships_by_owner: dict[str, list] = {}
     for relationship in package.relationships:
         relationships_by_owner.setdefault(relationship.owner_dataset_id, []).append(
@@ -453,11 +454,29 @@ def compile_transfer_execution_snapshot(
     for reviewed in package.datasets:
         dataset_id = reviewed.dataset_id
         match = match_by_id[dataset_id]
-        rows = source_rows[dataset_id]
+        all_rows = source_rows[dataset_id]
+        if tuple(row.number for row in all_rows) != tuple(
+            range(1, len(all_rows) + 1)
+        ):
+            raise WorkspaceError(
+                f"Frozen row order changed for {reviewed.model_label}"
+            )
+        excluded_rows = set(match.excluded_source_row_numbers)
+        if (
+            len(all_rows) != match.frozen_source_row_count
+            or reviewed.excluded_source_record_count != len(excluded_rows)
+        ):
+            raise WorkspaceError(
+                f"Frozen row scope changed for {reviewed.model_label}"
+            )
+        rows = tuple(
+            row for row in all_rows if row.number not in excluded_rows
+        )
         if len(rows) != reviewed.source_row_count:
             raise WorkspaceError(
                 f"Frozen row count changed for {reviewed.model_label}"
             )
+        included_rows_by_dataset[dataset_id] = rows
         selected = selected_by_id[dataset_id]
         columns_by_key = {item.stable_key: item for item in selected.columns}
         if (
@@ -514,12 +533,18 @@ def compile_transfer_execution_snapshot(
         }
         origin_ids = _ordered_origin_ids(
             source_origins[dataset_id],
-            len(rows),
+            len(all_rows),
             reviewed.model_label,
         )
         source_id_to_row[dataset_id] = {
-            identifier: ordinal
-            for ordinal, identifier in enumerate(origin_ids, start=1)
+            identifier: included_ordinal
+            for included_ordinal, (row, identifier) in enumerate(
+                (
+                    (row, origin_ids[row.number - 1])
+                    for row in rows
+                ),
+                start=1,
+            )
         }
 
     incoming_create_references: dict[
@@ -659,17 +684,18 @@ def compile_transfer_execution_snapshot(
     provisional_rows: list[ExecutionRow] = []
     for reviewed in package.datasets:
         dataset_id = reviewed.dataset_id
-        rows = source_rows[dataset_id]
-        if tuple(row.number for row in rows) != tuple(range(1, len(rows) + 1)):
-            raise WorkspaceError(
-                f"Frozen row order changed for {reviewed.model_label}"
-            )
+        rows = included_rows_by_dataset[dataset_id]
         keys = keys_by_dataset[dataset_id]
         relationship_columns = _relationship_columns(
             source_origins[dataset_id],
-            len(rows),
+            match_by_id[dataset_id].frozen_source_row_count,
         )
-        for source_row, key in zip(rows, keys, strict=True):
+        for source_row, key, source_identity in zip(
+            rows,
+            keys,
+            components_by_dataset[dataset_id],
+            strict=True,
+        ):
             target_id = target_ids_by_dataset[dataset_id].get(key)
             if target_id is None and reviewed.model_policy == "reuse_only":
                 raise WorkspaceError(
@@ -765,9 +791,9 @@ def compile_transfer_execution_snapshot(
                     dataset=reviewed.dataset_name,
                     source_row=source_row.number,
                     source_trace_id=row_id,
-                    source_identity=components_by_dataset[dataset_id][source_row.number - 1],
+                    source_identity=source_identity,
                     target_model=reviewed.model,
-                    business_identity=components_by_dataset[dataset_id][source_row.number - 1],
+                    business_identity=source_identity,
                     business_scope=(),
                     disposition=disposition,
                     target_match_count=1 if target_id is not None else 0,

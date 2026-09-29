@@ -13,6 +13,7 @@ from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
+    MigrationNotFoundError,
 )
 from impodo.domain.shared.access import AuthorizationError
 from impodo.domain.workspace.workbench import SourceMode
@@ -23,6 +24,7 @@ from ...domain.recipe.models import RecipeError
 from ..context import WebContext
 from ..forms import _form_values, _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..presenters.recipes import build_recipe_definition_view
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRemovalReason,
@@ -96,6 +98,72 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
     async def project_overview(request: Request, project_id: str):
         require_session(request)
         return _render_project_overview(request, context, project_id)
+
+    @router.get(
+        "/projects/{project_id}/recipes/{recipe_id}",
+        response_class=HTMLResponse,
+    )
+    async def recipe_detail(
+        request: Request,
+        project_id: str,
+        recipe_id: str,
+        version: int | None = None,
+    ):
+        require_session(request)
+        project = context.migration_projects.get(project_id, actor=context.actor)
+        recipe = context.recipes.get(recipe_id, actor=context.actor)
+        if recipe.project_id != project.project_id:
+            raise MigrationNotFoundError("Recipe not found")
+        revisions = context.recipes.revisions(recipe_id, actor=context.actor)
+        selected_version = (
+            version if version is not None else recipe.current_recipe_revision
+        )
+        revision = next(
+            (item for item in revisions if item.version == selected_version),
+            None,
+        )
+        if revision is None:
+            raise MigrationNotFoundError("Recipe revision not found")
+        envelope = context.recipes.read_revision(
+            recipe_id,
+            selected_version,
+            actor=context.actor,
+        )
+        workspaces = context.migration_workspaces.list_for_project(
+            project_id,
+            actor=context.actor,
+        )
+        authoring_data_version_ids = {
+            item.data_version_id
+            for item in context.data_versions.list(project_id, actor=context.actor)
+            if item.purpose is DataVersionPurpose.AUTHORING
+        }
+        authoring_workspace = next(
+            (
+                item
+                for item in sorted(
+                    workspaces,
+                    key=lambda item: item.created_at,
+                    reverse=True,
+                )
+                if item.recipe_application_id is None
+                and item.state is MigrationWorkspaceState.OPEN
+                and item.data_version_id in authoring_data_version_ids
+            ),
+            None,
+        )
+        return _render(
+            request,
+            "project_recipe_detail.html",
+            project=project,
+            recipe=recipe,
+            revision=revision,
+            revisions=tuple(
+                sorted(revisions, key=lambda item: item.version, reverse=True)
+            ),
+            recipe_view=build_recipe_definition_view(envelope),
+            authoring_workspace=authoring_workspace,
+        )
 
     @router.post("/projects/{project_id}/delete")
     async def delete_project(request: Request, project_id: str):
@@ -262,7 +330,10 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
                 f"{published.revision.version}."
             )
         _flash(request, message)
-        return RedirectResponse(f"/projects/{project_id}", status_code=303)
+        return RedirectResponse(
+            f"/projects/{project_id}#recipe-{published.recipe.recipe_id}",
+            status_code=303,
+        )
 
     return router
 
@@ -331,6 +402,7 @@ def _render_project_overview(
         else None
     )
     recipe_draft = None
+    recipe_recovery = None
     if authoring_workspace is not None and authoring_data_version is not None:
         recipe_draft = context.recipe_publication.draft(
             project_id=project_id,
@@ -338,6 +410,11 @@ def _render_project_overview(
             workspace_id=authoring_workspace.workspace_id,
             actor=context.actor,
         )
+        if recipe_draft.issues:
+            recipe_recovery = _recipe_recovery_view(
+                recipe_draft.issues[0],
+                authoring_workspace.workspace_id,
+            )
     return _render(
         request,
         "project_business_overview.html",
@@ -356,8 +433,25 @@ def _render_project_overview(
         authoring_workspace=authoring_workspace,
         authoring_data_version=authoring_data_version,
         recipe_draft=recipe_draft,
+        recipe_recovery=recipe_recovery,
         correction_journeys=correction_journeys,
         publication_operation_id=str(uuid4()),
         error=error,
         status_code=status_code,
     )
+
+
+def _recipe_recovery_view(issue, workspace_id: str) -> dict[str, str]:
+    recovery = {
+        "source-data": ("Review source data", f"/workspaces/{workspace_id}/sources"),
+        "odoo-data": ("Review Odoo data", f"/workspaces/{workspace_id}/schema"),
+        "match-data": ("Review field matches", f"/workspaces/{workspace_id}/mapping"),
+        "prepare-data": ("Prepare data again", f"/workspaces/{workspace_id}/prepare"),
+        "new-project": ("Create a new data project", "/projects/new"),
+    }
+    label, href = recovery[issue.recovery_step.value]
+    return {
+        "label": label,
+        "href": href,
+        "reference": issue.logical_id,
+    }

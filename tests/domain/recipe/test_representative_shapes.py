@@ -40,7 +40,10 @@ from impodo.domain.mapping.contracts import (
     ScalarConcatenation,
     ScalarFieldMapping,
     ScalarValueSource,
+    SelectionCondition,
     SelectionConditionOperator,
+    SelectionRule,
+    SelectionRuleSet,
     ValueMapping,
 )
 from impodo.domain.recipe_parameters import (
@@ -222,6 +225,122 @@ def _publish(
 
 
 class RepresentativeRecipeShapeTests(unittest.TestCase):
+    def test_selection_rules_publish_without_authoring_ids_and_rebind_fresh_ids(
+        self,
+    ) -> None:
+        project_id = str(uuid4())
+        products = _dataset(
+            "Products",
+            (("tracking policy", "string"),),
+            "c",
+        )
+        selection = SourceSelection(
+            str(uuid4()),
+            1,
+            project_id,
+            datetime.now(timezone.utc),
+            "Data manager",
+            (products,),
+            "sha256:" + "c" * 64,
+        )
+        authoring_rule_id = str(uuid4())
+        authoring_condition_id = str(uuid4())
+        mapping = DatasetMapping(
+            dataset_id=products.dataset_id,
+            target_model="product.template",
+            fields=(
+                ScalarFieldMapping(
+                    target_field="tracking",
+                    value_source=ScalarValueSource.CONDITIONAL_RULES,
+                    selection_rules=SelectionRuleSet(
+                        rules=(
+                            SelectionRule(
+                                rule_id=authoring_rule_id,
+                                conditions=(
+                                    SelectionCondition(
+                                        condition_id=authoring_condition_id,
+                                        source_column_key=_column(
+                                            products,
+                                            "tracking policy",
+                                        ),
+                                        operator=SelectionConditionOperator.EQUALS,
+                                        comparison_value="serial",
+                                    ),
+                                ),
+                                target_value="serial",
+                            ),
+                        ),
+                        otherwise_value="none",
+                    ),
+                ),
+            ),
+        )
+
+        recipe = _publish(
+            base_selection=selection,
+            mapping_selection=selection,
+            mappings=(mapping,),
+            models=(
+                SchemaModel(
+                    "product.template",
+                    "Product",
+                    (_field("tracking", "selection"),),
+                ),
+            ),
+            business_keys=(),
+        )
+
+        portable_dataset = recipe["mapping"]["datasets"][0]
+        portable_provider = portable_dataset["fields"][0]["provider"]
+        portable_rule = portable_provider["rules"][0]
+        portable_condition = portable_rule["conditions"][0]
+        self.assertNotIn("rule_id", portable_rule)
+        self.assertNotIn("condition_id", portable_condition)
+        self.assertNotIn(authoring_rule_id, str(recipe))
+        self.assertNotIn(authoring_condition_id, str(recipe))
+        self.assertEqual(
+            recipe["source_shape"]["datasets"][0]["columns"][0][
+                "logical_column_id"
+            ],
+            portable_provider["source_column_ids"][0],
+        )
+
+        logical_dataset = portable_dataset["logical_dataset_id"]
+        logical_column = portable_provider["source_column_ids"][0]
+        compiler = RecipeApplicationCompiler()
+        bindings = {
+            logical_dataset: "fresh-products",
+            logical_column: "fresh-tracking-policy",
+        }
+        first = compiler._mapping_datasets(
+            recipe,
+            bindings,
+            SimpleNamespace(datasets=()),
+            None,
+            None,
+        )[0].fields[0].selection_rules
+        second = compiler._mapping_datasets(
+            recipe,
+            bindings,
+            SimpleNamespace(datasets=()),
+            None,
+            None,
+        )[0].fields[0].selection_rules
+
+        assert first is not None
+        assert second is not None
+        self.assertEqual(first, second)
+        self.assertNotEqual(first.rules[0].rule_id, authoring_rule_id)
+        self.assertNotEqual(
+            first.rules[0].conditions[0].condition_id,
+            authoring_condition_id,
+        )
+        self.assertEqual(first.rules[0].target_value, "serial")
+        self.assertEqual(
+            first.rules[0].conditions[0].source_column_key,
+            "fresh-tracking-policy",
+        )
+
     def test_hierarchy_root_null_policy_round_trips_through_recipe_mapping(
         self,
     ) -> None:
@@ -541,6 +660,9 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                 source_ids[1]: "fresh.first_name",
             },
             {},
+            logical_dataset=recipe["mapping"]["datasets"][0][
+                "logical_dataset_id"
+            ],
         )
         assert rebound.concatenation is not None
         self.assertEqual(

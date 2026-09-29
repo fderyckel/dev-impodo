@@ -23,9 +23,9 @@ from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor, ActorIdentity, Capability
 
 
-TRANSFER_REVIEW_CONTRACT_VERSION = 4
+TRANSFER_REVIEW_CONTRACT_VERSION = 6
 TRANSFER_REVIEW_APPROVAL_CONTRACT_VERSION = 1
-TRANSFER_REVIEW_POLICY_VERSION = "odoo-transfer-review-v3"
+TRANSFER_REVIEW_POLICY_VERSION = "odoo-transfer-review-v5"
 TRANSFER_MODEL_POLICIES = frozenset({"reuse_only", "create_if_missing", "upsert"})
 TRANSFER_CREATE_FIELD_PROVIDERS = frozenset(
     {
@@ -71,6 +71,8 @@ class TransferReviewDataset:
     model_policy: str = "upsert"
     key_fields: tuple[str, ...] = ()
     create_field_providers: tuple[tuple[str, str], ...] = ()
+    excluded_source_fields: tuple[str, ...] = ()
+    excluded_source_record_count: int = 0
 
     def __post_init__(self) -> None:
         if any(
@@ -104,6 +106,7 @@ class TransferReviewDataset:
                 self.source_row_count,
                 self.destination_existing_record_count,
                 self.destination_create_record_count,
+                self.excluded_source_record_count,
             )
         ) or self.wave < 1:
             raise ValueError("Transfer-review dataset totals are invalid")
@@ -136,6 +139,17 @@ class TransferReviewDataset:
             raise ValueError("Transfer-review create-field providers are invalid")
         if not self.destination_create_record_count and self.create_field_providers:
             raise ValueError("Reused-only datasets cannot have create-field providers")
+        if self.excluded_source_fields != tuple(
+            sorted(set(self.excluded_source_fields))
+        ) or any(
+            _TECHNICAL_NAME.fullmatch(value) is None
+            for value in self.excluded_source_fields
+        ):
+            raise ValueError("Transfer-review excluded source fields are invalid")
+        if set(self.excluded_source_fields).intersection(
+            self.scalar_write_fields + self.relationship_write_fields
+        ):
+            raise ValueError("Excluded source fields cannot be in the write scope")
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,7 +287,7 @@ class TransferReviewPackage:
 
     def __post_init__(self) -> None:
         if self.contract_version not in {
-            1, 2, 3, TRANSFER_REVIEW_CONTRACT_VERSION
+            1, 2, 3, 4, 5, TRANSFER_REVIEW_CONTRACT_VERSION
         }:
             raise ValueError("Transfer-review contract version is unsupported")
         matched_policy = (
@@ -423,6 +437,12 @@ class TransferReviewPackage:
                         create_field_providers=tuple(
                             (str(choice[0]), str(choice[1]))
                             for choice in item.get("create_field_providers", ())
+                        ),
+                        excluded_source_fields=tuple(
+                            item.get("excluded_source_fields", ())
+                        ),
+                        excluded_source_record_count=int(
+                            item.get("excluded_source_record_count", 0)
                         ),
                     )
                     for item in payload["datasets"]
@@ -647,6 +667,10 @@ def _dataset_dict(
     item: TransferReviewDataset, *, contract_version: int
 ) -> dict[str, Any]:
     payload = asdict(item)
+    if contract_version < 6:
+        payload.pop("excluded_source_record_count")
+    if contract_version < 5:
+        payload.pop("excluded_source_fields")
     if contract_version < 4:
         payload.pop("create_field_providers")
     if contract_version < 3:

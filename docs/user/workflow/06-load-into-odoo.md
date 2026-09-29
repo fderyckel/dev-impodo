@@ -27,11 +27,35 @@ load. There is no third API key.
 
 1. In Stage 4, **Connect and match destination**, complete **Connect
    destination Odoo** with the destination transfer key.
-2. Still in Stage 4, open **Match destination data** and choose a stable text
-   field for every record type. If that field repeats within a record type, add a second or third
+2. Still in Stage 4, open **Match destination data**. For most record types,
+   choose a stable text field. If that field repeats, add a second or third
    captured text or integer field. Impodo matches the complete combination
-   and classifies each unique source record as existing or missing. A parent
-   record or company relationship cannot yet be used as one of these fields.
+   and classifies each unique source record as existing or missing. Product
+   Category is different: **Name** and **Parent Category** appear as checked,
+   read-only parts of the required identity. Impodo compares the frozen
+   complete category path, while the parent link remains protected
+   relationship evidence. Equal category names under different parents
+   therefore stay separate. Other parent or company relationships cannot yet
+   be selected as identity fields. If an identifier is blank or repeated,
+   you can choose another stable identifier and check again, correct the value
+   in source Odoo and recapture the records, or select **Put this source record
+   aside**. The last choice excludes the whole affected record from this
+   transfer. It does not remove the identifier field from the other records or
+   change source Odoo. Impodo keeps the record in the frozen source evidence
+   and lets you select **Include record again** before you approve the
+   transfer. A retained record that refers to an excluded supporting record
+   still blocks the relationship; Impodo does not silently remove that link.
+   You still cannot put an identifier field itself aside because every
+   included record needs an identity.
+
+   Resolve write-field differences on the same page. For a missing or
+   incompatible captured field, select **Put `field_name` aside**, such as
+   **Put `version` aside**, only when you do not want Impodo to write that
+   field. Impodo keeps the field in the frozen source evidence. For new
+   records, complete **Complete values for new records** when a current Odoo
+   default needs review or Odoo supplies no usable value. Stage 4 becomes
+   complete only after the included records have valid identities and all
+   required create-only choices are confirmed.
 3. In Stage 5, **Review transfer**, start with **Validate transfer order**.
    Supporting records appear before the
    records that refer to them, while safe optional cycles use a later
@@ -41,17 +65,13 @@ load. There is no third API key.
    or **Update existing, create missing**. This applies to Contacts, Products,
    supporting records, and any other selected model. A reuse-only choice stops
    package creation if any destination record is missing. The frozen review
-   shows each create-only field and its value source without revealing a
-   protected fixed value or linked-record identity. Build and approve the
-   exact package after checking those choices. If some captured fields cannot
-   be written to the destination, Impodo can still reuse existing records;
-   creating or updating that record type requires resolving the field issues.
-   For a new record, Impodo also checks the destination's required fields.
-   Use **Complete values for new records** when a current Odoo default needs
-   review or Odoo supplies no usable value. You can confirm the current Odoo
-   default, set one typed value for all new records, or choose a compatible
-   captured source field. These choices apply only to new records; they never
-   replace a value on a reused destination record. For a required linked
+   shows every field and source record put aside, and each create-only field
+   with its value source, without revealing a protected fixed value or
+   linked-record identity. Build and approve the exact package after checking
+   those choices. You can confirm the current Odoo default, set one typed
+   value for all new records, or choose a compatible captured source field.
+   These choices apply only to new records; they never replace a value on a
+   reused destination record. For a required linked
    record, you can choose an existing destination record when its related
    record type is selected and its business key identifies one current
    record. A current Odoo default can also be reviewed without adding that
@@ -93,6 +113,21 @@ in the destination. It then counts Product links that can reuse a destination
 Unit and links that will depend on an incoming Unit. The same rule applies to
 many-to-many fields and to inverse one-to-many metadata; it is not specific to
 Product and Unit of Measure.
+
+The destination check reads exact frozen identities in bounded groups. It can
+therefore check the full current Odoo capture limit of 10,000 records per
+record type; the smaller choice limit used by manual value-matching controls
+does not apply here. If the chosen identity is blank or repeated, Impodo names
+that record type and shows a bounded list of the affected frozen source rows,
+using the record name when it is available. These row labels are shown only
+for the current review. The saved matching plan records only the row numbers
+that you explicitly put aside, not their business values.
+
+Putting a field aside and putting a source record aside are different
+decisions. The first excludes one field from destination writes for all
+included records. The second excludes one affected record from matching,
+relationship counts, review totals, and every destination write. Neither
+choice changes the frozen source data or source Odoo.
 
 For you, this means that a new destination record matching an approved
 "create" key stops the transfer before loading, which protects against a

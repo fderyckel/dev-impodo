@@ -47,6 +47,11 @@ with its logical identity. Application must rebind every level in the saved
 order and stops when one is missing or ambiguous; it never substitutes a
 similar heading or a model-specific category convention.
 
+Conditional field rules store their ordered conditions and logical source
+columns, but not the authoring rule or condition UUIDs. Application generates
+fresh deterministic IDs inside the new workspace after rebinding those
+columns. The IDs support workspace editing and are not reusable meaning.
+
 It must exclude source rows, file and snapshot identities, current source
 hashes, Project and workspace UUIDs, target endpoint or database, credentials,
 numeric Odoo IDs, actors, approvals, execution journals, read-back, and
@@ -77,8 +82,11 @@ workspace identity or ownership.
 
 Project overview lists Recipes with one bounded registry query. Reading a
 specific revision verifies both the protected artifact hash and logical
-payload hash before returning the envelope. List rendering must not open a
-workspace, protected payload, or Odoo connection per Recipe row.
+payload hash before returning the envelope. The Project-scoped Recipe page
+renders that one verified revision as source requirements, field and
+relationship rules, preparation rules, checks, controls, and immutable version
+history. List rendering must not open a workspace, protected payload, or Odoo
+connection per Recipe row.
 
 A run that needs several exact revisions reads their Recipe identities and
 revision rows through one Project-scoped registry connection. It then verifies

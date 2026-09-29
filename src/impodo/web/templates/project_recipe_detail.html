@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}{{ recipe.display_name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Saved Recipe · Version {{ revision.version }}</p>
+      <h1>{{ recipe.display_name }}</h1>
+      <p>{{ recipe.business_purpose }}</p>
+    </div>
+    <span class="status ready">Saved</span>
+  </div>
+
+  <section class="form-card" aria-labelledby="recipe-summary-title">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Reusable meaning</p>
+        <h2 id="recipe-summary-title">What this Recipe will reuse</h2>
+        <p>This version contains reusable rules only. Source rows, Odoo access, approvals, and load results remain outside the Recipe.</p>
+      </div>
+    </div>
+    <dl class="summary-list">
+      <div><dt>Source tables</dt><dd>{{ recipe_view.datasets|length }}</dd></div>
+      <div><dt>Preparation rules</dt><dd>{{ recipe_view.preparation_rules|length }}</dd></div>
+      <div><dt>Reusable checks</dt><dd>{{ recipe_view.quality_rules|length + recipe_view.controls|length }}</dd></div>
+      <div><dt>Inputs when reused</dt><dd>{{ recipe_view.parameter_count }}</dd></div>
+      <div><dt>Reference data</dt><dd>{{ recipe_view.reference_count }}</dd></div>
+      <div><dt>Saved</dt><dd>{{ revision.published_at.strftime('%Y-%m-%d %H:%M') }}</dd></div>
+    </dl>
+  </section>
+
+  <section class="overview-stage-list" aria-labelledby="recipe-datasets-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Source and Odoo rules</p>
+        <h2 id="recipe-datasets-title">Required source tables</h2>
+      </div>
+    </div>
+    <ol class="overview-stages">
+      {% for dataset in recipe_view.datasets %}
+        <li class="overview-stage complete">
+          <div class="overview-stage-number">{{ loop.index }}</div>
+          <div class="overview-stage-copy">
+            <h3>{{ dataset.name }}</h3>
+            <p>{{ dataset.mode }} · Odoo <code>{{ dataset.target_model }}</code></p>
+            <p><strong>Rows:</strong> {{ dataset.row_selection }}</p>
+            {% if dataset.columns %}<p><strong>Required columns:</strong> {{ dataset.columns|join(', ') }}</p>{% endif %}
+            {% if dataset.fields %}
+              <details>
+                <summary>{{ dataset.fields|length }} field rule{% if dataset.fields|length != 1 %}s{% endif %}</summary>
+                <dl class="definition-list">
+                  {% for field in dataset.fields %}
+                    <div><dt><code>{{ field.target_field }}</code></dt><dd>{{ field.provider }}{% if field.condition_count %} · {{ field.condition_count }} condition{% if field.condition_count != 1 %}s{% endif %}{% endif %}</dd></div>
+                  {% endfor %}
+                </dl>
+              </details>
+            {% endif %}
+            {% if dataset.relationships %}
+              <details>
+                <summary>{{ dataset.relationships|length }} relationship rule{% if dataset.relationships|length != 1 %}s{% endif %}</summary>
+                <dl class="definition-list">
+                  {% for relationship in dataset.relationships %}
+                    <div><dt><code>{{ relationship.target_field }}</code></dt><dd>{{ relationship.rule }} · {{ relationship.target }}</dd></div>
+                  {% endfor %}
+                </dl>
+              </details>
+            {% endif %}
+          </div>
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  {% if recipe_view.preparation_rules or recipe_view.quality_rules or recipe_view.controls %}
+    <section class="form-card" aria-labelledby="recipe-rules-title">
+      <div class="page-heading compact">
+        <div><p class="eyebrow">Preparation and checks</p><h2 id="recipe-rules-title">Other reusable rules</h2></div>
+      </div>
+      <dl class="definition-list">
+        {% for rule in recipe_view.preparation_rules %}<div><dt>{{ rule.output }}</dt><dd>{{ rule.kind }}</dd></div>{% endfor %}
+        {% for rule in recipe_view.quality_rules %}<div><dt>{{ rule.name }}</dt><dd>{{ rule.dataset }} · {{ rule.severity }}</dd></div>{% endfor %}
+        {% for control in recipe_view.controls %}<div><dt>{{ control.name }}</dt><dd>{{ control.dataset }}{% if control.target_field %} · <code>{{ control.target_field }}</code>{% endif %}</dd></div>{% endfor %}
+      </dl>
+    </section>
+  {% endif %}
+
+  <section class="form-card" aria-labelledby="recipe-versions-title">
+    <div class="page-heading compact">
+      <div><p class="eyebrow">Immutable history</p><h2 id="recipe-versions-title">Recipe versions</h2></div>
+    </div>
+    <ol class="overview-stages">
+      {% for item in revisions %}
+        <li class="overview-stage {% if item.version == revision.version %}current{% else %}complete{% endif %}">
+          <div class="overview-stage-number">{{ item.version }}</div>
+          <div class="overview-stage-copy">
+            <h3>Recipe v{{ item.version }}</h3>
+            <p>Saved {{ item.published_at.strftime('%Y-%m-%d %H:%M') }}</p>
+            {% if item.version != revision.version %}<a class="button secondary" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}?version={{ item.version }}">Open version</a>{% endif %}
+          </div>
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  <div class="actions">
+    <a class="button secondary" href="/projects/{{ project.project_id }}#recipe-{{ recipe.recipe_id }}">Back to data project</a>
+    {% if authoring_workspace %}<a class="button primary" href="/workspaces/{{ authoring_workspace.workspace_id }}/overview">Open Authoring workspace</a>{% endif %}
+  </div>
+{% endblock %}

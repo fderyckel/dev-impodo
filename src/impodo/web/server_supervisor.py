@@ -22,6 +22,8 @@ from .diagnostics import LocalDiagnosticRecorder
 
 
 MAX_AUTOMATIC_RESTARTS = 1
+SERVER_CHILD_GRACEFUL_SHUTDOWN_SECONDS = 20.0
+SERVER_CHILD_TERMINATE_SECONDS = 5.0
 
 
 class ClosedConnectionSafeH11Protocol(H11Protocol):
@@ -171,8 +173,13 @@ def supervise_server(
             )
     except KeyboardInterrupt:
         if child is not None and child.is_alive():
-            child.terminate()
-            child.join(timeout=5)
+            # Console interrupts are delivered to both launcher and child on
+            # Windows. Give Uvicorn's lifespan cleanup time to close worker
+            # processes and DuckDB handles before using a hard termination.
+            child.join(timeout=SERVER_CHILD_GRACEFUL_SHUTDOWN_SECONDS)
+            if child.is_alive():
+                child.terminate()
+                child.join(timeout=SERVER_CHILD_TERMINATE_SECONDS)
         record_launcher_event(
             settings.diagnostics_root,
             "server_supervision_interrupted",
@@ -298,6 +305,19 @@ def _serve_child_process(
         server = uvicorn.Server(config)
         app.state.server = server
         _run_server(server, listener)
+    except KeyboardInterrupt:
+        # Ctrl+C also reaches the spawned child on Windows. Uvicorn completes
+        # application shutdown before asyncio.run re-raises the interrupt, so
+        # treat it as a requested stop instead of emitting a failure traceback.
+        stop_reason = "keyboard_interrupt"
+        if diagnostics is not None:
+            diagnostics.record_lifecycle(
+                "server_process_interrupted",
+                port=port,
+                reason=stop_reason,
+                exit_code=0,
+                restart_attempt=restart_attempt,
+            )
     except BaseException as error:
         stop_reason = "unhandled_exception"
         if diagnostics is not None:
@@ -316,7 +336,11 @@ def _serve_child_process(
                 "server_process_stopped",
                 port=port,
                 reason=stop_reason,
-                exit_code=0 if stop_reason == "server_returned" else 1,
+                exit_code=(
+                    0
+                    if stop_reason in {"server_returned", "keyboard_interrupt"}
+                    else 1
+                ),
                 restart_attempt=restart_attempt,
             )
             diagnostics.close()

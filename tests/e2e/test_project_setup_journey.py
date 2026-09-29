@@ -1436,7 +1436,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             "rules are already saved in this workspace.",
             readiness_page.text,
         )
-        self.assertIn("Save these rules as a Recipe", readiness_page.text)
+        self.assertIn("Review and save Recipe", readiness_page.text)
         self.assertIn(
             f'href="/projects/{workspace.project_id}#project-recipes-title"',
             readiness_page.text,

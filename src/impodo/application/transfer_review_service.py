@@ -122,6 +122,10 @@ class TransferReviewService:
                     if item.destination_create_key_count
                     else ()
                 ),
+                excluded_source_fields=item.excluded_fields,
+                excluded_source_record_count=len(
+                    item.excluded_source_row_numbers
+                ),
             )
             for item in match_plan.model_matches
         )

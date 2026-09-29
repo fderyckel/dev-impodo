@@ -275,6 +275,11 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
                 reader=context.destination_match_reader,
                 recorded_by=context.actor.identity.display_name,
                 source_origins=source_origins,
+                excluded_source_rows={
+                    item.dataset_id: item.excluded_source_row_numbers
+                    for item in approved_match.model_matches
+                    if item.excluded_source_row_numbers
+                },
             )
             approved_evidence = None
             if approved_match.create_field_evidence_id is not None:

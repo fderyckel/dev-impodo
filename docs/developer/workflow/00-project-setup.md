@@ -101,6 +101,13 @@ successor revision. `RecipeRepository` stores the protected payload and
 registry revision through a recoverable operation. It leaves all Project and
 DataVersion identities unchanged.
 
+The Stage 5 **Review and save Recipe** link is a navigation handoff only. The
+Project overview owns the explicit publication command, reports the first
+blocking rule with its recovery route, and redirects a successful publication
+to the exact Recipe card. **Open Recipe** reads one verified revision on the
+Project-scoped Recipe detail route; the Project list remains a bounded registry
+projection.
+
 ## Background preparation
 
 The browser captures Project, DataVersion, run, and workspace identities before
@@ -168,7 +175,8 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | Source ownership cutover | [`DataVersionOwnedSourceRepository`](../../../src/impodo/adapters/duckdb/data_version_source_repository.py), [`WorkspaceDataVersionSourceService`](../../../src/impodo/application/workspace_data_version_source_service.py) |
 | Owner-specific artifact stores | [`DataVersionSourceArtifactStore` and `WorkspaceArtifactStore`](../../../src/impodo/application/shared/artifacts.py) |
 | Run target setup | [`MigrationRunTargetSetupService`](../../../src/impodo/domain/run/setup.py) |
-| Optional compilation and publication | [`RecipeCompiler.compile_workspace`](../../../src/impodo/application/recipe_compilation_service.py), [`RecipePublicationService`](../../../src/impodo/application/recipe_publication_service.py) |
+| Optional compilation and publication | [`RecipeCompiler.compile_workspace`](../../../src/impodo/application/recipe_compilation_service.py), [`RecipeApplicationCompiler._field`](../../../src/impodo/application/recipe_application_compilation.py), and [`RecipePublicationService`](../../../src/impodo/application/recipe_publication_service.py) |
+| Project Recipe presentation | [`build_recipe_definition_view`](../../../src/impodo/web/presenters/recipes.py) and [`project_recipe_detail.html`](../../../src/impodo/web/templates/project_recipe_detail.html) |
 | Odoo connection boundary | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
 | Bounded navigation query | [`WorkspaceNavigationQueryService`](../../../src/impodo/application/workspace/navigation.py) and [`WorkspaceNavigationRepository`](../../../src/impodo/adapters/duckdb/navigation_repository.py) |
 | Navigation presentation | [`build_workspace_navigation`](../../../src/impodo/web/presenters/navigation.py) |

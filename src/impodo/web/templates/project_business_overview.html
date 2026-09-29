@@ -6,7 +6,6 @@
     <div>
       <p class="eyebrow">Data project</p>
       <h1>{{ project.display_name }}</h1>
-      <p>{{ project.migration_purpose }}</p>
     </div>
     <span class="status {% if project.status.value == 'DRAFT' %}draft{% else %}registered{% endif %}">{% if project.status.value == 'DRAFT' %}Setup{% else %}Ready{% endif %}</span>
   </div>
@@ -19,7 +18,7 @@
           {{ concept_help_link("workspace", "Explain why this workspace uses one data version") }}
         </div>
         <h2>Continue preparing and matching the sample data</h2>
-        <p>This workspace uses Data version {{ authoring_data_version.version_number }}. You can complete this migration once without saving a Recipe.</p>
+        <p>Data version {{ authoring_data_version.version_number }}</p>
       </div>
       <a class="button primary" href="/workspaces/{{ authoring_workspace.workspace_id }}/overview">Open workspace</a>
     </section>
@@ -140,11 +139,12 @@
     {% if recipes %}
       <ol class="overview-stages">
         {% for recipe in recipes %}
-          <li class="overview-stage complete">
+          <li class="overview-stage complete" id="recipe-{{ recipe.recipe_id }}" tabindex="-1" data-focus-on-hash>
             <div class="overview-stage-number">{{ recipe.current_recipe_revision }}</div>
             <div class="overview-stage-copy">
               <h3>{{ recipe.display_name }}</h3>
               <p>{{ recipe.business_purpose }} · Recipe v{{ recipe.current_recipe_revision }}</p>
+              <a class="button secondary" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}">Open Recipe</a>
               {% if recipe_draft and recipe_draft.can_publish %}
                 <form method="post" action="/projects/{{ project.project_id }}/recipes">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -162,11 +162,15 @@
           </li>
         {% endfor %}
       </ol>
-    {% else %}
+    {% elif not (recipe_draft and recipe_draft.issues) %}
       <p>No Recipe has been saved. The data project and workspace remain fully usable.</p>
     {% endif %}
 
     {% if recipe_draft and recipe_draft.can_publish %}
+      <div class="notice success" role="status">
+        <strong>Ready to save.</strong>
+        <p>The current reusable rules passed the Recipe readiness check.</p>
+      </div>
       <form method="post" action="/projects/{{ project.project_id }}/recipes">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="operation_id" value="{{ publication_operation_id }}">
@@ -180,8 +184,16 @@
       </form>
     {% elif recipe_draft and recipe_draft.issues %}
       <div class="notice">
-        <strong>Reusable rules are not ready yet.</strong>
+        <strong>Recipe needs attention.</strong>
+        {% if not recipes %}<p>No Recipe has been saved yet.</p>{% endif %}
         <p>{{ recipe_draft.issues[0].message }} {{ recipe_draft.issues[0].recovery_action }}</p>
+        <a class="button secondary" href="{{ recipe_recovery.href }}">{{ recipe_recovery.label }}</a>
+        {% if recipe_recovery.reference %}
+          <details>
+            <summary>Support details</summary>
+            <p><code>{{ recipe_recovery.reference }}</code></p>
+          </details>
+        {% endif %}
       </div>
     {% endif %}
   </section>

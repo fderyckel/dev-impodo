@@ -590,12 +590,10 @@ class RecipeCompiler:
                     ]
                     provider["rules"] = [
                         {
-                            "rule_id": rule.rule_id,
                             "join": rule.join.value,
                             "target_value": rule.target_value,
                             "conditions": [
                                 {
-                                    "condition_id": condition.condition_id,
                                     "source_column_id": self._column(
                                         dataset.dataset_id,
                                         condition.source_column_key,
@@ -859,6 +857,12 @@ class RecipeCompiler:
             for field in dataset.fields:
                 if field.source_column_key is not None:
                     keys.add(field.source_column_key)
+                if field.selection_rules is not None:
+                    keys.update(
+                        condition.source_column_key
+                        for rule in field.selection_rules.rules
+                        for condition in rule.conditions
+                    )
                 if field.reference_lookup is not None:
                     keys.update(field.reference_lookup.key_source_column_keys)
             for relation in dataset.relationships:

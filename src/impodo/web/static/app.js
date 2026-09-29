@@ -42,6 +42,21 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   setupBlockers?.focus();
 
+  if (window.location.hash.length > 1) {
+    let hashTargetId = "";
+    try {
+      hashTargetId = decodeURIComponent(window.location.hash.slice(1));
+    } catch (_error) {
+      hashTargetId = "";
+    }
+    const hashTarget = hashTargetId
+      ? document.getElementById(hashTargetId)
+      : null;
+    if (hashTarget?.matches("[data-focus-on-hash]")) {
+      window.requestAnimationFrame(() => hashTarget.focus({ preventScroll: true }));
+    }
+  }
+
   const readCredentialDialog = document.querySelector(
     "[data-read-credential-dialog]"
   );

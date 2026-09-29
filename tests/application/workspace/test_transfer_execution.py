@@ -244,6 +244,134 @@ class TransferExecutionCompilerTests(unittest.TestCase):
         self.assertTrue(new_uom.proposed_external_id.startswith("impodo_"))
         self.assertEqual(type(snapshot).from_json(snapshot.to_json()), snapshot)
 
+    def test_identity_issue_record_put_aside_is_absent_from_execution(self) -> None:
+        product_dataset, uom_dataset = self.selection.datasets
+        source_values = _SourceValues(
+            {
+                (product_dataset.dataset_id, "product-code"): (
+                    {"value": "P001", "count": 1},
+                ),
+                (uom_dataset.dataset_id, "uom-name"): (
+                    {"value": "Kilogram", "count": 1},
+                    {"value": "Unit", "count": 1},
+                ),
+            },
+            {
+                (product_dataset.dataset_id, "product-code"): (None, "P001"),
+                (product_dataset.dataset_id, ("product-code",)): (
+                    (None,),
+                    ("P001",),
+                ),
+                (uom_dataset.dataset_id, "uom-name"): ("Unit", "Kilogram"),
+            },
+        )
+        captured = []
+
+        def capture(*args):
+            metadata, records = self.reader(*args)
+            captured.append(records)
+            return metadata, records
+
+        base_workspace = _workspace(self.now)
+        match = DestinationMatchingService(source_values).check(
+            base_workspace,
+            self.selection,
+            self.schema,
+            (
+                DestinationMatchKeyChoice(
+                    product_dataset.dataset_id, "product-code"
+                ),
+                DestinationMatchKeyChoice(uom_dataset.dataset_id, "uom-name"),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(base_workspace),
+            reader=capture,
+            recorded_by="Data manager",
+            source_origins=self.origins,
+            excluded_source_rows={product_dataset.dataset_id: (1,)},
+        )
+        matched = replace(base_workspace, destination_match_plan=match)
+        order = TransferOrderService().build(
+            matched,
+            match,
+            recorded_by="Data manager",
+        )
+        ordered = replace(matched, transfer_order_plan=order)
+        package = TransferReviewService().build(
+            ordered,
+            match,
+            order,
+            run_id=str(uuid4()),
+            data_version_id=self.selection.data_version_id,
+            built_by=LOCAL_ACTOR.identity,
+        )
+        approval = TransferReviewApproval.approve(
+            package,
+            approval_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+            approved_at=datetime.now(UTC),
+        )
+        approved = replace(
+            ordered,
+            transfer_review_package=package,
+            transfer_review_approval=approval,
+        )
+        report = TransferPreflightService().build(
+            approved,
+            package,
+            approval,
+            match,
+            match,
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+        rows = {
+            **self.rows,
+            product_dataset.dataset_id: (
+                SourceRow(1, {"default_code": None, "name": "No reference"}),
+                SourceRow(2, {"default_code": "P001", "name": "Product 1"}),
+            ),
+        }
+
+        snapshot = compile_transfer_execution_snapshot(
+            replace(approved, transfer_preflight_report=report),
+            self.selection,
+            self.schema,
+            package,
+            report,
+            match,
+            captured[0],
+            source_rows=rows,
+            source_origins=self.origins,
+            source_snapshots=self.snapshots,
+            source_manifest_hashes=self.manifests,
+        )
+
+        self.assertEqual(
+            next(
+                item for item in package.datasets
+                if item.dataset_id == product_dataset.dataset_id
+            ).excluded_source_record_count,
+            1,
+        )
+        self.assertNotIn(
+            (product_dataset.name, 1),
+            {(row.dataset, row.source_row) for row in snapshot.rows},
+        )
+        retained_product = next(
+            row
+            for row in snapshot.rows
+            if row.dataset == product_dataset.name
+        )
+        self.assertEqual(retained_product.source_row, 2)
+        self.assertEqual(retained_product.source_identity, ("P001",))
+        retained_uom = next(
+            field for field in retained_product.fields if field.field == "uom_id"
+        )
+        self.assertIsInstance(retained_uom.value, LogicalReference)
+        self.assertEqual(retained_uom.value.key, ("Kilogram",))
+        self.assertEqual(len(snapshot.rows), 3)
+
     def test_create_only_incoming_reference_uses_selected_source_record(self) -> None:
         product_dataset, uom_dataset = self.selection.datasets
         captured = []

@@ -23,6 +23,24 @@ that read and stages an exact execution snapshot without constructing a writer.
 Only a separate confirmation, bound to the current workspace revision,
 preflight hash, and snapshot hash, may enter execution.
 
+The preceding destination-matching plan is also fail-closed. Contract version
+11 binds exact destination identity reads in 500-key chunks, the governed
+Product Category path identity, every explicit source field that the data
+manager puts outside the destination write scope, and every blank or duplicate
+source-identity row that the data manager puts outside the transfer. Earlier
+plan versions remain readable but cannot satisfy current readiness. This
+prevents an approved execution snapshot from inheriting the former
+1,000-choice interactive ceiling, a leaf-only category identity, an unrecorded
+field omission, or a source-record omission that was not explicitly reviewed.
+
+An excluded source row remains part of immutable frozen source evidence. The
+matching plan records its physical row number without persisting the row's
+business values. Matching, relationship totals, transfer review, preflight,
+and execution use only retained rows. A retained relationship to an excluded
+supporting row remains blocking. Before execution compilation omits a row, it
+must prove that the full frozen row count and the approved exclusion count
+still match the current plan and review package.
+
 ## Authorization and binding
 
 Prepared-data execution requires a current `READY` final-review report. An

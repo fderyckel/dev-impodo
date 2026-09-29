@@ -9,6 +9,14 @@ from math import isfinite
 from typing import Mapping, Protocol, Sequence
 from uuid import uuid4
 
+from impodo.domain.execution.planner import MAX_KEYS_PER_RECORD_REQUEST
+from impodo.domain.mapping.create_field_policy import (
+    CreateFieldCoverage,
+    VerifiedCreateDefaultAction,
+    decide_verified_create_default,
+    evaluate_create_field,
+    required_create_hook_inputs,
+)
 from impodo.domain.odoo.compatibility import (
     OdooOperation,
     assess_odoo_operation,
@@ -22,23 +30,21 @@ from impodo.domain.odoo.contracts import (
     metadata_snapshot_payload,
     record_snapshot_payload,
 )
+from impodo.domain.odoo_provenance import OdooOriginBatch
+from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from impodo.domain.serialization import content_hash
-from impodo.domain.mapping.create_field_policy import (
-    CreateFieldCoverage,
-    VerifiedCreateDefaultAction,
-    decide_verified_create_default,
-    evaluate_create_field,
-    required_create_hook_inputs,
+from impodo.domain.shared.models import (
+    OdooReadIdentity,
+    TargetRecord,
+    target_record_binding_hash,
 )
+from impodo.domain.source_binding import OdooSourceBinding
+from impodo.domain.workspace.business_keys import recommend_business_key
 from impodo.domain.workspace.portable_identity import (
     portable_components,
     portable_identity,
     record_identity,
 )
-from impodo.domain.odoo_provenance import OdooOriginBatch
-from impodo.domain.shared.models import OdooReadIdentity
-from impodo.domain.shared.models import target_record_binding_hash
-from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -62,18 +68,21 @@ from impodo.domain.workspace.workbench import (
 )
 
 
-DESTINATION_MATCH_MAX_DISTINCT_KEYS = 1_000
-DESTINATION_MATCH_RECORD_LIMIT = 1_001
+DESTINATION_MATCH_MAX_DISTINCT_KEYS = CURRENT_ODOO_SOURCE_POLICY.max_rows
+DESTINATION_MATCH_RECORD_LIMIT = MAX_KEYS_PER_RECORD_REQUEST + 1
+DESTINATION_GOVERNED_IDENTITY_MODELS = frozenset({"product.category"})
 _TEXT_KEY_TYPES = frozenset({"char", "text", "selection"})
 
 
 class DestinationSourceValueReader(Protocol):
-    def source_value_choices(
+    def source_identity_counts(
         self,
         workspace_id: str,
         dataset_id: str,
         source_column_key: str,
-    ) -> tuple[dict[str, object], ...]: ...
+        *,
+        maximum_distinct_values: int,
+    ) -> tuple[tuple[str, int], ...]: ...
 
     def source_key_rows(
         self,
@@ -112,6 +121,31 @@ class DestinationMatchKeyChoice:
 
 
 @dataclass(frozen=True, slots=True)
+class DestinationGovernedIdentityComponent:
+    """One required business component shown without making it optional."""
+
+    field_name: str
+    label: str
+    scope: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DestinationGovernedKeyChoice:
+    """One model-aware identity that Stage 4 must apply exactly."""
+
+    dataset_id: str
+    source_column_keys: tuple[str, ...]
+    key_fields: tuple[str, ...]
+    title: str
+    reason: str
+    warning: str
+    components: tuple[DestinationGovernedIdentityComponent, ...]
+    comparison_label: str
+    comparison_field: str
+    relationship_scoped: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class _PreparedModel:
     dataset_id: str
     dataset_name: str
@@ -124,9 +158,14 @@ class _PreparedModel:
     key_field_label: str
     source_row_count: int
     source_counts: Counter[str]
-    source_first_values: tuple[str, ...]
+    source_query_values: tuple[tuple[str, ...], ...]
     source_identity_values: tuple[tuple[bool | int | float | str, ...], ...]
     source_fields: tuple[SchemaField, ...]
+    excluded_source_row_numbers: tuple[int, ...] = ()
+
+    @property
+    def included_source_row_count(self) -> int:
+        return self.source_row_count - len(self.excluded_source_row_numbers)
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +199,89 @@ def _is_transferable_relationship_field(
     )
 
 
+def _is_transferable_scalar_field(
+    field: SchemaField,
+    selected_source_names: set[str],
+) -> bool:
+    """Keep captured business values while excluding Odoo-managed evidence."""
+
+    return (
+        field.name in selected_source_names
+        and field.type not in {"many2one", "many2many", "one2many"}
+        and not field.readonly
+        and field.related is not True
+        and not (field.computed is True and field.has_inverse is not True)
+        and field.stored is not False
+    )
+
+
+def _destination_record_requests(
+    prepared: tuple[_PreparedModel, ...],
+) -> tuple[RecordRequest, ...]:
+    """Plan exact business-key reads in the shared bounded key size."""
+
+    requests: list[RecordRequest] = []
+    for item in sorted(prepared, key=lambda current: current.model):
+        values = item.source_query_values
+        for start in range(0, len(values), MAX_KEYS_PER_RECORD_REQUEST):
+            batch = values[start : start + MAX_KEYS_PER_RECORD_REQUEST]
+            requests.append(
+                RecordRequest(
+                    model=item.model,
+                    fields=item.key_fields,
+                    domain=_exact_identity_domain(item.key_fields, batch),
+                    limit=DESTINATION_MATCH_RECORD_LIMIT,
+                )
+            )
+    return tuple(requests)
+
+
+def _exact_identity_domain(
+    fields: tuple[str, ...],
+    values: Sequence[tuple[str, ...]],
+) -> tuple[object, ...]:
+    """Return one exact Odoo domain for at most one governed key chunk."""
+
+    if (
+        not fields
+        or not values
+        or any(len(value) != len(fields) for value in values)
+    ):
+        raise WorkspaceError("Destination matching key evidence is incomplete")
+    if len(fields) == 1:
+        return ((fields[0], "in", tuple(value[0] for value in values)),)
+    expressions: list[list[object]] = []
+    for value in values:
+        terms: list[object] = [
+            (field, "=", component)
+            for field, component in zip(fields, value, strict=True)
+        ]
+        expressions.append(["&"] * (len(terms) - 1) + terms)
+    return tuple(
+        ["|"] * (len(expressions) - 1)
+        + [term for expression in expressions for term in expression]
+    )
+
+
+def _destination_chunk_limit_reached(
+    item: _PreparedModel,
+    target_rows: Sequence[TargetRecord],
+) -> bool:
+    """Detect a truncated exact-key chunk without exposing its key values."""
+
+    chunk_by_key = {
+        portable_identity(identity): index // MAX_KEYS_PER_RECORD_REQUEST
+        for index, identity in enumerate(item.source_query_values)
+    }
+    counts: Counter[int] = Counter()
+    for row in target_rows:
+        value = record_identity(row.values, item.key_fields)
+        chunk = chunk_by_key.get(value)
+        if chunk is not None:
+            counts[chunk] += 1
+    return any(count >= DESTINATION_MATCH_RECORD_LIMIT for count in counts.values())
+
+
 class DestinationMatchingService:
     """Check same-name destination fields and exact natural-key matches."""
 
@@ -179,6 +301,7 @@ class DestinationMatchingService:
         reader: DestinationMatchReader,
         recorded_by: str,
         source_origins: Mapping[str, tuple[OdooOriginBatch, ...]] | None = None,
+        excluded_source_rows: Mapping[str, Sequence[int]] | None = None,
     ) -> DestinationMatchPlan:
         """Return a current plan from one bounded metadata/record read."""
 
@@ -191,12 +314,19 @@ class DestinationMatchingService:
             raise WorkspaceError("Choose one matching field for each source table")
 
         source_models = {item.name: item for item in source_schema.models}
+        governed_choices = destination_governed_key_choices(
+            selection,
+            source_schema,
+        )
         selected_model_names = {
             dataset.source.model
             for dataset in selection.datasets
             if isinstance(dataset.source, OdooSourceBinding)
         }
         prepared: list[_PreparedModel] = []
+        exclusions_by_dataset = dict(excluded_source_rows or {})
+        if set(exclusions_by_dataset) - {item.dataset_id for item in selection.datasets}:
+            raise WorkspaceError("Excluded source rows do not belong to this selection")
         for dataset in selection.datasets:
             if not isinstance(dataset.source, OdooSourceBinding):
                 raise WorkspaceError(
@@ -208,6 +338,24 @@ class DestinationMatchingService:
                     f"Refresh the source fields for {dataset.source.model} first"
                 )
             source_column_keys = selected[dataset.dataset_id]
+            governed = governed_choices.get(dataset.dataset_id)
+            if (
+                source_model.name in DESTINATION_GOVERNED_IDENTITY_MODELS
+                and governed is None
+            ):
+                raise WorkspaceError(
+                    f"{source_model.label} requires captured Complete Name and "
+                    "Parent Category evidence; return to the source data and "
+                    "capture those fields before matching"
+                )
+            if (
+                governed is not None
+                and source_column_keys != governed.source_column_keys
+            ):
+                raise WorkspaceError(
+                    f"{source_model.label} uses the governed identity "
+                    f"{governed.title}; reload this page and try again"
+                )
             if (
                 not 1 <= len(source_column_keys) <= 3
                 or len(set(source_column_keys)) != len(source_column_keys)
@@ -238,19 +386,62 @@ class DestinationMatchingService:
                 )
             key_field = key_fields[0]
             source_counts: Counter[str] = Counter()
-            first_values: set[str] = set()
             identity_by_key: dict[
                 str, tuple[bool | int | float | str, ...]
             ] = {}
-            if len(key_fields) == 1:
-                raw_choices = self._source_values.source_value_choices(
+            raw_exclusions = exclusions_by_dataset.get(dataset.dataset_id, ())
+            if any(
+                not isinstance(number, int)
+                or isinstance(number, bool)
+                or number < 1
+                or number > dataset.row_count
+                for number in raw_exclusions
+            ):
+                raise WorkspaceError(
+                    f"Choose current source records for {dataset.name}"
+                )
+            exclusions = tuple(sorted(set(raw_exclusions)))
+            if exclusions:
+                rows = self._source_values.source_key_tuples(
+                    workspace.workspace_id,
+                    dataset.dataset_id,
+                    source_column_keys,
+                )
+                if len(rows) != dataset.row_count or any(
+                    len(row) != len(key_fields) for row in rows
+                ):
+                    raise WorkspaceError(
+                        f"The frozen matching rows for {dataset.name} are inconsistent"
+                    )
+                full_keys = tuple(portable_identity(row) for row in rows)
+                full_counts = Counter(value for value in full_keys if value)
+                issue_rows = {
+                    index
+                    for index, value in enumerate(full_keys, start=1)
+                    if not value or full_counts[value] > 1
+                }
+                if not set(exclusions).issubset(issue_rows):
+                    raise WorkspaceError(
+                        f"Only current identity issues can be put aside for {dataset.name}"
+                    )
+                for index, row in enumerate(rows, start=1):
+                    if index in exclusions:
+                        continue
+                    value = full_keys[index - 1]
+                    if value:
+                        source_counts[value] += 1
+                        identity = portable_components(row)
+                        if len(identity) == len(key_fields):
+                            identity_by_key[value] = identity
+            elif len(key_fields) == 1:
+                raw_choices = self._source_values.source_identity_counts(
                     workspace.workspace_id,
                     dataset.dataset_id,
                     source_column_keys[0],
+                    maximum_distinct_values=DESTINATION_MATCH_MAX_DISTINCT_KEYS,
                 )
-                for item in raw_choices:
-                    value = portable_identity((item.get("value"),))
-                    count = item.get("count")
+                for raw_value, count in raw_choices:
+                    value = portable_identity((raw_value,))
                     if (
                         not value
                         or not isinstance(count, int)
@@ -261,8 +452,7 @@ class DestinationMatchingService:
                             f"The frozen matching values for {dataset.name} are invalid"
                         )
                     source_counts[value] += count
-                    first_values.add(value)
-                    identity = portable_components((item.get("value"),))
+                    identity = portable_components((raw_value,))
                     if len(identity) == 1:
                         identity_by_key[value] = identity
             else:
@@ -283,13 +473,14 @@ class DestinationMatchingService:
                     value = portable_identity(row)
                     if value:
                         source_counts[value] += 1
-                        first_values.add(portable_identity(row[:1]))
                         identity = portable_components(row)
                         if len(identity) == len(key_fields):
                             identity_by_key[value] = identity
             if len(source_counts) > DESTINATION_MATCH_MAX_DISTINCT_KEYS:
                 raise WorkspaceError(
-                    f"{dataset.name} has too many distinct matching values for this stage"
+                    f"{dataset.name} has {len(source_counts):,} distinct matching "
+                    f"values; destination matching supports up to "
+                    f"{DESTINATION_MATCH_MAX_DISTINCT_KEYS:,}"
                 )
             if sum(source_counts.values()) > dataset.row_count:
                 raise WorkspaceError(
@@ -311,7 +502,9 @@ class DestinationMatchingService:
                     key_field_label=key_field.label,
                     source_row_count=dataset.row_count,
                     source_counts=source_counts,
-                    source_first_values=tuple(sorted(first_values)),
+                    source_query_values=tuple(
+                        identity_by_key[key] for key in sorted(identity_by_key)
+                    ),
                     source_identity_values=tuple(
                         identity_by_key[key]
                         for key in sorted(identity_by_key)
@@ -320,12 +513,16 @@ class DestinationMatchingService:
                     source_fields=tuple(
                         field
                         for field in source_model.fields
-                        if field.name in selected_source_names
+                        if _is_transferable_scalar_field(
+                            field,
+                            selected_source_names,
+                        )
                         or _is_transferable_relationship_field(
                             field,
                             selected_model_names,
                         )
                     ),
+                    excluded_source_row_numbers=exclusions,
                 )
             )
 
@@ -358,16 +555,7 @@ class DestinationMatchingService:
             )
             for item in sorted(prepared, key=lambda current: current.model)
         )
-        record_requests = tuple(
-            RecordRequest(
-                model=item.model,
-                fields=item.key_fields,
-                domain=((item.key_field, "in", item.source_first_values),),
-                limit=DESTINATION_MATCH_RECORD_LIMIT,
-            )
-            for item in sorted(prepared, key=lambda current: current.model)
-            if item.source_counts
-        )
+        record_requests = _destination_record_requests(tuple(prepared))
         metadata, records = reader(
             destination,
             api_key,
@@ -516,9 +704,11 @@ class DestinationMatchingService:
             source_column_key=item.source_column_key,
             key_field=item.key_field,
             key_field_label=item.key_field_label,
-            source_row_count=item.source_row_count,
+            source_row_count=item.included_source_row_count,
             source_distinct_key_count=len(item.source_counts),
-            source_blank_row_count=max(0, item.source_row_count - source_value_rows),
+            source_blank_row_count=max(
+                0, item.included_source_row_count - source_value_rows
+            ),
             source_duplicate_key_count=sum(
                 1 for count in item.source_counts.values() if count > 1
             ),
@@ -540,11 +730,13 @@ class DestinationMatchingService:
                 and (state_field := destination_model.fields.get("state")) is not None
                 and state_field.type == "selection"
             ),
-            destination_limit_reached=(
-                len(target_rows) >= DESTINATION_MATCH_RECORD_LIMIT
+            destination_limit_reached=_destination_chunk_limit_reached(
+                item,
+                target_rows,
             ),
             source_column_keys=item.source_column_keys,
             key_fields=item.key_fields,
+            excluded_source_row_numbers=item.excluded_source_row_numbers,
         )
         return result, destination_counts, decisions, values
 
@@ -585,7 +777,15 @@ class DestinationMatchingService:
                     expected_rows=item.source_row_count,
                     dataset_name=item.dataset_name,
                 )
-                id_to_key[item.dataset_id] = dict(zip(identifiers, rows, strict=True))
+                excluded = set(item.excluded_source_row_numbers)
+                id_to_key[item.dataset_id] = {
+                    identifier: key
+                    for index, (identifier, key) in enumerate(
+                        zip(identifiers, rows, strict=True),
+                        start=1,
+                    )
+                    if index not in excluded
+                }
 
         results: list[DestinationRelationshipMatch] = []
         for relationship in relationships:
@@ -619,7 +819,10 @@ class DestinationMatchingService:
                 relationship.related.model,
                 Counter(),
             )
-            for members in columns:
+            excluded_owners = set(relationship.owner.excluded_source_row_numbers)
+            for row_number, members in enumerate(columns, start=1):
+                if row_number in excluded_owners:
+                    continue
                 if not members:
                     source_blanks += 1
                 source_links += len(members)
@@ -654,7 +857,7 @@ class DestinationMatchingService:
                         "set" if relationship.field.type == "many2one" else "replace"
                     ),
                     inverse_field=relationship.inverse_field,
-                    source_owner_count=relationship.owner.source_row_count,
+                    source_owner_count=relationship.owner.included_source_row_count,
                     source_link_count=source_links,
                     source_blank_owner_count=source_blanks,
                     destination_reused_link_count=reused,
@@ -1237,6 +1440,80 @@ def destination_match_key_candidates(
             )
         )
     return result
+
+
+def destination_governed_key_choices(
+    selection: SourceSelection,
+    source_schema: OdooSchemaCatalog,
+) -> dict[str, DestinationGovernedKeyChoice]:
+    """Return exact model-aware identities that are not operator alternatives.
+
+    Product categories use Odoo's frozen complete path as the portable
+    comparison value while ``parent_id`` remains protected relationship
+    evidence.  This distinguishes equal leaf names beneath different parents
+    without moving a numeric Odoo identifier into portable evidence.  Other
+    recommendations remain non-binding choices.
+    """
+
+    models = {item.name: item for item in source_schema.models}
+    governed: dict[str, DestinationGovernedKeyChoice] = {}
+    for dataset in selection.datasets:
+        if not isinstance(dataset.source, OdooSourceBinding):
+            continue
+        model = models.get(dataset.source.model)
+        if model is None:
+            continue
+        recommendation = recommend_business_key(model)
+        if recommendation is None:
+            continue
+        fields = {item.name: item for item in model.fields}
+        columns = {item.source_name: item.stable_key for item in dataset.columns}
+        if (
+            model.name != "product.category"
+            or recommendation.key_fields != ("name",)
+            or recommendation.scope_fields != ("parent_id",)
+            or "complete_name" not in columns
+            or fields.get("complete_name") is None
+            or fields["complete_name"].type not in _TEXT_KEY_TYPES
+        ):
+            continue
+        source_names = ("complete_name",)
+        key_fields = ("complete_name",)
+        comparison_field = "complete_name"
+        if any(name not in columns or name not in fields for name in source_names):
+            continue
+        if (
+            fields[key_fields[0]].type not in _TEXT_KEY_TYPES
+            or any(
+                fields[name].type not in _TEXT_KEY_TYPES | {"integer"}
+                for name in key_fields
+            )
+        ):
+            continue
+        component_names = (
+            *recommendation.key_fields,
+            *recommendation.scope_fields,
+        )
+        governed[dataset.dataset_id] = DestinationGovernedKeyChoice(
+            dataset_id=dataset.dataset_id,
+            source_column_keys=tuple(columns[name] for name in source_names),
+            key_fields=key_fields,
+            title=recommendation.description,
+            reason=recommendation.reason,
+            warning=recommendation.warning,
+            components=tuple(
+                DestinationGovernedIdentityComponent(
+                    field_name=name,
+                    label=fields[name].label,
+                    scope=name in recommendation.scope_fields,
+                )
+                for name in component_names
+            ),
+            comparison_label=fields[comparison_field].label,
+            comparison_field=comparison_field,
+            relationship_scoped=bool(recommendation.scope_fields),
+        )
+    return governed
 
 
 def _key_rank(field_name: str) -> int:

@@ -50,10 +50,13 @@ from impodo.web.diagnostics import (
 from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
 from impodo.web.server_supervisor import (
     ClosedConnectionSafeH11Protocol,
+    SERVER_CHILD_GRACEFUL_SHUTDOWN_SECONDS,
+    SERVER_CHILD_TERMINATE_SECONDS,
     ServerChildSettings,
     ServerSupervisionResult,
     _open_child_diagnostic_recorder,
     _run_server,
+    _serve_child_process,
     bind_loopback_listener,
     listener_is_owned_loopback,
     spawn_server_process,
@@ -752,6 +755,25 @@ class _FakeServerChild:
         self.joined = True
 
 
+class _InterruptingServerChild(_FakeServerChild):
+    def __init__(self, *, exits_gracefully: bool) -> None:
+        super().__init__(process_id=6200, exit_code=0)
+        self.exits_gracefully = exits_gracefully
+        self.join_timeouts: list[float | None] = []
+        self.terminated = False
+
+    def join(self, timeout: float | None = None) -> None:
+        self.join_timeouts.append(timeout)
+        if len(self.join_timeouts) == 1:
+            raise KeyboardInterrupt
+        if self.exits_gracefully or self.terminated:
+            self.joined = True
+
+    def terminate(self) -> None:
+        self.terminated = True
+        super().terminate()
+
+
 class ClosedConnectionSafeH11ProtocolTests(unittest.TestCase):
     def test_late_bytes_are_ignored_after_h11_connection_closes(self) -> None:
         protocol = object.__new__(ClosedConnectionSafeH11Protocol)
@@ -815,6 +837,114 @@ class ServerSupervisorTests(unittest.TestCase):
             recorder_type.call_args_list[1].kwargs["log_name"],
             f"{DIAGNOSTIC_LOG_NAME}.process-{os.getpid()}",
         )
+
+    def test_console_interrupt_allows_child_to_finish_gracefully(self) -> None:
+        listener = bind_loopback_listener(0)
+        self.assertIsNotNone(listener)
+        assert listener is not None
+        child = _InterruptingServerChild(exits_gracefully=True)
+        settings = ServerChildSettings(
+            project_root=Path("projects"),
+            expected_host=f"127.0.0.1:{listener.getsockname()[1]}",
+            launch_token="launch-token",
+            session_secret="session-secret",
+            diagnostics_root=None,
+            development_mode=True,
+        )
+
+        result = supervise_server(
+            listener,
+            settings,
+            process_factory=lambda *_args: child,
+            browser_opener=lambda *_args, **_kwargs: True,
+        )
+
+        self.assertEqual(result.reason, "keyboard_interrupt")
+        self.assertFalse(child.terminated)
+        self.assertEqual(
+            child.join_timeouts,
+            [None, SERVER_CHILD_GRACEFUL_SHUTDOWN_SECONDS],
+        )
+
+    def test_console_interrupt_terminates_child_after_grace_period(self) -> None:
+        listener = bind_loopback_listener(0)
+        self.assertIsNotNone(listener)
+        assert listener is not None
+        child = _InterruptingServerChild(exits_gracefully=False)
+        settings = ServerChildSettings(
+            project_root=Path("projects"),
+            expected_host=f"127.0.0.1:{listener.getsockname()[1]}",
+            launch_token="launch-token",
+            session_secret="session-secret",
+            diagnostics_root=None,
+            development_mode=True,
+        )
+
+        result = supervise_server(
+            listener,
+            settings,
+            process_factory=lambda *_args: child,
+            browser_opener=lambda *_args, **_kwargs: True,
+        )
+
+        self.assertEqual(result.reason, "keyboard_interrupt")
+        self.assertTrue(child.terminated)
+        self.assertEqual(
+            child.join_timeouts,
+            [
+                None,
+                SERVER_CHILD_GRACEFUL_SHUTDOWN_SECONDS,
+                SERVER_CHILD_TERMINATE_SECONDS,
+            ],
+        )
+
+    def test_child_console_interrupt_is_a_clean_stop(self) -> None:
+        listener = Mock()
+        listener.getsockname.return_value = ("127.0.0.1", 8181)
+        diagnostics = Mock()
+        app = SimpleNamespace(state=SimpleNamespace())
+        settings = ServerChildSettings(
+            project_root=Path("projects"),
+            expected_host="127.0.0.1:8181",
+            launch_token="launch-token",
+            session_secret="session-secret",
+            diagnostics_root=Path("diagnostics"),
+            development_mode=True,
+        )
+
+        with (
+            patch("impodo.web.server_supervisor.logging.config.dictConfig"),
+            patch(
+                "impodo.web.server_supervisor._open_child_diagnostic_recorder",
+                return_value=diagnostics,
+            ),
+            patch(
+                "impodo.web.server_supervisor.create_local_app",
+                return_value=app,
+            ),
+            patch(
+                "impodo.web.server_supervisor._run_server",
+                side_effect=KeyboardInterrupt,
+            ),
+        ):
+            _serve_child_process(listener, settings, 0)
+
+        lifecycle_events = [
+            call.args[0] for call in diagnostics.record_lifecycle.call_args_list
+        ]
+        self.assertEqual(
+            lifecycle_events,
+            [
+                "server_process_started",
+                "server_process_interrupted",
+                "server_process_stopped",
+            ],
+        )
+        self.assertEqual(
+            diagnostics.record_lifecycle.call_args_list[-1].kwargs["exit_code"],
+            0,
+        )
+        diagnostics.close.assert_called_once_with()
 
     def test_spawned_server_reuses_listener_and_session_after_restart(self) -> None:
         with _diagnostic_test_directory("impodo-spawn-restart") as directory:

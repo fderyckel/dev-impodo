@@ -84,20 +84,56 @@ class FixedCompiler:
             CompiledRecipeDefinition(
                 recipe={
                     "contract_versions": {"mapping": 1},
-                    "source_shape": {"datasets": ["customers"]},
+                    "source_shape": {
+                        "datasets": [
+                            {
+                                "logical_dataset_id": "dataset:customers",
+                                "logical_name": "Customers",
+                                "required": True,
+                                "columns": [
+                                    {
+                                        "logical_column_id": (
+                                            "column:customers.customer_name"
+                                        ),
+                                        "source_name": "Customer name",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
                     "parameter_definitions": {"parameters": []},
-                    "source_preparation": {},
+                    "source_preparation": {"rules": []},
                     "mapping": {
-                        "res.partner": {
-                            "name": "customer_name",
-                            "generation": self.generation,
-                        }
+                        "datasets": [
+                            {
+                                "logical_dataset_id": "dataset:customers",
+                                "target_model": "res.partner",
+                                "mode": "UPSERT",
+                                "row_inclusion": {
+                                    "mode": "all_rows",
+                                    "conditions": [],
+                                },
+                                "fields": [
+                                    {
+                                        "target_field": "name",
+                                        "provider": {
+                                            "kind": "CONSTANT",
+                                            "source_column_ids": [],
+                                            "literal_value": (
+                                                f"generation-{self.generation}"
+                                            ),
+                                        },
+                                    }
+                                ],
+                                "relationships": [],
+                            }
+                        ]
                     },
                     "odoo_target_contract": {"models": ["res.partner"]},
                     "target_governance": {},
-                    "quality": {},
-                    "reference_dependencies": [],
-                    "control_definitions": [],
+                    "quality": {"rules": []},
+                    "reference_dependencies": {"references": []},
+                    "control_definitions": {"controls": []},
                 },
                 compatibility_hints={"logical_datasets": ["customers"]},
                 source_selection_hash=content_hash({"workspace": workspace_id}),
@@ -737,8 +773,16 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         self.assertRegex(created.headers["location"], r"^/projects/[0-9a-f-]{36}$")
         overview = self.client.get(created.headers["location"])
         self.assertEqual(overview.status_code, 200)
-        self.assertIn(
-            "You can complete this migration once without saving a Recipe",
+        self.assertNotIn("Prepare customers for Odoo 19", overview.text)
+        self.assertIn("Data version 1", overview.text)
+        self.assertIn("Recipe needs attention", overview.text)
+        self.assertIn("Review source data", overview.text)
+        self.assertNotIn(
+            "You can complete this migration once without saving a Recipe.",
+            overview.text,
+        )
+        self.assertNotIn(
+            "No Recipe has been saved. The data project and workspace remain fully usable.",
             overview.text,
         )
         summaries = self.app.state.context.migration_projects.list(
@@ -762,6 +806,102 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         )
         self.assertEqual(self.client.get("/recipes").status_code, 404)
         self.assertEqual(self.client.get("/recipes/new").status_code, 404)
+
+    def test_browser_publishes_and_opens_a_project_recipe(self) -> None:
+        context = self.app.state.context
+        created = context.project_authoring.create(
+            actor=context.actor,
+            display_name="Reusable customer migration",
+            source_mode="FILE",
+            creation_request_id=str(uuid4()),
+        )
+        current = context.data_versions.repository.get_data_version(
+            created.data_version.data_version_id
+        )
+        context.data_versions.repository.save_data_version(
+            replace(
+                current,
+                state=DataVersionState.FROZEN,
+                source_package_hash=content_hash({"package": "browser"}),
+                updated_at=utc_now(),
+                frozen_at=utc_now(),
+            ),
+            expected_revision=current.optimistic_revision,
+            event_type="TEST_DATA_VERSION_FROZEN",
+            actor=context.actor,
+        )
+        context.recipe_publication.compiler = FixedCompiler()
+
+        overview = self.client.get(f"/projects/{created.project.project_id}")
+        self.assertEqual(overview.status_code, 200)
+        self.assertIn("Ready to save", overview.text)
+        operation_id = re.search(
+            r'name="operation_id" value="([^"]+)"',
+            overview.text,
+        )
+        self.assertIsNotNone(operation_id)
+        published = self.client.post(
+            f"/projects/{created.project.project_id}/recipes",
+            data={
+                "csrf_token": self._csrf(overview.text),
+                "operation_id": operation_id.group(1),
+                "data_version_id": created.data_version.data_version_id,
+                "workspace_id": created.workspace.workspace_id,
+                "recipe_id": "",
+                "expected_recipe_revision": "",
+                "display_name": "Customer import",
+                "business_purpose": "Reuse the reviewed customer rules",
+            },
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+
+        recipes = context.recipes.list(
+            created.project.project_id,
+            actor=context.actor,
+        )
+        self.assertEqual(len(recipes), 1)
+        recipe = recipes[0]
+        self.assertEqual(published.status_code, 303)
+        self.assertEqual(
+            published.headers["location"],
+            f"/projects/{created.project.project_id}#recipe-{recipe.recipe_id}",
+        )
+        refreshed = self.client.get(published.headers["location"])
+        self.assertIn("Open Recipe", refreshed.text)
+        self.assertIn(f'id="recipe-{recipe.recipe_id}"', refreshed.text)
+
+        detail = self.client.get(
+            f"/projects/{created.project.project_id}/recipes/{recipe.recipe_id}"
+        )
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn("Customer import", detail.text)
+        self.assertIn("Reuse the reviewed customer rules", detail.text)
+        self.assertIn("What this Recipe will reuse", detail.text)
+        self.assertIn("Customers", detail.text)
+        self.assertIn("Use one value", detail.text)
+        self.assertIn("All source rows", detail.text)
+        self.assertIn("Recipe v1", detail.text)
+
+        other = context.project_authoring.create(
+            actor=context.actor,
+            display_name="Other migration",
+            source_mode="FILE",
+            creation_request_id=str(uuid4()),
+        )
+        self.assertEqual(
+            self.client.get(
+                f"/projects/{other.project.project_id}/recipes/{recipe.recipe_id}"
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(
+                f"/projects/{created.project.project_id}/recipes/"
+                f"{recipe.recipe_id}?version=99"
+            ).status_code,
+            404,
+        )
 
     def test_project_list_survives_a_clean_application_restart(self) -> None:
         context = self.app.state.context

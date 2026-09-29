@@ -9,6 +9,8 @@ always closes the short-lived connection.
 from __future__ import annotations
 
 from contextlib import AbstractContextManager, ExitStack, contextmanager
+from functools import lru_cache
+import os
 from pathlib import Path
 from threading import local
 import time
@@ -34,6 +36,10 @@ _LOCK_CONTENTION_MARKERS = (
     "being used by another process",
     "could not set lock on file",
     "conflicting lock is held",
+)
+_WINDOWS_LOCK_ERROR_CODES = (
+    32,  # ERROR_SHARING_VIOLATION
+    33,  # ERROR_LOCK_VIOLATION
 )
 _DATABASE_BUSY_MESSAGE = (
     "Another Impodo task is still using this workspace's saved data. "
@@ -167,8 +173,33 @@ class DuckDbConnectionFactory:
 
 
 def _is_lock_contention(error: duckdb.IOException) -> bool:
-    message = str(error).casefold()
-    return any(marker in message for marker in _LOCK_CONTENTION_MARKERS)
+    message = _normalized_error_text(str(error))
+    markers = (*_LOCK_CONTENTION_MARKERS, *_windows_lock_contention_markers())
+    return any(_normalized_error_text(marker) in message for marker in markers)
+
+
+def _normalized_error_text(message: str) -> str:
+    """Make OS-formatted messages comparable without changing their language."""
+
+    return " ".join(message.casefold().strip().rstrip(".").split())
+
+
+@lru_cache(maxsize=1)
+def _windows_lock_contention_markers() -> tuple[str, ...]:
+    """Return this Windows installation's localized file-lock messages."""
+
+    if os.name != "nt":
+        return ()
+    try:
+        import ctypes
+
+        return tuple(
+            message
+            for code in _WINDOWS_LOCK_ERROR_CODES
+            if (message := ctypes.FormatError(code).strip())
+        )
+    except (AttributeError, OSError):
+        return ()
 
 
 class DuckDbUnitOfWork(AbstractContextManager["DuckDbUnitOfWork"]):

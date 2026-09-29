@@ -301,6 +301,79 @@
   font-size: .86rem;
 }
 
+.governed-identity-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1.1rem 0 .85rem;
+}
+
+.governed-identity-heading h4,
+.governed-identity-heading p {
+  margin: 0 0 .25rem;
+}
+
+.governed-identity-heading p {
+  max-width: 720px;
+  color: var(--muted);
+  font-size: .86rem;
+}
+
+.identity-kicker {
+  display: block;
+  margin-bottom: .2rem;
+  color: #2e6846;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.governed-identity-components {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: .75rem;
+}
+
+.governed-identity-component {
+  display: flex;
+  align-items: flex-start;
+  gap: .65rem;
+  margin: 0;
+  border: 1px solid #b7d8c3;
+  border-radius: 7px;
+  background: #f3faf5;
+  padding: .8rem;
+}
+
+.governed-identity-component input {
+  flex: 0 0 auto;
+  width: auto;
+  margin: .15rem 0 0;
+  accent-color: #2e6846;
+}
+
+.governed-identity-component > span {
+  min-width: 0;
+}
+
+.governed-identity-component strong,
+.governed-identity-component small {
+  display: block;
+}
+
+.governed-identity-component small {
+  margin-top: .15rem;
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 500;
+}
+
+.governed-optional-fields {
+  margin-top: .9rem;
+}
+
 .identity-expression {
   display: flex;
   flex-wrap: wrap;
@@ -767,6 +840,7 @@
   .matching-page-heading,
   .matching-section-heading,
   .decision-section-heading,
+  .governed-identity-heading,
   .matching-model-header,
   .matching-result-card > header,
   .decision-card > header,

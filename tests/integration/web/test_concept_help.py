@@ -169,9 +169,10 @@ class ConceptHelpBrowserTests(unittest.TestCase):
         response = self.client.get(f"/projects/{bundle.project.project_id}")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("This workspace uses Data version 1", response.text)
-        self.assertIn(
-            "You can complete this migration once without saving a Recipe",
+        self.assertIn("Data version 1", response.text)
+        self.assertNotIn("This workspace uses Data version", response.text)
+        self.assertNotIn(
+            "You can complete this migration once without saving a Recipe.",
             response.text,
         )
         self.assertIn('href="/concepts#workspace"', response.text)

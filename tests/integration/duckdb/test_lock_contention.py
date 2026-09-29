@@ -15,6 +15,10 @@ LOCK_ERROR = (
     'IO Error: Cannot open file "workspace-engine.duckdb": The process cannot access '
     "the file because it is being used by another process."
 )
+FRENCH_WINDOWS_LOCK_ERROR = (
+    'IO Error: Cannot open file "workspace-engine.duckdb": Le processus ne peut pas '
+    "accéder au fichier car ce fichier est utilisé par un autre processus."
+)
 
 
 class DuckDbLockContentionTests(unittest.TestCase):
@@ -61,6 +65,27 @@ class DuckDbLockContentionTests(unittest.TestCase):
         )
         self.assertIn("Another Impodo task", str(raised.exception))
         self.assertIn("No Odoo records were changed", str(raised.exception))
+
+    def test_localized_windows_lock_uses_the_recoverable_failure_path(self) -> None:
+        factory = DuckDbConnectionFactory()
+
+        with (
+            patch(
+                "impodo.adapters.duckdb.unit_of_work."
+                "_windows_lock_contention_markers",
+                return_value=(
+                    "Le processus ne peut pas accéder au fichier car ce fichier "
+                    "est utilisé par un autre processus.",
+                ),
+            ),
+            patch(
+                "impodo.adapters.duckdb.unit_of_work.duckdb.connect",
+                side_effect=duckdb.IOException(FRENCH_WINDOWS_LOCK_ERROR),
+            ),
+            self.assertRaises(WorkspaceDatabaseBusyError),
+        ):
+            with factory.connect(Path("workspace-engine.duckdb")):
+                pass
 
     def test_unrelated_io_error_is_not_mislabeled_as_lock_contention(self) -> None:
         factory = DuckDbConnectionFactory(lock_wait_timeout_seconds=1.0)

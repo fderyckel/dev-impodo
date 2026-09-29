@@ -1338,13 +1338,50 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIsNotNone(matched_state.destination_match_plan)
         self.assertTrue(matched_state.destination_match_plan.ready)
         matched_page = self.client.get(matching_checked.headers["location"])
-        self.assertIn("Destination matching is ready", matched_page.text)
+        self.assertIn(
+            "Destination matching was checked. Complete the remaining decisions",
+            matched_page.text,
+        )
         self.assertIn("<dt>Reuse</dt>", matched_page.text)
         self.assertIn("<dt>Create</dt>", matched_page.text)
-        self.assertIn("Next: review the transfer", matched_page.text)
+        self.assertNotIn("Next: review the transfer", matched_page.text)
         self.assertIn("Complete values for new records", matched_page.text)
         self.assertIn("Purchase order (order)", matched_page.text)
         self.assertIn("Needs decision", matched_page.text)
+        plan_with_missing_field = replace(
+            matched_state.destination_match_plan,
+            model_matches=tuple(
+                replace(item, missing_fields=("version",))
+                if item.model == "res.partner"
+                else item
+                for item in matched_state.destination_match_plan.model_matches
+            ),
+        )
+        matched_state = self.app.state.context.workspace_states.save_destination_match_plan(
+            workspace_id,
+            actor=self.app.state.context.actor,
+            expected_revision=matched_state.revision,
+            plan=plan_with_missing_field,
+        )
+        field_review_page = self.client.get(matching_checked.headers["location"])
+        self.assertIn("Put <code>version</code> aside", field_review_page.text)
+        field_excluded = self._post(
+            f"/workspaces/{workspace_id}/destination-matching/field-scope",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(matched_state.revision),
+                "match_plan_hash": matched_state.destination_match_plan.content_hash,
+                "field_key": "res.partner::version",
+                "field_action": "exclude",
+            },
+        )
+        self.assertEqual(field_excluded.status_code, 303, field_excluded.text)
+        matched_state = self.app.state.context.queries.get(workspace_id)
+        matched_contact = matched_state.destination_match_plan.model_matches[0]
+        self.assertEqual(matched_contact.excluded_fields, ("version",))
+        excluded_page = self.client.get(field_excluded.headers["location"])
+        self.assertIn("Put aside for this transfer", excluded_page.text)
+        self.assertIn("Include again", excluded_page.text)
         pending_default = next(
             item
             for item in matched_state.destination_match_plan.create_field_decisions
@@ -1375,11 +1412,12 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         confirmed_page = self.client.get(confirmed_defaults.headers["location"])
         self.assertIn("Stage 4 complete", confirmed_page.text)
         self.assertIn("Confirmed", confirmed_page.text)
+        self.assertIn("Next: review the transfer", confirmed_page.text)
         self.assertIn(
             f'href="/workspaces/{workspace_id}/transfer-order"',
-            matched_page.text,
+            confirmed_page.text,
         )
-        self.assertIn("Validate transfer order", matched_page.text)
+        self.assertIn("Validate transfer order", confirmed_page.text)
 
         order_page = self.client.get(
             f"/workspaces/{workspace_id}/transfer-order"
@@ -1452,6 +1490,20 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Stage 5 complete", approved_transfer_page.text)
         self.assertIn("Exact transfer package approved", approved_transfer_page.text)
         self.assertIn("Continue to destination preflight", approved_transfer_page.text)
+
+        destination_preflight_page = self.client.get(
+            f"/workspaces/{workspace_id}/transfer-preflight"
+        )
+        self.assertEqual(destination_preflight_page.status_code, 200)
+        self.assertIn(
+            "Your data will go to odoo_destination",
+            destination_preflight_page.text,
+        )
+        self.assertIn(
+            "https://destination.example.test",
+            destination_preflight_page.text,
+        )
+        self.assertIn("Verified destination", destination_preflight_page.text)
 
         mapping_page = self.client.get(f"/workspaces/{workspace_id}/mapping")
         self.assertEqual(mapping_page.status_code, 200)

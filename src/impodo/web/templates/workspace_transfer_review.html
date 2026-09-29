@@ -61,6 +61,12 @@
             {% if model.write_blocking_reasons %}
               <p class="hint">{{ model.missing_fields|length }} missing, {{ model.incompatible_fields|length }} incompatible, and {{ model.unresolved_create_fields|length if model.destination_create_key_count else 0 }} unresolved required create fields. Resolve these before writing this record type.</p>
             {% endif %}
+            {% if model.excluded_fields %}
+              <p class="hint">Put aside in destination matching: {{ model.excluded_fields|join(', ') }}. These source fields will not be written.</p>
+            {% endif %}
+            {% if model.excluded_source_row_numbers %}
+              <p class="hint">{{ model.excluded_source_row_numbers|length }} source record(s) put aside in destination matching. They are outside this transfer.</p>
+            {% endif %}
           </div>
         {% endfor %}
         <div class="actions">
@@ -181,6 +187,14 @@
               <dd>
                 {{ row.dataset.relationship_write_fields|join(', ') if row.dataset.relationship_write_fields else 'None' }}
               </dd>
+            </div>
+            <div>
+              <dt>Source fields put aside</dt>
+              <dd>{{ row.dataset.excluded_source_fields|join(', ') if row.dataset.excluded_source_fields else 'None' }}</dd>
+            </div>
+            <div>
+              <dt>Source records put aside</dt>
+              <dd>{{ "{:,}".format(row.dataset.excluded_source_record_count) }}</dd>
             </div>
             <div>
               <dt>Create-only field providers</dt>
