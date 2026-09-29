@@ -1348,6 +1348,30 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Complete values for new records", matched_page.text)
         self.assertIn("Purchase order (order)", matched_page.text)
         self.assertIn("Needs decision", matched_page.text)
+        plan_with_destination_managed_field = replace(
+            matched_state.destination_match_plan,
+            model_matches=tuple(
+                replace(item, destination_managed_fields=("parent_path",))
+                if item.model == "res.partner"
+                else item
+                for item in matched_state.destination_match_plan.model_matches
+            ),
+        )
+        matched_state = (
+            self.app.state.context.workspace_states.save_destination_match_plan(
+                workspace_id,
+                actor=self.app.state.context.actor,
+                expected_revision=matched_state.revision,
+                plan=plan_with_destination_managed_field,
+            )
+        )
+        destination_managed_page = self.client.get(
+            matching_checked.headers["location"]
+        )
+        self.assertIn("Managed by destination Odoo", destination_managed_page.text)
+        self.assertIn("<code>parent_path</code>", destination_managed_page.text)
+        self.assertIn("checked disabled", destination_managed_page.text)
+        self.assertIn("Automatic", destination_managed_page.text)
         plan_with_missing_field = replace(
             matched_state.destination_match_plan,
             model_matches=tuple(

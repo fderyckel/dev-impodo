@@ -18,9 +18,9 @@ from uuid import UUID, uuid4
 from impodo.domain.serialization import canonical_json, content_hash
 
 
-DESTINATION_MATCH_CONTRACT_VERSION = 11
+DESTINATION_MATCH_CONTRACT_VERSION = 12
 _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset(
-    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
 )
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
@@ -514,6 +514,7 @@ class DestinationModelMatch:
     destination_limit_reached: bool
     source_column_keys: tuple[str, ...] = ()
     key_fields: tuple[str, ...] = ()
+    destination_managed_fields: tuple[str, ...] = ()
     unresolved_create_fields: tuple[str, ...] = ()
     requires_workflow_handler: bool = False
     excluded_missing_fields: tuple[str, ...] = ()
@@ -587,6 +588,7 @@ class DestinationModelMatch:
             self.compatible_fields,
             self.missing_fields,
             self.incompatible_fields,
+            self.destination_managed_fields,
             self.unresolved_create_fields,
             self.excluded_missing_fields,
             self.excluded_incompatible_fields,
@@ -597,6 +599,7 @@ class DestinationModelMatch:
             self.compatible_fields,
             self.missing_fields,
             self.incompatible_fields,
+            self.destination_managed_fields,
             self.excluded_missing_fields,
             self.excluded_incompatible_fields,
         )
@@ -985,6 +988,10 @@ class DestinationMatchPlan:
                         self.contract_version >= 11
                         or name != "excluded_source_row_numbers"
                     )
+                    and (
+                        self.contract_version >= 12
+                        or name != "destination_managed_fields"
+                    )
                 }
                 for item in self.model_matches
             ],
@@ -1085,6 +1092,9 @@ class DestinationMatchPlan:
                         ),
                         source_column_keys=tuple(item.get("source_column_keys", ())),
                         key_fields=tuple(item.get("key_fields", ())),
+                        destination_managed_fields=tuple(
+                            item.get("destination_managed_fields", ())
+                        ),
                         unresolved_create_fields=tuple(
                             item.get("unresolved_create_fields", ())
                         ),

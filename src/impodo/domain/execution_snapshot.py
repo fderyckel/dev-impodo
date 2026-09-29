@@ -1671,17 +1671,21 @@ def resequence_execution_rows(
     datasets: tuple[ExecutionDataset, ...],
     components: tuple[tuple[str, ...], ...],
 ) -> tuple[tuple[ExecutionRow, ...], RelationshipPlan]:
-    """Apply a stricter reviewed component order without changing row intent.
+    """Apply reviewed wave barriers without collapsing dependency layers.
 
     Transfer reviews approve dataset-level creation waves.  The canonical row
     planner may discover that some individual rows could run earlier because
-    their particular relationship already exists in Odoo.  This helper lets a
-    caller retain the stricter approved wave barriers while preserving every
-    row dependency and deferred-field decision calculated by the planner.
+    their particular relationship already exists in Odoo.  The supplied
+    components are therefore barriers, not replacement dependency layers.
+    Each barrier is refined by the canonical relationship components so a
+    parent receipt is always journalled before a child can enter a transport
+    batch.
     """
 
     row_by_id = {row.row_id: row for row in rows}
-    ordered_ids = tuple(row_id for component in components for row_id in component)
+    reviewed_ids = tuple(
+        row_id for component in components for row_id in component
+    )
     scheduled_ids = {
         row.row_id
         for row in rows
@@ -1693,14 +1697,31 @@ def resequence_execution_rows(
     }
     if (
         len(row_by_id) != len(rows)
-        or len(set(ordered_ids)) != len(ordered_ids)
-        or set(ordered_ids) != scheduled_ids
+        or len(set(reviewed_ids)) != len(reviewed_ids)
+        or set(reviewed_ids) != scheduled_ids
         or any(not component for component in components)
     ):
         raise ValueError("Reviewed execution component order is invalid")
+    refined_component_list: list[tuple[str, ...]] = []
+    for reviewed_component in components:
+        reviewed_component_ids = set(reviewed_component)
+        for canonical_component in plan.components:
+            refined = tuple(
+                row_id
+                for row_id in canonical_component.row_ids
+                if row_id in reviewed_component_ids
+            )
+            if refined:
+                refined_component_list.append(refined)
+    refined_components = tuple(refined_component_list)
+    ordered_ids = tuple(
+        row_id for component in refined_components for row_id in component
+    )
+    if set(ordered_ids) != scheduled_ids:
+        raise ValueError("Reviewed execution component order is invalid")
     component_by_row = {
         row_id: sequence
-        for sequence, component in enumerate(components)
+        for sequence, component in enumerate(refined_components)
         for row_id in component
     }
     ordinal_by_row = {
@@ -1732,7 +1753,7 @@ def resequence_execution_rows(
         plan,
         components=tuple(
             RelationshipComponent(sequence=sequence, row_ids=component)
-            for sequence, component in enumerate(components)
+            for sequence, component in enumerate(refined_components)
         ),
         root_hash="",
     )
@@ -1741,6 +1762,20 @@ def resequence_execution_rows(
         root_hash=_relationship_plan_hash(resequenced_plan),
     )
     _validate_relationship_plan(resequenced, resequenced_plan, datasets)
+    resequenced_by_id = {row.row_id: row for row in resequenced}
+    for row in resequenced:
+        for intent in row.fields:
+            if intent.defer_on_create:
+                continue
+            for dependency_row_id in intent.dependency_row_ids:
+                dependency = resequenced_by_id[dependency_row_id]
+                if (
+                    dependency.disposition == Classification.CREATE.value
+                    and dependency.schedule_component >= row.schedule_component
+                ):
+                    raise ValueError(
+                        "Reviewed execution component order collapses a required dependency"
+                    )
     return resequenced, resequenced_plan
 
 

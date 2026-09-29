@@ -193,6 +193,11 @@ class DestinationMatchingTests(unittest.TestCase):
             DestinationMatchPlan.from_json(previous_field_exclusions.to_json()),
             previous_field_exclusions,
         )
+        previous_record_exclusions = replace(plan, contract_version=11)
+        self.assertEqual(
+            DestinationMatchPlan.from_json(previous_record_exclusions.to_json()),
+            previous_record_exclusions,
+        )
         previous_matching_contract = replace(plan, contract_version=8)
         self.assertEqual(
             DestinationMatchPlan.from_json(previous_matching_contract.to_json()),
@@ -470,6 +475,9 @@ class DestinationMatchingTests(unittest.TestCase):
                 SourceDatasetColumn(
                     2, "complete_name", "category-path", "TEXT"
                 ),
+                SourceDatasetColumn(
+                    3, "parent_path", "category-parent-path", "TEXT"
+                ),
             ),
         )
         selection = replace(
@@ -496,6 +504,7 @@ class DestinationMatchingTests(unittest.TestCase):
                     (
                         text("name", "Name"),
                         text("complete_name", "Complete Name"),
+                        text("parent_path", "Parent Path"),
                         parent,
                     ),
                 ),
@@ -562,6 +571,11 @@ class DestinationMatchingTests(unittest.TestCase):
                     "many2one",
                     "Parent Category",
                     relation="product.category",
+                ),
+                "parent_path": FieldMetadata(
+                    "parent_path",
+                    "char",
+                    "Parent Path",
                 ),
             }
             return (
@@ -633,7 +647,13 @@ class DestinationMatchingTests(unittest.TestCase):
         self.assertTrue(plan.ready)
         self.assertEqual(category_match.key_fields, ("complete_name",))
         self.assertEqual(category_match.compatible_fields, ("name", "parent_id"))
+        self.assertEqual(
+            category_match.destination_managed_fields,
+            ("parent_path",),
+        )
         self.assertEqual(category_match.incompatible_fields, ())
+        self.assertNotIn("parent_path", category_match.missing_fields)
+        self.assertEqual(DestinationMatchPlan.from_json(plan.to_json()), plan)
 
         missing_path_selection = replace(
             selection,

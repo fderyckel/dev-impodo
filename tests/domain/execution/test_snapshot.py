@@ -23,8 +23,13 @@ from impodo.adapters.odoo.connectors import SnapshotConnector
 from impodo.domain.odoo.contracts import bind_snapshot_hashes
 from impodo.domain.compiler import compile_profile_document
 from impodo.domain.execution_snapshot import (
+    ExecutionDataset,
+    ExecutionRow,
     ExecutionSnapshot,
+    FieldIntent,
     build_execution_snapshot,
+    plan_execution_rows,
+    resequence_execution_rows,
 )
 from impodo.domain.preparation.preflight import PreflightEngine
 from impodo.domain.shared.models import (
@@ -84,6 +89,87 @@ def _execution_fixture():
 
 
 class ExecutionSnapshotTests(unittest.TestCase):
+    def test_reviewed_wave_preserves_parent_before_child_components(self) -> None:
+        dataset = ExecutionDataset(
+            dataset="categories",
+            target_model="product.category",
+            sequence=0,
+            dependencies=(),
+            existing_policy="reference",
+            identity_fields=("complete_name",),
+            scope_fields=(),
+        )
+        parent = ExecutionRow(
+            row_id="parent",
+            dataset=dataset.dataset,
+            source_row=1,
+            source_trace_id="parent",
+            source_identity=("All",),
+            target_model=dataset.target_model,
+            business_identity=("All",),
+            business_scope=(),
+            disposition="CREATE",
+            target_match_count=0,
+            proposed_external_id="impodo.categories_parent",
+            fields=(FieldIntent("name", "SET_VALUE", "All"),),
+        )
+        child = ExecutionRow(
+            row_id="child",
+            dataset=dataset.dataset,
+            source_row=2,
+            source_trace_id="child",
+            source_identity=("All / Sale",),
+            target_model=dataset.target_model,
+            business_identity=("All / Sale",),
+            business_scope=(),
+            disposition="CREATE",
+            target_match_count=0,
+            proposed_external_id="impodo.categories_child",
+            fields=(
+                FieldIntent("name", "SET_VALUE", "Sale"),
+                FieldIntent(
+                    field="parent_id",
+                    action="SET_VALUE",
+                    value=LogicalReference(
+                        origin="incoming",
+                        key=("All",),
+                        dataset=dataset.dataset,
+                    ),
+                    kind="relation",
+                    relation_operation="replace",
+                    related_model=dataset.target_model,
+                    related_identity_fields=("complete_name",),
+                    dependency_strength="deferrable",
+                ),
+            ),
+        )
+        planned, relationship_plan = plan_execution_rows(
+            (child, parent),
+            (dataset,),
+        )
+        planned_by_id = {row.row_id: row for row in planned}
+
+        resequenced, refined_plan = resequence_execution_rows(
+            planned,
+            relationship_plan,
+            (dataset,),
+            ((parent.row_id, child.row_id),),
+        )
+        resequenced_by_id = {row.row_id: row for row in resequenced}
+
+        self.assertLess(
+            planned_by_id[parent.row_id].schedule_component,
+            planned_by_id[child.row_id].schedule_component,
+        )
+        self.assertEqual(
+            tuple(component.row_ids for component in refined_plan.components),
+            ((parent.row_id,), (child.row_id,)),
+        )
+        self.assertLess(
+            resequenced_by_id[parent.row_id].schedule_component,
+            resequenced_by_id[child.row_id].schedule_component,
+        )
+
     def test_semantic_hash_is_memoized_for_immutable_snapshot(self) -> None:
         frozen, result = _execution_fixture()
         snapshot = replace(

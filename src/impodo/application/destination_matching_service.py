@@ -161,6 +161,7 @@ class _PreparedModel:
     source_query_values: tuple[tuple[str, ...], ...]
     source_identity_values: tuple[tuple[bool | int | float | str, ...], ...]
     source_fields: tuple[SchemaField, ...]
+    destination_managed_fields: tuple[str, ...]
     excluded_source_row_numbers: tuple[int, ...] = ()
 
     @property
@@ -174,6 +175,9 @@ class _PreparedRelationship:
     field: SchemaField
     related: _PreparedModel
     inverse_field: str | None
+
+
+_ODOO_DESTINATION_MANAGED_SCALAR_FIELDS = frozenset({"parent_path"})
 
 
 def _is_transferable_relationship_field(
@@ -207,11 +211,25 @@ def _is_transferable_scalar_field(
 
     return (
         field.name in selected_source_names
+        and field.name not in _ODOO_DESTINATION_MANAGED_SCALAR_FIELDS
         and field.type not in {"many2one", "many2many", "one2many"}
         and not field.readonly
         and field.related is not True
         and not (field.computed is True and field.has_inverse is not True)
         and field.stored is not False
+    )
+
+
+def _is_destination_managed_scalar_field(
+    field: SchemaField,
+    selected_source_names: set[str],
+) -> bool:
+    """Identify captured framework values that destination Odoo must rebuild."""
+
+    return bool(
+        field.name in selected_source_names
+        and field.name in _ODOO_DESTINATION_MANAGED_SCALAR_FIELDS
+        and field.type not in {"many2one", "many2many", "one2many"}
     )
 
 
@@ -522,6 +540,16 @@ class DestinationMatchingService:
                             selected_model_names,
                         )
                     ),
+                    destination_managed_fields=tuple(
+                        sorted(
+                            field.name
+                            for field in source_model.fields
+                            if _is_destination_managed_scalar_field(
+                                field,
+                                selected_source_names,
+                            )
+                        )
+                    ),
                     excluded_source_row_numbers=exclusions,
                 )
             )
@@ -724,6 +752,7 @@ class DestinationMatchingService:
             compatible_fields=tuple(sorted(compatible)),
             missing_fields=tuple(sorted(missing)),
             incompatible_fields=tuple(sorted(incompatible)),
+            destination_managed_fields=item.destination_managed_fields,
             unresolved_create_fields=unresolved,
             requires_workflow_handler=bool(
                 destination_model is not None
