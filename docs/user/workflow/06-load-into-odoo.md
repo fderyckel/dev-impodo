@@ -16,129 +16,114 @@ continue through the existing load and verification steps. An Odoo-to-Odoo
 workspace can continue from its read-only destination preflight through a
 separate preparation, explicit load confirmation, and destination read-back.
 
-## Odoo-to-Odoo transfer through the six-stage workflow
+## Odoo-to-Odoo transfer
 
-When you download records from one Odoo database for transfer to another,
-Impodo keeps the source-fetch key separate from the destination transfer key.
-The destination key is the second and final API key in this workflow. Impodo
-uses it for read-only matching and preflight. It uses that same destination key
-for loading and verification only after you explicitly confirm the prepared
-load. There is no third API key.
+Use this path when the current data version was downloaded from one Odoo 19
+database and will be loaded into a different Odoo 19 database. The source key
+can only read the source. The destination transfer key belongs only to the
+destination. Impodo does not ask for a third key. An Odoo 20 source remains
+read-only and cannot continue into this load path.
 
-1. In Stage 4, **Connect and match destination**, complete **Connect
-   destination Odoo** with the destination transfer key.
-2. Still in Stage 4, open **Match destination data**. For most record types,
-   choose a stable text field. If that field repeats, add a second or third
-   captured text or integer field. Impodo matches the complete combination
-   and classifies each unique source record as existing or missing. Product
-   Category is different: **Name** and **Parent Category** appear as checked,
-   read-only parts of the required identity. Impodo compares the frozen
-   complete category path, while the parent link remains protected
-   relationship evidence. Equal category names under different parents
-   therefore stay separate. Other parent or company relationships cannot yet
-   be selected as identity fields. If an identifier is blank or repeated,
-   you can choose another stable identifier and check again, correct the value
-   in source Odoo and recapture the records, or select **Put this source record
-   aside**. The last choice excludes the whole affected record from this
-   transfer. It does not remove the identifier field from the other records or
-   change source Odoo. Impodo keeps the record in the frozen source evidence
-   and lets you select **Include record again** before you approve the
-   transfer. A retained record that refers to an excluded supporting record
-   still blocks the relationship; Impodo does not silently remove that link.
-   You still cannot put an identifier field itself aside because every
-   included record needs an identity.
+### 1. Connect the destination
 
-   Resolve write-field differences on the same page. For a missing or
-   incompatible captured field, select **Put `field_name` aside**, such as
-   **Put `version` aside**, only when you do not want Impodo to write that
-   field. Impodo keeps the field in the frozen source evidence. For new
-   records, complete **Complete values for new records** when a current Odoo
-   default needs review or Odoo supplies no usable value. Stage 4 becomes
-   complete only after the included records have valid identities and all
-   required create-only choices are confirmed.
-3. In Stage 5, **Review transfer**, start with **Validate transfer order**.
-   Supporting records appear before the
-   records that refer to them, while safe optional cycles use a later
-   relationship pass.
-4. Continue the same stage and choose a policy for each record type: **Reuse
-   existing, create missing** (the browser default), **Reuse existing only**,
-   or **Update existing, create missing**. This applies to Contacts, Products,
-   supporting records, and any other selected model. A reuse-only choice stops
-   package creation if any destination record is missing. The frozen review
-   shows every field and source record put aside, and each create-only field
-   with its value source, without revealing a protected fixed value or
-   linked-record identity. Build and approve the exact package after checking
-   those choices. You can confirm the current Odoo default, set one typed
-   value for all new records, or choose a compatible captured source field.
-   These choices apply only to new records; they never replace a value on a
-   reused destination record. For a required linked
-   record, you can choose an existing destination record when its related
-   record type is selected and its business key identifies one current
-   record. A current Odoo default can also be reviewed without adding that
-   related record type; Impodo verifies the linked record after creation. If
-   the related record type is one of your selected source tables, you can also
-   choose **Use one selected source record**. That choice uses the same
-   reviewed record for every new record of this type. Impodo reuses it when it
-   already exists in the destination, or places its source table in an earlier
-   transfer wave when it must be created. If Impodo cannot prove one of these
-   routes, it stops creation instead of asking for a numeric Odoo ID. You can
-   choose reuse only when every source record already exists there.
-   If the destination record type has a **State** field, Impodo can reuse
-   existing records but stops ordinary create or update until its business
-   workflow has been qualified.
-5. After approval, continue to Stage 6, **Load destination Odoo**, then select
-   **Run read-only preflight**.
-6. Compare the approved and freshly observed reuse, create, field, and
-   relationship totals. If the page shows **Preflight passed**, the read-only
-   preflight is complete. No record has been written to Odoo.
-7. Select **Prepare exact destination load**, then **Prepare exact load confirmation**.
-   Impodo performs one last destination read and compiles the exact load. This
-   action still cannot write to Odoo.
-8. On **Confirm and load**, check the destination database, total records,
-   creates, updates, reused records, relationship fields, and approved wave order.
-   If every record is reused, the page says that no destination write is needed
-   and offers no load action.
-9. Select the single **Load ... into destination Odoo** action once. This is the
-   first action in the cross-instance workflow that can start a write.
-10. Follow progress to **Verify result**. Impodo attempts read-back
-    automatically; if it could not finish verification, use **Verify what
-    happened in Odoo** on the saved outcome page. If Impodo itself stopped
-    while the transfer was running, use **Assess and resume interrupted
-    transfer**. Impodo reads the destination first and continues only the work
-    that it can prove is safe.
+1. After **Download and freeze** is complete, select **Connect destination
+   Odoo**.
+2. Enter the destination address, database, and destination transfer key.
+3. Select **Check and save destination**.
+4. Confirm that the page names the correct database and shows **Connection
+   complete**.
 
-For example, a Product can refer to a Unit of Measure through a many-to-one
-field. Impodo first checks whether each Unit's chosen business key is unique
-in the destination. It then counts Product links that can reuse a destination
-Unit and links that will depend on an incoming Unit. The same rule applies to
-many-to-many fields and to inverse one-to-many metadata; it is not specific to
-Product and Unit of Measure.
+This check is read-only. It does not create or change an Odoo record.
 
-The destination check reads exact frozen identities in bounded groups. It can
-therefore check the full current Odoo capture limit of 10,000 records per
-record type; the smaller choice limit used by manual value-matching controls
-does not apply here. If the chosen identity is blank or repeated, Impodo names
-that record type and shows a bounded list of the affected frozen source rows,
-using the record name when it is available. These row labels are shown only
-for the current review. The saved matching plan records only the row numbers
-that you explicitly put aside, not their business values.
+![A fictional Odoo-to-Odoo project after the destination connection has been checked, with Match destination data as the next action.](../../images/user/19-destination-connection.png)
 
-Putting a field aside and putting a source record aside are different
-decisions. The first excludes one field from destination writes for all
-included records. The second excludes one affected record from matching,
-relationship counts, review totals, and every destination write. Neither
-choice changes the frozen source data or source Odoo.
+### 2. Match the frozen records
 
-For you, this means that a new destination record matching an approved
-"create" key stops the transfer before loading, which protects against a
-duplicate. A changed field, permission context, or relationship resolution
-also stops the transfer. Return to **Match destination data**, rebuild the
-order and review, approve the new package, and run preflight again.
+1. Select **Match destination data**.
+2. For each record type, choose the stable business field that identifies the
+   same record in both databases. Add another field only when the first field
+   can repeat.
+3. Select **Check destination matches**.
+4. Review the **Reuse**, **Create**, and **Identity issues** totals.
+5. Complete every item marked **Needs decision**.
 
-The preparation is bound to the current workspace revision, preflight, target,
-and exact load snapshot. A changed destination sends you back to preflight. A
-saved load journal prevents the same approved transfer from being submitted a
-second time.
+Use a business reference, code, or another stable value. Do not use a numeric
+Odoo record ID. For Product Categories, Impodo applies the required name and
+parent scope automatically so equal names under different parents remain
+separate.
+
+The results distinguish three types of field handling:
+
+- **Put aside for this transfer** is your decision not to write that captured
+  field.
+- **Managed by destination Odoo** means that Odoo rebuilds the field. Impodo
+  excludes it from writes and verification automatically; you do not need to
+  decide what to do with it.
+- **Complete values for new records** asks you to confirm a value that is
+  needed only when a new destination record will be created.
+
+![The current destination-matching result separates reuse and create totals from a field that destination Odoo manages automatically.](../../images/user/20-destination-matching.png)
+
+If an identity is blank or repeated, choose another stable identifier, correct
+and recapture the source, or select **Put this source record aside**. Putting a
+record aside excludes that whole record from this transfer. Putting a field
+aside excludes only that field from writes. Neither action changes source
+Odoo or the frozen evidence.
+
+### 3. Review the order and exact transfer
+
+1. In Stage 5, select **Validate transfer order**.
+2. Confirm that supporting records appear before records that use them.
+3. Select **Review transfer**.
+
+![The current transfer-order result shows the approved waves and keeps destination writes disabled.](../../images/user/21-transfer-order.png)
+
+A **wave** is one group of record types that Impodo can load together. Impodo
+calculates the waves from the saved relationships; you do not arrange them by
+hand.
+
+For each record type, choose one policy:
+
+- **Reuse existing, create missing** reuses a unique match and creates only a
+  missing record.
+- **Reuse existing only** stops the transfer when a record is missing.
+- **Update existing, create missing** permits the reviewed fields on existing
+  matches to change and creates missing records.
+
+Select **Build review package**. Check the source count, reuse count,
+create count, fields to write, fields and records put aside, create-only
+values, and load order. Add an optional approval note, select the approval
+checkbox, and then select **Approve exact transfer package**.
+
+![The current frozen transfer package shows the exact policy, counts, fields, and create-only value source before approval.](../../images/user/22-transfer-review.png)
+
+### 4. Run the final read-only check, then load once
+
+1. In Stage 6, select **Run read-only preflight**.
+2. Confirm the destination database and compare the current reuse, create,
+   field, and relationship totals with the approved package.
+3. Continue only when the page shows **Preflight passed**.
+
+![The current destination preflight names the database and makes clear that the check cannot write to Odoo.](../../images/user/23-transfer-preflight.png)
+
+The safety notice calls this check **8A**. For you, it is the read-only
+preflight at the start of Stage 6.
+
+4. Select **Prepare exact destination load**, then **Prepare exact load
+   confirmation**. This performs one last read and still cannot write.
+5. On **Confirm and load**, check the database, record totals, relationship
+   fields, and wave order. If every record is reused, Impodo offers no load
+   action because no write is needed.
+6. Select **Load ... into destination Odoo** once. This is the first action in
+   this path that can write.
+7. Wait for **Verify result**. A transfer is complete only when Impodo reads
+   the destination back and verifies the result.
+
+If the destination changed after approval, Impodo stops before loading. Return
+to **Match destination data**, rebuild and approve the transfer package, then
+run preflight again. If a write was interrupted, do not start a second load.
+Use **Assess and resume interrupted transfer** or **Verify what happened in
+Odoo**, whichever the saved outcome page offers.
 
 ## Before you start
 

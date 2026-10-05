@@ -56,10 +56,11 @@ It checks all four linked files without contacting Odoo. Its passing result
 does not mean that Odoo already contains the required Work Centers or that a
 load has been verified.
 
-An Odoo source, Odoo-to-Odoo trials, automatic database setup and cleanup,
-scheduled background runs, and a trial of every browser page remain planned.
-You can still run the normal browser workflow for supported migration shapes,
-but the scenario command does not yet prove that entire browser journey.
+The scenario command does not yet cover an Odoo source, the browser's
+Odoo-to-Odoo transfer path, automatic database setup and cleanup, scheduled
+background runs, or every browser page. You can use the normal browser
+workflow for supported migration shapes, but this command does not qualify
+that separate journey.
 
 For operator commands and evidence handling, use the
 [scenario qualification runbook](../../developer/runbooks/scenario-qualification.md).

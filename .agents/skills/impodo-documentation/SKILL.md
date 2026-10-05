@@ -5,8 +5,9 @@ description: Create, edit, or rewrite Impodo user, developer, architecture, cont
 
 # Impodo Documentation
 
-Use this skill for every Impodo documentation change in
-`C:\Users\francois.deRyckel\dev-impodo`.
+Use this skill for every Impodo documentation change in the Impodo repository.
+Resolve the repository root with `git rev-parse --show-toplevel`; do not assume
+an old checkout name or reuse evidence from another checkout.
 
 ## Establish the contract
 
@@ -98,13 +99,35 @@ boundary merely to make the prose shorter.
 - Use fictional or sanitized examples. Refresh screenshots only from the
   authenticated current UI when the documented decision point changed.
 
+## Refresh user screenshots
+
+When a user-documentation change adds or replaces screenshots:
+
+1. Find the page's registered templates, capture scripts, and focused tests in
+   `docs/workflow.yml`. Prefer an existing isolated capture script and extend
+   it when the new decision point belongs to the same fixture.
+2. Use an authenticated, isolated fictional workspace. Never capture a live
+   customer workspace, credentials, host names, database names, or record IDs.
+3. Capture the exact current decision state at a 1440 by 1024 viewport. Keep
+   browser chrome out of the image and include only enough surrounding context
+   for the reader to locate the control.
+4. Save the PNG under `docs/images/user/`, give it useful alternative text,
+   and ensure the nearby instructions use the exact visible labels in the
+   image.
+5. Inspect every new or changed image visually. Reject clipped controls,
+   loading states, error pages, stale labels, unreadable scaling, and examples
+   that conflict with the prose.
+6. Keep the capture command or script reproducible. If browser capture cannot
+   be run, do not present an old screenshot as current; report the omitted
+   validation explicitly.
+
 ## Verify
 
 Run the focused documentation checks after an edit:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\documentation_quality.py --check
-.\.venv\Scripts\python.exe -m unittest tests.test_documentation_quality -v
+.\.venv\Scripts\python.exe -m unittest tests.architecture.test_documentation_quality -v
 git diff --check
 git status --short
 ```

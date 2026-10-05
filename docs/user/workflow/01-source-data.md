@@ -189,4 +189,4 @@ it, and verify the destination result.
 
 - [End-to-end training tutorial](../tutorials/end-to-end-training.md)
 - [Developer implementation: Source data](../../developer/workflow/01-source-data.md)
-- [Remaining guarded Odoo-source update work](../../plans/remaining-work.md#4-complete-guarded-odoo-source-updates)
+- [Planned same-database guarded Odoo-source updates](../../plans/remaining-work.md#4-complete-guarded-odoo-source-updates)

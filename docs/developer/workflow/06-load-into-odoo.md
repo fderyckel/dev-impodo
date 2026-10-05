@@ -603,6 +603,9 @@ qualify another remote topology.
 
 ## Verification
 
+- [`scripts/capture_odoo_transfer_screenshots.py`](../../../scripts/capture_odoo_transfer_screenshots.py)
+  reproduces the five authenticated, fictional Odoo-to-Odoo decision screens
+  used by the paired user guide.
 - [`tests/application/workspace/execution/test_service.py`](../../../tests/application/workspace/execution/test_service.py)
 - [`tests/application/workspace/execution/test_recomparison.py`](../../../tests/application/workspace/execution/test_recomparison.py)
 - [`tests/integration/web/test_execution.py`](../../../tests/integration/web/test_execution.py)

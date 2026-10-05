@@ -632,6 +632,7 @@ stages:
       - src/impodo/application/workspace/execution/service.py::ExecutionService.execute_transfer
       - src/impodo/application/workspace/execution/service.py::ExecutionService.current_transfer_run
       - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.save_transfer_preflight_report
+      - scripts/capture_odoo_transfer_screenshots.py::capture
     tests:
       - tests/application/workspace/execution/test_service.py
       - tests/application/workspace/execution/test_recomparison.py

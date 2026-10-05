@@ -1,8 +1,8 @@
 # Impodo user documentation
 
 This documentation is for the data manager preparing and reviewing migration
-work in the Impodo browser. Odoo 19 retains the existing load workflow. Final
-Odoo 20 currently supports read-side preparation and Recipe authoring, but not
+work in the Impodo browser. Impodo can load supported Odoo 19 targets. Final
+Odoo 20 currently supports reading, preparation, and Recipe authoring, but not
 loading, recovery, Integrated Test writes, or Production.
 
 Start with [Create a data project](getting-started.md). When you create or
@@ -14,6 +14,12 @@ change the rules in an Authoring workspace, follow its six stages:
 4. [Prepare data](workflow/04-prepare-data.md)
 5. [Final review](workflow/05-final-review.md)
 6. [Load into Odoo](workflow/06-load-into-odoo.md)
+
+An Odoo-to-Odoo project uses the same six-stage journey with more direct
+labels: connect the source, select and freeze its records, connect and match
+the destination, review the transfer, then load and verify it. The
+[Load into Odoo](workflow/06-load-into-odoo.md#odoo-to-odoo-transfer) page
+shows that path screen by screen.
 
 When you use saved Recipes with fresh data, the Recipe run instead shows
 **Fresh data**, **Check Odoo**, and **Review and load**. The saved Recipe

@@ -22,8 +22,8 @@
     {% endif %}
     {% include "_setup_blockers.html" %}
     <p>
-      This check confirms the address, database, Odoo 19 version, and read-only access. It does not discover models or fields, and nothing can be changed in Odoo.
-      {% if is_odoo_source %}Impodo currently reads and freezes the selected records as protected source data. Moving records between two Odoo databases is not available yet.{% elif source_return_token %}Impodo will load the Odoo record types for your Source data choice after you save the checked connection.{% else %}Model and field discovery starts on the next screen and is reused instead of repeated unnecessarily.{% endif %}
+      This check confirms the address, database, supported Odoo version, and read-only access. It does not discover models or fields, and nothing can be changed in Odoo.
+      {% if is_odoo_source %}Impodo reads and freezes the selected records as protected source data. A supported Odoo 19 source can then connect and match a separate Odoo 19 destination; Odoo 20 remains read-only. Nothing is written to an eligible destination until you explicitly confirm the Stage 6 load.{% elif source_return_token %}Impodo will load the Odoo record types for your Source data choice after you save the checked connection.{% else %}Model and field discovery starts on the next screen and is reused instead of repeated unnecessarily.{% endif %}
       {% if is_recipe_test %}These server settings and credentials belong only to this Test data version; they are never copied into the Recipe.{% elif is_recipe_production %}Enter the current Production endpoint, database, and checking key. Test access is never reused, and Production requires a separate limited write key.{% endif %}
     </p>
     <section

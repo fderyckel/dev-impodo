@@ -744,8 +744,15 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         target_page = self.client.get(f"/workspaces/{workspace_id}/target")
         self.assertIn("Connect the Odoo source", target_page.text)
+        self.assertIn("supported Odoo version", target_page.text)
         self.assertIn(
-            "Moving records between two Odoo databases is not available yet.",
+            "A supported Odoo 19 source can then connect and match a separate "
+            "Odoo 19 destination; Odoo 20 remains read-only.",
+            target_page.text,
+        )
+        self.assertIn(
+            "Nothing is written to an eligible destination until you "
+            "explicitly confirm the Stage 6 load.",
             target_page.text,
         )
         self.assertIn("Source access only", target_page.text)
