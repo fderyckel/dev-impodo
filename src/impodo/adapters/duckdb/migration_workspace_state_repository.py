@@ -103,6 +103,13 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             raise
 
     def get(self, workspace_id: str) -> WorkspaceState:
+        return self.get_with_source_package(workspace_id)[0]
+
+    def get_with_source_package(
+        self, workspace_id: str,
+    ) -> tuple[WorkspaceState, DataVersionSourcePackage]:
+        """Return state and its verified source package for one browser page query."""
+
         workspace = self.foundation.get_migration_workspace(workspace_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
@@ -148,7 +155,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             status=status,
             created_at=workspace.created_at,
             registered_at=workspace.setup_completed_at,
-        )
+        ), package
 
     def save(
         self,

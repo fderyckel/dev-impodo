@@ -22,6 +22,7 @@ from ..forms import _revision, _secure_form
 from ..presenters.common import _flash, _render, _workspace_error
 from ..presenters.mapping_forms import _draft_or_redirect
 from ..security import require_session
+from ..composition.page_reads import run_page_read
 from ..source_file_commands import accept_source_uploads
 
 
@@ -82,6 +83,11 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/files", response_class=HTMLResponse)
     async def workspace_files_form(request: Request, workspace_id: str):
         require_session(request)
+        return await run_page_read(render_files_form, request, workspace_id)
+
+    def render_files_form(request: Request, workspace_id: str):
+        """Read file setup and render within one database-scoped worker."""
+
         workspace = _draft_or_redirect(context, workspace_id)
         if isinstance(workspace, RedirectResponse):
             return workspace

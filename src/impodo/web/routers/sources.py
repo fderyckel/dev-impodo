@@ -32,6 +32,7 @@ from types import SimpleNamespace
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
+from impodo.application.browser_queries import SourceReviewPage
 from impodo.domain.shared.access import Capability
 from ...application.odoo_capture_job_service import (
     OdooCaptureJobNotFoundError,
@@ -91,6 +92,7 @@ from ..target_credentials import (
     TargetCredentialRole,
     audit_stored_target_credential,
     get_target_credential,
+    get_target_credential_status,
     store_target_credential,
 )
 from ..source_file_commands import accept_source_uploads, remove_source_file
@@ -125,7 +127,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
     def render_sources(request: Request, workspace_id: str):
         """Read source choices and render within one database-scoped worker."""
 
-        workspace_state = context.queries.get(workspace_id)
+        source_page = context.queries.get_source_page(workspace_id)
+        workspace_state = source_page.workspace_state
         if workspace_state.status is not WorkspaceStatus.REGISTERED:
             setup_page = (
                 "files" if workspace_state.source_mode is SourceMode.FILE else "target"
@@ -160,7 +163,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             request,
             context,
             workspace_id,
-            workspace_state=workspace_state,
+            source_page=source_page,
             error=inspection_error,
             status_code=422 if inspection_error else 200,
         )
@@ -647,8 +650,14 @@ def build_sources_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "selection_id", "selection_hash", "confirm_capture"},
         )
-        workspace_state = context.queries.get(workspace_id)
-        try:
+        assessment_evidence = request.session.get(
+            _ODOO_CAPTURE_ASSESSMENT_SESSION_KEY
+        )
+
+        def prepare_capture():
+            """Validate locally and release database owners before enqueueing."""
+
+            workspace_state = context.queries.get(workspace_id)
             access_context = context.workspace_access.resolve(
                 workspace_id,
                 actor=context.actor,
@@ -716,16 +725,16 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     "Odoo fields changed. Review the checked Odoo changes before "
                     "freezing another source version."
                 )
-            for selection in selections:
-                if selection.protected_filter_artifact_hash is None:
+            if any(
+                selection.protected_filter_artifact_hash is not None
+                for selection in selections
+            ):
+                context.odoo_source_capture.validate_current_plans(
+                    workspace_id, actor=context.actor
+                )
+            else:
+                for selection in selections:
                     plan_odoo_source_capture(selection, schema)
-                else:
-                    context.odoo_source_capture.validate_current_plans(
-                        workspace_id, actor=context.actor
-                    )
-            assessment_evidence = request.session.get(
-                _ODOO_CAPTURE_ASSESSMENT_SESSION_KEY
-            )
             expected_assessment_items = [
                 {
                     "model": item.model,
@@ -774,20 +783,31 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 raise WorkspaceError(
                     "Check the current number of matching records before freezing them."
                 )
-            gateway = context.source_capture_factory(workspace_state, credential.secret)
-            manager = _odoo_capture_manager(context)
-            workspace = context.migration_workspaces.get(
-                workspace_id,
-                actor=context.actor,
-            )
             migration_project = context.migration_projects.get(
                 workspace.project_id,
                 actor=context.actor,
             )
-            job = manager.enqueue(
-                workspace_id,
-                migration_project.display_name,
+            return (
+                workspace_state,
+                credential,
+                access_context,
                 assessment_evidence["matching_rows"],
+                migration_project.display_name,
+            )
+
+        try:
+            (
+                workspace_state,
+                credential,
+                access_context,
+                matching_rows,
+                migration_project_name,
+            ) = await run_local_operation(prepare_capture)
+            gateway = context.source_capture_factory(workspace_state, credential.secret)
+            job = _odoo_capture_manager(context).enqueue(
+                workspace_id,
+                migration_project_name,
+                matching_rows,
                 gateway,
                 access_context=access_context,
                 actor=context.actor,
@@ -803,13 +823,16 @@ def build_sources_router(context: WebContext) -> APIRouter:
             SecretStoreError,
             WorkspaceError,
         ) as error:
-            return _render_odoo_capture_selection(
-                request,
-                context,
-                workspace_state,
-                error=str(error),
-                status_code=422,
-            )
+            def render_error():
+                return _render_odoo_capture_selection(
+                    request,
+                    context,
+                    context.queries.get(workspace_id),
+                    error=str(error),
+                    status_code=422,
+                )
+
+            return await run_page_read(render_error)
         _flash(request, "Odoo capture started. The previous frozen version remains current until this one is complete.")
         return RedirectResponse(
             _odoo_capture_progress_url(workspace_id, job.job_id),
@@ -891,7 +914,6 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 request,
                 context,
                 workspace_id,
-                workspace_state=workspace_state,
                 error=str(error),
                 status_code=422,
             )
@@ -993,8 +1015,14 @@ def build_sources_router(context: WebContext) -> APIRouter:
         """Redirect unfinished choices to Source data or show saved tables."""
 
         require_session(request)
-        workspace_state = context.queries.get(workspace_id)
-        selection = context.queries.get_source_selection(workspace_id)
+        return await run_page_read(render_datasets, request, workspace_id)
+
+    def render_datasets(request: Request, workspace_id: str):
+        """Read saved tables and render while sharing bounded database owners."""
+
+        source_page = context.queries.get_source_page(workspace_id)
+        workspace_state = source_page.workspace_state
+        selection = source_page.selection
         if selection is None:
             return RedirectResponse(
                 f"/workspaces/{workspace_id}/sources#table-choices",
@@ -1107,16 +1135,17 @@ def _render_file_sources(
     context: WebContext,
     workspace_id: str,
     *,
-    workspace_state: WorkspaceState | None = None,
+    source_page: SourceReviewPage | None = None,
     error: str | None = None,
     status_code: int = 200,
 ):
     """Render file review and the final table-choice action from one snapshot."""
 
-    current_workspace_state = workspace_state or context.queries.get(workspace_id)
-    catalogs = context.queries.get_source_catalogs(workspace_id)
-    configurations = context.queries.get_source_configurations(workspace_id)
-    selection = context.queries.get_source_selection(workspace_id)
+    source_page = source_page or context.queries.get_source_page(workspace_id)
+    current_workspace_state = source_page.workspace_state
+    catalogs = source_page.catalogs
+    configurations = source_page.configurations
+    selection = source_page.selection
     return _render(
         request,
         "workspace_sources.html",
@@ -1160,7 +1189,6 @@ def _render_source_file_error(
             request,
             context,
             workspace_id,
-            workspace_state=workspace_state,
             error=str(error),
             status_code=422,
         )
@@ -1307,13 +1335,26 @@ def _render_odoo_capture_selection(
     )
     capture_plan_errors: dict[str, str] = {}
     if schema is not None:
+        has_protected_plans = any(
+            item.protected_filter_artifact_hash is not None
+            for item in current_selections
+        )
+        protected_plan_errors = (
+            context.odoo_source_capture.review_current_plans(
+                workspace_state.workspace_id, actor=context.actor,
+                workspace_state=workspace_state, schema=schema,
+                selections=current_selections,
+            )
+            if has_protected_plans
+            else {}
+        )
         for saved_selection in current_selections:
             try:
-                if saved_selection.protected_filter_artifact_hash is None:
+                if not has_protected_plans:
                     plan_odoo_source_capture(saved_selection, schema)
-                else:
-                    context.odoo_source_capture.validate_current_plans(
-                        workspace_state.workspace_id, actor=context.actor
+                elif saved_selection.model in protected_plan_errors:
+                    raise OdooSourceCaptureConfigurationError(
+                        protected_plan_errors[saved_selection.model]
                     )
                 if (
                     not _selection_uses_current_capture_policy(saved_selection)
@@ -1334,23 +1375,18 @@ def _render_odoo_capture_selection(
         if plans_complete
         else ""
     )
-    try:
-        read_credential = get_target_credential(
-            context.secret_store,
-            workspace_state,
-            TargetCredentialRole.READ,
-        )
-        read_credential_present = read_credential is not None
-    except SecretStoreError as credential_error:
-        read_credential = None
-        read_credential_present = False
+    read_credential_status = get_target_credential_status(
+        context.secret_store, workspace_state, TargetCredentialRole.READ,
+    )
+    read_credential_present = read_credential_status.available
+    if read_credential_status.support_error is not None:
         if error is None:
-            error = str(credential_error)
+            error = read_credential_status.support_error
             status_code = 422
     read_credential_matches_schema = bool(
         schema is not None
-        and read_credential is not None
-        and schema.read_credential_binding_hash == read_credential.binding_hash
+        and read_credential_status.available
+        and schema.read_credential_binding_hash == read_credential_status.binding_hash
     )
     capture_ready_to_assess = bool(
         plans_complete
@@ -1388,6 +1424,7 @@ def _render_odoo_capture_selection(
         request,
         "workspace_odoo_capture_selection.html",
         workspace_state=workspace_state,
+        _read_credential_status=(workspace_state, read_credential_status),
         schema=schema,
         models=models,
         selected_model=selected_model,

@@ -15,6 +15,7 @@ from .forward_upgrades import (
     create_schema_migration_ledger,
     ensure_current_schema,
 )
+from .structure import read_table_columns
 
 
 MIGRATION_WORKSPACE_GENERATION = "impodo-migration-workspace-2026-08-reference-only"
@@ -169,14 +170,9 @@ def _validate_current_schema(
     ).fetchone()
     if row != (MIGRATION_WORKSPACE_GENERATION, MIGRATION_WORKSPACE_VERSION):
         raise _compatibility_error(database_path)
+    columns = read_table_columns(connection)
     for table, expected in EXPECTED_WORKSPACE_STORE_COLUMNS.items():
-        actual = tuple(
-            str(row[1])
-            for row in connection.execute(
-                f"PRAGMA table_info('{table}')"
-            ).fetchall()
-        )
-        if actual != expected:
+        if columns.get(table, ()) != expected:
             raise _compatibility_error(database_path)
 
 

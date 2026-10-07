@@ -187,6 +187,21 @@ class RunOdooRequirementsUseCaseTests(unittest.TestCase):
         self.assertEqual(revisions_reader.calls, [])
         self.assertEqual(authorization.calls, [])
 
+    def test_page_selection_retains_authorization_and_avoids_another_setup_read(self) -> None:
+        binding = SimpleNamespace(project_id="project-1", selected_revisions=(_selection("recipe-1", "sha256:pinned"),))
+        selections = _SelectionReader(binding)
+        authorization = _Authorization()
+        revisions = _RevisionReader({("recipe-1", 1): _revision("Fictional", "sha256:pinned", ())})
+        use_case = RunOdooRequirementsUseCase(setups=selections, recipes=revisions, authorization=authorization)
+        page_selection = selections.for_workspace("workspace-1")
+        use_case.for_selection(page_selection, actor=ACTOR)
+        self.assertEqual(selections.calls, ["workspace-1"])
+        self.assertEqual(len(revisions.calls), 1)
+        self.assertEqual(authorization.calls, [(ACTOR, Capability.PROJECT_VIEW, "project-1")])
+        revisions.revisions[("recipe-1", 1)] = _revision("Fictional", "sha256:changed", ())
+        with self.assertRaisesRegex(RecipeError, "selected Recipe version has changed"):
+            use_case.for_selection(page_selection, actor=ACTOR)
+
     def test_changed_selected_recipe_fails_closed(self) -> None:
         selection = _selection("recipe-customer", "sha256:selected")
         binding = SimpleNamespace(

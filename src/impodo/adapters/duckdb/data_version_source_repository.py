@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from dataclasses import replace
 
 from impodo.domain.shared.access import Actor
+from impodo.application.browser_queries import SourceReviewPage
 from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     SourcePackageCatalog,
@@ -22,6 +23,7 @@ from ...domain.source_snapshot import (
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.project.foundation import MigrationFoundationError, utc_now
 from impodo.domain.workspace.contracts import SourceConfiguration, SourceSelection
+from impodo.domain.workspace.workbench import WorkspaceState
 from .migration_foundation_repository import MigrationFoundationRepository
 from .source_repository import SourceRepository
 
@@ -42,6 +44,39 @@ class DataVersionOwnedSourceRepository(SourceRepository):
     ) -> None:
         super().__init__(*args, **kwargs)
         self.foundation = foundation
+
+    def get_source_review(
+        self, workspace_id: str, workspace_state: WorkspaceState,
+        package: DataVersionSourcePackage,
+    ) -> SourceReviewPage:
+        """Reuse a verified package while checking this page's exact source lineage."""
+
+        access = self.foundation.resolve_workspace_access_context(workspace_id)
+        if (
+            workspace_state.workspace_id != workspace_id
+            or package.data_version_id != access.data_version_id
+            or package.project_id != access.project_id
+        ):
+            raise MigrationFoundationError(
+                "The source review belongs to another workspace DataVersion"
+            )
+        selection = super().get_source_selection(workspace_id)
+        if selection is not None and selection.data_version_id != package.data_version_id:
+            raise MigrationFoundationError(
+                "The workspace source selection belongs to another DataVersion"
+            )
+        return SourceReviewPage(
+            workspace_state=workspace_state,
+            catalogs=tuple(
+                SourceFileCatalog.from_json(self._payload_json(item.payload))
+                for item in package.catalogs
+            ),
+            configurations=tuple(
+                SourceConfiguration.from_json(self._payload_json(item.payload))
+                for item in package.configurations
+            ),
+            selection=selection,
+        )
 
     def get_source_catalogs(
         self,

@@ -15,7 +15,6 @@ from time import perf_counter
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, status
-from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import PlainTextResponse, Response
 
@@ -26,6 +25,7 @@ from impodo.application.workspace.access import (
     WorkspaceAccessService,
     bind_workspace_access_context,
 )
+from .composition.page_reads import run_page_read
 
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -146,39 +146,42 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         access_started = perf_counter()
 
-        def resolve_access() -> WorkspaceAccessContext:
+        def resolve_access() -> tuple[WorkspaceAccessContext, Response | None]:
             trusted_context = (
                 self.trusted_context_resolver(request.url.path, workspace_id)
                 if self.trusted_context_resolver is not None
                 else None
             )
             if trusted_context is None:
-                return self.access.resolve(
+                context = self.access.resolve(
                     workspace_id,
                     actor=self.actor(),
                     capability=Capability.PROJECT_VIEW,
                 )
-            with bind_workspace_access_context(trusted_context):
-                return self.access.resolve(
-                    workspace_id,
-                    actor=self.actor(),
-                    capability=Capability.PROJECT_VIEW,
+            else:
+                with bind_workspace_access_context(trusted_context):
+                    context = self.access.resolve(
+                        workspace_id,
+                        actor=self.actor(),
+                        capability=Capability.PROJECT_VIEW,
+                    )
+            with bind_workspace_access_context(context):
+                request.state.workspace_access_context = context
+                policy_response = (
+                    self.route_policy(request, context)
+                    if self.route_policy is not None
+                    else None
                 )
+            return context, policy_response
 
         try:
-            context = await run_in_threadpool(resolve_access)
+            context, policy_response = await run_page_read(resolve_access)
         except (AuthorizationError, MigrationFoundationError):
             return PlainTextResponse("Workspace not found", status_code=404)
         access_context_ms = (perf_counter() - access_started) * 1000
-        request.state.workspace_access_context = context
+        if policy_response is not None:
+            return policy_response
         with bind_workspace_access_context(context):
-            try:
-                if self.route_policy is not None:
-                    policy_response = self.route_policy(request, context)
-                    if policy_response is not None:
-                        return policy_response
-            except (AuthorizationError, MigrationFoundationError):
-                return PlainTextResponse("Workspace not found", status_code=404)
             response = await call_next(request)
         existing_timing = response.headers.get("Server-Timing", "")
         access_timing = f"access_context;dur={access_context_ms:.3f}"

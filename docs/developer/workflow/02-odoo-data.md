@@ -274,6 +274,39 @@ closes them before returning. This avoids repeated database opens and keeps
 the event loop responsive to other requests. Opening the page does not call
 Odoo or refresh evidence; capture and change checks remain explicit actions.
 
+The route passes its
+[`SourceReviewPage`](../../../src/impodo/application/browser_queries.py)
+into the schema presenter, so the
+presenter reuses the workspace state and source package that the route verified.
+Each request still checks source lineage and package hashes. The access
+middleware resolves authorization and applies its local route policy in a
+separate bounded worker before page construction.
+
+The route also passes one authorized
+[`RunSetupPage`](../../../src/impodo/application/run/setup_service.py)
+to the presenter. Routing, Odoo requirements, and Test recovery reuse its
+selection, including an absent setup.
+[`RunOdooRequirementsUseCase.for_selection`](../../../src/impodo/application/run/odoo_requirements.py)
+retains Project access and selected Recipe hash checks. Active Test recovery
+uses a [scalar required-default blocker count](../../../src/impodo/adapters/duckdb/migration_run_planning_repository.py)
+instead of loading application bundles and complete issues. This display
+count grants no recovery authority; full evidence checks remain in command
+and review readers. Production retains its
+qualified Cutover plan check and does not enter Test recovery.
+
+The schema presenter shares its safe read-credential status with the read-key
+dialog only when the resolved credential owner and target are identical.
+Another owner requires a separate status read. Status is discarded after the
+request; capture and refresh commands still retrieve and validate current
+credentials independently.
+
+Database schema checks use
+[`read_table_columns`](../../../src/impodo/adapters/duckdb/schema/structure.py)
+to read ordered columns in one catalogue query instead of
+issuing a query per table. Each check remains fresh, including after a schema
+change on the same connection. Retaining database owners does not cache
+verification or combine repository transactions across stores.
+
 Supporting-model derivation is one bounded pass over the captured fields plus
 local catalogue joins. It performs no recursive graph walk and adds no network,
 per-model, per-field, or per-row request.
@@ -307,6 +340,10 @@ scope.
 - [`tests/domain/workspace/test_supporting_models.py`](../../../tests/domain/workspace/test_supporting_models.py)
 - [`tests/application/workspace/test_workflow_issues.py`](../../../tests/application/workspace/test_workflow_issues.py)
 - [`tests/integration/web/test_schema_presenter.py`](../../../tests/integration/web/test_schema_presenter.py)
+- [`tests/integration/web/test_stage12_page_loading.py`](../../../tests/integration/web/test_stage12_page_loading.py)
+- [`tests/application/run/test_setup_page.py`](../../../tests/application/run/test_setup_page.py)
+- [`tests/application/run/test_odoo_requirements.py`](../../../tests/application/run/test_odoo_requirements.py)
+- [`tests/integration/duckdb/test_schema_structure.py`](../../../tests/integration/duckdb/test_schema_structure.py)
 - [`tests/integration/web/test_stage2_supporting_models.py`](../../../tests/integration/web/test_stage2_supporting_models.py)
 - [`tests/integration/web/test_target_workflow.py`](../../../tests/integration/web/test_target_workflow.py)
 - [`tests/integration/web/test_schema_capture_recovery.py`](../../../tests/integration/web/test_schema_capture_recovery.py)
@@ -317,6 +354,10 @@ read-only capability, batched requests, invalidation, and both source modes.
 
 ## Related documentation
 
+- [Stage 1 and 2 page-loading optimization proposal](../../plans/stage-1-and-2-page-loading.md)
+- [Page-loading optimization evidence](../../testing/stage12-page-loading-2026-10-07.md)
+- [Shared page-read measurements](../../testing/stage12-shared-page-reads-2026-10-07.md)
+- [Shared page-read audit helper](../../testing/evidence/stage12-shared-page-reads-2026-10-07/audit.py)
 - [User guide: Odoo data](../../user/workflow/02-odoo-data.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
 - [Stage 2 matching-rule acceptance evidence](../../testing/acceptance.md#stage-2-matching-rule-qualification-2026-09-23)

@@ -6,6 +6,7 @@ import inspect
 import json
 import math
 import unittest
+from unittest.mock import Mock, patch
 from types import SimpleNamespace
 
 from impodo.adapters.protected_odoo_capture_filters import ProtectedOdooCaptureFilterStore
@@ -26,6 +27,7 @@ from impodo.domain.odoo_capture import (
     OdooCaptureFilterPolicy,
     OdooCaptureRole,
     OdooCaptureSelection,
+    PROTECTED_FILTER_CONTRACT_VERSION,
 )
 from impodo.domain.odoo_source_capture import (
     OdooCaptureAccounting,
@@ -686,6 +688,62 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
 
 
 class OdooDependencyClosureTests(unittest.TestCase):
+    def test_batches_links_across_owner_rows_with_exact_membership(self) -> None:
+        models = ("product.template", "product.category", "uom.uom")
+        count = 205
+        root = _request(
+            model=models[0], schema_model_names=tuple(sorted(models)),
+            relationship_projection=(
+                OdooCaptureRelationshipProjection("categ_id", "many2one", models[1]),
+                OdooCaptureRelationshipProjection("uom_id", "many2one", models[2]),
+            ),
+        )
+        requests = (root, *(
+            _request(
+                model=model, schema_model_names=tuple(sorted(models)),
+                capture_role=OdooCaptureRole.LINKED_ONLY,
+            ) for model in models[1:]
+        ))
+        calls = []
+        missing = False
+
+        def scan(request):
+            calls.append((request.model, request.member_ids))
+            if request.model == models[0]:
+                ids = tuple(range(1, count + 1))
+                return (OdooOriginBatch(1, ids, (None,) * count, (
+                    OdooRelationshipOriginColumn(
+                        "categ_id", "many2one", models[1],
+                        tuple((identifier,) for identifier in ids),
+                    ),
+                    OdooRelationshipOriginColumn(
+                        "uom_id", "many2one", models[2],
+                        ((7,),) * count,
+                    ),
+                )),)
+            ids = request.member_ids[:-1] if missing else request.member_ids
+            return (OdooOriginBatch(1, ids, (None,) * len(ids)),) if ids else ()
+
+        closure = discover_dependency_closure(requests, scan)
+        self.assertEqual(closure.ids_by_model[models[1]], tuple(range(1, count + 1)))
+        self.assertEqual(closure.ids_by_model[models[2]], (7,))
+        self.assertEqual(calls, [
+            (models[0], ()),
+            (models[1], tuple(range(1, 101))),
+            (models[1], tuple(range(101, 201))),
+            (models[1], tuple(range(201, 206))),
+            (models[2], (7,)),
+        ])
+        self.assertEqual(
+            closure.facts_by_model[models[0]][205],
+            (None, (("categ_id", (205,)), ("uom_id", (7,)))),
+        )
+        missing = True
+        with self.assertRaisesRegex(
+            OdooSourceCaptureConsistencyError, "missing or inaccessible"
+        ):
+            discover_dependency_closure(requests, scan)
+
     def test_planner_reads_one2many_only_for_linked_supporting_models(self) -> None:
         workspace_id = "00000000-0000-0000-0000-000000000001"
         schema = _schema(workspace_id)
@@ -939,6 +997,66 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
             self.schemas,
             workspace_access_service(),
         )
+
+    def test_protected_plan_review_is_linear_and_reuses_verified_page_inputs(self):
+        filters = Mock()
+        filters.read.return_value = (
+            OdooCaptureFilterClause("name", OdooCaptureFilterOperator.EQUALS, ("Fictional",)),
+        )
+        self.service._capture_filters = filters
+        for count in (1, 5, 10):
+            with self.subTest(count=count):
+                schema = replace(self.schema, models=tuple(
+                    replace(self.schema.models[0], name=f"x_review_{index}")
+                    for index in range(count)
+                ))
+                selections = tuple(replace(
+                    self.selection, model=model.name, dataset_name=f"records_{index}",
+                    contract_version=PROTECTED_FILTER_CONTRACT_VERSION,
+                    protected_filter_artifact_hash=HASH,
+                    content_hash="", _calculate_content_hash=True,
+                ) for index, model in enumerate(schema.models))
+                filters.read.reset_mock()
+                with (
+                    patch.object(self.workspace_states, "get", side_effect=AssertionError("Repeated state read")),
+                    patch.object(self.schemas, "get_odoo_schema_catalog", side_effect=AssertionError("Repeated schema read")),
+                    patch.object(self.selections, "get_current_odoo_capture_selections", side_effect=AssertionError("Repeated plan read")),
+                    patch.object(self.service, "_plan_for_selection", wraps=self.service._plan_for_selection) as planned,
+                ):
+                    errors = self.service.review_current_plans(
+                        self.workspace_id, actor=LOCAL_ACTOR,
+                        workspace_state=self.workspace_state, schema=schema, selections=selections,
+                    )
+                self.assertEqual(errors, {})
+                self.assertEqual(planned.call_count, count)
+                self.assertEqual(filters.read.call_count, count)
+
+    def test_plan_review_keeps_the_error_on_its_model_and_commands_still_reject_it(self):
+        schema = replace(self.schema, models=tuple(
+            replace(self.schema.models[0], name=f"x_review_{index}")
+            for index in range(5)
+        ))
+        selections = tuple(replace(
+            self.selection, model=model.name, dataset_name=f"records_{index}",
+            field_names=("missing_field",) if index == 2 else ("name",),
+            contract_version=PROTECTED_FILTER_CONTRACT_VERSION,
+            protected_filter_artifact_hash=HASH,
+            content_hash="", _calculate_content_hash=True,
+        ) for index, model in enumerate(schema.models))
+        filters = Mock()
+        filters.read.return_value = (
+            OdooCaptureFilterClause("name", OdooCaptureFilterOperator.EQUALS, ("Fictional",)),
+        )
+        self.service._capture_filters = filters
+        errors = self.service.review_current_plans(
+            self.workspace_id, actor=LOCAL_ACTOR, workspace_state=self.workspace_state,
+            schema=schema, selections=selections,
+        )
+        self.assertEqual(set(errors), {"x_review_2"})
+        self.schemas.schema = schema
+        self.selections.selections = selections
+        with self.assertRaises(OdooSourceCaptureConfigurationError):
+            self.service.validate_current_plans(self.workspace_id, actor=LOCAL_ACTOR)
 
     def test_planner_uses_read_evidence_without_inventing_compute_metadata(
         self,

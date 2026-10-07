@@ -1146,16 +1146,37 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Freeze 2 matching records?", assessed.text)
         self.assertIn("1 data request", assessed.text)
         self.assertIn("up to 100 records", assessed.text)
-        started = self._post(
-            f"/workspaces/{workspace_id}/sources/odoo-capture",
-            {
-                "csrf_token": self.csrf,
-                "selection_id": selection.selection_id,
-                "selection_hash": selection.content_hash,
-                "confirm_capture": "1",
-            },
-        )
-        self.assertEqual(started.status_code, 303)
+        real_get = context.queries.get
+        real_enqueue = context.odoo_capture_jobs.enqueue
+
+        def capture_read(*args, **kwargs):
+            with self.assertRaises(RuntimeError):
+                asyncio.get_running_loop()
+            return real_get(*args, **kwargs)
+
+        def enqueue(*args, **kwargs):
+            from impodo.adapters.duckdb.unit_of_work import _read_databases
+
+            self.assertIsNone(getattr(_read_databases, "connections", None))
+            self.assertIsNotNone(asyncio.get_running_loop())
+            return real_enqueue(*args, **kwargs)
+
+        with (
+            patch.object(context.queries, "get", side_effect=capture_read),
+            patch.object(context.odoo_capture_jobs, "enqueue", side_effect=enqueue),
+            collect_duckdb_request_timings() as capture_timings,
+        ):
+            started = self._post(
+                f"/workspaces/{workspace_id}/sources/odoo-capture",
+                {
+                    "csrf_token": self.csrf,
+                    "selection_id": selection.selection_id,
+                    "selection_hash": selection.content_hash,
+                    "confirm_capture": "1",
+                },
+            )
+            self.assertEqual(started.status_code, 303)
+        self.assertLessEqual(capture_timings.connection_count, 8)
         progress_url = started.headers["location"]
         progress_page = self.client.get(progress_url)
         self.assertIn("data-odoo-capture-job", progress_page.text)

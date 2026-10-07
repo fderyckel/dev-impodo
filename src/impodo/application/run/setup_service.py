@@ -6,6 +6,7 @@ from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.run.contracts import RecipeRevisionSelection
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.domain.run.production import ProductionRunBinding
+from impodo.domain.run.test_setup import TestRunSetupState
 from impodo.domain.shared.access import Actor, Capability
 from .fresh_data_matching import build_fresh_data_match_plan
 from .odoo_requirements import RunOdooRequirementsUseCase
@@ -19,6 +20,14 @@ class RunSetupSelection:
     migration_run_id: str
     setup_workspace_id: str
     selected_revisions: tuple[RecipeRevisionSelection, ...]
+    active_test_setup: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RunSetupPage:
+    """Retain the authorized setup selection, including an absent setup, for one page."""
+
+    selection: RunSetupSelection | None
 
 
 class RunSetupService:
@@ -44,7 +53,12 @@ class RunSetupService:
 
         binding = self.test_runs.test_runs.for_workspace(workspace_id)
         if binding is not None:
-            return RunSetupSelection(binding.project_id, binding.migration_run_id, binding.setup_workspace_id, binding.selected_revisions)
+            return RunSetupSelection(
+                binding.project_id, binding.migration_run_id,
+                binding.setup_workspace_id, binding.selected_revisions,
+                active_test_setup=(binding.setup_workspace_id == workspace_id
+                                   and binding.state is TestRunSetupState.ACTIVE),
+            )
         binding = self.production_runs.production_runs.for_workspace(workspace_id)
         if binding is None or binding.setup_workspace_id != workspace_id:
             return None
@@ -56,6 +70,32 @@ class RunSetupService:
         if selection is None or selection.setup_workspace_id != workspace_id:
             return None
         return self.get(selection.migration_run_id, actor=actor)
+
+    def page_for_workspace(self, workspace_id: str, *, actor: Actor) -> RunSetupPage:
+        """Read setup ownership once for schema routing, requirements and recovery."""
+
+        selection = self.for_workspace(workspace_id)
+        if selection is not None:
+            self.authorization.require(actor, Capability.PROJECT_VIEW,
+                                       project_id=selection.project_id)
+        return RunSetupPage(selection)
+
+    def odoo_check_requirements_for_page(self, page: RunSetupPage, *, actor: Actor):
+        """Keep Recipe hash and access checks while reusing this page's selection."""
+
+        return self.odoo.for_selection(page.selection, actor=actor)
+
+    def required_default_count_for_page(self, page: RunSetupPage, *, actor: Actor) -> int:
+        """Count active Test recovery blockers without loading application evidence."""
+
+        selection = page.selection
+        if selection is None or not selection.active_test_setup:
+            return 0
+        self.authorization.require(actor, Capability.PROJECT_VIEW,
+                                   project_id=selection.project_id)
+        return self.test_runs.run_planning.repository.count_blocking_run_issues(
+            selection.migration_run_id, code="RECIPE_TARGET_NEW_REQUIRED_FIELD",
+        )
 
     def fresh_data_details(self, binding, *, actor: Actor):
         """Read the selected Recipes once for both source prompts and saved answers."""

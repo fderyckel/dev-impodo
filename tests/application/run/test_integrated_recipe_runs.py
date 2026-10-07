@@ -3812,33 +3812,21 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             credential.binding_hash,
         )
 
-        required_default_issue = MigrationRunPlanIssue(
-            code="RECIPE_TARGET_NEW_REQUIRED_FIELD",
-            level=MigrationRunPlanIssueLevel.BLOCKER,
-            message="Odoo added one required field.",
-            recovery_action="Check Odoo defaults.",
-            recipe_ids=(publication.recipe.recipe_id,),
-        )
-        active_binding_view = SimpleNamespace(
-            migration_run_id=setup_run_id,
-            state=SimpleNamespace(value="ACTIVE"),
+        saved_setup_binding = context.test_runs.get(setup_run_id, actor=context.actor)
+        active_binding_view = replace(
+            saved_setup_binding, state=TestRunSetupState.ACTIVE,
+            target_binding_id=str(uuid4()), activated_at=datetime.now(timezone.utc),
         )
         with (
             patch.object(
-                context.test_runs,
-                "setup_binding_for_workspace",
+                context.test_runs.test_runs,
+                "for_workspace",
                 return_value=active_binding_view,
             ),
             patch.object(
                 context.run_planning.repository,
-                "list_run_issues",
-                return_value={
-                    "application": (
-                        required_default_issue,
-                        required_default_issue,
-                        required_default_issue,
-                    )
-                },
+                "count_blocking_run_issues",
+                return_value=3,
             ),
         ):
             recovery_page = self.client.get(odoo_url)
@@ -3868,10 +3856,6 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         )
         self.assertNotIn("Back to Fresh data", recovery_page.text)
 
-        saved_setup_binding = context.test_runs.get(
-            setup_run_id,
-            actor=context.actor,
-        )
         active_setup_binding = replace(
             saved_setup_binding,
             state=TestRunSetupState.ACTIVE,
@@ -3891,14 +3875,14 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             ),
             patch.object(context.test_runs, "resume_activation_if_needed", return_value=None),
             patch.object(
-                context.test_runs,
-                "setup_binding_for_workspace",
+                context.test_runs.test_runs,
+                "for_workspace",
                 return_value=active_setup_binding,
             ),
             patch.object(
                 context.run_planning.repository,
-                "list_run_issues",
-                return_value={"application": (required_default_issue,)},
+                "count_blocking_run_issues",
+                return_value=1,
             ),
             patch.object(
                 context.run_planning,

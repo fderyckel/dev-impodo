@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock
 from uuid import uuid4
 
 from impodo.domain.shared.access import (
@@ -67,6 +68,30 @@ DATA_VERSION_ID = str(uuid4())
 
 
 class DerivedEntityPreviewTests(unittest.TestCase):
+    def test_rule_review_retains_valid_lookup_and_related_previews_after_an_error(self):
+        selection, catalog = _source_evidence()
+        lookup = _rule(selection)
+        invalid = replace(lookup, rule_id=str(uuid4()), source_dataset_id=str(uuid4()))
+        dataset = selection.datasets[0]
+        related = RelatedDatasetRule(
+            rule_id=str(uuid4()), source_dataset_id=dataset.dataset_id,
+            parent_dataset_name="categories", child_dataset_name="products",
+            parent_key_column_key=dataset.columns[1].stable_key,
+            child_key_column_key=dataset.columns[0].stable_key,
+        )
+        sources = Mock()
+        service = DerivedEntityWorkspaceService(sources, Mock(), Mock())
+        results = service.preview_rules(
+            (invalid, lookup, related), selection=selection, catalogs=(catalog,),
+        )
+        self.assertIsNone(results[0].preview)
+        self.assertTrue(results[0].error)
+        self.assertEqual(results[1].preview, preview_derived_entities(lookup, selection, (catalog,)))
+        self.assertEqual(results[2].preview, preview_related_datasets(related, selection, (catalog,)))
+        self.assertIsNone(results[1].error)
+        self.assertIsNone(results[2].error)
+        self.assertEqual(sources.mock_calls, [])
+
     def test_multi_column_hierarchy_applies_reviewed_blank_decisions(self) -> None:
         selection, catalog = _hierarchy_source_evidence()
         dataset = selection.datasets[0]

@@ -40,6 +40,7 @@ from ..presenters.summary import (
 )
 from impodo.web.composition.target_readers import _refresh_model_catalog
 from ..security import require_session
+from ..composition.page_reads import run_page_read
 from ..target_credentials import (
     TargetCredentialRemovalReason,
     TargetCredentialRole,
@@ -298,6 +299,11 @@ def build_target_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/target", response_class=HTMLResponse)
     async def workspace_target_form(request: Request, workspace_id: str):
         require_session(request)
+        return await run_page_read(render_target_form, request, workspace_id)
+
+    def render_target_form(request: Request, workspace_id: str):
+        """Read Odoo access setup and render in one bounded worker operation."""
+
         workspace_state = context.queries.get(workspace_id)
         if workspace_state.status is WorkspaceStatus.CLOSED:
             return RedirectResponse(

@@ -13,6 +13,7 @@ from .forward_upgrades import (
     create_schema_migration_ledger,
     ensure_current_schema,
 )
+from .structure import read_table_columns
 
 MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-project-root"
 MIGRATION_REGISTRY_BASELINE_VERSION = 1
@@ -469,14 +470,9 @@ def _validate_current_registry_schema(
 ) -> None:
     if set(_tables(connection)) != set(EXPECTED_REGISTRY_COLUMNS):
         raise _compatibility_error(database_path)
+    columns = read_table_columns(connection)
     for table, expected in EXPECTED_REGISTRY_COLUMNS.items():
-        actual = tuple(
-            str(row[1])
-            for row in connection.execute(
-                f"PRAGMA table_info('{table}')"
-            ).fetchall()
-        )
-        if actual != expected:
+        if columns.get(table, ()) != expected:
             raise _compatibility_error(database_path)
 
 

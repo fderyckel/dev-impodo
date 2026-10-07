@@ -271,11 +271,13 @@ def build_schema_router(context: WebContext) -> APIRouter:
     def render_schema(request: Request, workspace_id: str):
         """Render saved Odoo details within one database-scoped worker."""
 
-        workspace_state = context.queries.get(workspace_id)
-        test_setup = context.run_setups.setup_binding_for_workspace(
+        source_page = context.queries.get_source_page(workspace_id)
+        workspace_state = source_page.workspace_state
+        run_setup_page = context.run_setups.page_for_workspace(
             workspace_id,
             actor=context.actor,
         )
+        test_setup = run_setup_page.selection
         if (
             workspace_state.odoo_connection_mode is None
             or not workspace_state.odoo_base_url
@@ -285,13 +287,16 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 f"/workspaces/{workspace_state.workspace_id}/target",
                 status_code=303,
             )
-        if test_setup is not None:
+        if test_setup is not None and test_setup.setup_workspace_id == workspace_id:
             return RedirectResponse(
                 f"/projects/{test_setup.project_id}/runs/"
                 f"{test_setup.migration_run_id}/odoo",
                 status_code=303,
             )
-        return _render_schema(request, context, workspace_id)
+        return _render_schema(
+            request, context, workspace_id, source_page=source_page,
+            run_setup_page=run_setup_page,
+        )
 
     @router.post(
         "/projects/{project_id}/{run_kind}/{migration_run_id}/odoo/check"

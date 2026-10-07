@@ -124,6 +124,16 @@ class RunOdooRequirementsUseCase:
         """Read all selected revisions once and combine their Odoo needs."""
 
         binding = self._setups.for_workspace(workspace_id)
+        return self.for_selection(binding, actor=actor)
+
+    def for_selection(
+        self,
+        binding: SelectedRunSetup | None,
+        *,
+        actor: Actor,
+    ) -> OdooCheckRequirementPlan | None:
+        """Verify Recipe requirements from a selection already read for this page."""
+
         if binding is None:
             return None
         self._authorization.require(

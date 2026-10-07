@@ -274,6 +274,33 @@ field policy. Page reads are batched; adding per-row metadata or relationship
 lookups would create an N+1 regression. Preparation must consume the frozen
 snapshot and make zero Odoo calls.
 
+Source review, saved tables, related tables, and the adjacent file and Odoo
+access setup pages render in bounded `run_page_read` workers. The access
+middleware also resolves authorization and applies its local route policy in
+one worker. Each scope releases its database owners before returning to the
+event loop.
+
+[`BrowserQueryService.get_source_page`](../../../src/impodo/application/browser_queries.py)
+passes the source package already verified
+for workspace state into `SourceReviewPage`. File review and related-rule cards
+reuse its catalogues, configurations, and selection. Rule previews add no
+database reads as the saved rule count grows. The package reader checks hashes
+inside one read transaction; there is no transaction shared across stores.
+
+The Odoo capture page reviews saved plans once when protected filters are
+present. It verifies each protected filter once and keeps errors keyed by model.
+Capture commands continue to read and validate the current complete selection
+set independently. Store validators use
+[`read_table_columns`](../../../src/impodo/adapters/duckdb/schema/structure.py)
+to inspect ordered columns in one catalogue query per check and continue to
+reject incompatible structures on fresh reads.
+
+The Odoo capture presenter shares its safe read-credential status with the
+read-key dialog when both refer to the same canonical owner and target.
+The next request reads status again, and capture commands retrieve and validate
+current credentials independently. Capture history remains complete; the page
+still offers every saved capture rather than hiding older evidence.
+
 The current derived or materialized preparation path has a lower row limit
 than exact direct mappings; keep that limit visible rather than silently
 falling back to unbounded Python work.
@@ -294,6 +321,8 @@ workspace.
 - [`tests/application/data_version/test_odoo_capture_jobs.py`](../../../tests/application/data_version/test_odoo_capture_jobs.py)
 - [`tests/application/workspace/test_derived_entities.py`](../../../tests/application/workspace/test_derived_entities.py)
 - [`tests/integration/web/test_source_workflow.py`](../../../tests/integration/web/test_source_workflow.py)
+- [`tests/integration/web/test_stage12_page_loading.py`](../../../tests/integration/web/test_stage12_page_loading.py)
+- [`tests/integration/duckdb/test_schema_structure.py`](../../../tests/integration/duckdb/test_schema_structure.py)
 - [`tests/e2e/test_derived_entities_navigation.py`](../../../tests/e2e/test_derived_entities_navigation.py)
 - [`tests/integration/web/test_target_workflow.py`](../../../tests/integration/web/test_target_workflow.py)
 
@@ -303,6 +332,10 @@ cancellation, lineage, and both navigation variants.
 
 ## Related documentation
 
+- [Stage 1 and 2 page-loading optimization proposal](../../plans/stage-1-and-2-page-loading.md)
+- [Page-loading optimization evidence](../../testing/stage12-page-loading-2026-10-07.md)
+- [Shared page-read measurements](../../testing/stage12-shared-page-reads-2026-10-07.md)
+- [Shared page-read audit helper](../../testing/evidence/stage12-shared-page-reads-2026-10-07/audit.py)
 - [User guide: Source data](../../user/workflow/01-source-data.md)
 - [Project lifecycle contract](../contracts/project-lifecycle.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)

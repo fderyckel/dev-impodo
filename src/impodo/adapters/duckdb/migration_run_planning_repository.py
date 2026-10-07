@@ -676,6 +676,24 @@ class MigrationRunPlanningRepository:
                 self.foundation._raise_missing_identity(connection, application_id)
         return tuple(self._issue_from_row(item) for item in rows)
 
+    def count_blocking_run_issues(self, migration_run_id: str, *, code: str) -> int:
+        """Project only a recovery count; preserve every stored application issue."""
+
+        migration_run_id = require_uuid(migration_run_id, "migration_run_id")
+        with self.database.connect(self.registry_path) as connection:
+            row = connection.execute(
+                """
+                SELECT count(*)
+                  FROM recipe_application_issue issue
+                  JOIN recipe_application application
+                    ON application.application_id = issue.application_id
+                 WHERE application.migration_run_id = ?
+                   AND issue.code = ? AND issue.level = ?
+                """,
+                [migration_run_id, code, MigrationRunPlanIssueLevel.BLOCKER.value],
+            ).fetchone()
+        return int(row[0])
+
     def list_run_issues(
         self,
         migration_run_id: str,

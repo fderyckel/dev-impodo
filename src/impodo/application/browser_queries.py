@@ -10,7 +10,10 @@ type and are an explicit docstring-coverage exception.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Protocol
+
+from .data_version.source_packages import DataVersionSourcePackage
 
 from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from ..domain.source_snapshot import SourceSnapshot
@@ -45,15 +48,33 @@ from .workspace.mapping.field_catalog import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class SourceReviewPage:
+    """One verified set of workspace state and source choices for page rendering."""
+
+    workspace_state: WorkspaceState
+    catalogs: tuple[SourceFileCatalog, ...]
+    configurations: tuple[SourceConfiguration, ...]
+    selection: SourceSelection | None
+
+
 class WorkspaceStateQueryRepository(Protocol):
     """Read current mutable workspace state."""
 
     def get(self, workspace_id: str) -> WorkspaceState: ...
+    def get_with_source_package(
+        self, workspace_id: str
+    ) -> tuple[WorkspaceState, DataVersionSourcePackage]: ...
     def has_audit_event(self, workspace_id: str, event_type: str) -> bool: ...
 
 
 class SourceQueryRepository(Protocol):
     """Read current Stage B catalogs, confirmations, and selections."""
+
+    def get_source_review(
+        self, workspace_id: str, workspace_state: WorkspaceState,
+        package: DataVersionSourcePackage,
+    ) -> SourceReviewPage: ...
 
     def get_source_catalogs(
         self, workspace_id: str
@@ -199,6 +220,14 @@ class BrowserQueryService:
 
     def get(self, workspace_id: str) -> WorkspaceState:
         return self._workspace_states.get(workspace_id)
+
+    def get_source_page(self, workspace_id: str) -> SourceReviewPage:
+        """Build source review from the package already verified for workspace state."""
+
+        workspace_state, package = self._workspace_states.get_with_source_package(
+            workspace_id
+        )
+        return self._sources.get_source_review(workspace_id, workspace_state, package)
 
     def has_workspace_audit_event(self, workspace_id: str, event_type: str) -> bool:
         return self._workspace_states.has_audit_event(workspace_id, event_type)

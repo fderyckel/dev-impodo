@@ -29,11 +29,15 @@ class FoundationSourcePackageReader:
         data_version = self._repository._get_data_version_registry(data_version_id)
         path = self._repository.database.ensure_data_version_store(data_version)
         with self._repository.database.connect(path) as connection:
-            return read_source_package_store(
-                connection,
-                expected_data_version_id=data_version.data_version_id,
-                expected_project_id=data_version.project_id,
-            )
+            connection.begin()
+            try:
+                return read_source_package_store(
+                    connection,
+                    expected_data_version_id=data_version.data_version_id,
+                    expected_project_id=data_version.project_id,
+                )
+            finally:
+                connection.rollback()
 
 
 def read_source_package_store(

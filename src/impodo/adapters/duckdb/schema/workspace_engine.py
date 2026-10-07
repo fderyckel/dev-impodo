@@ -31,6 +31,7 @@ from .recipe_compilation import (
 )
 from .supporting_lookup import create_supporting_lookup_schema
 from .source_snapshot import create_source_snapshot_schema
+from .structure import read_table_columns
 
 
 _WORKSPACE_PROJECTION_COLUMNS = (
@@ -996,6 +997,12 @@ class WorkspaceEngineSchemaMixin:
             ) from error
         if tables != _WORKSPACE_ENGINE_TABLES:
             raise WorkspaceStateCompatibilityError(_UNSUPPORTED_WORKSPACE_MESSAGE)
+        try:
+            table_columns = read_table_columns(connection)
+        except duckdb.Error as error:
+            raise WorkspaceStateCompatibilityError(
+                _UNSUPPORTED_WORKSPACE_MESSAGE
+            ) from error
         for table, expected in (
             ("schema_migration", _SCHEMA_MIGRATION_COLUMNS),
             ("workspace_projection_cache", _WORKSPACE_PROJECTION_COLUMNS),
@@ -1039,18 +1046,7 @@ class WorkspaceEngineSchemaMixin:
                 _PREFLIGHT_EXECUTION_PROJECTION_COLUMNS,
             ),
         ):
-            try:
-                columns = tuple(
-                    str(item[1])
-                    for item in connection.execute(
-                        f"PRAGMA table_info('{table}')"
-                    ).fetchall()
-                )
-            except duckdb.Error as error:
-                raise WorkspaceStateCompatibilityError(
-                    _UNSUPPORTED_WORKSPACE_MESSAGE
-                ) from error
-            if columns != expected:
+            if table_columns.get(table, ()) != expected:
                 raise WorkspaceStateCompatibilityError(
                     _UNSUPPORTED_WORKSPACE_MESSAGE
                 )

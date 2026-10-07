@@ -55,7 +55,8 @@ def discover_dependency_closure(
     discovery_facts: dict[str, dict[int, OriginFact]] = {
         model: {} for model in by_model
     }
-    pending: deque[tuple[int, str, tuple[int, ...]]] = deque()
+    pending: deque[tuple[int, str]] = deque()
+    pending_members: dict[tuple[int, str], list[int]] = {}
     enqueued: dict[str, set[int]] = defaultdict(set)
     root_references: dict[str, set[int]] = defaultdict(set)
     total_rows = 0
@@ -137,7 +138,13 @@ def discover_dependency_closure(
                         raise OdooSourceCaptureLimitError(
                             "Odoo linked-record closure exceeds the model row limit"
                         )
-                    pending.append((depth + 1, target.model, new_members))
+                    # Combine links discovered at the same depth and model;
+                    # otherwise many2one links cause one Odoo call per owner.
+                    key = (depth + 1, target.model)
+                    if key not in pending_members:
+                        pending.append(key)
+                        pending_members[key] = []
+                    pending_members[key].extend(new_members)
         return tuple(found)
 
     for request in roots:
@@ -150,13 +157,14 @@ def discover_dependency_closure(
             )
 
     while pending:
-        depth, model, members = pending.popleft()
+        key = pending.popleft()
+        depth, model = key
+        members = tuple(sorted(pending_members.pop(key)))
         request = by_model[model]
         for start in range(0, len(members), 100):
-            chunk = tuple(sorted(members[start:start + 100]))
-            found = record(replace(request, member_ids=chunk), scan(
-                replace(request, member_ids=chunk)
-            ), depth)
+            chunk = members[start:start + 100]
+            segment = replace(request, member_ids=chunk)
+            found = record(segment, scan(segment), depth)
             if set(found) != set(chunk):
                 raise OdooSourceCaptureConsistencyError(
                     f"A linked {model} record is missing or inaccessible. "

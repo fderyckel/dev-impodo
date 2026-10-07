@@ -28,6 +28,7 @@ from ..forms import _optional_int, _secure_form, _text
 from ..presenters.common import _flash
 from ..presenters.schema import _render_derived_entities
 from ..security import require_session
+from ..composition.page_reads import run_page_read
 from impodo.web.composition.target_readers import _existing_catalog_model, _refresh_model_catalog
 
 
@@ -42,7 +43,9 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
     )
     async def workspace_derived_entities(request: Request, workspace_id: str):
         require_session(request)
-        return _render_derived_entities(request, context, workspace_id)
+        return await run_page_read(
+            _render_derived_entities, request, context, workspace_id
+        )
 
     @router.post("/workspaces/{workspace_id}/derived-entities/models/refresh")
     async def refresh_derived_entity_models(request: Request, workspace_id: str):

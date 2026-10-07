@@ -11,6 +11,7 @@ from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operatio
 from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.odoo.contracts import MetadataSnapshot
 from ..domain.odoo_capture import (
+    OdooCaptureContractError,
     OdooCaptureSelection,
     OdooCaptureRole,
     odoo_capture_selection_set_hash,
@@ -18,6 +19,7 @@ from ..domain.odoo_capture import (
 )
 from ..domain.odoo_source_policy import odoo_source_policy_from_hash
 from ..domain.odoo_source_capture import (
+    OdooSourceCaptureConfigurationError,
     CancellationProbe,
     OdooCaptureAssessment,
     OdooCaptureAccounting,
@@ -750,6 +752,10 @@ class OdooSourceCaptureService:
         *,
         actor: Actor,
         require_complete: bool,
+        review_inputs: tuple[
+            WorkspaceState, OdooSchemaCatalog, tuple[OdooCaptureSelection, ...]
+        ] | None = None,
+        errors: dict[str, str] | None = None,
     ) -> tuple[
         tuple[
             OdooSourceCaptureRequest,
@@ -765,7 +771,12 @@ class OdooSourceCaptureService:
             Capability.SOURCE_CAPTURE,
             workspace_id=workspace_id,
         )
-        workspace_state = self._workspaces.get(workspace_id)
+        workspace_state = (
+            review_inputs[0] if review_inputs is not None
+            else self._workspaces.get(workspace_id)
+        )
+        if workspace_state.workspace_id != workspace_id:
+            raise WorkspaceError("The capture review belongs to another workspace")
         if (
             workspace_state.status is not WorkspaceStatus.REGISTERED
             or workspace_state.source_mode is not SourceMode.ODOO
@@ -773,12 +784,20 @@ class OdooSourceCaptureService:
             raise WorkspaceError(
                 "Live Odoo source capture requires a registered Odoo-source workspace"
             )
-        selections = self._current_selection_set(workspace_id)
-        schema = self._schemas.get_odoo_schema_catalog(workspace_id)
+        selections = (
+            review_inputs[2] if review_inputs is not None
+            else self._current_selection_set(workspace_id)
+        )
+        schema = (
+            review_inputs[1] if review_inputs is not None
+            else self._schemas.get_odoo_schema_catalog(workspace_id)
+        )
         if not selections or schema is None:
             raise WorkspaceError(
                 "Save a current Odoo capture selection and live schema first"
             )
+        if schema.workspace_id != workspace_id:
+            raise WorkspaceError("The capture schema belongs to another workspace")
         if require_complete and {item.model for item in selections} != {
             item.name for item in schema.models
         }:
@@ -803,23 +822,28 @@ class OdooSourceCaptureService:
             if item.capture_role is OdooCaptureRole.LINKED_ONLY
         )
         for selection in selections:
-            if selection.data_version_id != access.data_version_id:
-                raise WorkspaceError(
-                    "The Odoo capture selection belongs to another DataVersion"
-                )
-            policy = odoo_source_policy_from_hash(selection.policy_hash)
-            if policy is None or selection.max_rows != policy.max_rows:
-                raise WorkspaceError(
-                    "Review and save the Odoo capture plan before reading records"
-                )
-            contexts.append((
-                self._plan_for_selection(
-                    access.project_id, selection, schema,
-                    linked_models=linked_models,
-                ),
-                schema,
-                selection,
-            ))
+            try:
+                if selection.data_version_id != access.data_version_id:
+                    raise WorkspaceError(
+                        "The Odoo capture selection belongs to another DataVersion"
+                    )
+                policy = odoo_source_policy_from_hash(selection.policy_hash)
+                if policy is None or selection.max_rows != policy.max_rows:
+                    raise WorkspaceError(
+                        "Review and save the Odoo capture plan before reading records"
+                    )
+                contexts.append((
+                    self._plan_for_selection(
+                        access.project_id, selection, schema,
+                        linked_models=linked_models,
+                    ),
+                    schema,
+                    selection,
+                ))
+            except (OdooSourceCaptureConfigurationError, WorkspaceError) as error:
+                if errors is None:
+                    raise
+                errors[selection.model] = str(error)
         require_consistent_odoo_capture_selection_set(selections)
         return tuple(contexts)
 
@@ -856,6 +880,26 @@ class OdooSourceCaptureService:
                 workspace_id, actor=actor, require_complete=False
             )
         )
+
+    def review_current_plans(
+        self, workspace_id: str, *, actor: Actor,
+        workspace_state: WorkspaceState,
+        schema: OdooSchemaCatalog,
+        selections: tuple[OdooCaptureSelection, ...],
+    ) -> dict[str, str]:
+        """Review each protected plan once using this page's verified inputs."""
+
+        errors: dict[str, str] = {}
+        try:
+            self._contexts(
+                workspace_id, actor=actor, require_complete=False,
+                review_inputs=(workspace_state, schema, selections), errors=errors,
+            )
+        except (
+            OdooCaptureContractError, OdooSourceCaptureConfigurationError, WorkspaceError
+        ) as error:
+            return {selection.model: str(error) for selection in selections}
+        return errors
 
     def _context(
         self,

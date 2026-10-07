@@ -10,7 +10,8 @@ from uuid import uuid4
 from fastapi import Request
 from starlette.datastructures import FormData
 
-from impodo.application.shared.secrets import SecretStoreError
+from impodo.application.browser_queries import SourceReviewPage
+from impodo.application.run.setup_service import RunSetupPage
 from impodo.domain.workspace.business_keys import (
     BUSINESS_KEY_POLICY_VERSION,
     assess_business_key_recommendation,
@@ -41,7 +42,7 @@ from ..context import WebContext
 from ..forms import _text
 from ..target_credentials import (
     TargetCredentialRole,
-    get_target_credential,
+    get_target_credential_status,
 )
 from .common import _render
 from .supporting_models import supporting_model_plan_view
@@ -212,8 +213,9 @@ def _render_derived_entities(
     pending_lookup: dict[str, object] | None = None,
     pending_hierarchy: dict[str, object] | None = None,
 ):
-    workspace_state = context.queries.get(workspace_id)
-    selection = context.queries.get_source_selection(workspace_id)
+    source_page = context.queries.get_source_page(workspace_id)
+    workspace_state = source_page.workspace_state
+    selection = source_page.selection
     plan = context.queries.get_derived_entity_plan(workspace_id)
     model_catalog = context.queries.get_odoo_model_catalog(workspace_id)
     model_choices = tuple(
@@ -240,17 +242,12 @@ def _render_derived_entities(
     )
     rule_views: list[dict[str, object]] = []
     related_rule_views: list[dict[str, object]] = []
-    for rule in (plan.rules if plan else ()):
-        try:
-            preview = (
-                context.derived_entities.preview(workspace_id, rule)
-                if isinstance(rule, (DerivedEntityRule, HierarchicalLookupRule))
-                else context.derived_entities.preview_related(workspace_id, rule)
-            )
-            preview_error = None
-        except WorkspaceError as preview_failure:
-            preview = None
-            preview_error = str(preview_failure)
+    for result in context.derived_entities.preview_rules(
+        plan.rules if plan else (),
+        selection=selection,
+        catalogs=source_page.catalogs,
+    ):
+        rule = result.rule
         target = (
             rule_views
             if isinstance(rule, (DerivedEntityRule, HierarchicalLookupRule))
@@ -259,8 +256,8 @@ def _render_derived_entities(
         target.append(
             {
                 "rule": rule,
-                "preview": preview,
-                "preview_error": preview_error,
+                "preview": result.preview,
+                "preview_error": result.error,
             }
         )
     split_sources = {
@@ -428,6 +425,8 @@ def _render_schema(
     context: WebContext,
     workspace_id: str,
     *,
+    source_page: SourceReviewPage | None = None,
+    run_setup_page: RunSetupPage | None = None,
     error: str | None = None,
     support_error: str | None = None,
     status_code: int = 200,
@@ -443,23 +442,19 @@ def _render_schema(
     | None = None,
     key_errors: Mapping[str, str] | None = None,
 ):
-    workspace_state = context.queries.get(workspace_id)
-    selection = context.queries.get_source_selection(workspace_id)
+    source_page = source_page or context.queries.get_source_page(workspace_id)
+    workspace_state = source_page.workspace_state
+    selection = source_page.selection
     model_catalog = context.queries.get_odoo_model_catalog(workspace_id)
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
-    try:
-        read_credential = get_target_credential(
-            context.secret_store,
-            workspace_state,
-            TargetCredentialRole.READ,
-        )
-    except SecretStoreError:
-        read_credential = None
-    read_credential_present = read_credential is not None
+    read_credential_status = get_target_credential_status(
+        context.secret_store, workspace_state, TargetCredentialRole.READ,
+    )
+    read_credential_present = read_credential_status.available
     schema_credential_current = bool(
         schema is not None
-        and read_credential is not None
-        and schema.read_credential_binding_hash == read_credential.binding_hash
+        and read_credential_status.available
+        and schema.read_credential_binding_hash == read_credential_status.binding_hash
     )
     current_capture_plans = (
         context.queries.get_current_odoo_capture_selections(workspace_id)
@@ -469,8 +464,11 @@ def _render_schema(
     capture_plans_complete = bool(schema and schema.models) and {
         item.model for item in current_capture_plans
     } == {item.name for item in schema.models}
-    odoo_check_plan = context.run_setups.odoo_check_requirements_for_workspace(
-        workspace_id,
+    run_setup_page = run_setup_page or context.run_setups.page_for_workspace(
+        workspace_id, actor=context.actor,
+    )
+    odoo_check_plan = context.run_setups.odoo_check_requirements_for_page(
+        run_setup_page,
         actor=context.actor,
     )
     model_labels = {
@@ -586,6 +584,7 @@ def _render_schema(
         request,
         "workspace_schema.html",
         workspace_state=workspace_state,
+        _read_credential_status=(workspace_state, read_credential_status),
         selection=selection,
         model_catalog=model_catalog,
         model_choices=model_choices,
@@ -595,6 +594,7 @@ def _render_schema(
         recipe_run_recovery=_recipe_run_recovery_view(
             context,
             workspace_id,
+            run_setup_page=run_setup_page,
         ),
         operation_id=operation_id or str(uuid4()),
         focus_model_count=sum(
@@ -638,27 +638,22 @@ def _render_schema(
 def _recipe_run_recovery_view(
     context: WebContext,
     workspace_id: str,
+    *,
+    run_setup_page: RunSetupPage | None = None,
 ) -> dict[str, object]:
     """Explain the one active-run recovery action from one bounded issue read."""
 
-    binding = context.test_runs.setup_binding_for_workspace(
-        workspace_id,
-        actor=context.actor,
+    page = run_setup_page or context.run_setups.page_for_workspace(
+        workspace_id, actor=context.actor,
     )
-    if binding is None or binding.state.value != "ACTIVE":
+    if page.selection is None or not page.selection.active_test_setup:
         return {"active": False, "required_default_count": 0}
-    issues = context.run_planning.repository.list_run_issues(
-        binding.migration_run_id
-    )
-    required_defaults = tuple(
-        issue
-        for application_issues in issues.values()
-        for issue in application_issues
-        if issue.blocks and issue.code == "RECIPE_TARGET_NEW_REQUIRED_FIELD"
+    count = context.run_setups.required_default_count_for_page(
+        page, actor=context.actor,
     )
     return {
         "active": True,
-        "required_default_count": len(required_defaults),
+        "required_default_count": count,
     }
 
 

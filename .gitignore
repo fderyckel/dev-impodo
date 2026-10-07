@@ -32,6 +32,9 @@ dist/
 # Generated review packages
 outputs/
 
+# Local testing documentation and evidence
+/docs/testing/
+
 # Local migration projects and customer data
 var/
 .codex-artifacts

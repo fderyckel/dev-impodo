@@ -63,6 +63,9 @@ routes, services, implementation status, performance risks, and focused tests.
 
 ## Cross-stage references
 
+- [Stage 1 and 2 page-loading optimization proposal](../plans/stage-1-and-2-page-loading.md)
+- [Stage 1 and 2 page-loading optimization evidence](../testing/stage12-page-loading-2026-10-07.md)
+- [Shared page-read measurements](../testing/stage12-shared-page-reads-2026-10-07.md)
 - [Architecture overview](../architecture/overview.md)
 - [Code organization](../architecture/code-organization.md)
 - [Python code map](../architecture/python-code-map.md)

@@ -5,10 +5,6 @@
     <div>
       <p class="eyebrow">Stage 6 of 6 &middot; Load destination Odoo</p>
       <h1>Recheck the destination before loading</h1>
-      <p>
-        Read the approved matching scope again with the destination transfer key,
-        compare aggregate actions and relationships, and stop before any write.
-      </p>
     </div>
     <span class="status
       {% if transfer_preflight_ready %}ready{% elif transfer_preflight_current %}blocked{% else %}review{% endif %}">
@@ -23,10 +19,10 @@
   </div>
 
   <div class="notice warning">
-    <strong>8A cannot write to Odoo.</strong>
-    It uses the second API key only for identity, metadata, matching-key, and
-    relationship-resolution reads. Loading requires a separate, explicit
-    confirmation before the same destination transfer key may write.
+    <strong>Preflight only reads from Odoo.</strong>
+    Impodo uses the destination transfer key to check the destination identity,
+    fields, matching keys, and relationships. Loading requires your explicit
+    confirmation before the same key can write to Odoo.
   </div>
 
   <section class="form-card" aria-labelledby="preflight-destination-title">
@@ -99,7 +95,7 @@
           </p>
         </div>
         <span class="status {% if transfer_preflight_ready %}ready{% else %}blocked{% endif %}">
-          {% if transfer_preflight_ready %}Ready for 8B{% else %}Load blocked{% endif %}
+          {% if transfer_preflight_ready %}Ready to load{% else %}Load blocked{% endif %}
         </span>
       </div>
 
@@ -228,7 +224,7 @@
       {% if transfer_preflight_ready %}
         <section class="next-action-card ready">
           <div>
-            <p class="eyebrow">8A passed &middot; zero writes attempted</p>
+            <p class="eyebrow">Preflight passed &middot; zero writes attempted</p>
             <h2>Continue to the guarded destination load</h2>
             <p>Impodo performs one final no-write read, prepares the exact load, then asks you to confirm the destination and record count before writing.</p>
           </div>

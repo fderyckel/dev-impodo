@@ -39,6 +39,7 @@ def _render(
     workspace_state = context.get("workspace_state")
     supplied_navigation_facts = context.pop("_workspace_navigation_facts", None)
     supplied_navigation_read_ms = context.pop("_navigation_read_ms", None)
+    supplied_read_credential_status = context.pop("_read_credential_status", None)
     application = request.app.state.context
     prompt_error = request.session.pop("read_credential_error", None)
     if (
@@ -57,11 +58,18 @@ def _render(
                 actor=application.actor,
                 capability=Capability.PROJECT_VIEW,
             )
-        credential_status = get_target_credential_status(
-            application.secret_store,
-            credential_owner,
-            TargetCredentialRole.READ,
-        )
+        # Reuse only the exact owner and target already checked by this renderer.
+        if (
+            supplied_read_credential_status is not None
+            and supplied_read_credential_status[0] == credential_owner
+        ):
+            credential_status = supplied_read_credential_status[1]
+        else:
+            credential_status = get_target_credential_status(
+                application.secret_store,
+                credential_owner,
+                TargetCredentialRole.READ,
+            )
         query = f"?{request.url.query}" if request.url.query else ""
         explicitly_required = bool(context.get("read_credential_required"))
         context["read_credential_prompt"] = {

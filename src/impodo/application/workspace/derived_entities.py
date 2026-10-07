@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Protocol
 from uuid import uuid4
@@ -59,6 +60,15 @@ class DerivedEntityRepository(Protocol):
     ) -> None:
         """Append a plan at the expected parent version and invalidate mapping."""
         ...
+
+
+@dataclass(frozen=True, slots=True)
+class DerivedRulePreview:
+    """Keep each saved rule's preview or explanation when another rule is invalid."""
+
+    rule: LookupRule | RelatedDatasetRule
+    preview: DerivedEntityPreview | RelatedDatasetPreview | None
+    error: str | None = None
 
 
 class DerivedEntityWorkspaceService:
@@ -592,6 +602,31 @@ class DerivedEntityWorkspaceService:
             selection,
             self.sources.get_source_catalogs(workspace_id),
         )
+
+    def preview_rules(
+        self, rules: tuple[LookupRule | RelatedDatasetRule, ...], *,
+        selection: SourceSelection | None,
+        catalogs: tuple[SourceFileCatalogView, ...],
+    ) -> tuple[DerivedRulePreview, ...]:
+        """Evaluate saved rule cards from the page's already verified source inputs."""
+
+        results = []
+        for rule in rules:
+            try:
+                lookup = isinstance(rule, (DerivedEntityRule, HierarchicalLookupRule))
+                if selection is None:
+                    raise WorkspaceError(
+                        "Freeze source datasets before deriving entities"
+                        if lookup else "Freeze source datasets before separating related data"
+                    )
+                preview = (
+                    preview_derived_entities(rule, selection, catalogs)
+                    if lookup else preview_related_datasets(rule, selection, catalogs)
+                )
+                results.append(DerivedRulePreview(rule, preview))
+            except WorkspaceError as error:
+                results.append(DerivedRulePreview(rule, None, str(error)))
+        return tuple(results)
 
     def preview_related(
         self,
