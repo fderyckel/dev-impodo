@@ -12,6 +12,7 @@ from impodo.application.workspace.execution.job_models import LoadJob, LoadJobSt
 from impodo.application.workspace.preparation.job_models import (
     PreparationJob, PreparationJobStatus, PreparationWorkspace,
 )
+from impodo.application.workspace.source_readiness import SourceStageIssue
 from impodo.domain.project.foundation import MigrationConflictError, MigrationFoundationError
 from impodo.domain.run.contracts import (
     MigrationRunPlanIssueLevel, RecipeApplicationStatus, RunRecipeApplication,
@@ -35,6 +36,16 @@ def enqueue_preparation(
         raise WorkspaceError("Background preparation is unavailable")
     if retry_job_id is not None:
         manager.get(workspace_id, retry_job_id)
+    source_readiness = context.navigation.get_source_readiness(workspace_id)
+    if not source_readiness.ready:
+        if source_readiness.issue is SourceStageIssue.CAPTURE_PLANS_INCOMPLETE:
+            raise WorkspaceError(
+                "Complete every Odoo capture plan and freeze a new source "
+                "version before preparing data"
+            )
+        raise WorkspaceError(
+            "Freeze the current source version before preparing data"
+        )
     workspace = _preparation_workspace(context, workspace_id)
     if workspace.recipe_application_id is not None:
         restored = recover_run_preparation(context, workspace.migration_run_id)
@@ -192,13 +203,13 @@ def _preparation_workspace(
 
 
 def _preparation_row_count(context: WebContext, workspace_id: str) -> int:
-    """Return optional progress metadata without bypassing worker validation."""
+    """Return progress metadata after compact source-stage admission."""
 
     try:
         selection = context.queries.get_source_selection(workspace_id)
     except WorkspaceError:
-        # The worker owns authoritative validation and records a durable failed
-        # job. Display metadata must not prevent that governed failure path.
+        # The compact gate already proved a current pointer. The worker still
+        # owns full artifact validation if the detailed read changes or fails.
         selection = None
     return sum(item.row_count for item in selection.datasets) if selection else 0
 

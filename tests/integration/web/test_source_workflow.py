@@ -40,6 +40,96 @@ from tests.support.browser_scenarios import (
 
 
 class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
+    def test_changed_odoo_source_scope_blocks_downstream_until_refrozen(
+        self,
+    ) -> None:
+        workspace_state, schema = self._registered_remote_schema_workspace()
+        context = self.app.state.context
+        workspace_id = workspace_state.workspace_id
+        saved_plan = self._post(
+            f"/workspaces/{workspace_id}/sources/odoo-selection",
+            {
+                "csrf_token": self.csrf,
+                "dataset_name": "odoo_contacts",
+                "model": "res.partner",
+                "field_names": "name",
+                "include_archived": "",
+                "page_size": "100",
+            },
+        )
+        self.assertEqual(saved_plan.status_code, 303)
+        context.odoo_capture_publication.publish(
+            workspace_id,
+            _BrowserOdooCaptureGateway(workspace_state, schema),
+            actor=context.actor,
+        )
+        self.assertTrue(context.navigation.get_source_readiness(workspace_id).ready)
+
+        current = context.queries.get(workspace_id)
+        context.workspace_states.update_schema_scope(
+            workspace_id,
+            actor=context.actor,
+            expected_revision=current.revision,
+            permitted_models=("res.partner", "uom.uom"),
+        )
+        expanded_schema = replace(
+            schema,
+            models=(
+                schema.models[0],
+                replace(
+                    schema.models[0],
+                    name="uom.uom",
+                    label="Units of Measure",
+                ),
+            ),
+            content_hash="sha256:" + "7" * 64,
+        )
+        context.schema_workspace.schemas.save_odoo_schema_catalog(
+            workspace_id,
+            expanded_schema,
+            actor=context.actor,
+        )
+        partial_plan = self._post(
+            f"/workspaces/{workspace_id}/sources/odoo-selection",
+            {
+                "csrf_token": self.csrf,
+                "dataset_name": "odoo_contacts",
+                "model": "res.partner",
+                "field_names": "name",
+                "include_archived": "",
+                "page_size": "100",
+            },
+        )
+        self.assertEqual(partial_plan.status_code, 303)
+        expected_location = f"/workspaces/{workspace_id}/sources#capture-plan"
+
+        for path in ("mapping", "summary", "prepare"):
+            with self.subTest(path=path):
+                response = self.client.get(
+                    f"/workspaces/{workspace_id}/{path}",
+                    follow_redirects=False,
+                )
+                self.assertEqual(response.status_code, 303)
+                self.assertEqual(response.headers["location"], expected_location)
+
+        with patch.object(
+            context.preparation_jobs,
+            "enqueue",
+            wraps=context.preparation_jobs.enqueue,
+        ) as enqueue:
+            response = self._post(
+                f"/workspaces/{workspace_id}/summary/check",
+                {"csrf_token": self.csrf},
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], expected_location)
+        enqueue.assert_not_called()
+        source_page = self.client.get(response.headers["location"])
+        self.assertIn("Your source choices changed", source_page.text)
+        self.assertIn("still need a capture plan", source_page.text)
+        self.assertIn("previous frozen version remains in history", source_page.text)
+
     def test_source_files_can_change_only_before_table_choices_are_saved(
         self,
     ) -> None:
@@ -1214,6 +1304,9 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Connect and match destination", frozen_page.text)
         self.assertIn("Review transfer", frozen_page.text)
         self.assertIn("Load destination Odoo", frozen_page.text)
+        self.assertTrue(
+            context.navigation.get_source_readiness(workspace_id).ready
+        )
 
         destination_page = self.client.get(
             f"/workspaces/{workspace_id}/transfer-destination"

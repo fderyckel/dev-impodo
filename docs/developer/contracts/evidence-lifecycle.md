@@ -294,7 +294,13 @@ portable source or relationship identities.
 | Add, remove, edit, or reorder a conditional Selection rule | Prior categorical coverage, impact review, submission, preparation, comparison, and execution evidence |
 
 Invalidation retires current pointers; it does not rewrite or delete historical
-evidence. Regeneration starts at the earliest changed stage.
+evidence. Regeneration starts at the earliest changed stage. Browser navigation
+and command admission derive source readiness from the current schema,
+capture-plan set, and frozen selection. A retained downstream submission must
+never bypass that gate. When an Odoo source choice changes, later stages remain
+locked until the operator completes every current capture plan and explicitly
+freezes the complete source set again. Impodo does not freeze that replacement
+set automatically.
 
 ## Draft recovery
 

@@ -22,13 +22,33 @@ order must still match. The target must be explicitly allowed for the practical
 rehearsal path and the actor must provide or have already stored the required
 write-role credential.
 
+Normal supported loading still requires Odoo 19. Maintainers can run a
+controlled Odoo 20 Test qualification by starting the same process with both
+`IMPODO_DEVELOPMENT_MODE=1` and
+`IMPODO_ENABLE_ODOO20_TEST_WRITES=1`. The first switch marks the process as the
+existing disposable-data development mode. The second switch enables final
+Odoo 20 `WRITE` and `RECOVER` operation decisions. This combination does not
+enable `PRODUCTION`, prerelease builds, SaaS series, or another major version.
+It is a qualification mechanism, not evidence that Odoo 20 loading is
+supported.
+
+The 2026-10-08
+[controlled Odoo 20 write canary](../../testing/odoo20-write-canary-2026-10-08.md)
+proved one synthetic Contact create, exact read-back, and repeat identity match
+against final Enterprise Runbot. It did not exercise the full browser,
+journal, reconciliation, or recovery path, so it does not promote Odoo 20 to a
+normally supported load target.
+
 ## Odoo-to-Odoo transfer boundary in Stage 6
 
 The Odoo-source Authoring variant binds exactly two credentials. `SOURCE_FETCH`
 captures and freezes the source. `DESTINATION_TRANSFER` is the second and final
-key and belongs only to the different Odoo 19 destination. The destination key
-is used for matching, preflight, confirmed loading, and read-back; the source
-key is never substituted for it and no third credential role is introduced.
+key and belongs only to the different same-major destination. The supported
+path uses Odoo 19. A final 20.0 destination can enter the controlled Test
+qualification only when both development switches are active and the source
+is also Odoo 20. The destination key is used for matching, preflight, confirmed
+loading, and read-back; the source key is never substituted for it and no third
+credential role is introduced.
 
 `DestinationMatchingService` performs bounded metadata and natural-key reads
 for every frozen source model. It resolves generic many-to-one and many-to-many
@@ -607,6 +627,7 @@ qualify another remote topology.
   reproduces the five authenticated, fictional Odoo-to-Odoo decision screens
   used by the paired user guide.
 - [`tests/application/workspace/execution/test_service.py`](../../../tests/application/workspace/execution/test_service.py)
+- [`tests/application/workspace/execution/test_odoo_versions.py`](../../../tests/application/workspace/execution/test_odoo_versions.py)
 - [`tests/application/workspace/execution/test_recomparison.py`](../../../tests/application/workspace/execution/test_recomparison.py)
 - [`tests/integration/web/test_execution.py`](../../../tests/integration/web/test_execution.py)
 - [`tests/integration/duckdb/test_execution_repository.py`](../../../tests/integration/duckdb/test_execution_repository.py)

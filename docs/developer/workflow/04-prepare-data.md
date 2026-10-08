@@ -21,11 +21,17 @@ single read-only comparison owned by Final review.
 
 The current mapping revision must have matching validation and submission
 evidence. Source, schema, related-dataset plan, and mapping hashes must agree
-before any publication begins.
+before any publication begins. The source-stage readiness gate must also be
+current. For an Odoo source, the schema and capture-plan model sets must match
+and a complete frozen source selection must exist.
 
 ## Implementation flow
 
 `preparation.py` starts and monitors work through `PreparationJobManager`.
+The route returns stale requests to the earliest unfinished source page.
+`enqueue_preparation` repeats the same derived source-stage check before it
+creates or retries a job, so non-browser callers cannot publish a zero-row
+failure merely to discover that no current source version exists.
 Before spawning, the route resolves and captures the Project, DataVersion,
 MigrationRun, and MigrationWorkspace identities. The application also captures
 the exact application build and workspace schema contract that accepted the

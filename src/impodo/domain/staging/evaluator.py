@@ -22,6 +22,7 @@ from impodo.domain.workspace.derived_entities import (
     LookupRule,
     RelatedDatasetRule,
     _display_path,
+    _group_lookup_values,
     _normalized_path,
     derived_dataset_links,
     evaluate_hierarchy_path,
@@ -1239,8 +1240,8 @@ def _stage_derived_table(
         )
     }
     accumulated: dict[tuple[str, ...], dict[str, object]] = {}
-    for row in table.rows:
-        if isinstance(rule, HierarchicalLookupRule):
+    if isinstance(rule, HierarchicalLookupRule):
+        for row in table.rows:
             hierarchy = evaluate_hierarchy_path(
                 rule,
                 {
@@ -1252,37 +1253,42 @@ def _stage_derived_table(
                 continue
             display_parts = hierarchy.display_parts
             key_parts = hierarchy.canonical_parts
-            display_separator = "/"
-        else:
-            source_column = source_columns[rule.source_column_key]
-            path = _normalized_path(
-                row.values.get(source_column.source_name),
-                rule.parent_separator,
-            )
-            if path is None:
-                continue
-            display_parts, key_parts = path
-            if not display_parts:
-                continue
-            display_separator = rule.parent_separator
-        for depth in range(1, len(key_parts) + 1):
-            key_path = key_parts[:depth]
-            display_path = display_parts[:depth]
-            entry = accumulated.setdefault(
-                key_path,
-                {
-                    "name": display_path[-1],
-                    "aliases": set(),
-                    "source_row": row.number,
-                    "source_rows": set(),
-                },
-            )
-            aliases = entry["aliases"]
-            assert isinstance(aliases, set)
-            aliases.add(_display_path(display_path, display_separator))
-            source_rows = entry["source_rows"]
-            assert isinstance(source_rows, set)
-            source_rows.add(row.number)
+            for depth in range(1, len(key_parts) + 1):
+                key_path = key_parts[:depth]
+                display_path = display_parts[:depth]
+                entry = accumulated.setdefault(
+                    key_path,
+                    {
+                        "name": display_path[-1],
+                        "aliases": set(),
+                        "source_row": row.number,
+                        "source_rows": set(),
+                    },
+                )
+                aliases = entry["aliases"]
+                assert isinstance(aliases, set)
+                aliases.add(_display_path(display_path, "/"))
+                source_rows = entry["source_rows"]
+                assert isinstance(source_rows, set)
+                source_rows.add(row.number)
+    else:
+        source_column = source_columns[rule.source_column_key]
+        grouping = _group_lookup_values(
+            rule,
+            (
+                (row.number, row.values.get(source_column.source_name))
+                for row in table.rows
+            ),
+        )
+        accumulated = {
+            group.key_path: {
+                "name": group.name,
+                "aliases": set(group.aliases),
+                "source_row": group.source_rows[0],
+                "source_rows": set(group.source_rows),
+            }
+            for group in grouping.groups
+        }
 
     rows: list[SourceRow] = []
     issues: list[Issue] = []

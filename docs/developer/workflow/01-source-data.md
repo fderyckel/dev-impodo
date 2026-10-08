@@ -21,7 +21,9 @@ Odoo write.
 
 The workspace is `REGISTERED`. File mode requires contained registered files.
 Odoo mode requires a captured eligible schema before the bounded record
-selection can be saved and frozen.
+selection can be saved and frozen. Mapping, summary, and preparation routes
+require the derived source-stage readiness result. They must not infer
+readiness from a retained mapping submission or another downstream pointer.
 
 ## Implementation flow
 
@@ -70,6 +72,12 @@ the previous complete set current.
 `derived_entities.py` routes optional lookup extraction, multi-column hierarchy,
 and parent/child split rules through `DerivedEntityWorkspaceService`. These
 rules remain plans until full preparation expands them over the frozen source.
+For a one-field lookup, `preview_lookup` validates and materializes the current
+immutable Parquet snapshot, then passes every chosen-field value to
+`review_derived_entities`. The result reports exact source-row, output-row,
+repeat, blank, incomplete-path, parent-row, and combined-spelling counts before
+the rule can be saved. The review runs in a worker thread, reads no live Odoo
+business records, publishes no artifact, and changes no source evidence.
 The choice controls open forms within Stage 1 without adding browser-history
 entries. A preview response reveals its form, while a saved rule redirects to
 its saved card. Lookup and hierarchy choices that need Odoo record types open
@@ -213,8 +221,11 @@ form token.
 | Atomic Odoo capture-set publication | [`OdooCapturePublicationService`](../../../src/impodo/application/odoo_capture_publication_service.py) |
 | Protected Odoo origin evidence | [`OdooProvenanceService`](../../../src/impodo/application/odoo_provenance_service.py) |
 | Data-version source acceptance | [`WorkspaceDataVersionSourceService`](../../../src/impodo/application/workspace_data_version_source_service.py) |
+| Derived downstream source gate | [`assess_source_stage_readiness`](../../../src/impodo/application/workspace/source_readiness.py) |
 | Odoo capture jobs | [`OdooCaptureJobManager`](../../../src/impodo/application/odoo_capture_job_service.py) |
 | Related-dataset plans | [`DerivedEntityWorkspaceService`](../../../src/impodo/application/workspace/derived_entities.py) |
+| Complete one-field result review | [`review_derived_entities`](../../../src/impodo/domain/workspace/derived_entities.py) |
+| Shared one-field grouping semantics | [`_group_lookup_values`](../../../src/impodo/domain/workspace/derived_entities.py) |
 | Multi-column hierarchy contract and path oracle | [`HierarchicalLookupRule`](../../../src/impodo/domain/workspace/derived_entities.py) |
 | Authenticated hierarchy-tutorial screenshot capture | [`capture_hierarchy_tutorial_screenshots.py`](../../../scripts/capture_hierarchy_tutorial_screenshots.py) |
 | Source routes | [`sources.py`](../../../src/impodo/web/routers/sources.py) |
@@ -249,6 +260,15 @@ no-write destination check, stages an exact execution snapshot, requires a
 separate hash-bound confirmation, then journals, loads, and reads back the
 approved destination changes.
 
+`assess_source_stage_readiness` derives this gate from the current workspace
+mode, schema status, schema model set, capture-plan model set, and frozen source
+selection. It is not a stored completion flag. For Odoo sources, every schema
+model must have exactly one current capture plan and a complete frozen source
+selection must exist. A stale direct URL returns to `schema` or `sources` with
+the unfinished action. `enqueue_preparation` repeats the gate before it creates
+or retries a job, while `PreparationService` retains its evidence validation as
+defence in depth.
+
 The source capture and destination checks use two distinct credential roles.
 The source-fetch key cannot satisfy destination matching. The one destination
 transfer key supports destination matching, read-only preflight, and no-write
@@ -262,7 +282,10 @@ delete only the selected DataVersion file and its dependent draft metadata.
 After freeze,
 source mutation fails closed. A changed hash, selection, capture, or
 related-dataset plan invalidates downstream evidence; regenerate rather than
-editing stored artifacts.
+editing stored artifacts. Changing Odoo model scope or one capture plan locks
+later browser stages until every current plan is complete and the operator
+explicitly freezes the complete set again. The application never promotes a
+partial set or automatically freezes it on the operator's behalf.
 
 Background Odoo capture exposes explicit cancel and status routes. Do not
 interpret an interrupted job as a published snapshot.
@@ -274,7 +297,7 @@ field policy. Page reads are batched; adding per-row metadata or relationship
 lookups would create an N+1 regression. Preparation must consume the frozen
 snapshot and make zero Odoo calls.
 
-Source review, saved tables, related tables, and the adjacent file and Odoo
+Source review, saved tables, related-table cards, and the adjacent file and Odoo
 access setup pages render in bounded `run_page_read` workers. The access
 middleware also resolves authorization and applies its local route policy in
 one worker. Each scope releases its database owners before returning to the
@@ -282,10 +305,21 @@ event loop.
 
 [`BrowserQueryService.get_source_page`](../../../src/impodo/application/browser_queries.py)
 passes the source package already verified
-for workspace state into `SourceReviewPage`. File review and related-rule cards
-reuse its catalogues, configurations, and selection. Rule previews add no
-database reads as the saved rule count grows. The package reader checks hashes
-inside one read transaction; there is no transaction shared across stores.
+for workspace state into `SourceReviewPage`. File review and saved related-rule
+cards reuse its catalogues, configurations, and selection. Those page reads add
+no database work as the saved rule count grows. The explicit **Review resulting
+table** command is different: it opens exactly one verified local source
+snapshot and scans the selected field outside the event loop. It accepts at
+most 50,000 source rows and 5,000 resulting related records. It performs zero
+Odoo calls. The package reader checks hashes inside one read transaction; there
+is no transaction shared across stores.
+
+`review_derived_entities` and the full preparation evaluator both use
+`_group_lookup_values`. Capitalization, Unicode normalization, spacing,
+optional parent paths, repeated values, blanks, and incomplete paths therefore
+have the same meaning in the browser review and in later preparation. The
+review is recalculated from accepted evidence when requested; it is not stored
+as a second source artifact.
 
 The Odoo capture page reviews saved plans once when protected filters are
 present. It verifies each protected filter once and keeps errors keyed by model.
@@ -309,9 +343,9 @@ falling back to unbounded Python work.
 
 `capture_hierarchy_tutorial_screenshots.py::capture` creates an isolated
 fictional Product workspace and captures the current authenticated Stage 1
-hierarchy form and preview in Edge. It exercises complete, missing-parent,
-missing-leaf, and all-blank paths without reading or changing an operator
-workspace.
+one-field result review, hierarchy form, and hierarchy preview in Edge. It
+exercises complete, missing-parent, missing-leaf, and all-blank paths without
+reading or changing an operator workspace.
 
 - [`tests/integration/duckdb/test_workspace.py`](../../../tests/integration/duckdb/test_workspace.py)
 - [`tests/application/data_version/test_source_worker.py`](../../../tests/application/data_version/test_source_worker.py)

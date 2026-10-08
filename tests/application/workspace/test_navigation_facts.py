@@ -15,6 +15,11 @@ from impodo.application.workspace.execution.service import ExecutionService
 from impodo.application.workspace.navigation import (
     WorkspaceNavigationFacts,
     WorkspaceNavigationQueryService,
+    WorkspaceNavigationSnapshot,
+)
+from impodo.application.workspace.source_readiness import (
+    SourceStageIssue,
+    assess_source_stage_readiness,
 )
 from impodo.application.workspace.views import WorkspaceOwnerViewService
 from impodo.domain.shared.access import (
@@ -91,6 +96,112 @@ class WorkspaceNavigationQueryServiceTests(unittest.TestCase):
         self.assertIs(result.execution_preview, preview)
         self.assertEqual(result.active_preparation_job_id, "prepare-1")
         self.assertEqual(result.active_load_job_id, "load-1")
+
+    def test_source_readiness_uses_one_durable_snapshot(self) -> None:
+        workspace = WorkspaceState(
+            workspace_id=str(uuid4()),
+            name="Products",
+            source_system="Odoo",
+            source_mode=SourceMode.ODOO,
+        )
+        facts = WorkspaceNavigationFacts(
+            workspace_id=workspace.workspace_id,
+            schema_present=True,
+            schema_models=("product.template", "uom.uom"),
+            capture_models=("product.template",),
+            source_selection_hash=HASH,
+        )
+        repository = Mock()
+        repository.get_snapshot.return_value = WorkspaceNavigationSnapshot(
+            workspace,
+            facts,
+        )
+        service = WorkspaceNavigationQueryService(repository, Mock())
+
+        readiness = service.get_source_readiness(workspace.workspace_id)
+
+        repository.get_snapshot.assert_called_once_with(workspace.workspace_id)
+        self.assertFalse(readiness.ready)
+        self.assertEqual(
+            readiness.issue,
+            SourceStageIssue.CAPTURE_PLANS_INCOMPLETE,
+        )
+        self.assertEqual(readiness.missing_capture_models, ("uom.uom",))
+
+
+class SourceStageReadinessTests(unittest.TestCase):
+    def test_file_source_requires_a_frozen_selection(self) -> None:
+        workspace = WorkspaceState(
+            workspace_id=str(uuid4()),
+            name="Contacts",
+            source_system="CSV",
+            source_mode=SourceMode.FILE,
+        )
+
+        missing = assess_source_stage_readiness(
+            workspace,
+            WorkspaceNavigationFacts(workspace_id=workspace.workspace_id),
+        )
+        ready = assess_source_stage_readiness(
+            workspace,
+            WorkspaceNavigationFacts(
+                workspace_id=workspace.workspace_id,
+                source_selection_hash=HASH,
+            ),
+        )
+
+        self.assertEqual(
+            missing.issue,
+            SourceStageIssue.FILE_SOURCE_NOT_FROZEN,
+        )
+        self.assertTrue(ready.ready)
+
+    def test_odoo_source_requires_current_schema_plans_and_freeze(self) -> None:
+        workspace = WorkspaceState(
+            workspace_id=str(uuid4()),
+            name="Products",
+            source_system="Odoo",
+            source_mode=SourceMode.ODOO,
+        )
+        common = {
+            "workspace_id": workspace.workspace_id,
+            "schema_present": True,
+            "schema_models": ("product.template", "res.company", "uom.uom"),
+            "capture_models": ("product.template", "res.company"),
+            "source_selection_hash": HASH,
+        }
+
+        incomplete = assess_source_stage_readiness(
+            workspace,
+            WorkspaceNavigationFacts(**common),
+        )
+        not_frozen = assess_source_stage_readiness(
+            workspace,
+            WorkspaceNavigationFacts(
+                **{
+                    **common,
+                    "capture_models": common["schema_models"],
+                    "source_selection_hash": "",
+                }
+            ),
+        )
+        ready = assess_source_stage_readiness(
+            workspace,
+            WorkspaceNavigationFacts(
+                **{
+                    **common,
+                    "capture_models": common["schema_models"],
+                }
+            ),
+        )
+
+        self.assertEqual(
+            incomplete.issue,
+            SourceStageIssue.CAPTURE_PLANS_INCOMPLETE,
+        )
+        self.assertEqual(incomplete.missing_capture_models, ("uom.uom",))
+        self.assertEqual(not_frozen.issue, SourceStageIssue.SOURCE_NOT_FROZEN)
+        self.assertTrue(ready.ready)
 
 
 class ExecutionNavigationPreviewTests(unittest.TestCase):

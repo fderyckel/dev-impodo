@@ -113,6 +113,7 @@ stages:
       - src/impodo/application/source_workspace_service.py::SourceWorkspaceService.freeze_selection
       - src/impodo/application/browser_queries.py::BrowserQueryService.get_source_page
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_rules
+      - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_lookup
       - src/impodo/application/odoo_source_capture_service.py::OdooSourceCaptureService.review_current_plans
       - docs/testing/evidence/stage12-shared-page-reads-2026-10-07/audit.py::main
       - src/impodo/adapters/duckdb/schema/structure.py::read_table_columns
@@ -125,6 +126,8 @@ stages:
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService
       - src/impodo/domain/workspace/derived_entities.py::HierarchicalLookupRule
       - src/impodo/domain/workspace/derived_entities.py::evaluate_hierarchy_path
+      - src/impodo/domain/workspace/derived_entities.py::review_derived_entities
+      - src/impodo/domain/workspace/derived_entities.py::_group_lookup_values
       - scripts/capture_hierarchy_tutorial_screenshots.py::capture
       - src/impodo/application/data_version/source_worker.py::validate_source_file_isolated
       - src/impodo/web/source_file_commands.py::accept_source_uploads

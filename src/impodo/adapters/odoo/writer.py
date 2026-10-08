@@ -1,4 +1,4 @@
-"""Closed Odoo 19 JSON-2 writer for one reviewed execution preview.
+"""Closed JSON-2 writer for one version-qualified execution preview.
 
 This module is deliberately separate from the read connector.  Callers can
 only resolve an exact business key, import bounded creates with reviewed

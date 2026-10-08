@@ -34,6 +34,14 @@ first complete the eligible-field capture described in
 6. Optionally open **Separate combined information** when combined information
    must become separate related tables.
 
+For **Create a related table from one field**, select **Review resulting
+table** after choosing the source field and Odoo record type. Impodo checks
+every accepted source row and shows the expected table size, repeated values,
+unusable values, extra parent rows, and spelling differences it will combine.
+Select **Add related table to Match data** only when that result is correct.
+The original source table stays unchanged, and this action does not create or
+change Odoo records.
+
 Some related-table choices need the list of record types from your Odoo
 destination. If only the read-only key is missing, select **Enter key and show
 Odoo record types**. Impodo saves the key for this destination, loads the list,
@@ -93,6 +101,13 @@ version.
    capture.
 6. Confirm the read-only action and wait while Impodo freezes every dataset as
    one source version. A failure leaves the previous complete version current.
+
+If you return to this stage and change the selected Odoo record types, fields,
+or capture plans, Impodo locks the later stages immediately. Complete a capture
+plan for every selected record type, then confirm **Download and freeze** again.
+Impodo does not combine the earlier frozen records with the new choices. The
+earlier version remains protected history until the new complete version is
+frozen.
 
 The Odoo-source route reads selected business records; it does not authorize a
 write back to Odoo.
@@ -174,7 +189,9 @@ instead of manually altering the project database.
 A changed source file, table choice, Odoo selection, or related-table plan
 changes this data version's source evidence. Downstream schema, mapping,
 preparation, and review evidence must be regenerated when Impodo invalidates
-them. Earlier data-version evidence remains protected history.
+them. If you open a saved later-stage link after such a change, Impodo returns
+you to the unfinished Source data choice instead of starting preparation.
+Earlier data-version evidence remains protected history.
 
 ## Next stage
 

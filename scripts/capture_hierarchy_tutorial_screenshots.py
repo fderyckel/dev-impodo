@@ -2,7 +2,7 @@
 
 Run this helper from the repository root with Playwright available. It creates
 only fictional product data, serves the current authenticated application on
-an ephemeral loopback port, and writes eight 1440 by 1024 PNG files under
+an ephemeral loopback port, and writes nine 1440 by 1024 PNG files under
 ``docs/images/user``.
 """
 
@@ -25,6 +25,10 @@ from impodo.application.data_version.inspection import (
     SourceFileCatalog,
     SourceTableCatalog,
 )
+from impodo.application.data_version.source_snapshots import (
+    SourceSnapshotCandidateWriter,
+    source_snapshot_schema,
+)
 from impodo.application.workspace.mapping.field_catalog import (
     MappingFieldCatalogSnapshot,
 )
@@ -33,7 +37,9 @@ from impodo.domain.schema.governance import (
     BusinessKeyStatus,
     SchemaGovernance,
 )
+from impodo.domain.preparation.source import SourceRow
 from impodo.domain.source_binding import FileSourceBinding
+from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.workspace.contracts import (
     SchemaField,
     SchemaModel,
@@ -62,21 +68,48 @@ DEFAULT_OUTPUT_DIRECTORY = REPOSITORY_ROOT / "docs" / "images" / "user"
 class _SourceEvidenceOverride:
     """Override one fictional workspace while delegating every other read."""
 
-    def __init__(self, delegate, workspace_id, selection, catalogs) -> None:
+    def __init__(
+        self,
+        delegate,
+        workspace_id,
+        selection,
+        catalogs,
+        snapshots,
+    ) -> None:
         self._delegate = delegate
         self._workspace_id = workspace_id
         self._selection = selection
         self._catalogs = catalogs
+        self._snapshots = snapshots
 
     def get_source_selection(self, workspace_id):
         if workspace_id == self._workspace_id:
             return self._selection
         return self._delegate.get_source_selection(workspace_id)
 
+    def get_source_review(self, workspace_id, workspace_state, package):
+        review = self._delegate.get_source_review(
+            workspace_id,
+            workspace_state,
+            package,
+        )
+        if workspace_id == self._workspace_id:
+            return replace(
+                review,
+                catalogs=self._catalogs,
+                selection=self._selection,
+            )
+        return review
+
     def get_source_catalogs(self, workspace_id):
         if workspace_id == self._workspace_id:
             return self._catalogs
         return self._delegate.get_source_catalogs(workspace_id)
+
+    def get_current_source_snapshots(self, workspace_id):
+        if workspace_id == self._workspace_id:
+            return self._snapshots
+        return self._delegate.get_current_source_snapshots(workspace_id)
 
     def __getattr__(self, name):
         return getattr(self._delegate, name)
@@ -281,7 +314,59 @@ def _fictional_source(base_selection: SourceSelection):
             datasets=(dataset,),
         )
     )
-    return selection, (catalog,), dataset
+    return selection, (catalog,), dataset, rows
+
+
+def _publish_fictional_snapshot(
+    fixture,
+    selection: SourceSelection,
+    dataset: SourceDataset,
+    rows: tuple[tuple[str | None, ...], ...],
+) -> SourceSnapshot:
+    """Publish exact local rows for the isolated one-field review."""
+
+    context = fixture.app.state.context
+    schema = source_snapshot_schema(dataset)
+    with context.artifacts.prepare_source_snapshot(
+        selection.data_version_id
+    ) as workspace:
+        writer = SourceSnapshotCandidateWriter(
+            workspace,
+            schema,
+            batch_rows=500,
+        )
+        writer.append_source_rows(
+            tuple(
+                SourceRow(
+                    number=row_number,
+                    values={
+                        column.source_name: row[column.ordinal - 1]
+                        for column in dataset.columns
+                    },
+                )
+                for row_number, row in enumerate(rows, start=2)
+            )
+        )
+        candidate = writer.finalize()
+        snapshot = SourceSnapshot.create(
+            data_version_id=selection.data_version_id,
+            dataset_id=dataset.dataset_id,
+            dataset_name=dataset.name,
+            source=dataset.source,
+            physical_selection_hash=selection.content_hash,
+            schema=schema,
+            row_count=len(rows),
+            data_logical_hash=candidate.data_logical_hash,
+            parquet_sha256=candidate.parquet_sha256,
+            created_at=datetime.now(timezone.utc),
+        )
+        context.artifacts.publish_source_snapshot(
+            selection.data_version_id,
+            candidate.path,
+            snapshot.parquet_storage_key,
+            expected_sha256=snapshot.parquet_sha256,
+        )
+    return snapshot
 
 
 def _configure_product_schema(
@@ -465,6 +550,7 @@ def _install_fictional_evidence(
     workspace_id: str,
     selection: SourceSelection,
     catalogs: tuple[SourceFileCatalog, ...],
+    snapshots: tuple[SourceSnapshot, ...],
 ) -> None:
     context = fixture.app.state.context
     source_override = _SourceEvidenceOverride(
@@ -472,6 +558,7 @@ def _install_fictional_evidence(
         workspace_id,
         selection,
         catalogs,
+        snapshots,
     )
     context.queries._sources = source_override
     context.derived_entities.sources = source_override
@@ -525,17 +612,24 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
         )
         if base_selection is None:
             raise RuntimeError("The isolated hierarchy source was not created.")
-        selection, catalogs, dataset = _fictional_source(base_selection)
+        selection, catalogs, dataset, rows = _fictional_source(base_selection)
+        snapshot = _publish_fictional_snapshot(
+            fixture,
+            selection,
+            dataset,
+            rows,
+        )
         _install_fictional_evidence(
             fixture,
             workspace_id,
             selection,
             catalogs,
+            (snapshot,),
         )
         _configure_product_schema(
             fixture,
             workspace_id,
-            include_category=False,
+            include_category=True,
         )
 
         session_cookie = fixture.client.cookies.get("impodo_session")
@@ -567,6 +661,41 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 ]
             )
             page = browser_context.new_page()
+
+            page.goto(
+                f"{base_url}/workspaces/{workspace_id}/derived-entities",
+                wait_until="networkidle",
+            )
+            page.get_by_role(
+                "button", name="One field contains reusable values"
+            ).click()
+            lookup = page.locator("#lookup-extraction")
+            expect(lookup).to_have_attribute("open", "")
+            lookup.locator('select[name="source_binding"]').select_option(index=2)
+            lookup.locator('input[name="output_dataset_name"]').fill(
+                "product_categories"
+            )
+            lookup.locator('input[name="target_model"]').fill(
+                "product.category"
+            )
+            lookup.get_by_role(
+                "button",
+                name="Review resulting table",
+            ).click()
+            lookup_preview = page.locator("#lookup-preview")
+            expect(lookup_preview).to_be_visible()
+            expect(lookup_preview).to_contain_text("Source rows checked")
+            expect(lookup_preview).to_contain_text(
+                "does not create or change records in Odoo"
+            )
+            _show_decision(page, lookup_preview, offset=80)
+            _capture(page, output_directory / "06-related-lookup.png")
+
+            _configure_product_schema(
+                fixture,
+                workspace_id,
+                include_category=False,
+            )
             page.goto(
                 f"{base_url}/workspaces/{workspace_id}/datasets",
                 wait_until="networkidle",

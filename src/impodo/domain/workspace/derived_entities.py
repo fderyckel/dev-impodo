@@ -382,7 +382,7 @@ class DerivedEntityPlan:
 
 @dataclass(frozen=True, slots=True)
 class DerivedEntityCandidate:
-    """One related hierarchy record in a bounded preview."""
+    """One related record found by a bounded preview or a complete review."""
 
     entity_id: str
     odoo_external_id: str
@@ -392,6 +392,12 @@ class DerivedEntityCandidate:
     aliases: tuple[str, ...]
     sampled_source_row_count: int
     requires_alias_review: bool
+
+    @property
+    def source_row_count(self) -> int:
+        """Return the contributing-row count without implying sampling."""
+
+        return self.sampled_source_row_count
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,6 +418,93 @@ class DerivedEntityPreview:
     blank_reference_sample_rows: int = 0
     quarantined_sample_rows: int = 0
     blocked_sample_rows: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class DerivedEntityImpactReview:
+    """Explain the complete effect of one lookup rule on frozen source rows."""
+
+    source_dataset_name: str
+    source_column_name: str
+    source_rows: int
+    linked_source_rows: int
+    related_record_count: int
+    direct_record_count: int
+    additional_parent_record_count: int
+    repeated_source_rows: int
+    blank_source_rows: int
+    invalid_path_source_rows: int
+    candidates: tuple[DerivedEntityCandidate, ...]
+    supported_record_limit: int | None = None
+
+    @property
+    def rows_without_usable_value(self) -> int:
+        """Return rows that cannot point to a related record."""
+
+        return self.blank_source_rows + self.invalid_path_source_rows
+
+    @property
+    def values_to_review(self) -> tuple[DerivedEntityCandidate, ...]:
+        """Return a bounded list of values whose source spellings were combined."""
+
+        return tuple(
+            candidate
+            for candidate in self.candidates
+            if candidate.requires_alias_review
+        )[:10]
+
+    @property
+    def combined_spelling_count(self) -> int:
+        """Return how many related records combine multiple source spellings."""
+
+        return sum(candidate.requires_alias_review for candidate in self.candidates)
+
+    @property
+    def result_examples(self) -> tuple[DerivedEntityCandidate, ...]:
+        """Return bounded support evidence without filling the page with every row."""
+
+        return self.candidates[:20]
+
+    @property
+    def needs_attention(self) -> bool:
+        """Return whether the review contains a decision or correction signal."""
+
+        return bool(
+            self.rows_without_usable_value
+            or self.combined_spelling_count
+            or not self.can_add
+        )
+
+    @property
+    def can_add(self) -> bool:
+        """Return whether the reviewed output fits the supported preparation path."""
+
+        return self.related_record_count > 0 and (
+            self.supported_record_limit is None
+            or self.related_record_count <= self.supported_record_limit
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _LookupValueGroup:
+    """One exact related value and the frozen source rows that use it."""
+
+    key_path: tuple[str, ...]
+    name: str
+    aliases: tuple[str, ...]
+    source_rows: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _LookupValueGrouping:
+    """Shared lookup grouping used by review and full preparation."""
+
+    source_row_count: int
+    linked_source_row_count: int
+    blank_source_rows: int
+    invalid_path_source_rows: int
+    leaf_paths: tuple[tuple[str, ...], ...]
+    groups: tuple[_LookupValueGroup, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,6 +580,43 @@ class HierarchyPathEvaluation:
         return bool(self.canonical_parts)
 
 
+def review_derived_entities(
+    rule: DerivedEntityRule,
+    selection: SourceSelection,
+    source_rows: Iterable[tuple[int, object]],
+) -> DerivedEntityImpactReview:
+    """Explain how one lookup rule changes every row in the frozen source."""
+
+    dataset = _source_dataset(
+        selection,
+        rule.source_dataset_id,
+        rule.source_column_key,
+    )
+    column = next(
+        item for item in dataset.columns if item.stable_key == rule.source_column_key
+    )
+    grouping = _group_lookup_values(rule, source_rows)
+    candidates = _lookup_candidates(rule, grouping.groups)
+    direct_paths = frozenset(grouping.leaf_paths)
+    return DerivedEntityImpactReview(
+        source_dataset_name=dataset.name,
+        source_column_name=column.source_name,
+        source_rows=grouping.source_row_count,
+        linked_source_rows=grouping.linked_source_row_count,
+        related_record_count=len(candidates),
+        direct_record_count=len(direct_paths),
+        additional_parent_record_count=sum(
+            group.key_path not in direct_paths for group in grouping.groups
+        ),
+        repeated_source_rows=(
+            grouping.linked_source_row_count - len(direct_paths)
+        ),
+        blank_source_rows=grouping.blank_source_rows,
+        invalid_path_source_rows=grouping.invalid_path_source_rows,
+        candidates=candidates,
+    )
+
+
 def preview_derived_entities(
     rule: LookupRule,
     selection: SourceSelection,
@@ -529,68 +659,26 @@ def preview_derived_entities(
         raise WorkspaceError("The frozen dataset no longer matches its source catalog")
     profile = next(item for item in table.columns if item.ordinal == column.ordinal)
 
-    accumulated: dict[tuple[str, ...], dict[str, object]] = {}
-    blank_rows = 0
-    invalid_rows = 0
-    for row in table.preview_rows:
-        raw = row[column.ordinal - 1] if column.ordinal <= len(row) else None
-        path = _normalized_path(raw, rule.parent_separator)
-        if path is None:
-            blank_rows += 1
-            continue
-        display_parts, key_parts = path
-        if not display_parts:
-            invalid_rows += 1
-            continue
-        for depth in range(1, len(key_parts) + 1):
-            key_path = key_parts[:depth]
-            display_path = display_parts[:depth]
-            entry = accumulated.setdefault(
-                key_path,
-                {
-                    "name": display_path[-1],
-                    "aliases": set(),
-                    "count": 0,
-                },
+    grouping = _group_lookup_values(
+        rule,
+        (
+            (
+                row_number,
+                row[column.ordinal - 1] if column.ordinal <= len(row) else None,
             )
-            aliases = entry["aliases"]
-            assert isinstance(aliases, set)
-            aliases.add(_display_path(display_path, rule.parent_separator))
-            entry["count"] = int(entry["count"]) + 1
-
-    candidates: list[DerivedEntityCandidate] = []
-    for key_path, entry in accumulated.items():
-        parent_path = key_path[:-1]
-        aliases = tuple(sorted(str(item) for item in entry["aliases"]))
-        entity_id, external_id = _identifiers(rule, key_path)
-        parent_entity_id = _identifiers(rule, parent_path)[0] if parent_path else None
-        candidates.append(
-            DerivedEntityCandidate(
-                entity_id=entity_id,
-                odoo_external_id=external_id,
-                canonical_key=" / ".join(key_path),
-                name=str(entry["name"]),
-                parent_entity_id=parent_entity_id,
-                aliases=aliases,
-                sampled_source_row_count=int(entry["count"]),
-                requires_alias_review=len(aliases) > 1,
-            )
-        )
+            for row_number, row in enumerate(table.preview_rows, start=2)
+        ),
+    )
 
     return DerivedEntityPreview(
         source_dataset_name=dataset.name,
         source_column_name=column.source_name,
-        sampled_source_rows=len(table.preview_rows),
+        sampled_source_rows=grouping.source_row_count,
         full_distinct_count=profile.distinct_count,
         full_distinct_count_is_exact=profile.distinct_count_is_exact,
-        blank_sample_rows=blank_rows,
-        invalid_path_sample_rows=invalid_rows,
-        candidates=tuple(
-            sorted(
-                candidates,
-                key=lambda item: (item.canonical_key.count(" / "), item.canonical_key),
-            )
-        ),
+        blank_sample_rows=grouping.blank_source_rows,
+        invalid_path_sample_rows=grouping.invalid_path_source_rows,
+        candidates=_lookup_candidates(rule, grouping.groups),
     )
 
 
@@ -1212,6 +1300,97 @@ def _source_table(
     if table is None:
         raise WorkspaceError("The frozen dataset no longer matches its source catalog")
     return table
+
+
+def _group_lookup_values(
+    rule: DerivedEntityRule,
+    source_rows: Iterable[tuple[int, object]],
+) -> _LookupValueGrouping:
+    """Group source values once for exact review and later materialization."""
+
+    accumulated: dict[tuple[str, ...], dict[str, object]] = {}
+    leaf_paths: set[tuple[str, ...]] = set()
+    source_row_count = 0
+    linked_source_rows = 0
+    blank_source_rows = 0
+    invalid_path_source_rows = 0
+    for source_row, raw in source_rows:
+        source_row_count += 1
+        path = _normalized_path(raw, rule.parent_separator)
+        if path is None:
+            blank_source_rows += 1
+            continue
+        display_parts, key_parts = path
+        if not display_parts:
+            invalid_path_source_rows += 1
+            continue
+        linked_source_rows += 1
+        leaf_paths.add(key_parts)
+        for depth in range(1, len(key_parts) + 1):
+            key_path = key_parts[:depth]
+            display_path = display_parts[:depth]
+            entry = accumulated.setdefault(
+                key_path,
+                {
+                    "name": display_path[-1],
+                    "aliases": set(),
+                    "source_rows": set(),
+                },
+            )
+            aliases = entry["aliases"]
+            assert isinstance(aliases, set)
+            aliases.add(_display_path(display_path, rule.parent_separator))
+            contributing_rows = entry["source_rows"]
+            assert isinstance(contributing_rows, set)
+            contributing_rows.add(source_row)
+
+    groups = tuple(
+        _LookupValueGroup(
+            key_path=key_path,
+            name=str(entry["name"]),
+            aliases=tuple(sorted(str(item) for item in entry["aliases"])),
+            source_rows=tuple(sorted(int(item) for item in entry["source_rows"])),
+        )
+        for key_path, entry in sorted(
+            accumulated.items(),
+            key=lambda item: (len(item[0]), item[0]),
+        )
+    )
+    return _LookupValueGrouping(
+        source_row_count=source_row_count,
+        linked_source_row_count=linked_source_rows,
+        blank_source_rows=blank_source_rows,
+        invalid_path_source_rows=invalid_path_source_rows,
+        leaf_paths=tuple(sorted(leaf_paths)),
+        groups=groups,
+    )
+
+
+def _lookup_candidates(
+    rule: DerivedEntityRule,
+    groups: Iterable[_LookupValueGroup],
+) -> tuple[DerivedEntityCandidate, ...]:
+    """Turn shared value groups into stable related-record identities."""
+
+    candidates = []
+    for group in groups:
+        parent_path = group.key_path[:-1]
+        entity_id, external_id = _identifiers(rule, group.key_path)
+        candidates.append(
+            DerivedEntityCandidate(
+                entity_id=entity_id,
+                odoo_external_id=external_id,
+                canonical_key=" / ".join(group.key_path),
+                name=group.name,
+                parent_entity_id=(
+                    _identifiers(rule, parent_path)[0] if parent_path else None
+                ),
+                aliases=group.aliases,
+                sampled_source_row_count=len(group.source_rows),
+                requires_alias_review=len(group.aliases) > 1,
+            )
+        )
+    return tuple(candidates)
 
 
 def _normalized_path(

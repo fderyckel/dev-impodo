@@ -10,9 +10,11 @@ from uuid import uuid4
 from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
 from impodo.application.workspace.preparation.job_models import PreparationJobStatus, PreparationWorkspace
 from impodo.application.workspace.preparation.recovery import RecoveredPreparation
+from impodo.application.workspace.source_readiness import SourceStageIssue
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import LOCAL_ACTOR
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.composition.preparation_job_manager import PreparationJobManager
 from impodo.web.run_commands import enqueue_preparation, recover_run_preparation
 from impodo.application.workspace.preparation.preparation_job_registry import PreparationJobNotFoundError
@@ -122,6 +124,9 @@ class PreparationResultRecoveryTests(TestCase):
             preparation_jobs=self.manager,
             actor=LOCAL_ACTOR,
             queries=NS(get_odoo_schema_catalog=Mock(return_value=None)),
+            navigation=NS(
+                get_source_readiness=Mock(return_value=NS(ready=True))
+            ),
         )
         with patch("impodo.web.run_commands._preparation_workspace", return_value=replace(self.workspace, mapping_content_hash=None)), \
              patch("impodo.web.run_commands._assert_recipe_application_can_prepare", return_value=self.workspace), \
@@ -132,6 +137,26 @@ class PreparationResultRecoveryTests(TestCase):
             retried = enqueue_preparation(context, self.workspace.workspace_id, retry_job_id=previous.job_id)
         self.assertNotEqual(retried.job_id, previous.job_id)
         self.assertEqual(retried.workspace.mapping_content_hash, self.workspace.mapping_content_hash)
+
+    def test_incomplete_source_is_rejected_before_preparation_is_resolved(self):
+        context = NS(
+            preparation_jobs=self.manager,
+            navigation=NS(
+                get_source_readiness=Mock(
+                    return_value=NS(
+                        ready=False,
+                        issue=SourceStageIssue.CAPTURE_PLANS_INCOMPLETE,
+                    )
+                )
+            ),
+        )
+        with patch("impodo.web.run_commands._preparation_workspace") as workspace:
+            with self.assertRaisesRegex(
+                WorkspaceError,
+                "Complete every Odoo capture plan",
+            ):
+                enqueue_preparation(context, self.workspace.workspace_id)
+        workspace.assert_not_called()
 
     def test_unknown_retry_does_not_read_or_restore_saved_work(self):
         with patch("impodo.web.run_commands.recover_run_preparation") as recovery:

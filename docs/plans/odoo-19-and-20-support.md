@@ -15,9 +15,15 @@ baseline and isolated prerelease lab are recorded in the
 policy and its validation are recorded in the
 [Phase 2 report](../testing/odoo-compatibility-phase2.md). Final Odoo 20
 Community and Enterprise read qualification is recorded in the
-[Phase 3 report](../testing/odoo-compatibility-phase3.md). Phases 4 and 5 remain
-open. Odoo 20 writes, recovery, Integrated Test qualification, and Production
-remain disabled.
+[Phase 3 report](../testing/odoo-compatibility-phase3.md). Phase 4 entered
+controlled development qualification on 2026-10-08. A default-off switch now
+permits Odoo 20 Test writes and recovery only when disposable-data development
+mode is also active. A narrow Contact writer canary passed against final Odoo
+20 Enterprise Runbot on 2026-10-08. The full browser, journal,
+reconciliation, recovery, model, and deployment matrix remains open, so normal
+loading, Integrated Test qualification, and Production remain disabled. Phase
+5 remains open. See the
+[controlled write canary report](../testing/odoo20-write-canary-2026-10-08.md).
 
 **Reader:** Impodo maintainers deciding how to implement, test, and release
 dual-version support.
@@ -296,7 +302,7 @@ assuming accessible test installations. Re-estimate after the Odoo 20 probe.
 | 1. Establish the baseline | Record Odoo 19 builds, modules, and representative results. Inventory version checks and serialized evidence. Prepare an isolated, pinned development database for Odoo 20 investigation. | 1–2 days |
 | 2. Centralize policy | Introduce version recognition and operation decisions; route all current checks through them. Preserve Odoo 19 behavior, policy hashes, and Recipe fixtures. | 2–3 days |
 | 3. Qualify Odoo 20 reads | Completed 2026-09-23: final Community and Enterprise reads passed, separate policies were added, and native Odoo 20 UoM/BOM changes were recorded. | Completed |
-| 4. Qualify execution and version boundaries | Bind compatibility evidence, revalidate before writes and recovery, qualify Odoo 20 Recipes and 20 → 20 transfers, and verify that cross-version use is blocked. | 3–5 days |
+| 4. Qualify execution and version boundaries | In progress from 2026-10-08. The default-off development gate permits Test writes and recovery while Production remains blocked. One final Odoo 20 Enterprise Contact writer canary passed. Compatibility binding, the full execution and recovery path, Recipes, 20 → 20 transfers, and cross-version rejection evidence remain to be completed. | 3–5 days |
 | 5. Release and document | Re-run against final Odoo 20, complete the deployment matrix and browser checks, publish evidence and support scope, and enable qualified operations. | 2–3 days |
 
 **Planning range: 10–16 engineering days, roughly 2–4 working weeks**, plus

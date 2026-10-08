@@ -6,6 +6,7 @@ from time import perf_counter
 from urllib.parse import urlencode
 
 from fastapi import HTTPException, Request
+from fastapi.responses import RedirectResponse
 
 from impodo.domain.errors import ReadinessError
 from impodo.domain.preflight.deferred_scope import DeferredScopeEvidenceError
@@ -33,6 +34,9 @@ from impodo.adapters.odoo.local_stack import LocalStackError, LocalStackStatus
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, SourceMode
 from impodo.adapters.artifacts.reporting import WORKBOOK_NAME
 from impodo.application.preflight_service import DEFERRED_SCOPE_DECISION_NAME
+from impodo.application.workspace.source_readiness import (
+    assess_source_stage_readiness,
+)
 from ..constants import (
     DEFAULT_SUMMARY_ROWS_PER_PAGE,
     NORMALIZATION_GROUPS_PER_PAGE,
@@ -48,6 +52,7 @@ from ..target_credentials import (
 from .common import _render
 from .comparison_recovery import comparison_recovery_view
 from .missing_parent_actions import missing_parent_source_key
+from ..source_stage_gate import source_stage_message, source_stage_url
 
 
 def _render_target(
@@ -299,6 +304,17 @@ def _render_summary(
     navigation_snapshot = context.navigation.get_for_workspace(workspace_id)
     navigation_read_ms = (perf_counter() - navigation_started) * 1000
     workspace_state = navigation_snapshot.workspace_state
+    source_stage_readiness = assess_source_stage_readiness(
+        workspace_state,
+        navigation_snapshot.facts,
+    )
+    if not source_stage_readiness.ready:
+        request.session["flash"] = source_stage_message(source_stage_readiness)
+        return RedirectResponse(
+            source_stage_url(workspace_id, source_stage_readiness),
+            status_code=303,
+        )
+    source_stage_ready = True
     credential_owner = context.target_credential_workspace(
         workspace_id,
         workspace_state=workspace_state,
@@ -750,6 +766,7 @@ def _render_summary(
         dataset_filter=dataset_filter,
         evaluation_scale=evaluation_scale,
         preparation_limit_message=preparation_limit_message,
+        source_stage_ready=source_stage_ready,
         local_stack=local_stack,
         local_odoo_recovery_needed=local_odoo_recovery_needed,
         read_credential_status=read_credential_status,

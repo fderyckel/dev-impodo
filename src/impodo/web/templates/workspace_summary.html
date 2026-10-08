@@ -235,7 +235,17 @@
     </section>
   {% endif %}
 
-  {% if readiness %}
+  {% if not source_stage_ready %}
+    <section class="next-action-card review" aria-labelledby="source-refresh-title">
+      <div>
+        <p class="eyebrow">Source data needs attention</p>
+        <h2 id="source-refresh-title">Freeze the current source choices first</h2>
+        <p>Complete the source choices and freeze a new source version before preparing or reviewing data.</p>
+      </div>
+      <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Return to Source data</a>
+    </section>
+
+  {% elif readiness %}
     {% if not (load_preview and (load_preview.can_load or load_preview.current_run)) %}
     <section class="next-action-card {% if readiness.blocked_count %}blocked{% elif readiness.needs_review_count %}review{% else %}ready{% endif %}" id="compare-with-odoo" aria-labelledby="next-action-title">
       <div>

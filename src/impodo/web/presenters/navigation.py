@@ -18,6 +18,9 @@ from impodo.application.workspace.odoo_capture_jobs import (
 )
 from impodo.application.workspace.execution.job_models import LoadJob
 from impodo.application.workspace.navigation import WorkspaceNavigationFacts
+from impodo.application.workspace.source_readiness import (
+    assess_source_stage_readiness,
+)
 from impodo.application.workspace.preparation.job_models import PreparationJob
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceState, WorkspaceStatus
 from impodo.application.workspace.views import WorkspaceOwnerView
@@ -332,7 +335,13 @@ def _build_authoring_workspace_navigation(
         capture_plans_complete = schema_present and (
             set(facts.capture_models) == set(facts.schema_models)
         )
-        frozen_source_hash = facts.source_selection_hash
+        source_readiness = assess_source_stage_readiness(
+            current_workspace_state,
+            facts,
+        )
+        frozen_source_hash = (
+            facts.source_selection_hash if source_readiness.ready else ""
+        )
         workspace_id = current_workspace_state.workspace_id
         select_complete = capture_plans_complete and not schema_attention
         destination_match_ready = bool(

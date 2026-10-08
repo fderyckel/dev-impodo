@@ -232,14 +232,15 @@ Choose **One field contains reusable values** and enter:
 | Odoo name field | Name (name) |
 | If a source value is blank | Stop and ask me to correct it |
 
-Select **Preview**, review the unique values and counts, then select **Create
-this related table**.
+Select **Review resulting table**. Check the source-row count, the rows in the
+new related table, repeated values, unusable values, and any spellings Impodo
+will combine. Then select **Add related table to Match data**.
 
-![Current reusable-value related-table rule and authoring controls.](../../images/user/06-related-lookup.png)
+![The complete reusable-value review explains the resulting table before it is added to Match data.](../../images/user/06-related-lookup.png)
 
-Impodo now presents product_categories beside products during matching. It
-retains the original product rows and repeats the extraction over every frozen
-row during preparation.
+Impodo now presents product_categories beside products in **Match data**. It
+retains the original product rows and repeats the reviewed rule during
+preparation. No Odoo records were created by adding the related table.
 
 The expanded products file should preview seven unique category values from
 ten product rows. Repeated values such as Bottles and Raw materials become one

@@ -1066,6 +1066,7 @@ def create_local_app(
             source_repository,
             derived_entity_repository,
             workspace_access,
+            artifacts,
         ),
         schema_workspace=schema_workspace,
         mapping_workspace=mapping_workspace,

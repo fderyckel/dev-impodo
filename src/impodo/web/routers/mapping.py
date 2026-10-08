@@ -144,6 +144,7 @@ from ..presenters.mapping_view import (
     _safe_spreadsheet_text,
 )
 from ..security import require_csrf, require_session
+from ..source_stage_gate import source_stage_redirect
 
 
 _ROW_REVIEW_FAILURE_CODE = "MAPPING_ROW_REVIEW_FAILED"
@@ -203,6 +204,9 @@ def build_mapping_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/mapping", response_class=HTMLResponse)
     async def workspace_mapping(request: Request, workspace_id: str):
         require_session(request)
+        source_redirect = await source_stage_redirect(request, context, workspace_id)
+        if source_redirect is not None:
+            return source_redirect
         active_url = _active_preparation_url(context, workspace_id)
         if active_url:
             return RedirectResponse(active_url, status_code=303)
@@ -1213,6 +1217,17 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         json_request = _is_json_request(request)
         if json_request:
             require_csrf(request, request.headers.get("x-csrf-token", ""))
+        source_redirect = await source_stage_redirect(request, context, workspace_id)
+        if source_redirect is not None:
+            if json_request:
+                return JSONResponse(
+                    {
+                        "detail": request.session.pop("flash", ""),
+                        "redirect_url": source_redirect.headers["location"],
+                    },
+                    status_code=409,
+                )
+            return source_redirect
         active_url = _active_preparation_url(context, workspace_id)
         if active_url:
             message = (

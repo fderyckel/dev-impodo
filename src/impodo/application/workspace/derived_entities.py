@@ -2,16 +2,31 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Protocol
 from uuid import uuid4
 
+from impodo.application.data_version.source_snapshots import (
+    load_source_snapshot_table,
+    validate_snapshot_for_dataset,
+)
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    DataVersionSourceArtifactStore,
+)
+from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.domain.staging.scale import (
+    LOOKUP_DERIVED_BROWSER_EVALUATION_ROW_LIMIT,
+    LOOKUP_DERIVED_OUTPUT_ROW_LIMIT,
+)
 from impodo.domain.workspace.contracts import SourceSelection
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
+    DerivedEntityImpactReview,
     DerivedEntityPreview,
     DerivedEntityRule,
     HierarchicalLookupRule,
@@ -26,6 +41,7 @@ from impodo.domain.workspace.derived_entities import (
     _source_dataset,
     preview_derived_entities,
     preview_related_datasets,
+    review_derived_entities,
 )
 
 
@@ -40,6 +56,12 @@ class DerivedSourceRepository(Protocol):
         self, workspace_id: str
     ) -> tuple[SourceFileCatalogView, ...]:
         """Return bounded previews and field labels for the frozen sources."""
+        ...
+
+    def get_current_source_snapshots(
+        self, workspace_id: str
+    ) -> tuple[SourceSnapshot, ...]:
+        """Return the immutable full-row snapshots for the current Data version."""
         ...
 
 
@@ -72,11 +94,12 @@ class DerivedRulePreview:
 
 
 class DerivedEntityWorkspaceService:
-    """Author and preview deterministic derived-entity rules.
+    """Author and review deterministic derived-entity rules.
 
     Saved rules are bound to the current frozen physical selection and use an
-    optimistic plan version. Previews are bounded authoring evidence only; the
-    staging evaluator later repeats accepted rules across every frozen row.
+    optimistic plan version. A one-field lookup review reads every row in the
+    chosen frozen source table. Preparation later repeats the accepted rule
+    without changing the source.
     """
 
     def __init__(
@@ -84,10 +107,12 @@ class DerivedEntityWorkspaceService:
         sources: DerivedSourceRepository,
         derived_entities: DerivedEntityRepository,
         authorization: AuthorizationPolicy,
+        artifacts: DataVersionSourceArtifactStore | None = None,
     ) -> None:
         self.sources = sources
         self.derived_entities = derived_entities
         self.authorization = authorization
+        self.artifacts = artifacts
 
     def save_rule(
         self,
@@ -168,8 +193,8 @@ class DerivedEntityWorkspaceService:
         external_id_namespace: str,
         parent_separator: str | None,
         blank_policy: str,
-    ) -> tuple[DerivedEntityRule, DerivedEntityPreview]:
-        """Validate and preview related-record extraction without saving it."""
+    ) -> tuple[DerivedEntityRule, DerivedEntityImpactReview]:
+        """Review the complete related-table result without saving the rule."""
 
         selection = self.sources.get_source_selection(workspace_id)
         if selection is None:
@@ -187,12 +212,63 @@ class DerivedEntityWorkspaceService:
             blank_policy=blank_policy,
         )
         self._validate_lookup_rule_availability(rule, selection, current)
+        dataset = _source_dataset(
+            selection,
+            rule.source_dataset_id,
+            rule.source_column_key,
+        )
+        if dataset.row_count > LOOKUP_DERIVED_BROWSER_EVALUATION_ROW_LIMIT:
+            raise WorkspaceError(
+                f"{dataset.name} contains {dataset.row_count:,} rows. "
+                "Impodo can currently review a related table from up to "
+                f"{LOOKUP_DERIVED_BROWSER_EVALUATION_ROW_LIMIT:,} source rows."
+            )
+        if self.artifacts is None:
+            raise WorkspaceError(
+                "Impodo cannot open the accepted source data for this review"
+            )
+        snapshot = next(
+            (
+                item
+                for item in self.sources.get_current_source_snapshots(workspace_id)
+                if item.dataset_id == dataset.dataset_id
+            ),
+            None,
+        )
+        if snapshot is None:
+            raise WorkspaceError(
+                "Accept this Data version again before reviewing the related table"
+            )
+        column = next(
+            item
+            for item in dataset.columns
+            if item.stable_key == rule.source_column_key
+        )
+        try:
+            validate_snapshot_for_dataset(selection, dataset, snapshot)
+            with self.artifacts.materialize_source_snapshot(
+                selection.data_version_id,
+                snapshot.parquet_storage_key,
+                expected_sha256=snapshot.parquet_sha256,
+            ) as path:
+                table = load_source_snapshot_table(path, snapshot)
+                review = review_derived_entities(
+                    rule,
+                    selection,
+                    (
+                        (row.number, row.values.get(column.source_name))
+                        for row in table.rows
+                    ),
+                )
+        except (ArtifactStoreError, OSError, SourceLoadError, ValueError) as error:
+            raise WorkspaceError(
+                "Impodo could not verify the accepted source data for this review"
+            ) from error
         return (
             rule,
-            preview_derived_entities(
-                rule,
-                selection,
-                self.sources.get_source_catalogs(workspace_id),
+            replace(
+                review,
+                supported_record_limit=LOOKUP_DERIVED_OUTPUT_ROW_LIMIT,
             ),
         )
 

@@ -433,7 +433,7 @@
 
     <details class="form-card secondary-preparation" id="lookup-extraction" data-derived-entity-section{% if pending_lookup %} open{% endif %}>
       <summary>
-        <span><strong>Create related records from one field</strong><small>Use this when values from one source field should become their own Odoo records.</small></span>
+        <span><strong>Create a related table from one field</strong><small>Use this when repeated values from one source field describe records that you want to match separately.</small></span>
       </summary>
 
       {% if pending_lookup %}
@@ -442,44 +442,107 @@
         <section class="nested-rule-card" id="lookup-preview" data-derived-entity-preview>
           <div class="page-heading compact">
             <div>
-              <p class="eyebrow">Review before creating</p>
+              <p class="eyebrow">Review the resulting table</p>
               <h2>{{ pending_rule.output_dataset_name }}</h2>
-              <p>Check the unique related records Impodo found before adding this table to data matching.</p>
+              <p>Impodo checked every row in the accepted source data. Review the result before adding this table to Match data.</p>
             </div>
-            <span class="status registered">PREVIEW</span>
+            <span class="status registered">{{ "Needs attention" if pending_preview.needs_attention else "Complete" }}</span>
           </div>
 
           <div class="notice success">
-            The original <strong>{{ pending_preview.source_dataset_name }}</strong> rows will stay available. Impodo will add one related-record choice for each different cleaned value from <strong>{{ pending_preview.source_column_name }}</strong>.
+            The original <strong>{{ pending_preview.source_dataset_name }}</strong> table stays unchanged. After you confirm, Impodo adds <strong>{{ pending_rule.output_dataset_name }}</strong> to Match data. There, you can review how <strong>{{ pending_preview.source_column_name }}</strong> links to it. This action does not create or change records in Odoo.
           </div>
           <div class="metric-grid">
-            <div><span>Rows sampled</span><strong>{{ pending_preview.sampled_source_rows }}</strong></div>
-            <div><span>Related candidates shown</span><strong>{{ pending_preview.candidates|length }}</strong></div>
-            <div><span>Different source values</span><strong>{{ pending_preview.full_distinct_count }}{% if not pending_preview.full_distinct_count_is_exact %} estimate{% endif %}</strong></div>
-            <div><span>Blank example values</span><strong>{{ pending_preview.blank_sample_rows }}</strong></div>
+            <div><span>Source rows checked</span><strong>{{ pending_preview.source_rows }}</strong></div>
+            <div><span>Rows with a related value</span><strong>{{ pending_preview.linked_source_rows }}</strong></div>
+            <div><span>Rows in the new related table</span><strong>{{ pending_preview.related_record_count }}</strong></div>
+            <div><span>Rows without a usable value</span><strong>{{ pending_preview.rows_without_usable_value }}</strong></div>
           </div>
-          {% if pending_preview.blank_sample_rows %}
+
+          <div class="notice">
+            <strong>How Impodo reached this result</strong>
+            <span>
+              {{ pending_preview.direct_record_count }} different usable {{ "value becomes" if pending_preview.direct_record_count == 1 else "values become" }} rows in the related table.
+              {% if pending_preview.additional_parent_record_count %} Impodo also adds {{ pending_preview.additional_parent_record_count }} parent {{ "row" if pending_preview.additional_parent_record_count == 1 else "rows" }} from the levels separated by <code>{{ pending_rule.parent_separator }}</code>.{% endif %}
+              {% if pending_preview.repeated_source_rows %}{{ pending_preview.repeated_source_rows }} repeated source {{ "row points" if pending_preview.repeated_source_rows == 1 else "rows point" }} to an existing row in that table.{% else %}No source rows repeat a related value.{% endif %}
+            </span>
+          </div>
+
+          {% if pending_preview.blank_source_rows %}
             <div class="notice warning">
-              {{ pending_preview.blank_sample_rows }} example row(s) cannot identify a related record. They will {% if pending_rule.blank_policy == 'quarantine' %}be set aside for review{% else %}stop and ask for a correction{% endif %}.
+              <strong>{{ pending_preview.blank_source_rows }} source {{ "row has" if pending_preview.blank_source_rows == 1 else "rows have" }} no related value.</strong>
+              During Prepare data, Impodo will {% if pending_rule.blank_policy == 'quarantine' %}set those rows aside for review{% else %}stop and ask you to correct them{% endif %}.
             </div>
           {% endif %}
-          {% if pending_preview.candidates %}
+          {% if pending_preview.invalid_path_source_rows %}
+            <div class="notice warning">
+              <strong>{{ pending_preview.invalid_path_source_rows }} source {{ "row contains" if pending_preview.invalid_path_source_rows == 1 else "rows contain" }} an empty level.</strong>
+              For example, a value such as <code>Furniture {{ pending_rule.parent_separator }} {{ pending_rule.parent_separator }} Chairs</code> cannot identify a complete related record. Prepare data will treat these rows like a blank related value.
+            </div>
+          {% endif %}
+          {% if pending_preview.values_to_review %}
+            <h3>Source spellings to review</h3>
+            <p>Impodo ignores capitalization and extra spacing when it decides whether values refer to the same related record. Check the values it will combine.</p>
             <div class="table-scroll">
               <table class="data-table">
-                <thead><tr><th>Related record</th><th>Matching key</th><th>Sample rows</th><th>Review</th></tr></thead>
+                <thead><tr><th>Related record</th><th>Source values combined</th><th>Source rows</th><th>What will happen</th></tr></thead>
                 <tbody>
-                  {% for candidate in pending_preview.candidates %}
+                  {% for candidate in pending_preview.values_to_review %}
                     <tr>
                       <th>{{ candidate.name }}</th>
-                      <td><code>{{ candidate.canonical_key }}</code></td>
-                      <td>{{ candidate.sampled_source_row_count }}</td>
-                      <td>{{ "Check source spellings" if candidate.requires_alias_review else "Ready to map" }}</td>
+                      <td>{{ candidate.aliases|join(', ') }}</td>
+                      <td>{{ candidate.source_row_count }}</td>
+                      <td>Use one related record</td>
                     </tr>
                   {% endfor %}
                 </tbody>
               </table>
             </div>
+            {% if pending_preview.combined_spelling_count > (pending_preview.values_to_review|length) %}
+              <p class="muted">Showing 10 of {{ pending_preview.combined_spelling_count }} related records that combine source spellings.</p>
+            {% endif %}
+          {% else %}
+            <div class="notice success">Impodo found no capitalization or spacing variations that would silently become the same related record.</div>
           {% endif %}
+
+          {% if pending_preview.related_record_count == 0 %}
+            <div class="notice error">
+              <strong>There is no related table to add.</strong>
+              None of the accepted source rows contains a usable value in this field. Change the field or correct the source data before continuing.
+            </div>
+          {% elif not pending_preview.can_add %}
+            <div class="notice error">
+              <strong>This related table is larger than the currently supported limit.</strong>
+              It would contain {{ pending_preview.related_record_count }} records. Impodo currently supports up to {{ pending_preview.supported_record_limit }} records from this type of rule, so you cannot add it to Match data yet.
+            </div>
+          {% endif %}
+
+          <details class="technical-details">
+            <summary>Support details and example records</summary>
+            <p>This section shows a bounded set of technical identities from the complete review.</p>
+            {% if pending_preview.result_examples %}
+              <div class="table-scroll">
+                <table class="data-table">
+                  <thead><tr><th>Related record</th><th>Matching key</th><th>External ID</th><th>Source rows</th></tr></thead>
+                  <tbody>
+                    {% for candidate in pending_preview.result_examples %}
+                      <tr>
+                        <th>{{ candidate.name }}</th>
+                        <td><code>{{ candidate.canonical_key }}</code></td>
+                        <td><code>{{ candidate.odoo_external_id }}</code></td>
+                        <td>{{ candidate.source_row_count }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              {% if pending_preview.related_record_count > (pending_preview.result_examples|length) %}
+                <p class="muted">Showing {{ pending_preview.result_examples|length }} of {{ pending_preview.related_record_count }} related records.</p>
+              {% endif %}
+            {% else %}
+              <p>No related records can be produced from this field.</p>
+            {% endif %}
+          </details>
 
           <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/save">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -493,7 +556,7 @@
             <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
             <div class="actions">
               <button class="button secondary" type="button" data-derived-entity-target="lookup-form">Change selections</button>
-              <button class="button primary" type="submit">Create this related table</button>
+              {% if pending_preview.can_add %}<button class="button primary" type="submit">Add related table to Match data</button>{% endif %}
             </div>
           </form>
         </section>
@@ -505,9 +568,9 @@
         <section class="nested-rule-card" id="lookup-rule-{{ rule.rule_id }}">
           <div class="page-heading compact">
             <div>
-              <p class="eyebrow">Prepared related records</p>
+              <p class="eyebrow">Related table added</p>
               <h2>{{ rule.output_dataset_name }}</h2>
-              <p>This list is available when you match data to Odoo.</p>
+              <p>This table is available in Match data. No Odoo records have been created.</p>
             </div>
             <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -518,7 +581,7 @@
           {% if view.preview_error %}
             <div class="notice error">{{ view.preview_error }}</div>
           {% elif preview %}
-            <p>Impodo prepared {{ preview.candidates|length }} unique choice(s) from the checked rows of <strong>{{ preview.source_dataset_name }} · {{ preview.source_column_name }}</strong>. This table is now available when you match data beside the original rows.</p>
+            <p>Impodo will build this table from <strong>{{ preview.source_column_name }}</strong> in <strong>{{ preview.source_dataset_name }}</strong>. The saved rule is available beside the original table in Match data.</p>
             {% if preview.candidates %}
               <details>
                 <summary>Support details for {{ preview.candidates|length }} candidate(s)</summary>
@@ -544,8 +607,8 @@
       {% endfor %}
 
       <section class="nested-rule-card" id="lookup-form">
-        <h2>Create a related table</h2>
-        <p>Choose the column that contains related records. Impodo will keep one row per unique value, keep the original product or line rows, and suggest the relationship in Mapping.</p>
+        <h2>Choose the related table</h2>
+        <p>Choose the field whose repeated values describe related records. Impodo keeps the original rows, builds one related-table row for each cleaned value, and lets you review the link in Match data.</p>
         {% if model_catalog %}
           <div class="notice stack-ready" role="status">
             <strong>Odoo record types are ready.</strong>
@@ -607,7 +670,7 @@
               <datalist id="derived-target-models">
                 {% for model in model_choices %}<option value="{{ model.name }}" label="{{ model.label }}">{{ model.label }}</option>{% endfor %}
               </datalist>
-              <small id="derived-target-model-help">Choose an existing record type from this Odoo database. Impodo checks the choice before previewing.</small>
+              <small id="derived-target-model-help">Choose an existing record type from this Odoo database. Impodo checks the choice before reviewing the result.</small>
             </label>
             <details class="technical-details">
               <summary>Support options</summary>
@@ -634,7 +697,7 @@
             </label>
           </div>
           <div class="actions">
-            <button class="button primary" type="submit">Preview related records</button>
+            <button class="button primary" type="submit">Review resulting table</button>
           </div>
         </form>
         {% endif %}

@@ -10,6 +10,10 @@ from impodo.application.workspace.execution.service import (
     ExecutionNavigationPreview,
     ExecutionService,
 )
+from impodo.application.workspace.source_readiness import (
+    SourceStageReadiness,
+    assess_source_stage_readiness,
+)
 from impodo.domain.workspace.workbench import WorkspaceState
 
 
@@ -155,6 +159,15 @@ class WorkspaceNavigationQueryService:
                 snapshot.facts,
                 snapshot.workspace_state,
             ),
+        )
+
+    def get_source_readiness(self, workspace_id: str) -> SourceStageReadiness:
+        """Read the authoritative source gate under one storage snapshot."""
+
+        snapshot = self.repository.get_snapshot(workspace_id)
+        return assess_source_stage_readiness(
+            snapshot.workspace_state,
+            snapshot.facts,
         )
 
     def _with_runtime_facts(

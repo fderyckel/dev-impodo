@@ -944,7 +944,9 @@ class ExecutionService:
         if not assess_odoo_operation(
             snapshot.target_odoo_version, OdooOperation.RECOVER,
         ).allowed:
-            raise WorkspaceError("The schema-bound load path requires Odoo 19")
+            raise WorkspaceError(
+                "This Odoo version is not enabled for the schema-bound load path"
+            )
         run = self.journal.get_run(workspace_id, expected_execution_run_id)
         current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
         if (
@@ -3259,7 +3261,7 @@ def _execution_snapshot_error(
     }:
         return "Configure the exact Odoo load target first"
     if not assess_odoo_operation(snapshot.target_odoo_version, operation).allowed:
-        return "The schema-bound load path requires Odoo 19"
+        return "This Odoo version is not enabled for the schema-bound load path"
     plan = snapshot.relationship_plan
     scheduled_rows = tuple(
         sorted(

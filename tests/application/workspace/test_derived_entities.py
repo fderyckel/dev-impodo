@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from tests.support.paths import REPOSITORY_ROOT
 
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from impodo.domain.shared.access import (
@@ -26,6 +27,7 @@ from impodo.domain.workspace.derived_entities import (
     mapping_source_selection,
     preview_derived_entities,
     preview_related_datasets,
+    review_derived_entities,
     related_dataset_links,
 )
 from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
@@ -68,6 +70,177 @@ DATA_VERSION_ID = str(uuid4())
 
 
 class DerivedEntityPreviewTests(unittest.TestCase):
+    def test_complete_lookup_review_includes_rows_after_catalog_preview(self) -> None:
+        rows = tuple(
+            (f"P{index:03d}", f"Group / Value {index:02d}")
+            for index in range(1, 21)
+        ) + (
+            ("P021", "Group / Late value"),
+            ("P022", None),
+            ("P023", "Group // Broken"),
+            ("P024", "GROUP / Late value"),
+            ("P025", "Group / Late value"),
+        )
+        selection, _catalog = _source_evidence(rows=rows)
+        rule = _rule(selection)
+        category = selection.datasets[0].columns[1]
+
+        review = review_derived_entities(
+            rule,
+            selection,
+            (
+                (row_number, row[category.ordinal - 1])
+                for row_number, row in enumerate(rows, start=2)
+            ),
+        )
+
+        self.assertEqual(review.source_rows, 25)
+        self.assertEqual(review.linked_source_rows, 23)
+        self.assertEqual(review.direct_record_count, 21)
+        self.assertEqual(review.additional_parent_record_count, 1)
+        self.assertEqual(review.related_record_count, 22)
+        self.assertEqual(review.repeated_source_rows, 2)
+        self.assertEqual(review.blank_source_rows, 1)
+        self.assertEqual(review.invalid_path_source_rows, 1)
+        self.assertEqual(review.combined_spelling_count, 2)
+        late = next(
+            item for item in review.candidates
+            if item.canonical_key == "group / late value"
+        )
+        self.assertEqual(late.source_row_count, 3)
+        self.assertIn("GROUP / Late value", late.aliases)
+
+    def test_complete_lookup_review_does_not_allow_an_empty_related_table(self) -> None:
+        rows = (("P001", None), ("P002", "  "))
+        selection, _catalog = _source_evidence(rows=rows)
+        rule = _rule(selection)
+        category = selection.datasets[0].columns[1]
+
+        review = review_derived_entities(
+            rule,
+            selection,
+            (
+                (row_number, row[category.ordinal - 1])
+                for row_number, row in enumerate(rows, start=2)
+            ),
+        )
+
+        self.assertEqual(review.related_record_count, 0)
+        self.assertFalse(review.can_add)
+        self.assertTrue(review.needs_attention)
+
+    def test_lookup_review_reads_every_row_from_the_accepted_snapshot(self) -> None:
+        rows = tuple(
+            (f"P{index:03d}", f"Value {index:02d}")
+            for index in range(1, 21)
+        ) + (
+            ("P021", "Late value"),
+            ("P022", "LATE VALUE"),
+        )
+        selection, _catalog = _source_evidence(rows=rows)
+        dataset = selection.datasets[0]
+        snapshot = Mock(
+            dataset_id=dataset.dataset_id,
+            parquet_storage_key="source/snapshot.parquet",
+            parquet_sha256="a" * 64,
+        )
+        sources = Mock()
+        sources.get_source_selection.return_value = selection
+        sources.get_current_source_snapshots.return_value = (snapshot,)
+        plans = Mock()
+        plans.get_derived_entity_plan.return_value = None
+        artifacts = Mock()
+        artifacts.materialize_source_snapshot.return_value = nullcontext(
+            Path("snapshot.parquet")
+        )
+        table = Mock(
+            rows=tuple(
+                Mock(
+                    number=row_number,
+                    values={
+                        "Product ID": row[0],
+                        "Product Category": row[1],
+                    },
+                )
+                for row_number, row in enumerate(rows, start=2)
+            )
+        )
+        service = DerivedEntityWorkspaceService(
+            sources,
+            plans,
+            Mock(),
+            artifacts,
+        )
+
+        with (
+            patch(
+                "impodo.application.workspace.derived_entities."
+                "validate_snapshot_for_dataset"
+            ) as validate_snapshot,
+            patch(
+                "impodo.application.workspace.derived_entities."
+                "load_source_snapshot_table",
+                return_value=table,
+            ),
+        ):
+            _rule, review = service.preview_lookup(
+                WORKSPACE_ID,
+                output_dataset_name="product_categories",
+                source_dataset_id=dataset.dataset_id,
+                source_column_key=dataset.columns[1].stable_key,
+                target_model="product.category",
+                target_name_field="name",
+                external_id_namespace="legacy",
+                parent_separator=None,
+                blank_policy="block",
+            )
+
+        validate_snapshot.assert_called_once_with(selection, dataset, snapshot)
+        sources.get_source_catalogs.assert_not_called()
+        self.assertEqual(review.source_rows, 22)
+        self.assertEqual(review.related_record_count, 21)
+        self.assertEqual(review.combined_spelling_count, 1)
+        self.assertEqual(review.supported_record_limit, 5_000)
+        self.assertEqual(
+            next(
+                item.source_row_count
+                for item in review.candidates
+                if item.canonical_key == "late value"
+            ),
+            2,
+        )
+
+    def test_hierarchy_preview_remains_a_bounded_catalog_review(self) -> None:
+        selection, catalog = _source_evidence()
+        dataset = selection.datasets[0]
+        sources = Mock()
+        sources.get_source_selection.return_value = selection
+        sources.get_source_catalogs.return_value = (catalog,)
+        plans = Mock()
+        plans.get_derived_entity_plan.return_value = None
+        service = DerivedEntityWorkspaceService(sources, plans, Mock())
+
+        _rule, preview = service.preview_hierarchy(
+            WORKSPACE_ID,
+            output_dataset_name="product_categories",
+            source_dataset_id=dataset.dataset_id,
+            source_level_column_keys=tuple(
+                column.stable_key for column in dataset.columns
+            ),
+            target_model="product.category",
+            target_name_field="name",
+            external_id_namespace="legacy",
+            missing_parent_mode="block",
+            missing_parent_value=None,
+            missing_leaf="use_deepest",
+            all_blank_mode="emit_null_reference",
+            all_blank_value=None,
+        )
+
+        self.assertEqual(preview.sampled_source_rows, 3)
+        sources.get_source_catalogs.assert_called_once_with(WORKSPACE_ID)
+        sources.get_current_source_snapshots.assert_not_called()
+
     def test_rule_review_retains_valid_lookup_and_related_previews_after_an_error(self):
         selection, catalog = _source_evidence()
         lookup = _rule(selection)

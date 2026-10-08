@@ -20,6 +20,7 @@ from ..forms import _secure_form
 from ..presenters.common import _flash, _render
 from ..presenters.navigation import build_preparation_workspace_navigation
 from ..security import require_session
+from ..source_stage_gate import source_stage_redirect
 
 
 def build_preparation_router(context: WebContext) -> APIRouter:
@@ -30,6 +31,9 @@ def build_preparation_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/prepare", response_class=HTMLResponse)
     async def prepare_workspace_data(request: Request, workspace_id: str):
         require_session(request)
+        source_redirect = await source_stage_redirect(request, context, workspace_id)
+        if source_redirect is not None:
+            return source_redirect
         active = (
             context.preparation_jobs.active(workspace_id)
             if context.preparation_jobs is not None
@@ -85,6 +89,9 @@ def build_preparation_router(context: WebContext) -> APIRouter:
     async def check_workspace_data(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
+        source_redirect = await source_stage_redirect(request, context, workspace_id)
+        if source_redirect is not None:
+            return source_redirect
         try:
             job = await run_in_threadpool(enqueue_preparation, context, workspace_id)
         except WorkspaceError as error:
@@ -125,6 +132,9 @@ def build_preparation_router(context: WebContext) -> APIRouter:
     async def retry_preparation(request: Request, workspace_id: str, job_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
+        source_redirect = await source_stage_redirect(request, context, workspace_id)
+        if source_redirect is not None:
+            return source_redirect
         try:
             job = await run_in_threadpool(
                 enqueue_preparation, context, workspace_id, retry_job_id=job_id,

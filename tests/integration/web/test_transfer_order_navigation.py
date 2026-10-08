@@ -176,6 +176,7 @@ def _facts(workspace, selection, schema) -> WorkspaceNavigationFacts:
         schema_present=True,
         schema_content_hash=schema.content_hash,
         schema_models=tuple(item.name for item in schema.models),
+        capture_models=tuple(item.name for item in schema.models),
     )
 
 

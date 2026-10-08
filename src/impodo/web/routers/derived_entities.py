@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.workspace.derived_entities import (
@@ -144,7 +145,10 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             )
         _flash(
             request,
-            f"Created the related table {rule.output_dataset_name}.",
+            (
+                f"Added {rule.output_dataset_name} to Match data. "
+                "No Odoo records were created."
+            ),
         )
         return RedirectResponse(
             (
@@ -189,7 +193,8 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 workspace_state,
                 _text(form, "target_model"),
             )
-            rule, preview = context.derived_entities.preview_lookup(
+            rule, preview = await run_in_threadpool(
+                context.derived_entities.preview_lookup,
                 workspace_id,
                 output_dataset_name=_text(form, "output_dataset_name"),
                 source_dataset_id=source_dataset_id,

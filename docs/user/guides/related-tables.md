@@ -108,16 +108,28 @@ Choose:
 - a stable, lowercase source-system namespace; and
 - whether blank values stop preparation or are set aside for review.
 
-Select **Preview related records**. Check the sampled source-row count, distinct
-value estimate, blank examples, cleaned identities, and proposed External IDs.
-The preview is authoring evidence; preparation repeats the rule over the full
-frozen dataset.
+Select **Review resulting table**. Impodo checks every row in the accepted
+source table and explains the business result before anything is added. Review:
 
-Select **Create this related table** only when the preview represents the
-intended business records. The new table becomes available beside the original
-table in **Match data**.
+- how many source rows were checked and how many contain a usable value;
+- how many rows the new related table will contain;
+- how many repeated source rows will point to an existing related-table row;
+- whether a value containing levels adds separate parent rows;
+- which rows are blank or contain an incomplete path, and whether preparation
+  will stop or set them aside; and
+- which differences in capitalization or spacing will be treated as the same
+  related record.
 
-![Current reusable-value rule and related-table authoring form.](../../images/user/06-related-lookup.png)
+Technical matching keys and External IDs remain available under **Support
+details and example records**. They support investigation; they are not the
+main decision the data manager needs to make.
+
+Select **Add related table to Match data** only when the summary represents the
+intended business records. This keeps the original table unchanged and makes
+the new table available beside it in **Match data**. It does not create or
+change records in Odoo.
+
+![The complete reusable-value review explains the resulting table before it is added to Match data.](../../images/user/06-related-lookup.png)
 
 ### Identity behavior
 
@@ -202,7 +214,9 @@ relationship only when the selected Odoo models confirm the relation.
 
 Related-table authoring performs no Odoo business-record read or write. Loading
 or refreshing the record-type catalogue is one explicit read-only metadata
-action; source preview and rule authoring use local frozen evidence.
+action. The one-field review reads every row from the accepted local source
+snapshot. Other related-table previews use bounded local evidence. Saving a
+rule still changes only the current preparation plan.
 
 After authoring:
 
@@ -213,9 +227,10 @@ After authoring:
 5. review the exact frozen execution snapshot; and
 6. explicitly confirm **Load into Odoo** for the governed disposable target.
 
-The authoring preview is not full-row validation, Odoo comparison, approval, or
-permission to write. Downstream preparation, comparison, execution, and
-reconciliation retain their own prerequisites and evidence.
+The complete one-field review explains the expected table, but it is not Odoo
+comparison, migration approval, or permission to write. Downstream preparation,
+comparison, execution, and reconciliation retain their own prerequisites and
+evidence.
 
 ## When you must prepare again
 

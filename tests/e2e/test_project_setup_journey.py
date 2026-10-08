@@ -560,9 +560,12 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             headers=POST_HEADERS,
         )
         self.assertEqual(lookup_preview.status_code, 200)
-        self.assertIn("Review before creating", lookup_preview.text)
+        self.assertIn("Review the resulting table", lookup_preview.text)
         self.assertIn('id="lookup-preview"', lookup_preview.text)
-        self.assertIn("Create this related table", lookup_preview.text)
+        self.assertIn("Source rows checked", lookup_preview.text)
+        self.assertIn("Rows in the new related table", lookup_preview.text)
+        self.assertIn("does not create or change records in Odoo", lookup_preview.text)
+        self.assertIn("Add related table to Match data", lookup_preview.text)
         self.assertIn('id="lookup-extraction" data-derived-entity-section open', lookup_preview.text)
         self.assertIn('data-derived-entity-target="lookup-form">Change selections</button>', lookup_preview.text)
         self.assertIn('value="product_names"', lookup_preview.text)
@@ -596,7 +599,10 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             f'id="lookup-rule-{saved_rule.rule_id}"',
             derived_preview.text,
         )
-        self.assertIn("Created the related table product_names", derived_preview.text)
+        self.assertIn(
+            "Added product_names to Match data. No Odoo records were created.",
+            derived_preview.text,
+        )
         self.assertIn("Example product", derived_preview.text)
         self.assertIn("impodo_dynamics_ax_2012.res_partner_", derived_preview.text)
         self.assertIn(
