@@ -20,9 +20,14 @@ from impodo.application.destination_matching_service import (
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.mapping.create_field_policy import CREATE_FIXED_VALUE_TYPES
 from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.odoo_source_scope import (
+    RelatedDataHandling,
+    propose_related_odoo_data,
+)
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.shared.access import Capability
 from impodo.domain.workspace.destination_matching import (
+    DESTINATION_HANDLINGS,
     carry_destination_create_field_reviews,
     choose_destination_create_field_provider,
     confirm_destination_create_field_defaults,
@@ -35,6 +40,7 @@ from impodo.domain.workspace.workbench import (
     transfer_destination_workspace,
 )
 
+from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form
 from ..presenters.common import _flash, _render
@@ -61,6 +67,17 @@ def _choice_value(dataset_id: str, source_column_key: str) -> str:
 def _parse_choices(form) -> tuple[DestinationMatchKeyChoice, ...]:
     choices: list[DestinationMatchKeyChoice] = []
     extras: dict[str, list[str]] = {}
+    handlings: dict[str, str] = {}
+    for raw in form.getlist("destination_handling"):
+        dataset_id, separator, handling = str(raw).partition("::")
+        if (
+            not separator
+            or not dataset_id
+            or handling not in DESTINATION_HANDLINGS
+            or dataset_id in handlings
+        ):
+            raise WorkspaceStateError("Choose one destination handling for each source table")
+        handlings[dataset_id] = handling
     for raw in form.getlist("match_key_extra"):
         if not raw:
             continue
@@ -72,14 +89,20 @@ def _parse_choices(form) -> tuple[DestinationMatchKeyChoice, ...]:
         dataset_id, separator, source_column_key = str(raw).partition("::")
         if not separator or not dataset_id or not source_column_key:
             raise WorkspaceStateError("Choose one matching field for each source table")
+        destination_handling = handlings.pop(dataset_id, None)
+        if destination_handling is None:
+            raise WorkspaceStateError(
+                "Choose one destination handling for each source table"
+            )
         choices.append(
             DestinationMatchKeyChoice(
                 dataset_id=dataset_id,
                 source_column_key=source_column_key,
                 additional_source_column_keys=tuple(extras.pop(dataset_id, ())),
+                destination_handling=destination_handling,
             )
         )
-    if extras:
+    if extras or handlings:
         raise WorkspaceStateError("Matching fields do not belong to a selected table")
     return tuple(choices)
 
@@ -95,6 +118,14 @@ def _matching_rows(workspace_state, selection, schema):
     result_by_dataset = {
         item.dataset_id: item for item in plan.model_matches
     } if plan is not None else {}
+    reuse_destination_models = {
+        item.relation_model
+        for item in propose_related_odoo_data(
+            schema.models,
+            include_selected=True,
+        )
+        if item.handling is RelatedDataHandling.REUSE_DESTINATION
+    }
     relationship_fields_by_model: dict[str, set[str]] = {}
     if plan is not None:
         for relation in plan.relationship_matches:
@@ -186,6 +217,15 @@ def _matching_rows(workspace_state, selection, schema):
                 "excluded_identity_rows": (),
                 "identity_issue_error": None,
                 "relationship_fields": relationship_fields_by_model.get(model, set()),
+                "destination_handling": (
+                    result_by_dataset[dataset.dataset_id].destination_handling
+                    if dataset.dataset_id in result_by_dataset
+                    else (
+                        "reuse_only"
+                        if model in reuse_destination_models
+                        else "transfer"
+                    )
+                ),
             }
         )
     return tuple(rows)
@@ -350,6 +390,18 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
     )
     async def destination_matching_form(request: Request, workspace_id: str):
         require_session(request)
+        return await run_page_read(
+            render_destination_matching_form,
+            request,
+            workspace_id,
+        )
+
+    def render_destination_matching_form(
+        request: Request,
+        workspace_id: str,
+    ):
+        """Read and render Destination matching in one bounded worker scope."""
+
         workspace_state = context.queries.get(workspace_id)
         if (
             workspace_state.source_mode is not SourceMode.ODOO
@@ -380,7 +432,13 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
         _secure_form(
             request,
             form,
-            {"csrf_token", "revision", "match_key", "match_key_extra"},
+            {
+                "csrf_token",
+                "revision",
+                "match_key",
+                "match_key_extra",
+                "destination_handling",
+            },
         )
         workspace_state = context.queries.get(workspace_id)
         if (
@@ -890,6 +948,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                     dataset_id=item.dataset_id,
                     source_column_key=item.source_column_key,
                     additional_source_column_keys=item.source_column_keys[1:],
+                    destination_handling=item.destination_handling,
                 )
                 for item in previous.model_matches
             )

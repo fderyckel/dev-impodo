@@ -36,15 +36,22 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
                     "mrp.bom",
                     RelatedDataHandling.SEPARATE_PROCESS,
                 ),
+                _suggestion(
+                    "company_id",
+                    "Company",
+                    "res.company",
+                    RelatedDataHandling.REUSE_DESTINATION,
+                ),
             ),
             model_labels={
                 "product.category": "Product Categories",
                 "uom.uom": "Units of Measure",
                 "mrp.bom": "Bills of Materials",
+                "res.company": "Companies",
             },
             selected_models=frozenset({"product.template"}),
             available_models=frozenset(
-                {"product.category", "uom.uom", "mrp.bom"}
+                {"product.category", "uom.uom", "mrp.bom", "res.company"}
             ),
         )
 
@@ -52,12 +59,13 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
             tuple(group.handling for group in view.groups),
             (
                 RelatedDataHandling.INCLUDE_SUPPORTING,
+                RelatedDataHandling.REUSE_DESTINATION,
                 RelatedDataHandling.SEPARATE_PROCESS,
             ),
         )
         self.assertEqual(
             view.selectable_model_names,
-            ("product.category", "uom.uom"),
+            ("product.category", "res.company", "uom.uom"),
         )
         self.assertEqual(
             tuple(model.label for model in view.groups[0].models),
@@ -65,7 +73,9 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
         )
         self.assertFalse(any(model.checked for model in view.groups[0].models))
         self.assertTrue(all(model.recommended for model in view.groups[0].models))
-        self.assertFalse(view.groups[1].models[0].can_select)
+        self.assertTrue(view.groups[1].models[0].can_select)
+        self.assertTrue(view.groups[1].models[0].recommended)
+        self.assertFalse(view.groups[2].models[0].can_select)
 
         saved_view = build_related_data_scope_view(
             "workspace-1",

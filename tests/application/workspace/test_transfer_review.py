@@ -140,6 +140,38 @@ class TransferReviewTests(unittest.TestCase):
         self.assertNotEqual(reused.export_plan.actions_hash, updated.export_plan.actions_hash)
         self.assertEqual(TransferReviewPackage.from_json(reused.to_json()), reused)
 
+    def test_destination_reuse_handling_cannot_be_widened_in_review(self) -> None:
+        company = replace(
+            _model("res.company", "Company", existing=1, create=0),
+            destination_handling="reuse_only",
+        )
+        match = _match_plan((company,), ())
+        order = _build(match)
+        workspace = replace(_workspace(match), transfer_order_plan=order)
+        arguments = dict(
+            run_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            built_by=LOCAL_ACTOR.identity,
+        )
+
+        with self.assertRaisesRegex(WorkspaceError, "matched as reuse only"):
+            TransferReviewService().build(
+                workspace,
+                match,
+                order,
+                model_policies={company.model: "create_if_missing"},
+                **arguments,
+            )
+
+        package = TransferReviewService().build(
+            workspace,
+            match,
+            order,
+            model_policies={company.model: "reuse_only"},
+            **arguments,
+        )
+        self.assertEqual(package.datasets[0].model_policy, "reuse_only")
+
     def test_legacy_review_package_remains_readable(self) -> None:
         product = _model("product.template", "Product", create=1)
         current = _package(_match_plan((product,), ()))

@@ -1123,6 +1123,38 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         )
         return workspace_state, schema
 
+    def _frozen_odoo_source_workspace(self):
+        """Create one registered workspace with fictional frozen Odoo data."""
+
+        workspace_state, schema = self._registered_remote_schema_workspace()
+        workspace_id = workspace_state.workspace_id
+        saved_plan = self._post(
+            f"/workspaces/{workspace_id}/sources/odoo-selection",
+            {
+                "csrf_token": self.csrf,
+                "dataset_name": "odoo_contacts",
+                "model": "res.partner",
+                "field_names": "name",
+                "include_archived": "",
+                "page_size": "100",
+            },
+        )
+        self.assertEqual(saved_plan.status_code, 303, saved_plan.text)
+        context = self.app.state.context
+        publication = context.odoo_capture_publication.publish(
+            workspace_id,
+            _BrowserOdooCaptureGateway(workspace_state, schema),
+            actor=context.actor,
+        )
+        context.data_version_source_projection.accept_odoo_capture(
+            workspace_id,
+            publication.source_selection,
+            publication.source_snapshots,
+            publication.manifests,
+            actor=context.actor,
+        )
+        return context.queries.get(workspace_id), schema
+
     def _mapping_ready_workspace(
         self,
         *,

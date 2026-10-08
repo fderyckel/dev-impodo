@@ -68,6 +68,8 @@
                             <strong>{{ model.label }}</strong>
                             {% if model.selected %}
                               <small>Included in the current source choices</small>
+                            {% elif group.handling.value == "REUSE_DESTINATION" %}
+                              <small>Recommended by Impodo &middot; capture linked identities for destination matching</small>
                             {% elif model.recommended %}
                               <small>Recommended by Impodo · select and save to include</small>
                             {% else %}
@@ -230,11 +232,11 @@
             Capture only records linked from the selected source records
           </label>
           {% if recommend_linked_only %}
-            <p class="notice success"><strong>Recommended for this supporting data.</strong> Impodo preselected linked records so relationships stay complete without downloading every record of this type. Archived records are included when a selected record links to them.</p>
+            <p class="notice success"><strong>Recommended for this related data.</strong> Impodo preselected linked records so relationships stay complete without downloading every record of this type. Archived linked records are included. Destination matching separately decides whether each record type is reuse-only or may transfer missing records.</p>
           {% elif supporting_plan_is_root %}
-            <p class="notice warning"><strong>This recommended supporting data is currently a root dataset.</strong> Select linked records only when it should follow the main business records. Leave it as a root only when you deliberately want every matching record of this type.</p>
+            <p class="notice warning"><strong>This recommended related data is currently a root dataset.</strong> Select linked records only when it should follow the main business records. Leave it as a root only when you deliberately want every matching record of this type.</p>
           {% else %}
-            <p class="muted">Use this for a supporting record type. Impodo includes archived linked records. Keep at least one root record type.</p>
+            <p class="muted">Use this for a related record type. Impodo includes archived linked records. Keep at least one root record type.</p>
           {% endif %}
 
           <div class="form-grid compact-grid">

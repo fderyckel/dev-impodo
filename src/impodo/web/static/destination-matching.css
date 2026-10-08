@@ -436,6 +436,17 @@
   background-color: white;
 }
 
+.destination-handling-field {
+  margin-bottom: 1rem;
+}
+
+.destination-handling-field > small {
+  display: block;
+  margin-top: .5rem;
+  color: var(--muted);
+  font-size: .76rem;
+}
+
 .identity-field-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 2.55rem;

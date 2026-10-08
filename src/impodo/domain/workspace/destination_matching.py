@@ -18,10 +18,11 @@ from uuid import UUID, uuid4
 from impodo.domain.serialization import canonical_json, content_hash
 
 
-DESTINATION_MATCH_CONTRACT_VERSION = 12
+DESTINATION_MATCH_CONTRACT_VERSION = 13
 _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset(
-    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
 )
+DESTINATION_HANDLINGS = frozenset({"transfer", "reuse_only"})
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 
@@ -520,6 +521,7 @@ class DestinationModelMatch:
     excluded_missing_fields: tuple[str, ...] = ()
     excluded_incompatible_fields: tuple[str, ...] = ()
     excluded_source_row_numbers: tuple[int, ...] = ()
+    destination_handling: str = "transfer"
 
     def __post_init__(self) -> None:
         text_values = (
@@ -573,6 +575,8 @@ class DestinationModelMatch:
             raise ValueError("Destination key classification binding is invalid")
         if not isinstance(self.requires_workflow_handler, bool):
             raise ValueError("Destination workflow requirement is invalid")
+        if self.destination_handling not in DESTINATION_HANDLINGS:
+            raise ValueError("Destination handling is invalid")
         if (
             self.excluded_source_row_numbers
             != tuple(sorted(set(self.excluded_source_row_numbers)))
@@ -635,12 +639,19 @@ class DestinationModelMatch:
             reasons.append("DESTINATION_KEY_DUPLICATE")
         if self.destination_limit_reached:
             reasons.append("DESTINATION_MATCH_LIMIT_REACHED")
+        if (
+            self.destination_handling == "reuse_only"
+            and self.destination_create_key_count
+        ):
+            reasons.append("DESTINATION_REUSE_RECORD_MISSING")
         return tuple(reasons)
 
     @property
     def write_blocking_reasons(self) -> tuple[str, ...]:
         """Field issues that matter only when this model will receive writes."""
 
+        if self.destination_handling == "reuse_only":
+            return ()
         reasons = []
         if self.missing_fields:
             reasons.append("DESTINATION_FIELDS_MISSING")
@@ -862,6 +873,24 @@ class DestinationMatchPlan:
             self.create_field_decisions
         ):
             raise ValueError("Destination create-field decisions must be unique")
+        reuse_dataset_ids: set[str] = set()
+        if self.contract_version >= 13:
+            reuse_dataset_ids = {
+                item.dataset_id
+                for item in self.model_matches
+                if item.destination_handling == "reuse_only"
+            }
+            if any(
+                item.dataset_id in reuse_dataset_ids
+                for item in self.create_field_decisions
+            ) or any(
+                item.related_dataset_id in reuse_dataset_ids
+                and item.incoming_link_count
+                for item in self.relationship_matches
+            ):
+                raise ValueError(
+                    "Reuse-only destination records cannot contain incoming writes"
+                )
         references = (
             self.create_field_evidence_id,
             self.create_field_evidence_hash,
@@ -905,6 +934,13 @@ class DestinationMatchPlan:
                 != self.destination_schema_snapshot_hash
                 or not {item.key for item in self.create_field_decisions}.issubset(
                     {item.key for item in evidence.values}
+                )
+                or (
+                    self.contract_version >= 13
+                    and any(
+                        item.dataset_id in reuse_dataset_ids
+                        for item in evidence.values
+                    )
                 )
             ):
                 raise ValueError("Destination create-field evidence does not match the plan")
@@ -991,6 +1027,10 @@ class DestinationMatchPlan:
                     and (
                         self.contract_version >= 12
                         or name != "destination_managed_fields"
+                    )
+                    and (
+                        self.contract_version >= 13
+                        or name != "destination_handling"
                     )
                 }
                 for item in self.model_matches
@@ -1112,6 +1152,9 @@ class DestinationMatchPlan:
                             for number in item.get(
                                 "excluded_source_row_numbers", ()
                             )
+                        ),
+                        destination_handling=str(
+                            item.get("destination_handling", "transfer")
                         ),
                     )
                     for item in payload["model_matches"]

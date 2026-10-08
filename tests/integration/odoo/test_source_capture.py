@@ -1100,13 +1100,26 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
             live_model,
             fields=(replace(name, related=True), live_model.fields[1]),
         )
+        related_request = plan_odoo_source_capture(
+            self.selection,
+            replace(self.schema, models=(related_model,)),
+        )
+        self.assertEqual(related_request.field_names, ("name",))
+
+        readonly_related_model = replace(
+            live_model,
+            fields=(
+                replace(name, related=True, readonly=True),
+                live_model.fields[1],
+            ),
+        )
         with self.assertRaisesRegex(
             OdooSourceCaptureConfigurationError,
             "not eligible",
         ):
             plan_odoo_source_capture(
                 self.selection,
-                replace(self.schema, models=(related_model,)),
+                replace(self.schema, models=(readonly_related_model,)),
             )
 
     def test_service_checks_identity_and_schema_at_both_ends(self) -> None:
@@ -1156,6 +1169,50 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
         self.assertEqual(gateway.schema_calls, 1)
         self.assertEqual(gateway.count_calls, 2)
         self.assertEqual(gateway.open_calls, 0)
+
+    def test_prepared_assessment_remote_phase_does_not_read_local_state(self) -> None:
+        service, schema = self._multi_model_service()
+        prepared = service.prepare_assessment(
+            self.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
+        gateway = _Gateway(schema, matching_rows=205)
+
+        with (
+            patch.object(
+                service._workspaces,
+                "get",
+                side_effect=AssertionError("remote phase read workspace state"),
+            ),
+            patch.object(
+                service._selections,
+                "get_current_odoo_capture_selections",
+                side_effect=AssertionError("remote phase read selections"),
+            ),
+            patch.object(
+                service._schemas,
+                "get_odoo_schema_catalog",
+                side_effect=AssertionError("remote phase read schema"),
+            ),
+        ):
+            assessment = service.assess_prepared(prepared, gateway)
+
+        self.assertEqual(assessment.matching_rows, 410)
+        self.assertEqual(gateway.count_calls, 2)
+
+    def test_prepared_assessment_rejects_a_changed_local_plan(self) -> None:
+        service, _schema = self._multi_model_service()
+        prepared = service.prepare_assessment(
+            self.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
+        service._selections.selections = ()
+
+        with self.assertRaisesRegex(
+            OdooSourceCaptureConsistencyError,
+            "selection or schema changed",
+        ):
+            service.require_current_assessment(prepared)
 
     def test_set_capture_shares_start_and_end_verification(self) -> None:
         service, schema = self._multi_model_service()

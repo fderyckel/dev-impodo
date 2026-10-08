@@ -51,6 +51,7 @@ from impodo.domain.workspace.contracts import (
     SourceSelection,
 )
 from impodo.domain.workspace.destination_matching import (
+    DESTINATION_HANDLINGS,
     DestinationCreateFieldDecision,
     DestinationCreateFieldEvidence,
     DestinationCreateFieldEvidenceValue,
@@ -114,6 +115,11 @@ class DestinationMatchKeyChoice:
     dataset_id: str
     source_column_key: str
     additional_source_column_keys: tuple[str, ...] = ()
+    destination_handling: str = "transfer"
+
+    def __post_init__(self) -> None:
+        if self.destination_handling not in DESTINATION_HANDLINGS:
+            raise ValueError("Destination handling is invalid")
 
     @property
     def source_column_keys(self) -> tuple[str, ...]:
@@ -163,6 +169,7 @@ class _PreparedModel:
     source_fields: tuple[SchemaField, ...]
     destination_managed_fields: tuple[str, ...]
     excluded_source_row_numbers: tuple[int, ...] = ()
+    destination_handling: str = "transfer"
 
     @property
     def included_source_row_count(self) -> int:
@@ -228,8 +235,11 @@ def _is_destination_managed_scalar_field(
 
     return bool(
         field.name in selected_source_names
-        and field.name in _ODOO_DESTINATION_MANAGED_SCALAR_FIELDS
         and field.type not in {"many2one", "many2many", "one2many"}
+        and (
+            field.name in _ODOO_DESTINATION_MANAGED_SCALAR_FIELDS
+            or field.related is True
+        )
     )
 
 
@@ -326,6 +336,9 @@ class DestinationMatchingService:
         if not workspace.destination_verified:
             raise WorkspaceError("Verify the destination Odoo connection first")
         selected = {item.dataset_id: item.source_column_keys for item in choices}
+        destination_handlings = {
+            item.dataset_id: item.destination_handling for item in choices
+        }
         if len(selected) != len(choices):
             raise WorkspaceError("Choose one matching field for each source table")
         if set(selected) != {item.dataset_id for item in selection.datasets}:
@@ -551,6 +564,7 @@ class DestinationMatchingService:
                         )
                     ),
                     excluded_source_row_numbers=exclusions,
+                    destination_handling=destination_handlings[dataset.dataset_id],
                 )
             )
 
@@ -721,7 +735,7 @@ class DestinationMatchingService:
                 records,
                 prepared,
             )
-            if create_count
+            if create_count and item.destination_handling == "transfer"
             else ((), (), ())
         )
         result = DestinationModelMatch(
@@ -766,6 +780,7 @@ class DestinationMatchingService:
             source_column_keys=item.source_column_keys,
             key_fields=item.key_fields,
             excluded_source_row_numbers=item.excluded_source_row_numbers,
+            destination_handling=item.destination_handling,
         )
         return result, destination_counts, decisions, values
 
@@ -865,6 +880,8 @@ class DestinationMatchingService:
                         ambiguous += 1
                     elif destination_count == 1:
                         reused += 1
+                    elif relationship.related.destination_handling == "reuse_only":
+                        missing += 1
                     else:
                         incoming += 1
             results.append(

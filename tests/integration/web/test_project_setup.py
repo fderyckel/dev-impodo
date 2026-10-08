@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.data_version.inspection import SourceInspectionError
 from tests.support.browser_scenarios import (
     POST_HEADERS,
@@ -22,14 +23,17 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
         self.assertNotIn("Data manager", new_page.text)
         self.assertNotIn("Odoo web address", new_page.text)
 
-        created = self._post(
-            "/projects/new",
-            {
-                "csrf_token": self.csrf,
-                "display_name": "Customer migration",
-                "source_mode": "FILE",
-            },
-        )
+        with collect_duckdb_request_timings() as creation_timings:
+            created = self._post(
+                "/projects/new",
+                {
+                    "csrf_token": self.csrf,
+                    "display_name": "Customer migration",
+                    "source_mode": "FILE",
+                },
+            )
+        self.assertGreater(creation_timings.connection_count, 0)
+        self.assertLessEqual(creation_timings.connection_count, 4)
         workspace_id = _created_workspace_id(self.app, created)
         data_project_id = self.app.state.context.migration_workspaces.get(
             workspace_id,
@@ -39,6 +43,11 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
             created.headers["location"],
             f"/projects/{data_project_id}",
         )
+        with collect_duckdb_request_timings() as overview_timings:
+            overview = self.client.get(created.headers["location"])
+        self.assertEqual(overview.status_code, 200)
+        self.assertGreater(overview_timings.connection_count, 0)
+        self.assertLessEqual(overview_timings.connection_count, 4)
         workspace_state = self.app.state.context.queries.get(workspace_id)
         self.assertEqual(workspace_state.source_system, "Uploaded files")
         self.assertEqual(workspace_state.odoo_base_url, "")

@@ -21,7 +21,7 @@
 
   <ol class="matching-progress" aria-label="Destination matching progress">
     <li class="{% if not match_plan %}current{% else %}complete{% endif %}"><span>1</span><div><strong>Choose identifiers</strong><small>Select the business fields</small></div></li>
-    <li class="{% if match_plan and not match_plan_ready %}current{% elif match_plan_ready %}complete{% endif %}"><span>2</span><div><strong>Check destination</strong><small>Find reuse and create records</small></div></li>
+    <li class="{% if match_plan and not match_plan_ready %}current{% elif match_plan_ready %}complete{% endif %}"><span>2</span><div><strong>Check destination</strong><small>Find existing and missing records</small></div></li>
     <li class="{% if match_plan_ready %}complete{% elif match_plan %}current{% endif %}"><span>3</span><div><strong>Review results</strong><small>Resolve only what needs attention</small></div></li>
   </ol>
 
@@ -52,6 +52,15 @@
               <div class="matching-model-title"><span class="matching-model-icon">{{ app_icon("collection") }}</span><div><h3>{{ row.dataset.name }}</h3><p>{{ "{:,}".format(row.dataset.row_count) }} source record{% if row.dataset.row_count != 1 %}s{% endif %}</p></div></div>
               <span class="status {% if row.result and row.result.ready %}ready{% elif row.result %}blocked{% else %}current{% endif %}">{% if row.result and row.result.ready %}Checked{% elif row.result %}Needs review{% else %}Ready to check{% endif %}</span>
             </header>
+
+            <div class="identity-field destination-handling-field">
+              <label for="destination-handling-{{ row_index }}"><span>Destination handling</span><small>Decide whether missing records may be transferred</small></label>
+              <select id="destination-handling-{{ row_index }}" name="destination_handling" required>
+                <option value="{{ row.dataset.dataset_id }}::reuse_only" {% if row.destination_handling == 'reuse_only' %}selected{% endif %}>Reuse existing destination records only</option>
+                <option value="{{ row.dataset.dataset_id }}::transfer" {% if row.destination_handling == 'transfer' %}selected{% endif %}>Transfer records that are missing</option>
+              </select>
+              <small>{% if row.destination_handling == 'reuse_only' %}Every source identity must already exist exactly once in the destination. Impodo will not prepare creates for this record type.{% else %}Existing identities are reused; missing identities may be created after transfer review.{% endif %}</small>
+            </div>
 
             {% if row.governed_identity %}
               {% set governed = row.governed_identity %}
@@ -148,13 +157,13 @@
               <dl class="matching-result-metrics">
                 <div><dt>Source</dt><dd>{{ "{:,}".format(row.result.source_row_count) }}</dd><small>{% if row.result.excluded_source_row_numbers %}records included; {{ row.result.excluded_source_row_numbers|length }} put aside{% else %}records checked{% endif %}</small></div>
                 <div class="reuse"><dt>Reuse</dt><dd>{{ "{:,}".format(row.result.destination_existing_key_count) }}</dd><small>destination keys</small></div>
-                <div class="create"><dt>Create</dt><dd>{{ "{:,}".format(row.result.destination_create_key_count) }}</dd><small>new keys</small></div>
+                <div class="create"><dt>{% if row.result.destination_handling == 'reuse_only' %}Missing{% else %}Create{% endif %}</dt><dd>{{ "{:,}".format(row.result.destination_create_key_count) }}</dd><small>{% if row.result.destination_handling == 'reuse_only' %}required destination keys{% else %}new keys{% endif %}</small></div>
                 <div class="{% if row.result.source_blank_row_count or row.result.source_duplicate_key_count or row.result.destination_duplicate_key_count %}issue{% else %}clear{% endif %}"><dt>Identity issues</dt><dd>{{ row.result.source_blank_row_count + row.result.source_duplicate_key_count + row.result.destination_duplicate_key_count }}</dd><small>blank or repeated keys</small></div>
               </dl>
               {% if not row.result.ready %}
                 <div class="matching-result-attention">
                   <strong>This record type cannot advance yet.</strong>
-                  <ul>{% if row.result.source_blank_row_count %}<li>{{ row.result.source_blank_row_count }} source record(s) have a blank matching field.</li>{% endif %}{% if row.result.source_duplicate_key_count %}<li>{{ row.result.source_duplicate_key_count }} source key(s) occur more than once.</li>{% endif %}{% if row.result.destination_duplicate_key_count %}<li>{{ row.result.destination_duplicate_key_count }} destination key(s) identify more than one record.</li>{% endif %}{% if row.result.destination_limit_reached %}<li>The bounded destination result limit was reached.</li>{% endif %}</ul>
+                  <ul>{% if row.result.source_blank_row_count %}<li>{{ row.result.source_blank_row_count }} source record(s) have a blank matching field.</li>{% endif %}{% if row.result.source_duplicate_key_count %}<li>{{ row.result.source_duplicate_key_count }} source key(s) occur more than once.</li>{% endif %}{% if row.result.destination_duplicate_key_count %}<li>{{ row.result.destination_duplicate_key_count }} destination key(s) identify more than one record.</li>{% endif %}{% if row.result.destination_limit_reached %}<li>The bounded destination result limit was reached.</li>{% endif %}{% if row.result.destination_handling == 'reuse_only' and row.result.destination_create_key_count %}<li>{{ row.result.destination_create_key_count }} source key(s) do not exist in the destination. Choose the correct identifier, create or rename the destination record, or change this record type to transfer missing records.</li>{% endif %}</ul>
                   {% if row.identity_issue_rows %}
                     <details class="matching-technical-details identity-issue-details" open>
                       <summary>Show affected source records</summary>
@@ -202,7 +211,7 @@
                 <div class="matching-result-attention secondary"><strong>Put aside for this transfer</strong><p>Impodo keeps these fields in the frozen source evidence but will not write them to destination Odoo.</p><ul>{% for field_name in row.result.excluded_fields %}<li><code>{{ field_name }}</code><form method="post" action="/workspaces/{{ workspace_id }}/destination-matching/field-scope" data-single-submit><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ workspace_state.revision }}"><input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}"><input type="hidden" name="field_key" value="{{ row.result.model }}::{{ field_name }}"><input type="hidden" name="field_action" value="restore"><button class="button secondary" type="submit" data-submitting-label="Including field again...">Include again</button></form></li>{% endfor %}</ul></div>
               {% endif %}
               {% if row.result.destination_managed_fields %}
-                <div class="matching-result-attention secondary"><strong>Managed by destination Odoo</strong><p>Impodo keeps these values in the frozen source evidence. Destination Odoo rebuilds them, so they are automatically excluded from writes and verification comparisons.</p><ul>{% for field_name in row.result.destination_managed_fields %}<li><label><input type="checkbox" checked disabled> <code>{{ field_name }}</code> <span class="status ready">Automatic</span></label></li>{% endfor %}</ul></div>
+                <div class="matching-result-attention secondary"><strong>Destination-owned evidence</strong><p>Impodo keeps these values for identity and review, but does not treat them as generic transfer write fields. They are automatically excluded from writes and verification comparisons.</p><ul>{% for field_name in row.result.destination_managed_fields %}<li><label><input type="checkbox" checked disabled> <code>{{ field_name }}</code> <span class="status ready">Automatic</span></label></li>{% endfor %}</ul></div>
               {% endif %}
               <details class="matching-technical-details result-details"><summary>More check details</summary><dl class="definition-list"><div><dt>Odoo model</dt><dd><code>{{ row.result.model }}</code></dd></div><div><dt>Distinct source keys</dt><dd>{{ "{:,}".format(row.result.source_distinct_key_count) }}</dd></div><div><dt>Compatible fields</dt><dd>{{ row.result.compatible_fields|length }}</dd></div></dl></details>
             </article>
@@ -285,7 +294,7 @@
               <div class="relationship-card-body">
                 <p class="relationship-technical"><code>{{ relation.model }}.{{ relation.field_name }}</code> &rarr; <code>{{ relation.related_model }}.{{ relation.related_key_fields|join(' + ') }}</code> &middot; {{ relation.kind }} &middot; {{ relation.operation }}{% if relation.inverse_field %} &middot; inverse one2many <code>{{ relation.related_model }}.{{ relation.inverse_field }}</code>{% endif %}</p>
                 {% if relation.source_evidence_available %}<dl class="matching-result-metrics relationship-metrics"><div><dt>Source links</dt><dd>{{ "{:,}".format(relation.source_link_count) }}</dd></div><div class="reuse"><dt>Reuse destination</dt><dd>{{ "{:,}".format(relation.destination_reused_link_count) }}</dd></div><div class="create"><dt>Incoming data</dt><dd>{{ "{:,}".format(relation.incoming_link_count) }}</dd></div><div><dt>Blank owners</dt><dd>{{ "{:,}".format(relation.source_blank_owner_count) }}</dd></div></dl>{% endif %}
-                {% if not relation.ready %}<div class="matching-result-attention"><strong>This relationship cannot advance yet.</strong><ul>{% if not relation.source_evidence_available %}<li>The current capture has no protected relationship evidence. Return to Stage 3 and recapture the selected tables.</li>{% endif %}{% if relation.required and relation.source_blank_owner_count %}<li>{{ relation.source_blank_owner_count }} owner record(s) have a blank required relationship.</li>{% endif %}{% if relation.missing_related_record_count %}<li>{{ relation.missing_related_record_count }} link(s) point outside the captured related table or to a blank related key.</li>{% endif %}{% if relation.ambiguous_destination_link_count %}<li>{{ relation.ambiguous_destination_link_count }} link(s) resolve to duplicate destination keys.</li>{% endif %}</ul></div>{% endif %}
+                {% if not relation.ready %}<div class="matching-result-attention"><strong>This relationship cannot advance yet.</strong><ul>{% if not relation.source_evidence_available %}<li>The current capture has no protected relationship evidence. Return to Stage 3 and recapture the selected tables.</li>{% endif %}{% if relation.required and relation.source_blank_owner_count %}<li>{{ relation.source_blank_owner_count }} owner record(s) have a blank required relationship.</li>{% endif %}{% if relation.missing_related_record_count %}<li>{{ relation.missing_related_record_count }} link(s) have no usable related identity in the captured table or no required reuse-only record in the destination.</li>{% endif %}{% if relation.ambiguous_destination_link_count %}<li>{{ relation.ambiguous_destination_link_count }} link(s) resolve to duplicate destination keys.</li>{% endif %}</ul></div>{% endif %}
               </div>
             </details>
           {% endfor %}

@@ -52,11 +52,17 @@
           {% set saved = transfer_review_package.datasets | selectattr('dataset_id', 'equalto', model.dataset_id) | first if transfer_review_current else none %}
           <div class="field">
             <label for="policy_{{ model.dataset_id }}">{{ model.model_label }} ({{ model.model }})</label>
-            <select id="policy_{{ model.dataset_id }}" name="policy_{{ model.dataset_id }}">
-              <option value="create_if_missing" {% if not saved or saved.model_policy == 'create_if_missing' %}selected{% endif %}>Reuse existing, create missing</option>
-              <option value="reuse_only" {% if saved and saved.model_policy == 'reuse_only' %}selected{% endif %}>Reuse existing only</option>
-              <option value="upsert" {% if saved and saved.model_policy == 'upsert' %}selected{% endif %}>Update existing, create missing</option>
-            </select>
+            {% if model.destination_handling == 'reuse_only' %}
+              <input type="hidden" name="policy_{{ model.dataset_id }}" value="reuse_only">
+              <select id="policy_{{ model.dataset_id }}" disabled><option selected>Reuse existing only</option></select>
+              <p class="hint">Fixed by destination matching. Return there to allow missing records to transfer.</p>
+            {% else %}
+              <select id="policy_{{ model.dataset_id }}" name="policy_{{ model.dataset_id }}">
+                <option value="create_if_missing" {% if not saved or saved.model_policy == 'create_if_missing' %}selected{% endif %}>Reuse existing, create missing</option>
+                <option value="reuse_only" {% if saved and saved.model_policy == 'reuse_only' %}selected{% endif %}>Reuse existing only</option>
+                <option value="upsert" {% if saved and saved.model_policy == 'upsert' %}selected{% endif %}>Update existing, create missing</option>
+              </select>
+            {% endif %}
             <p class="hint">{{ model.destination_existing_key_count }} existing; {{ model.destination_create_key_count }} missing.</p>
             {% if model.write_blocking_reasons %}
               <p class="hint">{{ model.missing_fields|length }} missing, {{ model.incompatible_fields|length }} incompatible, and {{ model.unresolved_create_fields|length if model.destination_create_key_count else 0 }} unresolved required create fields. Resolve these before writing this record type.</p>

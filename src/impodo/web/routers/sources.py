@@ -28,7 +28,11 @@ See ``docs/developer/workflow/01-source-data.md``,
 """
 
 from __future__ import annotations
+
+from contextlib import contextmanager
+from time import perf_counter
 from types import SimpleNamespace
+
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
@@ -99,6 +103,33 @@ from ..source_file_commands import accept_source_uploads, remove_source_file
 
 
 _ODOO_CAPTURE_ASSESSMENT_SESSION_KEY = "odoo_capture_assessment"
+
+
+@contextmanager
+def _diagnostic_assessment_stage(request: Request, stage: str):
+    """Time one assessment stage without recording source identifiers."""
+
+    recorder = getattr(request.app.state, "diagnostic_recorder", None)
+    started = perf_counter()
+    try:
+        yield
+    except Exception as error:
+        if recorder is not None:
+            recorder.record_operation_stage(
+                "odoo_capture_assessment",
+                stage,
+                duration_ms=(perf_counter() - started) * 1000,
+                outcome="failed",
+                exception_class=type(error).__name__,
+            )
+        raise
+    else:
+        if recorder is not None:
+            recorder.record_operation_stage(
+                "odoo_capture_assessment",
+                stage,
+                duration_ms=(perf_counter() - started) * 1000,
+            )
 
 
 def build_sources_router(context: WebContext) -> APIRouter:
@@ -458,92 +489,113 @@ def build_sources_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "selection_id", "selection_hash", "confirm_linked_relationships"},
         )
-        workspace_state = context.queries.get(workspace_id)
         try:
-            workspace = context.migration_workspaces.get(
-                workspace_id,
-                actor=context.actor,
-            )
-            data_version = context.data_versions.get(
-                workspace.data_version_id,
-                actor=context.actor,
-            )
-            if data_version.state is not DataVersionState.DRAFT:
+            def prepare_assessment():
+                workspace_state = context.queries.get(workspace_id)
+                workspace = context.migration_workspaces.get(
+                    workspace_id,
+                    actor=context.actor,
+                )
+                data_version = context.data_versions.get(
+                    workspace.data_version_id,
+                    actor=context.actor,
+                )
+                if data_version.state is not DataVersionState.DRAFT:
+                    return workspace_state, workspace.project_id, None, None
+                prepared = context.odoo_source_capture.prepare_assessment(
+                    workspace_id,
+                    actor=context.actor,
+                )
+                selections = prepared.selections
+                schema = prepared.schema
+                if (
+                    any(
+                        item.capture_role is OdooCaptureRole.LINKED_ONLY
+                        for item in selections
+                    )
+                    and not _text(form, "confirm_linked_relationships")
+                ):
+                    raise WorkspaceError(
+                        "Review and confirm the selected relationship fields "
+                        "before checking linked records"
+                    )
+                selection_set_hash = odoo_capture_selection_set_hash(selections)
+                submitted_hash = _text(form, "selection_hash")
+                legacy_selection = selections[0] if len(selections) == 1 else None
+                if submitted_hash not in {
+                    selection_set_hash,
+                    legacy_selection.content_hash if legacy_selection else "",
+                }:
+                    raise WorkspaceError(
+                        "This page is out of date. Reload and check the current "
+                        "Odoo capture plans."
+                    )
+                if any(
+                    not _selection_uses_current_capture_policy(selection)
+                    for selection in selections
+                ):
+                    raise WorkspaceError(
+                        "Review and save these capture plans before checking "
+                        "matching records."
+                    )
+                credential = get_target_credential(
+                    context.secret_store,
+                    workspace_state,
+                    TargetCredentialRole.READ,
+                )
+                if credential is None:
+                    raise WorkspaceError(
+                        "Save a read-only Odoo API key before checking matching "
+                        "records."
+                    )
+                if schema.read_credential_binding_hash != credential.binding_hash:
+                    raise WorkspaceError(
+                        "The Odoo read credential changed. Refresh the record "
+                        "types and fields first."
+                    )
+                if schema.pending_refresh is not None:
+                    raise WorkspaceError(
+                        "Odoo fields changed. Review the checked Odoo changes first."
+                    )
+                return workspace_state, None, credential, prepared
+
+            with _diagnostic_assessment_stage(request, "local_prepare"):
+                (
+                    workspace_state,
+                    redirect_project_id,
+                    credential,
+                    prepared,
+                ) = await run_local_operation(prepare_assessment)
+            if redirect_project_id is not None:
                 return RedirectResponse(
-                    f"/projects/{workspace.project_id}/odoo-source-restarts/"
+                    f"/projects/{redirect_project_id}/odoo-source-restarts/"
                     f"{workspace_id}?resume=source",
                     status_code=307,
                 )
-            selections = context.queries.get_current_odoo_capture_selections(
-                workspace_id
-            )
-            schema = context.queries.get_odoo_schema_catalog(workspace_id)
-            if (
-                not selections
-                or schema is None
-                or {item.model for item in selections}
-                != {item.name for item in schema.models}
-            ):
-                raise WorkspaceError(
-                    "Save a capture plan for every selected Odoo record type "
-                    "before checking matching records."
-                )
-            if (
-                any(item.capture_role is OdooCaptureRole.LINKED_ONLY for item in selections)
-                and not _text(form, "confirm_linked_relationships")
-            ):
-                raise WorkspaceError(
-                    "Review and confirm the selected relationship fields before checking linked records"
-                )
-            selection_set_hash = odoo_capture_selection_set_hash(selections)
-            submitted_hash = _text(form, "selection_hash")
-            legacy_selection = selections[0] if len(selections) == 1 else None
-            if submitted_hash not in {
-                selection_set_hash,
-                legacy_selection.content_hash if legacy_selection else "",
-            }:
-                raise WorkspaceError(
-                    "This page is out of date. Reload and check the current "
-                    "Odoo capture plans."
-                )
-            if any(
-                not _selection_uses_current_capture_policy(selection)
-                for selection in selections
-            ):
-                raise WorkspaceError(
-                    "Review and save these capture plans before checking "
-                    "matching records."
-                )
-            credential = get_target_credential(
-                context.secret_store,
-                workspace_state,
-                TargetCredentialRole.READ,
-            )
-            if credential is None:
-                raise WorkspaceError(
-                    "Save a read-only Odoo API key before checking matching records."
-                )
-            if (
-                schema.read_credential_binding_hash != credential.binding_hash
-            ):
-                raise WorkspaceError(
-                    "The Odoo read credential changed. Refresh the record "
-                    "types and fields first."
-                )
-            if schema.pending_refresh is not None:
-                raise WorkspaceError(
-                    "Odoo fields changed. Review the checked Odoo changes first."
-                )
+            assert credential is not None
+            assert prepared is not None
             gateway = context.source_capture_factory(
                 workspace_state,
                 credential.secret,
             )
-            assessment = await run_in_threadpool(
-                context.odoo_source_capture.assess_all,
-                workspace_id,
-                gateway,
-                actor=context.actor,
-            )
+            with _diagnostic_assessment_stage(request, "remote_assessment"):
+                assessment = await run_in_threadpool(
+                    context.odoo_source_capture.assess_prepared,
+                    prepared,
+                    gateway,
+                )
+
+            def finalize_assessment():
+                context.odoo_source_capture.require_current_assessment(prepared)
+                return _render_odoo_capture_selection(
+                    request,
+                    context,
+                    workspace_state,
+                    assessment=assessment,
+                )
+
+            with _diagnostic_assessment_stage(request, "local_finalize"):
+                response = await run_page_read(finalize_assessment)
             request.session[_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY] = {
                 "workspace_id": workspace_id,
                 "selection_hash": assessment.selection_hash,
@@ -558,6 +610,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     for selection, item in assessment.items
                 ],
             }
+            return response
         except (
             ConnectorError,
             OdooSourceCaptureError,
@@ -565,23 +618,21 @@ def build_sources_router(context: WebContext) -> APIRouter:
             SecretStoreError,
             WorkspaceError,
         ) as error:
-            return _render_odoo_capture_selection(
-                request,
-                context,
-                workspace_state,
-                error=str(error),
-                access_refresh_required=isinstance(
-                    error,
-                    OdooSourceCaptureAccessRefreshRequired,
-                ),
-                status_code=422,
-            )
-        return _render_odoo_capture_selection(
-            request,
-            context,
-            workspace_state,
-            assessment=assessment,
-        )
+            def render_error():
+                return _render_odoo_capture_selection(
+                    request,
+                    context,
+                    context.queries.get(workspace_id),
+                    error=str(error),
+                    access_refresh_required=isinstance(
+                        error,
+                        OdooSourceCaptureAccessRefreshRequired,
+                    ),
+                    status_code=422,
+                )
+
+            with _diagnostic_assessment_stage(request, "local_error_render"):
+                return await run_page_read(render_error)
 
     @router.post("/workspaces/{workspace_id}/sources/odoo-read-credential")
     async def save_odoo_capture_credential(request: Request, workspace_id: str):
@@ -1294,19 +1345,22 @@ def _render_odoo_capture_selection(
         if selected_model is not None
         else None
     )
-    supporting_models = frozenset(
+    linked_only_models = frozenset(
         item.relation_model
         for item in related_data_suggestions
-        if item.handling is RelatedDataHandling.INCLUDE_SUPPORTING
+        if item.handling in {
+            RelatedDataHandling.INCLUDE_SUPPORTING,
+            RelatedDataHandling.REUSE_DESTINATION,
+        }
     )
     recommend_linked_only = bool(
         selected_model is not None
-        and selected_model.name in supporting_models
+        and selected_model.name in linked_only_models
         and current is None
     )
     supporting_plan_is_root = bool(
         current is not None
-        and current.model in supporting_models
+        and current.model in linked_only_models
         and current.capture_role is OdooCaptureRole.ROOT
     )
     fields = tuple(

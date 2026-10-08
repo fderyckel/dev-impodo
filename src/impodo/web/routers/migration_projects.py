@@ -21,6 +21,7 @@ from impodo.domain.workspace.models import MigrationWorkspaceState
 
 from ...domain.data_version.models import DataVersionPurpose
 from ...domain.recipe.models import RecipeError
+from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import _form_values, _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
@@ -73,7 +74,8 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
         )
         values = _form_values(form)
         try:
-            bundle = context.project_authoring.create(
+            bundle = await run_local_operation(
+                context.project_authoring.create,
                 actor=context.actor,
                 display_name=values.get("display_name", ""),
                 migration_purpose=values.get("migration_purpose", ""),
@@ -97,7 +99,12 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
     @router.get("/projects/{project_id}", response_class=HTMLResponse)
     async def project_overview(request: Request, project_id: str):
         require_session(request)
-        return _render_project_overview(request, context, project_id)
+        return await run_page_read(
+            _render_project_overview,
+            request,
+            context,
+            project_id,
+        )
 
     @router.get(
         "/projects/{project_id}/recipes/{recipe_id}",

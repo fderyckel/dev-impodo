@@ -739,7 +739,8 @@ def is_odoo_capture_value_field(field: SchemaField | None) -> bool:
     Odoo 19 does not expose ``compute`` as a standard ``fields_get``
     description property. Stored computed values remain valid snapshot data,
     so missing compute evidence must not be treated as a read prohibition.
-    Positive related-field evidence is still excluded from this Tier-1 value
+    A stored, user-editable related scalar is valid read evidence (for example
+    ``res.company.name``). Read-only related values remain outside this Tier-1
     surface. Write eligibility is deliberately governed elsewhere.
     """
 
@@ -748,7 +749,7 @@ def is_odoo_capture_value_field(field: SchemaField | None) -> bool:
         and field.type in ODOO_CAPTURE_FIELD_TYPES
         and field.relation is None
         and field.stored is True
-        and field.related is not True
+        and (field.related is not True or not field.readonly)
         and field.company_dependent is False
         and field.exportable is True
     )

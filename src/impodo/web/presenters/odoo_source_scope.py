@@ -147,7 +147,10 @@ def build_related_data_scope_view(
                     selected=relation_model in selected_models,
                     checked=relation_model in selected_models,
                     recommended=(
-                        handling is RelatedDataHandling.INCLUDE_SUPPORTING
+                        handling in {
+                            RelatedDataHandling.INCLUDE_SUPPORTING,
+                            RelatedDataHandling.REUSE_DESTINATION,
+                        }
                         and relation_model not in selected_models
                     ),
                     available=relation_model in available,

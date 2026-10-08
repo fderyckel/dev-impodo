@@ -48,7 +48,7 @@ class OdooSourceScopeTests(unittest.TestCase):
                         _relationship("x_owner_id", "Owner", "x.owner"),
                     ),
                 ),
-            )
+            ),
         )
 
         by_field = {item.field_name: item.handling for item in suggestions}
@@ -72,6 +72,7 @@ class OdooSourceScopeTests(unittest.TestCase):
             label="Product",
             fields=(
                 _relationship("uom_id", "Unit of Measure", "uom.uom"),
+                _relationship("company_id", "Company", "res.company"),
                 _relationship(
                     "categ_id",
                     "Product Category",
@@ -98,15 +99,16 @@ class OdooSourceScopeTests(unittest.TestCase):
             ),
         )
         uom = SchemaModel(name="uom.uom", label="Unit of Measure", fields=())
+        company = SchemaModel(name="res.company", label="Company", fields=())
 
-        self.assertEqual(propose_related_odoo_data((product, uom)), ())
+        self.assertEqual(propose_related_odoo_data((product, uom, company)), ())
         included = propose_related_odoo_data(
-            (product, uom),
+            (product, uom, company),
             include_selected=True,
         )
         self.assertEqual(
             tuple(item.relation_model for item in included),
-            ("uom.uom",),
+            ("res.company", "uom.uom"),
         )
 
     def test_unit_category_is_supporting_data_when_discovered(self) -> None:
@@ -131,6 +133,52 @@ class OdooSourceScopeTests(unittest.TestCase):
         self.assertIs(
             suggestions[0].handling,
             RelatedDataHandling.INCLUDE_SUPPORTING,
+        )
+
+    def test_bom_children_are_linked_only_and_workcenters_are_reused(self) -> None:
+        suggestions = propose_related_odoo_data(
+            (
+                SchemaModel(
+                    name="mrp.bom",
+                    label="Bill of Materials",
+                    fields=(
+                        _relationship(
+                            "bom_line_ids",
+                            "Components",
+                            "mrp.bom.line",
+                            field_type="one2many",
+                        ),
+                        _relationship(
+                            "operation_ids",
+                            "Operations",
+                            "mrp.routing.workcenter",
+                            field_type="one2many",
+                        ),
+                    ),
+                ),
+                SchemaModel(
+                    name="mrp.routing.workcenter",
+                    label="Operation",
+                    fields=(
+                        _relationship(
+                            "workcenter_id",
+                            "Work Center",
+                            "mrp.workcenter",
+                        ),
+                    ),
+                ),
+            ),
+            include_selected=True,
+        )
+
+        by_field = {item.field_name: item.handling for item in suggestions}
+        self.assertEqual(
+            by_field,
+            {
+                "bom_line_ids": RelatedDataHandling.INCLUDE_SUPPORTING,
+                "operation_ids": RelatedDataHandling.INCLUDE_SUPPORTING,
+                "workcenter_id": RelatedDataHandling.REUSE_DESTINATION,
+            },
         )
 
     def test_unknown_custom_relationships_fail_closed(self) -> None:

@@ -1,5 +1,7 @@
-"""Run a local page read with database handles bounded to its worker call."""
+"""Run bounded local database work away from the web event loop."""
 
+from contextlib import AbstractContextManager
+from inspect import isawaitable, iscoroutine
 from typing import Callable, ParamSpec, TypeVar
 
 from starlette.concurrency import run_in_threadpool
@@ -12,18 +14,47 @@ from impodo.adapters.duckdb.unit_of_work import (
 
 P = ParamSpec("P")
 T = TypeVar("T")
+DatabaseScope = Callable[[], AbstractContextManager[None]]
+
+
+async def _run_in_database_scope(
+    scope: DatabaseScope,
+    function: Callable[P, T],
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> T:
+    """Keep the database scope and synchronous callable on one worker."""
+
+    def invoke() -> T:
+        with scope():
+            result = function(*args, **kwargs)
+            if isawaitable(result):
+                if iscoroutine(result):
+                    result.close()
+                raise TypeError(
+                    "Local database work must use a synchronous callable"
+                )
+            return result
+
+    return await run_in_threadpool(invoke)
 
 
 async def run_page_read(
     function: Callable[P, T], *args: P.args, **kwargs: P.kwargs
 ) -> T:
-    """Release retained database handles before returning to the event loop."""
+    """Run one local page read off-loop while reusing its database owners.
 
-    def read() -> T:
-        with retain_databases_for_read():
-            return function(*args, **kwargs)
+    The callable must not await, start background work, or contact a remote
+    service. Every retained database owner is released before this function
+    returns.
+    """
 
-    return await run_in_threadpool(read)
+    return await _run_in_database_scope(
+        retain_databases_for_read,
+        function,
+        *args,
+        **kwargs,
+    )
 
 
 async def run_local_operation(
@@ -36,8 +67,9 @@ async def run_local_operation(
     database owner is released before this function returns.
     """
 
-    def operate() -> T:
-        with retain_databases_for_operation():
-            return function(*args, **kwargs)
-
-    return await run_in_threadpool(operate)
+    return await _run_in_database_scope(
+        retain_databases_for_operation,
+        function,
+        *args,
+        **kwargs,
+    )

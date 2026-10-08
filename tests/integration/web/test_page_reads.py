@@ -86,3 +86,29 @@ class PageReadWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([name for name, _ in events], ["open", "operate", "close"])
         self.assertEqual(len({thread for _, thread in events}), 1)
         self.assertNotEqual(events[0][1], loop_thread)
+
+    async def test_async_callable_is_rejected_before_it_escapes_scope(self) -> None:
+        events = []
+
+        @contextmanager
+        def scope():
+            events.append("open")
+            try:
+                yield
+            finally:
+                events.append("close")
+
+        async def unsupported():
+            return "outside the database scope"
+
+        with patch(
+            "impodo.web.composition.page_reads.retain_databases_for_operation",
+            scope,
+        ):
+            with self.assertRaisesRegex(
+                TypeError,
+                "must use a synchronous callable",
+            ):
+                await run_local_operation(unsupported)
+
+        self.assertEqual(events, ["open", "close"])

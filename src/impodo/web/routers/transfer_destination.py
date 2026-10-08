@@ -18,6 +18,7 @@ from impodo.domain.workspace.workbench import (
     transfer_destination_workspace,
 )
 
+from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
@@ -95,6 +96,18 @@ def build_transfer_destination_router(context: WebContext) -> APIRouter:
     )
     async def transfer_destination_form(request: Request, workspace_id: str):
         require_session(request)
+        return await run_page_read(
+            render_transfer_destination_form,
+            request,
+            workspace_id,
+        )
+
+    def render_transfer_destination_form(
+        request: Request,
+        workspace_id: str,
+    ):
+        """Read and render Transfer destination in one bounded worker scope."""
+
         workspace_state = context.queries.get(workspace_id)
         if (
             workspace_state.source_mode is not SourceMode.ODOO

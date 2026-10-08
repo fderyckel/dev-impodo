@@ -45,6 +45,7 @@ _DESTINATION_CONFIGURATION_MODELS = frozenset(
         "account.account.tag",
         "account.tax",
         "ir.sequence",
+        "mrp.workcenter",
         "res.company",
         "res.currency",
         "stock.location",
@@ -67,6 +68,8 @@ _SUPPORTING_RELATIONSHIPS = frozenset(
         ("product.template", "categ_id"),
         ("product.template", "uom_id"),
         ("product.template", "uom_po_id"),
+        ("mrp.bom", "bom_line_ids"),
+        ("mrp.bom", "operation_ids"),
         ("uom.uom", "category_id"),
     }
 )
@@ -105,6 +108,7 @@ _SELECTABLE_HANDLINGS = frozenset(
     {
         RelatedDataHandling.INCLUDE_SUPPORTING,
         RelatedDataHandling.OPTIONAL_BUSINESS_DATA,
+        RelatedDataHandling.REUSE_DESTINATION,
     }
 )
 
@@ -118,10 +122,10 @@ def propose_related_odoo_data(
 
     Only relationships already present in captured schema evidence are
     considered. By default the result contains links outside the selected
-    scope. ``include_selected`` also retains selected supporting and optional
-    models so the browser can show their saved checkbox state. Unknown and
-    custom relationships fail closed into an explicit decision instead of
-    being followed automatically.
+    scope. ``include_selected`` also retains selected supporting, optional,
+    and destination-reuse models so the browser can explain their saved
+    scope. Unknown and custom relationships fail closed into an explicit
+    decision instead of being followed automatically.
     """
 
     captured_models = tuple(models)
@@ -209,10 +213,10 @@ def _classify_relationship(
         return RelatedDataHandling.ODOO_MANAGED
     if field.relation in _DESTINATION_CONFIGURATION_MODELS:
         return RelatedDataHandling.REUSE_DESTINATION
-    if field.relation in _SEPARATE_PROCESS_MODELS:
-        return RelatedDataHandling.SEPARATE_PROCESS
     if (source_model, field.name) in _SUPPORTING_RELATIONSHIPS:
         return RelatedDataHandling.INCLUDE_SUPPORTING
+    if field.relation in _SEPARATE_PROCESS_MODELS:
+        return RelatedDataHandling.SEPARATE_PROCESS
     if (
         source_model == "product.template"
         and field.relation in _PRODUCT_OPTIONAL_MODELS

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Protocol
 
@@ -37,7 +37,6 @@ from .odoo_dependency_capture import (
     discover_dependency_closure,
     require_capture_matches_discovery,
 )
-from dataclasses import replace
 from impodo.domain.shared.models import (
     FieldMetadata,
     OdooReadIdentity,
@@ -180,6 +179,29 @@ class OdooCaptureSetAssessment:
         """Return the largest request size for compact legacy summaries."""
 
         return max(assessment.page_size for _, assessment in self.items)
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedOdooCaptureAssessment:
+    """Immutable local inputs for one remote-only set assessment."""
+
+    workspace_id: str
+    contexts: tuple[
+        tuple[
+            OdooSourceCaptureRequest,
+            OdooSchemaCatalog,
+            OdooCaptureSelection,
+        ],
+        ...,
+    ]
+
+    @property
+    def schema(self) -> OdooSchemaCatalog:
+        return self.contexts[0][1]
+
+    @property
+    def selections(self) -> tuple[OdooCaptureSelection, ...]:
+        return tuple(selection for _, _, selection in self.contexts)
 
 
 class OdooSourceCaptureService:
@@ -551,11 +573,42 @@ class OdooSourceCaptureService:
     ) -> OdooCaptureSetAssessment:
         """Count every current model plan without reading business values."""
 
-        contexts = self._contexts(
-            workspace_id,
-            actor=actor,
-            require_complete=True,
+        prepared = self.prepare_assessment(workspace_id, actor=actor)
+        assessment = self.assess_prepared(
+            prepared,
+            gateway,
+            cancellation=cancellation,
         )
+        self.require_current_assessment(prepared)
+        return assessment
+
+    def prepare_assessment(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+    ) -> PreparedOdooCaptureAssessment:
+        """Build and authorize immutable inputs without contacting Odoo."""
+
+        return PreparedOdooCaptureAssessment(
+            workspace_id=workspace_id,
+            contexts=self._contexts(
+                workspace_id,
+                actor=actor,
+                require_complete=True,
+            ),
+        )
+
+    def assess_prepared(
+        self,
+        prepared: PreparedOdooCaptureAssessment,
+        gateway: OdooSourceCapturePort,
+        *,
+        cancellation: CancellationProbe | None = None,
+    ) -> OdooCaptureSetAssessment:
+        """Perform only remote Odoo work using already prepared inputs."""
+
+        contexts = prepared.contexts
         first_request, schema, _ = contexts[0]
         protected_context = self._verify_start(
             gateway,
@@ -585,14 +638,13 @@ class OdooSourceCaptureService:
                     observed_at=observed_at,
                 ),
             ) for request, _, selection in contexts)
-            self._require_current_contexts(workspace_id, contexts)
             self._verify_end(
                 gateway, first_request, schema, protected_context,
                 cancellation=cancellation,
             )
             return OdooCaptureSetAssessment(
                 selection_hash=odoo_capture_selection_set_hash(
-                    tuple(selection for _, _, selection in contexts)
+                    prepared.selections
                 ),
                 items=items,
             )
@@ -618,10 +670,22 @@ class OdooSourceCaptureService:
                     ),
                 )
             )
-        selections = tuple(selection for _, _, selection in contexts)
         return OdooCaptureSetAssessment(
-            selection_hash=odoo_capture_selection_set_hash(selections),
+            selection_hash=odoo_capture_selection_set_hash(
+                prepared.selections
+            ),
             items=tuple(items),
+        )
+
+    def require_current_assessment(
+        self,
+        prepared: PreparedOdooCaptureAssessment,
+    ) -> None:
+        """Reject a remote result if its local plan changed meanwhile."""
+
+        self._require_current_contexts(
+            prepared.workspace_id,
+            prepared.contexts,
         )
 
     def sample(

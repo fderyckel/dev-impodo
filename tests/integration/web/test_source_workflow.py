@@ -42,36 +42,6 @@ from tests.support.browser_scenarios import (
 
 
 class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
-    def _frozen_odoo_source_workspace(self):
-        workspace_state, schema = self._registered_remote_schema_workspace()
-        workspace_id = workspace_state.workspace_id
-        saved_plan = self._post(
-            f"/workspaces/{workspace_id}/sources/odoo-selection",
-            {
-                "csrf_token": self.csrf,
-                "dataset_name": "odoo_contacts",
-                "model": "res.partner",
-                "field_names": "name",
-                "include_archived": "",
-                "page_size": "100",
-            },
-        )
-        self.assertEqual(saved_plan.status_code, 303)
-        context = self.app.state.context
-        publication = context.odoo_capture_publication.publish(
-            workspace_id,
-            _BrowserOdooCaptureGateway(workspace_state, schema),
-            actor=context.actor,
-        )
-        context.data_version_source_projection.accept_odoo_capture(
-            workspace_id,
-            publication.source_selection,
-            publication.source_snapshots,
-            publication.manifests,
-            actor=context.actor,
-        )
-        return context.queries.get(workspace_id), schema
-
     def test_changing_a_frozen_odoo_source_starts_a_clean_successor(self) -> None:
         context = self.app.state.context
         predecessor_state, _schema = self._frozen_odoo_source_workspace()
@@ -632,9 +602,13 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Product Category", page.text)
         self.assertIn('name="related_models"', page.text)
         self.assertIn('value="product.category"', page.text)
+        self.assertIn('value="res.company"', page.text)
         self.assertIn("Recommended by Impodo · select and save to include", page.text)
         self.assertIn("This link is required", page.text)
-        self.assertIn("Match in destination", page.text)
+        self.assertIn(
+            "capture linked identities for destination matching",
+            page.text,
+        )
         self.assertIn("Not included", page.text)
         self.assertIn("Save related-data choices", page.text)
         self.assertIn(
@@ -823,8 +797,8 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             page.text,
             r'name="linked_only" value="1"\s+checked',
         )
-        self.assertIn("Recommended for this supporting data", page.text)
-        self.assertIn("Archived records are included", page.text)
+        self.assertIn("Recommended for this related data", page.text)
+        self.assertIn("Archived linked records are included", page.text)
 
     def test_completed_capture_action_is_inside_current_evidence(self) -> None:
         workspace_state, schema = self._registered_remote_schema_workspace()
@@ -1457,15 +1431,34 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.app.state.context.source_capture_factory = (
             lambda selected_workspace_state, _secret: gateway
         )
-        assessed = self._post(
-            f"/workspaces/{workspace_id}/sources/odoo-assessment",
-            {
-                "csrf_token": self.csrf,
-                "selection_id": selection.selection_id,
-                "selection_hash": selection.content_hash,
-            },
-        )
+        real_assess_prepared = context.odoo_source_capture.assess_prepared
+
+        def assess_prepared(*args, **kwargs):
+            from impodo.adapters.duckdb.unit_of_work import _read_databases
+
+            self.assertIsNone(getattr(_read_databases, "connections", None))
+            with self.assertRaises(RuntimeError):
+                asyncio.get_running_loop()
+            return real_assess_prepared(*args, **kwargs)
+
+        with (
+            patch.object(
+                context.odoo_source_capture,
+                "assess_prepared",
+                side_effect=assess_prepared,
+            ),
+            collect_duckdb_request_timings() as assessment_timings,
+        ):
+            assessed = self._post(
+                f"/workspaces/{workspace_id}/sources/odoo-assessment",
+                {
+                    "csrf_token": self.csrf,
+                    "selection_id": selection.selection_id,
+                    "selection_hash": selection.content_hash,
+                },
+            )
         self.assertEqual(assessed.status_code, 200)
+        self.assertLessEqual(assessment_timings.connection_count, 12)
         self.assertIn("Freeze 2 matching records?", assessed.text)
         self.assertIn("1 data request", assessed.text)
         self.assertIn("up to 100 records", assessed.text)
@@ -1666,6 +1659,8 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertIn("data-matching-builder", matching_page.text)
         self.assertIn("data-optional-match-field", matching_page.text)
+        self.assertIn("Destination handling", matching_page.text)
+        self.assertIn("Reuse existing destination records only", matching_page.text)
         frozen_selection = self.app.state.context.queries.get_source_selection(
             workspace_id
         )
@@ -1680,6 +1675,9 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 "match_key": (
                     f"{frozen_dataset.dataset_id}::"
                     f"{frozen_dataset.columns[0].stable_key}"
+                ),
+                "destination_handling": (
+                    f"{frozen_dataset.dataset_id}::transfer"
                 ),
             },
         )
@@ -1722,7 +1720,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         destination_managed_page = self.client.get(
             matching_checked.headers["location"]
         )
-        self.assertIn("Managed by destination Odoo", destination_managed_page.text)
+        self.assertIn("Destination-owned evidence", destination_managed_page.text)
         self.assertIn("<code>parent_path</code>", destination_managed_page.text)
         self.assertIn("checked disabled", destination_managed_page.text)
         self.assertIn("Automatic", destination_managed_page.text)

@@ -54,7 +54,20 @@ class TransferReviewService:
         ):
             raise WorkspaceError("Choose a supported policy for every selected record type")
         for item in match_plan.model_matches:
-            model_policy = policies.get(item.model, "upsert")
+            default_policy = (
+                "reuse_only"
+                if item.destination_handling == "reuse_only"
+                else "upsert"
+            )
+            model_policy = policies.get(item.model, default_policy)
+            if (
+                item.destination_handling == "reuse_only"
+                and model_policy != "reuse_only"
+            ):
+                raise WorkspaceError(
+                    f"{item.model_label} was matched as reuse only; return to "
+                    "destination matching before allowing transfers for this record type"
+                )
             if model_policy == "reuse_only" and item.destination_create_key_count:
                 raise WorkspaceError(
                     f"{item.model_label} has {item.destination_create_key_count} missing "
@@ -106,7 +119,14 @@ class TransferReviewService:
                 relationship_write_fields=tuple(
                     sorted(relationships_by_owner[item.dataset_id])
                 ),
-                model_policy=policies.get(item.model, "upsert"),
+                model_policy=policies.get(
+                    item.model,
+                    (
+                        "reuse_only"
+                        if item.destination_handling == "reuse_only"
+                        else "upsert"
+                    ),
+                ),
                 create_field_providers=(
                     tuple(
                         sorted(

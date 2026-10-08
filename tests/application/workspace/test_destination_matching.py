@@ -205,6 +205,36 @@ class DestinationMatchingTests(unittest.TestCase):
         )
         self.assertFalse(previous_matching_contract.ready)
 
+    def test_reuse_only_blocks_missing_records_without_create_decisions(self) -> None:
+        plan = DestinationMatchingService(self.source_values).check(
+            self.workspace,
+            self.selection,
+            self.schema,
+            (
+                DestinationMatchKeyChoice(self.product.dataset_id, "product-code"),
+                DestinationMatchKeyChoice(
+                    self.uom.dataset_id,
+                    "uom-name",
+                    destination_handling="reuse_only",
+                ),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=_destination_reader(self.workspace),
+            recorded_by="Data manager",
+        )
+
+        uom = next(item for item in plan.model_matches if item.model == "uom.uom")
+        self.assertEqual(uom.destination_handling, "reuse_only")
+        self.assertEqual(uom.destination_create_key_count, 1)
+        self.assertIn("DESTINATION_REUSE_RECORD_MISSING", uom.blocking_reasons)
+        self.assertFalse(plan.ready)
+        self.assertFalse(
+            any(item.dataset_id == self.uom.dataset_id for item in plan.create_field_decisions)
+        )
+        self.assertEqual(DestinationMatchPlan.from_json(plan.to_json()), plan)
+
     def test_missing_source_field_can_be_explicitly_put_aside_and_restored(self) -> None:
         plan = DestinationMatchingService(self.source_values).check(
             self.workspace,
@@ -1386,6 +1416,35 @@ class DestinationMatchingTests(unittest.TestCase):
         self.assertNotIn("odoo_ids", plan.to_json())
         self.assertNotIn("Kilogram", plan.to_json())
         self.assertEqual(DestinationMatchPlan.from_json(plan.to_json()), plan)
+
+        reuse_only = DestinationMatchingService(source_values).check(
+            self.workspace,
+            self.selection,
+            schema,
+            (
+                DestinationMatchKeyChoice(self.product.dataset_id, "product-code"),
+                DestinationMatchKeyChoice(
+                    self.uom.dataset_id,
+                    "uom-name",
+                    destination_handling="reuse_only",
+                ),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=_destination_reader(self.workspace, with_relationships=True),
+            recorded_by="Data manager",
+            source_origins=origins,
+        )
+        reuse_relations = {
+            item.field_name: item for item in reuse_only.relationship_matches
+        }
+        self.assertEqual(reuse_relations["uom_id"].incoming_link_count, 0)
+        self.assertEqual(reuse_relations["uom_id"].missing_related_record_count, 1)
+        self.assertEqual(
+            reuse_relations["alternate_uom_ids"].missing_related_record_count,
+            2,
+        )
 
         source_with_invalid_product = _SourceValues(
             {
