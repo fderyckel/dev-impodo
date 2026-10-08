@@ -116,7 +116,7 @@ from .transformation_impact import (
 
 @dataclass(frozen=True, slots=True)
 class StagedBrowserMapping:
-    """Complete in-memory output of Stage E mapping evaluation.
+    """Complete in-memory output of mapping evaluation during preparation.
 
     The object connects the compiled mapping plan and prepared source bundle to
     the portable :class:`CanonicalStagingRun`. Display labels and physical-row

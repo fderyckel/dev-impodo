@@ -1,8 +1,5 @@
 """Orchestrate and assert governed scenario checkpoints.
 
-Migration stages: cross-cutting source through reconciliation. Layer:
-application.
-
 The first executable slice owns preparation and first-comparison assertions.
 It is intentionally read-only. Write-capable definitions produce retained
 ``UNSAFE_TO_CONTINUE`` results until the normal journalled execution and

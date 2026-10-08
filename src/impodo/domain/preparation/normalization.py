@@ -544,7 +544,7 @@ class NormalizationReviewGroup:
 
 @dataclass(frozen=True, slots=True)
 class NormalizationEvaluation:
-    """Complete Stage-G review input bound to staging and quality evidence.
+    """Complete normalization input bound to staging and quality evidence.
 
     Effects explain individual changes; groups define the decisions reviewers
     make. ``eligible_dataset_hash`` fingerprints the exact canonical rows kept
@@ -718,7 +718,7 @@ class NormalizationEvaluation:
 
 @dataclass(frozen=True, slots=True)
 class StoredNormalizationEvaluation:
-    """Validated Stage-G header backed by a replayable bounded effect stream."""
+    """Validated normalization header backed by a bounded replayable stream."""
 
     workspace_id: str
     staging_content_hash: str
@@ -778,7 +778,7 @@ class StoredNormalizationEvaluation:
 
 @dataclass(frozen=True, slots=True)
 class NormalizationRunSummary:
-    """Lifecycle and count projection for a durable Stage-G review run."""
+    """Lifecycle and count projection for a durable normalization review run."""
 
     run_id: str
     workspace_id: str

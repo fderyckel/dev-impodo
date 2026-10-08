@@ -22,7 +22,7 @@ def canonical_quality_record_label(
     target_identity: tuple[Any, ...],
     source_row: int,
 ) -> str:
-    """Return the exact compact label used by the Stage-F row contract."""
+    """Return the exact compact label used by the canonical row contract."""
 
     values = [
         value

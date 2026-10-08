@@ -1,4 +1,4 @@
-"""Write portable Stage-H evidence and its data-manager review workbook.
+"""Write portable final-review evidence and its data-manager workbook.
 
 ``models.PreflightResult`` is the canonical decision source.  The JSON
 manifest is written first and the workbook is then generated locally with the

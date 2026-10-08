@@ -1,14 +1,12 @@
 """Assemble the local browser application and all concrete dependencies.
 
-Migration stages: cross-cutting A–K. Layer: composition root.
-
 ``create_local_app`` connects DuckDB repositories, filesystem artifacts,
 application services, closed Odoo readers and writer, security middleware, and route
 modules through :class:`impodo.web.context.WebContext`. Business rules belong
 to the injected services and domain modules; this module owns construction and
 local deployment choices only.
 
-The Stage-J writer and Stage-K read-back reader remain separate from the
+The load writer and post-write read-back reader remain separate from the
 preflight connectors and are bound to the exact reviewed local-load preview.
 
 See ``docs/architecture/python-code-map.md`` and
@@ -63,6 +61,7 @@ from ..application.odoo_capture_publication_service import OdooCapturePublicatio
 from ..application.odoo_capture_job_service import OdooCaptureJobManager
 from ..application.odoo_provenance_service import OdooProvenanceService
 from ..application.odoo_source_capture_service import OdooSourceCaptureService
+from ..application.odoo_source_restart_service import OdooSourceRestartService
 from ..application.preflight_service import PreflightService
 from ..application.preflight_jobs import PreflightJobManager
 from ..application.transfer_execution_service import TransferExecutionService
@@ -341,7 +340,7 @@ def create_local_app(
     application_build_contract: ApplicationBuildContract = PROCESS_BUILD_CONTRACT,
     diagnostic_recorder: LocalDiagnosticRecorder | None = None,
 ) -> FastAPI:
-    """Construct the loopback FastAPI application for migration Stages A–K.
+    """Construct the loopback FastAPI application and its service graph.
 
     Production defaults use per-project DuckDB repositories, local artifact
     storage, the credential vault, inline jobs, closed read-only Odoo adapters,
@@ -536,6 +535,14 @@ def create_local_app(
         migration_workspaces,
         source_packages,
         workspace_states,
+    )
+    odoo_source_restarts = OdooSourceRestartService(
+        projects=migration_projects,
+        data_versions=data_versions,
+        runs=migration_runs,
+        workspaces=migration_workspaces,
+        source_packages=source_packages,
+        workspace_states=workspace_states,
     )
     recipe_compiler = RecipeCompiler(
         workspace_mapping_sources,
@@ -1041,6 +1048,7 @@ def create_local_app(
         migration_run_target_setup=migration_run_target_setup,
         migration_workspaces=migration_workspaces,
         project_authoring=project_authoring,
+        odoo_source_restarts=odoo_source_restarts,
         recipes=recipes,
         recipe_publication=recipe_publication,
         run_planning=run_planning,

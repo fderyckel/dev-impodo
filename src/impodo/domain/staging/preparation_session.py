@@ -1,4 +1,4 @@
-"""Storage-independent contracts for bounded Stage-E preparation sessions."""
+"""Storage-independent contracts for bounded preparation sessions."""
 
 from __future__ import annotations
 

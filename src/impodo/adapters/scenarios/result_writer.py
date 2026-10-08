@@ -1,7 +1,5 @@
 """Publish compact scenario results with an atomic file replacement.
 
-Migration stages: cross-cutting qualification evidence. Layer: adapter.
-
 See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
 ``tests/integration/scenarios/test_result_writer.py``.
 """

@@ -1,4 +1,4 @@
-"""Govern Stage B/D preparation plans for related logical datasets.
+"""Govern related-dataset plans shared by Source data and Match data.
 
 Layer: domain contracts plus application workspace service. The browser can
 author bounded previews for lookup extraction, multi-column hierarchies, and

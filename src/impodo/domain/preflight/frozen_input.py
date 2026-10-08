@@ -1,6 +1,7 @@
 """Verify and adapt approved source-side evidence for Odoo preflight.
 
-Migration stage: boundary from E–G evidence into H preflight. Layer: domain.
+This domain boundary converts approved preparation evidence into immutable
+final-review input.
 
 ``build_frozen_preflight_input`` binds the current submitted mapping,
 canonical staging, quality run, frozen normalization approval, and compiled

@@ -1,4 +1,4 @@
-"""Stage-F routes for editing guided manager-authored quality checks."""
+"""Routes for editing guided manager-authored quality checks."""
 
 from __future__ import annotations
 from fastapi import Request

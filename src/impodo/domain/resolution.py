@@ -1,7 +1,7 @@
 """Bounded entity-resolution contracts and deterministic candidate generation.
 
-Migration stages: E-G. Layer: domain behavior. Fuzzy evaluation only proposes
-source-side candidate pairs. It never contacts Odoo, changes canonical staging,
+Fuzzy evaluation only proposes source-side candidate pairs. It never contacts
+Odoo, changes canonical staging,
 or merges rows. Reviewed decisions and effective rows are separate contracts.
 """
 

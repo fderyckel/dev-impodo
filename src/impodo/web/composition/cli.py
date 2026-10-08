@@ -1,7 +1,7 @@
 """Expose expert preflight commands and safe scenario-definition validation.
 
-Migration stage: primarily H, with source preparation and snapshot commands
-that precede offline comparison. Layer: CLI entry point.
+The CLI combines source preparation and snapshot commands with offline,
+read-only target comparison.
 
 Unlike the browser workflow, this path starts from strict YAML contracts. The
 profile commands remain read-only. The governed scenario command can also run

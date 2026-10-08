@@ -49,7 +49,7 @@ def require_supported_browser_scale(
     *,
     supported_limit: int = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 ) -> None:
-    """Stop Stage E before loading data when the project exceeds the limit."""
+    """Stop preparation before loading data when the project exceeds the limit."""
 
     scale = browser_evaluation_scale(
         selection,

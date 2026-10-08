@@ -1,4 +1,4 @@
-"""Coordinate pure Stage D mapping semantic validation.
+"""Coordinate pure mapping semantic validation.
 
 Layer: domain. ``MappingSemanticValidator`` canonicalizes one complete mapping,
 builds a read-only validation context, and delegates identities, scalar fields,

@@ -1,13 +1,11 @@
 """Name the dependencies available to every local browser route.
 
-Migration stages: cross-cutting A–K. Layer: web dependency container.
-
 :func:`impodo.web.app.create_local_app` constructs ``WebContext`` once and
 passes it to each router builder. Routes use the typed services and closed
 reader callables here rather than constructing repositories or connectors.
 The context contains no migration state of its own.
 
-Target reads, the tightly scoped Stage-J writer, and the Stage-K read-back
+Target reads, the tightly scoped load writer, and the post-write read-back
 reader remain separate boundaries.
 
 See ``docs/architecture/python-code-map.md`` and
@@ -31,6 +29,7 @@ from ..application.workspace.mapping.order_service import MatchingOrderService
 from ..application.workspace.preparation.normalization_service import NormalizationService
 from ..application.odoo_capture_publication_service import OdooCapturePublicationService
 from ..application.odoo_capture_job_service import OdooCaptureJobManager
+from ..application.odoo_source_restart_service import OdooSourceRestartService
 from ..application.odoo_provenance_service import OdooProvenanceService
 from ..application.odoo_source_capture_service import (
     OdooSourceCapturePort,
@@ -196,6 +195,7 @@ class WebContext:
     migration_run_target_setup: MigrationRunTargetSetupService
     migration_workspaces: MigrationWorkspaceService
     project_authoring: MigrationProjectAuthoringService
+    odoo_source_restarts: OdooSourceRestartService
     recipes: RecipeService
     recipe_publication: RecipePublicationService
     run_planning: MigrationRunPlanningService

@@ -1,7 +1,7 @@
 """Versioned scope and reference-data contracts for advanced coverage.
 
-Migration stages: A-D. Layer: domain contracts. These objects make coverage
-applicability and exact reference content explicit before canonical
+These domain contracts make coverage applicability and exact reference
+content explicit before canonical
 preparation starts. They contain no executable rules, credentials, target
 record IDs, or runtime storage concerns.
 """

@@ -1,4 +1,4 @@
-"""Define Stage C portable business-key governance for captured Odoo models.
+"""Define portable business-key governance for captured Odoo models.
 
 Layer: domain. Business keys are functional matching identities expressed only
 with model and field names; they never contain numeric Odoo IDs. One immutable

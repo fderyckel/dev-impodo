@@ -1,7 +1,5 @@
 """Expose read-only Odoo comparison and its review artifacts.
 
-Migration stage: H — read-only target preflight. Layer: web route.
-
 The compare action supplies
 :class:`impodo.application.preflight_service.PreflightService` with a
 project-bound read-only snapshot reader. Other routes download the already-
@@ -151,7 +149,7 @@ def _report_chunks(
 
 
 def build_preflight_router(context: WebContext) -> APIRouter:
-    """Build compare, manifest, and workbook routes for current Stage H evidence."""
+    """Build compare, manifest, and workbook routes for final-review evidence."""
 
     router = APIRouter()
 

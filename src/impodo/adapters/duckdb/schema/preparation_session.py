@@ -1,4 +1,4 @@
-"""Durable scratch storage for bounded Stage-E preparation sessions."""
+"""Durable scratch storage for bounded preparation sessions."""
 
 from __future__ import annotations
 

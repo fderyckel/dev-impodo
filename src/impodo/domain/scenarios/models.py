@@ -1,7 +1,5 @@
 """Define immutable inputs for one governed end-to-end scenario.
 
-Migration stages: cross-cutting source through reconciliation. Layer: domain.
-
 The contracts contain no credentials, source values, Odoo identifiers, or
 executable callbacks. Adapters validate files and resolve secret handles only
 after this complete definition passes. The first executable slice supports a

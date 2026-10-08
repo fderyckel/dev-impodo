@@ -1,7 +1,5 @@
 """Persist scenario execution and reconciliation evidence durably.
 
-Migration stages: execution and reconciliation. Layer: adapter.
-
 The journal file is created exclusively before the first Odoo transport call.
 Every later row transition is atomically replaced. If a process stops with a
 current journal, a new execution attempt sees that journal and must use the

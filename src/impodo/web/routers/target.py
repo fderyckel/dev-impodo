@@ -9,11 +9,16 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from impodo.domain.shared.access import Capability
+from impodo.domain.data_version.models import DataVersionState
+from impodo.application.odoo_source_restart_service import (
+    odoo_source_restart_request_id,
+)
 from ...application.odoo_connection_service import OdooConnectionPurpose
 from ...application.odoo_read_failures import OdooReadCredentialMissingError
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.adapters.odoo.local_stack import LocalStackError, LocalStackStatus, ReadinessLevel
 from impodo.domain.project.foundation import (
+    MigrationFoundationError,
     MigrationIdentifierConfusionError,
     require_uuid,
 )
@@ -39,6 +44,7 @@ from ..presenters.summary import (
     _require_local_stack_stop,
 )
 from impodo.web.composition.target_readers import _refresh_model_catalog
+from .schema import _capture_selected_schema
 from ..security import require_session
 from ..composition.page_reads import run_page_read
 from ..target_credentials import (
@@ -490,6 +496,248 @@ def build_target_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
+    @router.post(
+        "/projects/{project_id}/odoo-source-restarts/{workspace_id}"
+    )
+    async def restart_odoo_source(
+        request: Request,
+        project_id: str,
+        workspace_id: str,
+    ):
+        """Create a successor outside the predecessor's bound request context."""
+
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "revision",
+                "odoo_connection_mode",
+                "odoo_base_url",
+                "odoo_database",
+                "intended_applications",
+                "read_api_key",
+                "read_api_key_storage",
+                "keep_api_key_for_loading",
+                "remember_read_api_key",
+                "api_key",
+                "remember_api_key",
+                "action",
+                "selection_id",
+                "selection_hash",
+                "confirm_linked_relationships",
+                "confirm_capture",
+            },
+        )
+        resume = request.query_params.get("resume", "")
+        if resume not in {"target", "source"}:
+            raise HTTPException(status_code=404, detail="Source restart not found")
+        predecessor_state = context.queries.get(workspace_id)
+        predecessor_workspace = context.migration_workspaces.get(
+            workspace_id,
+            actor=context.actor,
+        )
+        if predecessor_workspace.project_id != require_uuid(project_id, "project_id"):
+            raise HTTPException(status_code=404, detail="Source restart not found")
+        predecessor_data = context.data_versions.get(
+            predecessor_workspace.data_version_id,
+            actor=context.actor,
+        )
+        if (
+            predecessor_state.source_mode is not SourceMode.ODOO
+            or predecessor_data.state is not DataVersionState.FROZEN
+            or predecessor_state.odoo_connection_mode is None
+        ):
+            raise HTTPException(status_code=409, detail="Source restart is no longer required")
+
+        if resume == "target":
+            expected_revision = _revision(form)
+            connection_mode = _text(form, "odoo_connection_mode")
+            base_url = _text(form, "odoo_base_url")
+            database = _text(form, "odoo_database")
+            intended_applications = tuple(form.getlist("intended_applications"))
+            intended_models = (
+                context.run_setups.required_models_for_workspace(
+                    workspace_id,
+                    actor=context.actor,
+                )
+                or None
+            )
+        else:
+            expected_revision = predecessor_state.revision
+            connection_mode = predecessor_state.odoo_connection_mode.value
+            base_url = predecessor_state.odoo_base_url
+            database = predecessor_state.odoo_database
+            intended_applications = tuple(predecessor_state.intended_applications)
+            intended_models = tuple(predecessor_state.intended_models)
+
+        successor_state = predecessor_state
+        try:
+            successor = context.odoo_source_restarts.start(
+                workspace_id,
+                actor=context.actor,
+                request_id=odoo_source_restart_request_id(
+                    workspace_id,
+                    workspace_revision=expected_revision,
+                    odoo_connection_mode=connection_mode,
+                    odoo_base_url=base_url,
+                    odoo_database=database,
+                    intended_applications=intended_applications,
+                    intended_models=intended_models,
+                ),
+                odoo_connection_mode=connection_mode,
+                odoo_base_url=base_url,
+                odoo_database=database,
+                intended_applications=intended_applications,
+                intended_models=intended_models,
+            )
+            successor_state = successor.workspace_state
+            predecessor_credential = get_target_credential(
+                context.secret_store,
+                predecessor_state,
+                TargetCredentialRole.READ,
+            )
+            submitted_key = _text(form, "read_api_key") or _text(form, "api_key")
+            credential = get_target_credential(
+                context.secret_store,
+                successor_state,
+                TargetCredentialRole.READ,
+            )
+            same_target = (
+                predecessor_state.odoo_connection_mode
+                is successor_state.odoo_connection_mode
+                and predecessor_state.odoo_base_url
+                == successor_state.odoo_base_url
+                and predecessor_state.odoo_database
+                == successor_state.odoo_database
+            )
+            if submitted_key:
+                credential = store_target_credential(
+                    context.secret_store,
+                    successor_state,
+                    TargetCredentialRole.READ,
+                    submitted_key,
+                    persistent=_target_read_key_persistence(form),
+                )
+                audit_stored_target_credential(
+                    context.workspace_states,
+                    successor_state,
+                    TargetCredentialRole.READ,
+                    credential,
+                    actor=context.actor,
+                )
+            elif credential is None and same_target and predecessor_credential is not None:
+                credential = store_target_credential(
+                    context.secret_store,
+                    successor_state,
+                    TargetCredentialRole.READ,
+                    predecessor_credential.secret,
+                    persistent=predecessor_credential.persistent,
+                )
+                audit_stored_target_credential(
+                    context.workspace_states,
+                    successor_state,
+                    TargetCredentialRole.READ,
+                    credential,
+                    actor=context.actor,
+                )
+
+            if credential is None:
+                raise OdooReadCredentialMissingError(
+                    "Enter a read-only Odoo API key for the new source."
+                )
+
+            if resume == "target":
+                action = _text(form, "action")
+                if action not in {"test", "save"}:
+                    raise WorkspaceError("Choose Check connection or continue")
+                local_profile = _selected_local_profile(context, successor_state)
+                if local_profile is not None:
+                    await _validate_selected_local_connection(
+                        context,
+                        successor_state,
+                    )
+                result = await run_in_threadpool(
+                    context.odoo_connection_tests.test_read,
+                    successor_state,
+                    credential.secret,
+                    purpose=OdooConnectionPurpose.SOURCE_READ,
+                )
+                context.remote_connections.mark_checked(
+                    successor_state,
+                    result.fingerprint,
+                    result.read_identity,
+                    purpose=OdooConnectionPurpose.SOURCE_READ,
+                )
+                if action == "test":
+                    _flash(
+                        request,
+                        f"Started Data version {successor.data_version.version_number} "
+                        "from the changed source. The connection is ready and the "
+                        "previous frozen version remains in history.",
+                    )
+                    return RedirectResponse(
+                        f"/workspaces/{successor_state.workspace_id}/target"
+                        "#remote-connection-status",
+                        status_code=303,
+                    )
+
+            if successor_state.status is WorkspaceStatus.DRAFT:
+                successor_state = context.workspace_states.register(
+                    successor_state.workspace_id,
+                    actor=context.actor,
+                    expected_revision=successor_state.revision,
+                )
+            if resume == "target":
+                _flash(
+                    request,
+                    f"Started Data version {successor.data_version.version_number} "
+                    "from the changed source. Capture its fresh schema to continue; "
+                    "the previous frozen version remains in history.",
+                )
+                return RedirectResponse(
+                    f"/workspaces/{successor_state.workspace_id}/schema",
+                    status_code=303,
+                )
+
+            request.session.pop("odoo_capture_assessment", None)
+            if intended_models:
+                await _capture_selected_schema(context, successor_state)
+                _flash(
+                    request,
+                    f"Started Data version {successor.data_version.version_number} "
+                    "and captured a fresh Odoo schema. Review and save the new "
+                    "capture plans; the previous frozen version remains in history.",
+                )
+                return RedirectResponse(
+                    f"/workspaces/{successor_state.workspace_id}/sources#capture-plan",
+                    status_code=303,
+                )
+            _flash(
+                request,
+                f"Started Data version {successor.data_version.version_number}. "
+                "Select the Odoo record types for its fresh schema.",
+            )
+            return RedirectResponse(
+                f"/workspaces/{successor_state.workspace_id}/schema",
+                status_code=303,
+            )
+        except (
+            ConnectorError,
+            MigrationFoundationError,
+            WorkspaceStateError,
+            SecretStoreError,
+            WorkspaceError,
+        ) as error:
+            return _render_target(
+                request,
+                context,
+                successor_state,
+                error=str(error),
+                status_code=422,
+            )
+
     @router.post("/workspaces/{workspace_id}/target")
     async def workspace_target(request: Request, workspace_id: str):
         form = await request.form()
@@ -538,22 +786,69 @@ def build_target_router(context: WebContext) -> APIRouter:
         show_local_results = False
         try:
             previous_workspace_state = context.queries.get(workspace_id)
-            workspace_state = context.workspace_states.update_target(
-                workspace_id,
-                actor=context.actor,
-                expected_revision=_revision(form),
-                odoo_connection_mode=_text(form, "odoo_connection_mode"),
-                odoo_base_url=_text(form, "odoo_base_url"),
-                odoo_database=_text(form, "odoo_database"),
-                intended_applications=form.getlist("intended_applications"),
-                intended_models=(
-                    context.run_setups.required_models_for_workspace(
+            expected_revision = _revision(form)
+            connection_mode = _text(form, "odoo_connection_mode")
+            base_url = _text(form, "odoo_base_url")
+            database = _text(form, "odoo_database")
+            intended_applications = tuple(
+                form.getlist("intended_applications")
+            )
+            intended_models = (
+                context.run_setups.required_models_for_workspace(
+                    workspace_id,
+                    actor=context.actor,
+                )
+                or None
+            )
+            if (
+                previous_workspace_state.source_mode is SourceMode.ODOO
+                and context.workspace_states.target_update_changes(
+                    workspace_id,
+                    actor=context.actor,
+                    expected_revision=expected_revision,
+                    odoo_connection_mode=connection_mode,
+                    odoo_base_url=base_url,
+                    odoo_database=database,
+                    intended_applications=intended_applications,
+                    intended_models=intended_models,
+                )
+            ):
+                migration_workspace = context.migration_workspaces.get(
+                    workspace_id,
+                    actor=context.actor,
+                )
+                data_version = context.data_versions.get(
+                    migration_workspace.data_version_id,
+                    actor=context.actor,
+                )
+                if data_version.state is DataVersionState.FROZEN:
+                    return RedirectResponse(
+                        f"/projects/{migration_workspace.project_id}/"
+                        f"odoo-source-restarts/{workspace_id}?resume=target",
+                        status_code=307,
+                    )
+                else:
+                    workspace_state = context.workspace_states.update_target(
                         workspace_id,
                         actor=context.actor,
+                        expected_revision=expected_revision,
+                        odoo_connection_mode=connection_mode,
+                        odoo_base_url=base_url,
+                        odoo_database=database,
+                        intended_applications=intended_applications,
+                        intended_models=intended_models,
                     )
-                    or None
-                ),
-            )
+            else:
+                workspace_state = context.workspace_states.update_target(
+                    workspace_id,
+                    actor=context.actor,
+                    expected_revision=expected_revision,
+                    odoo_connection_mode=connection_mode,
+                    odoo_base_url=base_url,
+                    odoo_database=database,
+                    intended_applications=intended_applications,
+                    intended_models=intended_models,
+                )
             target_changed = (
                 target_read_credential_id(previous_workspace_state)
                 != target_read_credential_id(workspace_state)
@@ -729,6 +1024,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 )
         except (
             WorkspaceStateError,
+            MigrationFoundationError,
             SecretStoreError,
             ConnectorError,
             LocalStackError,

@@ -1,4 +1,4 @@
-"""Set-based projection of clean native prepared snapshots into Stage E facts.
+"""Project clean native snapshots into prepared facts with set-based SQL.
 
 This module deliberately owns the DuckDB SQL boundary instead of growing the
 preparation-session repository.  It projects already-transformed Parquet

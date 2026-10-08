@@ -10,7 +10,7 @@ The live connector exposes bounded metadata/record reads plus one fixed
 identity probe built from ``context_get``, an exact self-record read, and
 model-level ``has_access('read')`` calls. This closed surface is a deliberate
 safety control: the profiler cannot create, update, delete, enumerate users,
-or execute a caller-selected method. The practical Stage-J writer lives in
+or execute a caller-selected method. The practical load writer lives in
 :mod:`impodo.odoo_writer` behind a separate port and durable journal; it is not
 added to ``OdooReadConnector``. Post-write checks use the separate closed
 :mod:`impodo.odoo_readback` adapter.

@@ -46,7 +46,7 @@ class NormalizationService:
         self.authorization = authorization
 
     def current_summary(self, workspace_id: str) -> NormalizationRunSummary | None:
-        """Return the lifecycle/count projection for the current Stage-G run."""
+        """Return the lifecycle and count projection for the current review run."""
 
         return self.repository.get_current_normalization_summary(workspace_id)
 
@@ -191,7 +191,7 @@ class NormalizationService:
         allow_materialized_fallback: bool = True,
         timing: PreparationTimingReporter | None = None,
     ) -> NormalizationRunSummary:
-        """Convert impact rows into Stage-G evidence and publish a review run.
+        """Convert impact rows into normalization evidence and publish a review run.
 
         The service joins effective dataset names to mapping definitions,
         adapts streamed transformation impacts into candidates, and binds the

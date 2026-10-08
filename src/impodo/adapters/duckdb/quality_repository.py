@@ -1,4 +1,4 @@
-"""DuckDB persistence for Stage-F rules, overlays, and quarantine evidence.
+"""DuckDB persistence for quality rules, overlays, and quarantine evidence.
 
 Publication verifies current staging/mapping inputs inside one transaction,
 stores row evidence in batches, advances the current pointer, and invalidates

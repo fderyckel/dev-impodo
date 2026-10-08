@@ -1,4 +1,4 @@
-"""Confirm Stage B source structure and freeze mapping-ready datasets.
+"""Confirm source structure and freeze mapping-ready datasets.
 
 Layer: application service.
 
@@ -199,7 +199,7 @@ class OdooCaptureSchemaReader(Protocol):
 
 
 class SourceWorkspaceService:
-    """Own Stage B confirmation and versioned dataset-freeze rules.
+    """Own Source data confirmation and versioned dataset-freeze rules.
 
     Confirmation is per registered file and bound to its exact inspection
     catalog. Freezing requires every file to be confirmed, assigns stable

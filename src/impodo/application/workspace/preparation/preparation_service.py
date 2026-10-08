@@ -1,7 +1,7 @@
 """Orchestrate target-independent preparation and review evidence.
 
-Migration stages: E–G — normalize/validate, canonical staging, and symbolic
-relationship preparation. Layer: application service.
+The service coordinates mapping evaluation, canonical staging, quality review,
+normalization, and symbolic relationship preparation.
 
 ``PreparationService.prepare`` is called by the preparation browser route. It
 loads a submitted mapping and frozen source selection, delegates pure row

@@ -1,7 +1,7 @@
 """Expose read-only current-evidence projections to browser presenters.
 
-Migration stages: cross-cutting A–H. ``BrowserQueryService`` deliberately
-contains transparent forwarding methods: it gives routes one typed read facade
+``BrowserQueryService`` deliberately contains transparent forwarding methods:
+it gives routes one typed read facade
 without mixing queries into command services or exposing DuckDB directly.
 These one-line forwarders are documented by their repository port and return
 type and are an explicit docstring-coverage exception.
@@ -69,7 +69,7 @@ class WorkspaceStateQueryRepository(Protocol):
 
 
 class SourceQueryRepository(Protocol):
-    """Read current Stage B catalogs, confirmations, and selections."""
+    """Read current Source data catalogs, confirmations, and selections."""
 
     def get_source_review(
         self, workspace_id: str, workspace_state: WorkspaceState,
@@ -111,7 +111,7 @@ class DerivedEntityQueryRepository(Protocol):
 
 
 class SchemaQueryRepository(Protocol):
-    """Read current Stage C model, schema, and key-governance evidence."""
+    """Read current Odoo model, schema, and key-governance evidence."""
 
     def get_odoo_model_catalog(
         self, workspace_id: str
@@ -125,7 +125,7 @@ class SchemaQueryRepository(Protocol):
 
 
 class MappingQueryRepository(Protocol):
-    """Read current or selected Stage D draft/revision/validation/submission."""
+    """Read current or selected Match data evidence."""
 
     def get_mapping_working_draft(
         self, workspace_id: str

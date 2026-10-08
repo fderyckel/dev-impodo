@@ -1,4 +1,4 @@
-"""Fixed, read-only schema and Stage-H capture through a local Odoo shell.
+"""Fixed, read-only schema and final-review capture through a local Odoo shell.
 
 Local Odoo does not need a bearer API key when Impodo can use the exact local
 ``odoo.conf`` and Odoo Python installation selected by the operator.  This
@@ -130,7 +130,7 @@ class LocalOdooMetadataReader:
         workspace_state: WorkspaceState,
         profile: LocalStackProfile,
     ) -> RecordSnapshot:
-        """Read the bounded persistent ``ir.model`` catalogue for Stage C."""
+        """Read the bounded persistent ``ir.model`` catalogue for Odoo data."""
 
         payload = self._invoke(workspace_state, profile, _model_catalog_script())
         fingerprint = self._fingerprint(workspace_state, payload)

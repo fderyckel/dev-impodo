@@ -1807,7 +1807,7 @@ def _stored_staging(staging: CanonicalStagingRun) -> StoredCanonicalStagingRun:
 
 
 class _IndexedTestRows(tuple):
-    """Small oracle for the narrow adapter contract used by Stage F."""
+    """Small oracle for the narrow quality-adapter contract."""
 
     def bounded_quality_index(self, physical_rows):
         expected = {

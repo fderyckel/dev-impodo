@@ -1,7 +1,5 @@
 """Adapt a profile scenario to the existing preparation and preflight engines.
 
-Migration stages: source preparation through first comparison. Layer: adapter.
-
 This adapter never writes to Odoo. It keeps prepared business values in
 process memory and returns only allowlisted counts and hashes to the scenario
 orchestrator.

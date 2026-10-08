@@ -1,7 +1,7 @@
 """Bounded structural preparation rules with complete multi-source lineage.
 
-Migration stage: D-E. Layer: domain behavior. These exact join, union-all, and
-grouping rules operate only on already frozen ``SourceTable`` values. They do
+These exact join, union-all, and grouping rules operate only on already frozen
+``SourceTable`` values. They do
 not accept SQL or code and never contact Odoo.
 """
 

@@ -80,7 +80,7 @@ class QualityService:
         self.recipe_quality = recipe_quality
 
     def current_ruleset(self, workspace_id: str) -> QualityRuleSet | None:
-        """Return the currently published Stage-F rule contract."""
+        """Return the currently published quality-rule contract."""
 
         return self.quality.get_current_quality_ruleset(workspace_id)
 
@@ -250,11 +250,11 @@ class QualityService:
         allow_materialized_fallback: bool = True,
         timing: PreparationTimingReporter | None = None,
     ) -> tuple[QualityRun | StoredQualityRun, QualityRunSummary]:
-        """Evaluate Stage F and publish its full run plus lifecycle summary.
+        """Evaluate quality and publish its full run plus lifecycle summary.
 
         A compatible ruleset is reused; otherwise automatic rules are rebuilt
         from the current mapping/schema. The published staging content hash is
-        passed into evaluation so downstream evidence binds to durable Stage E.
+        passed into evaluation so downstream evidence binds to durable staging.
         """
 
         ruleset = self.quality.get_current_quality_ruleset(workspace_state.workspace_id)

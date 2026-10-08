@@ -1,4 +1,4 @@
-"""Validate and register immutable Stage A/B source-file evidence.
+"""Validate and register immutable source-file evidence for a Data version.
 
 Layer: application service at the artifact boundary.
 

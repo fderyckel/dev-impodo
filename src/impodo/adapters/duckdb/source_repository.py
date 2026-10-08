@@ -1,4 +1,4 @@
-"""Persist Stage B catalogs, confirmations, and frozen selections in DuckDB.
+"""Persist Source data catalogs, confirmations, and frozen selections in DuckDB.
 
 Layer: adapter. ``SourceRepository`` binds every source decision to registered
 file and catalog hashes and atomically invalidates dependent current evidence
@@ -69,7 +69,7 @@ class WorkspaceSourceProjectionReader(Protocol):
 
 
 class SourceRepository(DuckDbRepository):
-    """Own current Stage B workspace evidence and its invalidation boundary."""
+    """Own current Source data evidence and its invalidation boundary."""
 
     def __init__(
         self,

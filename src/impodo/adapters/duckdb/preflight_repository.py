@@ -1,4 +1,4 @@
-"""Persist Stage H reports and protected Odoo snapshot evidence in DuckDB.
+"""Persist final-review reports and protected Odoo snapshots in DuckDB.
 
 Layer: adapter. ``PreflightRepository`` is called by ``PreflightService`` after
 the shared engine has produced deterministic decisions. It returns a report

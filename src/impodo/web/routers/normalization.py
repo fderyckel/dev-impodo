@@ -1,4 +1,4 @@
-"""Stage-G review routes for group decisions and eligible-dataset approval."""
+"""Review routes for group decisions and eligible-dataset approval."""
 
 from __future__ import annotations
 

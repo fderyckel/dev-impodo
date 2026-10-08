@@ -10,7 +10,7 @@ MAX_PROJECTED_RECEIPT_IDS = 500
 
 
 class OdooWriteError(RuntimeError):
-    """Base class for safe Stage-J writer failures."""
+    """Base class for safe Odoo load failures."""
 
 
 class OdooWriteRejected(OdooWriteError):

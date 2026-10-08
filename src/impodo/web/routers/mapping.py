@@ -1,10 +1,10 @@
-"""Expose the Stage D mapping editor and its evidence transitions.
+"""Expose the Match data editor and its evidence transitions.
 
 Layer: web route. The save action parses the browser form into complete
 dataset-centric contracts, first preserves a recoverable working draft, then
 optionally asks ``MappingWorkspaceService`` to validate an immutable revision
 or submit it. Preview and transformation-impact routes are projections and do
-not authorize later migration stages.
+not authorize preparation, review, or loading.
 
 See ``docs/architecture/python-code-map.md`` and
 ``tests/integration/web/test_mapping_workflow.py``.

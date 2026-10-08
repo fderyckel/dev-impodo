@@ -439,8 +439,8 @@
           {% endif %}
           <p>The count is a current estimate. Impodo will fix the capture boundary and check the safety ceiling again before downloading business values.</p>
           <div class="notice warning">
-            <strong>{% if current_manifest %}This creates a replacement frozen version.{% else %}This creates the first frozen version.{% endif %}</strong>
-            A stop or failure leaves the existing current version unchanged.
+            <strong>{% if current_manifest %}A replacement starts in a new Data version.{% else %}This freezes the first source version.{% endif %}</strong>
+            A stop or failure leaves any existing frozen version unchanged.
           </div>
           <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-capture" class="capture-confirmation">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

@@ -1,4 +1,4 @@
-"""Persist Stage D working drafts, revisions, validation, and submissions.
+"""Persist Match data drafts, revisions, validation, and submissions.
 
 Layer: adapter. Working drafts are replaceable optimistic editor recovery;
 mapping revisions, validation results, and submissions are immutable evidence.

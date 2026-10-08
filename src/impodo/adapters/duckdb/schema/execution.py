@@ -1,4 +1,4 @@
-"""DuckDB schema for practical Stage-J execution journals."""
+"""DuckDB schema for practical load execution journals."""
 
 from __future__ import annotations
 

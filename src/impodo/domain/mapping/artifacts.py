@@ -1,4 +1,4 @@
-"""Separate immutable Stage D revision evidence from submission evidence.
+"""Separate immutable mapping revisions from submission evidence.
 
 Layer: domain evidence. A revision records who created one exact mapping
 definition and its optimistic parent. A submission separately binds that

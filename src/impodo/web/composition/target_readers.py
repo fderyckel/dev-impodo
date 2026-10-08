@@ -1,7 +1,7 @@
 """Select project-bound read-only target adapters for browser workflows.
 
-Stage C helpers capture schema/model information. For Stage H,
-``_read_readiness_snapshots`` receives the already bounded planner requests and
+Odoo-data helpers capture schema and model information. During final review,
+``_read_readiness_snapshots`` receives already bounded planner requests and
 chooses either the fixed local Odoo-shell reader, the closed remote JSON-2
 reader, or an injected test reader. Credentials remain in the web composition
 boundary and are never passed into the preflight domain or report.

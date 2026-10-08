@@ -1,4 +1,4 @@
-"""Build bounded, hash-bound catalogs for Stage B source discovery.
+"""Build bounded, hash-bound catalogs for Source data discovery.
 
 Layer: source-inspection domain plus application service.
 

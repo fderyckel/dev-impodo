@@ -1,7 +1,7 @@
 """Define governed artifact storage and its contained filesystem adapter.
 
-Migration stages: source evidence in A/B, prepared and derived evidence in E,
-and report projections in H. The port uses opaque generated keys, bounded
+The store holds source evidence, prepared and derived evidence, and final
+review report projections. The port uses opaque generated keys, bounded
 streaming, context-managed materialization, partial files, and atomic
 replacement. Callers never receive a generic path write capability outside one
 validated DataVersion, workspace, or run boundary.

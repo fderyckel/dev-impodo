@@ -1,8 +1,8 @@
 """Compile truthful full-pipeline capacity before preparation starts.
 
-The transformation engine is only one part of preparation.  This module keeps
+The transformation engine is only one part of preparation. This module keeps
 the route decision honest by reporting the behavior and capacity of every
-required Stage E-G step and by using the smallest stage capacity for admission.
+required preparation step and by using the smallest capacity for admission.
 """
 
 from __future__ import annotations
@@ -121,7 +121,7 @@ class PreparationCapabilityManifest:
 
     @property
     def admitted(self) -> bool:
-        """Whether the complete current Stage E-G path is supported."""
+        """Whether the complete current preparation path is supported."""
 
         return self.physical_rows <= self.supported_rows
 

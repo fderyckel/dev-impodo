@@ -1,4 +1,4 @@
-"""Portable Stage-H readiness report contracts and browser projections.
+"""Portable final-review report contracts and browser projections.
 
 ``PreflightEngine`` produces technical :class:`Decision` objects. The private
 ``_readiness_report`` adapter turns them into dataset summaries and plain-
@@ -58,7 +58,7 @@ class ReadinessRow:
 
 @dataclass(frozen=True, slots=True)
 class ReadinessDataset:
-    """Reconciled Stage-H counts for one logical source dataset."""
+    """Reconciled final-review counts for one logical source dataset."""
 
     dataset: str
     label: str

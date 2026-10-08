@@ -1,4 +1,4 @@
-"""DuckDB persistence for immutable Stage-E canonical staging evidence.
+"""DuckDB persistence for immutable canonical staging evidence.
 
 Publication verifies the submitted mapping, frozen physical/effective sources,
 and derived plan in one transaction. A changed run advances the current pointer

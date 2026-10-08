@@ -108,7 +108,7 @@ class QualityOwnerRole(StrEnum):
 
 
 class QualityDisposition(StrEnum):
-    """Stage-F eligibility state assigned to one canonical row."""
+    """Quality eligibility state assigned to one canonical row."""
 
     CANDIDATE = "CANDIDATE"
     REFERENCE = "REFERENCE"
@@ -458,7 +458,7 @@ class QualityIssue:
 
 @dataclass(frozen=True, slots=True)
 class QualityRowResult:
-    """Stage-F disposition and finding links for one canonical row."""
+    """Quality disposition and finding links for one canonical row."""
 
     row_id: str
     dataset: str
@@ -622,11 +622,11 @@ class QuarantineEntry:
 
 @dataclass(frozen=True, slots=True)
 class QualityRun:
-    """Complete immutable Stage-F overlay on a canonical staging run.
+    """Complete immutable quality overlay on a canonical staging run.
 
     ``row_results`` decides eligibility, ``source_accounting`` proves complete
     coverage of physical input, ``issues`` explains every failure, and
-    ``quarantine`` routes correctable records. The run is the input to Stage G.
+    ``quarantine`` routes correctable records. Normalization consumes the run.
     """
 
     workspace_id: str
@@ -722,7 +722,7 @@ class QualityRun:
 
     @property
     def can_compare(self) -> bool:
-        """Whether Stage G may compare prepared values without setup blockers."""
+        """Whether normalization may compare values without setup blockers."""
 
         return self.blocked_count == 0
 
@@ -801,7 +801,7 @@ class QualityRun:
 
 @dataclass(frozen=True, slots=True)
 class StoredQualityRun:
-    """Validated Stage-F header backed by bounded evidence sequences.
+    """Validated quality header backed by bounded evidence sequences.
 
     This is the quality equivalent of a stored canonical staging run.  It is
     intentionally not a second portable contract: repositories publish the
@@ -1698,7 +1698,7 @@ def _effective_disposition(row: CanonicalRow, issues: Iterable[QualityIssue]) ->
 
 
 def clean_quality_row_result(row: CanonicalRow) -> QualityRowResult:
-    """Build the exact Stage-F result for a row with no quality findings."""
+    """Build the exact quality result for a row with no findings."""
 
     disposition = QualityDisposition(row.disposition.value)
     return QualityRowResult(

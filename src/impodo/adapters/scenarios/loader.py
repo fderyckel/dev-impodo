@@ -1,7 +1,5 @@
 """Load a scenario and verify every referenced local artifact.
 
-Migration stages: cross-cutting source through reconciliation. Layer: adapter.
-
 The adapter reads YAML only through ``yaml.safe_load``. It rejects secret-like
 properties before domain validation and resolves fixture, profile, and target
 projection paths inside the scenario directory. Validation never contacts

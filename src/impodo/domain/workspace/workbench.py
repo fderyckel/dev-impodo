@@ -62,7 +62,7 @@ class WorkspaceRegistrationError(WorkspaceStateError):
 
 
 class WorkspaceStatus(StrEnum):
-    """Lifecycle state of the Stage A workspace setup boundary."""
+    """Lifecycle state of the workspace setup boundary."""
 
     DRAFT = "DRAFT"
     REGISTERED = "REGISTERED"
@@ -463,7 +463,7 @@ class WorkspaceStateRepository(Protocol):
         expected_revision: int,
         actor: Actor,
     ) -> None:
-        """Replace the Stage C allowlist and invalidate schema dependents."""
+        """Replace the Odoo model allowlist and invalidate schema dependents."""
         ...
 
     def record_credential_event(
@@ -576,6 +576,66 @@ class WorkspaceStateService:
             expected_revision,
             actor=actor,
         )
+        updated = self._updated_target(
+            workspace,
+            odoo_connection_mode=odoo_connection_mode,
+            odoo_base_url=odoo_base_url,
+            odoo_database=odoo_database,
+            intended_applications=intended_applications,
+            intended_models=intended_models,
+        )
+        return self._save(
+            updated,
+            workspace,
+            "WORKSPACE_TARGET_UPDATED",
+            actor=actor,
+        )
+
+    def target_update_changes(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+        odoo_connection_mode: str,
+        odoo_base_url: str,
+        odoo_database: str,
+        intended_applications: Sequence[str],
+        intended_models: Sequence[str] | None = None,
+    ) -> bool:
+        """Validate a target form and report whether it changes saved scope.
+
+        Frozen Odoo-source workspaces use this read-only decision before
+        creating a successor DataVersion.  Keeping normalization here ensures
+        the decision and the later persisted update use the same contract.
+        """
+
+        workspace = self._target_editable(
+            workspace_id,
+            expected_revision,
+            actor=actor,
+        )
+        return self._updated_target(
+            workspace,
+            odoo_connection_mode=odoo_connection_mode,
+            odoo_base_url=odoo_base_url,
+            odoo_database=odoo_database,
+            intended_applications=intended_applications,
+            intended_models=intended_models,
+        ) != workspace
+
+    @staticmethod
+    def _updated_target(
+        workspace: WorkspaceState,
+        *,
+        odoo_connection_mode: str,
+        odoo_base_url: str,
+        odoo_database: str,
+        intended_applications: Sequence[str],
+        intended_models: Sequence[str] | None,
+    ) -> WorkspaceState:
+        """Return one normalized target candidate without persisting it."""
+
         try:
             connection_mode = OdooConnectionMode(odoo_connection_mode)
         except ValueError as error:
@@ -585,7 +645,7 @@ class WorkspaceStateService:
         except ValueError as error:
             raise WorkspaceStateError(str(error)) from error
         database = _optional_text(odoo_database, "Odoo database")
-        updated = replace(
+        return replace(
             workspace,
             odoo_connection_mode=connection_mode,
             odoo_base_url=base_url,
@@ -596,12 +656,6 @@ class WorkspaceStateService:
                 if intended_models is not None
                 else workspace.intended_models
             ),
-        )
-        return self._save(
-            updated,
-            workspace,
-            "WORKSPACE_TARGET_UPDATED",
-            actor=actor,
         )
 
     def configure_transfer_destination(
@@ -1087,7 +1141,7 @@ class WorkspaceStateService:
         expected_revision: int,
         permitted_models: Sequence[str],
     ) -> WorkspaceState:
-        """Set the exact Odoo models Stage C may read and map.
+        """Set the exact Odoo models that schema discovery may read and map.
 
         This deliberately remains available after workspace registration. It is
         a schema-discovery decision, rather than a change to the registered

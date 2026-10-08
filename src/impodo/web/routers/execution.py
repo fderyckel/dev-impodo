@@ -287,7 +287,7 @@ def build_execution_router(
     *,
     diagnostic_recorder: LocalDiagnosticRecorder | None = None,
 ) -> APIRouter:
-    """Build the Stage-J load action and Stage-K read-back result flow."""
+    """Build the load action and post-write read-back result flow."""
 
     router = APIRouter()
 

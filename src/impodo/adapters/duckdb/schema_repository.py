@@ -1,4 +1,4 @@
-"""Persist Stage C model/schema catalogs and business-key governance.
+"""Persist Odoo model and schema catalogs plus business-key governance.
 
 Layer: adapter. Model and schema catalogs are current target-bound snapshots;
 schema governance is immutable revision evidence with a current pointer.

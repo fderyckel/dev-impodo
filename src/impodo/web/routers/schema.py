@@ -1,4 +1,4 @@
-"""Expose Stage C model discovery, schema capture, and key governance.
+"""Expose Odoo model discovery, schema capture, and key governance.
 
 Layer: web route. The router selects a configured local or remote closed
 reader, obtains target-bound snapshots, and delegates their validation to

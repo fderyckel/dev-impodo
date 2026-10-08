@@ -1,7 +1,5 @@
 """Define compact, non-secret results for governed scenario runs.
 
-Migration stages: cross-cutting source through reconciliation. Layer: domain.
-
 The result deliberately contains only counts, hashes, timings, and controlled
 status codes. Source values, target values, connection URLs, credentials, and
 protected Odoo identifiers are never part of this portable contract.

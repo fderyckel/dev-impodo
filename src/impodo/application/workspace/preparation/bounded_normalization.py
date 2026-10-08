@@ -1,4 +1,4 @@
-"""Bounded Stage-G effect construction for clean direct-table runs."""
+"""Bounded normalization-effect construction for clean direct-table runs."""
 
 from __future__ import annotations
 
@@ -149,7 +149,7 @@ class _BoundedNormalizationEffects:
 
 
 class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
-    """Expose the construct-once session ledger as logical Stage-G effects."""
+    """Expose the construct-once session ledger as normalization effects."""
 
     def __init__(
         self,

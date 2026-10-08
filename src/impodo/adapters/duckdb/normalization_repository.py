@@ -1,8 +1,8 @@
-"""DuckDB persistence for Stage-G review decisions and eligible-data freeze.
+"""DuckDB persistence for normalization decisions and eligible-data freeze.
 
 The repository stores immutable evaluation effects/groups beside a versioned
 ``DryRun`` lifecycle. Group decisions use optimistic lifecycle versions; final
-approval freezes the exact eligible-dataset hash for Stage H consumption.
+approval freezes the exact eligible-dataset hash for final review.
 """
 
 from __future__ import annotations

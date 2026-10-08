@@ -1,4 +1,4 @@
-"""Expose bounded related-dataset authoring between Stages B and D.
+"""Expose bounded related-dataset authoring between source and Match data.
 
 Layer: web route. The router parses lookup extraction, multi-column hierarchy,
 and parent/child rules, then delegates preview and optimistic plan revisions to

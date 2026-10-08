@@ -1,9 +1,9 @@
 """Persistence ports for the target-independent preparation pipeline.
 
-Stages E-G depend on these protocols instead of DuckDB directly: preparation
-publishes canonical staging, quality overlays eligibility and quarantine, and
-normalization records review decisions before freezing the eligible dataset.
-The preflight-only ports at the end consume those frozen artifacts in Stage H.
+Preparation depends on these protocols instead of DuckDB directly: mapping
+evaluation publishes canonical staging, quality overlays eligibility and
+quarantine, and normalization records review decisions before freezing the
+eligible dataset. The final-review ports consume those frozen artifacts.
 """
 
 from __future__ import annotations
@@ -121,7 +121,7 @@ class PreparationMappingRepository(Protocol):
 
 
 class PreparationStagingRepository(Protocol):
-    """Publish and reload immutable canonical staging runs for Stage E."""
+    """Publish and reload immutable canonical staging runs."""
 
     def publish_canonical_staging(
         self,
@@ -307,7 +307,7 @@ class PreparationSessionRepository(Protocol):
 
 
 class QualityMappingRepository(Protocol):
-    """Supply the published and editable mapping state used by Stage F."""
+    """Supply the published and editable mapping state used by quality review."""
 
     def get_mapping_revision(
         self, workspace_id: str, version: int | None = None
@@ -371,7 +371,7 @@ class QualityRepository(Protocol):
 
 
 class NormalizationRepository(Protocol):
-    """Own Stage G evaluation, group decisions, approval, and dataset freeze.
+    """Own normalization, group decisions, approval, and dataset freeze.
 
     Implementations must use lifecycle versions for optimistic concurrency so
     two reviewers cannot silently overwrite one another's decisions.
@@ -454,7 +454,7 @@ class NormalizationRepository(Protocol):
 
 
 class PreflightStagingRepository(Protocol):
-    """Load the current Stage-E summary and its immutable canonical rows."""
+    """Load the current staging summary and its immutable canonical rows."""
 
     def get_current_staging_summary(
         self, workspace_id: str
@@ -474,7 +474,7 @@ class PreflightStagingRepository(Protocol):
 
 
 class PreflightQualityRepository(Protocol):
-    """Load the current Stage-F eligibility summary and full overlay."""
+    """Load the current quality eligibility summary and full overlay."""
 
     def get_current_quality_summary(
         self, workspace_id: str
@@ -499,7 +499,7 @@ class PreflightEffectiveRepository(Protocol):
 
 
 class PreflightNormalizationRepository(Protocol):
-    """Load Stage-G freeze identity and its versioned approval evidence."""
+    """Load the normalization freeze identity and versioned approval evidence."""
 
     def get_current_normalization_summary(
         self, workspace_id: str
@@ -534,7 +534,7 @@ class PreflightSourceRepository(Protocol):
     """Load the effective frozen selection used by the submitted mapping."""
 
     def get_mapping_source_selection(self, workspace_id: str) -> SourceSelection | None:
-        """Return stable dataset/column identities used to compile Stage H."""
+        """Return stable dataset and column identities used by final review."""
         ...
 
     def get_current_source_snapshots(

@@ -7,6 +7,7 @@ import unittest
 
 from scripts.code_documentation_inventory import (
     inspect_package,
+    legacy_stage_references,
     render_missing,
     render_summary,
     undocumented_modules,
@@ -25,6 +26,14 @@ class CodeDocumentationInventoryTests(unittest.TestCase):
 
         self.assertTrue(modules)
         self.assertEqual(undocumented_modules(modules), ())
+
+    def test_python_prose_does_not_use_retired_lettered_stages(self) -> None:
+        references = legacy_stage_references(
+            (ROOT / "src", ROOT / "tests", ROOT / "scripts"),
+            repo_root=ROOT,
+        )
+
+        self.assertEqual(tuple(item.render() for item in references), ())
 
     def test_advisory_reports_remain_deterministic(self) -> None:
         modules = inspect_package(PACKAGE_ROOT)

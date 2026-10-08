@@ -1,4 +1,4 @@
-"""Orchestrate Stage D mapping drafts, validation, revisions, and submission.
+"""Orchestrate Match data drafts, validation, revisions, and submission.
 
 Layer: application service.
 
@@ -291,7 +291,7 @@ class MappingRowInclusionConfirmationRepository(Protocol):
 
 
 class MappingWorkspaceService:
-    """Own Stage D concurrency, evidence binding, and submission gates.
+    """Own Match data concurrency, evidence binding, and submission gates.
 
     The service keeps recoverable editor progress separate from semantic
     revisions. Submission additionally requires a verified schema, a non-

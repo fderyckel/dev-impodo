@@ -1,8 +1,9 @@
-"""Stage-H orchestration over approved, frozen source-side evidence.
+"""Orchestrate final review over approved, frozen source-side evidence.
 
-``PreflightService.compare`` verifies and adapts current Stages D–G evidence,
-builds bounded read requirements, invokes a caller-supplied read-only target
-reader, runs the shared comparison engine, and publishes a portable report plus
+``PreflightService.compare`` verifies and adapts current mapping and
+preparation evidence, builds bounded read requirements, invokes a
+caller-supplied read-only target reader, runs the shared comparison engine,
+and publishes a portable report plus
 protected snapshots. It never reloads source files and exposes no Odoo write.
 """
 

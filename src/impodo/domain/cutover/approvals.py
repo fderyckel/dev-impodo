@@ -1,13 +1,12 @@
 """Immutable approval evidence used by normalization and frozen export plans.
 
-``ApprovalEvidence`` is integrated into the Stage-G ``DryRun`` decision state.
+``ApprovalEvidence`` is integrated into the normalization ``DryRun`` decision state.
 The Odoo-to-Odoo transfer review package binds its exact portable action
 scope through ``FrozenExportPlan`` and records ``ExportPlanApproval``. That
 approval remains review evidence only and is not itself an Odoo write command.
 
-Stages J-K remain outside this module. The practical local writer and journal
-do not consume these optional higher-risk approvals, and post-write
-reconciliation is not implemented yet.
+Transfer execution validates the reviewed package before issuing writes. This
+module does not call Odoo or reconcile results.
 """
 
 from __future__ import annotations
@@ -26,8 +25,8 @@ from impodo.domain.shared.access import Actor, ActorIdentity, Capability
 class ApprovalEvidence:
     """Who approved one exact decision, when, and under which capability.
 
-    Stage G uses this inside ``governance.CorrectionDecision`` and the final
-    normalization approval. Stable issuer/subject identity is retained rather
+    Normalization uses this inside ``governance.CorrectionDecision`` and its
+    final approval. Stable issuer/subject identity is retained rather
     than trusting the display name as identity.
     """
 
@@ -183,7 +182,7 @@ class ExportPlanApproval:
     """Approval of one exact frozen plan, never a generic Odoo write.
 
     A later executor would still need a separately authorized, idempotent,
-    journaled Stage-J operation and must re-check plan hash and expiry. No such
+    journaled load operation and must re-check plan hash and expiry. No such
     executor or persistence integration exists today.
     """
 

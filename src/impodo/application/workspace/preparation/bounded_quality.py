@@ -1,4 +1,4 @@
-"""Bounded Stage-F construction for direct-table preparation runs.
+"""Bounded quality-evidence construction for direct-table preparation runs.
 
 The general quality evaluator remains authoritative for advanced statistics,
 guided rules, and resolved datasets. This module keeps ordinary mapping
@@ -231,7 +231,7 @@ class _DirectSourceAccounting(Sequence[SourceAccountingEntry]):
 
 
 class _IndexedQualityRows(Sequence[QualityRowResult]):
-    """Project exact Stage-F rows from the narrow canonical index."""
+    """Project exact quality rows from the narrow canonical index."""
 
     sparse_projection_contract = "direct-defaults-v1"
 

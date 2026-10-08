@@ -1,4 +1,4 @@
-"""Define portable workspace evidence shared by migration Stages B–D.
+"""Define portable workspace evidence shared by source, Odoo, and Match data.
 
 Layer: domain contracts at the package root.
 
@@ -121,7 +121,7 @@ class SourceDataset:
 
 @dataclass(frozen=True, slots=True)
 class SourceSelection:
-    """Freeze the complete Stage B dataset set consumed by later stages.
+    """Freeze the complete source dataset set consumed by later work.
 
     A new version replaces the current pointer but does not mutate historical
     mappings or runs. ``content_hash`` binds dataset identities, source/catalog

@@ -1,4 +1,4 @@
-"""Define deterministic Stage D validation and acknowledgement evidence.
+"""Define deterministic mapping validation and acknowledgement evidence.
 
 Layer: domain evidence. Results bind one mapping hash to exact source/schema
 hashes, validator version, ordered issues, coverage, and deferred runtime

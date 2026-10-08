@@ -4,10 +4,11 @@ The report deliberately counts public symbols without enforcing a target.
 Reviewers use it to find navigation gaps; documented exceptions such as
 obvious accessors or passive data carriers may remain without docstrings.
 
-``--check`` enforces only the package-wide module-docstring floor. Public
-symbol results remain advisory until the repository has a reviewed baseline
-of intentional exceptions; this avoids rewarding repetitive or misleading
-docstrings merely to satisfy a percentage.
+``--check`` enforces the package-wide module-docstring floor and rejects the
+retired A-K stage taxonomy in comments and docstrings. Public symbol results
+remain advisory until the repository has a reviewed baseline of intentional
+exceptions; this avoids rewarding repetitive or misleading docstrings merely
+to satisfy a percentage.
 """
 
 from __future__ import annotations
@@ -16,8 +17,17 @@ import argparse
 import ast
 from collections import defaultdict
 from dataclasses import dataclass
+import io
 from pathlib import Path
+import re
+import tokenize
 from typing import Iterable, Sequence
+
+
+LEGACY_STAGE_REFERENCE_RE = re.compile(
+    r"\bStages?(?:\s+|-)[A-K](?:\s*(?:-|–|—|through|to)\s*[A-K])?\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +45,20 @@ class ModuleDocumentation:
     def area(self) -> str:
         relative = self.path.parts
         return relative[0] if len(relative) > 1 else "(root)"
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class LegacyStageReference:
+    """Locate one retired A-K workflow label in developer-facing Python prose."""
+
+    path: Path
+    line: int
+    text: str
+
+    def render(self) -> str:
+        """Return one concise review diagnostic."""
+
+        return f"{self.path.as_posix()}:{self.line}: {self.text.strip()}"
 
 
 def inspect_module(path: Path, *, package_root: Path) -> ModuleDocumentation:
@@ -76,6 +100,58 @@ def inspect_package(package_root: Path) -> tuple[ModuleDocumentation, ...]:
         inspect_module(path, package_root=package_root)
         for path in sorted(package_root.rglob("*.py"))
     )
+
+
+def legacy_stage_references(
+    source_roots: Sequence[Path],
+    *,
+    repo_root: Path,
+) -> tuple[LegacyStageReference, ...]:
+    """Find retired A-K labels in Python comments and docstrings."""
+
+    references: list[LegacyStageReference] = []
+    for path in sorted(
+        candidate
+        for source_root in source_roots
+        for candidate in source_root.rglob("*.py")
+    ):
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(
+                node,
+                (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
+            ) or not node.body:
+                continue
+            expression = node.body[0]
+            if not (
+                isinstance(expression, ast.Expr)
+                and isinstance(expression.value, ast.Constant)
+                and isinstance(expression.value.value, str)
+            ):
+                continue
+            for offset, line in enumerate(expression.value.value.splitlines()):
+                if LEGACY_STAGE_REFERENCE_RE.search(line):
+                    references.append(
+                        LegacyStageReference(
+                            path=path.relative_to(repo_root),
+                            line=expression.lineno + offset,
+                            text=line,
+                        )
+                    )
+        for token in tokenize.generate_tokens(io.StringIO(source).readline):
+            if (
+                token.type == tokenize.COMMENT
+                and LEGACY_STAGE_REFERENCE_RE.search(token.string)
+            ):
+                references.append(
+                    LegacyStageReference(
+                        path=path.relative_to(repo_root),
+                        line=token.start[0],
+                        text=token.string,
+                    )
+                )
+    return tuple(sorted(set(references)))
 
 
 def _summary_rows(
@@ -169,8 +245,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--check",
         action="store_true",
         help=(
-            "fail only when a Python module lacks a module docstring; "
-            "public-symbol gaps remain advisory"
+            "fail when a module lacks a module docstring or Python prose uses "
+            "the retired A-K taxonomy; public-symbol gaps remain advisory"
         ),
     )
     return parser
@@ -187,12 +263,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         print()
         print(render_missing(modules))
     missing_modules = undocumented_modules(modules)
-    if arguments.check and missing_modules:
-        print()
-        print("Modules missing docstrings:")
-        for path in missing_modules:
-            print(path)
-        return 1
+    retired_references = legacy_stage_references(
+        (package_root,),
+        repo_root=package_root,
+    )
+    if arguments.check:
+        if missing_modules:
+            print()
+            print("Modules missing docstrings:")
+            for path in missing_modules:
+                print(path)
+        if retired_references:
+            print()
+            print("Retired A-K stage references in Python prose:")
+            for reference in retired_references:
+                print(reference.render())
+        if missing_modules or retired_references:
+            return 1
     return 0
 
 

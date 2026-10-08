@@ -2414,7 +2414,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
 
 class BoundedPreparationParityTests(unittest.TestCase):
-    """Prove the direct durable path preserves the materialized Stage-E bytes."""
+    """Prove the direct path preserves the materialized staging bytes."""
 
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)

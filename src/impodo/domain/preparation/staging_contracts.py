@@ -346,9 +346,10 @@ class CanonicalLineage:
 class CanonicalRow:
     """One target-independent canonical row with typed proposed values.
 
-    Stage E creates this record; Stage F overlays its quality disposition and
-    Stage G hashes eligible rows. References remain logical business keys—Odoo
-    numeric IDs are forbidden until the later target-resolution stage.
+    Mapping evaluation creates this record, quality review overlays its
+    disposition, and normalization hashes eligible rows. References remain
+    logical business keys—Odoo numeric IDs are forbidden until later target
+    resolution.
     """
 
     row_id: str
@@ -630,7 +631,7 @@ class StagingDatasetReconciliation:
 class CanonicalStagingRun:
     """Deterministic, versioned result of one full-row source evaluation.
 
-    This is the durable Stage-E handoff: mapping compilation and preparation
+    This is the durable staging handoff: mapping compilation and preparation
     have finished, but target lookup and execution have not begun. Its hashes,
     rows, lineage, issues, reconciliations, and control totals are validated as
     one immutable unit before quality evaluation can consume it.
@@ -727,7 +728,7 @@ class CanonicalStagingRun:
 
     @property
     def content_hash(self) -> str:
-        """Hash all semantic Stage-E evidence for downstream binding."""
+        """Hash all semantic staging evidence for downstream binding."""
 
         return "sha256:" + sha256(
             canonical_json_bytes(self.to_portable_dict(include_hash=False))
@@ -859,7 +860,7 @@ class CanonicalStagingRun:
         control_totals: tuple[CanonicalControlTotal, ...] = (),
         additional_rows: Iterable[CanonicalRow] = (),
     ) -> "CanonicalStagingRun":
-        """Convert compiler/preparation output into durable Stage-E evidence.
+        """Convert compiler and preparation output into durable staging evidence.
 
         Each prepared record becomes a canonical row with logical references
         and source lineage. Dataset/run reconciliation and compiled-plan hash

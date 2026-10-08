@@ -1,7 +1,5 @@
 """Build pinned combined lookup tables before scenario profile preparation.
 
-Migration stages: source preparation. Layer: adapter.
-
 The contract is intentionally narrow: select one column from each reviewed
 CSV/XLSX fixture, evaluate one bounded scalar formula, and retain the first
 occurrence of each result. It is sufficient for source-owned lookup tables

@@ -469,9 +469,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
             )
             if data_version.state is not DataVersionState.DRAFT:
-                raise WorkspaceError(
-                    "This DataVersion already has accepted source evidence. "
-                    "Start a new run with a new DataVersion for another capture."
+                return RedirectResponse(
+                    f"/projects/{workspace.project_id}/odoo-source-restarts/"
+                    f"{workspace_id}?resume=source",
+                    status_code=307,
                 )
             selections = context.queries.get_current_odoo_capture_selections(
                 workspace_id
@@ -672,10 +673,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
             )
             if data_version.state is not DataVersionState.DRAFT:
-                raise WorkspaceError(
-                    "This DataVersion already has accepted source evidence. "
-                    "Start a new run with a new DataVersion for another capture."
-                )
+                return workspace.project_id
             selections = context.queries.get_current_odoo_capture_selections(
                 workspace_id
             )
@@ -796,13 +794,20 @@ def build_sources_router(context: WebContext) -> APIRouter:
             )
 
         try:
+            prepared = await run_local_operation(prepare_capture)
+            if isinstance(prepared, str):
+                return RedirectResponse(
+                    f"/projects/{prepared}/odoo-source-restarts/"
+                    f"{workspace_id}?resume=source",
+                    status_code=307,
+                )
             (
                 workspace_state,
                 credential,
                 access_context,
                 matching_rows,
                 migration_project_name,
-            ) = await run_local_operation(prepare_capture)
+            ) = prepared
             gateway = context.source_capture_factory(workspace_state, credential.secret)
             job = _odoo_capture_manager(context).enqueue(
                 workspace_id,

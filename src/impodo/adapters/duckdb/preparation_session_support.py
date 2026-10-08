@@ -230,7 +230,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         )
 
     def bounded_quality_index(self, physical_rows: Mapping[str, Sequence[int]]):
-        """Validate and summarize the direct Stage-F index set-wise."""
+        """Validate and summarize the direct quality index set-wise."""
 
         return self._repository._bounded_quality_index(
             self._workspace_id,
@@ -318,7 +318,7 @@ class _SessionImpacts:
         effect_builder,
         finding_builder,
     ):
-        """Construct and summarize Stage-G facts in one durable pass."""
+        """Construct and summarize normalization facts in one durable pass."""
 
         return self._repository._prepare_normalization_facts(
             self._workspace_id,

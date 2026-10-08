@@ -11,7 +11,7 @@ from ..presenters.summary import _render_summary
 
 
 def build_summary_router(context: WebContext) -> APIRouter:
-    """Build the read-only project summary entry point for Stages E-G."""
+    """Build the read-only summary of prepared and reviewed data."""
 
     router = APIRouter()
 

@@ -395,7 +395,7 @@ class WorkspaceStateRepository(DuckDbRepository):
         expected_revision: int,
         actor: Actor,
     ) -> None:
-        """Replace Stage C's model allowlist and invalidate its dependents."""
+        """Replace the Odoo model allowlist and invalidate its dependents."""
 
         database_path = self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():

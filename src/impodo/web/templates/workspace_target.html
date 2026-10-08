@@ -20,6 +20,9 @@
     {% if is_odoo_source %}
       <p>A supported Odoo 19 or final Odoo 20 source can connect and match a separate destination of the same major. Cross-major transfer remains blocked.</p>
       <p>Nothing is written to an eligible destination until you explicitly confirm the Stage 6 load. This connection check does not discover models or fields.</p>
+      {% if data_version and data_version.state.value == 'FROZEN' %}
+        <div class="notice warning"><strong>Changing this source starts a new Data version.</strong><span>Impodo keeps the current frozen version in history, creates a clean workspace, and rebuilds the source schema before downstream work continues.</span></div>
+      {% endif %}
     {% endif %}
     {% if source_return_token %}
       <div class="notice"><strong>Odoo access for Source data</strong><span>Finish this check to load the record types needed for Separate combined information. You will return to that Source data choice.</span></div>

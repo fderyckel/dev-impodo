@@ -1,4 +1,4 @@
-"""DuckDB schema for practical Stage-K read-back results."""
+"""DuckDB schema for post-write read-back results."""
 
 from __future__ import annotations
 

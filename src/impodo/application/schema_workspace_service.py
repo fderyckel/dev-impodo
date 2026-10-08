@@ -1,4 +1,4 @@
-"""Orchestrate Stage C read-only Odoo schema discovery and governance.
+"""Orchestrate read-only Odoo schema discovery and governance.
 
 Layer: application service.
 
@@ -73,10 +73,10 @@ class SchemaWorkspaceReader(Protocol):
 
 
 class SourceSelectionReader(Protocol):
-    """Prove that Stage B dataset freezing precedes schema capture."""
+    """Prove that Source data freezing precedes schema capture."""
 
     def get_source_selection(self, workspace_id: str) -> SourceSelection | None:
-        """Return Stage B evidence required before detailed schema capture."""
+        """Return frozen Source data evidence required before schema capture."""
         ...
 
 

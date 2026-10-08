@@ -1,4 +1,4 @@
-"""Define the portable Stage D mapping language and its semantic hash.
+"""Define the portable Match data language and its semantic hash.
 
 Layer: domain contracts. A ``MappingDefinition`` binds every dataset mapping to
 one exact source-selection hash and schema/governance hash. Its nested objects
@@ -420,7 +420,8 @@ class RelationshipResolver:
     """Declare how symbolic relationship values become business references.
 
     Dataset resolvers name another prepared dataset. Target-catalog resolvers
-    name an Odoo model that Stage H may read through governed key/scope fields.
+    name an Odoo model that final review may read through governed key and
+    scope fields.
     Target-then-dataset resolvers retain both shapes: one exact Odoo match wins,
     otherwise the same source key may resolve through the incoming dataset.
     Optional value mappings are exact reviewed translations for the Odoo key.
