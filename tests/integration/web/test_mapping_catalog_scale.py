@@ -5,13 +5,16 @@ from __future__ import annotations
 import asyncio
 import json
 from statistics import median
+from threading import get_ident
 from time import perf_counter
 from unittest.mock import patch
 from uuid import uuid4
 
 import psutil
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.web.diagnostics import parse_server_timing
+from impodo.web.presenters import mapping_view
 from impodo.web.routers import mapping as mapping_router
 from tests.support.browser_scenarios import (
     POST_HEADERS,
@@ -308,31 +311,62 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
         recovery_page = self.client.get(recovered.headers["location"])
         self.assertIn("No mapping change was saved", recovery_page.text)
 
-    def test_complete_mapping_render_runs_outside_the_event_loop(self) -> None:
+    def test_complete_mapping_render_reuses_database_owners_in_one_worker(
+        self,
+    ) -> None:
         workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=1
         )
+        context = self.app.state.context
         original = mapping_router._render_mapping
-        running_loop_observed: list[bool] = []
+        worker_threads: list[int] = []
 
-        def inspected_renderer(*args, **kwargs):
-            try:
-                asyncio.get_running_loop()
-            except RuntimeError:
-                running_loop_observed.append(False)
-            else:
-                running_loop_observed.append(True)
-            return original(*args, **kwargs)
+        def worker_probe(function):
+            def call(*args, **kwargs):
+                with self.assertRaises(RuntimeError):
+                    asyncio.get_running_loop()
+                worker_threads.append(get_ident())
+                return function(*args, **kwargs)
 
-        with patch.object(
-            mapping_router,
-            "_render_mapping",
-            side_effect=inspected_renderer,
+            return call
+
+        with (
+            patch.object(
+                mapping_router,
+                "_render_mapping",
+                side_effect=worker_probe(original),
+            ) as renderer,
+            patch.object(
+                context.queries,
+                "get_mapping_revision",
+                side_effect=worker_probe(context.queries.get_mapping_revision),
+            ) as revision_read,
+            patch.object(
+                context.queries,
+                "get_mapping_working_draft",
+                side_effect=worker_probe(
+                    context.queries.get_mapping_working_draft
+                ),
+            ) as working_draft_read,
+            patch.object(
+                mapping_view,
+                "_render",
+                side_effect=worker_probe(mapping_view._render),
+            ) as render,
+            collect_duckdb_request_timings() as timings,
         ):
             page = self.client.get(f"/workspaces/{workspace_id}/mapping")
 
         self.assertEqual(page.status_code, 200, page.text)
-        self.assertEqual(running_loop_observed, [False])
+        self.assertIn("data-mapping-form", page.text)
+        renderer.assert_called_once()
+        revision_read.assert_called()
+        working_draft_read.assert_called()
+        render.assert_called_once()
+        self.assertTrue(worker_threads)
+        self.assertEqual(len(set(worker_threads)), 1)
+        self.assertGreater(timings.connection_count, 0)
+        self.assertLessEqual(timings.connection_count, 8)
         self.assertIn("queue_wait;dur=", page.headers["server-timing"])
 
     def test_obsolete_editor_generation_is_rejected_before_projection_work(

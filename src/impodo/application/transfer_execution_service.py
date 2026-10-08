@@ -461,7 +461,7 @@ def compile_transfer_execution_snapshot(
             raise WorkspaceError(
                 f"Frozen row order changed for {reviewed.model_label}"
             )
-        excluded_rows = set(match.excluded_source_row_numbers)
+        excluded_rows = set(match.omitted_source_row_numbers)
         if (
             len(all_rows) != match.frozen_source_row_count
             or reviewed.excluded_source_record_count != len(excluded_rows)

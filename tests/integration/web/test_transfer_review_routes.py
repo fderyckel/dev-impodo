@@ -134,6 +134,59 @@ class TransferReviewRouteTests(unittest.TestCase):
         )
         self.assertIsNone(repository.workspace.transfer_review_approval)
 
+    def test_reference_only_policy_is_fixed_server_side(self) -> None:
+        now = datetime.now(UTC)
+        selection = _selection(now)
+        company = replace(
+            _model("res.company", "Company", existing=1),
+            destination_handling="reference_only",
+            unreferenced_source_row_numbers=(2, 3),
+        )
+        match = _match_plan((company,), ())
+        workspace = _workspace(match)
+        schema = _source_schema(workspace, now)
+        match = replace(
+            match,
+            source_selection_hash=selection.content_hash,
+            source_schema_hash=schema.content_hash,
+        )
+        workspace = replace(
+            _workspace(match),
+            transfer_order_plan=_build(match),
+        )
+        repository = _WorkspaceRepository(workspace)
+        context = SimpleNamespace(
+            actor=LOCAL_ACTOR,
+            queries=_Queries(repository, selection, schema),
+            workspace_states=WorkspaceStateService(
+                repository,
+                CapabilityAuthorizationPolicy(),
+            ),
+            workspace_access=_Access(),
+        )
+        router = build_transfer_review_router(context)
+
+        built = asyncio.run(
+            _endpoint(router, "build_transfer_review")(
+                _request(
+                    "/transfer-review/build",
+                    {
+                        "csrf_token": "csrf",
+                        "revision": str(workspace.revision),
+                    },
+                ),
+                workspace.workspace_id,
+            )
+        )
+
+        self.assertEqual(built.status_code, 303)
+        reviewed = repository.workspace.transfer_review_package
+        self.assertIsNotNone(reviewed)
+        assert reviewed is not None
+        self.assertEqual(reviewed.datasets[0].model_policy, "reuse_only")
+        self.assertEqual(reviewed.datasets[0].source_row_count, 1)
+        self.assertEqual(reviewed.datasets[0].excluded_source_record_count, 2)
+
 
 class _Queries:
     def __init__(self, repository, selection, schema) -> None:

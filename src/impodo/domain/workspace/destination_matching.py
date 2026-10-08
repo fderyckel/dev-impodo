@@ -18,11 +18,16 @@ from uuid import UUID, uuid4
 from impodo.domain.serialization import canonical_json, content_hash
 
 
-DESTINATION_MATCH_CONTRACT_VERSION = 13
+DESTINATION_MATCH_CONTRACT_VERSION = 14
 _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset(
-    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
+    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}
 )
-DESTINATION_HANDLINGS = frozenset({"transfer", "reuse_only"})
+DESTINATION_HANDLINGS = frozenset(
+    {"transfer", "reuse_only", "reference_only"}
+)
+DESTINATION_NO_WRITE_HANDLINGS = frozenset(
+    {"reuse_only", "reference_only"}
+)
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 
@@ -521,6 +526,7 @@ class DestinationModelMatch:
     excluded_missing_fields: tuple[str, ...] = ()
     excluded_incompatible_fields: tuple[str, ...] = ()
     excluded_source_row_numbers: tuple[int, ...] = ()
+    unreferenced_source_row_numbers: tuple[int, ...] = ()
     destination_handling: str = "transfer"
 
     def __post_init__(self) -> None:
@@ -577,17 +583,33 @@ class DestinationModelMatch:
             raise ValueError("Destination workflow requirement is invalid")
         if self.destination_handling not in DESTINATION_HANDLINGS:
             raise ValueError("Destination handling is invalid")
+        if any(
+            rows != tuple(sorted(set(rows))) or any(number < 1 for number in rows)
+            for rows in (
+                self.excluded_source_row_numbers,
+                self.unreferenced_source_row_numbers,
+            )
+        ) or set(self.excluded_source_row_numbers) & set(
+            self.unreferenced_source_row_numbers
+        ):
+            raise ValueError("Destination excluded source rows are invalid")
+        omitted_rows = self.omitted_source_row_numbers
         if (
-            self.excluded_source_row_numbers
-            != tuple(sorted(set(self.excluded_source_row_numbers)))
-            or any(number < 1 for number in self.excluded_source_row_numbers)
+            any(number < 1 for number in omitted_rows)
             or (
-                self.excluded_source_row_numbers
-                and self.excluded_source_row_numbers[-1]
-                > self.source_row_count + len(self.excluded_source_row_numbers)
+                omitted_rows
+                and omitted_rows[-1]
+                > self.source_row_count + len(omitted_rows)
             )
         ):
             raise ValueError("Destination excluded source rows are invalid")
+        if (
+            self.destination_handling != "reference_only"
+            and self.unreferenced_source_row_numbers
+        ):
+            raise ValueError(
+                "Only destination references may omit unreferenced source rows"
+            )
         field_groups = (
             self.compatible_fields,
             self.missing_fields,
@@ -624,7 +646,18 @@ class DestinationModelMatch:
     def frozen_source_row_count(self) -> int:
         """Total frozen rows before explicit identity exclusions."""
 
-        return self.source_row_count + len(self.excluded_source_row_numbers)
+        return self.source_row_count + len(self.omitted_source_row_numbers)
+
+    @property
+    def omitted_source_row_numbers(self) -> tuple[int, ...]:
+        """Rows outside execution through a decision or reference-only scope."""
+
+        return tuple(
+            sorted(
+                self.excluded_source_row_numbers
+                + self.unreferenced_source_row_numbers
+            )
+        )
 
     @property
     def blocking_reasons(self) -> tuple[str, ...]:
@@ -640,7 +673,7 @@ class DestinationModelMatch:
         if self.destination_limit_reached:
             reasons.append("DESTINATION_MATCH_LIMIT_REACHED")
         if (
-            self.destination_handling == "reuse_only"
+            self.destination_handling in DESTINATION_NO_WRITE_HANDLINGS
             and self.destination_create_key_count
         ):
             reasons.append("DESTINATION_REUSE_RECORD_MISSING")
@@ -650,7 +683,7 @@ class DestinationModelMatch:
     def write_blocking_reasons(self) -> tuple[str, ...]:
         """Field issues that matter only when this model will receive writes."""
 
-        if self.destination_handling == "reuse_only":
+        if self.destination_handling in DESTINATION_NO_WRITE_HANDLINGS:
             return ()
         reasons = []
         if self.missing_fields:
@@ -878,7 +911,7 @@ class DestinationMatchPlan:
             reuse_dataset_ids = {
                 item.dataset_id
                 for item in self.model_matches
-                if item.destination_handling == "reuse_only"
+                if item.destination_handling in DESTINATION_NO_WRITE_HANDLINGS
             }
             if any(
                 item.dataset_id in reuse_dataset_ids
@@ -1032,6 +1065,10 @@ class DestinationMatchPlan:
                         self.contract_version >= 13
                         or name != "destination_handling"
                     )
+                    and (
+                        self.contract_version >= 14
+                        or name != "unreferenced_source_row_numbers"
+                    )
                 }
                 for item in self.model_matches
             ],
@@ -1151,6 +1188,12 @@ class DestinationMatchPlan:
                             int(number)
                             for number in item.get(
                                 "excluded_source_row_numbers", ()
+                            )
+                        ),
+                        unreferenced_source_row_numbers=tuple(
+                            int(number)
+                            for number in item.get(
+                                "unreferenced_source_row_numbers", ()
                             )
                         ),
                         destination_handling=str(

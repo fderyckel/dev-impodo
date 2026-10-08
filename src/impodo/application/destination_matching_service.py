@@ -52,6 +52,7 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.destination_matching import (
     DESTINATION_HANDLINGS,
+    DESTINATION_NO_WRITE_HANDLINGS,
     DestinationCreateFieldDecision,
     DestinationCreateFieldEvidence,
     DestinationCreateFieldEvidenceValue,
@@ -169,11 +170,21 @@ class _PreparedModel:
     source_fields: tuple[SchemaField, ...]
     destination_managed_fields: tuple[str, ...]
     excluded_source_row_numbers: tuple[int, ...] = ()
+    unreferenced_source_row_numbers: tuple[int, ...] = ()
     destination_handling: str = "transfer"
 
     @property
     def included_source_row_count(self) -> int:
-        return self.source_row_count - len(self.excluded_source_row_numbers)
+        return self.source_row_count - len(self.omitted_source_row_numbers)
+
+    @property
+    def omitted_source_row_numbers(self) -> tuple[int, ...]:
+        return tuple(
+            sorted(
+                self.excluded_source_row_numbers
+                + self.unreferenced_source_row_numbers
+            )
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -568,6 +579,14 @@ class DestinationMatchingService:
                 )
             )
 
+        prepared = list(
+            self._scope_reference_only_models(
+                workspace.workspace_id,
+                tuple(prepared),
+                source_schema,
+                source_origins or {},
+            )
+        )
         model_names = tuple(sorted(item.model for item in prepared))
         if len(model_names) != len(set(model_names)):
             raise WorkspaceError("Each Odoo record type must have one frozen source table")
@@ -686,6 +705,147 @@ class DestinationMatchingService:
             create_field_evidence=create_field_evidence,
         )
 
+    def _scope_reference_only_models(
+        self,
+        workspace_id: str,
+        prepared: tuple[_PreparedModel, ...],
+        source_schema: OdooSchemaCatalog,
+        source_origins: Mapping[str, tuple[OdooOriginBatch, ...]],
+    ) -> tuple[_PreparedModel, ...]:
+        """Keep only destination-setup rows reached by selected relationships.
+
+        A reference-only dataset supplies portable keys for relationships such
+        as ``mrp.bom.company_id``.  It is not an independent transfer root.
+        The closure also follows reference-only owners so a referenced setup
+        record can safely retain another destination-owned dependency.
+        """
+
+        reference_dataset_ids = {
+            item.dataset_id
+            for item in prepared
+            if item.destination_handling == "reference_only"
+        }
+        if not reference_dataset_ids:
+            return prepared
+
+        relationships = _prepare_relationships(prepared, source_schema)
+        active_rows: dict[str, set[int]] = {
+            item.dataset_id: (
+                set()
+                if item.dataset_id in reference_dataset_ids
+                else set(range(1, item.source_row_count + 1))
+                - set(item.excluded_source_row_numbers)
+            )
+            for item in prepared
+        }
+        row_by_odoo_id: dict[str, dict[int, int]] = {}
+        for item in prepared:
+            if item.dataset_id not in reference_dataset_ids:
+                continue
+            batches = source_origins.get(item.dataset_id)
+            if batches is None:
+                continue
+            identifiers = _ordered_origin_ids(
+                batches,
+                expected_rows=item.source_row_count,
+                dataset_name=item.dataset_name,
+            )
+            row_by_odoo_id[item.dataset_id] = {
+                identifier: row_number
+                for row_number, identifier in enumerate(identifiers, start=1)
+            }
+
+        changed = True
+        while changed:
+            changed = False
+            for relationship in relationships:
+                related_id = relationship.related.dataset_id
+                if related_id not in reference_dataset_ids:
+                    continue
+                owner_batches = source_origins.get(relationship.owner.dataset_id)
+                related_rows = row_by_odoo_id.get(related_id)
+                if owner_batches is None or related_rows is None:
+                    continue
+                columns = _ordered_relationship_values(
+                    owner_batches,
+                    relationship,
+                )
+                if columns is None:
+                    continue
+                owner_rows = active_rows[relationship.owner.dataset_id]
+                explicit_exclusions = set(
+                    relationship.related.excluded_source_row_numbers
+                )
+                for owner_row_number in tuple(sorted(owner_rows)):
+                    if owner_row_number > len(columns):
+                        raise WorkspaceError(
+                            "The protected relationship rows for "
+                            f"{relationship.owner.dataset_name} are inconsistent"
+                        )
+                    for identifier in columns[owner_row_number - 1]:
+                        related_row_number = related_rows.get(identifier)
+                        if (
+                            related_row_number is not None
+                            and related_row_number not in explicit_exclusions
+                            and related_row_number not in active_rows[related_id]
+                        ):
+                            active_rows[related_id].add(related_row_number)
+                            changed = True
+
+        scoped: list[_PreparedModel] = []
+        for item in prepared:
+            if item.dataset_id not in reference_dataset_ids:
+                scoped.append(item)
+                continue
+            rows = self._source_values.source_key_tuples(
+                workspace_id,
+                item.dataset_id,
+                item.source_column_keys,
+            )
+            if len(rows) != item.source_row_count or any(
+                len(row) != len(item.key_fields) for row in rows
+            ):
+                raise WorkspaceError(
+                    f"The frozen matching rows for {item.dataset_name} are inconsistent"
+                )
+            referenced_rows = active_rows[item.dataset_id]
+            explicit_exclusions = set(item.excluded_source_row_numbers)
+            unreferenced_rows = tuple(
+                row_number
+                for row_number in range(1, item.source_row_count + 1)
+                if row_number not in referenced_rows
+                and row_number not in explicit_exclusions
+            )
+            source_counts: Counter[str] = Counter()
+            identity_by_key: dict[
+                str, tuple[bool | int | float | str, ...]
+            ] = {}
+            for row_number in sorted(referenced_rows):
+                row = rows[row_number - 1]
+                value = portable_identity(row)
+                if not value:
+                    continue
+                source_counts[value] += 1
+                identity = portable_components(row)
+                if len(identity) == len(item.key_fields):
+                    identity_by_key[value] = identity
+            scoped.append(
+                replace(
+                    item,
+                    source_counts=source_counts,
+                    source_query_values=tuple(
+                        identity_by_key[key] for key in sorted(identity_by_key)
+                    ),
+                    source_identity_values=tuple(
+                        identity_by_key[key]
+                        for key in sorted(identity_by_key)
+                        if source_counts[key] == 1
+                    ),
+                    unreferenced_source_row_numbers=unreferenced_rows,
+                )
+            )
+        return tuple(scoped)
+
     def _result(
         self,
         item: _PreparedModel,
@@ -780,6 +940,9 @@ class DestinationMatchingService:
             source_column_keys=item.source_column_keys,
             key_fields=item.key_fields,
             excluded_source_row_numbers=item.excluded_source_row_numbers,
+            unreferenced_source_row_numbers=(
+                item.unreferenced_source_row_numbers
+            ),
             destination_handling=item.destination_handling,
         )
         return result, destination_counts, decisions, values
@@ -821,7 +984,7 @@ class DestinationMatchingService:
                     expected_rows=item.source_row_count,
                     dataset_name=item.dataset_name,
                 )
-                excluded = set(item.excluded_source_row_numbers)
+                excluded = set(item.omitted_source_row_numbers)
                 id_to_key[item.dataset_id] = {
                     identifier: key
                     for index, (identifier, key) in enumerate(
@@ -863,7 +1026,7 @@ class DestinationMatchingService:
                 relationship.related.model,
                 Counter(),
             )
-            excluded_owners = set(relationship.owner.excluded_source_row_numbers)
+            excluded_owners = set(relationship.owner.omitted_source_row_numbers)
             for row_number, members in enumerate(columns, start=1):
                 if row_number in excluded_owners:
                     continue
@@ -880,7 +1043,10 @@ class DestinationMatchingService:
                         ambiguous += 1
                     elif destination_count == 1:
                         reused += 1
-                    elif relationship.related.destination_handling == "reuse_only":
+                    elif (
+                        relationship.related.destination_handling
+                        in DESTINATION_NO_WRITE_HANDLINGS
+                    ):
                         missing += 1
                     else:
                         incoming += 1

@@ -11,7 +11,11 @@ from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     transfer_destination_identity_hash,
 )
-from impodo.web.routers import destination_matching, transfer_destination
+from impodo.web.routers import (
+    destination_matching,
+    transfer_destination,
+    transfer_order,
+)
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     store_target_credential,
@@ -48,11 +52,44 @@ class TransferPageReadTests(ProjectSetupBrowserTestCase):
             expected_revision=configured.revision,
             target_hash=transfer_destination_identity_hash(configured),
             credential_binding_hash=credential.binding_hash,
-            read_principal_hash="sha256:" + "7" * 64,
+            read_principal_hash="sha256:" + "1" * 64,
             odoo_version="19.0",
         )
         self.assertTrue(verified.destination_verified)
         return verified.workspace_id
+
+    def _matched_destination_workspace(self) -> str:
+        """Add a current match plan through the browser command boundary."""
+
+        workspace_id = self._verified_destination_workspace()
+        context = self.app.state.context
+        workspace_state = context.queries.get(workspace_id)
+        selection = context.queries.get_source_selection(workspace_id)
+        schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        self.assertIsNotNone(selection)
+        self.assertIsNotNone(schema)
+        assert selection is not None and schema is not None
+        dataset = selection.datasets[0]
+        response = self._post(
+            f"/workspaces/{workspace_id}/destination-matching",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(workspace_state.revision),
+                "match_key": (
+                    f"{dataset.dataset_id}::{dataset.columns[0].stable_key}"
+                ),
+                "destination_handling": f"{dataset.dataset_id}::transfer",
+            },
+        )
+        self.assertEqual(response.status_code, 303, response.text)
+        matched = context.queries.get(workspace_id)
+        self.assertTrue(
+            matched.destination_match_ready(
+                source_selection_hash=selection.content_hash,
+                source_schema_hash=schema.content_hash,
+            )
+        )
+        return workspace_id
 
     def _worker_probe(self, worker_threads: list[int]):
         """Wrap a page operation and record its non-event-loop worker."""
@@ -188,3 +225,51 @@ class TransferPageReadTests(ProjectSetupBrowserTestCase):
             response.headers["location"],
             f"/workspaces/{workspace_state.workspace_id}/sources",
         )
+
+    def test_transfer_order_reads_share_database_owners(self) -> None:
+        workspace_id = self._matched_destination_workspace()
+        context = self.app.state.context
+        worker_threads: list[int] = []
+        worker_probe = self._worker_probe(worker_threads)
+
+        with (
+            patch.object(
+                context.queries,
+                "get",
+                side_effect=worker_probe(context.queries.get),
+            ) as workspace_read,
+            patch.object(
+                context.queries,
+                "get_source_selection",
+                side_effect=worker_probe(context.queries.get_source_selection),
+            ) as source_selection_read,
+            patch.object(
+                context.queries,
+                "get_odoo_schema_catalog",
+                side_effect=worker_probe(context.queries.get_odoo_schema_catalog),
+            ) as schema_read,
+            patch.object(
+                transfer_order,
+                "_render",
+                side_effect=worker_probe(transfer_order._render),
+            ) as render,
+            collect_duckdb_request_timings() as timings,
+        ):
+            response = self.client.get(
+                f"/workspaces/{workspace_id}/transfer-order",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn(
+            "Put related Odoo records in a safe transfer order",
+            response.text,
+        )
+        workspace_read.assert_called()
+        source_selection_read.assert_called()
+        schema_read.assert_called()
+        render.assert_called_once()
+        self.assertTrue(worker_threads)
+        self.assertEqual(len(set(worker_threads)), 1)
+        self.assertGreater(timings.connection_count, 0)
+        self.assertLessEqual(timings.connection_count, 6)

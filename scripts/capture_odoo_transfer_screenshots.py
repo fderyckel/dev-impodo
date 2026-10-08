@@ -22,8 +22,8 @@ from scripts.capture_match_data_recovery_screenshots import (  # noqa: E402
     _start_server,
     _stop_server,
 )
-from tests.integration.web.test_source_workflow import (  # noqa: E402
-    SourceWorkflowBrowserTests,
+from tests.integration.web.test_odoo_transfer_journey import (  # noqa: E402
+    OdooTransferJourneyBrowserTests,
 )
 
 
@@ -149,7 +149,7 @@ def _capture_route(
 def capture(output_directory: Path, *, browser_channel: str) -> tuple[Path, ...]:
     """Run the isolated transfer journey and capture its main decisions."""
 
-    fixture = SourceWorkflowBrowserTests(methodName=TEST_METHOD)
+    fixture = OdooTransferJourneyBrowserTests(methodName=TEST_METHOD)
     fixture.setUp()
     captured: dict[str, Path] = {}
     original_get: Callable = fixture.client.get

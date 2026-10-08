@@ -66,6 +66,22 @@ chunks of 500 and allow one additional row per chunk to detect truncation. The
 full ordered tuple is used for match counts, binding hashes, review, preflight,
 relationship resolution, and execution. This supports the current 10,000-row
 Odoo capture boundary without one broad first-field query.
+
+Destination matching contract version 14 separates three Stage 4 handling
+modes. `transfer` permits reviewed creates for missing identities.
+`reuse_only` requires every retained captured identity to exist exactly once
+and prepares no writes for that model. `reference_only` is the destination
+setup boundary for models such as Company and Work Center. The service starts
+from non-reference transfer rows, follows protected captured relationships,
+and checks only the reached setup rows. It records other frozen setup row
+numbers as `unreferenced_source_row_numbers`; the execution snapshot omits
+them without changing source evidence. A missing referenced row blocks, while
+unreferenced rows do not. Both no-write modes are compiled to the Stage 5
+`reuse_only` policy, so their matched rows can resolve relationships but can
+never create or update destination records. The Stage 5 page renders that
+policy as a locked choice, and its build route derives `reuse_only` from the
+saved Stage 4 handling instead of trusting a submitted policy value.
+
 When that tuple is blank or repeated,
 `CategoricalCoverageService.source_identity_issue_rows` scans only the selected
 key columns and one bounded display column. The authenticated Stage 4 page
@@ -658,9 +674,10 @@ qualify another remote topology.
 - [`tests/application/workspace/test_transfer_review.py`](../../../tests/application/workspace/test_transfer_review.py)
 - [`tests/application/workspace/test_transfer_preflight.py`](../../../tests/application/workspace/test_transfer_preflight.py)
 - [`tests/application/workspace/test_transfer_execution.py`](../../../tests/application/workspace/test_transfer_execution.py)
-- [`tests/integration/web/test_source_workflow.py`](../../../tests/integration/web/test_source_workflow.py)
+- [`tests/integration/web/test_odoo_transfer_journey.py`](../../../tests/integration/web/test_odoo_transfer_journey.py)
 - [`tests/integration/web/test_transfer_order_navigation.py`](../../../tests/integration/web/test_transfer_order_navigation.py)
 - [`tests/integration/web/test_transfer_review_routes.py`](../../../tests/integration/web/test_transfer_review_routes.py)
+- [`tests/integration/web/test_transfer_review_presenter.py`](../../../tests/integration/web/test_transfer_review_presenter.py)
 - [`tests/integration/web/test_transfer_preflight_routes.py`](../../../tests/integration/web/test_transfer_preflight_routes.py)
 - [`tests/integration/web/test_transfer_load_routes.py`](../../../tests/integration/web/test_transfer_load_routes.py)
 - [`tests/integration/duckdb/test_transfer_order_persistence.py`](../../../tests/integration/duckdb/test_transfer_order_persistence.py)

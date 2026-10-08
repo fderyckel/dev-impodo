@@ -687,9 +687,10 @@ stages:
       - tests/application/workspace/test_transfer_review.py
       - tests/application/workspace/test_transfer_preflight.py
       - tests/application/workspace/test_transfer_execution.py
-      - tests/integration/web/test_source_workflow.py
+      - tests/integration/web/test_odoo_transfer_journey.py
       - tests/integration/web/test_transfer_order_navigation.py
       - tests/integration/web/test_transfer_review_routes.py
+      - tests/integration/web/test_transfer_review_presenter.py
       - tests/integration/web/test_transfer_preflight_routes.py
       - tests/integration/web/test_transfer_load_routes.py
       - tests/integration/duckdb/test_transfer_order_persistence.py

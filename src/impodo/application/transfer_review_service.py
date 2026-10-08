@@ -9,7 +9,10 @@ from uuid import uuid4
 from impodo.domain.cutover.approvals import FrozenExportPlan
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import ActorIdentity
-from impodo.domain.workspace.destination_matching import DestinationMatchPlan
+from impodo.domain.workspace.destination_matching import (
+    DESTINATION_NO_WRITE_HANDLINGS,
+    DestinationMatchPlan,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.transfer_order import TransferOrderPlan
 from impodo.domain.workspace.transfer_review import (
@@ -56,12 +59,12 @@ class TransferReviewService:
         for item in match_plan.model_matches:
             default_policy = (
                 "reuse_only"
-                if item.destination_handling == "reuse_only"
+                if item.destination_handling in DESTINATION_NO_WRITE_HANDLINGS
                 else "upsert"
             )
             model_policy = policies.get(item.model, default_policy)
             if (
-                item.destination_handling == "reuse_only"
+                item.destination_handling in DESTINATION_NO_WRITE_HANDLINGS
                 and model_policy != "reuse_only"
             ):
                 raise WorkspaceError(
@@ -123,7 +126,8 @@ class TransferReviewService:
                     item.model,
                     (
                         "reuse_only"
-                        if item.destination_handling == "reuse_only"
+                        if item.destination_handling
+                        in DESTINATION_NO_WRITE_HANDLINGS
                         else "upsert"
                     ),
                 ),
@@ -144,7 +148,7 @@ class TransferReviewService:
                 ),
                 excluded_source_fields=item.excluded_fields,
                 excluded_source_record_count=len(
-                    item.excluded_source_row_numbers
+                    item.omitted_source_row_numbers
                 ),
             )
             for item in match_plan.model_matches

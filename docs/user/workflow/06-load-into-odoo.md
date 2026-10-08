@@ -52,6 +52,26 @@ Odoo record ID. For Product Categories, Impodo applies the required name and
 parent scope automatically so equal names under different parents remain
 separate.
 
+For each record type, choose its **Destination handling** in Stage 4:
+
+- **Use only to match related destination records** is for destination-owned
+  setup such as **Company** or **Work Center**. Impodo checks only the setup
+  records referenced by data that will be transferred. It ignores other
+  captured setup records and never creates or updates this record type. A
+  referenced record that has no unique destination match remains a blocker.
+- **Reuse existing destination records only** checks every captured source
+  identity and stops when any one of them has no unique destination match.
+- **Transfer records that are missing** reuses existing matches and allows
+  missing records to be created after review.
+
+For a BOM transfer, choose **Use only to match related destination records**
+for **Company**. The frozen Company rows then remain lookup evidence for the
+BOM relationship; they are not company records to load into the destination.
+BOM Lines and BOM Operations are transferred records, so keep **Transfer
+records that are missing** for them. Apply the same distinction later to Work
+Centers: use them only for relationship matching when they are destination
+setup, while transferring the BOM records that refer to them.
+
 The results distinguish three types of field handling:
 
 - **Put aside for this transfer** is your decision not to write that captured
@@ -82,7 +102,12 @@ A **wave** is one group of record types that Impodo can load together. Impodo
 calculates the waves from the saved relationships; you do not arrange them by
 hand.
 
-For each record type, choose one policy:
+Stage 5 keeps **Use only to match related destination records** fixed for
+destination-owned setup such as Company and Work Center. Review the referenced
+and ignored record counts. You cannot enable creates or updates for those
+record types here.
+
+For each transferable record type, choose one policy:
 
 - **Reuse existing, create missing** reuses a unique match and creates only a
   missing record.

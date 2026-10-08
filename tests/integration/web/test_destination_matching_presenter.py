@@ -21,7 +21,7 @@ from tests.application.workspace.test_destination_matching import (
 
 
 class DestinationMatchingPresenterTests(unittest.TestCase):
-    def test_destination_setup_defaults_to_reuse_only_per_record_type(self) -> None:
+    def test_destination_setup_defaults_to_reference_only_per_record_type(self) -> None:
         now = datetime.now(UTC)
         workspace = _workspace(now)
         selection = _selection(now)
@@ -83,7 +83,10 @@ class DestinationMatchingPresenterTests(unittest.TestCase):
         }
 
         self.assertEqual(rows["product.template"]["destination_handling"], "transfer")
-        self.assertEqual(rows["res.company"]["destination_handling"], "reuse_only")
+        self.assertEqual(
+            rows["res.company"]["destination_handling"],
+            "reference_only",
+        )
         self.assertEqual(rows["res.company"]["selected_keys"], ("company-name",))
 
 

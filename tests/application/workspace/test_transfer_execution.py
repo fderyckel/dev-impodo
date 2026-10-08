@@ -372,6 +372,141 @@ class TransferExecutionCompilerTests(unittest.TestCase):
         self.assertEqual(retained_uom.value.key, ("Kilogram",))
         self.assertEqual(len(snapshot.rows), 3)
 
+    def test_unreferenced_destination_setup_is_absent_from_execution(self) -> None:
+        product_dataset, uom_dataset = self.selection.datasets
+        source_values = _SourceValues(
+            self.source_values.values,
+            {
+                (product_dataset.dataset_id, "product-code"): ("P001", "P002"),
+                (product_dataset.dataset_id, ("product-code",)): (
+                    ("P001",),
+                    ("P002",),
+                ),
+                (uom_dataset.dataset_id, "uom-name"): ("Unit", "Kilogram"),
+                (uom_dataset.dataset_id, ("uom-name",)): (
+                    ("Unit",),
+                    ("Kilogram",),
+                ),
+            },
+        )
+        origins = {
+            product_dataset.dataset_id: (
+                OdooOriginBatch(
+                    first_row_ordinal=1,
+                    odoo_ids=(101, 102),
+                    write_dates=(self.now, self.now),
+                    relationships=(
+                        OdooRelationshipOriginColumn(
+                            field_name="alternate_uom_ids",
+                            kind="many2many",
+                            relation_model="uom.uom",
+                            values=((7,), ()),
+                        ),
+                        OdooRelationshipOriginColumn(
+                            field_name="uom_id",
+                            kind="many2one",
+                            relation_model="uom.uom",
+                            values=((7,), (7,)),
+                        ),
+                    ),
+                ),
+            ),
+            uom_dataset.dataset_id: self.origins[uom_dataset.dataset_id],
+        }
+        captured = []
+
+        def capture(*args):
+            metadata, records = self.reader(*args)
+            captured.append(records)
+            return metadata, records
+
+        base_workspace = _workspace(self.now)
+        match = DestinationMatchingService(source_values).check(
+            base_workspace,
+            self.selection,
+            self.schema,
+            (
+                DestinationMatchKeyChoice(
+                    product_dataset.dataset_id,
+                    "product-code",
+                ),
+                DestinationMatchKeyChoice(
+                    uom_dataset.dataset_id,
+                    "uom-name",
+                    destination_handling="reference_only",
+                ),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(base_workspace),
+            reader=capture,
+            recorded_by="Data manager",
+            source_origins=origins,
+        )
+        matched = replace(base_workspace, destination_match_plan=match)
+        order = TransferOrderService().build(
+            matched,
+            match,
+            recorded_by="Data manager",
+        )
+        ordered = replace(matched, transfer_order_plan=order)
+        package = TransferReviewService().build(
+            ordered,
+            match,
+            order,
+            run_id=str(uuid4()),
+            data_version_id=self.selection.data_version_id,
+            built_by=LOCAL_ACTOR.identity,
+        )
+        approval = TransferReviewApproval.approve(
+            package,
+            approval_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+            approved_at=datetime.now(UTC),
+        )
+        approved = replace(
+            ordered,
+            transfer_review_package=package,
+            transfer_review_approval=approval,
+        )
+        report = TransferPreflightService().build(
+            approved,
+            package,
+            approval,
+            match,
+            match,
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+
+        snapshot = compile_transfer_execution_snapshot(
+            replace(approved, transfer_preflight_report=report),
+            self.selection,
+            self.schema,
+            package,
+            report,
+            match,
+            captured[0],
+            source_rows=self.rows,
+            source_origins=origins,
+            source_snapshots=self.snapshots,
+            source_manifest_hashes=self.manifests,
+        )
+
+        reviewed_uom = next(
+            item for item in package.datasets
+            if item.dataset_id == uom_dataset.dataset_id
+        )
+        self.assertEqual(reviewed_uom.model_policy, "reuse_only")
+        self.assertEqual(reviewed_uom.source_row_count, 1)
+        self.assertEqual(reviewed_uom.excluded_source_record_count, 1)
+        uom_rows = [
+            row for row in snapshot.rows if row.dataset == uom_dataset.name
+        ]
+        self.assertEqual(len(uom_rows), 1)
+        self.assertEqual(uom_rows[0].source_row, 1)
+        self.assertEqual(uom_rows[0].disposition, "UNCHANGED")
+        self.assertFalse(uom_rows[0].fields)
+
     def test_create_only_incoming_reference_uses_selected_source_record(self) -> None:
         product_dataset, uom_dataset = self.selection.datasets
         captured = []

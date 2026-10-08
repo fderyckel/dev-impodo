@@ -87,6 +87,7 @@ from ...domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 )
+from ..composition.page_reads import run_page_read
 from ..constants import (
     TRANSFORMATION_IMPACT_OUTCOMES,
     TRANSFORMATION_IMPACT_PAGE_SIZE,
@@ -212,7 +213,9 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             return RedirectResponse(active_url, status_code=303)
         queued_at = perf_counter()
 
-        def render_mapping_page():
+        def render_mapping_page() -> Response:
+            """Read and render the Match data editor in one bounded worker scope."""
+
             queue_wait_ms = (perf_counter() - queued_at) * 1000
             try:
                 response = _render_mapping(request, context, workspace_id)
@@ -232,7 +235,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             _append_server_timing(response, "queue_wait", queue_wait_ms)
             return response
 
-        return await run_in_threadpool(render_mapping_page)
+        return await run_page_read(render_mapping_page)
 
     @router.get(
         "/workspaces/{workspace_id}/mapping/rows-to-use",

@@ -27,6 +27,7 @@ from impodo.domain.odoo_source_scope import (
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.shared.access import Capability
 from impodo.domain.workspace.destination_matching import (
+    DESTINATION_MATCH_CONTRACT_VERSION,
     DESTINATION_HANDLINGS,
     carry_destination_create_field_reviews,
     choose_destination_create_field_provider,
@@ -220,8 +221,14 @@ def _matching_rows(workspace_state, selection, schema):
                 "destination_handling": (
                     result_by_dataset[dataset.dataset_id].destination_handling
                     if dataset.dataset_id in result_by_dataset
+                    and (
+                        model not in reuse_destination_models
+                        or plan is not None
+                        and plan.contract_version
+                        >= DESTINATION_MATCH_CONTRACT_VERSION
+                    )
                     else (
-                        "reuse_only"
+                        "reference_only"
                         if model in reuse_destination_models
                         else "transfer"
                     )

@@ -10,6 +10,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from impodo.application.transfer_review_service import TransferReviewService
 from impodo.domain.shared.access import Capability
+from impodo.domain.workspace.destination_matching import (
+    DESTINATION_NO_WRITE_HANDLINGS,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.transfer_review import TransferReviewApproval
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceStateError
@@ -156,7 +159,10 @@ def build_transfer_review_router(context: WebContext) -> APIRouter:
                 raise WorkspaceError("Complete the current transfer order first")
             model_policies = {
                 item.model: (
-                    _text(form, f"policy_{item.dataset_id}") or "create_if_missing"
+                    "reuse_only"
+                    if item.destination_handling in DESTINATION_NO_WRITE_HANDLINGS
+                    else _text(form, f"policy_{item.dataset_id}")
+                    or "create_if_missing"
                 )
                 for item in match_plan.model_matches
             }

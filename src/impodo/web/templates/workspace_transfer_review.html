@@ -41,9 +41,9 @@
       <p class="eyebrow">Freeze review evidence</p>
       <h2>Choose what happens for each record type</h2>
       <p>
-        Use the same policy for any Odoo model. Existing records can be reused
-        without changing them, while missing records can be created when needed.
-        This step does not contact either Odoo instance.
+        Transferable records can reuse existing matches or create missing
+        records. Destination-owned reference records keep the no-write handling
+        fixed in Stage 4. This step does not contact either Odoo instance.
       </p>
       <form method="post" action="/workspaces/{{ workspace_id }}/transfer-review/build">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -52,10 +52,14 @@
           {% set saved = transfer_review_package.datasets | selectattr('dataset_id', 'equalto', model.dataset_id) | first if transfer_review_current else none %}
           <div class="field">
             <label for="policy_{{ model.dataset_id }}">{{ model.model_label }} ({{ model.model }})</label>
-            {% if model.destination_handling == 'reuse_only' %}
+            {% if model.destination_handling != 'transfer' %}
               <input type="hidden" name="policy_{{ model.dataset_id }}" value="reuse_only">
-              <select id="policy_{{ model.dataset_id }}" disabled><option selected>Reuse existing only</option></select>
-              <p class="hint">Fixed by destination matching. Return there to allow missing records to transfer.</p>
+              <select id="policy_{{ model.dataset_id }}" disabled><option selected>{% if model.destination_handling == 'reference_only' %}Use only to match related destination records{% else %}Reuse existing only{% endif %}</option></select>
+              {% if model.destination_handling == 'reference_only' %}
+                <p class="hint">Fixed by destination matching. Only referenced destination records are reused; this record type will not be created or updated.</p>
+              {% else %}
+                <p class="hint">Fixed by destination matching. Return there to allow missing records to transfer.</p>
+              {% endif %}
             {% else %}
               <select id="policy_{{ model.dataset_id }}" name="policy_{{ model.dataset_id }}">
                 <option value="create_if_missing" {% if not saved or saved.model_policy == 'create_if_missing' %}selected{% endif %}>Reuse existing, create missing</option>
@@ -72,6 +76,9 @@
             {% endif %}
             {% if model.excluded_source_row_numbers %}
               <p class="hint">{{ model.excluded_source_row_numbers|length }} source record(s) put aside in destination matching. They are outside this transfer.</p>
+            {% endif %}
+            {% if model.unreferenced_source_row_numbers %}
+              <p class="hint">{{ model.unreferenced_source_row_numbers|length }} unrelated captured record(s) ignored because transferred data does not reference them.</p>
             {% endif %}
           </div>
         {% endfor %}
@@ -199,7 +206,7 @@
               <dd>{{ row.dataset.excluded_source_fields|join(', ') if row.dataset.excluded_source_fields else 'None' }}</dd>
             </div>
             <div>
-              <dt>Source records put aside</dt>
+              <dt>Source records outside transfer</dt>
               <dd>{{ "{:,}".format(row.dataset.excluded_source_record_count) }}</dd>
             </div>
             <div>
