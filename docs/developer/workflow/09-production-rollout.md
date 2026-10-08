@@ -143,7 +143,7 @@ inputs retain their history and offer a new setup instead of an unusable retry.
 Reconciliation remains available after an unknown write outcome so an operator
 can establish what happened before retry.
 
-## Odoo 19 and performance
+## Odoo compatibility and performance
 
 The exact registry generation is
 `impodo-migration-registry-2026-08-project-root`. Supported older versions in

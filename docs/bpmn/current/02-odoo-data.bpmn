@@ -92,7 +92,7 @@
   </bpmn:process>
   <bpmn:collaboration id="Collaboration_Process_OdooData">
     <bpmn:participant id="Participant_Process_OdooData" name="Odoo data" processRef="Process_OdooData" />
-    <bpmn:participant id="Participant_Odoo" name="Exact Odoo 19 target" />
+    <bpmn:participant id="Participant_Odoo" name="Exact supported Odoo target" />
     <bpmn:messageFlow id="Message_OD_Catalog" name="Read model metadata" sourceRef="Task_ReadCatalog" targetRef="Participant_Odoo" />
     <bpmn:messageFlow id="Message_OD_CatalogResponse" name="Model catalogue" sourceRef="Participant_Odoo" targetRef="Task_ReadCatalog" />
     <bpmn:messageFlow id="Message_OD_Fields" name="Read fields_get metadata" sourceRef="Task_ReadFields" targetRef="Participant_Odoo" />

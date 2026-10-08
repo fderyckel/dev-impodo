@@ -3,7 +3,8 @@
 ## What is available now
 
 A technical operator can run repeatable Contact, Product, and bill-of-material
-trials from fictional files to a disposable Odoo 19 database. The trial checks
+trials from fictional files to a disposable Odoo 19 or final Odoo 20 database.
+The trial checks
 the source, compares it with Odoo, loads it, reads the saved records back,
 checks them against a separately reviewed expected result, and compares them
 again. A successful repeat comparison must say that every row already matches

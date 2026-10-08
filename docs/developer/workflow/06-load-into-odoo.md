@@ -22,33 +22,38 @@ order must still match. The target must be explicitly allowed for the practical
 rehearsal path and the actor must provide or have already stored the required
 write-role credential.
 
-Normal supported loading still requires Odoo 19. Maintainers can run a
-controlled Odoo 20 Test qualification by starting the same process with both
-`IMPODO_DEVELOPMENT_MODE=1` and
-`IMPODO_ENABLE_ODOO20_TEST_WRITES=1`. The first switch marks the process as the
-existing disposable-data development mode. The second switch enables final
-Odoo 20 `WRITE` and `RECOVER` operation decisions. This combination does not
-enable `PRODUCTION`, prerelease builds, SaaS series, or another major version.
-It is a qualification mechanism, not evidence that Odoo 20 loading is
-supported.
+Normal loading and recovery support Odoo 19 and final Odoo 20 without a
+version-specific opt-in switch. The shared compatibility policy enables final
+Odoo 20 `WRITE` and `RECOVER` operation decisions. It continues to block
+`PRODUCTION`, prerelease builds, SaaS series, and other major versions.
 
 The 2026-10-08
 [controlled Odoo 20 write canary](../../testing/odoo20-write-canary-2026-10-08.md)
 proved one synthetic Contact create, exact read-back, and repeat identity match
-against final Enterprise Runbot. It did not exercise the full browser,
-journal, reconciliation, or recovery path, so it does not promote Odoo 20 to a
-normally supported load target.
+against final Enterprise Runbot. The later
+[browser load canary](../../testing/odoo20-browser-load-canary-2026-10-08.md)
+exercised the authenticated file-to-Odoo browser routes, live preflight,
+separate confirmation, background execution journal, and automatic
+reconciliation. It created and verified three synthetic Contacts with no
+updates, fallout, or unknown outcomes on Enterprise Runbot. The
+[local Community qualification](../../testing/odoo20-local-community-canary-2026-10-08.md)
+then verified the Local-mode shell and JSON-2 contracts for nine models. It
+also repeated the same file-to-Odoo route journey against final Odoo 20
+Community, where the journal recorded three creates and reconciliation
+verified all three. This evidence supports the declared normal-load boundary.
+Visual JavaScript browser behavior, interrupted-write recovery, completed-load
+correction, non-Contact execution, Integrated Test, and transfer remain known
+coverage gaps to resolve as encountered. Production remains disabled.
 
 ## Odoo-to-Odoo transfer boundary in Stage 6
 
 The Odoo-source Authoring variant binds exactly two credentials. `SOURCE_FETCH`
 captures and freezes the source. `DESTINATION_TRANSFER` is the second and final
 key and belongs only to the different same-major destination. The supported
-path uses Odoo 19. A final 20.0 destination can enter the controlled Test
-qualification only when both development switches are active and the source
-is also Odoo 20. The destination key is used for matching, preflight, confirmed
-loading, and read-back; the source key is never substituted for it and no third
-credential role is introduced.
+paths are Odoo 19 to Odoo 19 and final Odoo 20 to final Odoo 20. The destination
+key is used for matching, preflight, confirmed loading, and read-back; the
+source key is never substituted for it and no third credential role is
+introduced.
 
 `DestinationMatchingService` performs bounded metadata and natural-key reads
 for every frozen source model. It resolves generic many-to-one and many-to-many
@@ -567,7 +572,7 @@ resume reuses the direct journal receipt and repeats only the exact projection
 read. It never sends the source create again. A missing or changed projection
 blocks the dependent component.
 
-## Odoo 19 and performance
+## Odoo compatibility and performance
 
 Destination matching contract version 11 binds the exact chunked-read,
 Product Category path, explicit source-field exclusion, and explicit
@@ -575,7 +580,8 @@ identity-issue row exclusion semantics. Older matching plans remain readable as
 historical evidence but are not current readiness evidence; the data manager
 must run the read-only destination check again.
 
-Remote writes use the Odoo 19 JSON-2 boundary with named, scoped operations.
+Remote writes use the Odoo 19 or final Odoo 20 JSON-2 boundary with named,
+scoped operations.
 Creates are grouped by compatible field shape and sent in bounded batches.
 Existing-row and target-relationship identities are resolved in bounded bulk
 queries; relationship count therefore does not create per-row lookup traffic.
@@ -662,7 +668,7 @@ qualify another remote topology.
 Verify scope enforcement, dependency order, create batching, update behavior,
 journal-before-transport, unknown outcomes, deferred relationships,
 reconciliation, and repeat-preview safety against an explicitly disposable
-Odoo 19 target.
+supported Odoo target.
 
 ## Related documentation
 

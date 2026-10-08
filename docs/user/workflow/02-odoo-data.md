@@ -27,12 +27,12 @@ you choose Odoo record types and inspect their fields. If you opened Odoo
 access from **Separate combined information**, Impodo returns to that Source
 data choice after it loads the record types.
 
-Impodo supports its existing Odoo 19 workflow and final Odoo 20 read workflows.
-For Odoo 20, you can check the connection, capture the live schema, freeze a
-bounded Odoo source, read matching values, and author an Odoo 20 Recipe. Odoo
-20 loading, recovery, Integrated Test writes, and Production are not enabled
-yet. If the server reports an unknown, prerelease, SaaS, later-minor, or
-conflicting version, resolve that connection check before capturing details.
+Impodo supports Odoo 19 and final Odoo 20 workflows. For either supported
+major, you can check the connection, capture the live schema, freeze a bounded
+Odoo source, read matching values, author a Recipe, and continue to same-major
+loading and recovery. Odoo 20 Production remains disabled. If the server
+reports an unknown, prerelease, SaaS, later-minor, or conflicting version,
+resolve that connection check before capturing details.
 A Recipe applies only to its authored Odoo major version, and an Odoo source
 and destination must use the same major version.
 
@@ -41,7 +41,6 @@ use for checking. You can keep it for checking only, or select **Use this key
 for checking and loading** when the same Odoo account is approved to write.
 Impodo keeps the checking and loading access separately even when they use the
 same secret. Production continues to require a separate limited write key.
-Saving a write key for an Odoo 20 workspace does not enable Odoo 20 loading.
 
 ## Steps in Impodo
 

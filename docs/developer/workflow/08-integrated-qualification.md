@@ -99,7 +99,7 @@ evidence makes a pending review fail its expected evidence hash. Exact replay
 after protected-store or registry failure authenticates and reuses the same
 artifacts; changed meaning under the same operation ID fails closed.
 
-## Odoo 19 and performance
+## Odoo compatibility and performance
 
 The exact registry generation is
 `impodo-migration-registry-2026-08-project-root`. Supported older versions in

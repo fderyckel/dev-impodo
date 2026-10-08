@@ -44,7 +44,7 @@ Managed workstation
 
   Separate explicit load path
         |
-        | literal-loopback or outbound HTTPS Odoo 19 JSON-2
+        | literal-loopback or outbound HTTPS Odoo 19/final Odoo 20 JSON-2
         | preview-scoped search_read / load / create / write
         | dedicated least-privilege API key
         v
@@ -213,7 +213,8 @@ and governed key rotation and revocation.
 The writer is a separate adapter from every read connector. A load is allowed
 only when all of these are true:
 
-- the MigrationRun target binding is Local or Remote and identifies Odoo 19;
+- the MigrationRun target binding is Local or Remote and identifies supported
+  Odoo 19 or final Odoo 20;
 - the current immutable execution snapshot matches the page the operator
   reviewed and contains no blocked or ambiguous rows;
 - the writer target hash matches the exact URL and database in that snapshot;

@@ -3,7 +3,7 @@
 ## Scope
 
 This Windows-only developer runbook covers the optional browser assistant for
-an Odoo 19 and PostgreSQL stack on the same computer. For the shorter
+a supported Odoo 19 or final Odoo 20 and PostgreSQL stack on the same computer. For the shorter
 data-manager procedure, see the [local Odoo user guide](../../user/guides/local-odoo.md).
 Impodo does not install Odoo or PostgreSQL and never treats a local stack as
 permission to write data.
@@ -15,7 +15,7 @@ ownership remain in memory for the current Impodo session.
 
 A registered local project may reopen the same bounded assistant from **Final
 review**. The selected profile must match the project's loopback address and
-database. Impodo then reruns readiness checks and one read-only Odoo 19
+database. Impodo then reruns readiness checks and one read-only supported-version
 fingerprint before enabling **Continue comparison**.
 
 The return target is allowlisted; failures remain in the dialog with support
@@ -34,8 +34,8 @@ same database remains the pinned comparison target.
    details.
 5. Select **Check again** after correcting an external problem.
 6. When the stack is ready, select **Save and test connection**. The connection
-   check identifies the exact Odoo 19 database; it does not discover models or
-   fields.
+   check identifies the exact supported Odoo 19 or final Odoo 20 database; it
+   does not discover models or fields.
 7. Select **Load Odoo record types** to create the model snapshot. Use
    **Refresh Odoo record types** only when that stored snapshot needs updating.
 

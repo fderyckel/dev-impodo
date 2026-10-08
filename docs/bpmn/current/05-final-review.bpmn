@@ -77,7 +77,7 @@
   </bpmn:process>
   <bpmn:collaboration id="Collaboration_Process_FinalReview">
     <bpmn:participant id="Participant_Process_FinalReview" name="Final review" processRef="Process_FinalReview" />
-    <bpmn:participant id="Participant_Odoo" name="Exact Odoo 19 target" />
+    <bpmn:participant id="Participant_Odoo" name="Exact supported Odoo target" />
     <bpmn:messageFlow id="Message_REV_Read" name="Read reviewed model and key scope" sourceRef="Task_ReadTarget" targetRef="Participant_Odoo" />
     <bpmn:messageFlow id="Message_REV_Response" name="Current target evidence" sourceRef="Participant_Odoo" targetRef="Task_ReadTarget" />
   </bpmn:collaboration>

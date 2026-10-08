@@ -16,14 +16,23 @@ policy and its validation are recorded in the
 [Phase 2 report](../testing/odoo-compatibility-phase2.md). Final Odoo 20
 Community and Enterprise read qualification is recorded in the
 [Phase 3 report](../testing/odoo-compatibility-phase3.md). Phase 4 entered
-controlled development qualification on 2026-10-08. A default-off switch now
-permits Odoo 20 Test writes and recovery only when disposable-data development
-mode is also active. A narrow Contact writer canary passed against final Odoo
-20 Enterprise Runbot on 2026-10-08. The full browser, journal,
-reconciliation, recovery, model, and deployment matrix remains open, so normal
-loading, Integrated Test qualification, and Production remain disabled. Phase
-5 remains open. See the
-[controlled write canary report](../testing/odoo20-write-canary-2026-10-08.md).
+controlled development qualification on 2026-10-08. A narrow Contact writer
+canary passed against final Odoo 20 Enterprise Runbot on 2026-10-08.
+File-to-Odoo browser-route canaries then
+created three Contacts on Enterprise and three on local Community through the
+execution journal. Automatic reconciliation verified every created record.
+The local Community probe also matched the Local-mode shell and JSON-2 field
+contracts for nine models. On 2026-10-08, normal final Odoo 20 loading and
+recovery were declared supported without a version-specific opt-in switch.
+Visual browser behavior, interrupted-write recovery, completed-load correction,
+non-Contact execution, transfers, Integrated Test, and the deployment matrix
+remain known coverage gaps to resolve as encountered. Odoo 20 Production
+remains blocked and Phase 5 remains open for its separate promotion. See the
+[controlled write canary report](../testing/odoo20-write-canary-2026-10-08.md)
+and the
+[browser load canary report](../testing/odoo20-browser-load-canary-2026-10-08.md),
+plus the
+[local Community report](../testing/odoo20-local-community-canary-2026-10-08.md).
 
 **Reader:** Impodo maintainers deciding how to implement, test, and release
 dual-version support.
@@ -67,9 +76,11 @@ before destination matching. It resolves relationships in the destination
 using reviewed identities. A source database's numeric record IDs never
 become destination record IDs merely because both servers run the same version.
 
-The same-major rule and final Odoo 20 read boundary are implemented. The
-write, recovery, transfer-execution, and release behaviors described later in
-this plan remain proposed until Phases 4 and 5 are complete.
+The same-major rule and final Odoo 20 read boundary are implemented. Normal
+final Odoo 20 loading and recovery are enabled and declared supported based on
+the local Community and remote Enterprise Contact canaries. Transfer execution,
+non-Contact model coverage, and full deployment coverage remain follow-up
+qualification work. Odoo 20 Production remains blocked.
 
 ## Release evidence and assumptions
 
@@ -147,9 +158,9 @@ does not establish support for every module or custom database.
 | Workflow | Initial dual-support objective |
 | --- | --- |
 | File source to Odoo 19 | Preserve the current preparation, Test, load, and qualified Production behavior. |
-| File source to Odoo 20 | Connection, schema capture, comparison reads, and Recipe authoring are qualified. Test writes and Production remain blocked pending Phases 4 and 5. |
+| File source to Odoo 20 | Connection, schema capture, comparison reads, Recipe authoring, normal loading, recovery, and verification are supported for final 20.0. Production remains blocked pending its separate Phase 5 promotion. |
 | Odoo source capture | Bounded Odoo 20 capture is qualified locally and over remote HTTPS; write-back remains blocked. |
-| Odoo-to-Odoo transfer | Preserve 19 → 19 and qualify 20 → 20 within the existing transfer scope. |
+| Odoo-to-Odoo transfer | Support 19 → 19 and 20 → 20 within the existing transfer scope; keep both cross-major directions blocked. |
 | Cross-version transfer | Block both 19 → 20 and 20 → 19. Defer these to a separate future proposal. |
 | Recipe application | Apply an Odoo 19 Recipe only to Odoo 19, and an Odoo 20 Recipe only to Odoo 20. No cross-version conversion is included. |
 | Same-target Odoo round trip | Preserve the current protected-ID update rules and qualify them independently for each major. |
@@ -302,8 +313,8 @@ assuming accessible test installations. Re-estimate after the Odoo 20 probe.
 | 1. Establish the baseline | Record Odoo 19 builds, modules, and representative results. Inventory version checks and serialized evidence. Prepare an isolated, pinned development database for Odoo 20 investigation. | 1–2 days |
 | 2. Centralize policy | Introduce version recognition and operation decisions; route all current checks through them. Preserve Odoo 19 behavior, policy hashes, and Recipe fixtures. | 2–3 days |
 | 3. Qualify Odoo 20 reads | Completed 2026-09-23: final Community and Enterprise reads passed, separate policies were added, and native Odoo 20 UoM/BOM changes were recorded. | Completed |
-| 4. Qualify execution and version boundaries | In progress from 2026-10-08. The default-off development gate permits Test writes and recovery while Production remains blocked. One final Odoo 20 Enterprise Contact writer canary passed. Compatibility binding, the full execution and recovery path, Recipes, 20 → 20 transfers, and cross-version rejection evidence remain to be completed. | 3–5 days |
-| 5. Release and document | Re-run against final Odoo 20, complete the deployment matrix and browser checks, publish evidence and support scope, and enable qualified operations. | 2–3 days |
+| 4. Qualify execution and version boundaries | Support declared 2026-10-08. Direct Contact and file-to-Odoo canaries passed on remote Enterprise and local Community. Each browser-route canary journalled three creates and verified all three through reconciliation. Normal final Odoo 20 writes and recovery no longer require a version-specific switch. Visual browser checks, interrupted-write recovery, completed-load correction, Recipes, additional models, 20 → 20 transfers, and cross-version rejection evidence remain follow-up work. | Declared; follow-up coverage open |
+| 5. Release and document | Current support documentation and policy declare final Odoo 20 normal loading and recovery. Complete the remaining deployment matrix and browser checks before promoting Odoo 20 Production. | Production gate open |
 
 **Planning range: 10–16 engineering days, roughly 2–4 working weeks**, plus
 waiting time for final packages, suitable Enterprise environments, or material
@@ -311,9 +322,9 @@ upstream changes. Before release week, aim to complete slices 1 and 2 and
 start the development-build probes. Do not promise Production support on the
 Odoo launch date before final-build qualification.
 
-Keep the slices reviewable as separate pull requests. Slice 2 can ship while
-Odoo 20 remains disabled. Later slices may enable reads before writes, provided
-the UI and support matrix state the available operations accurately.
+Keep the remaining slices reviewable as separate pull requests. The UI and
+support matrix must continue to distinguish supported normal operations from
+the disabled Odoo 20 Production operation.
 
 ## Verification and release gates
 
@@ -393,11 +404,11 @@ the Odoo 19 regression gates remain green, and its supported scope is
 documented. The maintainer who owns the release records the tested builds,
 modules, deployment types, scenarios, results, and unresolved limitations.
 
-Provide a way to disable new Odoo 20 writes independently of Odoo 19. Preserve
-artifact viewing and qualified read-back or recovery access for existing
-journals; disabling new loads must not strand outcome investigation. If the
-release gate fails, continue shipping Odoo 19 and retain Odoo 20 as explicitly
-limited test support until the failed operation is fixed and requalified.
+If an operational kill switch is added later, keep it independent of Odoo 19
+and preserve artifact viewing and qualified read-back or recovery access for
+existing journals. Disabling new loads must not strand outcome investigation.
+A discovered failure narrows the documented operation or model scope until it
+is fixed and requalified; it does not authorize bypassing journal safety.
 
 Maintain Odoo 19 as a tested release target throughout the Odoo 20 lifecycle.
 Review its retirement when planning Odoo 21, with a separate support decision
@@ -439,14 +450,15 @@ documentation-quality and code-documentation test modules, and
 `git diff --check`. The test modules live under `tests.architecture`; the
 documentation skill's older test-module path was resolved to that location.
 
-The original proposal contacted no Odoo server. Phase 3 supersedes that
+The original proposal contacted no Odoo server. Phase 3 superseded that
 historical limitation for reads: a pinned local final Odoo 20 Community
-database and a temporary remote Enterprise Runbot were contacted and passed
-the sanitized read qualification. No Odoo 20 business-data write, recovery,
-or Production operation was run.
-
-Browser write tests, screenshots, and the remaining live write matrix belong
-to Phases 4 and 5.
+database and a temporary remote Enterprise Runbot passed the sanitized read
+qualification. Phase 4 also superseded the original write limitation. Direct
+writer and file-to-Odoo journal-and-reconciliation canaries passed on
+Enterprise and Community, and normal final Odoo 20 loading and recovery are
+now declared supported. Visual browser tests, screenshots, the remaining model
+matrix, Integrated Test, and transfer remain follow-up coverage. Production
+remains a separate Phase 5 gate.
 The installed architecture advisor was unavailable because its Windows
 preflight could not start; the proposal therefore has no independent advisor
 endorsement.

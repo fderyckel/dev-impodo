@@ -834,10 +834,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         target_page = self.client.get(f"/workspaces/{workspace_id}/target")
         self.assertIn("Connect the Odoo source", target_page.text)
-        self.assertIn("supported Odoo version", target_page.text)
         self.assertIn(
-            "A supported Odoo 19 source can then connect and match a separate "
-            "Odoo 19 destination; Odoo 20 remains read-only.",
+            "A supported Odoo 19 or final Odoo 20 source can connect and match "
+            "a separate destination of the same major. Cross-major transfer "
+            "remains blocked.",
             target_page.text,
         )
         self.assertIn(
@@ -847,7 +847,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertIn("Source access only", target_page.text)
         self.assertNotIn('name="keep_api_key_for_loading"', target_page.text)
-        self.assertIn("It does not discover models or fields", target_page.text)
+        self.assertIn("does not discover models or fields", target_page.text)
         files = self.client.get(
             f"/workspaces/{workspace_id}/files",
             follow_redirects=False,

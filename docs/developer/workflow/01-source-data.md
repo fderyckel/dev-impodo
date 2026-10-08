@@ -290,7 +290,7 @@ partial set or automatically freezes it on the operator's behalf.
 Background Odoo capture exposes explicit cancel and status routes. Do not
 interpret an interrupted job as a published snapshot.
 
-## Odoo 19 and performance
+## Odoo compatibility and performance
 
 Odoo source capture must remain bounded by an explicit selection and eligible
 field policy. Page reads are batched; adding per-row metadata or relationship

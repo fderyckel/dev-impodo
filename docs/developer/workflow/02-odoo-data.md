@@ -266,7 +266,7 @@ target, and field-validation failures retain their normal handling. If access
 changes again during the retry, the operation stops and retains the current
 schema and saved choices.
 
-## Odoo 19 and performance
+## Odoo compatibility and performance
 
 Opening `/workspaces/{workspace_id}/schema` renders saved evidence through
 `run_page_read`. The worker retains database handles for that page read and

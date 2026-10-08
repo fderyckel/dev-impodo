@@ -330,7 +330,7 @@ worker is still running.
 Use stage-level transactions and idempotent publication. Never repair a result
 by editing DuckDB rows directly.
 
-## Odoo 19 and performance
+## Odoo compatibility and performance
 
 Preparation makes zero Odoo calls. Direct transformations should remain on the
 native columnar path where supported. Python fallback, derived datasets, and

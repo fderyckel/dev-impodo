@@ -1,5 +1,5 @@
 extends: existence
-message: "Impodo targets Odoo 19. Keep '%s' only when the historical version is necessary and explicitly identified as historical."
+message: "Impodo targets Odoo 19 and final Odoo 20. Keep '%s' only when the historical version is necessary and explicitly identified as historical."
 level: warning
 ignorecase: false
 tokens:

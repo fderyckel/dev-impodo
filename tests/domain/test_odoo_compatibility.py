@@ -1,15 +1,12 @@
 """Exercise recognition separately from enabled operations and paired majors."""
 
-import os
 import unittest
-from unittest.mock import patch
 
 from impodo.domain.odoo.compatibility import (
     OdooOperation,
     OdooReleaseStage,
     OdooVersionProblem,
     assess_odoo_operation,
-    odoo20_test_writes_enabled,
     recognize_odoo_version,
     same_odoo_major,
 )
@@ -51,78 +48,35 @@ class OdooCompatibilityTests(unittest.TestCase):
                 with self.subTest(raw=raw, operation=operation):
                     self.assertFalse(assess_odoo_operation(raw, operation).allowed)
 
-    def test_final_odoo20_enables_only_qualified_read_and_recipe_operations(self):
-        with patch.dict(os.environ, {}, clear=True):
-            for raw in ("20.0", "20.0+e"):
-                for operation in (
-                    OdooOperation.CONNECT,
-                    OdooOperation.CAPTURE_SCHEMA,
-                    OdooOperation.CAPTURE_SOURCE,
-                    OdooOperation.COMPARE,
-                    OdooOperation.RECIPE,
-                ):
-                    with self.subTest(raw=raw, operation=operation):
-                        decision = assess_odoo_operation(raw, operation)
-                        self.assertTrue(decision.allowed)
-                        self.assertEqual(decision.reason, "ODOO_20_READ_QUALIFIED")
-                for operation in (
-                    OdooOperation.WRITE,
-                    OdooOperation.RECOVER,
-                    OdooOperation.PRODUCTION,
-                ):
-                    with self.subTest(raw=raw, operation=operation):
-                        decision = assess_odoo_operation(raw, operation)
-                        self.assertFalse(decision.allowed)
-                        self.assertEqual(decision.reason, "ODOO_OPERATION_DISABLED")
-
-    def test_odoo20_test_writes_require_both_explicit_environment_switches(self):
-        self.assertFalse(odoo20_test_writes_enabled({}))
-        self.assertFalse(
-            odoo20_test_writes_enabled({"IMPODO_ENABLE_ODOO20_TEST_WRITES": "1"})
-        )
-        self.assertFalse(
-            odoo20_test_writes_enabled({"IMPODO_DEVELOPMENT_MODE": "1"})
-        )
-        self.assertTrue(
-            odoo20_test_writes_enabled(
-                {
-                    "IMPODO_DEVELOPMENT_MODE": "1",
-                    "IMPODO_ENABLE_ODOO20_TEST_WRITES": "1",
-                }
-            )
-        )
-
-    def test_controlled_odoo20_mode_enables_write_and_recovery_only(self):
-        with patch.dict(
-            os.environ,
-            {
-                "IMPODO_DEVELOPMENT_MODE": "1",
-                "IMPODO_ENABLE_ODOO20_TEST_WRITES": "1",
-            },
-            clear=True,
-        ):
-            for operation in (OdooOperation.WRITE, OdooOperation.RECOVER):
-                with self.subTest(operation=operation):
-                    decision = assess_odoo_operation("20.0", operation)
+    def test_final_odoo20_supports_qualified_operations_but_not_production(self):
+        for raw in ("20.0", "20.0+e"):
+            for operation in (
+                OdooOperation.CONNECT,
+                OdooOperation.CAPTURE_SCHEMA,
+                OdooOperation.CAPTURE_SOURCE,
+                OdooOperation.COMPARE,
+                OdooOperation.RECIPE,
+            ):
+                with self.subTest(raw=raw, operation=operation):
+                    decision = assess_odoo_operation(raw, operation)
                     self.assertTrue(decision.allowed)
-                    self.assertEqual(decision.reason, "ODOO_20_TEST_WRITE_ENABLED")
-            self.assertFalse(
-                assess_odoo_operation("20.0", OdooOperation.PRODUCTION).allowed
-            )
+                    self.assertEqual(decision.reason, "ODOO_20_READ_QUALIFIED")
+            for operation in (OdooOperation.WRITE, OdooOperation.RECOVER):
+                with self.subTest(raw=raw, operation=operation):
+                    decision = assess_odoo_operation(raw, operation)
+                    self.assertTrue(decision.allowed)
+                    self.assertEqual(decision.reason, "ODOO_20_WRITE_SUPPORTED")
+            decision = assess_odoo_operation(raw, OdooOperation.PRODUCTION)
+            self.assertFalse(decision.allowed)
+            self.assertEqual(decision.reason, "ODOO_OPERATION_DISABLED")
 
-    def test_explicit_policy_argument_does_not_enable_prerelease_or_production(self):
+    def test_prerelease_and_production_operations_remain_disabled(self):
         for raw, operation in (
             ("20.0rc1", OdooOperation.WRITE),
             ("20.0", OdooOperation.PRODUCTION),
         ):
             with self.subTest(raw=raw, operation=operation):
-                self.assertFalse(
-                    assess_odoo_operation(
-                        raw,
-                        operation,
-                        allow_odoo20_test_writes=True,
-                    ).allowed
-                )
+                self.assertFalse(assess_odoo_operation(raw, operation).allowed)
 
     def test_missing_and_malformed_strings_never_establish_a_major(self):
         for raw in (None, "", "unknown", 19, True, [], {}, "19", "19.", "19.garbage",
@@ -181,13 +135,7 @@ class OdooCompatibilityTests(unittest.TestCase):
         ):
             with self.subTest(source=source, target=target):
                 self.assertEqual(same_odoo_major(source, target), expected)
-        self.assertFalse(
-            assess_odoo_operation(
-                "20.0",
-                OdooOperation.WRITE,
-                allow_odoo20_test_writes=False,
-            ).allowed
-        )
+        self.assertTrue(assess_odoo_operation("20.0", OdooOperation.WRITE).allowed)
         self.assertTrue(assess_odoo_operation("20.0", OdooOperation.COMPARE).allowed)
 
 

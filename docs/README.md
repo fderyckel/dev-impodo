@@ -80,7 +80,7 @@ records remain in Git history.
 - [Impodo remaining work](plans/remaining-work.md) is the broad roadmap and
   records the deferred tracks and current row limits.
 - [Odoo 19 and Odoo 20 support](plans/odoo-19-and-20-support.md) records the
-  implemented Odoo 20 read boundary and the remaining write and release gates.
+  implemented Odoo 20 support boundary and the remaining Production gate.
 - [Maintainable code and focused execution services](plans/maintainable-code-and-execution-services.md)
   proposes coding practices, automated checks, and a focused execution refactor.
 - [End-to-end trial and scenario qualification](plans/end-to-end-trial-and-scenario-qualification.md)
@@ -88,7 +88,8 @@ records remain in Git history.
   scenarios, recovery, and scheduling beyond the implemented profile runner.
 - [Generic Odoo-to-Odoo migration](plans/odoo-to-odoo-migration.md)
   records the staged work to capture related records, match them in a second
-  Odoo 19 instance, and verify one approved load across supported models.
+  same-major Odoo 19 or final Odoo 20 instance, and verify one approved load
+  across supported models.
 - [VM deployment with DuckDB and managed workers](plans/vm-deployment-duckdb-worker-management.md)
   proposes internal VM deployment, Entra sign-in, durable worker coordination,
   resource controls, recovery, and pilot acceptance.

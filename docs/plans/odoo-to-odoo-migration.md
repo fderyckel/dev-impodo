@@ -4,8 +4,9 @@
 
 **Status:** Active implementation plan, started 2026-09-17.
 
-A data manager selects the Odoo 19 records to move from one instance to
-another. The records may be Contacts, Products, bills of materials,
+A data manager selects records from a supported Odoo 19 or final Odoo 20
+instance to move to another instance of the same major. The records may be
+Contacts, Products, bills of materials,
 transactions, or records from an installed custom model. Impodo proposes the
 related records needed by the selected data, lets the manager decide what to
 reuse, create, or update in the destination, and executes one approved plan.
@@ -17,8 +18,9 @@ from a model's name. A model with business actions or generated records may
 need a separately qualified handler; the generic create/write path must stop
 when it cannot prove a safe result.
 
-The first qualification uses two distinct disposable Odoo 19 instances with
-the same major version. Odoo 20 and Production cutover have separate gates.
+The supported transfer pairs use two distinct disposable instances of the
+same major: 19 to 19 or 20 to 20. Cross-major transfer and Odoo 20 Production
+remain blocked.
 
 ## Current implementation used by this plan
 

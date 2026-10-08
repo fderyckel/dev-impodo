@@ -8,8 +8,8 @@ status: current
 
 ## Goal
 
-Explicitly load the exact reviewed plan for the current data version
-into its approved Odoo 19 target, then verify the recorded outcome.
+Explicitly load the exact reviewed plan for the current data version into its
+approved Odoo 19 or final Odoo 20 target, then verify the recorded outcome.
 
 Impodo currently has two paths at this stage. A prepared-data workspace can
 continue through the existing load and verification steps. An Odoo-to-Odoo
@@ -18,11 +18,11 @@ separate preparation, explicit load confirmation, and destination read-back.
 
 ## Odoo-to-Odoo transfer
 
-Use this path when the current data version was downloaded from one Odoo 19
-database and will be loaded into a different Odoo 19 database. The source key
-can only read the source. The destination transfer key belongs only to the
-destination. Impodo does not ask for a third key. An Odoo 20 source remains
-read-only and cannot continue into this load path.
+Use this path when the current data version was downloaded from one supported
+Odoo database and will be loaded into a different database of the same major:
+19 to 19 or 20 to 20. The source key can only read the source. The destination
+transfer key belongs only to the destination. Impodo does not ask for a third
+key. Cross-major transfers remain blocked.
 
 ### 1. Connect the destination
 
@@ -217,7 +217,8 @@ approval, execution, or read-back evidence.
 
 ## What to check
 
-- The target is the intended disposable Local or Remote Odoo 19 database.
+- The target is the intended disposable Local or Remote Odoo 19 or final Odoo
+  20 database.
 - The preview hash and totals are the current reviewed values.
 - Every writable field is within the approved scope.
 - The first visible load groups put supporting records before records that use

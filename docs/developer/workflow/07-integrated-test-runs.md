@@ -440,7 +440,7 @@ generation changes plan meaning and requires a new operation. Exact replay may
 resume a faulted operation; changed meaning under the same operation ID is
 rejected.
 
-## Odoo 19 and performance
+## Odoo compatibility and performance
 
 The current implementation accepts Odoo 19. Supporting a later Odoo major
 version requires extending and testing the compatibility policy. The browser

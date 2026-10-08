@@ -1,8 +1,9 @@
 # Connect to Odoo on this computer
 
-Use this guide when Odoo 19 and PostgreSQL already run, or are installed, on
-the same Windows computer as Impodo. Impodo can check the local setup and help
-start it, but it does not install Odoo or PostgreSQL.
+Use this guide when supported Odoo 19 or final Odoo 20 and PostgreSQL already
+run, or are installed, on the same Windows computer as Impodo. Impodo can
+check the local setup and help start it, but it does not install Odoo or
+PostgreSQL.
 
 ## Before you start
 
@@ -50,7 +51,7 @@ Impodo blocks a setup that points to a different address or database.
 | --- | --- |
 | Configuration | The selected paths and local connection settings are safe to use |
 | PostgreSQL | The configured database server is accepting connections |
-| Odoo server | The local web address responds as Odoo 19 |
+| Odoo server | The local web address responds as a supported Odoo version |
 | Database access | Impodo can open the chosen database read-only |
 
 Always read the message beside a check. Green means ready; orange or red needs

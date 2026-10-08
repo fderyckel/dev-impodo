@@ -101,7 +101,7 @@
   </bpmn:process>
   <bpmn:collaboration id="Collaboration_Process_ProductionRollout">
     <bpmn:participant id="Participant_Process_ProductionRollout" name="Production rollout with latest data" processRef="Process_ProductionRollout" />
-    <bpmn:participant id="Participant_Odoo" name="Exact Odoo 19 target" />
+    <bpmn:participant id="Participant_Odoo" name="Exact Odoo 19 Production target" />
     <bpmn:messageFlow id="Message_PR_Read" name="Read schema and supporting values" sourceRef="Task_PR_Target" targetRef="Participant_Odoo" />
     <bpmn:messageFlow id="Message_PR_ReadResponse" name="Current Production evidence" sourceRef="Participant_Odoo" targetRef="Task_PR_Target" />
     <bpmn:messageFlow id="Message_PR_WriteProbe" name="Bounded write-identity probe" sourceRef="Task_PR_Check" targetRef="Participant_Odoo" />

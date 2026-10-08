@@ -9,7 +9,7 @@ status: current
 ## Purpose
 
 Impodo is a local browser application that helps a data manager prepare,
-compare, and load governed data into Odoo 19.
+compare, and load governed data into Odoo 19 or final Odoo 20.
 
 A **Project** is the business and governance root. It can finish as one-off
 migration work with no Recipe, or it can contain separately versioned Recipes.
@@ -222,7 +222,8 @@ Remote read access uses closed qualified Odoo 19 or final Odoo 20 JSON-2
 operations. Read adapters cannot
 create, write, unlink, import, execute SQL, or call arbitrary model methods.
 The separate writer acts only after exact schema-bound evidence and explicit
-confirmation. The writer remains disabled for Odoo 20.
+confirmation. It supports Odoo 19 and final Odoo 20; Odoo 20 Production remains
+disabled by the operation policy.
 
 Project and run list projections are bounded registry reads. The overview
 currently opens only its one Authoring workspace when computing Recipe

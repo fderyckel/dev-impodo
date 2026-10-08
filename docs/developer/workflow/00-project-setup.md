@@ -131,7 +131,7 @@ Reusing it for different Project meaning fails closed. Source acceptance is
 immutable; replacement evidence requires a new DataVersion workflow rather
 than editing the accepted package.
 
-## Odoo 19 and performance
+## Odoo compatibility and performance
 
 Project list and overview use bounded registry projections. Do not add a
 workspace-store or protected-payload read inside a list loop. Connection checks

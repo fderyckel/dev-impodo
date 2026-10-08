@@ -166,10 +166,10 @@ Discovery includes standard, extended, and custom models. It must not assume
 that an `x_` prefix is the only way to identify custom behavior.
 
 Schema discovery is implemented through a separate narrow metadata
-capability. Remote reads expose only Odoo 19 JSON-2 `fields_get` and
-`search_read`; Local mode uses fixed, bounded metadata and record-reading
-scripts derived from the selected `odoo.conf`. Neither reader exposes a
-generic Odoo method surface.
+capability. Remote reads expose only supported Odoo 19 or final Odoo 20 JSON-2
+`fields_get` and `search_read`; Local mode uses fixed, bounded metadata and
+record-reading scripts derived from the selected `odoo.conf`. Neither reader
+exposes a generic Odoo method surface.
 
 ### Stage D — Build and approve the mapping
 

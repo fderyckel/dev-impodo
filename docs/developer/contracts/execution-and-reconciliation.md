@@ -313,8 +313,9 @@ identifiers, and semantic hashes.
 
 ## Access boundary
 
-Remote writes use named, scoped Odoo 19 JSON-2 operations. Read-back uses a
-separate interface so a read-only component cannot invoke a write method.
+Remote writes use named, scoped Odoo 19 or final Odoo 20 JSON-2 operations.
+Read-back uses a separate interface so a read-only component cannot invoke a
+write method.
 Bounded crosswalk and write batching behavior are owned by the implementation
 page.
 

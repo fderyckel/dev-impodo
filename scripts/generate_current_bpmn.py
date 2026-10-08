@@ -77,6 +77,7 @@ class ProcessSpec:
     )
     message_flows: tuple[MessageFlow, ...] = ()
     documentation: str = ""
+    odoo_participant_name: str = "Exact supported Odoo target"
 
 
 def event(event_id: str, kind: str, name: str, x: int, y: int, lane: str) -> Node:
@@ -466,7 +467,7 @@ def build_specs() -> tuple[ProcessSpec, ...]:
             Flow("Flow_LOAD_34", "Task_ExecuteCorrection", "End_CorrectionVerified"),
         ),
         message_flows=(
-            MessageFlow("Message_LOAD_Write", "Task_Write", "Participant_Odoo", "Supported Odoo 19 API write"),
+            MessageFlow("Message_LOAD_Write", "Task_Write", "Participant_Odoo", "Supported Odoo API write"),
             MessageFlow("Message_LOAD_WriteResponse", "Participant_Odoo", "Task_Write", "Write response"),
             MessageFlow("Message_LOAD_ReadBack", "Task_ReadBack", "Participant_Odoo", "Read exact affected scope"),
             MessageFlow("Message_LOAD_ReadBackResponse", "Participant_Odoo", "Task_ReadBack", "Current record state"),
@@ -563,6 +564,7 @@ def build_specs() -> tuple[ProcessSpec, ...]:
             "isolated application work, guarded execution, and reconciliation. "
             "Test supplies qualified reusable meaning only."
         ),
+        odoo_participant_name="Exact Odoo 19 Production target",
         nodes=(
             event("Start_PR", "startEvent", "Rollout candidate selected", 70, 130, "Lane_DataManager"),
             task("Task_PR_Start", "userTask", "Start Production setup and enter export cutoff", 150, 110, "Lane_DataManager"),
@@ -693,7 +695,7 @@ def render(spec: ProcessSpec) -> str:
         ET.SubElement(
             collaboration,
             q(BPMN, "participant"),
-            {"id": "Participant_Odoo", "name": "Exact Odoo 19 target"},
+            {"id": "Participant_Odoo", "name": spec.odoo_participant_name},
         )
         for message in spec.message_flows:
             ET.SubElement(

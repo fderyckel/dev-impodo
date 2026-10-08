@@ -1,9 +1,9 @@
 # Impodo user documentation
 
 This documentation is for the data manager preparing and reviewing migration
-work in the Impodo browser. Impodo can load supported Odoo 19 targets. Final
-Odoo 20 currently supports reading, preparation, and Recipe authoring, but not
-loading, recovery, Integrated Test writes, or Production.
+work in the Impodo browser. Impodo can read, prepare, load, recover, and verify
+supported Odoo 19 and final Odoo 20 targets. Odoo 20 Production remains
+disabled and requires a separate promotion decision.
 
 Start with [Create a data project](getting-started.md). When you create or
 change the rules in an Authoring workspace, follow its six stages:

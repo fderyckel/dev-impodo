@@ -15,7 +15,8 @@ the load stage.
 ## Before you start
 
 Prepared data must be complete for the current source, schema, and mapping.
-Use a reachable Odoo 19 target with the approved read access.
+Use a reachable supported Odoo 19 or final Odoo 20 target with the approved
+read access.
 
 ## Steps in Impodo
 

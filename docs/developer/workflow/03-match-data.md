@@ -826,7 +826,7 @@ warm cached search, 10 seconds for a coalesced four-generation search burst,
 memory. It also verifies that the mapping renderer has no running event loop,
 records the detailed server timing phases, and prints the measured baseline.
 
-## Odoo 19 and performance
+## Odoo compatibility and performance
 
 Use Odoo technical field names and stable selection codes internally while
 presenting business labels. Relationship validation must resolve by portable

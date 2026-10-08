@@ -335,7 +335,7 @@ checkout.
 ## Step 10 — Prepare Odoo access when required
 
 Impodo can start without Odoo. A complete migration workflow additionally
-needs an approved Odoo 19 target.
+needs an approved Odoo 19 or final Odoo 20 target.
 
 For a remote target, obtain through the approved process:
 

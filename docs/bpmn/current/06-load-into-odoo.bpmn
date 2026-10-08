@@ -209,8 +209,8 @@
   </bpmn:process>
   <bpmn:collaboration id="Collaboration_Process_LoadOdoo">
     <bpmn:participant id="Participant_Process_LoadOdoo" name="Load into Odoo" processRef="Process_LoadOdoo" />
-    <bpmn:participant id="Participant_Odoo" name="Exact Odoo 19 target" />
-    <bpmn:messageFlow id="Message_LOAD_Write" name="Supported Odoo 19 API write" sourceRef="Task_Write" targetRef="Participant_Odoo" />
+    <bpmn:participant id="Participant_Odoo" name="Exact supported Odoo target" />
+    <bpmn:messageFlow id="Message_LOAD_Write" name="Supported Odoo API write" sourceRef="Task_Write" targetRef="Participant_Odoo" />
     <bpmn:messageFlow id="Message_LOAD_WriteResponse" name="Write response" sourceRef="Participant_Odoo" targetRef="Task_Write" />
     <bpmn:messageFlow id="Message_LOAD_ReadBack" name="Read exact affected scope" sourceRef="Task_ReadBack" targetRef="Participant_Odoo" />
     <bpmn:messageFlow id="Message_LOAD_ReadBackResponse" name="Current record state" sourceRef="Participant_Odoo" targetRef="Task_ReadBack" />

@@ -51,7 +51,7 @@ DEVELOPER_HEADINGS = (
     "Evidence and state",
     "Completion and navigation",
     "Invalidation and recovery",
-    "Odoo 19 and performance",
+    "Odoo compatibility and performance",
     "Verification",
     "Related documentation",
 )

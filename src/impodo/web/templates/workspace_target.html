@@ -17,6 +17,10 @@
     {% set is_recipe_production = migration_context and migration_context.data_version_purpose == 'PRODUCTION' %}
     <p class="eyebrow">{% if source_return_token %}Source data · Odoo access{% elif is_recipe_test %}Recipe rehearsal · Test destination{% elif is_recipe_production %}Recipe rollout · Production destination{% elif is_odoo_source %}Data project source{% else %}Odoo access{% endif %}</p>
     <h1>{% if is_recipe_test %}Connect the Test Odoo server{% elif is_recipe_production %}Connect the Production Odoo server{% elif is_odoo_source %}Connect the Odoo source{% else %}Connect the Odoo destination{% endif %}</h1>
+    {% if is_odoo_source %}
+      <p>A supported Odoo 19 or final Odoo 20 source can connect and match a separate destination of the same major. Cross-major transfer remains blocked.</p>
+      <p>Nothing is written to an eligible destination until you explicitly confirm the Stage 6 load. This connection check does not discover models or fields.</p>
+    {% endif %}
     {% if source_return_token %}
       <div class="notice"><strong>Odoo access for Source data</strong><span>Finish this check to load the record types needed for Separate combined information. You will return to that Source data choice.</span></div>
     {% endif %}

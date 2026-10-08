@@ -208,7 +208,8 @@ It does not reopen the completed workspace or reuse its write authority.
   target-bound values remain `RESTRICTED_TARGET_EVIDENCE`. Impodo encrypts them
   before persistence and excludes them from portable mappings, snapshots,
   reports, downloads, and ordinary journal projections.
-- The writer uses only the Odoo 19 ORM-backed JSON-2 surface and the exact
+- The writer uses only the supported Odoo 19 or final Odoo 20 ORM-backed
+  JSON-2 surface and the exact
   reviewed model, record IDs, and fields. It exposes no generic client,
   direct SQL, `sudo`, caller-selected method, import fallback, or browser
   automation.

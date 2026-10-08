@@ -1,19 +1,16 @@
 """Recognize reported Odoo versions and decide which operations are enabled.
 
 Recognition is separate from support. Odoo 19 preserves its existing operation
-set, including development builds. Final Odoo 20 enables the read and
-Recipe-authoring boundaries qualified in Phase 3. A separate default-off
-development switch can enable Test writes and recovery for live qualification;
-Production remains disabled. These transient decisions add no fields to stored
-fingerprints or policy hashes.
+set, including development builds. Final Odoo 20 supports the qualified read,
+Recipe-authoring, write, and recovery boundaries. Production remains a
+separate operation and is not enabled for Odoo 20. These decisions add no
+fields to stored fingerprints or policy hashes.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
-import os
 import re
 
 
@@ -100,28 +97,10 @@ _ODOO_20_READ_OPERATIONS = frozenset({
     OdooOperation.COMPARE,
     OdooOperation.RECIPE,
 })
-_ODOO_20_TEST_WRITE_OPERATIONS = frozenset({
+_ODOO_20_WRITE_OPERATIONS = frozenset({
     OdooOperation.WRITE,
     OdooOperation.RECOVER,
 })
-ODOO20_TEST_WRITES_ENV = "IMPODO_ENABLE_ODOO20_TEST_WRITES"
-_DEVELOPMENT_MODE_ENV = "IMPODO_DEVELOPMENT_MODE"
-
-
-def odoo20_test_writes_enabled(
-    environment: Mapping[str, str] | None = None,
-) -> bool:
-    """Return whether this process explicitly permits Odoo 20 Test writes.
-
-    Qualification mode requires both disposable-data development mode and the
-    Odoo 20-specific opt-in. It never enables Production operations.
-    """
-
-    current = environment if environment is not None else os.environ
-    return (
-        current.get(_DEVELOPMENT_MODE_ENV, "").strip() == "1"
-        and current.get(ODOO20_TEST_WRITES_ENV, "").strip() == "1"
-    )
 
 
 def recognize_odoo_version(
@@ -152,17 +131,14 @@ def recognize_odoo_version(
 def assess_odoo_operation(
     version: str | OdooVersion,
     operation: OdooOperation,
-    *,
-    allow_odoo20_test_writes: bool | None = None,
 ) -> OdooSupportDecision:
     """Apply the qualified version gate to one named operation.
 
     The accepted Odoo 19 release forms retain their previous behavior. SaaS
     series, Odoo 20 prereleases, and all other majors remain disabled. Final
-    Odoo 20 permits read and Recipe-authoring operations. Test writes and
-    recovery require the explicit qualification switch; Production remains
-    disabled. Model, access, schema freshness, and Production checks still
-    apply.
+    Odoo 20 permits qualified read, Recipe-authoring, write, and recovery
+    operations. Production remains disabled. Model, access, schema freshness,
+    and Production checks still apply.
     """
 
     recognized = version if isinstance(version, OdooVersion) else recognize_odoo_version(version)
@@ -193,19 +169,12 @@ def assess_odoo_operation(
                 True,
                 "ODOO_20_READ_QUALIFIED",
             )
-        elif (
-            operation in _ODOO_20_TEST_WRITE_OPERATIONS
-            and (
-                odoo20_test_writes_enabled()
-                if allow_odoo20_test_writes is None
-                else allow_odoo20_test_writes
-            )
-        ):
+        elif operation in _ODOO_20_WRITE_OPERATIONS:
             return OdooSupportDecision(
                 recognized,
                 operation,
                 True,
-                "ODOO_20_TEST_WRITE_ENABLED",
+                "ODOO_20_WRITE_SUPPORTED",
             )
         else:
             reason = "ODOO_OPERATION_DISABLED"

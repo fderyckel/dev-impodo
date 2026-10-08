@@ -230,7 +230,7 @@ when target state is uncertain.
 Generated workbooks and packages are immutable outputs. Regenerate them from a
 new comparison rather than editing their manifest.
 
-## Odoo 19 and performance
+## Odoo compatibility and performance
 
 The preflight planner groups metadata and record reads by target model. Keep
 domains bounded and reject unrestricted record requests. Adding one
@@ -242,8 +242,8 @@ only the authorized supplemental models named by the plan, not every relation
 present in captured metadata. Source-row count must not increase either probe
 count.
 
-Target reads must use the narrow Odoo 19 read connector. No generic method call
-and no write method belongs in this stage.
+Target reads must use the narrow connector for the supported Odoo major. No
+generic method call and no write method belongs in this stage.
 
 Synchronous summary rendering, full execution-preview construction, and
 fallback comparison rendering must run outside the event loop. Overview runs

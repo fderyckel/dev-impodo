@@ -13,7 +13,7 @@ each value becomes an Odoo field, and see what will be created or updated
 before you authorize a load. Save reusable rules as **Recipes** when the next
 delivery should follow the same decisions.
 
-**Odoo 19 · Python 3.12+ · Windows and macOS · Local data processing**
+**Odoo 19 and final Odoo 20 · Python 3.12+ · Windows and macOS · Local data processing**
 
 [Get started](#get-started) ·
 [Take the tutorial](docs/user/tutorials/end-to-end-training.md) ·
@@ -127,7 +127,7 @@ for worked examples and the exact meaning of each rule.
 
 ### Load, verify, and correct
 
-- **Load the exact reviewed changes.** Impodo uses the Odoo 19 native JSON-2
+- **Load the exact reviewed changes.** Impodo uses the Odoo 19 and final Odoo 20 JSON-2
   API for supported creates and updates, with stable External IDs on supported
   create paths. It loads dependencies in order and completes eligible optional
   relationships in a later pass.
@@ -237,7 +237,7 @@ disposable data. For approved internal data, follow the
 
 ## Compatibility and operating boundaries
 
-- **Odoo 19 is the supported integration target.** Available models and fields
+- **Odoo 19 and final Odoo 20 are supported integration targets.** Available models and fields
   depend on the installed Odoo applications, captured schema, permissions,
   and supported mapping and write capabilities.
 - **Impodo runs locally on Windows and macOS.** Its browser server binds to
@@ -272,7 +272,7 @@ details. Future work is tracked in the
 | Local persistence | **DuckDB** stores project registries, workspace state, and migration evidence. |
 | File handling | **openpyxl** handles Excel workbooks; CSV inspection and parsing support governed source acceptance. |
 | Protected data and credentials | **cryptography** and **keyring** support protected evidence and local credential storage. |
-| Odoo integration | Scoped **Odoo 19 JSON-2** adapters provide native API loading and read-back; dedicated read adapters capture schema and reference evidence. |
+| Odoo integration | Scoped **Odoo 19 and final Odoo 20 JSON-2** adapters provide native API loading and read-back; dedicated read adapters capture schema and reference evidence. |
 | Developer workflows | **PyYAML** supports declarative profiles; **unittest** covers domain, application, adapter, browser-route, architecture, and performance behavior. |
 
 The code separates browser handlers, application workflows, domain rules, and

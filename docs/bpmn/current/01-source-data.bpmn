@@ -110,7 +110,7 @@
   </bpmn:process>
   <bpmn:collaboration id="Collaboration_Process_SourceData">
     <bpmn:participant id="Participant_Process_SourceData" name="Source data" processRef="Process_SourceData" />
-    <bpmn:participant id="Participant_Odoo" name="Exact Odoo 19 target" />
+    <bpmn:participant id="Participant_Odoo" name="Exact supported Odoo target" />
     <bpmn:messageFlow id="Message_SRC_Read" name="Bounded record read" sourceRef="Task_CaptureOdoo" targetRef="Participant_Odoo" />
     <bpmn:messageFlow id="Message_SRC_Response" name="Selected records" sourceRef="Participant_Odoo" targetRef="Task_CaptureOdoo" />
   </bpmn:collaboration>

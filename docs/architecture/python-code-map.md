@@ -325,8 +325,8 @@ not issue one repository or Odoo request per row, field, or relationship.
 
 Odoo adapters expose closed operations. Search and schema reads are qualified
 for Odoo 19 and final Odoo 20 and are batched by model. Target keys are indexed
-once, and write authority remains separate from read capability; Odoo 20 write
-authority is not enabled.
+once, and write authority remains separate from read capability. Normal writes
+and recovery support both majors; Odoo 20 Production remains disabled.
 
 ## Focused verification
 

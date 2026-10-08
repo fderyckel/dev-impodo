@@ -29,8 +29,8 @@ Impodo has two different safety boundaries:
 - Source inspection, preparation, transformation review, and Odoo comparison
   are read-only. They do not change the registered files or Odoo.
 - **Load into Odoo** is a separate, explicit action. It is currently available
-  for an approved disposable Local or Remote Odoo 19 target. It is not a
-  production cutover action.
+  for an approved disposable Local or Remote Odoo 19 or final Odoo 20 target.
+  It is not a production cutover action.
 
 ## The training project
 
@@ -500,8 +500,9 @@ frozen comparison and explicit load confirmation.
 ## 10. Preview and submit the Odoo load
 
 The current load action is limited to an approved disposable Local or Remote
-Odoo 19 target. Production loading requires separate change, access, backup,
-monitoring, and cutover controls.
+Odoo 19 or final Odoo 20 target. Production loading requires separate change,
+access, backup, monitoring, and cutover controls; Odoo 20 Production remains
+disabled.
 
 Open **Load into Odoo** only after the latest comparison is complete. Review:
 
