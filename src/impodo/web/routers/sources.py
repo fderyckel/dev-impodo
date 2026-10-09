@@ -61,6 +61,11 @@ from ...domain.odoo_source_scope import (
     RelatedDataHandling,
     propose_related_odoo_data,
     related_model_can_be_selected,
+    related_model_should_default_linked_only,
+)
+from ...domain.odoo_relationship_scope import (
+    relationship_scope_decisions,
+    review_relationship_scope,
 )
 from ...domain.odoo_capture import (
     ODOO_CAPTURE_PAGE_SIZES,
@@ -417,6 +422,11 @@ def build_sources_router(context: WebContext) -> APIRouter:
             }
             available = {item.name for item in model_catalog.models}
             allowed = selectable & available
+            current_relationship_scope = (
+                context.queries.get_current_odoo_relationship_scope(
+                    workspace_id
+                )
+            )
             submitted = {
                 str(item).strip()
                 for item in form.getlist("related_models")
@@ -442,6 +452,12 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
                 expected_revision=_revision(form),
                 permitted_models=next_models,
+                relationship_decisions=relationship_scope_decisions(
+                    suggestions,
+                    included_models=submitted,
+                    available_models=available,
+                    current_scope=current_relationship_scope,
+                ),
             )
             return workspace_state, saved_workspace_state
 
@@ -449,8 +465,47 @@ def build_sources_router(context: WebContext) -> APIRouter:
             workspace_state, saved_workspace_state = await run_local_operation(
                 save_related_scope
             )
-            if saved_workspace_state.revision != workspace_state.revision:
+            if (
+                saved_workspace_state.intended_models
+                != workspace_state.intended_models
+            ):
                 await _capture_selected_schema(context, saved_workspace_state)
+
+            def current_relationship_review():
+                current_schema = context.queries.get_odoo_schema_catalog(
+                    workspace_id
+                )
+                current_catalog = context.queries.get_odoo_model_catalog(
+                    workspace_id
+                )
+                current_scope = (
+                    context.queries.get_current_odoo_relationship_scope(
+                        workspace_id
+                    )
+                )
+                if current_schema is None:
+                    raise WorkspaceStateError(
+                        "Refresh the selected Odoo record types and fields"
+                    )
+                return review_relationship_scope(
+                    propose_related_odoo_data(
+                        current_schema.models,
+                        include_selected=True,
+                    ),
+                    current_scope,
+                    available_models=(
+                        item.name
+                        for item in (
+                            current_catalog.models
+                            if current_catalog is not None
+                            else ()
+                        )
+                    ),
+                )
+
+            relationship_review = await run_local_operation(
+                current_relationship_review
+            )
         except (
             ConnectorError,
             WorkspaceStateError,
@@ -469,11 +524,33 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
             return await run_page_read(render_error)
         request.session.pop(_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY, None)
-        _flash(
-            request,
-            "Saved the related Odoo data. Review and save a capture plan for "
-            "each selected record type.",
-        )
+        if relationship_review.complete:
+            _flash(
+                request,
+                "Related-data review complete. Review and save a capture plan "
+                "for each selected record type.",
+            )
+        elif relationship_review.pending:
+            count = len(relationship_review.pending)
+            _flash(
+                request,
+                f"Impodo found {count} more relationship"
+                f"{'s' if count != 1 else ''}. Review and save the next "
+                "related-data decisions.",
+            )
+        else:
+            count = len(
+                {
+                    item.relation_model
+                    for item in relationship_review.unavailable
+                }
+            )
+            _flash(
+                request,
+                f"{count} related record type"
+                f"{'s are' if count != 1 else ' is'} unavailable. Refresh "
+                "the available Odoo record types before continuing.",
+            )
         return RedirectResponse(
             f"/workspaces/{workspace_id}/sources#related-data-scope",
             status_code=303,
@@ -739,6 +816,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     "Save a capture plan for every selected Odoo record type "
                     "before freezing records."
                 )
+            context.odoo_source_capture.require_complete_relationship_scope(
+                workspace_id,
+                actor=context.actor,
+            )
             selection_set_hash = odoo_capture_selection_set_hash(selections)
             submitted_hash = _text(form, "selection_hash")
             legacy_selection = selections[0] if len(selections) == 1 else None
@@ -1282,6 +1363,9 @@ def _render_odoo_capture_selection(
     current_selections = context.queries.get_current_odoo_capture_selections(
         workspace_state.workspace_id
     )
+    relationship_scope = context.queries.get_current_odoo_relationship_scope(
+        workspace_state.workspace_id
+    )
     current_by_model = {item.model: item for item in current_selections}
     models = tuple(schema.models) if schema is not None else ()
     selected_models = {item.name for item in models}
@@ -1301,13 +1385,18 @@ def _render_odoo_capture_selection(
                 model_catalog.models if model_catalog is not None else ()
             )
         },
-        selected_models=frozenset(workspace_state.intended_models),
+        selected_models=(
+            relationship_scope.included_models
+            if relationship_scope is not None
+            else frozenset(workspace_state.intended_models)
+        ),
         available_models=frozenset(
             item.name
             for item in (
                 model_catalog.models if model_catalog is not None else ()
             )
         ),
+        relationship_scope=relationship_scope,
     )
     linked_models = {
         item.model for item in current_selections
@@ -1348,10 +1437,7 @@ def _render_odoo_capture_selection(
     linked_only_models = frozenset(
         item.relation_model
         for item in related_data_suggestions
-        if item.handling in {
-            RelatedDataHandling.INCLUDE_SUPPORTING,
-            RelatedDataHandling.REUSE_DESTINATION,
-        }
+        if related_model_should_default_linked_only(item.handling)
     )
     recommend_linked_only = bool(
         selected_model is not None
@@ -1449,6 +1535,7 @@ def _render_odoo_capture_selection(
     )
     capture_ready_to_assess = bool(
         plans_complete
+        and related_data_scope.complete
         and not capture_plan_errors
         and not access_refresh_required
         and schema is not None

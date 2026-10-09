@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import unittest
 
+from impodo.domain.odoo_relationship_profiles import OdooRelationshipProfile
 from impodo.domain.odoo_source_scope import (
     RelatedDataHandling,
     propose_related_odoo_data,
+    related_model_can_be_selected,
+    related_model_should_default_linked_only,
 )
 from impodo.domain.workspace.contracts import SchemaField, SchemaModel
 
@@ -66,7 +69,7 @@ class OdooSourceScopeTests(unittest.TestCase):
             },
         )
 
-    def test_selected_or_ineligible_relationships_are_not_proposed(self) -> None:
+    def test_selected_and_unsafe_relationships_are_not_selectable(self) -> None:
         product = SchemaModel(
             name="product.template",
             label="Product",
@@ -101,14 +104,25 @@ class OdooSourceScopeTests(unittest.TestCase):
         uom = SchemaModel(name="uom.uom", label="Unit of Measure", fields=())
         company = SchemaModel(name="res.company", label="Company", fields=())
 
-        self.assertEqual(propose_related_odoo_data((product, uom, company)), ())
+        visible = propose_related_odoo_data((product, uom, company))
+        self.assertEqual(len(visible), 1)
+        self.assertEqual(visible[0].field_name, "x_related_id")
+        self.assertIs(
+            visible[0].handling,
+            RelatedDataHandling.ODOO_MANAGED,
+        )
+        self.assertFalse(related_model_can_be_selected(visible[0].handling))
         included = propose_related_odoo_data(
             (product, uom, company),
             include_selected=True,
         )
         self.assertEqual(
-            tuple(item.relation_model for item in included),
-            ("res.company", "uom.uom"),
+            {item.field_name: item.handling for item in included},
+            {
+                "company_id": RelatedDataHandling.REUSE_DESTINATION,
+                "uom_id": RelatedDataHandling.INCLUDE_SUPPORTING,
+                "x_related_id": RelatedDataHandling.ODOO_MANAGED,
+            },
         )
 
     def test_unit_category_is_supporting_data_when_discovered(self) -> None:
@@ -134,6 +148,11 @@ class OdooSourceScopeTests(unittest.TestCase):
             suggestions[0].handling,
             RelatedDataHandling.INCLUDE_SUPPORTING,
         )
+        self.assertEqual(
+            suggestions[0].recommendation_profile_id,
+            "impodo.standard.odoo.relationships",
+        )
+        self.assertEqual(suggestions[0].recommendation_profile_version, 1)
 
     def test_bom_children_are_linked_only_and_workcenters_are_reused(self) -> None:
         suggestions = propose_related_odoo_data(
@@ -181,7 +200,7 @@ class OdooSourceScopeTests(unittest.TestCase):
             },
         )
 
-    def test_unknown_custom_relationships_fail_closed(self) -> None:
+    def test_unknown_custom_relationships_require_explicit_linked_inclusion(self) -> None:
         suggestions = propose_related_odoo_data(
             (
                 SchemaModel(
@@ -208,6 +227,52 @@ class OdooSourceScopeTests(unittest.TestCase):
         self.assertIs(
             by_field["reviewer_id"],
             RelatedDataHandling.NEEDS_DECISION,
+        )
+        self.assertTrue(
+            related_model_can_be_selected(RelatedDataHandling.NEEDS_DECISION)
+        )
+        self.assertTrue(
+            related_model_should_default_linked_only(
+                RelatedDataHandling.NEEDS_DECISION
+            )
+        )
+        self.assertTrue(
+            all(item.recommendation_profile_id is None for item in suggestions)
+        )
+
+    def test_caller_profile_can_recommend_a_custom_relationship(self) -> None:
+        organization_profile = OdooRelationshipProfile(
+            profile_id="example.organization.relationships",
+            version=3,
+            supporting_relationships=frozenset(
+                {("x.document", "reviewer_id")}
+            ),
+        )
+
+        suggestion = propose_related_odoo_data(
+            (
+                SchemaModel(
+                    name="x.document",
+                    label="Document",
+                    fields=(
+                        _relationship("reviewer_id", "Reviewer", "x.reviewer"),
+                    ),
+                ),
+            ),
+            profiles=(organization_profile,),
+        )[0]
+
+        self.assertIs(
+            suggestion.handling,
+            RelatedDataHandling.INCLUDE_SUPPORTING,
+        )
+        self.assertEqual(
+            suggestion.recommendation_profile_id,
+            organization_profile.profile_id,
+        )
+        self.assertEqual(
+            suggestion.recommendation_profile_version,
+            organization_profile.version,
         )
 
 

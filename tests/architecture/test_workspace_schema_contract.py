@@ -22,7 +22,7 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
                 ).fetchone(),
                 (SCHEMA_GENERATION, SCHEMA_VERSION),
             )
-            self.assertEqual(SCHEMA_VERSION, 15)
+            self.assertEqual(SCHEMA_VERSION, 16)
             tables = {
                 item[0] for item in connection.execute("SHOW TABLES").fetchall()
             }
@@ -39,6 +39,8 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
             self.assertIn("mapping_row_inclusion_review_row", tables)
             self.assertIn("mapping_row_inclusion_confirmation", tables)
             self.assertIn("preflight_execution_projection", tables)
+            self.assertIn("odoo_relationship_scope_revision", tables)
+            self.assertIn("odoo_relationship_scope_current", tables)
             self.assertNotIn("workspace_state", tables)
             self.assertNotIn("project_schema_migration", tables)
             audit_columns = tuple(

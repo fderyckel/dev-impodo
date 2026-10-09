@@ -156,6 +156,11 @@ def build_transfer_order_router(context: WebContext) -> APIRouter:
                 workspace_state,
                 match_plan,
                 recorded_by=context.actor.identity.display_name,
+                relationship_scope=(
+                    context.queries.get_current_odoo_relationship_scope(
+                        workspace_id
+                    )
+                ),
             )
             workspace_state = context.workspace_states.save_transfer_order_plan(
                 workspace_id,

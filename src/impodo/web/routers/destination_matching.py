@@ -530,6 +530,11 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 recorded_by=context.actor.identity.display_name,
                 source_origins=source_origins,
                 excluded_source_rows=exclusions,
+                relationship_scope=(
+                    context.queries.get_current_odoo_relationship_scope(
+                        workspace_id
+                    )
+                ),
             )
             access = None
             if previous is not None:

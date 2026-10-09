@@ -82,6 +82,27 @@ never create or update destination records. The Stage 5 page renders that
 policy as a locked choice, and its build route derives `reuse_only` from the
 saved Stage 4 handling instead of trusting a submitted policy value.
 
+`resolver_origin_for_destination_handling` connects those transfer choices to
+the existing relationship contract. `transfer` uses
+`ResolverOrigin.TARGET_THEN_DATASET`; `reuse_only` and `reference_only` use
+`ResolverOrigin.TARGET_CATALOG`. Destination matching uses that canonical
+meaning when it classifies a missing destination relationship as an incoming
+record or a blocker.
+
+`compile_odoo_relationship_datasets` then joins each Stage 4 relationship to
+its saved Stage 2 edge decision. At this point the related dataset's reviewed
+source columns and destination key fields are both available, so the compiler
+can produce the canonical `RelationshipMapping` and `RelationshipResolver`
+without using a numeric Odoo ID. An exact saved edge or its reviewed inverse
+one-to-many edge must authorize a non-self relationship. Stage 5 runs
+`extract_dataset_dependency_edges` over these derived mappings and feeds the
+result to the shared scheduler. Target-catalog relationships produce no
+incoming dependency; hybrid relationships produce hard or deferrable edges
+from the canonical required-on-create meaning. A many-to-many relationship
+currently requires a single-field reviewed business key; a composite key is a
+precise blocker because the canonical list provider cannot yet represent a
+composite list item.
+
 When that tuple is blank or repeated,
 `CategoricalCoverageService.source_identity_issue_rows` scans only the selected
 key columns and one bounded display column. The authenticated Stage 4 page
@@ -478,6 +499,8 @@ recorded outcome.
 | Native sparse review pipeline | [`NativeCorrectionReviewPipeline`](../../../src/impodo/adapters/correction_review_pipeline.py) |
 | Polars and Parquet sparse reduction | [`write_polars_correction_candidates`](../../../src/impodo/adapters/polars_correction.py) |
 | Odoo-to-Odoo destination matching | [`DestinationMatchingService`](../../../src/impodo/application/destination_matching_service.py) |
+| Canonical resolver meaning for transfer handling | [`resolver_origin_for_destination_handling`](../../../src/impodo/domain/workspace/destination_matching.py) |
+| Canonical Odoo relationship projection | [`compile_odoo_relationship_datasets`](../../../src/impodo/domain/workspace/odoo_relationship_compilation.py) |
 | Frozen destination-identity counts | [`CategoricalCoverageService.source_identity_counts`](../../../src/impodo/application/workspace/mapping/categorical_coverage.py) |
 | Odoo-to-Odoo relationship order | [`TransferOrderService`](../../../src/impodo/application/transfer_order_service.py) |
 | Odoo-to-Odoo review package | [`TransferReviewService`](../../../src/impodo/application/transfer_review_service.py) |
@@ -669,6 +692,7 @@ qualify another remote topology.
 - [`tests/integration/columnar/test_polars_correction.py`](../../../tests/integration/columnar/test_polars_correction.py)
 - [`tests/performance/test_correction_qualification.py`](../../../tests/performance/test_correction_qualification.py)
 - [`tests/application/workspace/test_destination_matching.py`](../../../tests/application/workspace/test_destination_matching.py)
+- [`tests/domain/workspace/test_odoo_relationship_compilation.py`](../../../tests/domain/workspace/test_odoo_relationship_compilation.py)
 - [`tests/application/workspace/mapping/test_categorical_coverage.py`](../../../tests/application/workspace/mapping/test_categorical_coverage.py)
 - [`tests/application/workspace/test_transfer_order.py`](../../../tests/application/workspace/test_transfer_order.py)
 - [`tests/application/workspace/test_transfer_review.py`](../../../tests/application/workspace/test_transfer_review.py)

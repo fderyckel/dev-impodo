@@ -8,6 +8,11 @@ from datetime import datetime, timezone
 from typing import Protocol
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.odoo_relationship_scope import (
+    OdooRelationshipScope,
+    review_relationship_scope,
+)
+from impodo.domain.odoo_source_scope import propose_related_odoo_data
 from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.odoo.contracts import MetadataSnapshot
 from ..domain.odoo_capture import (
@@ -73,6 +78,13 @@ class OdooCaptureSchemaReader(Protocol):
         self,
         workspace_id: str,
     ) -> OdooSchemaCatalog | None: ...
+
+
+class OdooCaptureRelationshipScopeReader(Protocol):
+    def get_current_odoo_relationship_scope(
+        self,
+        workspace_id: str,
+    ) -> OdooRelationshipScope | None: ...
 
 
 class OdooSourceCaptureSession(Protocol):
@@ -214,12 +226,14 @@ class OdooSourceCaptureService:
         schemas: OdooCaptureSchemaReader,
         authorization: WorkspaceAccessService,
         capture_filters: OdooCaptureFilterStore | None = None,
+        relationship_scopes: OdooCaptureRelationshipScopeReader | None = None,
     ) -> None:
         self._workspaces = workspaces
         self._selections = selections
         self._schemas = schemas
         self._authorization = authorization
         self._capture_filters = capture_filters
+        self._relationship_scopes = relationship_scopes
 
     def capture(
         self,
@@ -862,6 +876,8 @@ class OdooSourceCaptureService:
             )
         if schema.workspace_id != workspace_id:
             raise WorkspaceError("The capture schema belongs to another workspace")
+        if require_complete:
+            self._require_complete_relationship_scope(workspace_id, schema)
         if require_complete and {item.model for item in selections} != {
             item.name for item in schema.models
         }:
@@ -910,6 +926,51 @@ class OdooSourceCaptureService:
                 errors[selection.model] = str(error)
         require_consistent_odoo_capture_selection_set(selections)
         return tuple(contexts)
+
+    def require_complete_relationship_scope(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+    ) -> None:
+        """Block a final capture action while current schema has unseen edges."""
+
+        self._authorization.require(
+            actor,
+            Capability.SOURCE_CAPTURE,
+            workspace_id=workspace_id,
+        )
+        schema = self._schemas.get_odoo_schema_catalog(workspace_id)
+        if schema is None:
+            raise WorkspaceError("Capture the selected Odoo fields first")
+        self._require_complete_relationship_scope(workspace_id, schema)
+
+    def _require_complete_relationship_scope(
+        self,
+        workspace_id: str,
+        schema: OdooSchemaCatalog,
+    ) -> None:
+        relationship_scope = (
+            self._relationship_scopes.get_current_odoo_relationship_scope(
+                workspace_id
+            )
+            if self._relationship_scopes is not None
+            else None
+        )
+        relationship_review = review_relationship_scope(
+            propose_related_odoo_data(
+                schema.models,
+                include_selected=True,
+            ),
+            relationship_scope,
+        )
+        if not relationship_review.complete:
+            count = len(relationship_review.unresolved)
+            raise WorkspaceError(
+                f"Review {count} newly found Odoo relationship"
+                f"{'s' if count != 1 else ''} before checking or "
+                "freezing records"
+            )
 
     def _plan_for_selection(
         self,

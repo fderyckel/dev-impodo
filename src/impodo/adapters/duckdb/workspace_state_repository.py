@@ -9,6 +9,10 @@ import shutil
 
 import duckdb
 
+from impodo.domain.odoo_relationship_scope import (
+    OdooRelationshipScope,
+    OdooRelationshipScopeError,
+)
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.workbench import (
     WorkspaceState,
@@ -33,6 +37,32 @@ class WorkspaceStateRepository(DuckDbRepository):
         "reports",
         "audit",
     )
+
+    def get_current_odoo_relationship_scope(
+        self,
+        workspace_id: str,
+    ) -> OdooRelationshipScope | None:
+        """Return the current immutable field-level relationship decisions."""
+
+        value = self._read_singleton_json(
+            workspace_id,
+            """
+            SELECT revision.scope_json
+              FROM odoo_relationship_scope_current AS current_scope
+              JOIN odoo_relationship_scope_revision AS revision
+                ON revision.scope_id = current_scope.scope_id
+               AND revision.version = current_scope.version
+             WHERE current_scope.singleton_id = 1
+            """,
+        )
+        if value is None:
+            return None
+        try:
+            return OdooRelationshipScope.from_json(value)
+        except OdooRelationshipScopeError as error:
+            raise WorkspaceStateError(
+                "Stored Odoo relationship decisions are invalid"
+            ) from error
 
     def initialize_workbench(
         self,
@@ -394,8 +424,9 @@ class WorkspaceStateRepository(DuckDbRepository):
         *,
         expected_revision: int,
         actor: Actor,
+        relationship_scope: OdooRelationshipScope | None = None,
     ) -> None:
-        """Replace the Odoo model allowlist and invalidate its dependents."""
+        """Replace Odoo model and edge scope, then invalidate dependents."""
 
         database_path = self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
@@ -405,7 +436,10 @@ class WorkspaceStateRepository(DuckDbRepository):
             connection.begin()
             try:
                 current = connection.execute(
-                    "SELECT revision FROM workspace_projection_cache"
+                    """
+                    SELECT revision, intended_models
+                      FROM workspace_projection_cache
+                    """
                 ).fetchone()
                 if current is None:
                     raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
@@ -413,8 +447,17 @@ class WorkspaceStateRepository(DuckDbRepository):
                     raise WorkspaceStateConflictError(
                         "The workspace was modified by another request"
                     )
+                model_scope_changed = (
+                    tuple(json.loads(str(current[1])))
+                    != workspace.intended_models
+                )
                 self._update_workspace(connection, workspace)
-                connection.execute("DELETE FROM odoo_schema_catalog")
+                self._replace_odoo_relationship_scope(
+                    connection,
+                    relationship_scope,
+                )
+                if model_scope_changed:
+                    connection.execute("DELETE FROM odoo_schema_catalog")
                 connection.execute("DELETE FROM odoo_capture_selection_current")
                 connection.execute("DELETE FROM odoo_capture_manifest_current")
                 connection.execute("DELETE FROM schema_governance_current")
@@ -426,10 +469,16 @@ class WorkspaceStateRepository(DuckDbRepository):
                 self._insert_audit(
                     connection,
                     workspace,
-                    event_type="SCHEMA_SCOPE_UPDATED",
+                    event_type=(
+                        "SCHEMA_SCOPE_UPDATED"
+                        if model_scope_changed
+                        else "ODOO_RELATIONSHIP_SCOPE_UPDATED"
+                    ),
                     detail=(
                         f"{len(workspace.intended_models)} permitted model(s); "
-                        "captured schema and active mapping invalidated"
+                        f"{len(relationship_scope.decisions) if relationship_scope else 0} "
+                        "relationship decision(s); active capture and mapping "
+                        "evidence invalidated"
                     ),
                     actor=actor,
                 )
@@ -439,6 +488,56 @@ class WorkspaceStateRepository(DuckDbRepository):
                 raise
         if workspace.status is WorkspaceStatus.REGISTERED:
             self._write_registration_manifest(workspace)
+
+    @staticmethod
+    def _replace_odoo_relationship_scope(
+        connection: duckdb.DuckDBPyConnection,
+        relationship_scope: OdooRelationshipScope | None,
+    ) -> None:
+        """Append one scope revision and advance its singleton pointer."""
+
+        current = connection.execute(
+            """
+            SELECT scope_id, version
+              FROM odoo_relationship_scope_current
+             WHERE singleton_id = 1
+            """
+        ).fetchone()
+        if relationship_scope is None:
+            connection.execute("DELETE FROM odoo_relationship_scope_current")
+            return
+        if current == (relationship_scope.scope_id, relationship_scope.version):
+            return
+        expected_version = int(current[1]) + 1 if current else 1
+        expected_id = str(current[0]) if current else relationship_scope.scope_id
+        if (
+            relationship_scope.scope_id != expected_id
+            or relationship_scope.version != expected_version
+        ):
+            raise WorkspaceStateConflictError(
+                "Odoo relationship decisions were modified by another request"
+            )
+        connection.execute(
+            """
+            INSERT INTO odoo_relationship_scope_revision
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                relationship_scope.scope_id,
+                relationship_scope.version,
+                relationship_scope.content_hash,
+                relationship_scope.recorded_at.isoformat(),
+                relationship_scope.recorded_by,
+                relationship_scope.to_json(),
+            ],
+        )
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO odoo_relationship_scope_current
+            VALUES (1, ?, ?)
+            """,
+            [relationship_scope.scope_id, relationship_scope.version],
+        )
 
     def synchronize_registration_artifacts(self, workspace_id: str) -> None:
         """Refresh registry and manifest after another repository updates status."""

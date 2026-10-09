@@ -43,6 +43,25 @@
         </div>
       </div>
 
+      {% if related_data_scope.pending_count %}
+        <div class="notice warning" id="relationship-review-pending" role="alert">
+          <strong>Review {{ related_data_scope.pending_count }} newly found relationship{% if related_data_scope.pending_count != 1 %}s{% endif %}.</strong>
+          Saving your decisions may load another selected record type and reveal its relationships here. Continue until this review is complete before checking or freezing records.
+        </div>
+      {% endif %}
+      {% if related_data_scope.unavailable_count %}
+        <div class="notice warning" id="relationship-review-unavailable" role="alert">
+          <strong>{{ related_data_scope.unavailable_count }} related record type{% if related_data_scope.unavailable_count != 1 %}s are{% else %} is{% endif %} unavailable.</strong>
+          Refresh or extend the available Odoo record types before checking or freezing records. Impodo will not treat an unavailable relationship as excluded.
+        </div>
+      {% endif %}
+      {% if related_data_scope.complete %}
+        <div class="notice success" id="relationship-review-complete">
+          <strong>Related-data review complete.</strong>
+          Every relationship currently exposed by the selected record types has a saved decision or a verified automatic handling.
+        </div>
+      {% endif %}
+
       {% if related_data_scope.selectable_model_names %}
         <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-related-data" data-single-submit>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -66,21 +85,25 @@
                           >
                           <span>
                             <strong>{{ model.label }}</strong>
-                            {% if model.selected %}
-                              <small>Included in the current source choices</small>
-                            {% elif group.handling.value == "REUSE_DESTINATION" %}
-                              <small>Recommended by Impodo &middot; capture linked identities for destination matching</small>
-                            {% elif model.recommended %}
-                              <small>Recommended by Impodo · select and save to include</small>
+                            {% if model.pending %}
+                              {% if model.recommended %}
+                                <small>Recommended by Impodo &middot; needs your review</small>
+                              {% else %}
+                                <small>Needs review &middot; choose whether these links belong in this migration</small>
+                              {% endif %}
+                            {% elif model.selected %}
+                              <small>Reviewed &middot; included in the current source choices</small>
                             {% else %}
-                              <small>Optional related business data</small>
+                              <small>Reviewed &middot; not included through these relationships</small>
                             {% endif %}
                           </span>
                         </label>
                       {% else %}
                         <div class="related-data-status">
                           <strong>{{ model.label }}</strong>
-                          {% if model.selected %}
+                          {% if model.unavailable_pending %}
+                            <span class="status attention">Review blocked &middot; not available</span>
+                          {% elif model.selected %}
                             <span class="status complete">Already selected</span>
                           {% elif not model.available %}
                             <span class="status attention">Not available</span>
@@ -104,6 +127,7 @@
                           <li>
                             <strong>{{ item.field_label }}</strong> for {{ item.source_label }}
                             {% if item.required %}<span class="status warning">This link is required</span>{% endif %}
+                            {% if not item.reviewed and model.can_select %}<span class="status attention">Needs review</span>{% endif %}
                           </li>
                         {% endfor %}
                       </ul>
@@ -124,7 +148,7 @@
 
           <div class="actions">
             {% if related_data_scope.selectable_model_names %}
-              <button class="button primary" type="submit" data-submitting-label="Saving choices and loading their Odoo fields...">Save related-data choices</button>
+              <button class="button primary" type="submit" data-submitting-label="Saving decisions and checking the next relationships...">Save related-data decisions</button>
             {% endif %}
             <a class="button secondary" href="{{ related_data_scope.all_choices_url }}">Review all available Odoo data</a>
           </div>
@@ -339,7 +363,13 @@
           </ul>
         </div>
       {% endif %}
-      {% if not plans_complete %}
+      {% if not related_data_scope.complete %}
+        <div class="notice warning" role="alert">
+          <strong>Complete the related-data review first.</strong>
+          Review the relationships above and save your decisions. Impodo may then show relationships from a newly included record type.
+        </div>
+        <p><a class="button primary" href="#related-data-scope">Review related data</a></p>
+      {% elif not plans_complete %}
         <div class="notice warning" role="alert">
           <strong>Save the remaining record type plans.</strong>
           Each selected Odoo record type needs its own saved capture plan. Select the remaining types above before checking or freezing records.

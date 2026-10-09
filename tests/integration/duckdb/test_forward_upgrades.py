@@ -106,6 +106,8 @@ def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_review_row")
     connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_review")
     connection.execute("DROP TABLE IF EXISTS preflight_execution_projection")
+    connection.execute("DROP TABLE IF EXISTS odoo_relationship_scope_current")
+    connection.execute("DROP TABLE IF EXISTS odoo_relationship_scope_revision")
     connection.execute("DROP TABLE IF EXISTS test_run_parameter_values")
     connection.execute("DROP TABLE IF EXISTS test_run_setup_binding")
     connection.execute("DROP TABLE schema_migration")
@@ -434,6 +436,11 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         14,
                         15,
                         "workspace-engine-v14-to-v15-navigation-projection",
+                    ),
+                    (
+                        15,
+                        16,
+                        "workspace-engine-v15-to-v16-odoo-relationship-scope",
                     ),
                 ],
             )

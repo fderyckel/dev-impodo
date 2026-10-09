@@ -10,6 +10,7 @@ from impodo.application.destination_matching_service import (
     DestinationMatchingService,
     destination_governed_key_choices,
 )
+from impodo.domain.mapping.contracts import ResolverOrigin
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.odoo_provenance import (
     OdooOriginBatch,
@@ -38,6 +39,7 @@ from impodo.domain.workspace.destination_matching import (
     carry_destination_create_field_reviews,
     choose_destination_create_field_provider,
     confirm_destination_create_field_defaults,
+    resolver_origin_for_destination_handling,
     set_destination_field_exclusion,
 )
 from impodo.domain.workspace.errors import WorkspaceError
@@ -85,6 +87,20 @@ class _SourceValues:
 
 
 class DestinationMatchingTests(unittest.TestCase):
+    def test_destination_handling_uses_canonical_relationship_origins(self) -> None:
+        self.assertIs(
+            resolver_origin_for_destination_handling("transfer"),
+            ResolverOrigin.TARGET_THEN_DATASET,
+        )
+        for handling in ("reuse_only", "reference_only"):
+            with self.subTest(handling=handling):
+                self.assertIs(
+                    resolver_origin_for_destination_handling(handling),
+                    ResolverOrigin.TARGET_CATALOG,
+                )
+        with self.assertRaisesRegex(ValueError, "Destination handling is invalid"):
+            resolver_origin_for_destination_handling("invented")
+
     def test_different_or_unknown_source_major_blocks_matching(self) -> None:
         for source_version in ("20.0", "unknown", "19.garbage"):
             with self.subTest(source_version=source_version):

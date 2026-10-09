@@ -10,6 +10,10 @@ from impodo.domain.odoo_source_scope import (
     RelatedDataSuggestion,
     related_model_can_be_selected,
 )
+from impodo.domain.odoo_relationship_scope import (
+    OdooRelationshipScope,
+    review_relationship_scope,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +25,7 @@ class RelatedDataItemView:
     relation_label: str
     technical_name: str
     required: bool
+    reviewed: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +51,8 @@ class RelatedDataModelView:
     available: bool
     can_select: bool
     required: bool
+    pending: bool
+    unavailable_pending: bool
     items: tuple[RelatedDataItemView, ...]
 
 
@@ -56,6 +63,9 @@ class RelatedDataScopeView:
     groups: tuple[RelatedDataGroupView, ...]
     selectable_model_names: tuple[str, ...]
     all_choices_url: str
+    complete: bool
+    pending_count: int
+    unavailable_count: int
 
 
 _GROUP_COPY = {
@@ -90,9 +100,11 @@ _GROUP_COPY = {
         "history migration is explicitly approved.",
     ),
     RelatedDataHandling.NEEDS_DECISION: (
-        "Needs a decision",
-        "Impodo cannot safely infer the business meaning of these links. "
-        "Review them before freezing the source.",
+        "No standard default",
+        "Impodo found these links but cannot infer their business scope. "
+        "Include a related record type when its linked records belong in "
+        "this migration; Destination Matching later decides whether to "
+        "reuse existing records or transfer missing records.",
     ),
 }
 
@@ -116,11 +128,23 @@ def build_related_data_scope_view(
     model_labels: Mapping[str, str] | None = None,
     selected_models: frozenset[str] = frozenset(),
     available_models: frozenset[str] | None = None,
+    relationship_scope: OdooRelationshipScope | None = None,
 ) -> RelatedDataScopeView:
     """Group domain decisions and expose safe inline model choices."""
 
     labels = model_labels or {}
     available = available_models if available_models is not None else frozenset(labels)
+    review = review_relationship_scope(
+        suggestions,
+        relationship_scope,
+        available_models=available,
+    )
+    pending_identities = {
+        (item.source_model, item.field_name) for item in review.pending
+    }
+    unavailable_identities = {
+        (item.source_model, item.field_name) for item in review.unavailable
+    }
     selection_handling_by_model: dict[str, RelatedDataHandling] = {}
     for handling in _GROUP_ORDER:
         if not related_model_can_be_selected(handling):
@@ -151,7 +175,16 @@ def build_related_data_scope_view(
                             RelatedDataHandling.INCLUDE_SUPPORTING,
                             RelatedDataHandling.REUSE_DESTINATION,
                         }
+                        and any(
+                            item.recommendation_profile_id is not None
+                            for item in related_items
+                        )
                         and relation_model not in selected_models
+                        and any(
+                            (item.source_model, item.field_name)
+                            in pending_identities
+                            for item in related_items
+                        )
                     ),
                     available=relation_model in available,
                     can_select=(
@@ -160,6 +193,16 @@ def build_related_data_scope_view(
                         is handling
                     ),
                     required=any(item.required for item in related_items),
+                    pending=any(
+                        (item.source_model, item.field_name)
+                        in pending_identities
+                        for item in related_items
+                    ),
+                    unavailable_pending=any(
+                        (item.source_model, item.field_name)
+                        in unavailable_identities
+                        for item in related_items
+                    ),
                     items=tuple(
                         RelatedDataItemView(
                             source_label=item.source_label,
@@ -173,6 +216,10 @@ def build_related_data_scope_view(
                                 f"{item.relation_model}"
                             ),
                             required=item.required,
+                            reviewed=(
+                                (item.source_model, item.field_name)
+                                in review.reviewed_identities
+                            ),
                         )
                         for item in related_items
                     ),
@@ -216,6 +263,11 @@ def build_related_data_scope_view(
         groups=groups,
         selectable_model_names=selectable_model_names,
         all_choices_url=f"{base_url}#odoo-data-choices",
+        complete=review.complete,
+        pending_count=len(review.pending),
+        unavailable_count=len(
+            {item.relation_model for item in review.unavailable}
+        ),
     )
 
 

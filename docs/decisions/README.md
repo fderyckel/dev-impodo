@@ -568,3 +568,196 @@ N+1 source-row or Odoo migration path.
   revisions, snapshots, approvals, or execution evidence. A future semantic
   payload change must retain an explicit decoder for supported old payloads or
   create a new immutable successor revision.
+
+## ADR-016 — Odoo relationship scope combines generic decisions with profiles
+
+**Status:** Accepted; partially implemented.
+
+**Decision:** Impodo already has one canonical relationship engine for
+file-to-Odoo work. `RelationshipMapping`, `RelationshipResolver`, the compiled
+migration plan, canonical dependency extraction, and the execution scheduler
+own portable relationship meaning and execution. Odoo-to-Odoo work must extend
+that engine. It must not introduce a second meaning for matching an existing
+record, resolving an incoming record, ordering dependencies, or applying a
+relationship.
+
+An Odoo-source adapter derives relationship candidates from captured schema
+and protected source links. It turns the data manager's reviewed choices into
+the existing portable relationship semantics when the required business keys
+become available. Versioned profiles may recommend ordinary choices for
+standard Odoo applications, but a recommendation never removes another safe
+choice. The schema-derived adapter, rather than a closed list of Odoo models,
+owns which decisions are required and whether the resulting graph is complete.
+
+The graph separates two concerns:
+
+- a relationship edge records how one source record will resolve its linked
+  record; and
+- a related model records whether reached records may be created, must already
+  exist, or are managed outside the generic transfer.
+
+For every discovered many-to-one, many-to-many, or one-to-many/inverse
+relationship that is relevant to selected records, the engine exposes the
+safe applicable choices. These include matching an existing destination
+record, transferring only reached linked records when missing, accepting
+verified Odoo-managed behavior, excluding an optional link, or assigning the
+link to a separately governed process. An unfamiliar custom relationship is
+shown under **No standard default** and remains unchecked. It is not silently
+excluded and does not require a new core-code model rule merely to become
+visible.
+
+Metadata-derived capabilities determine which choices are safe. Readability,
+storage, inverse information, requiredness, create defaults, access, company
+scope, and qualified Odoo create behavior are capability evidence. A related,
+computed, or read-only field may be non-writable without being invisible: its
+value can still identify an edge that must be resolved through an inverse,
+another writable relationship, verified Odoo behavior, or an explicit
+blocker. Odoo-specific create hooks and other exceptional behavior belong in
+versioned, qualified capability adapters, not in a model-name classification
+that silently decides business scope.
+
+Profiles provide usability above that engine. Impodo may ship versioned
+standard profiles by Odoo version and installed application, and an
+organization may add its own profile. A profile supplies labels,
+recommendations, identity hints, and explanations for common relationships.
+It does not grant a capability that captured metadata and qualification do not
+support. Decisions use this precedence:
+
+1. safety and capability constraints;
+2. the explicit decision saved for this workspace or Recipe revision;
+3. the organization's applicable profile;
+4. Impodo's applicable standard profile; and
+5. an explicit data-manager decision when no profile applies.
+
+The source-scope page groups edges by related model for readability but the
+completed design saves the decision per edge. Choosing to transfer linked
+records expands the graph on the same page and proposes their outgoing
+relationships. Expansion follows only approved edges, captures only reached
+records, deduplicates records, detects cycles, and enforces depth, row,
+company, and access bounds. It continues until every reached edge is resolved
+or a precise blocker is shown.
+`required=True` alone does not force source capture: matching an existing
+record, a verified destination default, or verified Odoo-managed behavior may
+satisfy a required value. A required relationship used by selected records
+may not be omitted without one such proven resolution.
+
+Source capture owns portable relationship evidence. Destination matching owns
+the identity rule and proof that reached related records can be reused or
+created under the selected model policy. Transfer ordering compiles the saved
+graph; it does not discover missing relationships. Changing reuse-versus-create
+handling after freeze must not force a new source capture when the frozen set
+already contains the required relationship and portable identity evidence. If
+that evidence was never captured, Impodo must identify the missing evidence
+rather than pretending that a destination decision can reconstruct it.
+
+The Odoo-source adapter may retain source-specific protected link evidence,
+but it must compile relationship intent into the canonical engine before
+portable Recipe or execution meaning is produced. The current
+`DestinationRelationshipMatch` is transfer evidence, not permission to create
+a competing relationship language. Integration may preserve that evidence
+wrapper while its resolution and dependency meaning converge on the canonical
+contracts.
+
+Saved decisions contain portable business identities and metadata hashes, not
+numeric source or destination Odoo IDs. A changed profile does not silently
+rewrite a saved decision. Changed schema, capability evidence, or identity
+meaning invalidates the affected assessment and names the decision that must
+be reviewed.
+
+**Why:** Standard guidance is necessary for a data manager who cannot be
+expected to discover every dependency manually. A closed standard workflow is
+also insufficient: Odoo installations contain optional applications, custom
+models, custom fields, and qualified behaviors that Impodo cannot enumerate in
+one permanent model list. Mixing recommendations with capabilities makes a
+common default look like the only permitted workflow and leaves the ordinary
+user stuck when the destination differs from that default.
+
+The manufacturing transfer reviewed on 9 October 2026 exposed the recurring
+failure without creating a manufacturing-specific decision. A user could
+select child and operation data, while links to destination setup and further
+schedule data still depended on narrow model classifications. The same shape
+will recur for accounting, sales, inventory, and custom applications. The
+architecture therefore records how Odoo-source discovery connects to the
+existing generic relationship decision mechanism, with manufacturing serving
+only as an acceptance example.
+
+**Current implementation:** The first implementation slice separates standard
+recommendations into a versioned, injectable profile. Schema discovery exposes
+an available unprofiled relationship as an explicit choice without selecting
+it automatically. When the data manager includes that related record type,
+Impodo defaults its capture plan to reached linked records only. Related,
+computed, or read-only relationship metadata remains visible as Odoo-managed
+evidence rather than disappearing solely because it is not directly writable.
+Destination matching translates `transfer` to the canonical
+`TARGET_THEN_DATASET` resolver and both no-write modes to `TARGET_CATALOG`.
+
+The source page still presents one checkbox per related model, but saving that
+grouped choice now creates one immutable decision for every source field in the
+group. Each decision retains the field identity, selected source-capture
+action, requiredness, handling, and recommendation-profile provenance. The
+workspace stores revision history and a current pointer atomically with the
+model-scope change. A later profile change therefore does not silently rewrite
+the saved decision.
+
+Stage 2 now expands that relationship graph iteratively on the same page. Each
+save refreshes the schema for newly included record types, discovers their
+outgoing relationships, and marks every new or changed selectable edge as
+needing review. A matching saved inclusion or exclusion stays reviewed;
+verified Odoo-managed, separate-process, and excluded-history handling does not
+require a redundant user choice. An unavailable related record type is a named
+blocker, not an implicit exclusion. Both the browser and the capture
+application service prevent record checking or freezing until the current
+schema graph has no unresolved selectable edge. This process never selects a
+new model on the user's behalf: another graph level appears only after the
+user explicitly includes the model that exposes it.
+
+After Stage 4 has supplied the related model's reviewed business key, Impodo
+now joins that evidence to the saved Stage 2 edge decision and derives
+canonical `DatasetMapping`, `RelationshipMapping`, and
+`RelationshipResolver` values. The projection uses portable key components
+produced by the protected source-link crosswalk; source Odoo IDs never become
+resolver keys. Stage 5 passes that projection through the shared
+`extract_dataset_dependency_edges` contract before using the shared scheduler.
+It no longer assigns required or deferrable meaning directly from the
+transfer-specific wrapper.
+
+Destination matching still records `DestinationRelationshipMatch` as instance
+evidence for protected link counts, and execution still consumes that wrapper
+when it materializes row-level relationship intents. Converging that final
+row-level projection remains a bounded integration gap, not a missing
+relationship-engine capability. Composite many-to-many business keys are also
+a named blocker until the canonical list-valued relationship provider can
+carry composite identities. Adding another isolated BOM, Work Center,
+schedule, or Company exception does not complete this ADR.
+
+**Consequences:**
+
+- standard profiles can help the default user without becoming the domain
+  engine;
+- Odoo-to-Odoo relationship work must reuse the canonical mapping, dependency,
+  preparation, and execution semantics instead of reimplementing them;
+- a new custom relationship appears automatically as a reviewable decision,
+  even when no shipped profile mentions it;
+- the UI must distinguish a recommendation, an unavailable choice, an
+  explicit saved choice, and a blocker;
+- model-level create or reuse policy cannot replace per-edge relationship
+  intent, although the UI may summarize repeated compatible choices;
+- destination checks are limited to reached records, so unrelated source
+  setup is neither transferred nor required to match;
+- Recipe publication must retain the portable relationship decisions and the
+  profile/capability versions used to assess them;
+- qualification tests must cover cycles, custom relationships, required and
+  optional links, reuse-only targets, linked-only creation, Odoo-managed
+  behavior, company boundaries, and profile precedence; and
+- a standard manufacturing graph must be expressible without adding workflow
+  branches for BOM, operation, Work Center, or schedule model names.
+
+**Review and amendment triggers:** Amend this ADR or add a successor before a
+change that makes profile advice mandatory, introduces a relationship that the
+generic graph cannot represent, changes the precedence above, or moves
+relationship discovery into destination matching or transfer ordering. Review
+the affected profile and capability contract for each supported Odoo major
+version. When an ordinary data manager must navigate backward, guess a hidden
+dependency, or request a new hard-coded model exception, record that case as
+evidence against this decision and either close the implementation gap or
+amend the architecture explicitly.

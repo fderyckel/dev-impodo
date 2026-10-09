@@ -53,6 +53,11 @@ from impodo.domain.odoo_source_policy import (
     TargetInstanceAssurance,
 )
 from impodo.domain.odoo_provenance import OdooOriginBatch, OdooRelationshipOriginColumn
+from impodo.domain.odoo_relationship_scope import (
+    OdooRelationshipScope,
+    relationship_scope_decisions,
+)
+from impodo.domain.odoo_source_scope import propose_related_odoo_data
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.models import (
     FieldMetadata,
@@ -1270,6 +1275,80 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
         )
         return service, schema
 
+    def test_complete_capture_requires_review_of_new_relationship_edges(self):
+        eligibility = dict(
+            relation_field=None,
+            selection=(),
+            stored=True,
+            computed=False,
+            has_inverse=False,
+            related=False,
+            translated=False,
+            company_dependent=False,
+            searchable=True,
+            sortable=True,
+            exportable=True,
+        )
+        relationship_schema = replace(
+            self.schema,
+            models=(
+                replace(
+                    self.schema.models[0],
+                    fields=(
+                        *self.schema.models[0].fields,
+                        SchemaField(
+                            name="company_id",
+                            label="Company",
+                            type="many2one",
+                            required=False,
+                            readonly=False,
+                            relation="res.company",
+                            **eligibility,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        scope_reader = _RelationshipScopeReader(None)
+        service = OdooSourceCaptureService(
+            self.workspace_states,
+            self.selections,
+            _SchemaReader(relationship_schema),
+            workspace_access_service(),
+            relationship_scopes=scope_reader,
+        )
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "Review 1 newly found Odoo relationship",
+        ):
+            service.prepare_assessment(
+                self.workspace_id,
+                actor=LOCAL_ACTOR,
+            )
+
+        suggestions = propose_related_odoo_data(
+            relationship_schema.models,
+            include_selected=True,
+        )
+        scope_reader.scope = OdooRelationshipScope.create(
+            scope_id="00000000-0000-0000-0000-000000000099",
+            version=1,
+            decisions=relationship_scope_decisions(
+                suggestions,
+                included_models=(),
+            ),
+            recorded_at=datetime.now(timezone.utc),
+            recorded_by="Manager",
+        )
+
+        prepared = service.prepare_assessment(
+            self.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(prepared.selections, (self.selection,))
+
     def test_service_reads_protected_filter_before_any_odoo_call(self) -> None:
         clause = OdooCaptureFilterClause(
             "name", OdooCaptureFilterOperator.EQUALS, ("Fictional Group",)
@@ -1338,6 +1417,19 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
             content_hash="",
             _calculate_content_hash=True,
         )
+        relationship_scope = OdooRelationshipScope.create(
+            scope_id="00000000-0000-0000-0000-000000000098",
+            version=1,
+            decisions=relationship_scope_decisions(
+                propose_related_odoo_data(
+                    schema.models,
+                    include_selected=True,
+                ),
+                included_models={related_name},
+            ),
+            recorded_at=datetime.now(timezone.utc),
+            recorded_by="Manager",
+        )
         service = OdooSourceCaptureService(
             _WorkspaceStateReader(replace(
                 self.workspace_state,
@@ -1346,6 +1438,9 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
             _SelectionReader(root, related),
             _SchemaReader(schema),
             workspace_access_service(),
+            relationship_scopes=_RelationshipScopeReader(
+                relationship_scope
+            ),
         )
         now = datetime.now(timezone.utc)
 
@@ -1505,6 +1600,14 @@ class _SchemaReader:
 
     def get_odoo_schema_catalog(self, workspace_id):
         return self.schema
+
+
+class _RelationshipScopeReader:
+    def __init__(self, scope):
+        self.scope = scope
+
+    def get_current_odoo_relationship_scope(self, workspace_id):
+        return self.scope
 
 
 class _Gateway:

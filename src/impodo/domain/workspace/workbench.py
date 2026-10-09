@@ -22,9 +22,13 @@ from datetime import datetime, timezone
 from enum import StrEnum
 import re
 from typing import Protocol, Sequence
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.odoo_relationship_scope import (
+    OdooRelationshipScope,
+    OdooRelationshipScopeDecision,
+)
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.run.setup import OdooConnectionMode, validate_odoo_base_url
 from impodo.domain.shared.models import target_identity_hash
@@ -422,6 +426,13 @@ class WorkspaceStateRepository(Protocol):
         """Reject mutation when Recipe/DataVersion lifecycle seals the workspace."""
         ...
 
+    def get_current_odoo_relationship_scope(
+        self,
+        workspace_id: str,
+    ) -> OdooRelationshipScope | None:
+        """Return the current field-level Odoo relationship decisions."""
+        ...
+
     def save(
         self,
         workspace: WorkspaceState,
@@ -462,8 +473,9 @@ class WorkspaceStateRepository(Protocol):
         *,
         expected_revision: int,
         actor: Actor,
+        relationship_scope: OdooRelationshipScope | None = None,
     ) -> None:
-        """Replace the Odoo model allowlist and invalidate schema dependents."""
+        """Replace Odoo model and relationship scope, then invalidate dependents."""
         ...
 
     def record_credential_event(
@@ -1140,6 +1152,9 @@ class WorkspaceStateService:
         actor: Actor,
         expected_revision: int,
         permitted_models: Sequence[str],
+        relationship_decisions: Sequence[
+            OdooRelationshipScopeDecision
+        ] | None = None,
     ) -> WorkspaceState:
         """Set the exact Odoo models that schema discovery may read and map.
 
@@ -1167,7 +1182,44 @@ class WorkspaceStateService:
         models = _clean_choices(permitted_models)
         if not models:
             raise WorkspaceStateError("Add at least one permitted technical Odoo model")
-        if models == workspace.intended_models:
+        relationship_scope: OdooRelationshipScope | None = None
+        relationship_scope_changed = False
+        if relationship_decisions is not None:
+            decisions = tuple(
+                sorted(
+                    relationship_decisions,
+                    key=lambda item: (
+                        item.source_model,
+                        item.field_name,
+                        item.relation_model,
+                    ),
+                )
+            )
+            current_scope = self.repository.get_current_odoo_relationship_scope(
+                workspace_id
+            )
+            relationship_scope_changed = bool(
+                current_scope is None or current_scope.decisions != decisions
+            )
+            if relationship_scope_changed:
+                relationship_scope = OdooRelationshipScope.create(
+                    scope_id=(
+                        current_scope.scope_id
+                        if current_scope is not None
+                        else str(uuid4())
+                    ),
+                    version=(
+                        current_scope.version + 1
+                        if current_scope is not None
+                        else 1
+                    ),
+                    decisions=decisions,
+                    recorded_at=_now(),
+                    recorded_by=actor.identity.display_name,
+                )
+            else:
+                relationship_scope = current_scope
+        if models == workspace.intended_models and not relationship_scope_changed:
             return workspace
         updated = replace(
             workspace,
@@ -1188,6 +1240,7 @@ class WorkspaceStateService:
             saved,
             expected_revision=workspace.revision,
             actor=actor,
+            relationship_scope=relationship_scope,
         )
         return saved
 

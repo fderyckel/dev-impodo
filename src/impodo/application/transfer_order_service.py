@@ -9,11 +9,20 @@ from impodo.domain.execution.dependency_scheduler import (
     DependencyNode,
     schedule_dependencies,
 )
+from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
+from impodo.domain.relationship_dependencies import (
+    DependencySource,
+    extract_dataset_dependency_edges,
+)
 from impodo.domain.workspace.destination_matching import (
     DestinationMatchPlan,
     DestinationRelationshipMatch,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.odoo_relationship_compilation import (
+    OdooRelationshipCompilationError,
+    compile_odoo_relationship_datasets,
+)
 from impodo.domain.workspace.transfer_order import (
     TransferOrderBlocker,
     TransferOrderDataset,
@@ -33,6 +42,7 @@ class TransferOrderService:
         match_plan: DestinationMatchPlan,
         *,
         recorded_by: str,
+        relationship_scope: OdooRelationshipScope | None = None,
     ) -> TransferOrderPlan:
         if not workspace.destination_verified:
             raise WorkspaceError("Verify the destination Odoo connection first")
@@ -50,17 +60,44 @@ class TransferOrderService:
             DependencyNode(row_id=item.dataset_id, rank=index)
             for index, item in enumerate(models)
         )
+        try:
+            compiled_relationships = compile_odoo_relationship_datasets(
+                match_plan,
+                relationship_scope=relationship_scope,
+            )
+        except OdooRelationshipCompilationError as error:
+            raise WorkspaceError(str(error)) from error
+        canonical_edges = extract_dataset_dependency_edges(
+            compiled_relationships
+        )
+        relations_by_identity = {
+            (item.dataset_id, item.related_dataset_id, item.field_name): item
+            for item in match_plan.relationship_matches
+        }
         relation_by_edge: dict[DependencyEdge, DestinationRelationshipMatch] = {}
         incoming_create_by_edge = {}
         edges: list[DependencyEdge] = []
-        for relation in match_plan.relationship_matches:
+        for canonical in canonical_edges:
+            if canonical.source is not DependencySource.RELATIONSHIP:
+                continue
+            relation = relations_by_identity.get(
+                (
+                    canonical.owner_dataset,
+                    canonical.dependency_dataset,
+                    canonical.target_field,
+                )
+            )
+            if relation is None:
+                raise WorkspaceError(
+                    "Compiled relationship dependency no longer matches destination evidence"
+                )
             if relation.incoming_link_count <= 0:
                 continue
             edge = DependencyEdge(
-                dependency_row_id=relation.related_dataset_id,
-                owner_row_id=relation.dataset_id,
-                owner_field=relation.field_name,
-                strength="hard" if relation.required else "deferrable",
+                dependency_row_id=canonical.dependency_dataset,
+                owner_row_id=canonical.owner_dataset,
+                owner_field=canonical.target_field,
+                strength=canonical.strength.value,
             )
             edges.append(edge)
             relation_by_edge[edge] = relation

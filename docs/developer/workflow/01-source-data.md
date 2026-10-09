@@ -164,40 +164,81 @@ use one stream for each protected 100-ID chunk. The live
 reader accepts only service-generated requests. It exposes no raw domain,
 arbitrary context, generic method, or caller-selected field path.
 
-The source selection page passes writable many-to-one and many-to-many fields,
-plus one-to-many child fields, that refer outside the selected schema through
-`propose_related_odoo_data`. The domain policy classifies captured metadata as
-supporting data, optional business data, destination configuration,
-Odoo-managed records, separate processes, excluded history, or an unresolved
-decision. The first qualified policy is deliberately narrow: Product Category
-and Unit of Measure links from `product.template`, plus the category link from
-`uom.uom`, are recommended supporting data. Unknown custom links fail closed
-into **Needs a decision**. The web presenter owns the data-manager wording and
-keeps technical field paths under **Support details**.
+The source selection page passes metadata-safe many-to-one, many-to-many, and
+one-to-many relationships outside the selected schema through
+`propose_related_odoo_data`. The discovery engine first classifies non-writable
+related, computed, and read-only links as Odoo managed. It then asks the ordered
+versioned profiles for a recommendation. The standard profile recommends
+common supporting data, optional business data, destination configuration,
+separate processes, and excluded history. Product Category and Unit of Measure
+links from `product.template`, plus the category link from `uom.uom`, are its
+first qualified supporting recommendations. An unknown custom link has no
+profile recommendation and remains unselected, but it is an actionable **No
+standard default** choice when its related model exists in the current live
+catalogue. The web presenter owns the data-manager wording and keeps technical
+field paths under **Support details**.
 
 The source page keeps related-model selection beside this explanation. It
 groups repeated relationship fields under one related model and shows a
-checkbox only for supporting or optional source data that is present in the
-current live model catalogue. A visible label marks recommendations, but their
-checkboxes remain unchecked until they belong to the saved model scope. This
-keeps an intentionally excluded recommendation from appearing selected again
-after a save. The operator selects **Save related-data choices** to persist the
-checked models.
+checkbox for recommended, optional, destination-reuse, or unprofiled related
+data that exists in the current live model catalogue. A visible label
+distinguishes recommendations from unprofiled choices. Every checkbox remains
+unchecked until its model belongs to the saved model scope. This keeps an
+intentionally excluded recommendation from appearing selected again after a
+save. The operator selects **Save related-data decisions** to persist the checked
+models. `relationship_scope_decisions` expands each grouped choice into one
+`OdooRelationshipScopeDecision` per source field. The decision stores the
+source and related model, field, requiredness, handling, source-capture action,
+and recommendation-profile provenance. Every model included from this
+relationship proposal defaults to a linked-only capture plan; the operator may
+still review and change that plan.
+
+After each save, authenticated schema refresh loads the newly included record
+types and `review_relationship_scope` compares every current schema edge with
+the saved field-level decisions. Newly discovered edges and edges whose
+relation, requiredness, handling, or profile provenance changed are shown as
+**Needs review**. Saved inclusions and exclusions remain reviewed. Automatic
+Odoo-managed, separate-process, and excluded-history outcomes need no extra
+click. The page repeats this review for each newly reached graph level and
+shows **Related-data review complete** only when no selectable edge remains
+pending. `OdooSourceCaptureService` applies the same completeness check before
+assessment or capture, so bypassing the browser cannot freeze an incomplete
+relationship graph. Missing related models are named blockers rather than
+silent exclusions.
 
 The revision-checked
 `POST /workspaces/{workspace_id}/sources/odoo-related-data` validates every
-submitted model against the current schema-derived policy and model catalogue. It
-preserves unrelated model choices, replaces the selectable related subset, and
-then refreshes authenticated field evidence through the existing closed schema
-reader. A changed model scope invalidates the prior schema, current capture
-plans, manifests, key governance, mapping, and later evidence through
-`WorkspaceStateService.update_schema_scope` before the new schema is saved.
+submitted model against the current schema-derived policy and model catalogue.
+It preserves unrelated model choices, replaces the selectable related subset,
+and saves the model scope and field-level relationship scope in one DuckDB
+transaction. `OdooRelationshipScope` has immutable revision rows and one
+current pointer. The workspace schema version 16 upgrade adds those tables
+without inventing decisions for older workspaces. A changed model scope
+invalidates the prior schema before authenticated field evidence is refreshed.
+A relationship-only change keeps current schema evidence but invalidates
+capture plans, manifests, key governance, mapping, and later evidence through
+`WorkspaceStateService.update_schema_scope`.
 
 The capture projection still includes relationship origins only when both
 models are selected. A separate relationship review lists eligible links
 between selected models before linked capture assessment. The operator confirms
-that list as a group; persisted individual edge approval is not yet
-implemented.
+that list as a group. This capture confirmation remains distinct from the
+persisted field-level source-scope decisions: the former confirms the exact
+fields that the pending capture will traverse, while the latter records why
+each related record type was included or omitted.
+
+[ADR-016](../../decisions/README.md#adr-016--odoo-relationship-scope-combines-generic-decisions-with-profiles)
+requires this Odoo-source discovery to extend the existing canonical
+relationship engine. The implemented profile boundary and unprofiled inclusion
+choice are the first slice. The second slice persists per-edge source-capture
+decisions while retaining the grouped UI. Stage 2 now performs iterative,
+explicit graph expansion and gates assessment and freeze on a complete review.
+Stage 4 completes each saved edge with its reviewed business key and
+destination policy, then derives the existing `RelationshipMapping` and
+`RelationshipResolver` values. Stage 5 uses the shared dependency extractor
+over that projection. Do not describe further integration work as a
+requirement to add another model-specific workflow rule or another
+relationship engine.
 
 Each identity check computes one small company-scope fingerprint from the
 primary and available company IDs. Assessment performs one identity and schema
@@ -211,6 +252,11 @@ form token.
 | Role | Code |
 | --- | --- |
 | File and selection orchestration | [`SourceWorkspaceService`](../../../src/impodo/application/source_workspace_service.py) |
+| Odoo relationship recommendations | [`odoo_relationship_profiles.py`](../../../src/impodo/domain/odoo_relationship_profiles.py) |
+| Odoo relationship scope discovery | [`odoo_source_scope.py`](../../../src/impodo/domain/odoo_source_scope.py) |
+| Versioned Odoo relationship decisions | [`odoo_relationship_scope.py`](../../../src/impodo/domain/odoo_relationship_scope.py) |
+| Canonical Odoo relationship projection | [`odoo_relationship_compilation.py`](../../../src/impodo/domain/workspace/odoo_relationship_compilation.py) |
+| Current relationship-scope persistence | [`WorkspaceStateRepository`](../../../src/impodo/adapters/duckdb/workspace_state_repository.py) |
 | Isolated source workers | [`source_worker.py`](../../../src/impodo/application/data_version/source_worker.py) |
 | Shared source-file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Odoo source capture | [`OdooSourceCaptureService`](../../../src/impodo/application/odoo_source_capture_service.py) |
@@ -353,6 +399,11 @@ reading or changing an operator workspace.
 - [`tests/integration/odoo/test_source_capture.py`](../../../tests/integration/odoo/test_source_capture.py)
 - [`tests/application/data_version/test_odoo_capture_publication.py`](../../../tests/application/data_version/test_odoo_capture_publication.py)
 - [`tests/application/data_version/test_odoo_capture_jobs.py`](../../../tests/application/data_version/test_odoo_capture_jobs.py)
+- [`tests/domain/test_odoo_source_scope.py`](../../../tests/domain/test_odoo_source_scope.py)
+- [`tests/domain/test_odoo_relationship_scope.py`](../../../tests/domain/test_odoo_relationship_scope.py)
+- [`tests/integration/web/test_odoo_source_scope_presenter.py`](../../../tests/integration/web/test_odoo_source_scope_presenter.py)
+- [`tests/architecture/test_workspace_schema_contract.py`](../../../tests/architecture/test_workspace_schema_contract.py)
+- [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/application/workspace/test_derived_entities.py`](../../../tests/application/workspace/test_derived_entities.py)
 - [`tests/integration/web/test_source_workflow.py`](../../../tests/integration/web/test_source_workflow.py)
 - [`tests/integration/web/test_stage12_page_loading.py`](../../../tests/integration/web/test_stage12_page_loading.py)
@@ -366,6 +417,7 @@ cancellation, lineage, and both navigation variants.
 
 ## Related documentation
 
+- [ADR-016: Generic Odoo relationship decisions and profiles](../../decisions/README.md#adr-016--odoo-relationship-scope-combines-generic-decisions-with-profiles)
 - [Stage 1 and 2 page-loading optimization proposal](../../plans/stage-1-and-2-page-loading.md)
 - [Page-loading optimization evidence](../../testing/stage12-page-loading-2026-10-07.md)
 - [Shared page-read measurements](../../testing/stage12-shared-page-reads-2026-10-07.md)

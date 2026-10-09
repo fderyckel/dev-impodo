@@ -491,6 +491,7 @@ def create_local_app(
         schema_repository,
         workspace_access,
         capture_filters=odoo_capture_filters,
+        relationship_scopes=source_repository,
     )
     odoo_capture_publication = OdooCapturePublicationService(
         odoo_source_capture,

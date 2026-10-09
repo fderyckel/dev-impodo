@@ -26,6 +26,10 @@ from ...domain.source_snapshot import (
     SourceSnapshotSchema,
 )
 from ...domain.odoo_capture import OdooCaptureSelection
+from ...domain.odoo_relationship_scope import (
+    OdooRelationshipScope,
+    OdooRelationshipScopeError,
+)
 from ...domain.odoo_source_capture import (
     OdooSourceCaptureConfigurationError,
     validate_odoo_capture_selection_reference,
@@ -375,6 +379,32 @@ class SourceRepository(DuckDbRepository):
                 """,
             )
         )
+
+    def get_current_odoo_relationship_scope(
+        self,
+        workspace_id: str,
+    ) -> OdooRelationshipScope | None:
+        """Return the current immutable field-level relationship decisions."""
+
+        value = self._read_singleton_json(
+            workspace_id,
+            """
+            SELECT revision.scope_json
+              FROM odoo_relationship_scope_current AS current_scope
+              JOIN odoo_relationship_scope_revision AS revision
+                ON revision.scope_id = current_scope.scope_id
+               AND revision.version = current_scope.version
+             WHERE current_scope.singleton_id = 1
+            """,
+        )
+        if value is None:
+            return None
+        try:
+            return OdooRelationshipScope.from_json(value)
+        except OdooRelationshipScopeError as error:
+            raise WorkspaceError(
+                "Stored Odoo relationship decisions are invalid"
+            ) from error
 
     def get_odoo_capture_selection_history(
         self,

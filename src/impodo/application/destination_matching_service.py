@@ -17,6 +17,8 @@ from impodo.domain.mapping.create_field_policy import (
     evaluate_create_field,
     required_create_hook_inputs,
 )
+from impodo.domain.mapping.contracts import ResolverOrigin
+from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
 from impodo.domain.odoo.compatibility import (
     OdooOperation,
     assess_odoo_operation,
@@ -52,7 +54,6 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.destination_matching import (
     DESTINATION_HANDLINGS,
-    DESTINATION_NO_WRITE_HANDLINGS,
     DestinationCreateFieldDecision,
     DestinationCreateFieldEvidence,
     DestinationCreateFieldEvidenceValue,
@@ -61,8 +62,13 @@ from impodo.domain.workspace.destination_matching import (
     DestinationMatchPlan,
     DestinationModelMatch,
     DestinationRelationshipMatch,
+    resolver_origin_for_destination_handling,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.odoo_relationship_compilation import (
+    OdooRelationshipCompilationError,
+    compile_odoo_relationship_datasets,
+)
 from impodo.domain.workspace.workbench import (
     WorkspaceState,
     transfer_destination_identity_hash,
@@ -341,6 +347,7 @@ class DestinationMatchingService:
         recorded_by: str,
         source_origins: Mapping[str, tuple[OdooOriginBatch, ...]] | None = None,
         excluded_source_rows: Mapping[str, Sequence[int]] | None = None,
+        relationship_scope: OdooRelationshipScope | None = None,
     ) -> DestinationMatchPlan:
         """Return a current plan from one bounded metadata/record read."""
 
@@ -676,7 +683,7 @@ class DestinationMatchingService:
             if create_field_values
             else None
         )
-        return DestinationMatchPlan(
+        plan = DestinationMatchPlan(
             workspace_id=workspace.workspace_id,
             source_selection_hash=selection.content_hash,
             source_schema_hash=source_schema.content_hash,
@@ -704,6 +711,14 @@ class DestinationMatchingService:
             ),
             create_field_evidence=create_field_evidence,
         )
+        try:
+            compile_odoo_relationship_datasets(
+                plan,
+                relationship_scope=relationship_scope,
+            )
+        except OdooRelationshipCompilationError as error:
+            raise WorkspaceError(str(error)) from error
+        return plan
 
     def _scope_reference_only_models(
         self,
@@ -1043,10 +1058,9 @@ class DestinationMatchingService:
                         ambiguous += 1
                     elif destination_count == 1:
                         reused += 1
-                    elif (
+                    elif resolver_origin_for_destination_handling(
                         relationship.related.destination_handling
-                        in DESTINATION_NO_WRITE_HANDLINGS
-                    ):
+                    ) is ResolverOrigin.TARGET_CATALOG:
                         missing += 1
                     else:
                         incoming += 1

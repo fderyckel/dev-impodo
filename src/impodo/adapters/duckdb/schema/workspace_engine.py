@@ -172,6 +172,19 @@ _ODOO_CAPTURE_MANIFEST_CURRENT_COLUMNS = (
     "dataset_id",
     "manifest_id",
 )
+_ODOO_RELATIONSHIP_SCOPE_REVISION_COLUMNS = (
+    "scope_id",
+    "version",
+    "content_hash",
+    "recorded_at",
+    "recorded_by",
+    "scope_json",
+)
+_ODOO_RELATIONSHIP_SCOPE_CURRENT_COLUMNS = (
+    "singleton_id",
+    "scope_id",
+    "version",
+)
 _NORMALIZATION_RUN_COLUMNS = (
     "run_id",
     "content_hash",
@@ -244,6 +257,7 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "normalization_group", "normalization_run", "normalization_transition",
         "odoo_capture_manifest_current", "odoo_capture_manifest_revision",
         "odoo_capture_selection_current", "odoo_capture_selection_revision",
+        "odoo_relationship_scope_current", "odoo_relationship_scope_revision",
         "odoo_model_catalog", "odoo_schema_catalog", "preflight_current",
         "preflight_dataset", "preflight_decision", "preflight_execution_projection",
         "preflight_target_snapshot",
@@ -404,6 +418,22 @@ class WorkspaceEngineSchemaMixin:
             CREATE TABLE odoo_schema_catalog (
                 singleton_id INTEGER PRIMARY KEY,
                 catalog_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE odoo_relationship_scope_revision (
+                scope_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL,
+                content_hash VARCHAR NOT NULL UNIQUE,
+                recorded_at VARCHAR NOT NULL,
+                recorded_by VARCHAR NOT NULL,
+                scope_json VARCHAR NOT NULL,
+                PRIMARY KEY (scope_id, version)
+            );
+
+            CREATE TABLE odoo_relationship_scope_current (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                scope_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL
             );
 
             CREATE TABLE derived_entity_plan_revision (
@@ -1040,6 +1070,14 @@ class WorkspaceEngineSchemaMixin:
                 "odoo_capture_manifest_current",
                 _ODOO_CAPTURE_MANIFEST_CURRENT_COLUMNS,
             ),
+            (
+                "odoo_relationship_scope_revision",
+                _ODOO_RELATIONSHIP_SCOPE_REVISION_COLUMNS,
+            ),
+            (
+                "odoo_relationship_scope_current",
+                _ODOO_RELATIONSHIP_SCOPE_CURRENT_COLUMNS,
+            ),
             ("normalization_run", _NORMALIZATION_RUN_COLUMNS),
             (
                 "preflight_execution_projection",
@@ -1424,6 +1462,32 @@ def _upgrade_workspace_engine_v14_to_v15(
     )
 
 
+def _upgrade_workspace_engine_v15_to_v16(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add immutable per-edge Odoo relationship-scope evidence."""
+
+    connection.execute(
+        """
+        CREATE TABLE odoo_relationship_scope_revision (
+            scope_id VARCHAR NOT NULL,
+            version INTEGER NOT NULL,
+            content_hash VARCHAR NOT NULL UNIQUE,
+            recorded_at VARCHAR NOT NULL,
+            recorded_by VARCHAR NOT NULL,
+            scope_json VARCHAR NOT NULL,
+            PRIMARY KEY (scope_id, version)
+        );
+
+        CREATE TABLE odoo_relationship_scope_current (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            scope_id VARCHAR NOT NULL,
+            version INTEGER NOT NULL
+        );
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -1480,5 +1544,9 @@ WORKSPACE_ENGINE_UPGRADES = {
     14: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v14-to-v15-navigation-projection",
         apply=_upgrade_workspace_engine_v14_to_v15,
+    ),
+    15: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v15-to-v16-odoo-relationship-scope",
+        apply=_upgrade_workspace_engine_v15_to_v16,
     ),
 }

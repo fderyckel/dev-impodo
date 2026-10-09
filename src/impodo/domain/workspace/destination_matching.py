@@ -15,6 +15,7 @@ import re
 from typing import Any
 from uuid import UUID, uuid4
 
+from impodo.domain.mapping.contracts import ResolverOrigin
 from impodo.domain.serialization import canonical_json, content_hash
 
 
@@ -30,6 +31,18 @@ DESTINATION_NO_WRITE_HANDLINGS = frozenset(
 )
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
+
+
+def resolver_origin_for_destination_handling(
+    destination_handling: str,
+) -> ResolverOrigin:
+    """Translate Odoo transfer handling into the canonical resolver meaning."""
+
+    if destination_handling not in DESTINATION_HANDLINGS:
+        raise ValueError("Destination handling is invalid")
+    if destination_handling == "transfer":
+        return ResolverOrigin.TARGET_THEN_DATASET
+    return ResolverOrigin.TARGET_CATALOG
 
 
 @dataclass(frozen=True, slots=True)

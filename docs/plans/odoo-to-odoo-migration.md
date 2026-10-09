@@ -152,8 +152,37 @@ and unresolved custom links. The qualified Product policy recommends Product
 Categories, Units of Measure, and the Unit of Measure Category when its link is
 discovered. The review link preselects only recommendations that exist in the
 current model catalogue, while the existing schema-scope POST remains the
-explicit save boundary. This first seam does not yet persist individual edge
-decisions or silently expand model scope.
+explicit save boundary. The grouped control now persists individual edge
+decisions, but one save does not yet expand every new graph level recursively.
+
+[ADR-016](../decisions/README.md#adr-016--odoo-relationship-scope-combines-generic-decisions-with-profiles)
+records the accepted direction for closing that gap by extending the existing
+file-to-Odoo relationship engine. Schema-derived per-edge decisions remain
+authoritative; versioned standard and organization profiles recommend common
+choices but cannot turn a default into the only workflow.
+
+**Implementation status (2026-10-09):** Standard recommendations now belong to
+a versioned, injectable profile instead of the discovery engine. An available
+unprofiled related model is an explicit unchecked source-scope choice, and a
+model added from the relationship proposal defaults to linked-only capture.
+Metadata for a non-writable related, computed, or read-only relationship is
+shown as Odoo-managed evidence instead of being silently removed. Saving the
+grouped model choices records an immutable, versioned decision for every
+source relationship field, including its profile provenance. Multi-level
+review now proceeds iteratively on the same Stage 2 page: saving an included
+record type refreshes its schema, newly discovered or changed edges remain
+pending, and checking or freezing records is blocked until every current
+selectable edge has an explicit inclusion or exclusion. Profiles do not
+auto-select the next graph level, and an unavailable related record type is
+reported as a blocker. Once Stage 4 has chosen each selected model's business
+key, the saved Stage 2 edge decision and Stage 4 evidence now compile into the
+canonical `DatasetMapping`,
+`RelationshipMapping`, and `RelationshipResolver` contracts. `transfer` means
+target first and then the incoming dataset; both no-write modes mean target
+catalogue only. Stage 5 derives its relationship edges through the shared
+dependency extractor before scheduling. The transfer-specific relationship
+wrapper remains as protected instance-count evidence and is still used by the
+row-level execution projection.
 
 On 18 September 2026, a read-only check against the private demo source
 retrieved seven Contact samples and found one exact-name match. It verified

@@ -11,6 +11,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Iterable
 
+from .odoo_relationship_profiles import (
+    DEFAULT_ODOO_RELATIONSHIP_PROFILES,
+    OdooRelationshipProfile,
+)
 from .workspace.contracts import SchemaField, SchemaModel
 
 
@@ -37,71 +41,8 @@ class RelatedDataSuggestion:
     relation_model: str
     required: bool
     handling: RelatedDataHandling
-
-
-_DESTINATION_CONFIGURATION_MODELS = frozenset(
-    {
-        "account.account",
-        "account.account.tag",
-        "account.tax",
-        "ir.sequence",
-        "mrp.workcenter",
-        "res.company",
-        "res.currency",
-        "stock.location",
-        "stock.route",
-        "stock.warehouse",
-    }
-)
-
-_HISTORY_MODELS = frozenset(
-    {
-        "mail.activity",
-        "mail.followers",
-        "mail.message",
-        "rating.rating",
-    }
-)
-
-_SUPPORTING_RELATIONSHIPS = frozenset(
-    {
-        ("product.template", "categ_id"),
-        ("product.template", "uom_id"),
-        ("product.template", "uom_po_id"),
-        ("mrp.bom", "bom_line_ids"),
-        ("mrp.bom", "operation_ids"),
-        ("uom.uom", "category_id"),
-    }
-)
-
-_PRODUCT_OPTIONAL_MODELS = frozenset(
-    {
-        "ir.attachment",
-        "product.combo",
-        "product.packaging",
-        "product.supplierinfo",
-        "product.tag",
-        "product.template.attribute.line",
-    }
-)
-
-_PRODUCT_GENERATED_FIELDS = frozenset(
-    {
-        "product_variant_id",
-        "product_variant_ids",
-    }
-)
-
-_SEPARATE_PROCESS_MODELS = frozenset(
-    {
-        "mrp.bom",
-        "mrp.bom.line",
-        "mrp.eco",
-        "planning.slot",
-        "product.pricelist.item",
-        "project.project",
-    }
-)
+    recommendation_profile_id: str | None = None
+    recommendation_profile_version: int | None = None
 
 
 _SELECTABLE_HANDLINGS = frozenset(
@@ -109,6 +50,7 @@ _SELECTABLE_HANDLINGS = frozenset(
         RelatedDataHandling.INCLUDE_SUPPORTING,
         RelatedDataHandling.OPTIONAL_BUSINESS_DATA,
         RelatedDataHandling.REUSE_DESTINATION,
+        RelatedDataHandling.NEEDS_DECISION,
     }
 )
 
@@ -117,6 +59,9 @@ def propose_related_odoo_data(
     models: Iterable[SchemaModel],
     *,
     include_selected: bool = False,
+    profiles: tuple[
+        OdooRelationshipProfile, ...
+    ] = DEFAULT_ODOO_RELATIONSHIP_PROFILES,
 ) -> tuple[RelatedDataSuggestion, ...]:
     """Return deterministic suggestions for eligible links leaving the scope.
 
@@ -130,26 +75,41 @@ def propose_related_odoo_data(
 
     captured_models = tuple(models)
     selected_names = {model.name for model in captured_models}
-    suggestions = tuple(
-        RelatedDataSuggestion(
-            source_model=model.name,
-            source_label=model.label,
-            field_name=field.name,
-            field_label=field.label,
-            relation_model=field.relation,
-            required=field.required,
-            handling=_classify_relationship(model.name, field),
-        )
-        for model in captured_models
-        for field in model.fields
-        if _is_scope_candidate(
-            model.name,
-            field,
-            selected_names,
-            include_selected=include_selected,
-        )
-        and field.relation is not None
-    )
+    suggestions: list[RelatedDataSuggestion] = []
+    for model in captured_models:
+        for field in model.fields:
+            if field.relation == model.name:
+                continue
+            classification = _classify_relationship(
+                model.name,
+                field,
+                profiles=profiles,
+            )
+            if not _is_scope_candidate(
+                field,
+                selected_names,
+                handling=classification[0],
+                include_selected=include_selected,
+            ) or field.relation is None:
+                continue
+            handling, profile = classification
+            suggestions.append(
+                RelatedDataSuggestion(
+                    source_model=model.name,
+                    source_label=model.label,
+                    field_name=field.name,
+                    field_label=field.label,
+                    relation_model=field.relation,
+                    required=field.required,
+                    handling=handling,
+                    recommendation_profile_id=(
+                        profile.profile_id if profile is not None else None
+                    ),
+                    recommendation_profile_version=(
+                        profile.version if profile is not None else None
+                    ),
+                )
+            )
     return tuple(
         sorted(
             suggestions,
@@ -169,14 +129,22 @@ def related_model_can_be_selected(handling: RelatedDataHandling) -> bool:
     return handling in _SELECTABLE_HANDLINGS
 
 
+def related_model_should_default_linked_only(
+    handling: RelatedDataHandling,
+) -> bool:
+    """Return whether an inline related-data choice should capture reached rows."""
+
+    return handling in _SELECTABLE_HANDLINGS
+
+
 def _is_scope_candidate(
-    source_model: str,
     field: SchemaField,
     selected_names: set[str],
     *,
+    handling: RelatedDataHandling,
     include_selected: bool,
 ) -> bool:
-    """Keep the capture engine's existing closed relationship eligibility."""
+    """Keep metadata-safe edges visible without granting write capability."""
 
     return bool(
         field.type in {"many2one", "many2many", "one2many"}
@@ -185,41 +153,41 @@ def _is_scope_candidate(
             field.relation not in selected_names
             or (
                 include_selected
-                and related_model_can_be_selected(
-                    _classify_relationship(source_model, field)
-                )
+                and related_model_can_be_selected(handling)
             )
         )
         and field.exportable is True
-        and field.related is not True
         and field.company_dependent is False
-        and (field.type == "one2many" or field.readonly is False)
     )
 
 
 def _classify_relationship(
     source_model: str,
     field: SchemaField,
-) -> RelatedDataHandling:
-    """Apply the deliberately small, business-safe first scope policy."""
+    *,
+    profiles: tuple[OdooRelationshipProfile, ...],
+) -> tuple[RelatedDataHandling, OdooRelationshipProfile | None]:
+    """Apply capabilities first, then the first exact profile recommendation."""
 
-    assert field.relation is not None
-    if field.relation in _HISTORY_MODELS:
-        return RelatedDataHandling.EXCLUDE_HISTORY
-    if (
-        source_model == "product.template"
-        and field.name in _PRODUCT_GENERATED_FIELDS
+    if field.related is True or (
+        field.computed is True and field.has_inverse is not True
+    ) or (
+        field.type != "one2many"
+        and field.readonly
+        and field.has_inverse is not True
     ):
-        return RelatedDataHandling.ODOO_MANAGED
-    if field.relation in _DESTINATION_CONFIGURATION_MODELS:
-        return RelatedDataHandling.REUSE_DESTINATION
-    if (source_model, field.name) in _SUPPORTING_RELATIONSHIPS:
-        return RelatedDataHandling.INCLUDE_SUPPORTING
-    if field.relation in _SEPARATE_PROCESS_MODELS:
-        return RelatedDataHandling.SEPARATE_PROCESS
-    if (
-        source_model == "product.template"
-        and field.relation in _PRODUCT_OPTIONAL_MODELS
-    ):
-        return RelatedDataHandling.OPTIONAL_BUSINESS_DATA
-    return RelatedDataHandling.NEEDS_DECISION
+        return RelatedDataHandling.ODOO_MANAGED, None
+    for profile in profiles:
+        recommendation = profile.recommend(source_model, field)
+        if recommendation is not None:
+            return RelatedDataHandling(recommendation.value), profile
+    return RelatedDataHandling.NEEDS_DECISION, None
+
+
+__all__ = [
+    "RelatedDataHandling",
+    "RelatedDataSuggestion",
+    "propose_related_odoo_data",
+    "related_model_can_be_selected",
+    "related_model_should_default_linked_only",
+]

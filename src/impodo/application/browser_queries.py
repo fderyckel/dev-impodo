@@ -18,6 +18,7 @@ from .data_version.source_packages import DataVersionSourcePackage
 from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from ..domain.source_snapshot import SourceSnapshot
 from ..domain.odoo_capture import OdooCaptureSelection
+from ..domain.odoo_relationship_scope import OdooRelationshipScope
 from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
 from ..domain.mapping.validation.evidence import MappingValidationResult
 from ..domain.schema.governance import SchemaGovernance
@@ -92,6 +93,9 @@ class SourceQueryRepository(Protocol):
     def get_current_odoo_capture_selections(
         self, workspace_id: str
     ) -> tuple[OdooCaptureSelection, ...]: ...
+    def get_current_odoo_relationship_scope(
+        self, workspace_id: str
+    ) -> OdooRelationshipScope | None: ...
 
 
 class MappingSourceQueryRepository(Protocol):
@@ -264,6 +268,12 @@ class BrowserQueryService:
         self, workspace_id: str
     ) -> tuple[OdooCaptureSelection, ...]:
         return self._sources.get_current_odoo_capture_selections(workspace_id)
+
+    def get_current_odoo_relationship_scope(
+        self,
+        workspace_id: str,
+    ) -> OdooRelationshipScope | None:
+        return self._sources.get_current_odoo_relationship_scope(workspace_id)
 
     def get_derived_entity_plan(
         self, workspace_id: str

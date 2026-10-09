@@ -70,20 +70,35 @@ version.
 3. Review **Review the related data for this migration**. Impodo groups the
    available links into supporting records needed to preserve meaning,
    optional business data, destination setup to reuse, records created by
-   Odoo, separate business processes, history to leave out, and links that
-   still need a decision. Select related source records directly in this
+   Odoo, separate business processes, history to leave out, and links with no
+   standard default. Select related source records directly in this
    section. For Products, Impodo marks Product Categories and Units of Measure
    as recommendations when those record types are available. Select the related
    record types that belong in this migration, then select **Save related-data
-   choices**. A checked box always means that the record type is already in the
-   current source choices. Rows for destination setup, Odoo-managed records,
-   separate processes, and excluded history show their handling instead of
-   presenting a misleading source-data checkbox. If the selected unit records
-   reveal a Unit of Measure Category,
-   Impodo recommends that supporting data in the next review on the same page.
+   decisions**. One checkbox applies the same source-capture choice to every link
+   shown beneath that related record type. Impodo saves each link as a separate
+   decision, so a later recommendation change does not silently change what
+   you approved. A checked box always means that the record type is already in
+   the current source choices. When Impodo has no standard default, it leaves the
+   checkbox clear and asks you to decide whether the linked records belong in
+   this migration. Selecting that record type does not decide whether the
+   destination may create it; you make that decision later in **Match
+   destination data**. Destination setup can be selected here so Impodo can
+   capture the linked identities that must be matched later. Odoo-managed
+   records, separate processes, and excluded history show their handling
+   instead of presenting a misleading source-data checkbox. If an included
+   record type reveals more relationships, Impodo shows them as **Needs review**
+   in the next review on the same page. Repeat **Save related-data decisions**
+   until the page shows **Related-data review complete**. Impodo does not
+   automatically include the next record type, and it will not let you check or
+   freeze records while a newly found relationship still needs a decision. If a
+   related record type is unavailable, Impodo shows that as a blocker instead
+   of treating the relationship as excluded.
    Saving a changed model choice refreshes its eligible fields from Odoo and
-   requires you to review the affected capture plans again. Use **Review all
-   available Odoo data** only when you need to change the wider model scope.
+   requires you to review the affected capture plans again. A record type added
+   from this section starts with **Capture only records linked from the selected
+   source records** selected. Use **Review all available Odoo data** only when
+   you need to change the wider model scope.
 4. Save one bounded plan for every selected type. A Contact, Product,
    transaction, or supporting record type each has its own plan. Include the
    fields needed by the migration when they appear among the eligible fields.
@@ -117,7 +132,9 @@ relationship gives **Match destination data** the records and protected link
 evidence it needs. A link to an unselected record type is not transferred. The
 related-data proposal explains why each available link may or may not belong
 in the migration. Its technical model and field names remain under **Support
-details**. Once you select a supporting type and mark it for linked capture,
+details**. The page does not require a separate checkbox for every technical
+field, but Impodo records the resulting decision for each displayed link. Once
+you select a supporting type and mark it for linked capture,
 Impodo finds its records from selected relationship fields. It stops if a
 referenced record is missing, inaccessible, or outside the selected root
 group. Capture alone does not authorize recreating records in another Odoo
