@@ -826,11 +826,19 @@ class OdooDependencyClosureTests(unittest.TestCase):
             type="many2one",
             relation="account.account",
         )
+        partner_ids = replace(
+            partner.fields[0],
+            name="partner_ids",
+            label="Contacts",
+            type="one2many",
+            relation="res.partner",
+            relation_field="company_id",
+        )
         company = replace(
             partner,
             name="res.company",
             label="Company",
-            fields=(*partner.fields, account_field),
+            fields=(*partner.fields, account_field, partner_ids),
         )
         account = replace(
             partner,
@@ -864,6 +872,18 @@ class OdooDependencyClosureTests(unittest.TestCase):
             allowed_relationships=allowed,
             reference_models=frozenset({"res.company"}),
         )
+        root_reference_plan = plan_odoo_source_capture(
+            _selection(
+                workspace_id,
+                schema,
+                model="res.company",
+                capture_role=OdooCaptureRole.ROOT,
+            ),
+            schema,
+            linked_models=frozenset({"res.partner"}),
+            allowed_relationships=allowed,
+            reference_models=frozenset({"res.company"}),
+        )
 
         self.assertEqual(
             tuple(item.name for item in root_plan.relationship_projection),
@@ -871,6 +891,13 @@ class OdooDependencyClosureTests(unittest.TestCase):
         )
         self.assertFalse(reference_plan.relationship_projection)
         self.assertFalse(reference_plan.discovery_relationship_projection)
+        self.assertEqual(
+            tuple(
+                item.name
+                for item in root_reference_plan.discovery_relationship_projection
+            ),
+            ("partner_ids",),
+        )
 
     def test_parent_one2many_discovers_children_without_duplicate_portable_link(self) -> None:
         models = ("mrp.bom", "mrp.bom.line")

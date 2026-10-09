@@ -76,7 +76,11 @@ version.
    Transfer captures reached records and then reviews that record type's own
    relationships. Match existing captures only the reached identity evidence,
    stops relationship expansion at that record type, and prevents it from being
-   created or updated in the destination. For Products, Impodo recommends
+   created or updated in the destination. If you explicitly make the same
+   record type a source root by clearing **Capture only records linked from the
+   selected source records**, it may still lead Impodo to its reviewed linked
+   child records. This does not allow Impodo to create or update that root in
+   the destination. For Products, Impodo recommends
    appropriate initial actions for Product Categories and Units of Measure when
    those record types are available. Then select **Save related-data
    decisions**. One action applies to every link shown beneath that related

@@ -197,6 +197,14 @@ from the frontier and later fixes its destination handling to `reference_only`.
 Both included actions default to a linked-only capture plan; the operator may
 still review its bounded fields.
 
+The leaf rule is capture-role sensitive. A match-existing model with a
+linked-only plan contributes identity evidence and no outgoing discovery
+projection. When the operator explicitly changes that same model to a root
+plan, `plan_odoo_source_capture` may traverse its reviewed outgoing or inverse
+child relationships. The model still compiles to `reference_only` for the
+destination. This permits an existing parent record type to seed capture of
+children without permitting Impodo to create or update the parent.
+
 After each save, authenticated schema refresh loads the newly included record
 types and `review_relationship_scope` compares every current schema edge with
 the saved field-level decisions. Newly discovered edges and edges whose
@@ -225,14 +233,17 @@ capture plans, manifests, key governance, mapping, and later evidence through
 `WorkspaceStateService.update_schema_scope`.
 
 The capture projection includes only reviewed relationship origins between
-selected models. A match-existing model contributes its reached records and
-identity fields but no outgoing discovery projection, so unrelated destination
-setup cannot enter the capture graph through it. A separate relationship review lists eligible links
-between selected models before linked capture assessment. The operator confirms
-that list as a group. This capture confirmation remains distinct from the
-persisted field-level source-scope decisions: the former confirms the exact
-fields that the pending capture will traverse, while the latter records why
-each related record type was included or omitted.
+selected models. A linked-only match-existing model contributes its reached
+records and identity fields but no outgoing discovery projection, so unrelated
+destination setup cannot enter the capture graph through it. An explicit root
+may traverse its reviewed outgoing or inverse child relationships even when
+its destination handling remains `reference_only`. A separate relationship
+review lists eligible links between selected models before linked capture
+assessment. The operator confirms that list as a group. This capture
+confirmation remains distinct from the persisted field-level source-scope
+decisions: the former confirms the exact fields that the pending capture will
+traverse, while the latter records why each related record type was included
+or omitted.
 
 [ADR-016](../../decisions/README.md#adr-016--odoo-relationship-scope-combines-generic-decisions-with-profiles)
 requires this Odoo-source discovery to extend the existing canonical

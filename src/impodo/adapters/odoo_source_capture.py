@@ -260,7 +260,8 @@ class Json2OdooSourceCapture:
             )
             if count > request.maximum_rows:
                 raise OdooSourceCaptureLimitError(
-                    "Odoo relationship scan exceeds the selected row limit"
+                    "Odoo relationship scan for "
+                    f"{request.model} exceeds the selected row limit"
                 )
             response_total = first_bytes + count_bytes
             if response_total > request.max_snapshot_bytes:

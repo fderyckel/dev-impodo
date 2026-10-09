@@ -612,7 +612,10 @@ def plan_odoo_source_capture(
     def relationship_is_allowed(field: SchemaField) -> bool:
         if allowed_relationships is None:
             return True
-        if schema_model.name in reference_models:
+        if (
+            schema_model.name in reference_models
+            and selection.capture_role is OdooCaptureRole.LINKED_ONLY
+        ):
             return False
         return bool(
             (schema_model.name, field.name) in allowed_relationships

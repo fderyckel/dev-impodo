@@ -648,6 +648,15 @@ permits a source-scope choice:
 - **Do not include** removes the edge and its otherwise unreachable related
   records from the capture scope.
 
+Graph-leaf behavior depends on how the model entered the capture plan. A
+model reached only through **Match existing records only** remains a leaf. If
+the data manager also selects that model as an explicit root, the root may
+traverse its reviewed outgoing or inverse child relationships to discover
+linked records. Its destination policy remains no-write. Source membership
+and destination write policy are separate decisions: root versus linked-only
+controls which source records seed discovery, while transfer versus
+match-existing controls whether destination records may be created.
+
 The second action is not an instruction to assume that a destination match
 exists. Stage 4 must still prove an exact, unambiguous match using the reviewed
 business identity. It may neither create nor update that record type. Standard

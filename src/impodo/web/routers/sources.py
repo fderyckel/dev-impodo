@@ -495,9 +495,11 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 if current_relationship_scope is not None
                 else frozenset()
             )
-            root_models = (
-                set(current_models) - previously_managed - selectable
-            )
+            # Models not introduced by the saved relationship scope are the
+            # data manager's explicit roots. Keep them even when a newly
+            # selectable edge also points at one of those models; relationship
+            # actions govern the edge, not the independently selected root.
+            root_models = set(current_models) - previously_managed
             included_models = {
                 item.relation_model
                 for item in final_decisions
@@ -1470,6 +1472,10 @@ def _render_odoo_capture_selection(
         item.model for item in current_selections
         if item.capture_role is OdooCaptureRole.LINKED_ONLY
     }
+    root_models = {
+        item.model for item in current_selections
+        if item.capture_role is OdooCaptureRole.ROOT
+    }
     reviewed_relationships = (
         {
             item.identity
@@ -1497,7 +1503,10 @@ def _render_odoo_capture_selection(
         and (
             reviewed_relationships is None
             or (
-                model.name not in reference_models
+                (
+                    model.name not in reference_models
+                    or model.name in root_models
+                )
                 and (
                     (model.name, field.name) in reviewed_relationships
                     or (

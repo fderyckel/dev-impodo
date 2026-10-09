@@ -15,6 +15,8 @@ from impodo.web.routers import (
     destination_matching,
     transfer_destination,
     transfer_order,
+    transfer_preflight,
+    transfer_review,
 )
 from impodo.web.target_credentials import (
     TargetCredentialRole,
@@ -89,6 +91,56 @@ class TransferPageReadTests(ProjectSetupBrowserTestCase):
                 source_schema_hash=schema.content_hash,
             )
         )
+        return workspace_id
+
+    def _ordered_transfer_workspace(self) -> str:
+        """Add a current transfer order through the browser command boundary."""
+
+        workspace_id = self._matched_destination_workspace()
+        context = self.app.state.context
+        matched = context.queries.get(workspace_id)
+        response = self._post(
+            f"/workspaces/{workspace_id}/transfer-order",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(matched.revision),
+            },
+        )
+        self.assertEqual(response.status_code, 303, response.text)
+        ordered = context.queries.get(workspace_id)
+        self.assertIsNotNone(ordered.transfer_order_plan)
+        assert ordered.transfer_order_plan is not None
+        self.assertTrue(ordered.transfer_order_plan.ready)
+        return workspace_id
+
+    def _approved_transfer_workspace(self) -> str:
+        """Add an approved review package through browser command boundaries."""
+
+        workspace_id = self._ordered_transfer_workspace()
+        context = self.app.state.context
+        ordered = context.queries.get(workspace_id)
+        built = self._post(
+            f"/workspaces/{workspace_id}/transfer-review/build",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(ordered.revision),
+            },
+        )
+        self.assertEqual(built.status_code, 303, built.text)
+        reviewed = context.queries.get(workspace_id)
+        self.assertIsNotNone(reviewed.transfer_review_package)
+        approved = self._post(
+            f"/workspaces/{workspace_id}/transfer-review/approve",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(reviewed.revision),
+                "confirmation": "approve",
+                "reason": "Reviewed fictional transfer evidence.",
+            },
+        )
+        self.assertEqual(approved.status_code, 303, approved.text)
+        approved_state = context.queries.get(workspace_id)
+        self.assertIsNotNone(approved_state.transfer_review_approval)
         return workspace_id
 
     def _worker_probe(self, worker_threads: list[int]):
@@ -269,6 +321,106 @@ class TransferPageReadTests(ProjectSetupBrowserTestCase):
         source_selection_read.assert_called()
         schema_read.assert_called()
         render.assert_called_once()
+        self.assertTrue(worker_threads)
+        self.assertEqual(len(set(worker_threads)), 1)
+        self.assertGreater(timings.connection_count, 0)
+        self.assertLessEqual(timings.connection_count, 6)
+
+    def test_transfer_review_reads_share_database_owners(self) -> None:
+        workspace_id = self._ordered_transfer_workspace()
+        context = self.app.state.context
+        worker_threads: list[int] = []
+        worker_probe = self._worker_probe(worker_threads)
+
+        with (
+            patch.object(
+                context.queries,
+                "get",
+                side_effect=worker_probe(context.queries.get),
+            ) as workspace_read,
+            patch.object(
+                context.queries,
+                "get_source_selection",
+                side_effect=worker_probe(context.queries.get_source_selection),
+            ) as source_selection_read,
+            patch.object(
+                context.queries,
+                "get_odoo_schema_catalog",
+                side_effect=worker_probe(context.queries.get_odoo_schema_catalog),
+            ) as schema_read,
+            patch.object(
+                transfer_review,
+                "_render",
+                side_effect=worker_probe(transfer_review._render),
+            ) as render,
+            collect_duckdb_request_timings() as timings,
+        ):
+            response = self.client.get(
+                f"/workspaces/{workspace_id}/transfer-review",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("Approve the exact Odoo transfer package", response.text)
+        workspace_read.assert_called()
+        source_selection_read.assert_called()
+        schema_read.assert_called()
+        render.assert_called_once()
+        self.assertTrue(worker_threads)
+        self.assertEqual(len(set(worker_threads)), 1)
+        self.assertGreater(timings.connection_count, 0)
+        self.assertLessEqual(timings.connection_count, 6)
+
+    def test_transfer_preflight_reads_share_database_owners(self) -> None:
+        workspace_id = self._approved_transfer_workspace()
+        context = self.app.state.context
+        worker_threads: list[int] = []
+        worker_probe = self._worker_probe(worker_threads)
+
+        with (
+            patch.object(
+                context.queries,
+                "get",
+                side_effect=worker_probe(context.queries.get),
+            ) as workspace_read,
+            patch.object(
+                context.queries,
+                "get_source_selection",
+                side_effect=worker_probe(context.queries.get_source_selection),
+            ) as source_selection_read,
+            patch.object(
+                context.queries,
+                "get_odoo_schema_catalog",
+                side_effect=worker_probe(context.queries.get_odoo_schema_catalog),
+            ) as schema_read,
+            patch.object(
+                transfer_preflight,
+                "get_target_credential_status",
+                side_effect=worker_probe(
+                    transfer_preflight.get_target_credential_status
+                ),
+            ) as credential_status_read,
+            patch.object(
+                transfer_preflight,
+                "_render",
+                side_effect=worker_probe(transfer_preflight._render),
+            ) as render,
+            patch.object(context, "read_identity_probe") as remote_identity_probe,
+            collect_duckdb_request_timings() as timings,
+        ):
+            response = self.client.get(
+                f"/workspaces/{workspace_id}/transfer-preflight",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("Recheck the destination before loading", response.text)
+        workspace_read.assert_called()
+        source_selection_read.assert_called()
+        schema_read.assert_called()
+        credential_status_read.assert_called_once()
+        render.assert_called_once()
+        remote_identity_probe.assert_not_called()
         self.assertTrue(worker_threads)
         self.assertEqual(len(set(worker_threads)), 1)
         self.assertGreater(timings.connection_count, 0)
