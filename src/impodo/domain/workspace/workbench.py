@@ -26,6 +26,7 @@ from uuid import UUID, uuid4
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo_relationship_scope import (
+    ODOO_RELATIONSHIP_SCOPE_CONTRACT_VERSION,
     OdooRelationshipScope,
     OdooRelationshipScopeDecision,
 )
@@ -1155,6 +1156,7 @@ class WorkspaceStateService:
         relationship_decisions: Sequence[
             OdooRelationshipScopeDecision
         ] | None = None,
+        relationship_root_models: Sequence[str] | None = None,
     ) -> WorkspaceState:
         """Set the exact Odoo models that schema discovery may read and map.
 
@@ -1198,8 +1200,25 @@ class WorkspaceStateService:
             current_scope = self.repository.get_current_odoo_relationship_scope(
                 workspace_id
             )
+            roots = tuple(
+                sorted(
+                    _clean_choices(
+                        relationship_root_models
+                        if relationship_root_models is not None
+                        else (
+                            current_scope.root_models
+                            if current_scope is not None
+                            else ()
+                        )
+                    )
+                )
+            )
             relationship_scope_changed = bool(
-                current_scope is None or current_scope.decisions != decisions
+                current_scope is None
+                or current_scope.decisions != decisions
+                or current_scope.root_models != roots
+                or current_scope.contract_version
+                != ODOO_RELATIONSHIP_SCOPE_CONTRACT_VERSION
             )
             if relationship_scope_changed:
                 relationship_scope = OdooRelationshipScope.create(
@@ -1214,6 +1233,7 @@ class WorkspaceStateService:
                         else 1
                     ),
                     decisions=decisions,
+                    root_models=roots,
                     recorded_at=_now(),
                     recorded_by=actor.identity.display_name,
                 )

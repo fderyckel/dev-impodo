@@ -15,6 +15,7 @@ from .odoo_relationship_profiles import (
     DEFAULT_ODOO_RELATIONSHIP_PROFILES,
     OdooRelationshipProfile,
 )
+from .workspace.business_keys import recommend_business_key
 from .workspace.contracts import SchemaField, SchemaModel
 
 
@@ -43,6 +44,7 @@ class RelatedDataSuggestion:
     handling: RelatedDataHandling
     recommendation_profile_id: str | None = None
     recommendation_profile_version: int | None = None
+    identity_scope: bool = False
 
 
 _SELECTABLE_HANDLINGS = frozenset(
@@ -78,6 +80,10 @@ def propose_related_odoo_data(
     selected_names = {model.name for model in captured_models}
     suggestions: list[RelatedDataSuggestion] = []
     for model in captured_models:
+        identity = recommend_business_key(model)
+        identity_scope_fields = frozenset(
+            identity.scope_fields if identity is not None else ()
+        )
         for field in model.fields:
             if field.relation == model.name:
                 continue
@@ -109,6 +115,7 @@ def propose_related_odoo_data(
                     recommendation_profile_version=(
                         profile.version if profile is not None else None
                     ),
+                    identity_scope=field.name in identity_scope_fields,
                 )
             )
     return tuple(

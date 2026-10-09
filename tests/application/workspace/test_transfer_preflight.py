@@ -92,6 +92,110 @@ class TransferPreflightTests(unittest.TestCase):
             report.datasets[0].blocker_codes,
         )
 
+    def test_minimum_create_ignores_optional_compatible_fields(self) -> None:
+        product = replace(
+            _model("product.template", "Product", existing=1, create=1),
+            compatible_fields=("default_code", "name", "note"),
+            minimum_create_fields=("default_code", "name"),
+            destination_handling="reuse_or_create",
+        )
+        match = _match_plan((product,), ())
+        workspace, package, approval = _approve(match)
+
+        report = TransferPreflightService().build(
+            workspace,
+            package,
+            approval,
+            match,
+            _fresh(match),
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+
+        self.assertTrue(report.ready)
+        self.assertEqual(
+            report.datasets[0].observed_compatible_fields,
+            ("default_code", "name"),
+        )
+        self.assertNotIn(
+            "DESTINATION_FIELD_SCOPE_DRIFT",
+            report.datasets[0].blocker_codes,
+        )
+
+    def test_minimum_create_includes_governed_relationship_field(self) -> None:
+        category = replace(
+            _model("product.category", "Product Category", existing=1, create=1),
+            compatible_fields=("name", "note", "parent_id"),
+            minimum_create_fields=("name",),
+            minimum_create_relationship_fields=("parent_id",),
+            destination_handling="reuse_or_create",
+        )
+        parent = replace(
+            _relation(category, category, "parent_id"),
+            destination_reused_link_count=1,
+            incoming_link_count=0,
+        )
+        match = _match_plan((category,), (parent,))
+        workspace, package, approval = _approve(match)
+
+        report = TransferPreflightService().build(
+            workspace,
+            package,
+            approval,
+            match,
+            _fresh(match),
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+
+        self.assertTrue(report.ready)
+        self.assertEqual(
+            report.datasets[0].approved_write_fields,
+            ("name", "parent_id"),
+        )
+        self.assertEqual(
+            report.datasets[0].observed_compatible_fields,
+            ("name", "parent_id"),
+        )
+
+    def test_reuse_or_create_with_no_creates_has_no_observed_write_scope(
+        self,
+    ) -> None:
+        owner = replace(
+            _model("x.owner", "Owner", existing=1),
+            compatible_fields=("name",),
+            incompatible_fields=("required_id",),
+            minimum_create_fields=("name",),
+            destination_handling="reuse_or_create",
+        )
+        related = replace(
+            _model("x.related", "Related", existing=1),
+            destination_handling="reference_only",
+        )
+        required = replace(
+            _relation(owner, related, "required_id", required=True),
+            destination_reused_link_count=1,
+            incoming_link_count=0,
+        )
+        match = _match_plan((owner, related), (required,))
+        workspace, package, approval = _approve(match)
+
+        report = TransferPreflightService().build(
+            workspace,
+            package,
+            approval,
+            match,
+            _fresh(match),
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+
+        reviewed = next(item for item in report.datasets if item.model == owner.model)
+        self.assertTrue(report.ready)
+        self.assertFalse(reviewed.approved_write_fields)
+        self.assertFalse(reviewed.observed_compatible_fields)
+        self.assertNotIn(
+            "DESTINATION_FIELD_SCOPE_DRIFT",
+            reviewed.blocker_codes,
+        )
+
     def test_new_required_create_field_blocks_after_approval(self) -> None:
         workspace, package, approval, match = _approved_state()
         changed_model = replace(
@@ -154,6 +258,35 @@ class TransferPreflightTests(unittest.TestCase):
         self.assertIn(
             "DESTINATION_RELATIONSHIP_RESOLUTION_DRIFT",
             report.relationships[0].blocker_codes,
+        )
+
+    def test_full_transfer_still_blocks_an_unapproved_relationship(self) -> None:
+        product = replace(
+            _model("product.template", "Product", create=1),
+            compatible_fields=("name", "uom_id"),
+        )
+        uom = _model("uom.uom", "Unit of Measure", existing=1)
+        match = _match_plan((product, uom), ())
+        workspace, package, approval = _approve(match)
+        new_relation = replace(
+            _relation(product, uom, "uom_id"),
+            destination_reused_link_count=1,
+            incoming_link_count=0,
+        )
+
+        report = TransferPreflightService().build(
+            workspace,
+            package,
+            approval,
+            match,
+            _fresh(match, relationship_matches=(new_relation,)),
+            recorded_by=LOCAL_ACTOR.identity,
+        )
+
+        self.assertFalse(report.ready)
+        self.assertIn(
+            "DESTINATION_RELATIONSHIP_SCOPE_DRIFT",
+            report.blocker_codes,
         )
 
     def test_workspace_saves_preflight_and_reapproval_invalidates_it(self) -> None:

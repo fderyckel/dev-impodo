@@ -49,10 +49,14 @@ and mapping invalidation.
 After a live destination capture, `supporting_models.py` derives direct
 relationships from the selected schema. It classifies each relationship as
 reuse existing, checked default, Odoo managed, or review incoming. The Stage 2
-presenter joins that domain result with the saved model catalogue and projects
-business-facing groups plus the shared read-only workflow-issue shape. Opening
-the page remains local: this projection is not persisted and makes no Odoo
-request.
+presenter joins that domain result with the saved model catalogue and the
+versioned relationship profiles, then projects a preview of the later generic
+outcomes. Ordinary links show **Keep linked value**; destination configuration
+shows **Use existing destination records only**; Odoo-managed links remain
+separate. This preview cannot promote a related model into top-level transfer
+scope. The detailed edge decision remains in the source relationship review.
+Opening the page remains local: this projection is not persisted and makes no
+Odoo request.
 
 For a non-Production target, the connection form can explicitly keep the same
 submitted or already stored secret for later loading. `target.py` writes two

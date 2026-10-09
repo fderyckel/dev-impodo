@@ -69,6 +69,7 @@ routes, services, implementation status, performance risks, and focused tests.
 - [Shared page-read measurements](../testing/stage12-shared-page-reads-2026-10-07.md)
 - [Architecture overview](../architecture/overview.md)
 - [Code organization](../architecture/code-organization.md)
+- [Local browser database operation scopes](../architecture/code-organization.md#local-browser-database-operation-scopes)
 - [Python code map](../architecture/python-code-map.md)
 - [Architecture decisions](../decisions/README.md)
 - [Acceptance and test strategy](../testing/acceptance.md)

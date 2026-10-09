@@ -70,14 +70,13 @@ class OdooRelationshipProfile:
 
 STANDARD_ODOO_RELATIONSHIP_PROFILE = OdooRelationshipProfile(
     profile_id="impodo.standard.odoo.relationships",
-    version=1,
+    version=2,
     destination_configuration_models=frozenset(
         {
             "account.account",
             "account.account.tag",
             "account.tax",
             "ir.sequence",
-            "mrp.workcenter",
             "res.company",
             "res.currency",
             "stock.location",

@@ -43,6 +43,10 @@ from ...application.odoo_capture_job_service import (
     OdooCaptureJobStateError,
 )
 from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.guided_odoo_capture import (
+    GuidedOdooCapturePlanProposal,
+    propose_guided_odoo_capture_plans,
+)
 from ...domain.odoo_source_capture import (
     OdooSourceCaptureAccessRefreshRequired,
     OdooSourceCaptureError,
@@ -376,7 +380,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             )
         _flash(
             request,
-            "All Odoo capture plans are saved. Check the matching records "
+            "All Odoo capture plans are saved. Count the selected source records "
             "to continue.",
         )
         return RedirectResponse(
@@ -469,9 +473,22 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 for item in preliminary_decisions
                 if item.action is OdooRelationshipCaptureAction.MATCH_EXISTING
             )
+            create_if_missing_models = frozenset(
+                item.relation_model
+                for item in preliminary_decisions
+                if item.action is OdooRelationshipCaptureAction.PRESERVE_LINKED
+            )
             final_suggestions = tuple(
                 item for item in all_suggestions
-                if item.source_model not in reference_models
+                if (
+                    item.source_model not in reference_models
+                    or item.identity_scope
+                )
+                and (
+                    item.source_model not in create_if_missing_models
+                    or item.required
+                    or item.identity_scope
+                )
             )
             final_selectable = {
                 item.relation_model
@@ -490,21 +507,23 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 current_scope=current_relationship_scope,
             )
             current_models = workspace_state.intended_models
-            previously_managed = (
-                current_relationship_scope.included_models
-                if current_relationship_scope is not None
-                else frozenset()
-            )
-            # Models not introduced by the saved relationship scope are the
-            # data manager's explicit roots. Keep them even when a newly
-            # selectable edge also points at one of those models; relationship
-            # actions govern the edge, not the independently selected root.
-            root_models = set(current_models) - previously_managed
+            if current_relationship_scope is None:
+                root_models = set(current_models)
+            elif current_relationship_scope.contract_version >= 2:
+                root_models = set(current_relationship_scope.root_models)
+            else:
+                # Contract v1 inferred roots from the prior graph. Persist that
+                # best available evidence when it is upgraded to contract v2.
+                root_models = (
+                    set(current_models)
+                    - current_relationship_scope.included_models
+                )
             included_models = {
                 item.relation_model
                 for item in final_decisions
                 if item.action in {
                     OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                    OdooRelationshipCaptureAction.PRESERVE_LINKED,
                     OdooRelationshipCaptureAction.MATCH_EXISTING,
                 }
             }
@@ -521,6 +540,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 expected_revision=_revision(form),
                 permitted_models=next_models,
                 relationship_decisions=final_decisions,
+                relationship_root_models=tuple(sorted(root_models)),
             )
             return workspace_state, saved_workspace_state
 
@@ -572,6 +592,48 @@ def build_sources_router(context: WebContext) -> APIRouter:
             relationship_review = await run_local_operation(
                 current_relationship_review
             )
+            guided_proposal: GuidedOdooCapturePlanProposal | None = None
+            generated_plan_count = 0
+            if relationship_review.complete:
+                def save_guided_capture_plans():
+                    current_schema = context.queries.get_odoo_schema_catalog(
+                        workspace_id
+                    )
+                    current_scope = (
+                        context.queries.get_current_odoo_relationship_scope(
+                            workspace_id
+                        )
+                    )
+                    if current_schema is None or current_scope is None:
+                        raise WorkspaceStateError(
+                            "Refresh the reviewed Odoo source scope"
+                        )
+                    current_plans = (
+                        context.queries.get_current_odoo_capture_selections(
+                            workspace_id
+                        )
+                    )
+                    proposal = propose_guided_odoo_capture_plans(
+                        current_schema,
+                        current_scope,
+                        current_selections=current_plans,
+                    )
+                    for draft in proposal.drafts:
+                        context.sources.define_odoo_capture_selection(
+                            workspace_id,
+                            dataset_name=draft.dataset_name,
+                            model=draft.model,
+                            field_names=draft.field_names,
+                            include_archived=False,
+                            page_size=100,
+                            linked_only=draft.linked_only,
+                            actor=context.actor,
+                        )
+                    return proposal, len(proposal.drafts)
+
+                guided_proposal, generated_plan_count = await run_local_operation(
+                    save_guided_capture_plans
+                )
         except (
             ConnectorError,
             WorkspaceStateError,
@@ -592,10 +654,49 @@ def build_sources_router(context: WebContext) -> APIRouter:
             return await run_page_read(render_error)
         request.session.pop(_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY, None)
         if relationship_review.complete:
-            _flash(
-                request,
-                "Related-data review complete. Review and save a capture plan "
-                "for each selected record type.",
+            assert guided_proposal is not None
+            if guided_proposal.issues:
+                count = len(guided_proposal.issues)
+                _flash(
+                    request,
+                    f"Related-data review complete. Impodo prepared "
+                    f"{generated_plan_count} capture plan"
+                    f"{'s' if generated_plan_count != 1 else ''}. Review "
+                    f"{count} named exception{'s' if count != 1 else ''}.",
+                )
+                first_model = next(
+                    (
+                        issue.model
+                        for issue in guided_proposal.issues
+                        if issue.model is not None
+                    ),
+                    None,
+                )
+                return RedirectResponse(
+                    (
+                        f"/workspaces/{workspace_id}/sources?model={first_model}"
+                        "&edit=1#capture-plan"
+                        if first_model is not None
+                        else f"/workspaces/{workspace_id}/sources#capture-plan"
+                    ),
+                    status_code=303,
+                )
+            if generated_plan_count:
+                message = (
+                    f"Related-data review complete. Impodo prepared "
+                    f"{generated_plan_count} capture plan"
+                    f"{'s' if generated_plan_count != 1 else ''} automatically. "
+                    "Check the summary, then continue."
+                )
+            else:
+                message = (
+                    "Related-data review complete. The current capture plans "
+                    "are already ready. Check the summary, then continue."
+                )
+            _flash(request, message)
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/sources#capture-next-action",
+                status_code=303,
             )
         elif relationship_review.pending:
             count = len(relationship_review.pending)
@@ -1468,6 +1569,25 @@ def _render_odoo_capture_selection(
         ),
         relationship_scope=relationship_scope,
     )
+    guided_capture_issues = ()
+    guided_capture_drafts = ()
+    if (
+        schema is not None
+        and relationship_scope is not None
+        and related_data_scope.complete
+    ):
+        guided_capture_proposal = propose_guided_odoo_capture_plans(
+            schema,
+            relationship_scope,
+            current_selections=current_selections,
+        )
+        guided_capture_issues = guided_capture_proposal.issues
+        guided_capture_drafts = guided_capture_proposal.drafts
+    guided_capture_issue_by_model = {
+        item.model: item
+        for item in guided_capture_issues
+        if item.model is not None
+    }
     linked_models = {
         item.model for item in current_selections
         if item.capture_role is OdooCaptureRole.LINKED_ONLY
@@ -1482,6 +1602,7 @@ def _render_odoo_capture_selection(
             for item in relationship_scope.decisions
             if item.action in {
                 OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                OdooRelationshipCaptureAction.PRESERVE_LINKED,
                 OdooRelationshipCaptureAction.MATCH_EXISTING,
             }
         }
@@ -1493,6 +1614,18 @@ def _render_odoo_capture_selection(
         if relationship_scope is not None
         else frozenset()
     )
+    create_if_missing_models = (
+        relationship_scope.create_if_missing_models
+        if relationship_scope is not None
+        else frozenset()
+    )
+    identity_scope_fields_by_model: dict[str, frozenset[str]] = {}
+    for model_name in {item.source_model for item in related_data_suggestions}:
+        identity_scope_fields_by_model[model_name] = frozenset(
+            item.field_name
+            for item in related_data_suggestions
+            if item.source_model == model_name and item.identity_scope
+        )
     linked_relationships = tuple(
         (model, field)
         for model in models
@@ -1504,8 +1637,24 @@ def _render_odoo_capture_selection(
             reviewed_relationships is None
             or (
                 (
-                    model.name not in reference_models
-                    or model.name in root_models
+                    model.name in root_models
+                    or (
+                        (
+                            model.name not in reference_models
+                            or field.name in identity_scope_fields_by_model.get(
+                                model.name,
+                                frozenset(),
+                            )
+                        )
+                        and (
+                            model.name not in create_if_missing_models
+                            or field.required
+                            or field.name in identity_scope_fields_by_model.get(
+                                model.name,
+                                frozenset(),
+                            )
+                        )
+                    )
                 )
                 and (
                     (model.name, field.name) in reviewed_relationships
@@ -1694,6 +1843,12 @@ def _render_odoo_capture_selection(
         current_selections=current_selections,
         current_by_model=current_by_model,
         related_data_scope=related_data_scope,
+        guided_capture_issues=guided_capture_issues,
+        guided_capture_drafts=guided_capture_drafts,
+        guided_capture_can_prepare=(
+            bool(guided_capture_drafts) or relationship_scope is None
+        ),
+        guided_capture_issue_by_model=guided_capture_issue_by_model,
         linked_relationships=linked_relationships,
         has_linked_only=has_linked_only,
         plans_complete=plans_complete,

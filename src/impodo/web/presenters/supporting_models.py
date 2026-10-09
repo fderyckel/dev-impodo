@@ -1,9 +1,10 @@
-"""Present Stage 2 supporting-model decisions and actionable issues."""
+"""Present Stage 2 supporting-model defaults and actionable issues."""
 
 from __future__ import annotations
 
+from enum import StrEnum
+from itertools import groupby
 from typing import Iterable
-from urllib.parse import urlencode
 
 from impodo.application.workspace.issues import (
     WorkflowIssueOrigin,
@@ -11,6 +12,9 @@ from impodo.application.workspace.issues import (
     WorkflowIssueSeverity,
     WorkflowIssueState,
     summarize_workflow_issues,
+)
+from impodo.domain.odoo_relationship_profiles import (
+    DEFAULT_ODOO_RELATIONSHIP_PROFILES,
 )
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
@@ -24,31 +28,35 @@ from impodo.domain.workspace.supporting_models import (
 )
 
 
-_SUPPORTING_ROLE_COPY = {
-    SupportingModelRole.REUSE_EXISTING: (
-        "Reuse existing Odoo records",
-        "These relationships can point to existing Odoo records. They stay "
-        "outside the migration write scope; Match data must still bind an "
-        "approved portable identity before Impodo reads their values.",
-        "Review in Match data",
+class _SupportingPreviewOutcome(StrEnum):
+    """One summary outcome shown before detailed relationship review."""
+
+    KEEP_LINKED = "KEEP_LINKED"
+    USE_EXISTING_DESTINATION = "USE_EXISTING_DESTINATION"
+    ODOO_MANAGED = "ODOO_MANAGED"
+
+
+_OUTCOME_COPY = {
+    _SupportingPreviewOutcome.KEEP_LINKED: (
+        "Keep linked value",
+        "For each populated link, Impodo first reuses a matching destination "
+        "record. If no match exists, it prepares only the identity and required "
+        "values needed to create that record. It does not add the whole related "
+        "record type to the top-level transfer.",
+        "Reuse or create identity and required values only",
     ),
-    SupportingModelRole.CHECKED_DEFAULT: (
-        "Use checked Odoo defaults",
-        "The captured Odoo details contain a usable create default for these "
-        "required relationships. Match data will still show the decision.",
-        "Checked default available",
+    _SupportingPreviewOutcome.USE_EXISTING_DESTINATION: (
+        "Use existing destination records only",
+        "Destination-owned setup stays protected. Impodo must match an existing "
+        "destination record; a missing match stops the load instead of creating "
+        "or updating setup here.",
+        "Protected destination setup",
     ),
-    SupportingModelRole.ODOO_MANAGED: (
+    _SupportingPreviewOutcome.ODOO_MANAGED: (
         "Handled by Odoo",
         "Odoo computes these relationships or owns them through the related "
-        "record. Impodo will not ask you to migrate the related model here.",
-        "No incoming table required",
-    ),
-    SupportingModelRole.REVIEW_INCOMING: (
-        "Related records you may migrate separately",
-        "Include these records only when they are present in the accepted "
-        "source and belong to the approved migration scope.",
-        "Include only when it is business data",
+        "record. Impodo will not ask you to migrate the related record type here.",
+        "No incoming data required",
     ),
 }
 
@@ -58,7 +66,7 @@ def supporting_model_plan_view(
     schema: OdooSchemaCatalog | None,
     model_catalog: OdooModelCatalog | None,
 ) -> dict[str, object]:
-    """Project direct schema dependencies without widening write scope."""
+    """Preview direct relationship defaults without widening write scope."""
 
     if schema is None or schema.origin is not SchemaOrigin.LIVE_API:
         return {
@@ -72,142 +80,134 @@ def supporting_model_plan_view(
         model.name: model
         for model in (model_catalog.models if model_catalog is not None else ())
     }
-    groups = []
-    issues = []
-    for role in SupportingModelRole:
-        role_dependencies = tuple(
-            dependency
-            for dependency in dependencies
-            if dependency.role is role
+    grouped_dependencies = {
+        relation_model: tuple(items)
+        for relation_model, items in groupby(
+            sorted(dependencies, key=lambda item: item.relation_model),
+            key=lambda item: item.relation_model,
         )
-        if not role_dependencies:
-            continue
-        models = []
-        for relation_model in sorted(
-            {dependency.relation_model for dependency in role_dependencies},
-            key=lambda name: (
-                catalog_models.get(name).label.casefold()
-                if catalog_models.get(name) is not None
-                else _fallback_model_label(name).casefold(),
-                name,
-            ),
-        ):
-            related = tuple(
-                dependency
-                for dependency in role_dependencies
-                if dependency.relation_model == relation_model
-            )
-            catalog_model = catalog_models.get(relation_model)
-            relation_label = (
-                catalog_model.label
-                if catalog_model is not None
-                else _relationship_label(related, relation_model)
-            )
-            available = catalog_model is not None
-            availability_relevant = role in {
-                SupportingModelRole.REUSE_EXISTING,
-                SupportingModelRole.REVIEW_INCOMING,
+    }
+    models_by_outcome: dict[
+        _SupportingPreviewOutcome,
+        list[dict[str, object]],
+    ] = {outcome: [] for outcome in _SupportingPreviewOutcome}
+    issues = []
+    for relation_model, related in grouped_dependencies.items():
+        outcome = _preview_outcome(relation_model, related)
+        catalog_model = catalog_models.get(relation_model)
+        relation_label = (
+            catalog_model.label
+            if catalog_model is not None
+            else _relationship_label(related, relation_model)
+        )
+        available = catalog_model is not None
+        availability_relevant = outcome is not _SupportingPreviewOutcome.ODOO_MANAGED
+        required = any(item.required for item in related)
+        fields = tuple(
+            {
+                "source_label": dependency.source_label,
+                "field_label": dependency.field_label,
+                "required": dependency.required,
+                "technical_name": (
+                    f"{dependency.source_model}.{dependency.field_name} -> "
+                    f"{dependency.relation_model}"
+                ),
             }
-            can_include_incoming = available and availability_relevant
-            include_url = None
-            if can_include_incoming:
-                include_url = (
-                    f"/workspaces/{workspace_id}/schema?"
-                    f"{urlencode({'suggested_model': relation_model})}"
-                    "#odoo-data-choices"
-                )
-            fields = tuple(
-                {
-                    "source_label": dependency.source_label,
-                    "field_label": dependency.field_label,
-                    "required": dependency.required,
-                    "technical_name": (
-                        f"{dependency.source_model}.{dependency.field_name} -> "
-                        f"{dependency.relation_model}"
+            for dependency in related
+        )
+        models_by_outcome[outcome].append(
+            {
+                "model_name": relation_model,
+                "label": relation_label,
+                "available": available,
+                "availability_relevant": availability_relevant,
+                "required": required,
+                "fields": fields,
+            }
+        )
+        if not available and availability_relevant:
+            issues.append(
+                WorkflowIssueProjection(
+                    code=f"ODOO_SUPPORTING_MODEL_UNAVAILABLE:{relation_model}",
+                    severity=(
+                        WorkflowIssueSeverity.MUST_FIX
+                        if required
+                        else WorkflowIssueSeverity.REVIEW
                     ),
-                }
-                for dependency in related
-            )
-            models.append(
-                {
-                    "model_name": relation_model,
-                    "label": relation_label,
-                    "available": available,
-                    "availability_relevant": availability_relevant,
-                    "required": any(item.required for item in related),
-                    "fields": fields,
-                    "include_url": include_url,
-                    "include_label": (
-                        "Include incoming data"
-                        if role is SupportingModelRole.REUSE_EXISTING
-                        else "Include this related business data"
+                    state=WorkflowIssueState.CURRENT,
+                    cause=(
+                        f"Impodo cannot find {relation_label} in the "
+                        "current Odoo record-type list."
                     ),
-                }
-            )
-            if not available and availability_relevant:
-                required = any(item.required for item in related)
-                issues.append(
-                    WorkflowIssueProjection(
-                        code=(
-                            "ODOO_SUPPORTING_MODEL_UNAVAILABLE:"
-                            f"{relation_model}"
-                        ),
-                        severity=(
-                            WorkflowIssueSeverity.MUST_FIX
-                            if required
-                            and role is SupportingModelRole.REUSE_EXISTING
-                            else WorkflowIssueSeverity.REVIEW
-                        ),
-                        state=WorkflowIssueState.CURRENT,
-                        cause=(
-                            f"Impodo cannot find {relation_label} in the "
-                            "current Odoo record-type list."
-                        ),
-                        origin=WorkflowIssueOrigin.ODOO_SCHEMA,
-                        owner="Data manager or Odoo administrator",
-                        owning_stage="Odoo data",
-                        correction_label="Review available Odoo data",
-                        correction_route=(
-                            f"/workspaces/{workspace_id}/schema"
-                            "#odoo-data-choices"
-                        ),
-                        preserved_work=(
-                            "The accepted source data and selected Odoo "
-                            "business records remain unchanged."
-                        ),
-                        recheck=(
-                            "Update the available choices, then load the "
-                            "selected Odoo details again."
-                        ),
-                        evidence_revision=schema.content_hash,
-                        affected_record_types=(relation_label,),
-                        affected_fields=tuple(
-                            f"{item.source_label}: {item.field_label}"
-                            for item in related
-                        ),
-                    )
+                    origin=WorkflowIssueOrigin.ODOO_SCHEMA,
+                    owner="Data manager or Odoo administrator",
+                    owning_stage="Odoo data",
+                    correction_label="Review available Odoo data",
+                    correction_route=(
+                        f"/workspaces/{workspace_id}/schema#odoo-data-choices"
+                    ),
+                    preserved_work=(
+                        "The accepted source data and selected Odoo "
+                        "business records remain unchanged."
+                    ),
+                    recheck=(
+                        "Update the available choices, then load the "
+                        "selected Odoo details again."
+                    ),
+                    evidence_revision=schema.content_hash,
+                    affected_record_types=(relation_label,),
+                    affected_fields=tuple(
+                        f"{item.source_label}: {item.field_label}"
+                        for item in related
+                    ),
                 )
-        title, description, status_label = _SUPPORTING_ROLE_COPY[role]
+            )
+    groups = []
+    for outcome in _SupportingPreviewOutcome:
+        models = models_by_outcome[outcome]
+        if not models:
+            continue
+        title, description, status_label = _OUTCOME_COPY[outcome]
         groups.append(
             {
-                "role": role,
+                "outcome": outcome,
                 "title": title,
                 "description": description,
                 "status_label": status_label,
-                "models": tuple(models),
+                "models": tuple(
+                    sorted(
+                        models,
+                        key=lambda model: (
+                            str(model["label"]).casefold(),
+                            str(model["model_name"]),
+                        ),
+                    )
+                ),
             }
         )
     return {
         "groups": tuple(groups),
         "dependency_count": len(dependencies),
         "issue_summary": summarize_workflow_issues(issues),
-        "suggestable_model_names": tuple(
-            model["model_name"]
-            for group in groups
-            for model in group["models"]
-            if model["include_url"] is not None
-        ),
+        "suggestable_model_names": (),
     }
+
+
+def _preview_outcome(
+    relation_model: str,
+    dependencies: tuple[SupportingModelDependency, ...],
+) -> _SupportingPreviewOutcome:
+    if any(
+        relation_model in profile.destination_configuration_models
+        for profile in DEFAULT_ODOO_RELATIONSHIP_PROFILES
+    ):
+        return _SupportingPreviewOutcome.USE_EXISTING_DESTINATION
+    if all(
+        dependency.role is SupportingModelRole.ODOO_MANAGED
+        for dependency in dependencies
+    ):
+        return _SupportingPreviewOutcome.ODOO_MANAGED
+    return _SupportingPreviewOutcome.KEEP_LINKED
 
 
 def _fallback_model_label(model_name: str) -> str:

@@ -172,6 +172,172 @@ class TransferReviewTests(unittest.TestCase):
         )
         self.assertEqual(package.datasets[0].model_policy, "reuse_only")
 
+    def test_reuse_or_create_is_locked_to_minimum_create_scope(self) -> None:
+        product = replace(
+            _model("product.product", "Product", existing=1, create=1),
+            compatible_fields=("default_code", "name", "note"),
+            minimum_create_fields=("default_code", "name"),
+            destination_handling="reuse_or_create",
+        )
+        match = _match_plan((product,), ())
+        order = _build(match)
+        workspace = replace(_workspace(match), transfer_order_plan=order)
+        arguments = dict(
+            run_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            built_by=LOCAL_ACTOR.identity,
+        )
+
+        package = TransferReviewService().build(
+            workspace,
+            match,
+            order,
+            **arguments,
+        )
+
+        self.assertEqual(package.datasets[0].model_policy, "create_if_missing")
+        self.assertEqual(
+            package.datasets[0].scalar_write_fields,
+            ("default_code", "name"),
+        )
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "existing records must stay unchanged",
+        ):
+            TransferReviewService().build(
+                workspace,
+                match,
+                order,
+                model_policies={product.model: "upsert"},
+                **arguments,
+            )
+
+    def test_reuse_or_create_blocks_unwritable_required_relationship(self) -> None:
+        for field_group, blocker in (
+            ("missing_fields", "DESTINATION_FIELDS_MISSING"),
+            ("incompatible_fields", "DESTINATION_FIELDS_INCOMPATIBLE"),
+        ):
+            with self.subTest(field_group=field_group):
+                product = replace(
+                    _model("product.product", "Product", create=1),
+                    compatible_fields=("name",),
+                    **{field_group: ("uom_id",)},
+                    minimum_create_fields=("name",),
+                    minimum_create_relationship_fields=("uom_id",),
+                    destination_handling="reuse_or_create",
+                )
+                uom = _model("uom.uom", "Unit of Measure", existing=1)
+                relation = _relation(product, uom, "uom_id", required=True)
+                match = _match_plan((product, uom), (relation,))
+                workspace = _workspace(match)
+
+                self.assertIn(blocker, product.write_blocking_reasons)
+                self.assertFalse(
+                    workspace.destination_match_ready(
+                        source_selection_hash=match.source_selection_hash,
+                        source_schema_hash=match.source_schema_hash,
+                    )
+                )
+
+    def test_reuse_or_create_omits_optional_relationships(self) -> None:
+        owner = replace(
+            _model("x.owner", "Owner", create=1),
+            compatible_fields=("name", "optional_id"),
+            minimum_create_fields=("name",),
+            destination_handling="reuse_or_create",
+        )
+        related = _model("x.related", "Related", existing=1)
+        optional = replace(
+            _relation(owner, related, "optional_id"),
+            destination_reused_link_count=1,
+            incoming_link_count=0,
+        )
+        match = _match_plan((owner, related), (optional,))
+        order = _build(match)
+        workspace = replace(_workspace(match), transfer_order_plan=order)
+
+        package = TransferReviewService().build(
+            workspace,
+            match,
+            order,
+            run_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            built_by=LOCAL_ACTOR.identity,
+        )
+
+        reviewed = next(item for item in package.datasets if item.model == owner.model)
+        self.assertFalse(reviewed.relationship_write_fields)
+        self.assertFalse(
+            any(
+                item.owner_dataset_id == owner.dataset_id
+                for item in package.relationships
+            )
+        )
+
+    def test_reuse_or_create_rejects_required_relationship_outside_minimum_scope(
+        self,
+    ) -> None:
+        owner = replace(
+            _model("x.owner", "Owner", create=1),
+            compatible_fields=("name", "required_id"),
+            minimum_create_fields=("name",),
+            destination_handling="reuse_or_create",
+        )
+        related = _model("x.related", "Related", existing=1)
+        required = replace(
+            _relation(owner, related, "required_id", required=True),
+            destination_reused_link_count=1,
+            incoming_link_count=0,
+        )
+        match = _match_plan((owner, related), (required,))
+        order = _build(match)
+        workspace = replace(_workspace(match), transfer_order_plan=order)
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "required relationship outside its reviewed minimum-create scope",
+        ):
+            TransferReviewService().build(
+                workspace,
+                match,
+                order,
+                run_id=str(uuid4()),
+                data_version_id=str(uuid4()),
+                built_by=LOCAL_ACTOR.identity,
+            )
+
+    def test_reuse_or_create_with_no_creates_has_no_write_scope(self) -> None:
+        owner = replace(
+            _model("x.owner", "Owner", existing=1),
+            compatible_fields=("name",),
+            incompatible_fields=("required_id",),
+            minimum_create_fields=("name",),
+            destination_handling="reuse_or_create",
+        )
+        related = replace(
+            _model("x.related", "Related", existing=1),
+            destination_handling="reference_only",
+        )
+        required = replace(
+            _relation(owner, related, "required_id", required=True),
+            destination_reused_link_count=1,
+            incoming_link_count=0,
+        )
+        match = _match_plan((owner, related), (required,))
+
+        package = _package(match)
+
+        reviewed = next(item for item in package.datasets if item.model == owner.model)
+        self.assertFalse(owner.write_blocking_reasons)
+        self.assertFalse(reviewed.scalar_write_fields)
+        self.assertFalse(reviewed.relationship_write_fields)
+        self.assertFalse(
+            any(
+                item.owner_dataset_id == owner.dataset_id
+                for item in package.relationships
+            )
+        )
+
     def test_legacy_review_package_remains_readable(self) -> None:
         product = _model("product.template", "Product", create=1)
         current = _package(_match_plan((product,), ()))

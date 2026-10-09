@@ -67,9 +67,31 @@ class DocumentationQualityTests(unittest.TestCase):
             shared["editing_workflow"],
             "docs/style-guide.md#documentation-editing-workflow",
         )
+        self.assertEqual(
+            shared["performance_standard"],
+            "docs/architecture/code-organization.md#local-browser-database-operation-scopes",
+        )
         self.assertIn(
             ".agents/skills/impodo-documentation/SKILL.md",
             shared["skills"],
+        )
+        self.assertEqual(
+            shared["code_references"],
+            [
+                "src/impodo/web/composition/page_reads.py::run_page_read",
+                "src/impodo/web/composition/page_reads.py::run_local_operation",
+            ],
+        )
+        self.assertEqual(
+            shared["tests"],
+            [
+                "tests/integration/web/test_page_reads.py",
+                "tests/integration/duckdb/test_page_read_connections.py",
+            ],
+        )
+        self.assertIn(
+            "docs/architecture/code-organization.md",
+            shared["documents"],
         )
 
     def test_code_reference_resolves_exact_symbols(self) -> None:

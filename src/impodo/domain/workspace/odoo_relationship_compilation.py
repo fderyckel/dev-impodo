@@ -29,6 +29,8 @@ from impodo.domain.odoo_relationship_scope import (
 )
 
 from .destination_matching import (
+    DESTINATION_CREATE_ONLY_HANDLINGS,
+    DESTINATION_NO_WRITE_HANDLINGS,
     DestinationMatchPlan,
     DestinationModelMatch,
     DestinationRelationshipMatch,
@@ -88,6 +90,7 @@ def compile_odoo_relationship_datasets(
                 and decision.action not in {
                     OdooRelationshipCaptureAction.CAPTURE_LINKED,
                     OdooRelationshipCaptureAction.MATCH_EXISTING,
+                    OdooRelationshipCaptureAction.PRESERVE_LINKED,
                 }
             ):
                 raise OdooRelationshipCompilationError(
@@ -99,11 +102,22 @@ def compile_odoo_relationship_datasets(
                 and decision.action
                 is OdooRelationshipCaptureAction.MATCH_EXISTING
                 and decision.relation_model == related.model
-                and related.destination_handling == "transfer"
+                and related.destination_handling not in DESTINATION_NO_WRITE_HANDLINGS
             ):
                 raise OdooRelationshipCompilationError(
                     "The saved source relationship requires existing destination "
-                    f"records for {related.model}; transfer is not allowed"
+                    f"records for {related.model}; destination writes are not allowed"
+                )
+            if (
+                decision is not None
+                and decision.action
+                is OdooRelationshipCaptureAction.PRESERVE_LINKED
+                and decision.relation_model == related.model
+                and related.destination_handling not in DESTINATION_CREATE_ONLY_HANDLINGS
+            ):
+                raise OdooRelationshipCompilationError(
+                    "The saved source relationship requires reuse-or-create-minimum "
+                    f"handling for {related.model}"
                 )
         relationships_by_owner[owner.dataset_id].append(
             _compile_relationship(relationship, related)
@@ -116,7 +130,14 @@ def compile_odoo_relationship_datasets(
             mode=(
                 MappingTargetMode.UPSERT
                 if item.destination_handling == "transfer"
+                else MappingTargetMode.CREATE
+                if item.destination_handling in DESTINATION_CREATE_ONLY_HANDLINGS
                 else MappingTargetMode.REFERENCE
+            ),
+            on_existing=(
+                "unchanged"
+                if item.destination_handling in DESTINATION_CREATE_ONLY_HANDLINGS
+                else None
             ),
             source_identity_column_keys=item.source_column_keys,
             relationships=tuple(

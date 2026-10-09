@@ -26,7 +26,8 @@ from .odoo_source_scope import (
 )
 
 
-ODOO_RELATIONSHIP_SCOPE_CONTRACT_VERSION = 1
+ODOO_RELATIONSHIP_SCOPE_CONTRACT_VERSION = 3
+_SUPPORTED_RELATIONSHIP_SCOPE_CONTRACT_VERSIONS = frozenset({1, 2, 3})
 _TECHNICAL_MODEL = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 _TECHNICAL_FIELD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
@@ -40,6 +41,7 @@ class OdooRelationshipCaptureAction(StrEnum):
     """Source-capture outcome saved for one Odoo relationship field."""
 
     CAPTURE_LINKED = "CAPTURE_LINKED"
+    PRESERVE_LINKED = "PRESERVE_LINKED"
     MATCH_EXISTING = "MATCH_EXISTING"
     DO_NOT_CAPTURE = "DO_NOT_CAPTURE"
     ODOO_MANAGED = "ODOO_MANAGED"
@@ -108,6 +110,7 @@ class OdooRelationshipScopeDecision:
         if related_model_can_be_selected(self.handling):
             selectable_actions = {
                 OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                OdooRelationshipCaptureAction.PRESERVE_LINKED,
                 OdooRelationshipCaptureAction.MATCH_EXISTING,
                 OdooRelationshipCaptureAction.DO_NOT_CAPTURE,
             }
@@ -120,6 +123,13 @@ class OdooRelationshipScopeDecision:
             if self.action not in selectable_actions:
                 raise OdooRelationshipScopeError(
                     "Selectable Odoo relationship decision is invalid"
+                )
+            if (
+                self.handling is RelatedDataHandling.REUSE_DESTINATION
+                and self.action is OdooRelationshipCaptureAction.PRESERVE_LINKED
+            ):
+                raise OdooRelationshipScopeError(
+                    "Destination-owned Odoo records cannot use minimum creation"
                 )
         elif _AUTOMATIC_ACTIONS.get(self.handling) is not self.action:
             raise OdooRelationshipScopeError(
@@ -268,6 +278,7 @@ def relationship_scope_decisions(
                 )
             if action not in {
                 OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                OdooRelationshipCaptureAction.PRESERVE_LINKED,
                 OdooRelationshipCaptureAction.MATCH_EXISTING,
                 OdooRelationshipCaptureAction.DO_NOT_CAPTURE,
             }:
@@ -400,12 +411,25 @@ def relationship_expansion_suggestions(
     suggestions: Iterable[RelatedDataSuggestion],
     scope: "OdooRelationshipScope | None",
 ) -> tuple[RelatedDataSuggestion, ...]:
-    """Stop discovery at models selected only as destination references."""
+    """Close optional leaf expansion while retaining required create inputs."""
 
-    reference_models = scope.reference_models if scope is not None else frozenset()
+    reference_models = (
+        scope.reference_models if scope is not None else frozenset()
+    )
+    create_if_missing_models = (
+        scope.create_if_missing_models if scope is not None else frozenset()
+    )
     return tuple(
         item for item in suggestions
-        if item.source_model not in reference_models
+        if (
+            item.source_model not in reference_models
+            or item.identity_scope
+        )
+        and (
+            item.source_model not in create_if_missing_models
+            or item.required
+            or item.identity_scope
+        )
     )
 
 
@@ -419,6 +443,7 @@ class OdooRelationshipScope:
     recorded_at: datetime
     recorded_by: str
     content_hash: str
+    root_models: tuple[str, ...] = ()
     contract_version: int = ODOO_RELATIONSHIP_SCOPE_CONTRACT_VERSION
     _calculate_content_hash: InitVar[bool] = False
 
@@ -429,7 +454,10 @@ class OdooRelationshipScope:
             raise OdooRelationshipScopeError(
                 "Odoo relationship scope ID is invalid"
             ) from error
-        if self.contract_version != ODOO_RELATIONSHIP_SCOPE_CONTRACT_VERSION:
+        if (
+            self.contract_version
+            not in _SUPPORTED_RELATIONSHIP_SCOPE_CONTRACT_VERSIONS
+        ):
             raise OdooRelationshipScopeError(
                 "Odoo relationship scope contract version is unsupported"
             )
@@ -454,6 +482,26 @@ class OdooRelationshipScope:
             raise OdooRelationshipScopeError(
                 "Odoo relationship decisions must be ordered and unique by field"
             )
+        roots = tuple(self.root_models)
+        if (
+            roots != tuple(sorted(set(roots)))
+            or any(_TECHNICAL_MODEL.fullmatch(item) is None for item in roots)
+        ):
+            raise OdooRelationshipScopeError(
+                "Odoo relationship root models must be ordered and unique"
+            )
+        if self.contract_version == 1 and roots:
+            raise OdooRelationshipScopeError(
+                "Legacy Odoo relationship scopes cannot contain root models"
+            )
+        if self.contract_version < 3 and any(
+            item.action is OdooRelationshipCaptureAction.PRESERVE_LINKED
+            for item in decisions
+        ):
+            raise OdooRelationshipScopeError(
+                "Legacy Odoo relationship scopes cannot preserve linked records"
+            )
+        object.__setattr__(self, "root_models", roots)
         if self.recorded_at.tzinfo is None:
             raise OdooRelationshipScopeError(
                 "Odoo relationship scope time must be timezone-aware"
@@ -485,6 +533,7 @@ class OdooRelationshipScope:
         scope_id: str,
         version: int,
         decisions: tuple[OdooRelationshipScopeDecision, ...],
+        root_models: tuple[str, ...] = (),
         recorded_at: datetime,
         recorded_by: str,
     ) -> "OdooRelationshipScope":
@@ -494,6 +543,7 @@ class OdooRelationshipScope:
             scope_id=scope_id,
             version=version,
             decisions=decisions,
+            root_models=tuple(sorted(set(root_models))),
             recorded_at=recorded_at,
             recorded_by=recorded_by,
             content_hash="",
@@ -509,6 +559,7 @@ class OdooRelationshipScope:
             for item in self.decisions
             if item.action in {
                 OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                OdooRelationshipCaptureAction.PRESERVE_LINKED,
                 OdooRelationshipCaptureAction.MATCH_EXISTING,
             }
         )
@@ -533,13 +584,32 @@ class OdooRelationshipScope:
             if item.action is OdooRelationshipCaptureAction.MATCH_EXISTING
         )
 
+    @property
+    def create_if_missing_models(self) -> frozenset[str]:
+        """Return graph leaves reusable or minimally creatable at destination."""
+
+        return frozenset(
+            item.relation_model
+            for item in self.decisions
+            if item.action is OdooRelationshipCaptureAction.PRESERVE_LINKED
+        )
+
+    @property
+    def leaf_models(self) -> frozenset[str]:
+        """Return included models whose optional outgoing graph stays closed."""
+
+        return self.reference_models | self.create_if_missing_models
+
     def _semantic_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "contract_version": self.contract_version,
             "decisions": [item.to_dict() for item in self.decisions],
             "scope_id": self.scope_id,
             "version": self.version,
         }
+        if self.contract_version >= 2:
+            result["root_models"] = list(self.root_models)
+        return result
 
     def to_json(self) -> str:
         """Serialize the complete scope revision as canonical JSON."""
@@ -559,7 +629,12 @@ class OdooRelationshipScope:
 
         try:
             payload = json.loads(value)
-            if not isinstance(payload, dict) or set(payload) != {
+            if not isinstance(payload, dict):
+                raise OdooRelationshipScopeError(
+                    "Odoo relationship scope shape is invalid"
+                )
+            contract_version = int(payload.get("contract_version", 0))
+            expected_keys = {
                 "content_hash",
                 "contract_version",
                 "decisions",
@@ -567,7 +642,10 @@ class OdooRelationshipScope:
                 "recorded_by",
                 "scope_id",
                 "version",
-            }:
+            }
+            if contract_version >= 2:
+                expected_keys.add("root_models")
+            if set(payload) != expected_keys:
                 raise OdooRelationshipScopeError(
                     "Odoo relationship scope shape is invalid"
                 )
@@ -586,7 +664,10 @@ class OdooRelationshipScope:
                 recorded_at=datetime.fromisoformat(str(payload["recorded_at"])),
                 recorded_by=str(payload["recorded_by"]),
                 content_hash=str(payload["content_hash"]),
-                contract_version=int(payload["contract_version"]),
+                root_models=tuple(
+                    str(item) for item in payload.get("root_models", ())
+                ),
+                contract_version=contract_version,
             )
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
             if isinstance(error, OdooRelationshipScopeError):

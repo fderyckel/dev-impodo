@@ -117,6 +117,7 @@ def _matching_rows(
 ):
     candidates = destination_match_key_candidates(selection, schema)
     governed_by_dataset = destination_governed_key_choices(selection, schema)
+    model_labels = {item.name: item.label for item in schema.models}
     plan = workspace_state.destination_match_plan
     selected_by_dataset = {
         item.dataset_id: item.source_column_keys
@@ -135,6 +136,11 @@ def _matching_rows(
     }
     reference_models = (
         relationship_scope.reference_models
+        if relationship_scope is not None
+        else frozenset()
+    )
+    create_if_missing_models = (
+        relationship_scope.create_if_missing_models
         if relationship_scope is not None
         else frozenset()
     )
@@ -201,6 +207,7 @@ def _matching_rows(
             {
                 "dataset": dataset,
                 "model": model,
+                "model_label": model_labels.get(model) or dataset.name,
                 "candidates": available,
                 "primary_candidates": primary_candidates,
                 "selected_keys": selected_keys,
@@ -229,10 +236,21 @@ def _matching_rows(
                 "excluded_identity_rows": (),
                 "identity_issue_error": None,
                 "relationship_fields": relationship_fields_by_model.get(model, set()),
-                "destination_handling_locked": model in reference_models,
+                "destination_handling_locked": (
+                    model in reference_models or model in create_if_missing_models
+                ),
+                "destination_handling_locked_reason": (
+                    "match_existing"
+                    if model in reference_models
+                    else "preserve_linked"
+                    if model in create_if_missing_models
+                    else None
+                ),
                 "destination_handling": (
                     "reference_only"
                     if model in reference_models
+                    else "reuse_or_create"
+                    if model in create_if_missing_models
                     else result_by_dataset[dataset.dataset_id].destination_handling
                     if dataset.dataset_id in result_by_dataset
                     and (

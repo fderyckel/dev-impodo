@@ -352,7 +352,8 @@
             <p>
               You do not need to know the related Odoo record types in advance.
               Impodo derived these relationships from the selected business records
-              and the captured Odoo fields.
+              and the captured Odoo fields. This is a preview of the safe default;
+              the detailed relationship review happens later in Match data.
             </p>
           </div>
           <span class="status registered">{{ supporting_model_plan.dependency_count }} found</span>
@@ -375,9 +376,6 @@
                           <small>{{ field.source_label }} · {{ field.field_label }}{% if field.required %} · required by Odoo{% endif %}</small>{% if not loop.last %}<br>{% endif %}
                         {% endfor %}
                       </div>
-                      {% if related.include_url %}
-                        <a href="{{ related.include_url }}">{{ related.include_label }}</a>
-                      {% endif %}
                     </li>
                   {% endfor %}
                 </ul>
@@ -394,8 +392,8 @@
           {% endfor %}
         </div>
         <p class="muted">
-          Reusing related Odoo records does not authorize Impodo to update them.
-          Selecting an incoming record type remains an explicit write-scope decision.
+          This preview does not add a related record type to the top-level transfer.
+          Moving a related record type as migration data remains a separate, explicit decision.
         </p>
       </section>
     {% endif %}

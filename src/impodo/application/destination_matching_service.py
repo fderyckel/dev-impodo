@@ -54,6 +54,7 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.destination_matching import (
     DESTINATION_HANDLINGS,
+    DESTINATION_NO_WRITE_HANDLINGS,
     DestinationCreateFieldDecision,
     DestinationCreateFieldEvidence,
     DestinationCreateFieldEvidenceValue,
@@ -175,6 +176,8 @@ class _PreparedModel:
     source_identity_values: tuple[tuple[bool | int | float | str, ...], ...]
     source_fields: tuple[SchemaField, ...]
     destination_managed_fields: tuple[str, ...]
+    minimum_identity_fields: tuple[str, ...] = ()
+    minimum_identity_relationship_fields: tuple[str, ...] = ()
     excluded_source_row_numbers: tuple[int, ...] = ()
     unreferenced_source_row_numbers: tuple[int, ...] = ()
     destination_handling: str = "transfer"
@@ -388,13 +391,14 @@ class DestinationMatchingService:
                 )
             source_column_keys = selected[dataset.dataset_id]
             governed = governed_choices.get(dataset.dataset_id)
+            recommended_identity = recommend_business_key(source_model)
             if (
                 source_model.name in DESTINATION_GOVERNED_IDENTITY_MODELS
                 and governed is None
             ):
                 raise WorkspaceError(
-                    f"{source_model.label} requires captured Complete Name and "
-                    "Parent Category evidence; return to the source data and "
+                    f"{source_model.label} requires captured Name, Complete Name, "
+                    "and Parent Category evidence; return to the source data and "
                     "capture those fields before matching"
                 )
             if (
@@ -432,6 +436,20 @@ class DestinationMatchingService:
             ):
                 raise WorkspaceError(
                     f"Choose a text first matching field and scalar components for {dataset.name}"
+                )
+            if (
+                governed is None
+                and recommended_identity is not None
+                and recommended_identity.scope_fields
+                and tuple(field.name for field in key_fields)
+                == recommended_identity.key_fields
+            ):
+                scope = ", ".join(recommended_identity.scope_fields)
+                raise WorkspaceError(
+                    f"{source_model.label} requires a relationship-scoped "
+                    f"destination identity using {scope}. Impodo cannot yet "
+                    "prove that portable scoped match; choose a supported "
+                    "identity before creating or reusing destination records."
                 )
             key_field = key_fields[0]
             source_counts: Counter[str] = Counter()
@@ -580,6 +598,24 @@ class DestinationMatchingService:
                                 selected_source_names,
                             )
                         )
+                    ),
+                    minimum_identity_fields=(
+                        tuple(
+                            component.field_name
+                            for component in governed.components
+                            if not component.scope
+                        )
+                        if governed is not None
+                        else tuple(field.name for field in key_fields)
+                    ),
+                    minimum_identity_relationship_fields=(
+                        tuple(
+                            component.field_name
+                            for component in governed.components
+                            if component.scope
+                        )
+                        if governed is not None
+                        else ()
                     ),
                     excluded_source_row_numbers=exclusions,
                     destination_handling=destination_handlings[dataset.dataset_id],
@@ -902,6 +938,21 @@ class DestinationMatchingService:
         matched_keys = set(destination_counts)
         source_value_rows = sum(item.source_counts.values())
         create_count = len(source_keys - matched_keys)
+        unwritable_identity_fields = (
+            set(item.minimum_identity_fields)
+            | set(item.minimum_identity_relationship_fields)
+        ) - set(compatible)
+        if (
+            create_count
+            and item.destination_handling not in DESTINATION_NO_WRITE_HANDLINGS
+            and unwritable_identity_fields
+        ):
+            fields = ", ".join(sorted(unwritable_identity_fields))
+            raise WorkspaceError(
+                f"{item.model_label} cannot create missing destination records "
+                f"because its identity field(s) are not writable and compatible: "
+                f"{fields}"
+            )
         unresolved, decisions, values = (
             _create_field_defaults(
                 item,
@@ -910,8 +961,55 @@ class DestinationMatchingService:
                 records,
                 prepared,
             )
-            if create_count and item.destination_handling == "transfer"
+            if create_count
+            and item.destination_handling not in DESTINATION_NO_WRITE_HANDLINGS
             else ((), (), ())
+        )
+        compared_field_names = set(compatible) | set(missing) | set(incompatible)
+        compatible_field_names = set(compatible)
+        hook_input_fields = required_create_hook_inputs(
+            item.model,
+            frozenset(compatible_field_names),
+        )
+        minimum_create_relationship_fields = {
+            source_field.name
+            for source_field in item.source_fields
+            if source_field.type in {"many2one", "many2many"}
+            and (
+                source_field.required
+                or (
+                    (
+                        destination_field := destination_fields.get(
+                            source_field.name
+                        )
+                    )
+                    is not None
+                    and destination_field.required
+                )
+            )
+        } | set(item.minimum_identity_relationship_fields)
+        minimum_create_fields = tuple(
+            sorted(
+                set(item.minimum_identity_fields).intersection(
+                    compared_field_names
+                )
+                | set(hook_input_fields).intersection(compared_field_names)
+                | {
+                    source_field.name
+                    for source_field in item.source_fields
+                    if source_field.type
+                    not in {"many2one", "many2many", "one2many"}
+                    and (
+                        (
+                            destination_field := destination_fields.get(
+                                source_field.name
+                            )
+                        )
+                        is not None
+                        and destination_field.required
+                    )
+                }
+            )
         )
         result = DestinationModelMatch(
             dataset_id=item.dataset_id,
@@ -959,6 +1057,10 @@ class DestinationMatchingService:
                 item.unreferenced_source_row_numbers
             ),
             destination_handling=item.destination_handling,
+            minimum_create_fields=minimum_create_fields,
+            minimum_create_relationship_fields=tuple(
+                sorted(minimum_create_relationship_fields)
+            ),
         )
         return result, destination_counts, decisions, values
 
@@ -1698,6 +1800,7 @@ def destination_governed_key_choices(
             model.name != "product.category"
             or recommendation.key_fields != ("name",)
             or recommendation.scope_fields != ("parent_id",)
+            or "name" not in columns
             or "complete_name" not in columns
             or fields.get("complete_name") is None
             or fields["complete_name"].type not in _TEXT_KEY_TYPES

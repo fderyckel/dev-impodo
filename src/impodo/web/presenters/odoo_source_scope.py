@@ -48,6 +48,9 @@ class RelatedDataModelView:
     label: str
     selected: bool
     action: OdooRelationshipCaptureAction
+    recommended_action: OdooRelationshipCaptureAction
+    action_title: str
+    action_description: str
     recommended: bool
     available: bool
     can_select: bool
@@ -72,13 +75,16 @@ class RelatedDataScopeView:
 _GROUP_COPY = {
     RelatedDataHandling.INCLUDE_SUPPORTING: (
         "Needed to keep the records meaningful",
-        "Impodo recommends including these supporting records and matching "
-        "them in the destination before the main records are loaded.",
+        "Impodo recommends keeping these populated links. It will reuse "
+        "destination matches and prepare only identity and required values "
+        "for missing records "
+        "without expanding their whole relationship graph.",
     ),
     RelatedDataHandling.OPTIONAL_BUSINESS_DATA: (
-        "Include when it belongs to this migration",
-        "Choose these only when the related product information is part of "
-        "the agreed migration scope.",
+        "Related business data to confirm",
+        "Impodo recommends keeping each populated link without assuming that "
+        "the whole related record type belongs in this migration. Choose to "
+        "transfer it as migration data only when that wider data is in scope.",
     ),
     RelatedDataHandling.REUSE_DESTINATION: (
         "Reuse destination setup",
@@ -101,11 +107,11 @@ _GROUP_COPY = {
         "history migration is explicitly approved.",
     ),
     RelatedDataHandling.NEEDS_DECISION: (
-        "No standard default",
-        "Impodo found these links but cannot infer their business scope. "
-        "Include a related record type when its linked records belong in "
-        "this migration; Destination Matching later decides whether to "
-        "reuse existing records or transfer missing records.",
+        "Safe default for an unclassified link",
+        "Impodo cannot infer the full business scope of these links. It "
+        "recommends keeping each populated value without expanding the whole "
+        "related record type. Choose another outcome under Advanced when the "
+        "migration requires it.",
     ),
 }
 
@@ -122,6 +128,31 @@ _ATTENTION_HANDLINGS = frozenset(
 )
 
 
+_ACTION_COPY = {
+    OdooRelationshipCaptureAction.PRESERVE_LINKED: (
+        "Keep linked value",
+        "Reuse a matching destination record when one exists. Otherwise, "
+        "prepare only its identity and required values, without following the "
+        "rest of its relationships. If those values cannot be proven safe, "
+        "Impodo asks for a decision before any load.",
+    ),
+    OdooRelationshipCaptureAction.CAPTURE_LINKED: (
+        "Transfer related records as migration data",
+        "Include the related records as migration data and review the "
+        "relationships that they need in turn.",
+    ),
+    OdooRelationshipCaptureAction.MATCH_EXISTING: (
+        "Use existing destination records only",
+        "Match these links to records that already exist in the destination. "
+        "A missing match stops the transfer instead of creating a record.",
+    ),
+    OdooRelationshipCaptureAction.DO_NOT_CAPTURE: (
+        "Do not include",
+        "Leave this relationship out of the migration scope.",
+    ),
+}
+
+
 def build_related_data_scope_view(
     workspace_id: str,
     suggestions: tuple[RelatedDataSuggestion, ...],
@@ -135,6 +166,11 @@ def build_related_data_scope_view(
 
     labels = model_labels or {}
     available = available_models if available_models is not None else frozenset(labels)
+    root_models = (
+        frozenset(relationship_scope.root_models)
+        if relationship_scope is not None
+        else selected_models
+    )
     review = review_relationship_scope(
         suggestions,
         relationship_scope,
@@ -161,6 +197,7 @@ def build_related_data_scope_view(
         for decision in relationship_scope.decisions:
             if decision.action in {
                 OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                OdooRelationshipCaptureAction.PRESERVE_LINKED,
                 OdooRelationshipCaptureAction.MATCH_EXISTING,
                 OdooRelationshipCaptureAction.DO_NOT_CAPTURE,
             }:
@@ -179,13 +216,21 @@ def build_related_data_scope_view(
                         _fallback_model_label(relation_model),
                     ),
                     selected=relation_model in selected_models,
-                    action=saved_action_by_model.get(
-                        relation_model,
-                        _recommended_action(
-                            handling,
-                            selected=relation_model in selected_models,
-                        ),
+                    action=(
+                        action := saved_action_by_model.get(
+                            relation_model,
+                            _recommended_action(
+                                handling,
+                                selected_root=relation_model in root_models,
+                            ),
+                        )
                     ),
+                    recommended_action=_recommended_action(
+                        handling,
+                        selected_root=relation_model in root_models,
+                    ),
+                    action_title=_ACTION_COPY[action][0],
+                    action_description=_ACTION_COPY[action][1],
                     recommended=(
                         handling in {
                             RelatedDataHandling.INCLUDE_SUPPORTING,
@@ -296,12 +341,18 @@ def _fallback_model_label(model_name: str) -> str:
 def _recommended_action(
     handling: RelatedDataHandling,
     *,
-    selected: bool,
+    selected_root: bool,
 ) -> OdooRelationshipCaptureAction:
     """Return the editable default; saving remains an explicit user action."""
 
     if handling is RelatedDataHandling.REUSE_DESTINATION:
         return OdooRelationshipCaptureAction.MATCH_EXISTING
-    if handling is RelatedDataHandling.INCLUDE_SUPPORTING or selected:
+    if selected_root:
         return OdooRelationshipCaptureAction.CAPTURE_LINKED
+    if handling in {
+        RelatedDataHandling.INCLUDE_SUPPORTING,
+        RelatedDataHandling.OPTIONAL_BUSINESS_DATA,
+        RelatedDataHandling.NEEDS_DECISION,
+    }:
+        return OdooRelationshipCaptureAction.PRESERVE_LINKED
     return OdooRelationshipCaptureAction.DO_NOT_CAPTURE

@@ -132,6 +132,16 @@ class OdooSourceScopeTests(unittest.TestCase):
                     name="uom.uom",
                     label="Unit of Measure",
                     fields=(
+                        SchemaField(
+                            name="name",
+                            label="Unit of Measure",
+                            type="char",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                        ),
                         _relationship(
                             "category_id",
                             "Unit of Measure Category",
@@ -152,9 +162,10 @@ class OdooSourceScopeTests(unittest.TestCase):
             suggestions[0].recommendation_profile_id,
             "impodo.standard.odoo.relationships",
         )
-        self.assertEqual(suggestions[0].recommendation_profile_version, 1)
+        self.assertEqual(suggestions[0].recommendation_profile_version, 2)
+        self.assertTrue(suggestions[0].identity_scope)
 
-    def test_bom_children_are_linked_only_and_workcenters_are_reused(self) -> None:
+    def test_bom_children_are_supporting_and_workcenters_stay_contextual(self) -> None:
         suggestions = propose_related_odoo_data(
             (
                 SchemaModel(
@@ -196,7 +207,7 @@ class OdooSourceScopeTests(unittest.TestCase):
             {
                 "bom_line_ids": RelatedDataHandling.INCLUDE_SUPPORTING,
                 "operation_ids": RelatedDataHandling.INCLUDE_SUPPORTING,
-                "workcenter_id": RelatedDataHandling.REUSE_DESTINATION,
+                "workcenter_id": RelatedDataHandling.NEEDS_DECISION,
             },
         )
 

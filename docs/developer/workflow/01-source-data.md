@@ -173,37 +173,42 @@ common supporting data, optional business data, destination configuration,
 separate processes, and excluded history. Product Category and Unit of Measure
 links from `product.template`, plus the category link from `uom.uom`, are its
 first qualified supporting recommendations. An unknown custom link has no
-profile recommendation and remains unselected, but it is an actionable **No
-standard default** choice when its related model exists in the current live
-catalogue. The web presenter owns the data-manager wording and keeps technical
+profile classification and appears under **Safe default for an unclassified
+link** with the bounded `PRESERVE_LINKED` recommendation when its related model
+exists in the current live catalogue. The data manager still saves that visible
+choice. The web presenter owns the data-manager wording and keeps technical
 field paths under **Support details**.
 
 The source page keeps related-model selection beside this explanation. It
-groups repeated relationship fields under one related model and shows a
-checkbox for recommended, optional, destination-reuse, or unprofiled related
-data that exists in the current live model catalogue. A visible label
-distinguishes recommendations from unprofiled choices. Every checkbox remains
-unchecked until its model belongs to the saved model scope. This keeps an
-intentionally excluded recommendation from appearing selected again after a
-save. The operator selects **Save related-data decisions** to persist the checked
-models. `relationship_scope_decisions` expands each grouped choice into one
+groups repeated relationship fields under one related model and presents one
+recommended business outcome. Alternatives remain under **Advanced**. The
+operator selects **Save related-data decisions** to persist the displayed
+outcomes. `relationship_scope_decisions` expands each grouped choice into one
 `OdooRelationshipScopeDecision` per source field. The decision stores the
 source and related model, field, requiredness, handling, source-capture action,
-and recommendation-profile provenance. The grouped action is one of **Transfer
-linked records**, **Match existing records only**, or **Do not include**.
-Transfer keeps the related model on the discovery frontier. Match-existing
-includes reached identity evidence but removes that model's outgoing edges
-from the frontier and later fixes its destination handling to `reference_only`.
-Both included actions default to a linked-only capture plan; the operator may
-still review its bounded fields.
+and recommendation-profile provenance. **Keep linked value** is the ordinary
+default: it reuses an exact destination match or creates the minimum required
+record and closes optional graph expansion. **Transfer related records as migration data**
+keeps the related model on the discovery frontier. **Use existing destination
+records only** includes reached identity evidence, removes the model's outgoing
+edges from the frontier, and later fixes its destination handling to
+`reference_only`. **Do not include** omits the optional edge.
 
-The leaf rule is capture-role sensitive. A match-existing model with a
-linked-only plan contributes identity evidence and no outgoing discovery
-projection. When the operator explicitly changes that same model to a root
-plan, `plan_odoo_source_capture` may traverse its reviewed outgoing or inverse
-child relationships. The model still compiles to `reference_only` for the
-destination. This permits an existing parent record type to seed capture of
-children without permitting Impodo to create or update the parent.
+The leaf rule is capture-role sensitive. A match-existing linked-only model
+contributes identity evidence and retains only a relationship that scopes that
+identity. A preserve-linked model also remains a leaf, but retains a required
+relationship needed for minimum creation and any relationship-scoped identity
+component while suppressing other optional relationships. When the operator
+explicitly changes the same model to a root plan,
+`plan_odoo_source_capture` may traverse its reviewed outgoing or inverse child
+relationships. A match-existing model still compiles to `reference_only` for
+the destination.
+
+Contract version 3 of `OdooRelationshipScope` adds `PRESERVE_LINKED` while
+retaining the explicit root set introduced by version 2. The related-data route
+carries roots across iterative revisions, so a model does not lose independent
+root membership merely because another reviewed edge reaches it. Versions 1
+and 2 remain readable; a changed review writes current version 3 evidence.
 
 After each save, authenticated schema refresh loads the newly included record
 types and `review_relationship_scope` compares every current schema edge with
@@ -232,10 +237,27 @@ A relationship-only change keeps current schema evidence but invalidates
 capture plans, manifests, key governance, mapping, and later evidence through
 `WorkspaceStateService.update_schema_scope`.
 
+Once that review is complete,
+`propose_guided_odoo_capture_plans` derives persistence-neutral defaults from
+the saved root set and edge actions. Explicit roots and full-transfer children
+receive every eligible scalar value field. Existing-only leaves receive their
+reviewed scalar identity. Create-capable leaves receive that identity plus
+required writable scalar inputs and qualified create-hook inputs. Relationship
+components stay in protected origin evidence and are bound to portable related
+identities during destination matching; they are not exposed as source Odoo
+IDs or duplicated as ordinary value columns. The route persists every safe
+missing plan, retains any plan already edited by the data manager, and opens a
+named exception only when the model has no unambiguous identity, exceeds a
+capture bound, or lacks eligible evidence. Automatic root plans deliberately
+remain visible as all-matching plans so the data manager can add an exact root
+filter before assessment.
+
 The capture projection includes only reviewed relationship origins between
 selected models. A linked-only match-existing model contributes its reached
-records and identity fields but no outgoing discovery projection, so unrelated
-destination setup cannot enter the capture graph through it. An explicit root
+records, scalar identity, and any relationship-scoped identity component, so
+unrelated destination setup cannot enter the capture graph through it. A
+linked-only preserve model projects only required outgoing relationships and
+relationship-scoped identity components. An explicit root
 may traverse its reviewed outgoing or inverse child relationships even when
 its destination handling remains `reference_only`. A separate relationship
 review lists eligible links between selected models before linked capture
@@ -247,11 +269,10 @@ or omitted.
 
 [ADR-016](../../decisions/README.md#adr-016--odoo-relationship-scope-combines-generic-decisions-with-profiles)
 requires this Odoo-source discovery to extend the existing canonical
-relationship engine. The implemented profile boundary and unprofiled choices
-are the first slice. The next slices persist per-edge source-capture decisions,
-expose the three generic actions, and make match-existing models graph leaves
-while retaining the grouped UI. Stage 2 now performs iterative, explicit graph
-expansion and gates assessment and freeze on a complete review.
+relationship engine. Stage 2 now persists four generic per-edge actions,
+performs iterative explicit graph expansion, and gates assessment and freeze on
+a complete review. The guided UI makes minimum preservation the normal path
+without turning a profile recommendation into a capability rule.
 Stage 4 completes each saved edge with its reviewed business key and
 destination policy, then derives the existing `RelationshipMapping` and
 `RelationshipResolver` values. Stage 5 uses the shared dependency extractor
@@ -420,6 +441,8 @@ reading or changing an operator workspace.
 - [`tests/application/data_version/test_odoo_capture_jobs.py`](../../../tests/application/data_version/test_odoo_capture_jobs.py)
 - [`tests/domain/test_odoo_source_scope.py`](../../../tests/domain/test_odoo_source_scope.py)
 - [`tests/domain/test_odoo_relationship_scope.py`](../../../tests/domain/test_odoo_relationship_scope.py)
+- [`src/impodo/domain/guided_odoo_capture.py`](../../../src/impodo/domain/guided_odoo_capture.py)
+- [`tests/domain/test_guided_odoo_capture.py`](../../../tests/domain/test_guided_odoo_capture.py)
 - [`tests/integration/web/test_odoo_source_scope_presenter.py`](../../../tests/integration/web/test_odoo_source_scope_presenter.py)
 - [`tests/architecture/test_workspace_schema_contract.py`](../../../tests/architecture/test_workspace_schema_contract.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)

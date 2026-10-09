@@ -10,6 +10,7 @@ from impodo.domain.cutover.approvals import FrozenExportPlan
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.workspace.destination_matching import (
+    DESTINATION_CREATE_ONLY_HANDLINGS,
     DESTINATION_NO_WRITE_HANDLINGS,
     DestinationMatchPlan,
 )
@@ -60,6 +61,8 @@ class TransferReviewService:
             default_policy = (
                 "reuse_only"
                 if item.destination_handling in DESTINATION_NO_WRITE_HANDLINGS
+                else "create_if_missing"
+                if item.destination_handling in DESTINATION_CREATE_ONLY_HANDLINGS
                 else "upsert"
             )
             model_policy = policies.get(item.model, default_policy)
@@ -70,6 +73,15 @@ class TransferReviewService:
                 raise WorkspaceError(
                     f"{item.model_label} was matched as reuse only; return to "
                     "destination matching before allowing transfers for this record type"
+                )
+            if (
+                item.destination_handling in DESTINATION_CREATE_ONLY_HANDLINGS
+                and model_policy != "create_if_missing"
+            ):
+                raise WorkspaceError(
+                    f"{item.model_label} was selected to keep linked values; "
+                    "existing records must stay unchanged and only missing records "
+                    "may be created"
                 )
             if model_policy == "reuse_only" and item.destination_create_key_count:
                 raise WorkspaceError(
@@ -95,8 +107,67 @@ class TransferReviewService:
         relationships_by_owner: dict[str, list[str]] = {
             item.dataset_id: [] for item in match_plan.model_matches
         }
+        required_relationships_by_owner: dict[str, list[str]] = {
+            item.dataset_id: [] for item in match_plan.model_matches
+        }
         for relation in match_plan.relationship_matches:
             relationships_by_owner[relation.dataset_id].append(relation.field_name)
+            if relation.required:
+                required_relationships_by_owner[relation.dataset_id].append(
+                    relation.field_name
+                )
+        for item in match_plan.model_matches:
+            if (
+                item.destination_handling in DESTINATION_CREATE_ONLY_HANDLINGS
+                and item.destination_create_key_count
+            ):
+                if not set(item.minimum_create_relationship_fields).issubset(
+                    relationships_by_owner[item.dataset_id]
+                ):
+                    raise WorkspaceError(
+                        f"{item.model_label} is missing relationship evidence needed "
+                        "for minimum creation"
+                    )
+                if not set(
+                    required_relationships_by_owner[item.dataset_id]
+                ).issubset(item.minimum_create_relationship_fields):
+                    raise WorkspaceError(
+                        f"{item.model_label} has a required relationship outside "
+                        "its reviewed minimum-create scope"
+                    )
+        scalar_write_fields_by_dataset: dict[str, tuple[str, ...]] = {}
+        relationship_write_fields_by_dataset: dict[str, tuple[str, ...]] = {}
+        for item in match_plan.model_matches:
+            if item.destination_handling in DESTINATION_CREATE_ONLY_HANDLINGS:
+                if not item.destination_create_key_count:
+                    scalar_write_fields_by_dataset[item.dataset_id] = ()
+                    relationship_write_fields_by_dataset[item.dataset_id] = ()
+                    continue
+                scalar_write_fields_by_dataset[item.dataset_id] = tuple(
+                    sorted(
+                        (
+                            set(item.minimum_create_fields)
+                            & set(item.compatible_fields)
+                        )
+                        - set(relationships_by_owner[item.dataset_id])
+                    )
+                )
+                relationship_write_fields_by_dataset[item.dataset_id] = tuple(
+                    sorted(
+                        set(item.minimum_create_relationship_fields)
+                        & set(item.compatible_fields)
+                    )
+                )
+                continue
+            scalar_write_fields_by_dataset[item.dataset_id] = tuple(
+                sorted(
+                    set(item.compatible_fields)
+                    - set(relationships_by_owner[item.dataset_id])
+                )
+            )
+            relationship_write_fields_by_dataset[item.dataset_id] = tuple(
+                sorted(relationships_by_owner[item.dataset_id])
+            )
         order_by_dataset = {item.dataset_id: item for item in order_plan.datasets}
         datasets = tuple(
             TransferReviewDataset(
@@ -113,14 +184,9 @@ class TransferReviewService:
                 ),
                 destination_create_record_count=item.destination_create_key_count,
                 wave=_wave(order_by_dataset, item.dataset_id),
-                scalar_write_fields=tuple(
-                    sorted(
-                        set(item.compatible_fields)
-                        - set(relationships_by_owner[item.dataset_id])
-                    )
-                ),
-                relationship_write_fields=tuple(
-                    sorted(relationships_by_owner[item.dataset_id])
+                scalar_write_fields=scalar_write_fields_by_dataset[item.dataset_id],
+                relationship_write_fields=(
+                    relationship_write_fields_by_dataset[item.dataset_id]
                 ),
                 model_policy=policies.get(
                     item.model,
@@ -128,6 +194,9 @@ class TransferReviewService:
                         "reuse_only"
                         if item.destination_handling
                         in DESTINATION_NO_WRITE_HANDLINGS
+                        else "create_if_missing"
+                        if item.destination_handling
+                        in DESTINATION_CREATE_ONLY_HANDLINGS
                         else "upsert"
                     ),
                 ),
@@ -158,8 +227,14 @@ class TransferReviewService:
             (item.owner_dataset_id, item.field_name): item
             for item in order_plan.dependencies
         }
+        authorized_relationships = {
+            item.dataset_id: frozenset(item.relationship_write_fields)
+            for item in datasets
+        }
         relationships: list[TransferReviewRelationship] = []
         for item in match_plan.relationship_matches:
+            if item.field_name not in authorized_relationships[item.dataset_id]:
+                continue
             dependency = dependency_by_field.get((item.dataset_id, item.field_name))
             if item.incoming_link_count > 0 and (
                 dependency is None

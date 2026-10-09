@@ -549,13 +549,14 @@ def validate_repository(
             ("writing_standard", "writing standard"),
             ("audience_standard", "audience standard"),
             ("editing_workflow", "editing workflow"),
+            ("performance_standard", "performance standard"),
         ):
             standard_reference = shared.get(key)
             if not isinstance(standard_reference, str) or not standard_reference:
                 issues.append(
                     DocumentationIssue(
                         str(manifest_path),
-                        f"shared {key} must reference the documentation style guide",
+                        f"shared {key} must reference a registered documentation standard",
                     )
                 )
                 continue
@@ -582,6 +583,22 @@ def validate_repository(
                     DocumentationIssue(
                         str(manifest_path),
                         f"missing shared documentation skill {path!r}",
+                    )
+                )
+        for reference in shared.get("code_references", []):
+            if not resolve_code_reference(repo_root, str(reference)):
+                issues.append(
+                    DocumentationIssue(
+                        str(manifest_path),
+                        f"unresolved shared code reference {reference!r}",
+                    )
+                )
+        for path in shared.get("tests", []):
+            if not (repo_root / str(path)).is_file():
+                issues.append(
+                    DocumentationIssue(
+                        str(manifest_path),
+                        f"missing shared test {path!r}",
                     )
                 )
         for path in shared.get("router_modules", []):

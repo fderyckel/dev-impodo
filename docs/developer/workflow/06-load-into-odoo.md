@@ -67,8 +67,10 @@ full ordered tuple is used for match counts, binding hashes, review, preflight,
 relationship resolution, and execution. This supports the current 10,000-row
 Odoo capture boundary without one broad first-field query.
 
-Destination matching contract version 14 separates three Stage 4 handling
-modes. `transfer` permits reviewed creates for missing identities.
+Destination matching contract version 15 separates four Stage 4 handling
+modes. `transfer` permits reviewed creates and updates according to the later
+model policy. `reuse_or_create` reuses exact matches unchanged and permits only
+minimum creation for missing identities.
 `reuse_only` requires every retained captured identity to exist exactly once
 and prepares no writes for that model. `reference_only` is the destination
 setup boundary for models such as Company and Work Center. The service starts
@@ -83,11 +85,12 @@ policy as a locked choice, and its build route derives `reuse_only` from the
 saved Stage 4 handling instead of trusting a submitted policy value.
 
 `resolver_origin_for_destination_handling` connects those transfer choices to
-the existing relationship contract. `transfer` uses
+the existing relationship contract. `transfer` and `reuse_or_create` use
 `ResolverOrigin.TARGET_THEN_DATASET`; `reuse_only` and `reference_only` use
-`ResolverOrigin.TARGET_CATALOG`. Destination matching uses that canonical
-meaning when it classifies a missing destination relationship as an incoming
-record or a blocker.
+`ResolverOrigin.TARGET_CATALOG`. The compiler maps `reuse_or_create` to
+`MappingTargetMode.CREATE` with `on_existing="unchanged"`. Destination matching
+uses that canonical meaning when it classifies a missing destination
+relationship as an incoming record or a blocker.
 
 `compile_odoo_relationship_datasets` then joins each Stage 4 relationship to
 its saved Stage 2 edge decision. At this point the related dataset's reviewed
@@ -128,10 +131,13 @@ is `name` within `parent_id`, shown as checked read-only components in the
 browser. The operational comparison uses the frozen `complete_name` path, while
 the protected `parent_id` provenance remains the writable self-relationship.
 The read-only computed path is excluded from the write-field compatibility
-projection. Other business-key recommendations remain non-binding choices.
+projection. For another recommended identity whose scalar value is unique only
+inside a related record, Stage 4 currently fails closed instead of matching by
+the scalar alone. A deliberately selected standalone scalar identity, such as
+an approved external code, remains available. The generic scalar-plus-related
+portable matcher is a remaining integration slice.
 The capture publisher rejects selected links that point outside the captured
-related rows. Automatic capture of missing related rows and other relationally
-scoped identities remain separate work. `TransferOrderService` derives dependency waves, while
+related rows. `TransferOrderService` derives dependency waves, while
 `TransferReviewService` freezes a reviewed policy per model (`reuse_only`,
 `create_if_missing`, or `upsert`), create and existing-match counts, write
 fields, relationship operations, later relationship passes, and control totals.
@@ -146,6 +152,11 @@ Field compatibility findings remain visible during destination matching, but
 block package creation only when the selected model policy would create or
 update records. This lets an existing record be reused even when a captured
 read-only field cannot be written to the destination.
+For `reuse_or_create`, Stage 5 fixes the policy to `create_if_missing` and
+limits scalar writes to the reviewed identity plus destination-required or
+qualified create inputs. Optional captured scalar fields and optional outgoing
+relationships remain evidence only. Exact existing matches receive no write
+intents.
 For a missing or incompatible scalar field, the data manager can explicitly
 put that field aside for the current transfer. `set_destination_field_exclusion`
 moves the technical field name into the matching plan's excluded field scope;
@@ -491,6 +502,7 @@ recorded outcome.
 | Hash-bound Odoo-transfer resume | [`ExecutionService.resume_transfer`](../../../src/impodo/application/workspace/execution/service.py) |
 | Durable batch and recovery transitions | [`ExecutionRepository`](../../../src/impodo/adapters/duckdb/execution_repository.py) |
 | Browser routes | [`execution.py`](../../../src/impodo/web/routers/execution.py) |
+| Local browser database scopes | [`page_reads.py`](../../../src/impodo/web/composition/page_reads.py) |
 | Correction browser orchestration | [`CorrectionWorkflowService`](../../../src/impodo/application/correction_workflow.py) |
 | Resumable correction jobs | [`CorrectionJobManager`](../../../src/impodo/application/correction_jobs.py) |
 | Correction origin and review owners | [`correction_orchestration.py`](../../../src/impodo/application/correction_orchestration.py) |
@@ -635,6 +647,20 @@ Different field sets for the same model do not force one broad union read.
 Keep write and read interfaces separate so a nominally read-only component
 cannot invoke a write method.
 
+The Transfer destination, Destination matching, Transfer order, Transfer
+review, and Transfer preflight GET routes use `run_page_read`. Each route puts
+its complete synchronous local read-and-render operation on one worker and
+reuses database owners only for that request. Session checks remain outside
+the callback. Remote Odoo reads, mutations, POST handlers, and background work
+remain outside the retained read scope.
+
+New database-backed routes must follow the shared
+[local browser database operation scope](../../architecture/code-organization.md#local-browser-database-operation-scopes).
+The focused route test must cover the complete callback and enforce a physical
+connection ceiling derived from the fixture's expected database-path and
+configuration owners. Connection counts support the review, but only paired
+timing evidence and a restarted live build support a latency claim.
+
 The `PRODUCTION` DataVersion purpose does not bypass the current
 disposable-target acceptance boundary. Recipe lineage is not Odoo write
 authorization.
@@ -703,6 +729,7 @@ qualify another remote topology.
 - [`tests/integration/web/test_transfer_review_routes.py`](../../../tests/integration/web/test_transfer_review_routes.py)
 - [`tests/integration/web/test_transfer_review_presenter.py`](../../../tests/integration/web/test_transfer_review_presenter.py)
 - [`tests/integration/web/test_transfer_preflight_routes.py`](../../../tests/integration/web/test_transfer_preflight_routes.py)
+- [`tests/integration/web/test_transfer_page_reads.py`](../../../tests/integration/web/test_transfer_page_reads.py)
 - [`tests/integration/web/test_transfer_load_routes.py`](../../../tests/integration/web/test_transfer_load_routes.py)
 - [`tests/integration/duckdb/test_transfer_order_persistence.py`](../../../tests/integration/duckdb/test_transfer_order_persistence.py)
 
@@ -716,6 +743,7 @@ supported Odoo target.
 - [User guide: Load into Odoo](../../user/workflow/06-load-into-odoo.md)
 - [Execution and reconciliation contract](../contracts/execution-and-reconciliation.md)
 - [Security and infrastructure](../../architecture/security-and-infrastructure.md)
+- [Local browser database operation scopes](../../architecture/code-organization.md#local-browser-database-operation-scopes)
 - [Acceptance and test strategy](../../testing/acceptance.md)
 - [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)

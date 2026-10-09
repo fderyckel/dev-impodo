@@ -143,7 +143,9 @@ class SchemaMatchingRulePresenterTests(unittest.TestCase):
         self.assertTrue(views[0]["has_submitted_draft"])
         self.assertTrue(views[0]["is_changed_from_suggestion"])
 
-    def test_supporting_plan_keeps_related_models_out_of_write_scope(self) -> None:
+    def test_supporting_plan_previews_minimum_preservation_without_root_link(
+        self,
+    ) -> None:
         schema = SimpleNamespace(
             origin=SchemaOrigin.LIVE_API,
             content_hash="sha256:" + "b" * 64,
@@ -197,23 +199,28 @@ class SchemaMatchingRulePresenterTests(unittest.TestCase):
         view = supporting_model_plan_view("workspace-1", schema, catalog)
 
         self.assertEqual(view["dependency_count"], 3)
-        reuse = next(
+        keep_linked = next(
             group
             for group in view["groups"]
-            if group["role"].value == "REUSE_EXISTING"
+            if group["outcome"].value == "KEEP_LINKED"
         )
-        by_model = {item["model_name"]: item for item in reuse["models"]}
+        self.assertEqual(keep_linked["title"], "Keep linked value")
+        self.assertEqual(
+            keep_linked["status_label"],
+            "Reuse or create identity and required values only",
+        )
+        by_model = {
+            item["model_name"]: item for item in keep_linked["models"]
+        }
         self.assertIn("product.category", by_model)
         self.assertIn("uom.uom", by_model)
-        self.assertIn(
-            "suggested_model=product.category",
-            by_model["product.category"]["include_url"],
-        )
+        self.assertNotIn("include_url", by_model["product.category"])
+        self.assertEqual(view["suggestable_model_names"], ())
         issue_summary = view["issue_summary"]
         self.assertEqual(issue_summary.must_fix_count, 1)
         self.assertIn("x.owner", issue_summary.issues[0].code)
 
-    def test_checked_default_does_not_require_related_model_availability(
+    def test_destination_setup_is_existing_only_even_when_odoo_has_a_default(
         self,
     ) -> None:
         schema = SimpleNamespace(
@@ -243,15 +250,20 @@ class SchemaMatchingRulePresenterTests(unittest.TestCase):
             SimpleNamespace(models=()),
         )
 
-        checked_default = next(
+        existing_only = next(
             group
             for group in view["groups"]
-            if group["role"].value == "CHECKED_DEFAULT"
+            if group["outcome"].value == "USE_EXISTING_DESTINATION"
         )
-        self.assertFalse(
-            checked_default["models"][0]["availability_relevant"]
+        self.assertEqual(
+            existing_only["title"],
+            "Use existing destination records only",
         )
-        self.assertEqual(view["issue_summary"].issues, ())
+        self.assertTrue(
+            existing_only["models"][0]["availability_relevant"]
+        )
+        self.assertEqual(view["issue_summary"].must_fix_count, 1)
+        self.assertIn("res.company", view["issue_summary"].issues[0].code)
 
 
 def _model(

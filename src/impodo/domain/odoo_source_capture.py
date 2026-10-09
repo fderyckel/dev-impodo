@@ -14,6 +14,7 @@ import re
 from typing import Callable
 from uuid import UUID
 
+from impodo.domain.workspace.business_keys import recommend_business_key
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField
 from .odoo_capture import (
     ODOO_CAPTURE_CONTRACT_VERSION,
@@ -568,6 +569,8 @@ def plan_odoo_source_capture(
     linked_models: frozenset[str] = frozenset(),
     allowed_relationships: frozenset[tuple[str, str]] | None = None,
     reference_models: frozenset[str] = frozenset(),
+    leaf_models: frozenset[str] = frozenset(),
+    create_if_missing_models: frozenset[str] = frozenset(),
 ) -> OdooSourceCaptureRequest:
     """Build the only request shape accepted by the live capture adapter."""
 
@@ -608,15 +611,38 @@ def plan_odoo_source_capture(
         assert field is not None
         projection.append(OdooCaptureFieldProjection(name, field.type))
     selected_models = {item.name for item in schema.models}
+    preserve_leaf_models = (
+        (leaf_models - reference_models) | create_if_missing_models
+    )
+    identity = recommend_business_key(schema_model)
+    identity_scope_fields = frozenset(
+        identity.scope_fields if identity is not None else ()
+    )
 
     def relationship_is_allowed(field: SchemaField) -> bool:
-        if allowed_relationships is None:
+        if (
+            schema_model.name in leaf_models
+            and selection.capture_role is OdooCaptureRole.LINKED_ONLY
+            and field.name in identity_scope_fields
+        ):
+            # A relationship-scoped business key is part of the leaf's
+            # identity evidence, not optional graph expansion. Keep it even
+            # when the ordinary reviewed-edge allow-list is otherwise closed.
             return True
         if (
             schema_model.name in reference_models
             and selection.capture_role is OdooCaptureRole.LINKED_ONLY
         ):
             return False
+        if (
+            schema_model.name in preserve_leaf_models
+            and selection.capture_role is OdooCaptureRole.LINKED_ONLY
+            and not field.required
+            and field.name not in identity_scope_fields
+        ):
+            return False
+        if allowed_relationships is None:
+            return True
         return bool(
             (schema_model.name, field.name) in allowed_relationships
             or (

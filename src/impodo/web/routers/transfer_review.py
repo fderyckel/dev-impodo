@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from impodo.application.transfer_review_service import TransferReviewService
 from impodo.domain.shared.access import Capability
 from impodo.domain.workspace.destination_matching import (
+    DESTINATION_CREATE_ONLY_HANDLINGS,
     DESTINATION_NO_WRITE_HANDLINGS,
 )
 from impodo.domain.workspace.errors import WorkspaceError
@@ -174,6 +175,8 @@ def build_transfer_review_router(context: WebContext) -> APIRouter:
                 item.model: (
                     "reuse_only"
                     if item.destination_handling in DESTINATION_NO_WRITE_HANDLINGS
+                    else "create_if_missing"
+                    if item.destination_handling in DESTINATION_CREATE_ONLY_HANDLINGS
                     else _text(form, f"policy_{item.dataset_id}")
                     or "create_if_missing"
                 )

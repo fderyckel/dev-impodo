@@ -19,16 +19,17 @@ from impodo.domain.mapping.contracts import ResolverOrigin
 from impodo.domain.serialization import canonical_json, content_hash
 
 
-DESTINATION_MATCH_CONTRACT_VERSION = 14
+DESTINATION_MATCH_CONTRACT_VERSION = 15
 _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset(
-    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}
+    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 )
 DESTINATION_HANDLINGS = frozenset(
-    {"transfer", "reuse_only", "reference_only"}
+    {"transfer", "reuse_or_create", "reuse_only", "reference_only"}
 )
 DESTINATION_NO_WRITE_HANDLINGS = frozenset(
     {"reuse_only", "reference_only"}
 )
+DESTINATION_CREATE_ONLY_HANDLINGS = frozenset({"reuse_or_create"})
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 
@@ -40,7 +41,7 @@ def resolver_origin_for_destination_handling(
 
     if destination_handling not in DESTINATION_HANDLINGS:
         raise ValueError("Destination handling is invalid")
-    if destination_handling == "transfer":
+    if destination_handling in {"transfer", "reuse_or_create"}:
         return ResolverOrigin.TARGET_THEN_DATASET
     return ResolverOrigin.TARGET_CATALOG
 
@@ -541,6 +542,8 @@ class DestinationModelMatch:
     excluded_source_row_numbers: tuple[int, ...] = ()
     unreferenced_source_row_numbers: tuple[int, ...] = ()
     destination_handling: str = "transfer"
+    minimum_create_fields: tuple[str, ...] = ()
+    minimum_create_relationship_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         text_values = (
@@ -631,6 +634,8 @@ class DestinationModelMatch:
             self.unresolved_create_fields,
             self.excluded_missing_fields,
             self.excluded_incompatible_fields,
+            self.minimum_create_fields,
+            self.minimum_create_relationship_fields,
         )
         if any(group != tuple(sorted(set(group))) for group in field_groups):
             raise ValueError("Destination field results must be sorted and unique")
@@ -646,6 +651,22 @@ class DestinationModelMatch:
             len(group) for group in write_field_groups
         ):
             raise ValueError("Destination field results overlap")
+        if not set(self.minimum_create_fields).issubset(
+            set(self.compatible_fields)
+            | set(self.missing_fields)
+            | set(self.incompatible_fields)
+        ):
+            raise ValueError(
+                "Minimum create fields must belong to the compared source fields"
+            )
+        if not set(self.minimum_create_relationship_fields).issubset(
+            set(self.compatible_fields)
+            | set(self.missing_fields)
+            | set(self.incompatible_fields)
+        ):
+            raise ValueError(
+                "Minimum create relationships must belong to the compared source fields"
+            )
 
     @property
     def excluded_fields(self) -> tuple[str, ...]:
@@ -698,10 +719,21 @@ class DestinationModelMatch:
 
         if self.destination_handling in DESTINATION_NO_WRITE_HANDLINGS:
             return ()
+        minimum_only = self.destination_handling in DESTINATION_CREATE_ONLY_HANDLINGS
+        if minimum_only and not self.destination_create_key_count:
+            return ()
+        relevant_fields = set(self.minimum_create_fields) | set(
+            self.minimum_create_relationship_fields
+        )
         reasons = []
-        if self.missing_fields:
+        if self.missing_fields and (
+            not minimum_only or relevant_fields.intersection(self.missing_fields)
+        ):
             reasons.append("DESTINATION_FIELDS_MISSING")
-        if self.incompatible_fields:
+        if self.incompatible_fields and (
+            not minimum_only
+            or relevant_fields.intersection(self.incompatible_fields)
+        ):
             reasons.append("DESTINATION_FIELDS_INCOMPATIBLE")
         if self.destination_create_key_count and self.unresolved_create_fields:
             reasons.append("DESTINATION_CREATE_FIELDS_UNRESOLVED")
@@ -873,6 +905,23 @@ class DestinationMatchPlan:
     def __post_init__(self) -> None:
         if self.contract_version not in _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS:
             raise ValueError("Destination matching contract version is unsupported")
+        if self.contract_version < 15 and any(
+            item.minimum_create_fields
+            or item.minimum_create_relationship_fields
+            for item in self.model_matches
+        ):
+            object.__setattr__(
+                self,
+                "model_matches",
+                tuple(
+                    replace(
+                        item,
+                        minimum_create_fields=(),
+                        minimum_create_relationship_fields=(),
+                    )
+                    for item in self.model_matches
+                ),
+            )
         if not self.workspace_id.strip() or not self.recorded_by.strip():
             raise ValueError("Destination matching provenance is incomplete")
         hashes = (
@@ -1082,6 +1131,13 @@ class DestinationMatchPlan:
                         self.contract_version >= 14
                         or name != "unreferenced_source_row_numbers"
                     )
+                    and (
+                        self.contract_version >= 15
+                        or name not in {
+                            "minimum_create_fields",
+                            "minimum_create_relationship_fields",
+                        }
+                    )
                 }
                 for item in self.model_matches
             ],
@@ -1211,6 +1267,12 @@ class DestinationMatchPlan:
                         ),
                         destination_handling=str(
                             item.get("destination_handling", "transfer")
+                        ),
+                        minimum_create_fields=tuple(
+                            item.get("minimum_create_fields", ())
+                        ),
+                        minimum_create_relationship_fields=tuple(
+                            item.get("minimum_create_relationship_fields", ())
                         ),
                     )
                     for item in payload["model_matches"]

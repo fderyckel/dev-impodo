@@ -447,6 +447,29 @@
   font-size: .76rem;
 }
 
+.matching-readonly-label span,
+.matching-readonly-label small {
+  display: block;
+}
+
+.matching-readonly-label span {
+  font-size: .86rem;
+  font-weight: 700;
+}
+
+.matching-readonly-label small {
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.matching-fixed-outcome {
+  margin: .55rem 0 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  padding: .7rem .8rem;
+}
+
 .identity-field-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 2.55rem;

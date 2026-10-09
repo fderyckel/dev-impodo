@@ -79,13 +79,38 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
             ("Product Categories", "Units of Measure"),
         )
         self.assertTrue(all(
-            model.action is OdooRelationshipCaptureAction.CAPTURE_LINKED
+            model.action is OdooRelationshipCaptureAction.PRESERVE_LINKED
             for model in view.groups[0].models
         ))
+        self.assertTrue(all(
+            model.recommended_action
+            is OdooRelationshipCaptureAction.PRESERVE_LINKED
+            for model in view.groups[0].models
+        ))
+        self.assertEqual(
+            view.groups[0].models[0].action_title,
+            "Keep linked value",
+        )
+        self.assertIn(
+            "prepare only its identity and required values",
+            view.groups[0].models[0].action_description,
+        )
+        self.assertIn(
+            "asks for a decision before any load",
+            view.groups[0].models[0].action_description,
+        )
         self.assertTrue(all(model.recommended for model in view.groups[0].models))
         self.assertTrue(view.groups[1].models[0].can_select)
         self.assertTrue(view.groups[1].models[0].recommended)
+        self.assertIs(
+            view.groups[1].models[0].action,
+            OdooRelationshipCaptureAction.MATCH_EXISTING,
+        )
         self.assertTrue(view.groups[2].models[0].can_select)
+        self.assertIs(
+            view.groups[2].models[0].action,
+            OdooRelationshipCaptureAction.DO_NOT_CAPTURE,
+        )
 
         saved_view = build_related_data_scope_view(
             "workspace-1",
@@ -107,6 +132,10 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
         self.assertIs(
             saved_model.action,
             OdooRelationshipCaptureAction.CAPTURE_LINKED,
+        )
+        self.assertEqual(
+            saved_model.action_title,
+            "Transfer related records as migration data",
         )
         self.assertFalse(saved_model.recommended)
 
@@ -167,7 +196,9 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
             1,
         )
 
-    def test_unprofiled_relationship_is_selectable_but_not_recommended(self) -> None:
+    def test_unprofiled_relationship_gets_safe_default_without_profile_badge(
+        self,
+    ) -> None:
         view = build_related_data_scope_view(
             "workspace-1",
             (
@@ -183,10 +214,62 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
             available_models=frozenset({"x.reviewer"}),
         )
 
-        self.assertEqual(view.groups[0].title, "No standard default")
+        self.assertEqual(
+            view.groups[0].title,
+            "Safe default for an unclassified link",
+        )
+        self.assertIn(
+            "cannot infer the full business scope",
+            view.groups[0].description,
+        )
         self.assertEqual(view.selectable_model_names, ("x.reviewer",))
         self.assertTrue(view.groups[0].models[0].can_select)
         self.assertFalse(view.groups[0].models[0].recommended)
+        self.assertIs(
+            view.groups[0].models[0].action,
+            OdooRelationshipCaptureAction.PRESERVE_LINKED,
+        )
+
+    def test_saved_preserve_leaf_stays_recommended_after_it_joins_scope(self) -> None:
+        category = _suggestion(
+            "categ_id",
+            "Product Category",
+            "product.category",
+            RelatedDataHandling.INCLUDE_SUPPORTING,
+        )
+        scope = OdooRelationshipScope.create(
+            scope_id=str(uuid4()),
+            version=1,
+            decisions=relationship_scope_decisions(
+                (category,),
+                actions_by_model={
+                    "product.category": (
+                        OdooRelationshipCaptureAction.PRESERVE_LINKED
+                    )
+                },
+            ),
+            root_models=("product.template",),
+            recorded_at=datetime.now(timezone.utc),
+            recorded_by="Data manager",
+        )
+
+        view = build_related_data_scope_view(
+            "workspace-1",
+            (category,),
+            model_labels={"product.category": "Product Categories"},
+            selected_models=frozenset(
+                {"product.template", "product.category"}
+            ),
+            available_models=frozenset({"product.category"}),
+            relationship_scope=scope,
+        )
+
+        model = view.groups[0].models[0]
+        self.assertIs(
+            model.action,
+            OdooRelationshipCaptureAction.PRESERVE_LINKED,
+        )
+        self.assertIs(model.action, model.recommended_action)
 
     def test_new_graph_level_is_pending_without_rewriting_saved_decision(self) -> None:
         owner = _suggestion(

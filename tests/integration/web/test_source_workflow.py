@@ -607,24 +607,49 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             )
 
         self.assertEqual(page.status_code, 200)
+        self.assertIn("Choose the Odoo data to move", page.text)
+        self.assertIn(
+            "Impodo prepares safe, bounded capture plans automatically",
+            page.text,
+        )
         self.assertIn("Review the related data for this migration", page.text)
         self.assertIn("Needed to keep the records meaningful", page.text)
         self.assertIn("Reuse destination setup", page.text)
         self.assertIn("Not part of the business-data move", page.text)
-        self.assertIn("No standard default", page.text)
+        self.assertIn("Safe default for an unclassified link", page.text)
         self.assertIn("Product Category", page.text)
         self.assertIn('name="related_actions"', page.text)
-        self.assertIn('value="product.category::CAPTURE_LINKED"', page.text)
+        self.assertIn('value="product.category::PRESERVE_LINKED"', page.text)
         self.assertIn('value="res.company::MATCH_EXISTING"', page.text)
-        self.assertIn('value="x.owner::DO_NOT_CAPTURE"', page.text)
+        self.assertNotIn('value="res.company::PRESERVE_LINKED"', page.text)
+        self.assertIn('value="x.owner::PRESERVE_LINKED"', page.text)
         self.assertIn(
-            "Needs review &middot; choose whether these links belong in this migration",
+            "Review and save this choice",
             page.text,
         )
         self.assertIn(
-            "Recommended by Impodo &middot; needs your review",
+            "Recommended by Impodo &middot; review and save this choice",
             page.text,
         )
+        self.assertIn("Keep linked value", page.text)
+        self.assertIn("Advanced: choose a different outcome", page.text)
+        self.assertIn(
+            "Saving your decisions may discover another related record type",
+            page.text,
+        )
+        self.assertNotIn("load another selected record type", page.text)
+        self.assertIn("Reading the source is safe and read-only", page.text)
+        self.assertIn("<summary>Support details</summary>", page.text)
+        self.assertIn(
+            "Impodo recommends keeping the populated link without turning",
+            page.text,
+        )
+        self.assertIn(
+            "Impodo recommends reusing destination setup and blocking when",
+            page.text,
+        )
+        self.assertIn("Transfer related records as migration data", page.text)
+        self.assertIn("Use existing destination records only", page.text)
         self.assertIn("This link is required", page.text)
         self.assertIn(
             "Before transfer, Impodo must match them to existing destination settings",
@@ -647,6 +672,98 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             ),
             (),
         )
+
+    def test_complete_root_only_review_prepares_capture_plan_automatically(
+        self,
+    ) -> None:
+        workspace_state, schema = self._registered_remote_schema_workspace()
+        context = self.app.state.context
+        fields_by_name = {
+            field.name: field for field in schema.models[0].fields
+        }
+        root_schema = replace(
+            schema,
+            models=(
+                replace(
+                    schema.models[0],
+                    name="x.root",
+                    label="Main records",
+                    fields=(
+                        replace(
+                            fields_by_name["name"],
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            stored=True,
+                            computed=False,
+                            related=False,
+                            company_dependent=False,
+                            exportable=True,
+                        ),
+                        fields_by_name["write_date"],
+                    ),
+                    unique_constraints=(),
+                ),
+            ),
+            content_hash="sha256:" + "7" * 64,
+        )
+        workspace_state = context.workspace_states.update_schema_scope(
+            workspace_state.workspace_id,
+            actor=context.actor,
+            expected_revision=workspace_state.revision,
+            permitted_models=("x.root",),
+        )
+        context.schema_workspace.schemas.save_odoo_schema_catalog(
+            workspace_state.workspace_id,
+            root_schema,
+            actor=context.actor,
+        )
+        model_catalog = SimpleNamespace(
+            models=(SimpleNamespace(name="x.root", label="Main records"),)
+        )
+
+        with (
+            patch.object(
+                context.queries,
+                "get_odoo_schema_catalog",
+                return_value=root_schema,
+            ),
+            patch.object(
+                context.queries,
+                "get_odoo_model_catalog",
+                return_value=model_catalog,
+            ),
+        ):
+            page = self.client.get(
+                f"/workspaces/{workspace_state.workspace_id}/sources"
+            )
+            prepared = self._post(
+                f"/workspaces/{workspace_state.workspace_id}"
+                "/sources/odoo-related-data",
+                {
+                    "csrf_token": self.csrf,
+                    "revision": str(workspace_state.revision),
+                },
+            )
+            result = self.client.get(prepared.headers["location"])
+
+        self.assertIn("Let Impodo prepare the capture plans", page.text)
+        self.assertEqual(prepared.status_code, 303)
+        self.assertEqual(
+            prepared.headers["location"],
+            f"/workspaces/{workspace_state.workspace_id}"
+            "/sources#capture-next-action",
+        )
+        selections = context.queries.get_current_odoo_capture_selections(
+            workspace_state.workspace_id
+        )
+        self.assertEqual(len(selections), 1)
+        self.assertEqual(selections[0].model, "x.root")
+        self.assertEqual(selections[0].field_names, ("name",))
+        self.assertEqual(selections[0].capture_role.value, "ROOT")
+        self.assertIn("Capture-plan setup is complete", result.text)
+        self.assertIn("This root dataset will read all matching records", result.text)
+        self.assertIn("Edit Main records", result.text)
 
     def test_odoo_source_page_saves_unprofiled_related_data_without_backtracking(self) -> None:
         workspace_state, schema = self._registered_remote_schema_workspace()
@@ -798,6 +915,108 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             review_page.text,
         )
         capture_schema.assert_awaited_once()
+
+    def test_related_data_review_preserves_an_explicit_root_also_reached_by_an_edge(self) -> None:
+        workspace_state, schema = self._registered_remote_schema_workspace()
+        context = self.app.state.context
+        product = replace(
+            schema.models[0],
+            name="product.template",
+            label="Products",
+            fields=(
+                SchemaField(
+                    name="name",
+                    label="Product Name",
+                    type="char",
+                    required=True,
+                    readonly=False,
+                    relation=None,
+                    relation_field=None,
+                    selection=(),
+                    exportable=True,
+                ),
+                SchemaField(
+                    name="x_owner_id",
+                    label="Owner",
+                    type="many2one",
+                    required=False,
+                    readonly=False,
+                    relation="x.owner",
+                    relation_field=None,
+                    selection=(),
+                    related=False,
+                    company_dependent=False,
+                    exportable=True,
+                ),
+            ),
+        )
+        owner = replace(
+            product,
+            name="x.owner",
+            label="Owners",
+            fields=(product.fields[0],),
+        )
+        selected_schema = replace(schema, models=(product, owner))
+        workspace_state = context.workspace_states.update_schema_scope(
+            workspace_state.workspace_id,
+            actor=context.actor,
+            expected_revision=workspace_state.revision,
+            permitted_models=("product.template", "x.owner"),
+        )
+        model_catalog = SimpleNamespace(
+            models=(
+                SimpleNamespace(name="product.template", label="Products"),
+                SimpleNamespace(name="x.owner", label="Owners"),
+            )
+        )
+
+        with (
+            patch.object(
+                context.queries,
+                "get_odoo_schema_catalog",
+                return_value=selected_schema,
+            ),
+            patch.object(
+                context.queries,
+                "get_odoo_model_catalog",
+                return_value=model_catalog,
+            ),
+        ):
+            first = self._post(
+                f"/workspaces/{workspace_state.workspace_id}"
+                "/sources/odoo-related-data",
+                {
+                    "csrf_token": self.csrf,
+                    "revision": str(workspace_state.revision),
+                    "related_actions": "x.owner::MATCH_EXISTING",
+                },
+            )
+            after_first = context.queries.get(workspace_state.workspace_id)
+            second = self._post(
+                f"/workspaces/{workspace_state.workspace_id}"
+                "/sources/odoo-related-data",
+                {
+                    "csrf_token": self.csrf,
+                    "revision": str(after_first.revision),
+                    "related_actions": "x.owner::MATCH_EXISTING",
+                },
+            )
+
+        self.assertEqual(first.status_code, 303)
+        self.assertEqual(second.status_code, 303)
+        self.assertEqual(
+            context.queries.get(workspace_state.workspace_id).intended_models,
+            ("product.template", "x.owner"),
+        )
+        relationship_scope = (
+            context.queries.get_current_odoo_relationship_scope(
+                workspace_state.workspace_id
+            )
+        )
+        self.assertEqual(
+            relationship_scope.root_models,
+            ("product.template", "x.owner"),
+        )
 
     def test_related_data_review_discovers_each_new_graph_level(self) -> None:
         workspace_state, schema = self._registered_remote_schema_workspace()
@@ -952,7 +1171,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(first.status_code, 303)
         self.assertIn("Review 1 newly found relationship", first_page.text)
         self.assertIn(
-            'value="resource.calendar::DO_NOT_CAPTURE" selected',
+            'value="resource.calendar::PRESERVE_LINKED" selected',
             first_page.text,
         )
         self.assertIn("Needs review", first_page.text)
@@ -1104,7 +1323,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertLess(current_evidence, next_action)
         self.assertLess(next_action, section_end)
         self.assertIn(
-            'data-submitting-label="Checking matching records in Odoo..."',
+            'data-submitting-label="Counting selected source records in Odoo..."',
             page.text,
         )
 

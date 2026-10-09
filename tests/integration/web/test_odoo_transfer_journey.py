@@ -161,8 +161,8 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         source_page = self.client.get(f"/workspaces/{workspace_id}/sources")
         self.assertEqual(source_page.status_code, 200)
         self.assertIn("Stage 2 of 6", source_page.text)
-        self.assertIn("Define a bounded Odoo capture", source_page.text)
-        self.assertIn("Freezing is read-only", source_page.text)
+        self.assertIn("Choose the Odoo data to move", source_page.text)
+        self.assertIn("Reading the source is safe and read-only", source_page.text)
         self.assertIn('name="filter_field"', source_page.text)
         self.assertIn('name="filter_value"', source_page.text)
         render_schema = self.app.state.context.queries.get_odoo_schema_catalog(
@@ -239,16 +239,16 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(selection.field_names, ("name",))
         saved_page = self.client.get(selected.headers["location"])
         self.assertIn("Capture plan version 1", saved_page.text)
-        self.assertIn("Check matching records", saved_page.text)
+        self.assertIn("Count selected source records", saved_page.text)
         self.assertIn("Capture plans complete", saved_page.text)
         self.assertLess(
             saved_page.text.index("Current protected evidence"),
             saved_page.text.index("Capture plans complete"),
         )
         self.assertIn("Stage 3 of 6", saved_page.text)
-        self.assertIn("Check matching records and continue", saved_page.text)
+        self.assertIn("Count selected source records and continue", saved_page.text)
         self.assertIn(
-            'data-submitting-label="Checking matching records in Odoo..."',
+            'data-submitting-label="Counting selected source records in Odoo..."',
             saved_page.text,
         )
         self.assertIn("Review and freeze the Odoo source", saved_page.text)
@@ -303,7 +303,7 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
             refreshed_binding.headers["location"]
         )
         self.assertIn(
-            "Check matching records and continue",
+            "Count selected source records and continue",
             refreshed_source_page.text,
         )
 
@@ -676,7 +676,7 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertIn("data-matching-builder", matching_page.text)
         self.assertIn("data-optional-match-field", matching_page.text)
-        self.assertIn("Destination handling", matching_page.text)
+        self.assertIn("Missing-record policy", matching_page.text)
         self.assertIn("Reuse existing destination records only", matching_page.text)
         frozen_selection = self.app.state.context.queries.get_source_selection(
             workspace_id

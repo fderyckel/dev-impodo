@@ -660,6 +660,7 @@ class DestinationMatchingTests(unittest.TestCase):
                 DestinationMatchKeyChoice(
                     category.dataset_id,
                     "category-path",
+                    destination_handling="reuse_or_create",
                 ),
             ),
             api_key="destination-secret",
@@ -699,6 +700,11 @@ class DestinationMatchingTests(unittest.TestCase):
         )
         self.assertEqual(category_match.incompatible_fields, ())
         self.assertNotIn("parent_path", category_match.missing_fields)
+        self.assertEqual(category_match.minimum_create_fields, ("name",))
+        self.assertEqual(
+            category_match.minimum_create_relationship_fields,
+            ("parent_id",),
+        )
         self.assertEqual(DestinationMatchPlan.from_json(plan.to_json()), plan)
 
         missing_path_selection = replace(
@@ -710,7 +716,7 @@ class DestinationMatchingTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             WorkspaceError,
-            "requires captured Complete Name and Parent Category evidence",
+            "requires captured Name, Complete Name, and Parent Category evidence",
         ):
             DestinationMatchingService(source_values).check(
                 self.workspace,
@@ -731,6 +737,366 @@ class DestinationMatchingTests(unittest.TestCase):
                 reader=lambda *_args: self.fail(
                     "unsafe category matching must fail before a destination read"
                 ),
+                recorded_by="Data manager",
+            )
+
+        missing_name_selection = replace(
+            selection,
+            datasets=(
+                replace(category, columns=category.columns[1:]),
+            ),
+            content_hash="sha256:" + "6" * 64,
+        )
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "requires captured Name, Complete Name, and Parent Category evidence",
+        ):
+            DestinationMatchingService(source_values).check(
+                self.workspace,
+                missing_name_selection,
+                schema,
+                (
+                    DestinationMatchKeyChoice(
+                        category.dataset_id,
+                        "category-path",
+                        destination_handling="reuse_or_create",
+                    ),
+                ),
+                api_key="destination-secret",
+                credential_binding_hash=BINDING_HASH,
+                read_identity=replace(
+                    _identity(self.workspace),
+                    readable_models=("product.category",),
+                ),
+                reader=lambda *_args: self.fail(
+                    "category creation without Name must fail before a destination read"
+                ),
+                recorded_by="Data manager",
+            )
+
+    def test_minimum_create_keeps_captured_create_hook_input(self) -> None:
+        code = SchemaField(
+            name="code",
+            label="Code",
+            type="char",
+            required=False,
+            readonly=False,
+            relation=None,
+            relation_field=None,
+            selection=(),
+            stored=True,
+            computed=False,
+            related=False,
+            company_dependent=False,
+            exportable=True,
+        )
+        name = replace(code, name="name", label="Work Center")
+        resource = replace(
+            code,
+            name="resource_id",
+            label="Resource",
+            type="many2one",
+            required=True,
+            relation="resource.resource",
+        )
+        dataset = SourceDataset(
+            dataset_id=str(uuid4()),
+            name="Work Centers",
+            source=_binding("mrp.workcenter"),
+            row_count=1,
+            columns=(
+                SourceDatasetColumn(1, "code", "workcenter-code", "TEXT"),
+                SourceDatasetColumn(2, "name", "workcenter-name", "TEXT"),
+            ),
+        )
+        selection = replace(
+            self.selection,
+            datasets=(dataset,),
+            content_hash="sha256:" + "4" * 64,
+        )
+        schema = replace(
+            self.schema,
+            models=(
+                SchemaModel(
+                    "mrp.workcenter",
+                    "Work Center",
+                    (code, name, resource),
+                ),
+            ),
+            content_hash="sha256:" + "5" * 64,
+        )
+        source_values = _SourceValues(
+            {
+                (dataset.dataset_id, "workcenter-code"): (
+                    {"value": "CUT", "count": 1},
+                ),
+            }
+        )
+        fingerprint = TargetFingerprint(
+            target_hash=self.workspace.destination_verified_target_hash,
+            connection_mode="REMOTE",
+            database="destination",
+            odoo_version="19.0",
+            snapshot_timestamp=self.now.isoformat(),
+        )
+
+        def reader(_destination, _api_key, _metadata_requests, record_requests):
+            self.assertEqual(record_requests[0].fields, ("code",))
+            return (
+                MetadataSnapshot(
+                    fingerprint=fingerprint,
+                    models={
+                        "mrp.workcenter": ModelMetadata(
+                            "mrp.workcenter",
+                            "Work Center",
+                            {
+                                "code": FieldMetadata("code", "char", "Code"),
+                                "name": FieldMetadata(
+                                    "name", "char", "Work Center"
+                                ),
+                                "resource_id": FieldMetadata(
+                                    "resource_id",
+                                    "many2one",
+                                    "Resource",
+                                    required=True,
+                                    relation="resource.resource",
+                                ),
+                            },
+                        ),
+                    },
+                ),
+                RecordSnapshot(
+                    fingerprint=fingerprint,
+                    records={"mrp.workcenter": ()},
+                    requested_fields={"mrp.workcenter": ("code",)},
+                ),
+            )
+
+        plan = DestinationMatchingService(source_values).check(
+            self.workspace,
+            selection,
+            schema,
+            (
+                DestinationMatchKeyChoice(
+                    dataset.dataset_id,
+                    "workcenter-code",
+                    destination_handling="reuse_or_create",
+                ),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=replace(
+                _identity(self.workspace),
+                readable_models=("mrp.workcenter",),
+            ),
+            reader=reader,
+            recorded_by="Data manager",
+        )
+
+        workcenter = plan.model_matches[0]
+        self.assertEqual(workcenter.minimum_create_fields, ("code", "name"))
+        self.assertFalse(workcenter.unresolved_create_fields)
+
+    def test_scoped_recommendation_without_governed_matcher_fails_closed(
+        self,
+    ) -> None:
+        product_model, uom_model = self.schema.models
+        category = _relation(
+            "category_id",
+            "Unit Category",
+            "many2one",
+            "uom.category",
+            required=True,
+        )
+        schema = replace(
+            self.schema,
+            models=(
+                product_model,
+                replace(uom_model, fields=uom_model.fields + (category,)),
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "requires a relationship-scoped destination identity using category_id",
+        ):
+            DestinationMatchingService(self.source_values).check(
+                self.workspace,
+                self.selection,
+                schema,
+                (
+                    DestinationMatchKeyChoice(
+                        self.product.dataset_id,
+                        "product-code",
+                    ),
+                    DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+                ),
+                api_key="destination-secret",
+                credential_binding_hash=BINDING_HASH,
+                read_identity=_identity(self.workspace),
+                reader=lambda *_args: self.fail(
+                    "unsupported scoped matching must fail before reading Odoo"
+                ),
+                recorded_by="Data manager",
+            )
+
+    def test_scoped_recommendation_allows_deliberate_scalar_override(self) -> None:
+        product_model, uom_model = self.schema.models
+        external_code = replace(
+            uom_model.fields[0],
+            name="x_external_code",
+            label="External Code",
+        )
+        category = _relation(
+            "category_id",
+            "Unit Category",
+            "many2one",
+            "uom.category",
+            required=True,
+        )
+        schema = replace(
+            self.schema,
+            models=(
+                product_model,
+                replace(
+                    uom_model,
+                    fields=uom_model.fields + (external_code, category),
+                ),
+            ),
+            content_hash="sha256:" + "7" * 64,
+        )
+        uom = replace(
+            self.uom,
+            columns=self.uom.columns
+            + (
+                SourceDatasetColumn(
+                    2,
+                    "x_external_code",
+                    "uom-external-code",
+                    "TEXT",
+                ),
+            ),
+        )
+        selection = replace(
+            self.selection,
+            datasets=(self.product, uom),
+            content_hash="sha256:" + "8" * 64,
+        )
+        source_values = _SourceValues(
+            {
+                **self.source_values.values,
+                (uom.dataset_id, "uom-external-code"): (
+                    {"value": "KGM", "count": 1},
+                    {"value": "UNIT", "count": 1},
+                ),
+            }
+        )
+        base_reader = _destination_reader(self.workspace)
+
+        def reader(*args):
+            metadata, records = base_reader(*args)
+            uom_metadata = metadata.models["uom.uom"]
+            return (
+                replace(
+                    metadata,
+                    models={
+                        **metadata.models,
+                        "uom.uom": replace(
+                            uom_metadata,
+                            fields={
+                                **uom_metadata.fields,
+                                "x_external_code": FieldMetadata(
+                                    "x_external_code",
+                                    "char",
+                                    "External Code",
+                                ),
+                            },
+                        ),
+                    },
+                ),
+                replace(
+                    records,
+                    records={
+                        **records.records,
+                        "uom.uom": (
+                            TargetRecord(
+                                "uom.uom",
+                                7,
+                                {"x_external_code": "UNIT"},
+                            ),
+                        ),
+                    },
+                ),
+            )
+
+        plan = DestinationMatchingService(source_values).check(
+            self.workspace,
+            selection,
+            schema,
+            (
+                DestinationMatchKeyChoice(
+                    self.product.dataset_id,
+                    "product-code",
+                ),
+                DestinationMatchKeyChoice(
+                    uom.dataset_id,
+                    "uom-external-code",
+                ),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=reader,
+            recorded_by="Data manager",
+        )
+
+        uom_match = next(item for item in plan.model_matches if item.model == "uom.uom")
+        self.assertEqual(uom_match.key_fields, ("x_external_code",))
+        self.assertEqual(uom_match.destination_existing_key_count, 1)
+        self.assertEqual(uom_match.destination_create_key_count, 1)
+
+    def test_missing_record_with_unwritable_identity_fails_closed(self) -> None:
+        base_reader = _destination_reader(self.workspace)
+
+        def reader(*args):
+            metadata, records = base_reader(*args)
+            product = metadata.models["product.template"]
+            fields = dict(product.fields)
+            fields["default_code"] = replace(
+                fields["default_code"],
+                readonly=True,
+            )
+            return (
+                replace(
+                    metadata,
+                    models={
+                        **metadata.models,
+                        "product.template": replace(product, fields=fields),
+                    },
+                ),
+                records,
+            )
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            r"identity field\(s\) are not writable and compatible: default_code",
+        ):
+            DestinationMatchingService(self.source_values).check(
+                self.workspace,
+                self.selection,
+                self.schema,
+                (
+                    DestinationMatchKeyChoice(
+                        self.product.dataset_id,
+                        "product-code",
+                        destination_handling="reuse_or_create",
+                    ),
+                    DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+                ),
+                api_key="destination-secret",
+                credential_binding_hash=BINDING_HASH,
+                read_identity=_identity(self.workspace),
+                reader=reader,
                 recorded_by="Data manager",
             )
 
@@ -1432,6 +1798,39 @@ class DestinationMatchingTests(unittest.TestCase):
         self.assertNotIn("odoo_ids", plan.to_json())
         self.assertNotIn("Kilogram", plan.to_json())
         self.assertEqual(DestinationMatchPlan.from_json(plan.to_json()), plan)
+
+        minimum = DestinationMatchingService(source_values).check(
+            self.workspace,
+            self.selection,
+            schema,
+            (
+                DestinationMatchKeyChoice(
+                    self.product.dataset_id,
+                    "product-code",
+                    destination_handling="reuse_or_create",
+                ),
+                DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name"),
+            ),
+            api_key="destination-secret",
+            credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace),
+            reader=_destination_reader(self.workspace, with_relationships=True),
+            recorded_by="Data manager",
+            source_origins=origins,
+        )
+        minimum_product = next(
+            item
+            for item in minimum.model_matches
+            if item.model == "product.template"
+        )
+        self.assertEqual(
+            minimum_product.minimum_create_fields,
+            ("default_code", "name"),
+        )
+        self.assertEqual(
+            minimum_product.minimum_create_relationship_fields,
+            ("uom_id",),
+        )
 
         reuse_only = DestinationMatchingService(source_values).check(
             self.workspace,

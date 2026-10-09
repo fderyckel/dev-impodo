@@ -80,6 +80,7 @@ class OdooRelationshipScopeTests(unittest.TestCase):
             scope_id=str(uuid4()),
             version=2,
             decisions=decisions,
+            root_models=("mrp.bom",),
             recorded_at=datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc),
             recorded_by="Data Manager",
         )
@@ -88,6 +89,24 @@ class OdooRelationshipScopeTests(unittest.TestCase):
 
         self.assertEqual(restored, scope)
         self.assertEqual(restored.included_models, frozenset({"res.company"}))
+        self.assertEqual(restored.root_models, ("mrp.bom",))
+
+    def test_legacy_scope_without_root_provenance_still_loads(self) -> None:
+        legacy = OdooRelationshipScope(
+            scope_id=str(uuid4()),
+            version=1,
+            decisions=(),
+            recorded_at=datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc),
+            recorded_by="Data Manager",
+            content_hash="",
+            contract_version=1,
+            _calculate_content_hash=True,
+        )
+
+        restored = OdooRelationshipScope.from_json(legacy.to_json())
+
+        self.assertEqual(restored, legacy)
+        self.assertFalse(restored.root_models)
 
     def test_match_existing_is_included_but_stops_outgoing_expansion(self) -> None:
         company = _suggestion(
@@ -123,6 +142,149 @@ class OdooRelationshipScopeTests(unittest.TestCase):
         self.assertEqual(scope.included_models, frozenset({"res.company"}))
         self.assertEqual(scope.reference_models, frozenset({"res.company"}))
         self.assertFalse(scope.expanding_models)
+
+    def test_match_existing_retains_only_relationship_scoped_identity_edge(self) -> None:
+        unit = _suggestion(
+            "uom_id",
+            "uom.uom",
+            RelatedDataHandling.INCLUDE_SUPPORTING,
+        )
+        category = RelatedDataSuggestion(
+            source_model="uom.uom",
+            source_label="Unit of Measure",
+            field_name="category_id",
+            field_label="Unit Category",
+            relation_model="uom.category",
+            required=False,
+            handling=RelatedDataHandling.INCLUDE_SUPPORTING,
+            identity_scope=True,
+        )
+        optional = RelatedDataSuggestion(
+            source_model="uom.uom",
+            source_label="Unit of Measure",
+            field_name="x_owner_id",
+            field_label="Owner",
+            relation_model="x.owner",
+            required=False,
+            handling=RelatedDataHandling.NEEDS_DECISION,
+        )
+        scope = OdooRelationshipScope.create(
+            scope_id=str(uuid4()),
+            version=1,
+            decisions=relationship_scope_decisions(
+                (unit,),
+                actions_by_model={
+                    "uom.uom": OdooRelationshipCaptureAction.MATCH_EXISTING,
+                },
+            ),
+            recorded_at=datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc),
+            recorded_by="Data Manager",
+        )
+
+        frontier = relationship_expansion_suggestions(
+            (unit, category, optional),
+            scope,
+        )
+
+        self.assertEqual(frontier, (unit, category))
+
+    def test_preserve_linked_is_create_capable_non_expanding_leaf(self) -> None:
+        product = _suggestion(
+            "product_id",
+            "product.product",
+            RelatedDataHandling.NEEDS_DECISION,
+        )
+        category = RelatedDataSuggestion(
+            source_model="product.product",
+            source_label="Product",
+            field_name="categ_id",
+            field_label="Product Category",
+            relation_model="product.category",
+            required=True,
+            handling=RelatedDataHandling.NEEDS_DECISION,
+        )
+        scope = OdooRelationshipScope.create(
+            scope_id=str(uuid4()),
+            version=1,
+            decisions=relationship_scope_decisions(
+                (product,),
+                actions_by_model={
+                    "product.product": (
+                        OdooRelationshipCaptureAction.PRESERVE_LINKED
+                    ),
+                },
+            ),
+            recorded_at=datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc),
+            recorded_by="Data Manager",
+        )
+
+        frontier = relationship_expansion_suggestions((product, category), scope)
+
+        self.assertEqual(frontier, (product, category))
+        self.assertEqual(scope.included_models, frozenset({"product.product"}))
+        self.assertEqual(
+            scope.create_if_missing_models,
+            frozenset({"product.product"}),
+        )
+        self.assertEqual(scope.leaf_models, frozenset({"product.product"}))
+        self.assertFalse(scope.reference_models)
+        self.assertFalse(scope.expanding_models)
+
+    def test_destination_owned_relationship_rejects_preserve_linked(self) -> None:
+        with self.assertRaisesRegex(
+            OdooRelationshipScopeError,
+            "Destination-owned Odoo records cannot use minimum creation",
+        ):
+            OdooRelationshipScopeDecision(
+                source_model="mrp.bom",
+                field_name="company_id",
+                relation_model="res.company",
+                required=True,
+                handling=RelatedDataHandling.REUSE_DESTINATION,
+                action=OdooRelationshipCaptureAction.PRESERVE_LINKED,
+            )
+
+    def test_contract_v2_scope_remains_readable(self) -> None:
+        legacy = OdooRelationshipScope(
+            scope_id=str(uuid4()),
+            version=2,
+            decisions=(),
+            root_models=("mrp.bom",),
+            recorded_at=datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc),
+            recorded_by="Data Manager",
+            content_hash="",
+            contract_version=2,
+            _calculate_content_hash=True,
+        )
+
+        restored = OdooRelationshipScope.from_json(legacy.to_json())
+
+        self.assertEqual(restored, legacy)
+
+    def test_legacy_contract_rejects_preserve_linked_action(self) -> None:
+        decision = OdooRelationshipScopeDecision(
+            source_model="x.document",
+            field_name="product_id",
+            relation_model="product.product",
+            required=True,
+            handling=RelatedDataHandling.NEEDS_DECISION,
+            action=OdooRelationshipCaptureAction.PRESERVE_LINKED,
+        )
+
+        with self.assertRaisesRegex(
+            OdooRelationshipScopeError,
+            "Legacy Odoo relationship scopes cannot preserve linked records",
+        ):
+            OdooRelationshipScope(
+                scope_id=str(uuid4()),
+                version=1,
+                decisions=(decision,),
+                recorded_at=datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc),
+                recorded_by="Data Manager",
+                content_hash="",
+                contract_version=2,
+                _calculate_content_hash=True,
+            )
 
     def test_changed_decision_is_rejected_when_hash_was_not_rebuilt(self) -> None:
         scope = OdooRelationshipScope.create(

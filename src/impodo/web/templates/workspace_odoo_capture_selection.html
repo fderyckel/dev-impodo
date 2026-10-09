@@ -10,18 +10,24 @@
       <p class="eyebrow">Stage {% if download_stage %}3{% else %}2{% endif %} of 6 · {% if download_stage %}Download and freeze{% else %}Select data to download{% endif %}</p>
       {% if plans_complete and not show_capture_plan_editor %}
         <h1>Review and freeze the Odoo source</h1>
-        <p>The capture plans are saved. Check the matching records, then freeze all datasets as one source version.</p>
+        <p>The capture plans are saved. Count the selected source records, then freeze all datasets as one source version.</p>
       {% else %}
-        <h1>Define a bounded Odoo capture</h1>
-        <p>Choose a small field surface for each selected record type, then freeze all datasets as one source version.</p>
+        <h1>Choose the Odoo data to move</h1>
+        <p>Review the linked values below. Impodo prepares safe, bounded capture plans automatically and asks you only about exceptions.</p>
       {% endif %}
     </div>
     {% if current_selections %}<span class="status registered">{{ current_selections|length }} of {{ models|length }} plans saved</span>{% endif %}
   </div>
 
   <div class="notice warning">
-    <strong>Freezing is read-only, but it contacts Odoo.</strong>
-    Impodo checks the target, principal, context, and schema before and after reading bounded keyset pages. Native JSON-2 pages do not form one database-wide point-in-time transaction.
+    <strong>Reading the source is safe and read-only.</strong>
+    Impodo verifies that it is still connected to the same Odoo source before
+    and after it counts or downloads the selected records. If the source
+    changes during that read, Impodo stops and asks you to check again.
+    <details class="technical-details">
+      <summary>Support details</summary>
+      <p>Impodo checks the target, principal, context, and schema before and after reading bounded keyset pages. Native JSON-2 pages do not form one database-wide point-in-time transaction.</p>
+    </details>
   </div>
 
   <div class="notice warning">
@@ -46,7 +52,9 @@
       {% if related_data_scope.pending_count %}
         <div class="notice warning" id="relationship-review-pending" role="alert">
           <strong>Review {{ related_data_scope.pending_count }} newly found relationship{% if related_data_scope.pending_count != 1 %}s{% endif %}.</strong>
-          Saving your decisions may load another selected record type and reveal its relationships here. Continue until this review is complete before checking or freezing records.
+          Saving your decisions may discover another related record type and
+          show its relationships here. Continue until this review is complete
+          before counting or freezing records.
         </div>
       {% endif %}
       {% if related_data_scope.unavailable_count %}
@@ -76,30 +84,62 @@
                   {% for model in group.models %}
                     <div class="related-data-model">
                       {% if model.can_select %}
-                        <label class="model-choice related-data-action">
-                          <span>
-                            <strong>{{ model.label }}</strong>
-                            {% if model.pending %}
-                              {% if model.recommended %}
-                                <small>Recommended by Impodo &middot; needs your review</small>
-                              {% else %}
-                                <small>Needs review &middot; choose whether these links belong in this migration</small>
-                              {% endif %}
-                            {% elif model.selected %}
-                              <small>Reviewed &middot; included in the current source choices</small>
-                            {% else %}
-                              <small>Reviewed &middot; not included through these relationships</small>
-                            {% endif %}
+                        <div class="related-data-status">
+                          <strong>{{ model.label }}</strong>
+                          <span class="status {% if model.action == model.recommended_action %}ready{% else %}current{% endif %}">
+                            {{ model.action_title }}
+                            {% if model.action == model.recommended_action %}&middot; Recommended{% else %}&middot; Current choice{% endif %}
                           </span>
-                          <select name="related_actions" aria-label="Relationship handling for {{ model.label }}" required>
-                            <option value="{{ model.name }}::CAPTURE_LINKED" {% if model.action.value == 'CAPTURE_LINKED' %}selected{% endif %}>Transfer linked records</option>
-                            <option value="{{ model.name }}::MATCH_EXISTING" {% if model.action.value == 'MATCH_EXISTING' %}selected{% endif %}>Match existing records only</option>
-                            <option value="{{ model.name }}::DO_NOT_CAPTURE" {% if model.action.value == 'DO_NOT_CAPTURE' %}selected{% endif %}>Do not include</option>
-                          </select>
-                        </label>
-                        <small class="muted">
-                          Transfer follows this record type's relationships. Match existing captures identity evidence but stops expansion here and never permits creating this record type in the destination.
-                        </small>
+                        </div>
+                        <p>{{ model.action_description }}</p>
+                        {% if model.pending %}
+                          <p class="muted">
+                            {% if model.recommended %}
+                              Recommended by Impodo &middot; review and save this choice
+                            {% else %}
+                              Review and save this choice
+                            {% endif %}
+                          </p>
+                        {% elif model.action.value == 'PRESERVE_LINKED' %}
+                          <p class="muted">Reviewed &middot; linked records captured for reuse or identity-and-required-values creation</p>
+                        {% elif model.action.value == 'MATCH_EXISTING' %}
+                          <p class="muted">Reviewed &middot; identity captured for existing-only matching</p>
+                        {% elif model.action.value == 'CAPTURE_LINKED' %}
+                          <p class="muted">Reviewed &middot; records included as migration data</p>
+                        {% else %}
+                          <p class="muted">Reviewed &middot; not included through these relationships</p>
+                        {% endif %}
+                        <details class="technical-details">
+                          <summary>Advanced: choose a different outcome</summary>
+                          <label>
+                            Handling for {{ model.label }}
+                            <select name="related_actions" aria-label="Relationship handling for {{ model.label }}" required>
+                              {% if group.handling.value != 'REUSE_DESTINATION' %}
+                                <option value="{{ model.name }}::PRESERVE_LINKED" {% if model.action.value == 'PRESERVE_LINKED' %}selected{% endif %}>Keep linked value (reuse or create identity and required values only)</option>
+                              {% endif %}
+                              <option value="{{ model.name }}::CAPTURE_LINKED" {% if model.action.value == 'CAPTURE_LINKED' %}selected{% endif %}>Transfer related records as migration data</option>
+                              <option value="{{ model.name }}::MATCH_EXISTING" {% if model.action.value == 'MATCH_EXISTING' %}selected{% endif %}>Use existing destination records only</option>
+                              <option value="{{ model.name }}::DO_NOT_CAPTURE" {% if model.action.value == 'DO_NOT_CAPTURE' %}selected{% endif %}>Do not include</option>
+                            </select>
+                          </label>
+                          <p>
+                            {% if model.recommended_action.value == 'PRESERVE_LINKED' %}
+                              Impodo recommends keeping the populated link without turning
+                              its entire record type into migration scope.
+                            {% elif model.recommended_action.value == 'CAPTURE_LINKED' %}
+                              This record type is part of the selected business scope, so
+                              Impodo recommends transferring its selected fields and reviewing
+                              their dependencies.
+                            {% elif model.recommended_action.value == 'MATCH_EXISTING' %}
+                              Impodo recommends reusing destination setup and blocking when
+                              a required record cannot be matched.
+                            {% else %}
+                              Impodo recommends leaving this record type outside the current
+                              migration scope.
+                            {% endif %}
+                            Choose a different outcome only when the migration requires it.
+                          </p>
+                        </details>
                       {% else %}
                         <div class="related-data-status">
                           <strong>{{ model.label }}</strong>
@@ -150,24 +190,43 @@
 
           <div class="actions">
             {% if related_data_scope.selectable_model_names %}
-              <button class="button primary" type="submit" data-submitting-label="Saving decisions and checking the next relationships...">Save related-data decisions</button>
+              <button class="button primary" type="submit" data-submitting-label="{% if related_data_scope.complete %}Preparing safe capture plans...{% else %}Saving decisions and checking the next relationships...{% endif %}">{% if related_data_scope.complete %}Prepare capture plans{% else %}Save related-data decisions{% endif %}</button>
             {% endif %}
             <a class="button secondary" href="{{ related_data_scope.all_choices_url }}">Review all available Odoo data</a>
           </div>
           <p class="muted">
-            Transfer linked records captures reached records and reviews their
-            dependencies. Match existing records only captures reached identity
-            evidence without expanding the rest of that record type's graph.
+            Keep linked value reuses a destination match or prepares only its
+            identity and required values when no match exists. It does not
+            expand that record type's graph. If those values cannot be proven
+            safe, Impodo asks for a decision before any load. Record transfer,
+            existing-only matching, and exclusion remain available under Advanced.
             Saving refreshes eligible fields from Odoo; it does not download
             business records.
             {% if current_selections %}
-              Changing a check clears the current capture plans so you can review
+              Changing a related-data choice clears the current capture plans so you can review
               every selected record type against the refreshed fields.
             {% endif %}
           </p>
       {% if related_data_scope.selectable_model_names %}
         </form>
       {% endif %}
+    </section>
+  {% endif %}
+
+  {% if schema and related_data_scope.complete and not related_data_scope.selectable_model_names and guided_capture_can_prepare %}
+    <section class="form-card" id="prepare-capture-plans">
+      <p class="eyebrow">Related-data review complete</p>
+      <h2>Let Impodo prepare the capture plans</h2>
+      {% if guided_capture_drafts %}
+        <p>Impodo can prepare {{ guided_capture_drafts|length }} remaining safe capture plan{% if guided_capture_drafts|length != 1 %}s{% endif %}. It will open only a named exception when a decision is still needed.</p>
+      {% else %}
+        <p>Impodo will prepare every plan it can prove safely and will open only a named exception when a decision is still needed.</p>
+      {% endif %}
+      <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-related-data" data-single-submit>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+        <button class="button primary" type="submit" data-submitting-label="Preparing safe capture plans...">Prepare capture plans</button>
+      </form>
     </section>
   {% endif %}
 
@@ -220,6 +279,20 @@
         </div>
       </div>
 
+      {% if selected_model and selected_model.name in guided_capture_issue_by_model %}
+        {% set guided_issue = guided_capture_issue_by_model[selected_model.name] %}
+        <div class="notice warning" role="alert">
+          <strong>This record type needs one decision.</strong>
+          <p>{{ guided_issue.reason }}</p>
+          <p>Impodo prepared the other safe capture plans automatically. Review only this exception.</p>
+        </div>
+      {% elif guided_capture_issues %}
+        <div class="notice warning" role="alert">
+          <strong>{{ guided_capture_issues|length }} capture-plan exception{% if guided_capture_issues|length != 1 %}s{% endif %} remain.</strong>
+          <p>Impodo prepared every plan it could prove safely. Open the named record types to finish the remaining decisions.</p>
+        </div>
+      {% endif %}
+
       {% if models|length > 1 %}
         <p><strong>Odoo record type</strong></p>
         <nav class="actions" aria-label="Odoo record types">
@@ -260,7 +333,7 @@
             Capture only records linked from the selected source records
           </label>
           {% if recommend_linked_only %}
-            <p class="notice success"><strong>Recommended for this related data.</strong> Impodo preselected linked records so relationships stay complete without downloading every record of this type. Archived linked records are included. Destination matching separately decides whether each record type is reuse-only or may transfer missing records.</p>
+            <p class="notice success"><strong>Recommended for this related data.</strong> Impodo preselected only records reached through the reviewed links, so it does not download every record of this type. Archived linked records are included. The related-data outcome saved above remains fixed during destination matching.</p>
           {% elif supporting_plan_is_root %}
             <p class="notice warning"><strong>This recommended related data is currently a root dataset.</strong> Select linked records only when it should follow the main business records. Leave it as a root only when you deliberately want every matching record of this type.</p>
           {% else %}
@@ -344,6 +417,12 @@
         </div>
         <span class="status registered">{{ current_selections|length }} of {{ models|length }} saved</span>
       </div>
+      {% if plans_complete %}
+        <div class="notice success">
+          <strong>Capture-plan setup is complete.</strong>
+          <p>You do not need to open and configure every record type. Review the summary below, then count the selected source records.</p>
+        </div>
+      {% endif %}
       <div class="capture-history-list">
         {% for plan in current_selections %}
           <details class="technical-evidence" {% if current and plan.model == current.model %}open{% endif %}>
@@ -357,7 +436,7 @@
       {% if has_linked_only %}
         <div class="notice warning" id="linked-record-scope">
           <strong>Relationship fields used to find linked records</strong>
-          <p>Impodo follows the eligible links below between selected record types, up to four relationship steps. It stops if a linked record is missing or inaccessible.</p>
+          <p>Impodo follows only the reviewed links below to find the selected records, up to four relationship steps. A Keep linked value boundary does not expand into optional relationships of that record type. Impodo stops if a required linked record is missing or inaccessible.</p>
           <ul>
             {% for model, field in linked_relationships %}
               <li>{{ model.label }}.{{ field.label }} ({{ model.name }}.{{ field.name }}) refers to {{ field.relation }}</li>
@@ -375,8 +454,8 @@
         <p><a class="button primary" href="#related-data-scope">Review related data</a></p>
       {% elif not plans_complete %}
         <div class="notice warning" role="alert">
-          <strong>Save the remaining record type plans.</strong>
-          Each selected Odoo record type needs its own saved capture plan. Select the remaining types above before checking or freezing records.
+          <strong>Review the remaining capture-plan exceptions.</strong>
+          Impodo prepared every plan it could prove safely. Open the named record types above and resolve only the remaining decisions before checking or freezing records.
         </div>
       {% elif capture_plan_errors %}
         <div class="notice warning" role="alert">
@@ -399,7 +478,7 @@
           <div class="next-action-card ready" id="capture-next-action">
             <div>
               <p class="eyebrow">Capture plans complete</p>
-              <h2>Check the records, then freeze {% if current_selections|length == 1 %}the dataset{% else %}the datasets together{% endif %}</h2>
+              <h2>Count selected source records, then freeze {% if current_selections|length == 1 %}the dataset{% else %}the datasets together{% endif %}</h2>
               <p>
                 All {{ current_selections|length }} record type plans are saved. Impodo will first count
                 the matching records without downloading their business values.
@@ -416,7 +495,7 @@
                     I reviewed the selected relationship fields above
                   </label>
                 {% endif %}
-                <button class="button primary" type="submit" data-submitting-label="Checking matching records in Odoo...">Check matching records and continue</button>
+                <button class="button primary" type="submit" data-submitting-label="Counting selected source records in Odoo...">Count selected source records and continue</button>
               </form>
             </div>
           </div>

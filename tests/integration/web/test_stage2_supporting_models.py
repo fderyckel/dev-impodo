@@ -110,8 +110,10 @@ class StageTwoSupportingModelBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Supporting data Impodo found", page.text)
         self.assertIn("Product Category", page.text)
         self.assertIn("Unit of Measure", page.text)
-        self.assertIn("Review in Match data", page.text)
-        self.assertIn("Include incoming data", page.text)
+        self.assertIn("Keep linked value", page.text)
+        self.assertIn("Reuse or create identity and required values only", page.text)
+        self.assertNotIn("Include incoming data", page.text)
+        self.assertNotIn("Reuse existing Odoo records", page.text)
         self.assertIn("1 Must fix", page.text)
         self.assertIn(
             "Impodo cannot find Unit of Measure in the current Odoo record-type list.",
@@ -125,7 +127,7 @@ class StageTwoSupportingModelBrowserTests(ProjectSetupBrowserTestCase):
             page.text,
         )
         self.assertIn(
-            "Reusing related Odoo records does not authorize Impodo to update them",
+            "This preview does not add a related record type to the top-level transfer",
             page.text,
         )
         self.assertEqual(
@@ -147,7 +149,7 @@ class StageTwoSupportingModelBrowserTests(ProjectSetupBrowserTestCase):
             f"/workspaces/{workspace.workspace_id}/schema"
             "?suggested_model=product.category#odoo-data-choices"
         )
-        self.assertIn("Recommended supporting data", proposed.text)
+        self.assertNotIn("Recommended supporting data", proposed.text)
         self.assertEqual(
             context.queries.get(workspace.workspace_id).intended_models,
             ("product.template",),

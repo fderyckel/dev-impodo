@@ -184,6 +184,54 @@ or read-back call per Project, Recipe, field, relationship, or source row. The
 [bounded-I/O gates](../testing/code-organization-phase0-baseline.md#bounded-io-gates)
 protect the accepted query and batching limits.
 
+## Local browser database operation scopes
+
+A browser route that performs synchronous local repository work must keep that
+work off the FastAPI event loop and inside one operation-sized database-owner
+scope. Choose the scope from the route's responsibility:
+
+| Route responsibility | Shared helper | Bounded callback |
+| --- | --- | --- |
+| Read and render one local page | `run_page_read` | All synchronous repository reads, presenter work, navigation composition, and template rendering for that response. |
+| Execute one local command | `run_local_operation` | The complete synchronous command, including its independent repository transactions and any local read-back required for its result. |
+
+Non-blocking session and transport checks remain outside the helper. Any
+synchronous repository-backed authorization belongs inside the bounded
+callback or another explicit bounded operation; it must not run on the event
+loop. The route awaits the shared helper once, and the callback itself remains
+synchronous. It must finish before the route awaits another operation, calls a
+remote Odoo service, starts background work, or returns control to the event
+loop. A read scope must not contain a mutation. A command may mutate local
+state through its existing repository transactions, but it must release every
+retained database owner before remote or background work begins.
+
+The retained owner is an operation-lifetime resource, not a cross-request
+cache. Do not retain it in a router, presenter, application service, or global
+object. Do not split one page into several `run_page_read` calls merely to wrap
+individual queries; doing so recreates connection churn and can observe an
+inconsistent page state.
+
+For every new or materially changed database-backed browser route:
+
+1. Measure a representative request's elapsed time, physical DuckDB opens,
+   connection time, schema checks, and lock retries before claiming a gain.
+2. Add a focused integration test that proves the callback runs off the event
+   loop on one worker, covers the complete read-and-render or command boundary,
+   and enforces a connection ceiling derived from the fixture's expected
+   database-path and configuration owners.
+3. Run the shared worker and real-DuckDB lifecycle tests in
+   `tests/integration/web/test_page_reads.py` and
+   `tests/integration/duckdb/test_page_read_connections.py`.
+4. Keep remote calls, awaits, background jobs, and unrelated mutations outside
+   the retained scope. Test that boundary explicitly when a route also owns a
+   remote or write-capable action.
+
+A lower connection count is structural evidence, not a latency guarantee.
+Use paired measurements from the same fixture and process for a performance
+claim, then confirm the result in a restarted live build. Evidence, identity,
+and invalidation hashes must remain correct; profile repeated hashing before
+caching or removing it.
+
 ## Browser files and assets
 
 Browser delivery follows these boundaries:

@@ -103,6 +103,47 @@ class OdooRelationshipCompilationTests(unittest.TestCase):
         self.assertEqual(reference.mode, MappingTargetMode.REFERENCE)
         self.assertFalse(extract_dataset_dependency_edges(datasets))
 
+    def test_preserve_linked_compiles_to_reuse_or_create_minimum(self) -> None:
+        line = _model("mrp.bom.line", ("code-column",), ("x_code",))
+        product = _model(
+            "product.product",
+            ("default-code-column",),
+            ("default_code",),
+            destination_handling="reuse_or_create",
+        )
+        relationship = _relationship(
+            line,
+            product,
+            "product_id",
+            required=True,
+        )
+        decision = OdooRelationshipScopeDecision(
+            source_model=line.model,
+            field_name="product_id",
+            relation_model=product.model,
+            required=True,
+            handling=RelatedDataHandling.NEEDS_DECISION,
+            action=OdooRelationshipCaptureAction.PRESERVE_LINKED,
+        )
+
+        datasets = compile_odoo_relationship_datasets(
+            _plan((line, product), (relationship,)),
+            relationship_scope=_scope(decision),
+        )
+
+        owner = next(item for item in datasets if item.dataset_id == line.dataset_id)
+        compiled = owner.relationships[0]
+        self.assertEqual(
+            compiled.resolver.origin,
+            ResolverOrigin.TARGET_THEN_DATASET,
+        )
+        self.assertEqual(compiled.resolver.dataset_id, product.dataset_id)
+        related = next(
+            item for item in datasets if item.dataset_id == product.dataset_id
+        )
+        self.assertEqual(related.mode, MappingTargetMode.CREATE)
+        self.assertEqual(related.on_existing, "unchanged")
+
     def test_match_existing_decision_rejects_transfer_handling(self) -> None:
         bom = _model("mrp.bom", ("code-column",), ("code",))
         company = _model("res.company", ("name-column",), ("name",))
@@ -124,7 +165,7 @@ class OdooRelationshipCompilationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             OdooRelationshipCompilationError,
-            "transfer is not allowed",
+            "destination writes are not allowed",
         ):
             compile_odoo_relationship_datasets(
                 _plan((bom, company), (relationship,)),

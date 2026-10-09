@@ -916,6 +916,7 @@ class OdooSourceCaptureService:
                 for item in relationship_scope.decisions
                 if item.action in {
                     OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                    OdooRelationshipCaptureAction.PRESERVE_LINKED,
                     OdooRelationshipCaptureAction.MATCH_EXISTING,
                 }
             )
@@ -924,6 +925,16 @@ class OdooSourceCaptureService:
         )
         reference_models = (
             relationship_scope.reference_models
+            if relationship_scope is not None
+            else frozenset()
+        )
+        leaf_models = (
+            relationship_scope.leaf_models
+            if relationship_scope is not None
+            else frozenset()
+        )
+        create_if_missing_models = (
+            relationship_scope.create_if_missing_models
             if relationship_scope is not None
             else frozenset()
         )
@@ -944,6 +955,8 @@ class OdooSourceCaptureService:
                         linked_models=linked_models,
                         allowed_relationships=allowed_relationships,
                         reference_models=reference_models,
+                        leaf_models=leaf_models,
+                        create_if_missing_models=create_if_missing_models,
                     ),
                     schema,
                     selection,
@@ -1012,6 +1025,8 @@ class OdooSourceCaptureService:
         linked_models: frozenset[str],
         allowed_relationships: frozenset[tuple[str, str]] | None = None,
         reference_models: frozenset[str] = frozenset(),
+        leaf_models: frozenset[str] = frozenset(),
+        create_if_missing_models: frozenset[str] = frozenset(),
     ) -> OdooSourceCaptureRequest:
         if selection.protected_filter_artifact_hash is None:
             return plan_odoo_source_capture(
@@ -1020,6 +1035,8 @@ class OdooSourceCaptureService:
                 linked_models=linked_models,
                 allowed_relationships=allowed_relationships,
                 reference_models=reference_models,
+                leaf_models=leaf_models,
+                create_if_missing_models=create_if_missing_models,
             )
         if self._capture_filters is None:
             raise WorkspaceError("Protected Odoo source filters are not configured")
@@ -1029,6 +1046,8 @@ class OdooSourceCaptureService:
             linked_models=linked_models,
             allowed_relationships=allowed_relationships,
             reference_models=reference_models,
+            leaf_models=leaf_models,
+            create_if_missing_models=create_if_missing_models,
         )
 
     def validate_current_plans(

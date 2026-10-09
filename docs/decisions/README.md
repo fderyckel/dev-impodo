@@ -602,9 +602,10 @@ safe applicable choices. These include matching an existing destination
 record, transferring only reached linked records when missing, accepting
 verified Odoo-managed behavior, excluding an optional link, or assigning the
 link to a separately governed process. An unfamiliar custom relationship is
-shown under **No standard default** and remains unchecked. It is not silently
-excluded and does not require a new core-code model rule merely to become
-visible.
+shown as an unclassified link with **Keep linked value** as its bounded
+recommendation. The data manager must still save that visible decision. It is
+not silently excluded, it does not expand the related model's whole graph, and
+it does not require a new core-code model rule merely to become visible.
 
 Metadata-derived capabilities determine which choices are safe. Readability,
 storage, inverse information, requiredness, create defaults, access, company
@@ -637,16 +638,29 @@ records, deduplicates records, detects cycles, and enforces depth, row,
 company, and access bounds. It continues until every reached edge is resolved
 or a precise blocker is shown.
 
-The grouped Stage 2 control exposes three generic actions wherever metadata
+The grouped Stage 2 control exposes four generic actions wherever metadata
 permits a source-scope choice:
 
-- **Transfer linked records** captures only records reached through the
-  selected edge and keeps that related model on the expansion frontier;
-- **Match existing records only** captures the reached records and portable
+- **Keep linked value** is the normal default: capture only reached records,
+  reuse an exact destination match unchanged, otherwise create the minimum
+  record needed to preserve the link, and do not traverse optional outgoing
+  relationships;
+- **Transfer related records as migration data** captures only records reached
+  through the selected edge and keeps that related model on the expansion
+  frontier;
+- **Use existing destination records only** captures the reached records and portable
   identity evidence, makes that model a graph leaf, and requires a no-write
   destination policy; and
 - **Do not include** removes the edge and its otherwise unreachable related
   records from the capture scope.
+
+**Keep linked value** is a create-capable graph leaf, not a full-model
+transfer. Its write scope is limited to the reviewed business identity,
+destination-required inputs that have no safe default, qualified create-hook
+inputs, and required incoming relationships. Capturing extra evidence never
+widens that write scope. Existing matches are never updated. Optional outgoing
+relationships remain closed; a required relationship needed to create the
+minimum record remains visible and must resolve or block.
 
 Graph-leaf behavior depends on how the model entered the capture plan. A
 model reached only through **Match existing records only** remains a leaf. If
@@ -657,14 +671,27 @@ and destination write policy are separate decisions: root versus linked-only
 controls which source records seed discovery, while transfer versus
 match-existing controls whether destination records may be created.
 
-The second action is not an instruction to assume that a destination match
+Each relationship-scope revision records the explicitly selected root models.
+Later related-data reviews reuse that evidence instead of inferring roots from
+the expanded graph. A model that is both an explicit root and reachable through
+an edge therefore remains selected until the data manager changes the wider
+model scope.
+
+The existing-only action is not an instruction to assume that a destination match
 exists. Stage 4 must still prove an exact, unambiguous match using the reviewed
 business identity. It may neither create nor update that record type. Standard
-profiles select useful initial recommendations for these three actions, but
+profiles select useful initial recommendations for these four actions, but
 categories such as **Separate business process** remain recommendations and
 do not hide the actions. This frontier rule applies to every model; it contains
 no BoM-, work-centre-, product-, company-, or calendar-specific traversal
 logic.
+
+Destination-owned configuration remains protected by capability and profile
+evidence. In particular, a relationship classified as **Reuse destination**
+cannot be changed to **Keep linked value** through either the browser or a
+forged request. Company therefore remains an existing-only decision unless the
+data manager deliberately chooses full company transfer and reviews that wider
+scope.
 `required=True` alone does not force source capture: matching an existing
 record, a verified destination default, or verified Odoo-managed behavior may
 satisfy a required value. A required relationship used by selected records
@@ -710,19 +737,24 @@ architecture therefore records how Odoo-source discovery connects to the
 existing generic relationship decision mechanism, with manufacturing serving
 only as an acceptance example.
 
-**Current implementation:** The first implementation slice separates standard
+**Current implementation:** The implementation separates standard
 recommendations into a versioned, injectable profile. Schema discovery exposes
-an available unprofiled relationship as an explicit choice without selecting
-it automatically. When the data manager includes that related record type,
-Impodo defaults its capture plan to reached linked records only. Related,
+an available unprofiled relationship as an explicit choice and recommends the
+bounded **Keep linked value** outcome. When the data manager includes that
+related record type, Impodo defaults its capture plan to reached linked records
+only. Related,
 computed, or read-only relationship metadata remains visible as Odoo-managed
 evidence rather than disappearing solely because it is not directly writable.
-Destination matching translates `transfer` to the canonical
-`TARGET_THEN_DATASET` resolver and both no-write modes to `TARGET_CATALOG`.
+Destination matching translates `transfer` and `reuse_or_create` to the
+canonical `TARGET_THEN_DATASET` resolver and both no-write modes to
+`TARGET_CATALOG`. The latter compiles to canonical
+`MappingTargetMode.CREATE` with `on_existing="unchanged"`, so it can create a
+missing related record without acquiring authority to update an existing one.
 
-The source page still presents one checkbox per related model, but saving that
-grouped choice now creates one immutable decision for every source field in the
-group. Each decision retains the field identity, selected source-capture
+The source page presents one recommended outcome per related model and keeps
+the other permitted outcomes under **Advanced**. Saving that grouped choice
+creates one immutable decision for every source field in the group. Each
+decision retains the field identity, selected source-capture
 action, requiredness, handling, and recommendation-profile provenance. The
 workspace stores revision history and a current pointer atomically with the
 model-scope change. A later profile change therefore does not silently rewrite
@@ -736,9 +768,23 @@ verified Odoo-managed, separate-process, and excluded-history handling does not
 require a redundant user choice. An unavailable related record type is a named
 blocker, not an implicit exclusion. Both the browser and the capture
 application service prevent record checking or freezing until the current
-schema graph has no unresolved selectable edge. This process never selects a
-new model on the user's behalf: another graph level appears only after the
-user explicitly includes the model that exposes it.
+schema graph has no unresolved selectable edge. The normal choice is now
+**Keep linked value** for an ordinary supporting or unprofiled relationship.
+The browser presents that business outcome first and moves full transfer,
+existing-only matching, and exclusion under **Advanced**. Another optional
+graph level appears only after a full-transfer decision; a minimum-create leaf
+retains only a required dependency needed to create that record safely and a
+relationship component needed to prove its portable identity.
+
+When the relationship review closes, Impodo prepares the safe capture plans
+instead of requiring the data manager to configure every selected record type.
+The pure guided planner assigns full scalar evidence to roots and expanding
+models, identity evidence to existing-only leaves, and identity plus required
+create inputs to create-capable leaves. It preserves previously edited plans
+and names only the remaining unsafe or ambiguous exceptions. This automation
+does not silently widen a root: the saved summary still states that an
+unfiltered root reads all matching records and exposes the ordinary filter
+editor before the bounded count and freeze.
 
 After Stage 4 has supplied the related model's reviewed business key, Impodo
 now joins that evidence to the saved Stage 2 edge decision and derives
@@ -754,10 +800,23 @@ Destination matching still records `DestinationRelationshipMatch` as instance
 evidence for protected link counts, and execution still consumes that wrapper
 when it materializes row-level relationship intents. Converging that final
 row-level projection remains a bounded integration gap, not a missing
-relationship-engine capability. Composite many-to-many business keys are also
-a named blocker until the canonical list-valued relationship provider can
-carry composite identities. Adding another isolated BOM, Work Center,
-schedule, or Company exception does not complete this ADR.
+relationship-engine capability. Product Category uses its captured complete
+path as the first supported relationship-scoped destination identity. Another
+recommended scalar-plus-related identity fails closed by name unless the data
+manager deliberately selects a reviewed standalone scalar identity. A generic
+portable scoped matcher and composite many-to-many business keys remain named
+blockers until the canonical relationship provider can carry those identities.
+Adding another isolated BOM, Work Center, schedule, or Company exception does
+not complete this ADR.
+
+Destination matching contract version 15 records the minimum source-field
+surface needed for a create-capable leaf. Stage 5 fixes that model to
+`create_if_missing`, removes optional captured fields and optional outgoing
+relationships from its write scope, and leaves exact existing matches
+unchanged. Required create defaults and qualified create hooks continue through
+the existing create-field decision workflow. Relationship-scope contract
+version 3 records `PRESERVE_LINKED`; versions 1 and 2 remain readable and are
+not reinterpreted.
 
 **Consequences:**
 

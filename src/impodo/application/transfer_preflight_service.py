@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from impodo.domain.shared.access import ActorIdentity
-from impodo.domain.workspace.destination_matching import DestinationMatchPlan
+from impodo.domain.workspace.destination_matching import (
+    DESTINATION_CREATE_ONLY_HANDLINGS,
+    DestinationMatchPlan,
+    DestinationModelMatch,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.transfer_preflight import (
     TransferPreflightDataset,
@@ -117,7 +121,8 @@ class TransferPreflightService:
                     != prior.destination_key_binding_hash
                 ):
                     blockers.add("DESTINATION_RECORD_IDENTITY_DRIFT")
-                if fresh.compatible_fields != approved_fields:
+                observed_write_fields = _effective_write_fields(fresh)
+                if observed_write_fields != approved_fields:
                     blockers.add("DESTINATION_FIELD_SCOPE_DRIFT")
                 will_write = (
                     item.destination_create_record_count > 0
@@ -168,7 +173,9 @@ class TransferPreflightService:
                     ),
                     approved_write_fields=approved_fields,
                     observed_compatible_fields=(
-                        fresh.compatible_fields if fresh else ()
+                        _effective_write_fields(fresh)
+                        if fresh
+                        else ()
                     ),
                     blocker_codes=tuple(sorted(blockers)),
                 )
@@ -181,7 +188,19 @@ class TransferPreflightService:
         approved_relation_keys = {
             (item.owner_dataset_id, item.field_name) for item in package.relationships
         }
-        if set(fresh_relations) != approved_relation_keys:
+        create_only_dataset_ids = {
+            item.dataset_id
+            for item in fresh_match.model_matches
+            if item.destination_handling in DESTINATION_CREATE_ONLY_HANDLINGS
+        }
+        unexpected_relationships = set(fresh_relations) - approved_relation_keys
+        if (
+            not approved_relation_keys.issubset(fresh_relations)
+            or any(
+                dataset_id not in create_only_dataset_ids
+                for dataset_id, _field_name in unexpected_relationships
+            )
+        ):
             global_blockers.add("DESTINATION_RELATIONSHIP_SCOPE_DRIFT")
         relationships: list[TransferPreflightRelationship] = []
         for item in package.relationships:
@@ -271,3 +290,21 @@ class TransferPreflightService:
             recorded_by=recorded_by,
             blocker_codes=tuple(sorted(global_blockers)),
         )
+
+
+def _effective_write_fields(item: DestinationModelMatch) -> tuple[str, ...]:
+    """Return the exact fields the approved model policy could write."""
+
+    if item.destination_handling not in DESTINATION_CREATE_ONLY_HANDLINGS:
+        return item.compatible_fields
+    if not item.destination_create_key_count:
+        return ()
+    return tuple(
+        sorted(
+            (
+                set(item.minimum_create_fields)
+                | set(item.minimum_create_relationship_fields)
+            )
+            & set(item.compatible_fields)
+        )
+    )

@@ -8,9 +8,10 @@ status: current
 
 ## Goal
 
-Choose the top-level Odoo 19 or final Odoo 20 business records needed by the current data
-project version. Let Impodo expose their direct supporting relationships, then
-confirm how it can identify one existing record.
+Choose the top-level Odoo 19 or final Odoo 20 business records needed by the
+current data project version. Let Impodo expose their direct supporting
+relationships, preview how linked values will be kept, then confirm how it can
+identify one destination record.
 
 ## Before you start
 
@@ -49,10 +50,10 @@ same secret. Production continues to require a separate limited write key.
 2. Select **Show available Odoo data**.
 3. Choose the top-level business record types included in the approved scope.
 4. Load the selected Odoo details.
-5. Review **Supporting data Impodo found**. Impodo groups direct required
-   relationships and inverse-owned child data as existing Odoo data to reuse,
-   checked defaults, Odoo-managed data, or related business data that you may
-   include explicitly.
+5. Review **Supporting data Impodo found**. For ordinary linked values, Impodo
+   previews **Keep linked value**: reuse a destination match or create only the
+   minimum related record when no match exists. Destination-owned setup such as
+   Company is shown separately as **Use existing destination records only**.
 6. Review fields, types, required values, selections, and relationships.
 7. For a file-source migration, review the matching rule that Impodo prepared
    for each supported writable record type. Change a rule when the proposed
@@ -69,13 +70,20 @@ timestamps remain protected provenance and are not selectable source values.
 ![Authenticated Odoo source capture plan with fictional eligible Product fields.](../../images/user/08g-odoo-source-eligible-fields.png)
 
 The supporting-data review uses the direct relationships in the captured live
-Odoo schema. **Include incoming data** returns to the record-type choices with
-the related business record preselected for review. It does not save that
-choice or widen the write scope until you save it explicitly. Reused existing
-Odoo data remains outside the migration write scope. Match data must still
-prove which source relationship values are populated and whether they resolve.
+Odoo schema. It is a preview, not another record-type picker. It does not add a
+related record type to the top-level transfer or make the whole related model
+eligible for creation. Stage 3, **Match data**, proves which source links are
+populated and applies the exact outcome.
 
-![Impodo showing direct supporting Odoo data for a fictional Product migration.](../../images/user/08c-odoo-supporting-data.png)
+**Keep linked value** first reuses a matching destination record. When no match
+exists, Impodo prepares only the portable identity and required values needed
+to create the related record; it does not follow the rest of that record's
+relationship graph. **Use existing destination records only** protects
+destination setup such as Company: a missing match stops the load instead of
+creating or updating that setup. Moving related records as migration data remains a
+separate, explicit migration-scope decision.
+
+![Impodo previewing Keep linked value for direct Product relationships.](../../images/user/08c-odoo-supporting-data.png)
 
 The matching-rule summary separates **Suggested**, **Confirmed**, **Changed**,
 and **Needs attention** record types. When every card has a proposed or saved
@@ -131,10 +139,10 @@ country code, or BoM reference. Do not choose an Odoo numeric database ID as a
 portable business key.
 
 A reviewed standard reference, such as Country matched by its version-specific
-country code, can remain outside the migration record-type scope. Impodo may read only
-the bounded reference values needed for matching and Final review. It does not
-turn that supporting record type into data that the project will create or
-update.
+country code, can remain outside the top-level migration scope. Impodo may read
+only the bounded identity and required values needed for matching and Final
+review. That minimum relationship evidence does not turn the whole supporting
+record type into full migration data.
 
 Odoo 20 changed several unit fields. Bills of Materials and their lines use
 `uom_id` instead of `product_uom_id`; Product no longer has `uom_po_id`; and a
@@ -168,20 +176,23 @@ current target evidence.
 - For a parent-owned child, the matching field is unique within the chosen
   parent scope. Repeated components, operations, or line numbers are reviewed
   before confirming the rule.
-- Linked records can be resolved by an incoming table or approved existing
-  Odoo data.
-- A supporting reference is read-only and does not enter the intended Odoo
-  write scope merely because another record links to it.
+- An ordinary populated link can reuse one destination match or create only the
+  minimum related record when no match exists.
+- Destination-owned setup such as Company uses an approved existing destination
+  record and is not created or updated by the relationship default.
+- A related record type does not enter the top-level transfer merely because
+  another record links to it.
 - The scope contains no unrelated business areas.
 
 ## What Complete means
 
 For a file source, every selected writable record type has one confirmed rule.
-Every required direct relationship that must reuse existing Odoo data is also
-available for later matching. The selected schema and complete business-key
-governance are saved together and **Match data** becomes available. For an Odoo
-source, the eligible schema is captured and you next define and freeze the
-bounded source-record selection.
+Every required direct relationship has an available, safe default for later
+matching: keep the linked value, use existing destination setup, or let Odoo
+manage it. The selected schema and complete business-key governance are saved
+together and **Match data** becomes available. For an Odoo source, the eligible
+schema is captured and you next define and freeze the bounded source-record
+selection.
 
 ## What changes and what does not
 

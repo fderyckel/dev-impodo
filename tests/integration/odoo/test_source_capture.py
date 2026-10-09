@@ -65,6 +65,7 @@ from impodo.domain.shared.models import (
     OdooReadIdentity,
     ProtectedOdooReadContext,
     TargetFingerprint,
+    UniqueConstraintMetadata,
 )
 from impodo.domain.workspace.workbench import (
     WorkspaceState,
@@ -898,6 +899,111 @@ class OdooDependencyClosureTests(unittest.TestCase):
             ),
             ("partner_ids",),
         )
+
+    def test_preserve_linked_model_is_a_capture_graph_leaf(self) -> None:
+        workspace_id = "00000000-0000-0000-0000-000000000001"
+        schema = _schema(workspace_id)
+        product = schema.models[0]
+        category_field = replace(
+            product.fields[0],
+            name="categ_id",
+            label="Product Category",
+            type="many2one",
+            relation="product.category",
+        )
+        category = replace(
+            product,
+            name="product.category",
+            label="Product Category",
+        )
+        schema = replace(
+            schema,
+            models=(
+                replace(product, fields=(*product.fields, category_field)),
+                category,
+            ),
+        )
+
+        planned = plan_odoo_source_capture(
+            _selection(
+                workspace_id,
+                schema,
+                capture_role=OdooCaptureRole.LINKED_ONLY,
+            ),
+            schema,
+            leaf_models=frozenset({product.name}),
+        )
+
+        self.assertFalse(planned.relationship_projection)
+        self.assertFalse(planned.discovery_relationship_projection)
+
+    def test_leaf_keeps_relationship_scoped_identity_evidence(self) -> None:
+        workspace_id = "00000000-0000-0000-0000-000000000001"
+        schema = _schema(workspace_id)
+        base = schema.models[0]
+        owner = replace(base, name="x.owner", label="Owner")
+        owner_id = replace(
+            base.fields[0],
+            name="owner_id",
+            label="Owner",
+            type="many2one",
+            required=False,
+            relation=owner.name,
+        )
+        item = replace(
+            base,
+            name="x.item",
+            label="Item",
+            fields=(base.fields[0], owner_id, base.fields[1]),
+            unique_constraints=(
+                UniqueConstraintMetadata(
+                    "x_item_name_owner_unique",
+                    "UNIQUE (name, owner_id)",
+                ),
+            ),
+        )
+        schema = replace(schema, models=(item, owner))
+
+        planned = plan_odoo_source_capture(
+            _selection(
+                workspace_id,
+                schema,
+                model=item.name,
+                capture_role=OdooCaptureRole.LINKED_ONLY,
+            ),
+            schema,
+            allowed_relationships=frozenset(),
+            leaf_models=frozenset({item.name}),
+            create_if_missing_models=frozenset({item.name}),
+        )
+
+        self.assertEqual(
+            tuple(field.name for field in planned.relationship_projection),
+            ("owner_id",),
+        )
+        self.assertFalse(planned.discovery_relationship_projection)
+
+        reference_planned = plan_odoo_source_capture(
+            _selection(
+                workspace_id,
+                schema,
+                model=item.name,
+                capture_role=OdooCaptureRole.LINKED_ONLY,
+            ),
+            schema,
+            allowed_relationships=frozenset(),
+            leaf_models=frozenset({item.name}),
+            reference_models=frozenset({item.name}),
+        )
+
+        self.assertEqual(
+            tuple(
+                field.name
+                for field in reference_planned.relationship_projection
+            ),
+            ("owner_id",),
+        )
+        self.assertFalse(reference_planned.discovery_relationship_projection)
 
     def test_parent_one2many_discovers_children_without_duplicate_portable_link(self) -> None:
         models = ("mrp.bom", "mrp.bom.line")

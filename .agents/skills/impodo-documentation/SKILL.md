@@ -99,6 +99,30 @@ boundary merely to make the prose shorter.
 - Use fictional or sanitized examples. Refresh screenshots only from the
   authenticated current UI when the documented decision point changed.
 
+## Preserve local database performance boundaries
+
+When a documentation change accompanies a new or materially changed browser
+route, apply the
+[`Local browser database operation scopes`](../../../docs/architecture/code-organization.md#local-browser-database-operation-scopes)
+standard:
+
+- Verify that synchronous local repository work does not run on the event
+  loop. A page read uses `run_page_read`; a local command uses
+  `run_local_operation`.
+- Put the complete synchronous operation inside one callback. End that scope
+  before an await, remote Odoo call, background job, or unrelated operation.
+  Never put a mutation in a page-read scope.
+- Require a focused integration test with an evidence-based physical-connection
+  ceiling and keep the shared worker and DuckDB lifecycle tests registered.
+- Measure elapsed time, connection count, connection time, schema checks, and
+  retries before documenting an optimization. Treat a controlled result as
+  controlled evidence until a restarted live build confirms it.
+- Preserve evidence and identity hashes. Profile repeated hashing before
+  caching or removing it.
+
+If a route performs no local database work, record that the rule is not
+applicable instead of forcing one of the helpers into the code.
+
 ## Refresh user screenshots
 
 When a user-documentation change adds or replaces screenshots:
