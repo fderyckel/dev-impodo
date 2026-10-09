@@ -2,8 +2,9 @@
 
 The Stage 2 browser groups fields by related model so a data manager makes one
 readable choice.  This contract expands that grouped choice into immutable
-field-level evidence.  It records source-capture intent only; destination
-matching still decides whether a reached record is reused or transferred.
+field-level evidence. It records source-capture intent and whether an included
+related model may expand; destination matching supplies its portable identity
+and must honor any saved no-write constraint.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from datetime import datetime
 from enum import StrEnum
 import json
 import re
-from typing import Iterable
+from typing import Iterable, Mapping
 from uuid import UUID
 
 from impodo.domain.serialization import canonical_json, content_hash
@@ -39,6 +40,7 @@ class OdooRelationshipCaptureAction(StrEnum):
     """Source-capture outcome saved for one Odoo relationship field."""
 
     CAPTURE_LINKED = "CAPTURE_LINKED"
+    MATCH_EXISTING = "MATCH_EXISTING"
     DO_NOT_CAPTURE = "DO_NOT_CAPTURE"
     ODOO_MANAGED = "ODOO_MANAGED"
     SEPARATE_PROCESS = "SEPARATE_PROCESS"
@@ -104,10 +106,18 @@ class OdooRelationshipScopeDecision:
                 "Odoo relationship recommendation provenance is invalid"
             )
         if related_model_can_be_selected(self.handling):
-            if self.action not in {
+            selectable_actions = {
                 OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                OdooRelationshipCaptureAction.MATCH_EXISTING,
                 OdooRelationshipCaptureAction.DO_NOT_CAPTURE,
-            }:
+            }
+            if self.handling is RelatedDataHandling.SEPARATE_PROCESS:
+                # Scopes written before separate-process recommendations became
+                # selectable remain readable and can be replaced on review.
+                selectable_actions.add(
+                    OdooRelationshipCaptureAction.SEPARATE_PROCESS
+                )
+            if self.action not in selectable_actions:
                 raise OdooRelationshipScopeError(
                     "Selectable Odoo relationship decision is invalid"
                 )
@@ -200,7 +210,10 @@ class OdooRelationshipScopeDecision:
 def relationship_scope_decisions(
     suggestions: Iterable[RelatedDataSuggestion],
     *,
-    included_models: Iterable[str],
+    included_models: Iterable[str] = (),
+    actions_by_model: Mapping[
+        str, OdooRelationshipCaptureAction | str
+    ] | None = None,
     available_models: Iterable[str] | None = None,
     current_scope: "OdooRelationshipScope | None" = None,
 ) -> tuple[OdooRelationshipScopeDecision, ...]:
@@ -214,6 +227,19 @@ def relationship_scope_decisions(
 
     current = tuple(suggestions)
     included = frozenset(included_models)
+    try:
+        actions = {
+            str(model): OdooRelationshipCaptureAction(action)
+            for model, action in (actions_by_model or {}).items()
+        }
+    except ValueError as error:
+        raise OdooRelationshipScopeError(
+            "Odoo relationship action is invalid"
+        ) from error
+    if actions_by_model is not None and included:
+        raise OdooRelationshipScopeError(
+            "Choose Odoo relationship actions or included models, not both"
+        )
     available = (
         frozenset(available_models)
         if available_models is not None
@@ -233,11 +259,21 @@ def relationship_scope_decisions(
     for suggestion in decidable:
         if related_model_can_be_selected(suggestion.handling):
             selectable_models.add(suggestion.relation_model)
-            action = (
-                OdooRelationshipCaptureAction.CAPTURE_LINKED
-                if suggestion.relation_model in included
-                else OdooRelationshipCaptureAction.DO_NOT_CAPTURE
-            )
+            action = actions.get(suggestion.relation_model)
+            if action is None:
+                action = (
+                    OdooRelationshipCaptureAction.CAPTURE_LINKED
+                    if suggestion.relation_model in included
+                    else OdooRelationshipCaptureAction.DO_NOT_CAPTURE
+                )
+            if action not in {
+                OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                OdooRelationshipCaptureAction.MATCH_EXISTING,
+                OdooRelationshipCaptureAction.DO_NOT_CAPTURE,
+            }:
+                raise OdooRelationshipScopeError(
+                    f"{suggestion.relation_model} has an invalid Odoo relationship action"
+                )
         else:
             action = _AUTOMATIC_ACTIONS[suggestion.handling]
         decisions.append(
@@ -254,7 +290,7 @@ def relationship_scope_decisions(
                 ),
             )
         )
-    unknown = included - selectable_models
+    unknown = (included | set(actions)) - selectable_models
     if unknown:
         raise OdooRelationshipScopeError(
             f"{sorted(unknown)[0]} is not a selectable Odoo relationship"
@@ -360,6 +396,19 @@ def review_relationship_scope(
     )
 
 
+def relationship_expansion_suggestions(
+    suggestions: Iterable[RelatedDataSuggestion],
+    scope: "OdooRelationshipScope | None",
+) -> tuple[RelatedDataSuggestion, ...]:
+    """Stop discovery at models selected only as destination references."""
+
+    reference_models = scope.reference_models if scope is not None else frozenset()
+    return tuple(
+        item for item in suggestions
+        if item.source_model not in reference_models
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class OdooRelationshipScope:
     """One immutable revision of every reviewed Odoo relationship edge."""
@@ -453,12 +502,35 @@ class OdooRelationshipScope:
 
     @property
     def included_models(self) -> frozenset[str]:
-        """Return related models explicitly selected for linked-only capture."""
+        """Return related models needed for transfer or destination matching."""
+
+        return frozenset(
+            item.relation_model
+            for item in self.decisions
+            if item.action in {
+                OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                OdooRelationshipCaptureAction.MATCH_EXISTING,
+            }
+        )
+
+    @property
+    def expanding_models(self) -> frozenset[str]:
+        """Return related models whose outgoing relationships remain in scope."""
 
         return frozenset(
             item.relation_model
             for item in self.decisions
             if item.action is OdooRelationshipCaptureAction.CAPTURE_LINKED
+        )
+
+    @property
+    def reference_models(self) -> frozenset[str]:
+        """Return identity-only leaves that must already exist at destination."""
+
+        return frozenset(
+            item.relation_model
+            for item in self.decisions
+            if item.action is OdooRelationshipCaptureAction.MATCH_EXISTING
         )
 
     def _semantic_dict(self) -> dict[str, object]:
@@ -532,5 +604,6 @@ __all__ = [
     "OdooRelationshipScopeError",
     "OdooRelationshipScopeReview",
     "relationship_scope_decisions",
+    "relationship_expansion_suggestions",
     "review_relationship_scope",
 ]

@@ -566,6 +566,8 @@ def plan_odoo_source_capture(
     *,
     protected_filter_clauses: tuple[OdooCaptureFilterClause, ...] | None = None,
     linked_models: frozenset[str] = frozenset(),
+    allowed_relationships: frozenset[tuple[str, str]] | None = None,
+    reference_models: frozenset[str] = frozenset(),
 ) -> OdooSourceCaptureRequest:
     """Build the only request shape accepted by the live capture adapter."""
 
@@ -606,6 +608,23 @@ def plan_odoo_source_capture(
         assert field is not None
         projection.append(OdooCaptureFieldProjection(name, field.type))
     selected_models = {item.name for item in schema.models}
+
+    def relationship_is_allowed(field: SchemaField) -> bool:
+        if allowed_relationships is None:
+            return True
+        if schema_model.name in reference_models:
+            return False
+        return bool(
+            (schema_model.name, field.name) in allowed_relationships
+            or (
+                field.relation is not None
+                and field.relation_field is not None
+                and (field.relation, field.relation_field)
+                in allowed_relationships
+            )
+            or field.relation == schema_model.name
+        )
+
     relationships = tuple(
         OdooCaptureRelationshipProjection(
             name=field.name,
@@ -618,6 +637,7 @@ def plan_odoo_source_capture(
             field,
             selected_models=selected_models,
         )
+        and relationship_is_allowed(field)
         # One2many is represented by its inverse many2one whenever both
         # captured models are present. This prevents two writers for one link.
         and field.type != "one2many"
@@ -633,6 +653,7 @@ def plan_odoo_source_capture(
         if is_odoo_capture_relationship_field(
             field, selected_models=selected_models
         )
+        and relationship_is_allowed(field)
         and field.type == "one2many"
         and field.relation in linked_models
         and field.relation != selection.model

@@ -64,6 +64,9 @@ from ...domain.odoo_source_scope import (
     related_model_should_default_linked_only,
 )
 from ...domain.odoo_relationship_scope import (
+    OdooRelationshipCaptureAction,
+    OdooRelationshipScopeError,
+    relationship_expansion_suggestions,
     relationship_scope_decisions,
     review_relationship_scope,
 )
@@ -389,7 +392,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         _secure_form(
             request,
             form,
-            {"csrf_token", "revision", "related_models"},
+            {"csrf_token", "revision", "related_actions"},
         )
 
         def save_related_scope():
@@ -411,9 +414,18 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 raise WorkspaceStateError(
                     "Review the changed Odoo details before choosing related data"
                 )
-            suggestions = propose_related_odoo_data(
+            current_relationship_scope = (
+                context.queries.get_current_odoo_relationship_scope(
+                    workspace_id
+                )
+            )
+            all_suggestions = propose_related_odoo_data(
                 schema.models,
                 include_selected=True,
+            )
+            suggestions = relationship_expansion_suggestions(
+                all_suggestions,
+                current_relationship_scope,
             )
             selectable = {
                 item.relation_model
@@ -422,29 +434,83 @@ def build_sources_router(context: WebContext) -> APIRouter:
             }
             available = {item.name for item in model_catalog.models}
             allowed = selectable & available
-            current_relationship_scope = (
-                context.queries.get_current_odoo_relationship_scope(
-                    workspace_id
-                )
-            )
-            submitted = {
-                str(item).strip()
-                for item in form.getlist("related_models")
-                if str(item).strip()
-            }
-            unknown = sorted(submitted - allowed)
+            submitted: dict[str, OdooRelationshipCaptureAction] = {}
+            for raw in form.getlist("related_actions"):
+                model, separator, raw_action = str(raw).partition("::")
+                try:
+                    action = OdooRelationshipCaptureAction(raw_action)
+                except ValueError as error:
+                    raise WorkspaceStateError(
+                        "Choose a current action for each related record type"
+                    ) from error
+                if not separator or not model or model in submitted:
+                    raise WorkspaceStateError(
+                        "Choose one action for each related record type"
+                    )
+                submitted[model] = action
+            unknown = sorted(set(submitted) - allowed)
             if unknown:
                 raise WorkspaceStateError(
                     f"{unknown[0]} is not an available related-data choice"
                 )
+            missing = sorted(allowed - set(submitted))
+            if missing:
+                raise WorkspaceStateError(
+                    f"Choose how to handle the related record type {missing[0]}"
+                )
+            preliminary_decisions = relationship_scope_decisions(
+                suggestions,
+                actions_by_model=submitted,
+                available_models=available,
+                current_scope=current_relationship_scope,
+            )
+            reference_models = frozenset(
+                item.relation_model
+                for item in preliminary_decisions
+                if item.action is OdooRelationshipCaptureAction.MATCH_EXISTING
+            )
+            final_suggestions = tuple(
+                item for item in all_suggestions
+                if item.source_model not in reference_models
+            )
+            final_selectable = {
+                item.relation_model
+                for item in final_suggestions
+                if related_model_can_be_selected(item.handling)
+                and item.relation_model in available
+            }
+            final_actions = {
+                model: action for model, action in submitted.items()
+                if model in final_selectable
+            }
+            final_decisions = relationship_scope_decisions(
+                final_suggestions,
+                actions_by_model=final_actions,
+                available_models=available,
+                current_scope=current_relationship_scope,
+            )
             current_models = workspace_state.intended_models
+            previously_managed = (
+                current_relationship_scope.included_models
+                if current_relationship_scope is not None
+                else frozenset()
+            )
+            root_models = (
+                set(current_models) - previously_managed - selectable
+            )
+            included_models = {
+                item.relation_model
+                for item in final_decisions
+                if item.action in {
+                    OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                    OdooRelationshipCaptureAction.MATCH_EXISTING,
+                }
+            }
+            chosen_models = root_models | included_models
             next_models = tuple(
-                model
-                for model in current_models
-                if model not in allowed or model in submitted
+                model for model in current_models if model in chosen_models
             ) + tuple(
-                model
-                for model in sorted(submitted)
+                model for model in sorted(chosen_models)
                 if model not in current_models
             )
             saved_workspace_state = context.workspace_states.update_schema_scope(
@@ -452,12 +518,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
                 expected_revision=_revision(form),
                 permitted_models=next_models,
-                relationship_decisions=relationship_scope_decisions(
-                    suggestions,
-                    included_models=submitted,
-                    available_models=available,
-                    current_scope=current_relationship_scope,
-                ),
+                relationship_decisions=final_decisions,
             )
             return workspace_state, saved_workspace_state
 
@@ -488,9 +549,12 @@ def build_sources_router(context: WebContext) -> APIRouter:
                         "Refresh the selected Odoo record types and fields"
                     )
                 return review_relationship_scope(
-                    propose_related_odoo_data(
-                        current_schema.models,
-                        include_selected=True,
+                    relationship_expansion_suggestions(
+                        propose_related_odoo_data(
+                            current_schema.models,
+                            include_selected=True,
+                        ),
+                        current_scope,
                     ),
                     current_scope,
                     available_models=(
@@ -509,6 +573,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         except (
             ConnectorError,
             WorkspaceStateError,
+            OdooRelationshipScopeError,
             SecretStoreError,
             WorkspaceError,
         ) as error:
@@ -1372,9 +1437,12 @@ def _render_odoo_capture_selection(
     model_catalog = context.queries.get_odoo_model_catalog(
         workspace_state.workspace_id
     )
-    related_data_suggestions = propose_related_odoo_data(
-        models,
-        include_selected=True,
+    related_data_suggestions = relationship_expansion_suggestions(
+        propose_related_odoo_data(
+            models,
+            include_selected=True,
+        ),
+        relationship_scope,
     )
     related_data_scope = build_related_data_scope_view(
         workspace_state.workspace_id,
@@ -1402,12 +1470,45 @@ def _render_odoo_capture_selection(
         item.model for item in current_selections
         if item.capture_role is OdooCaptureRole.LINKED_ONLY
     }
+    reviewed_relationships = (
+        {
+            item.identity
+            for item in relationship_scope.decisions
+            if item.action in {
+                OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                OdooRelationshipCaptureAction.MATCH_EXISTING,
+            }
+        }
+        if relationship_scope is not None
+        else None
+    )
+    reference_models = (
+        relationship_scope.reference_models
+        if relationship_scope is not None
+        else frozenset()
+    )
     linked_relationships = tuple(
         (model, field)
         for model in models
         for field in model.fields
         if is_odoo_capture_relationship_field(
             field, selected_models=selected_models
+        )
+        and (
+            reviewed_relationships is None
+            or (
+                model.name not in reference_models
+                and (
+                    (model.name, field.name) in reviewed_relationships
+                    or (
+                        field.relation is not None
+                        and field.relation_field is not None
+                        and (field.relation, field.relation_field)
+                        in reviewed_relationships
+                    )
+                    or field.relation == model.name
+                )
+            )
         )
         and (field.type != "one2many" or field.relation in linked_models)
     )

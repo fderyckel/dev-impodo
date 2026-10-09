@@ -9,7 +9,9 @@ from typing import Protocol
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo_relationship_scope import (
+    OdooRelationshipCaptureAction,
     OdooRelationshipScope,
+    relationship_expansion_suggestions,
     review_relationship_scope,
 )
 from impodo.domain.odoo_source_scope import propose_related_odoo_data
@@ -901,6 +903,30 @@ class OdooSourceCaptureService:
             item.model for item in selections
             if item.capture_role is OdooCaptureRole.LINKED_ONLY
         )
+        relationship_scope = (
+            self._relationship_scopes.get_current_odoo_relationship_scope(
+                workspace_id
+            )
+            if self._relationship_scopes is not None
+            else None
+        )
+        allowed_relationships = (
+            frozenset(
+                item.identity
+                for item in relationship_scope.decisions
+                if item.action in {
+                    OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                    OdooRelationshipCaptureAction.MATCH_EXISTING,
+                }
+            )
+            if relationship_scope is not None
+            else None
+        )
+        reference_models = (
+            relationship_scope.reference_models
+            if relationship_scope is not None
+            else frozenset()
+        )
         for selection in selections:
             try:
                 if selection.data_version_id != access.data_version_id:
@@ -916,6 +942,8 @@ class OdooSourceCaptureService:
                     self._plan_for_selection(
                         access.project_id, selection, schema,
                         linked_models=linked_models,
+                        allowed_relationships=allowed_relationships,
+                        reference_models=reference_models,
                     ),
                     schema,
                     selection,
@@ -958,9 +986,12 @@ class OdooSourceCaptureService:
             else None
         )
         relationship_review = review_relationship_scope(
-            propose_related_odoo_data(
-                schema.models,
-                include_selected=True,
+            relationship_expansion_suggestions(
+                propose_related_odoo_data(
+                    schema.models,
+                    include_selected=True,
+                ),
+                relationship_scope,
             ),
             relationship_scope,
         )
@@ -979,10 +1010,16 @@ class OdooSourceCaptureService:
         schema: OdooSchemaCatalog,
         *,
         linked_models: frozenset[str],
+        allowed_relationships: frozenset[tuple[str, str]] | None = None,
+        reference_models: frozenset[str] = frozenset(),
     ) -> OdooSourceCaptureRequest:
         if selection.protected_filter_artifact_hash is None:
             return plan_odoo_source_capture(
-                selection, schema, linked_models=linked_models
+                selection,
+                schema,
+                linked_models=linked_models,
+                allowed_relationships=allowed_relationships,
+                reference_models=reference_models,
             )
         if self._capture_filters is None:
             raise WorkspaceError("Protected Odoo source filters are not configured")
@@ -990,6 +1027,8 @@ class OdooSourceCaptureService:
         return plan_odoo_source_capture(
             selection, schema, protected_filter_clauses=clauses,
             linked_models=linked_models,
+            allowed_relationships=allowed_relationships,
+            reference_models=reference_models,
         )
 
     def validate_current_plans(

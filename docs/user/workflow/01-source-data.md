@@ -71,22 +71,24 @@ version.
    available links into supporting records needed to preserve meaning,
    optional business data, destination setup to reuse, records created by
    Odoo, separate business processes, history to leave out, and links with no
-   standard default. Select related source records directly in this
-   section. For Products, Impodo marks Product Categories and Units of Measure
-   as recommendations when those record types are available. Select the related
-   record types that belong in this migration, then select **Save related-data
-   decisions**. One checkbox applies the same source-capture choice to every link
-   shown beneath that related record type. Impodo saves each link as a separate
+   standard default. For each available related record type, choose **Transfer
+   linked records**, **Match existing records only**, or **Do not include**.
+   Transfer captures reached records and then reviews that record type's own
+   relationships. Match existing captures only the reached identity evidence,
+   stops relationship expansion at that record type, and prevents it from being
+   created or updated in the destination. For Products, Impodo recommends
+   appropriate initial actions for Product Categories and Units of Measure when
+   those record types are available. Then select **Save related-data
+   decisions**. One action applies to every link shown beneath that related
+   record type. Impodo saves each link as a separate
    decision, so a later recommendation change does not silently change what
-   you approved. A checked box always means that the record type is already in
-   the current source choices. When Impodo has no standard default, it leaves the
-   checkbox clear and asks you to decide whether the linked records belong in
-   this migration. Selecting that record type does not decide whether the
-   destination may create it; you make that decision later in **Match
-   destination data**. Destination setup can be selected here so Impodo can
-   capture the linked identities that must be matched later. Odoo-managed
-   records, separate processes, and excluded history show their handling
-   instead of presenting a misleading source-data checkbox. If an included
+   you approved. When Impodo has no standard default, it recommends **Do not
+   include** and asks you to make the explicit choice. **Transfer linked
+   records** leaves create-versus-reuse review to **Match destination data**.
+   **Match existing records only** requires Stage 4 to prove an exact existing
+   destination match and never permits creation. Odoo-managed records and
+   excluded history show their automatic handling. Separate-process profiles
+   remain editable recommendations. If a transferred
    record type reveals more relationships, Impodo shows them as **Needs review**
    in the next review on the same page. Repeat **Save related-data decisions**
    until the page shows **Related-data review complete**. Impodo does not

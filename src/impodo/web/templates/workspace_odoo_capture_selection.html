@@ -76,13 +76,7 @@
                   {% for model in group.models %}
                     <div class="related-data-model">
                       {% if model.can_select %}
-                        <label class="model-choice">
-                          <input
-                            type="checkbox"
-                            name="related_models"
-                            value="{{ model.name }}"
-                            {% if model.checked %}checked{% endif %}
-                          >
+                        <label class="model-choice related-data-action">
                           <span>
                             <strong>{{ model.label }}</strong>
                             {% if model.pending %}
@@ -97,7 +91,15 @@
                               <small>Reviewed &middot; not included through these relationships</small>
                             {% endif %}
                           </span>
+                          <select name="related_actions" aria-label="Relationship handling for {{ model.label }}" required>
+                            <option value="{{ model.name }}::CAPTURE_LINKED" {% if model.action.value == 'CAPTURE_LINKED' %}selected{% endif %}>Transfer linked records</option>
+                            <option value="{{ model.name }}::MATCH_EXISTING" {% if model.action.value == 'MATCH_EXISTING' %}selected{% endif %}>Match existing records only</option>
+                            <option value="{{ model.name }}::DO_NOT_CAPTURE" {% if model.action.value == 'DO_NOT_CAPTURE' %}selected{% endif %}>Do not include</option>
+                          </select>
                         </label>
+                        <small class="muted">
+                          Transfer follows this record type's relationships. Match existing captures identity evidence but stops expansion here and never permits creating this record type in the destination.
+                        </small>
                       {% else %}
                         <div class="related-data-status">
                           <strong>{{ model.label }}</strong>
@@ -153,9 +155,11 @@
             <a class="button secondary" href="{{ related_data_scope.all_choices_url }}">Review all available Odoo data</a>
           </div>
           <p class="muted">
-            A checked box means that record type is included in the current source
-            choices. Saving refreshes its eligible fields from Odoo; it does not
-            download business records.
+            Transfer linked records captures reached records and reviews their
+            dependencies. Match existing records only captures reached identity
+            evidence without expanding the rest of that record type's graph.
+            Saving refreshes eligible fields from Odoo; it does not download
+            business records.
             {% if current_selections %}
               Changing a check clears the current capture plans so you can review
               every selected record type against the refreshed fields.

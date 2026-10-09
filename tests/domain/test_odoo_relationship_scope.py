@@ -11,6 +11,7 @@ from impodo.domain.odoo_relationship_scope import (
     OdooRelationshipScopeDecision,
     OdooRelationshipScopeError,
     relationship_scope_decisions,
+    relationship_expansion_suggestions,
     review_relationship_scope,
 )
 from impodo.domain.odoo_source_scope import (
@@ -87,6 +88,41 @@ class OdooRelationshipScopeTests(unittest.TestCase):
 
         self.assertEqual(restored, scope)
         self.assertEqual(restored.included_models, frozenset({"res.company"}))
+
+    def test_match_existing_is_included_but_stops_outgoing_expansion(self) -> None:
+        company = _suggestion(
+            "company_id",
+            "res.company",
+            RelatedDataHandling.REUSE_DESTINATION,
+        )
+        account = RelatedDataSuggestion(
+            source_model="res.company",
+            source_label="Company",
+            field_name="account_id",
+            field_label="Account",
+            relation_model="account.account",
+            required=False,
+            handling=RelatedDataHandling.NEEDS_DECISION,
+        )
+        scope = OdooRelationshipScope.create(
+            scope_id=str(uuid4()),
+            version=1,
+            decisions=relationship_scope_decisions(
+                (company,),
+                actions_by_model={
+                    "res.company": OdooRelationshipCaptureAction.MATCH_EXISTING,
+                },
+            ),
+            recorded_at=datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc),
+            recorded_by="Data Manager",
+        )
+
+        frontier = relationship_expansion_suggestions((company, account), scope)
+
+        self.assertEqual(frontier, (company,))
+        self.assertEqual(scope.included_models, frozenset({"res.company"}))
+        self.assertEqual(scope.reference_models, frozenset({"res.company"}))
+        self.assertFalse(scope.expanding_models)
 
     def test_changed_decision_is_rejected_when_hash_was_not_rebuilt(self) -> None:
         scope = OdooRelationshipScope.create(

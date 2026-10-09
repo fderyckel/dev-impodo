@@ -55,11 +55,15 @@
 
             <div class="identity-field destination-handling-field">
               <label for="destination-handling-{{ row_index }}"><span>Destination handling</span><small>Decide whether missing records may be transferred</small></label>
-              <select id="destination-handling-{{ row_index }}" name="destination_handling" required>
+              {% if row.destination_handling_locked %}
+                <input type="hidden" name="destination_handling" value="{{ row.dataset.dataset_id }}::reference_only">
+              {% endif %}
+              <select id="destination-handling-{{ row_index }}" {% if not row.destination_handling_locked %}name="destination_handling"{% else %}disabled{% endif %} required>
                 <option value="{{ row.dataset.dataset_id }}::reference_only" {% if row.destination_handling == 'reference_only' %}selected{% endif %}>Use only to match related destination records</option>
                 <option value="{{ row.dataset.dataset_id }}::reuse_only" {% if row.destination_handling == 'reuse_only' %}selected{% endif %}>Reuse existing destination records only</option>
                 <option value="{{ row.dataset.dataset_id }}::transfer" {% if row.destination_handling == 'transfer' %}selected{% endif %}>Transfer records that are missing</option>
               </select>
+              {% if row.destination_handling_locked %}<small>Fixed by the Stage 2 “Match existing records only” decision.</small>{% endif %}
               <small>{% if row.destination_handling == 'reference_only' %}Impodo checks only records referenced by the data being transferred. It will not create or update this record type.{% elif row.destination_handling == 'reuse_only' %}Every captured source identity must already exist exactly once in the destination. Impodo will not prepare creates for this record type.{% else %}Existing identities are reused; missing identities may be created after transfer review.{% endif %}</small>
             </div>
 

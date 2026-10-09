@@ -82,11 +82,13 @@ class OdooRelationshipCompilationTests(unittest.TestCase):
         datasets = compile_odoo_relationship_datasets(
             _plan((bom, company), (relationship,)),
             relationship_scope=_scope(
-                _decision(
-                    bom.model,
-                    "company_id",
-                    company.model,
+                OdooRelationshipScopeDecision(
+                    source_model=bom.model,
+                    field_name="company_id",
+                    relation_model=company.model,
+                    required=False,
                     handling=RelatedDataHandling.REUSE_DESTINATION,
+                    action=OdooRelationshipCaptureAction.MATCH_EXISTING,
                 )
             ),
         )
@@ -100,6 +102,34 @@ class OdooRelationshipCompilationTests(unittest.TestCase):
         )
         self.assertEqual(reference.mode, MappingTargetMode.REFERENCE)
         self.assertFalse(extract_dataset_dependency_edges(datasets))
+
+    def test_match_existing_decision_rejects_transfer_handling(self) -> None:
+        bom = _model("mrp.bom", ("code-column",), ("code",))
+        company = _model("res.company", ("name-column",), ("name",))
+        relationship = _relationship(bom, company, "company_id")
+        decision = _decision(
+            bom.model,
+            "company_id",
+            company.model,
+            handling=RelatedDataHandling.REUSE_DESTINATION,
+        )
+        decision = OdooRelationshipScopeDecision(
+            source_model=decision.source_model,
+            field_name=decision.field_name,
+            relation_model=decision.relation_model,
+            required=decision.required,
+            handling=decision.handling,
+            action=OdooRelationshipCaptureAction.MATCH_EXISTING,
+        )
+
+        with self.assertRaisesRegex(
+            OdooRelationshipCompilationError,
+            "transfer is not allowed",
+        ):
+            compile_odoo_relationship_datasets(
+                _plan((bom, company), (relationship,)),
+                relationship_scope=_scope(decision),
+            )
 
     def test_inverse_capture_decision_authorizes_child_owner_edge(self) -> None:
         parent = _model("x.parent", ("name-column",), ("name",))

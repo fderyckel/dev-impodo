@@ -6,6 +6,7 @@ import unittest
 from uuid import uuid4
 
 from impodo.domain.odoo_relationship_scope import (
+    OdooRelationshipCaptureAction,
     OdooRelationshipScope,
     relationship_scope_decisions,
 )
@@ -71,17 +72,20 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
         )
         self.assertEqual(
             view.selectable_model_names,
-            ("product.category", "res.company", "uom.uom"),
+            ("mrp.bom", "product.category", "res.company", "uom.uom"),
         )
         self.assertEqual(
             tuple(model.label for model in view.groups[0].models),
             ("Product Categories", "Units of Measure"),
         )
-        self.assertFalse(any(model.checked for model in view.groups[0].models))
+        self.assertTrue(all(
+            model.action is OdooRelationshipCaptureAction.CAPTURE_LINKED
+            for model in view.groups[0].models
+        ))
         self.assertTrue(all(model.recommended for model in view.groups[0].models))
         self.assertTrue(view.groups[1].models[0].can_select)
         self.assertTrue(view.groups[1].models[0].recommended)
-        self.assertFalse(view.groups[2].models[0].can_select)
+        self.assertTrue(view.groups[2].models[0].can_select)
 
         saved_view = build_related_data_scope_view(
             "workspace-1",
@@ -100,7 +104,10 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
             available_models=frozenset({"product.category"}),
         )
         saved_model = saved_view.groups[0].models[0]
-        self.assertTrue(saved_model.checked)
+        self.assertIs(
+            saved_model.action,
+            OdooRelationshipCaptureAction.CAPTURE_LINKED,
+        )
         self.assertFalse(saved_model.recommended)
 
     def test_schema_review_preselects_only_available_suggestions(self) -> None:

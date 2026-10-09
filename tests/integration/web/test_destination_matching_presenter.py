@@ -11,6 +11,12 @@ from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
 )
+from impodo.domain.odoo_relationship_scope import (
+    OdooRelationshipCaptureAction,
+    OdooRelationshipScope,
+    OdooRelationshipScopeDecision,
+)
+from impodo.domain.odoo_source_scope import RelatedDataHandling
 from impodo.web.routers.destination_matching import _matching_rows
 from tests.application.workspace.test_destination_matching import (
     _binding,
@@ -77,9 +83,30 @@ class DestinationMatchingPresenterTests(unittest.TestCase):
             ),
         )
 
+        scope = OdooRelationshipScope.create(
+            scope_id=str(uuid4()),
+            version=1,
+            decisions=(
+                OdooRelationshipScopeDecision(
+                    source_model="product.template",
+                    field_name="company_id",
+                    relation_model="res.company",
+                    required=False,
+                    handling=RelatedDataHandling.REUSE_DESTINATION,
+                    action=OdooRelationshipCaptureAction.MATCH_EXISTING,
+                ),
+            ),
+            recorded_at=now,
+            recorded_by="Data manager",
+        )
         rows = {
             row["model"]: row
-            for row in _matching_rows(workspace, selection, schema)
+            for row in _matching_rows(
+                workspace,
+                selection,
+                schema,
+                scope,
+            )
         }
 
         self.assertEqual(rows["product.template"]["destination_handling"], "transfer")
@@ -88,6 +115,7 @@ class DestinationMatchingPresenterTests(unittest.TestCase):
             "reference_only",
         )
         self.assertEqual(rows["res.company"]["selected_keys"], ("company-name",))
+        self.assertTrue(rows["res.company"]["destination_handling_locked"])
 
 
 if __name__ == "__main__":

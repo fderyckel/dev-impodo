@@ -613,10 +613,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Not part of the business-data move", page.text)
         self.assertIn("No standard default", page.text)
         self.assertIn("Product Category", page.text)
-        self.assertIn('name="related_models"', page.text)
-        self.assertIn('value="product.category"', page.text)
-        self.assertIn('value="res.company"', page.text)
-        self.assertIn('value="x.owner"', page.text)
+        self.assertIn('name="related_actions"', page.text)
+        self.assertIn('value="product.category::CAPTURE_LINKED"', page.text)
+        self.assertIn('value="res.company::MATCH_EXISTING"', page.text)
+        self.assertIn('value="x.owner::DO_NOT_CAPTURE"', page.text)
         self.assertIn(
             "Needs review &middot; choose whether these links belong in this migration",
             page.text,
@@ -743,7 +743,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                     {
                         "csrf_token": self.csrf,
                         "revision": str(workspace_state.revision),
-                        "related_models": "x.owner",
+                        "related_actions": "x.owner::CAPTURE_LINKED",
                     },
                 )
             saved_state = context.queries.get(workspace_state.workspace_id)
@@ -753,7 +753,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 {
                     "csrf_token": self.csrf,
                     "revision": str(saved_state.revision),
-                    "related_models": "x.owner",
+                    "related_actions": "x.owner::CAPTURE_LINKED",
                 },
             )
             review_page = self.client.get(
@@ -910,7 +910,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 {
                     "csrf_token": self.csrf,
                     "revision": str(workspace_state.revision),
-                    "related_models": "x.owner",
+                    "related_actions": "x.owner::CAPTURE_LINKED",
                 },
             )
             after_first = context.queries.get(workspace_state.workspace_id)
@@ -923,20 +923,45 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 {
                     "csrf_token": self.csrf,
                     "revision": str(after_first.revision),
-                    "related_models": ["x.owner", "resource.calendar"],
+                    "related_actions": [
+                        "x.owner::CAPTURE_LINKED",
+                        "resource.calendar::CAPTURE_LINKED",
+                    ],
                 },
             )
             second_page = self.client.get(
                 f"/workspaces/{workspace_state.workspace_id}/sources"
             )
+            after_second = context.queries.get(workspace_state.workspace_id)
+            leaf = self._post(
+                f"/workspaces/{workspace_state.workspace_id}"
+                "/sources/odoo-related-data",
+                {
+                    "csrf_token": self.csrf,
+                    "revision": str(after_second.revision),
+                    "related_actions": [
+                        "x.owner::MATCH_EXISTING",
+                        "resource.calendar::CAPTURE_LINKED",
+                    ],
+                },
+            )
+            leaf_page = self.client.get(
+                f"/workspaces/{workspace_state.workspace_id}/sources"
+            )
 
         self.assertEqual(first.status_code, 303)
         self.assertIn("Review 1 newly found relationship", first_page.text)
-        self.assertIn('value="resource.calendar"', first_page.text)
+        self.assertIn(
+            'value="resource.calendar::DO_NOT_CAPTURE" selected',
+            first_page.text,
+        )
         self.assertIn("Needs review", first_page.text)
         self.assertNotIn("relationship-review-complete", first_page.text)
         self.assertEqual(second.status_code, 303)
         self.assertIn("relationship-review-complete", second_page.text)
+        self.assertEqual(leaf.status_code, 303)
+        self.assertIn("relationship-review-complete", leaf_page.text)
+        self.assertNotIn("resource.calendar::", leaf_page.text)
         self.assertEqual(
             frozenset(
                 context.queries.get(
@@ -944,7 +969,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 ).intended_models
             ),
             frozenset(
-                {"product.template", "x.owner", "resource.calendar"}
+                {"product.template", "x.owner"}
             ),
         )
         scope = context.queries.get_current_odoo_relationship_scope(
@@ -954,10 +979,13 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             {item.identity for item in scope.decisions},
             {
                 ("product.template", "x_owner_id"),
-                ("x.owner", "calendar_id"),
             },
         )
-        self.assertEqual(capture_schema.await_count, 2)
+        self.assertIs(
+            scope.decisions[0].action,
+            OdooRelationshipCaptureAction.MATCH_EXISTING,
+        )
+        self.assertEqual(capture_schema.await_count, 3)
 
     def test_recommended_supporting_model_defaults_to_linked_only(self) -> None:
         workspace_state, schema = self._registered_remote_schema_workspace()

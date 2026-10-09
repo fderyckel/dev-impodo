@@ -85,12 +85,25 @@ def compile_odoo_relationship_datasets(
                 )
             if (
                 decision is not None
-                and decision.action
-                is not OdooRelationshipCaptureAction.CAPTURE_LINKED
+                and decision.action not in {
+                    OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                    OdooRelationshipCaptureAction.MATCH_EXISTING,
+                }
             ):
                 raise OdooRelationshipCompilationError(
                     "The saved source relationship decision does not include "
                     f"{decision.source_model}.{decision.field_name}"
+                )
+            if (
+                decision is not None
+                and decision.action
+                is OdooRelationshipCaptureAction.MATCH_EXISTING
+                and decision.relation_model == related.model
+                and related.destination_handling == "transfer"
+            ):
+                raise OdooRelationshipCompilationError(
+                    "The saved source relationship requires existing destination "
+                    f"records for {related.model}; transfer is not allowed"
                 )
         relationships_by_owner[owner.dataset_id].append(
             _compile_relationship(relationship, related)

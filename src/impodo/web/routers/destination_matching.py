@@ -24,6 +24,7 @@ from impodo.domain.odoo_source_scope import (
     RelatedDataHandling,
     propose_related_odoo_data,
 )
+from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.shared.access import Capability
 from impodo.domain.workspace.destination_matching import (
@@ -108,7 +109,12 @@ def _parse_choices(form) -> tuple[DestinationMatchKeyChoice, ...]:
     return tuple(choices)
 
 
-def _matching_rows(workspace_state, selection, schema):
+def _matching_rows(
+    workspace_state,
+    selection,
+    schema,
+    relationship_scope: OdooRelationshipScope | None = None,
+):
     candidates = destination_match_key_candidates(selection, schema)
     governed_by_dataset = destination_governed_key_choices(selection, schema)
     plan = workspace_state.destination_match_plan
@@ -127,6 +133,11 @@ def _matching_rows(workspace_state, selection, schema):
         )
         if item.handling is RelatedDataHandling.REUSE_DESTINATION
     }
+    reference_models = (
+        relationship_scope.reference_models
+        if relationship_scope is not None
+        else frozenset()
+    )
     relationship_fields_by_model: dict[str, set[str]] = {}
     if plan is not None:
         for relation in plan.relationship_matches:
@@ -218,8 +229,11 @@ def _matching_rows(workspace_state, selection, schema):
                 "excluded_identity_rows": (),
                 "identity_issue_error": None,
                 "relationship_fields": relationship_fields_by_model.get(model, set()),
+                "destination_handling_locked": model in reference_models,
                 "destination_handling": (
-                    result_by_dataset[dataset.dataset_id].destination_handling
+                    "reference_only"
+                    if model in reference_models
+                    else result_by_dataset[dataset.dataset_id].destination_handling
                     if dataset.dataset_id in result_by_dataset
                     and (
                         model not in reuse_destination_models
@@ -256,7 +270,14 @@ def _render_matching(
         source_selection_hash=selection.content_hash,
         source_schema_hash=schema.content_hash,
     )
-    rows = _matching_rows(workspace_state, selection, schema)
+    rows = _matching_rows(
+        workspace_state,
+        selection,
+        schema,
+        context.queries.get_current_odoo_relationship_scope(
+            workspace_state.workspace_id
+        ),
+    )
     for row in rows:
         result = row["result"]
         if result is None or not (

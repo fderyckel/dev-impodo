@@ -184,6 +184,12 @@ dependency extractor before scheduling. The transfer-specific relationship
 wrapper remains as protected instance-count evidence and is still used by the
 row-level execution projection.
 
+The Stage 2 grouped control now distinguishes transfer-and-expand,
+match-existing-as-a-leaf, and exclusion. A match-existing decision retains only
+reached records and identity evidence, suppresses that model's outgoing graph,
+and fixes Stage 4 to a no-write `reference_only` policy. The implementation is
+schema- and edge-driven; standard profiles only recommend initial actions.
+
 On 18 September 2026, a read-only check against the private demo source
 retrieved seven Contact samples and found one exact-name match. It verified
 the Odoo equality domain without printing the chosen name. This check did not

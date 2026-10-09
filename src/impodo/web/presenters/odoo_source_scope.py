@@ -11,6 +11,7 @@ from impodo.domain.odoo_source_scope import (
     related_model_can_be_selected,
 )
 from impodo.domain.odoo_relationship_scope import (
+    OdooRelationshipCaptureAction,
     OdooRelationshipScope,
     review_relationship_scope,
 )
@@ -46,7 +47,7 @@ class RelatedDataModelView:
     name: str
     label: str
     selected: bool
-    checked: bool
+    action: OdooRelationshipCaptureAction
     recommended: bool
     available: bool
     can_select: bool
@@ -155,6 +156,15 @@ def build_related_data_scope_view(
                     item.relation_model,
                     handling,
                 )
+    saved_action_by_model: dict[str, OdooRelationshipCaptureAction] = {}
+    if relationship_scope is not None:
+        for decision in relationship_scope.decisions:
+            if decision.action in {
+                OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                OdooRelationshipCaptureAction.MATCH_EXISTING,
+                OdooRelationshipCaptureAction.DO_NOT_CAPTURE,
+            }:
+                saved_action_by_model[decision.relation_model] = decision.action
     groups = tuple(
         RelatedDataGroupView(
             handling=handling,
@@ -169,7 +179,13 @@ def build_related_data_scope_view(
                         _fallback_model_label(relation_model),
                     ),
                     selected=relation_model in selected_models,
-                    checked=relation_model in selected_models,
+                    action=saved_action_by_model.get(
+                        relation_model,
+                        _recommended_action(
+                            handling,
+                            selected=relation_model in selected_models,
+                        ),
+                    ),
                     recommended=(
                         handling in {
                             RelatedDataHandling.INCLUDE_SUPPORTING,
@@ -275,3 +291,17 @@ def _fallback_model_label(model_name: str) -> str:
     """Keep missing catalogue labels readable without hiding their identity."""
 
     return model_name.rsplit(".", 1)[-1].replace("_", " ").title()
+
+
+def _recommended_action(
+    handling: RelatedDataHandling,
+    *,
+    selected: bool,
+) -> OdooRelationshipCaptureAction:
+    """Return the editable default; saving remains an explicit user action."""
+
+    if handling is RelatedDataHandling.REUSE_DESTINATION:
+        return OdooRelationshipCaptureAction.MATCH_EXISTING
+    if handling is RelatedDataHandling.INCLUDE_SUPPORTING or selected:
+        return OdooRelationshipCaptureAction.CAPTURE_LINKED
+    return OdooRelationshipCaptureAction.DO_NOT_CAPTURE

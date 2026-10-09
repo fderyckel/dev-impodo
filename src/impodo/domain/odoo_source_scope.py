@@ -50,6 +50,7 @@ _SELECTABLE_HANDLINGS = frozenset(
         RelatedDataHandling.INCLUDE_SUPPORTING,
         RelatedDataHandling.OPTIONAL_BUSINESS_DATA,
         RelatedDataHandling.REUSE_DESTINATION,
+        RelatedDataHandling.SEPARATE_PROCESS,
         RelatedDataHandling.NEEDS_DECISION,
     }
 )

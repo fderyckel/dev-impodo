@@ -808,6 +808,70 @@ class OdooDependencyClosureTests(unittest.TestCase):
         )
         self.assertEqual(planned.discovery_relationship_projection, ())
 
+    def test_match_existing_model_is_a_capture_graph_leaf(self) -> None:
+        workspace_id = "00000000-0000-0000-0000-000000000001"
+        schema = _schema(workspace_id)
+        partner = schema.models[0]
+        company_field = replace(
+            partner.fields[0],
+            name="company_id",
+            label="Company",
+            type="many2one",
+            relation="res.company",
+        )
+        account_field = replace(
+            partner.fields[0],
+            name="account_id",
+            label="Account",
+            type="many2one",
+            relation="account.account",
+        )
+        company = replace(
+            partner,
+            name="res.company",
+            label="Company",
+            fields=(*partner.fields, account_field),
+        )
+        account = replace(
+            partner,
+            name="account.account",
+            label="Account",
+        )
+        schema = replace(
+            schema,
+            models=(
+                replace(partner, fields=(*partner.fields, company_field)),
+                company,
+                account,
+            ),
+        )
+        allowed = frozenset({("res.partner", "company_id")})
+
+        root_plan = plan_odoo_source_capture(
+            _selection(workspace_id, schema),
+            schema,
+            allowed_relationships=allowed,
+            reference_models=frozenset({"res.company"}),
+        )
+        reference_plan = plan_odoo_source_capture(
+            _selection(
+                workspace_id,
+                schema,
+                model="res.company",
+                capture_role=OdooCaptureRole.LINKED_ONLY,
+            ),
+            schema,
+            allowed_relationships=allowed,
+            reference_models=frozenset({"res.company"}),
+        )
+
+        self.assertEqual(
+            tuple(item.name for item in root_plan.relationship_projection),
+            ("company_id",),
+        )
+        self.assertFalse(reference_plan.relationship_projection)
+        self.assertFalse(reference_plan.discovery_relationship_projection)
+
     def test_parent_one2many_discovers_children_without_duplicate_portable_link(self) -> None:
         models = ("mrp.bom", "mrp.bom.line")
         root = _request(

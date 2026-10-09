@@ -189,17 +189,22 @@ save. The operator selects **Save related-data decisions** to persist the checke
 models. `relationship_scope_decisions` expands each grouped choice into one
 `OdooRelationshipScopeDecision` per source field. The decision stores the
 source and related model, field, requiredness, handling, source-capture action,
-and recommendation-profile provenance. Every model included from this
-relationship proposal defaults to a linked-only capture plan; the operator may
-still review and change that plan.
+and recommendation-profile provenance. The grouped action is one of **Transfer
+linked records**, **Match existing records only**, or **Do not include**.
+Transfer keeps the related model on the discovery frontier. Match-existing
+includes reached identity evidence but removes that model's outgoing edges
+from the frontier and later fixes its destination handling to `reference_only`.
+Both included actions default to a linked-only capture plan; the operator may
+still review its bounded fields.
 
 After each save, authenticated schema refresh loads the newly included record
 types and `review_relationship_scope` compares every current schema edge with
 the saved field-level decisions. Newly discovered edges and edges whose
 relation, requiredness, handling, or profile provenance changed are shown as
 **Needs review**. Saved inclusions and exclusions remain reviewed. Automatic
-Odoo-managed, separate-process, and excluded-history outcomes need no extra
-click. The page repeats this review for each newly reached graph level and
+Odoo-managed and excluded-history outcomes need no extra click.
+Separate-process classifications are editable recommendations, not capability
+restrictions. The page repeats this review for each newly reached graph level and
 shows **Related-data review complete** only when no selectable edge remains
 pending. `OdooSourceCaptureService` applies the same completeness check before
 assessment or capture, so bypassing the browser cannot freeze an incomplete
@@ -219,8 +224,10 @@ A relationship-only change keeps current schema evidence but invalidates
 capture plans, manifests, key governance, mapping, and later evidence through
 `WorkspaceStateService.update_schema_scope`.
 
-The capture projection still includes relationship origins only when both
-models are selected. A separate relationship review lists eligible links
+The capture projection includes only reviewed relationship origins between
+selected models. A match-existing model contributes its reached records and
+identity fields but no outgoing discovery projection, so unrelated destination
+setup cannot enter the capture graph through it. A separate relationship review lists eligible links
 between selected models before linked capture assessment. The operator confirms
 that list as a group. This capture confirmation remains distinct from the
 persisted field-level source-scope decisions: the former confirms the exact
@@ -229,10 +236,11 @@ each related record type was included or omitted.
 
 [ADR-016](../../decisions/README.md#adr-016--odoo-relationship-scope-combines-generic-decisions-with-profiles)
 requires this Odoo-source discovery to extend the existing canonical
-relationship engine. The implemented profile boundary and unprofiled inclusion
-choice are the first slice. The second slice persists per-edge source-capture
-decisions while retaining the grouped UI. Stage 2 now performs iterative,
-explicit graph expansion and gates assessment and freeze on a complete review.
+relationship engine. The implemented profile boundary and unprofiled choices
+are the first slice. The next slices persist per-edge source-capture decisions,
+expose the three generic actions, and make match-existing models graph leaves
+while retaining the grouped UI. Stage 2 now performs iterative, explicit graph
+expansion and gates assessment and freeze on a complete review.
 Stage 4 completes each saved edge with its reviewed business key and
 destination policy, then derives the existing `RelationshipMapping` and
 `RelationshipResolver` values. Stage 5 uses the shared dependency extractor

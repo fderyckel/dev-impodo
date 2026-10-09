@@ -636,6 +636,26 @@ relationships. Expansion follows only approved edges, captures only reached
 records, deduplicates records, detects cycles, and enforces depth, row,
 company, and access bounds. It continues until every reached edge is resolved
 or a precise blocker is shown.
+
+The grouped Stage 2 control exposes three generic actions wherever metadata
+permits a source-scope choice:
+
+- **Transfer linked records** captures only records reached through the
+  selected edge and keeps that related model on the expansion frontier;
+- **Match existing records only** captures the reached records and portable
+  identity evidence, makes that model a graph leaf, and requires a no-write
+  destination policy; and
+- **Do not include** removes the edge and its otherwise unreachable related
+  records from the capture scope.
+
+The second action is not an instruction to assume that a destination match
+exists. Stage 4 must still prove an exact, unambiguous match using the reviewed
+business identity. It may neither create nor update that record type. Standard
+profiles select useful initial recommendations for these three actions, but
+categories such as **Separate business process** remain recommendations and
+do not hide the actions. This frontier rule applies to every model; it contains
+no BoM-, work-centre-, product-, company-, or calendar-specific traversal
+logic.
 `required=True` alone does not force source capture: matching an existing
 record, a verified destination default, or verified Odoo-managed behavior may
 satisfy a required value. A required relationship used by selected records
