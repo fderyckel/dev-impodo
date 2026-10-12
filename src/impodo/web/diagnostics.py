@@ -32,6 +32,10 @@ from starlette.datastructures import MutableHeaders
 from impodo.adapters.duckdb.request_timing import (
     collect_duckdb_request_timings,
 )
+from impodo.adapters.odoo.connectors import (
+    Json2ReadFailureDiagnostic,
+    observe_json2_read_failures,
+)
 from impodo.application.shared.build_contract import ApplicationBuildContract
 
 
@@ -408,6 +412,32 @@ class LocalDiagnosticRecorder:
             }
         )
 
+    def record_json2_read_failure(
+        self,
+        *,
+        request_id: str,
+        failure: Json2ReadFailureDiagnostic,
+    ) -> None:
+        """Record one exhausted read using only closed JSON-2 identifiers."""
+
+        self._write(
+            {
+                "event": "odoo_json2_read_failed",
+                "process_id": os.getpid(),
+                "request_id": _safe_request_id(request_id),
+                "odoo_model": _safe_name(failure.model, fallback="unknown_model"),
+                "json2_method": _safe_name(
+                    failure.method,
+                    fallback="unknown_method",
+                ),
+                "failure_category": _safe_name(
+                    failure.category,
+                    fallback="unreachable",
+                ),
+                "attempt_count": max(1, min(100, int(failure.attempt_count))),
+            }
+        )
+
     def record_operation_stage(
         self,
         operation: str,
@@ -525,6 +555,12 @@ class RequestDiagnosticsMiddleware:
         exception_class: str | None = None
         server_timings_ms: dict[str, float] = {}
 
+        def record_json2_failure(failure: Json2ReadFailureDiagnostic) -> None:
+            self.recorder.record_json2_read_failure(
+                request_id=request_id,
+                failure=failure,
+            )
+
         async def diagnostic_send(message) -> None:
             nonlocal status_code, server_timings_ms
             if message["type"] == "http.response.start":
@@ -547,7 +583,10 @@ class RequestDiagnosticsMiddleware:
                 )
             await send(message)
 
-        with collect_duckdb_request_timings() as database_timings:
+        with (
+            observe_json2_read_failures(record_json2_failure),
+            collect_duckdb_request_timings() as database_timings,
+        ):
             try:
                 await self.app(scope, receive, diagnostic_send)
             except BaseException as error:
@@ -874,6 +913,7 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
         "database_lock_retry_count": (0, 1_000_000),
         "completed_rows": (0, 9_223_372_036_854_775_807),
         "total_rows": (0, 9_223_372_036_854_775_807),
+        "attempt_count": (1, 100),
     }
     for field, (minimum, maximum) in integer_fields.items():
         parsed = _bounded_int(value.get(field), minimum, maximum)
@@ -886,6 +926,9 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
         "operation",
         "stage",
         "outcome",
+        "odoo_model",
+        "json2_method",
+        "failure_category",
     ):
         if field in value:
             candidate = _safe_name(str(value[field]), fallback="")

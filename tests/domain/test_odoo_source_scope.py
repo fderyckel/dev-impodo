@@ -4,10 +4,16 @@ import unittest
 
 from impodo.domain.odoo_relationship_profiles import OdooRelationshipProfile
 from impodo.domain.odoo_source_scope import (
+    RelatedDataDefaultAction,
     RelatedDataHandling,
+    is_writable_related_many2one,
     propose_related_odoo_data,
+    recommended_related_data_action,
     related_model_can_be_selected,
     related_model_should_default_linked_only,
+)
+from impodo.domain.odoo_source_capture import (
+    is_odoo_capture_relationship_field,
 )
 from impodo.domain.workspace.contracts import SchemaField, SchemaModel
 
@@ -87,6 +93,7 @@ class OdooSourceScopeTests(unittest.TestCase):
                     "Related value",
                     "x.value",
                     related=True,
+                    readonly=True,
                 ),
                 _relationship(
                     "x_company_value_id",
@@ -123,6 +130,53 @@ class OdooSourceScopeTests(unittest.TestCase):
                 "uom_id": RelatedDataHandling.INCLUDE_SUPPORTING,
                 "x_related_id": RelatedDataHandling.ODOO_MANAGED,
             },
+        )
+
+    def test_readonly_nonstored_unowned_collection_is_odoo_managed(self) -> None:
+        suggestions = propose_related_odoo_data(
+            (
+                SchemaModel(
+                    name="x.operation",
+                    label="Operation",
+                    fields=(
+                        _relationship(
+                            "default_option_ids",
+                            "Default Options",
+                            "x.option",
+                            field_type="one2many",
+                            readonly=True,
+                            stored=False,
+                        ),
+                        _relationship(
+                            "owned_line_ids",
+                            "Owned Lines",
+                            "x.line",
+                            field_type="one2many",
+                            relation_field="operation_id",
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        by_field = {item.field_name: item for item in suggestions}
+        self.assertIs(
+            by_field["default_option_ids"].handling,
+            RelatedDataHandling.ODOO_MANAGED,
+        )
+        self.assertFalse(
+            related_model_can_be_selected(
+                by_field["default_option_ids"].handling
+            )
+        )
+        self.assertIs(
+            by_field["owned_line_ids"].handling,
+            RelatedDataHandling.NEEDS_DECISION,
+        )
+        self.assertTrue(
+            related_model_can_be_selected(
+                by_field["owned_line_ids"].handling
+            )
         )
 
     def test_unit_category_is_supporting_data_when_discovered(self) -> None:
@@ -162,10 +216,10 @@ class OdooSourceScopeTests(unittest.TestCase):
             suggestions[0].recommendation_profile_id,
             "impodo.standard.odoo.relationships",
         )
-        self.assertEqual(suggestions[0].recommendation_profile_version, 2)
+        self.assertEqual(suggestions[0].recommendation_profile_version, 4)
         self.assertTrue(suggestions[0].identity_scope)
 
-    def test_bom_children_are_supporting_and_workcenters_stay_contextual(self) -> None:
+    def test_manufacturing_profile_transfers_owned_rows_and_workcenters(self) -> None:
         suggestions = propose_related_odoo_data(
             (
                 SchemaModel(
@@ -207,7 +261,7 @@ class OdooSourceScopeTests(unittest.TestCase):
             {
                 "bom_line_ids": RelatedDataHandling.INCLUDE_SUPPORTING,
                 "operation_ids": RelatedDataHandling.INCLUDE_SUPPORTING,
-                "workcenter_id": RelatedDataHandling.NEEDS_DECISION,
+                "workcenter_id": RelatedDataHandling.TRANSFER_RELATED,
             },
         )
 
@@ -286,6 +340,217 @@ class OdooSourceScopeTests(unittest.TestCase):
             organization_profile.version,
         )
 
+    def test_direction_owns_the_generic_default_action(self) -> None:
+        suggestions = propose_related_odoo_data(
+            (
+                SchemaModel(
+                    name="x.document",
+                    label="Document",
+                    fields=(
+                        _relationship("owner_id", "Owner", "x.owner"),
+                        _relationship(
+                            "line_ids",
+                            "Lines",
+                            "x.line",
+                            field_type="one2many",
+                        ),
+                        _relationship(
+                            "tag_ids",
+                            "Tags",
+                            "x.tag",
+                            field_type="many2many",
+                        ),
+                        _relationship(
+                            "bom_id",
+                            "Bill of Material",
+                            "mrp.bom",
+                        ),
+                    ),
+                ),
+                SchemaModel(
+                    name="resource.calendar",
+                    label="Working Hours",
+                    fields=(
+                        _relationship(
+                            "attendance_ids",
+                            "Working Time",
+                            "resource.calendar.attendance",
+                            field_type="one2many",
+                            relation_field="calendar_id",
+                            computed=True,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        actions = {
+            item.field_name: recommended_related_data_action(item)
+            for item in suggestions
+        }
+        self.assertEqual(
+            actions,
+            {
+                "attendance_ids": RelatedDataDefaultAction.CAPTURE_LINKED,
+                "bom_id": RelatedDataDefaultAction.MATCH_EXISTING,
+                "line_ids": RelatedDataDefaultAction.DO_NOT_CAPTURE,
+                "owner_id": RelatedDataDefaultAction.PRESERVE_LINKED,
+                "tag_ids": RelatedDataDefaultAction.DO_NOT_CAPTURE,
+            },
+        )
+
+    def test_stored_writable_related_many2one_is_capturable(self) -> None:
+        working_time = _relationship(
+            "resource_calendar_id",
+            "Working Hours",
+            "resource.calendar",
+            related=True,
+            stored=True,
+            computed=True,
+        )
+        next_activity = _relationship(
+            "activity_type_id",
+            "Next Activity Type",
+            "mail.activity.type",
+            related=True,
+            stored=False,
+            computed=True,
+        )
+        readonly_related = _relationship(
+            "currency_id",
+            "Currency",
+            "res.currency",
+            related=True,
+            readonly=True,
+            stored=True,
+            computed=True,
+        )
+        suggestions = propose_related_odoo_data(
+            (
+                SchemaModel(
+                    name="mrp.workcenter",
+                    label="Work Center",
+                    fields=(working_time, next_activity, readonly_related),
+                ),
+            ),
+        )
+        by_field = {item.field_name: item for item in suggestions}
+
+        self.assertTrue(is_writable_related_many2one(working_time))
+        self.assertIs(
+            by_field["resource_calendar_id"].handling,
+            RelatedDataHandling.TRANSFER_RELATED,
+        )
+        self.assertIs(
+            by_field["activity_type_id"].handling,
+            RelatedDataHandling.ODOO_MANAGED,
+        )
+        self.assertIs(
+            by_field["currency_id"].handling,
+            RelatedDataHandling.ODOO_MANAGED,
+        )
+        self.assertTrue(
+            is_odoo_capture_relationship_field(
+                working_time,
+                selected_models={"mrp.workcenter", "resource.calendar"},
+            )
+        )
+        self.assertFalse(
+            is_odoo_capture_relationship_field(
+                next_activity,
+                selected_models={"mrp.workcenter", "mail.activity.type"},
+            )
+        )
+        self.assertFalse(
+            is_odoo_capture_relationship_field(
+                readonly_related,
+                selected_models={"mrp.workcenter", "res.currency"},
+            )
+        )
+
+    def test_standard_profile_owns_workcenter_resource_and_calendar_lines(
+        self,
+    ) -> None:
+        suggestions = propose_related_odoo_data(
+            (
+                SchemaModel(
+                    name="mrp.workcenter",
+                    label="Work Center",
+                    fields=(
+                        _relationship(
+                            "resource_id",
+                            "Resource",
+                            "resource.resource",
+                            required=True,
+                        ),
+                        _relationship(
+                            "resource_calendar_id",
+                            "Working Hours",
+                            "resource.calendar",
+                            related=True,
+                            stored=True,
+                            computed=True,
+                        ),
+                    ),
+                ),
+                SchemaModel(
+                    name="resource.calendar",
+                    label="Working Hours",
+                    fields=(
+                        _relationship(
+                            "attendance_ids",
+                            "Working Time",
+                            "resource.calendar.attendance",
+                            field_type="one2many",
+                            relation_field="calendar_id",
+                            computed=True,
+                        ),
+                        _relationship(
+                            "attendance_ids_1st_week",
+                            "Working Time 1st Week",
+                            "resource.calendar.attendance",
+                            field_type="one2many",
+                            relation_field="calendar_id",
+                            computed=True,
+                            has_inverse=True,
+                        ),
+                        _relationship(
+                            "attendance_ids_2nd_week",
+                            "Working Time 2nd Week",
+                            "resource.calendar.attendance",
+                            field_type="one2many",
+                            relation_field="calendar_id",
+                            computed=True,
+                            has_inverse=True,
+                        ),
+                    ),
+                ),
+            ),
+            include_selected=True,
+        )
+
+        by_field = {item.field_name: item for item in suggestions}
+        self.assertIs(
+            by_field["resource_id"].handling,
+            RelatedDataHandling.ODOO_MANAGED,
+        )
+        self.assertIs(
+            by_field["resource_calendar_id"].handling,
+            RelatedDataHandling.TRANSFER_RELATED,
+        )
+        self.assertIs(
+            by_field["attendance_ids"].handling,
+            RelatedDataHandling.INCLUDE_SUPPORTING,
+        )
+        self.assertIs(
+            by_field["attendance_ids_1st_week"].handling,
+            RelatedDataHandling.ODOO_MANAGED,
+        )
+        self.assertIs(
+            by_field["attendance_ids_2nd_week"].handling,
+            RelatedDataHandling.ODOO_MANAGED,
+        )
+
 
 def _relationship(
     name: str,
@@ -298,6 +563,10 @@ def _relationship(
     exportable: bool = True,
     related: bool = False,
     company_dependent: bool = False,
+    relation_field: str | None = None,
+    stored: bool | None = None,
+    computed: bool | None = None,
+    has_inverse: bool | None = None,
 ) -> SchemaField:
     return SchemaField(
         name=name,
@@ -306,8 +575,11 @@ def _relationship(
         required=required,
         readonly=readonly,
         relation=relation,
-        relation_field=None,
+        relation_field=relation_field,
         selection=(),
+        stored=stored,
+        computed=computed,
+        has_inverse=has_inverse,
         related=related,
         company_dependent=company_dependent,
         exportable=exportable,

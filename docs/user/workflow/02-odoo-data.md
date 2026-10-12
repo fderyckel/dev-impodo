@@ -59,29 +59,39 @@ same secret. Production continues to require a separate limited write key.
    for each supported writable record type. Change a rule when the proposed
    identity does not fit the migration, resolve every **Needs attention** card,
    then confirm the complete set once.
-8. For an Odoo source, confirm the eligible fields needed by the bounded source
-   capture.
+8. For an Odoo source, continue to **Source data**. Impodo prepares the bounded
+   relationship and field plans there and asks only about named exceptions.
 
-For an Odoo source, select only the fields that the migration needs. The
-**Records per Odoo request** choice changes how Impodo batches the read; it
-does not add or remove records. Numeric Odoo record identifiers and modification
+For an Odoo source, Impodo gives main records and profiled full-transfer
+children their eligible business values. Existing-only support receives its
+identity, while a minimum-create link receives identity and required values.
+Open **Edit saved capture plans** only to change that protected field surface,
+add a root filter, or change **Records per Odoo request**. Request size changes
+batching, not membership. Numeric Odoo record identifiers and modification
 timestamps remain protected provenance and are not selectable source values.
 
-![Authenticated Odoo source capture plan with fictional eligible Product fields.](../../images/user/08g-odoo-source-eligible-fields.png)
+![Current authenticated Odoo capture-plan editor with fictional Product fields.](../../images/user/08g-odoo-source-eligible-fields.png)
 
-The supporting-data review uses the direct relationships in the captured live
-Odoo schema. It is a preview, not another record-type picker. It does not add a
-related record type to the top-level transfer or make the whole related model
-eligible for creation. Stage 3, **Match data**, proves which source links are
-populated and applies the exact outcome.
+The Odoo supporting-data review uses direct relationships in the captured live
+schema. It keeps automatically reached support separate from the main record
+types selected by the data manager. Depending on relationship direction and a
+versioned profile, it may retain a linked value with minimum-create evidence,
+transfer reached business records in full, require an existing destination
+match, or leave an unrelated collection out. Stage 3, **Match data**, proves
+which source links are populated and applies the currently published outcome.
+If a later Source data rebuild cannot finish an Odoo read, these selected main
+record types remain available in the same project for another attempt.
 
 **Keep linked value** first reuses a matching destination record. When no match
 exists, Impodo prepares only the portable identity and required values needed
 to create the related record; it does not follow the rest of that record's
 relationship graph. **Use existing destination records only** protects
 destination setup such as Company: a missing match stops the load instead of
-creating or updating that setup. Moving related records as migration data remains a
-separate, explicit migration-scope decision.
+creating or updating that setup. Exact standard-profile relationships may
+already recommend moving the reached related records as migration data. That
+recommendation is visible and can be changed under **Advanced**; custom
+required collections and incompatible policies remain named exceptions with
+no preselected answer.
 
 ![Impodo previewing Keep linked value for direct Product relationships.](../../images/user/08c-odoo-supporting-data.png)
 

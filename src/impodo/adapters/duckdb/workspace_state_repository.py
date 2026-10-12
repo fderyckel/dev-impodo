@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 import json
 from pathlib import Path
@@ -9,11 +10,17 @@ import shutil
 
 import duckdb
 
+from impodo.domain.odoo_capture import OdooCaptureSelection
 from impodo.domain.odoo_relationship_scope import (
     OdooRelationshipScope,
     OdooRelationshipScopeError,
 )
+from impodo.domain.odoo_source_capture import (
+    OdooSourceCaptureConfigurationError,
+    validate_odoo_capture_selection_reference,
+)
 from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.contracts import OdooModelCatalog, OdooSchemaCatalog
 from impodo.domain.workspace.workbench import (
     WorkspaceState,
     WorkspaceStateConflictError,
@@ -425,8 +432,23 @@ class WorkspaceStateRepository(DuckDbRepository):
         expected_revision: int,
         actor: Actor,
         relationship_scope: OdooRelationshipScope | None = None,
+        schema_catalog: OdooSchemaCatalog | None = None,
+        capture_selections: Sequence[OdooCaptureSelection] | None = None,
+        verify_relationship_scope: bool = False,
+        expected_relationship_scope_content_hash: str | None = None,
+        expected_model_catalog_content_hash: str | None = None,
     ) -> None:
-        """Replace Odoo model and edge scope, then invalidate dependents."""
+        """Atomically replace Odoo scope and optional prepared capture evidence."""
+
+        if capture_selections is not None and (
+            schema_catalog is None
+            or not verify_relationship_scope
+            or expected_model_catalog_content_hash is None
+        ):
+            raise WorkspaceStateError(
+                "Prepared Odoo capture plans require checked schema, scope, "
+                "and model evidence"
+            )
 
         database_path = self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
@@ -447,6 +469,63 @@ class WorkspaceStateRepository(DuckDbRepository):
                     raise WorkspaceStateConflictError(
                         "The workspace was modified by another request"
                     )
+                if verify_relationship_scope:
+                    scope_row = connection.execute(
+                        """
+                        SELECT revision.content_hash
+                          FROM odoo_relationship_scope_current AS current_scope
+                          JOIN odoo_relationship_scope_revision AS revision
+                            ON revision.scope_id = current_scope.scope_id
+                           AND revision.version = current_scope.version
+                         WHERE current_scope.singleton_id = 1
+                        """
+                    ).fetchone()
+                    current_scope_hash = (
+                        str(scope_row[0]) if scope_row is not None else None
+                    )
+                    if (
+                        current_scope_hash
+                        != expected_relationship_scope_content_hash
+                    ):
+                        raise WorkspaceStateConflictError(
+                            "Odoo relationship decisions changed while capture "
+                            "was prepared"
+                        )
+                if expected_model_catalog_content_hash is not None:
+                    model_catalog_row = connection.execute(
+                        """
+                        SELECT catalog_json
+                          FROM odoo_model_catalog
+                         WHERE singleton_id = 1
+                        """
+                    ).fetchone()
+                    current_model_catalog_hash = (
+                        OdooModelCatalog.from_json(
+                            str(model_catalog_row[0])
+                        ).content_hash
+                        if model_catalog_row is not None
+                        else None
+                    )
+                    if (
+                        current_model_catalog_hash
+                        != expected_model_catalog_content_hash
+                    ):
+                        raise WorkspaceStateConflictError(
+                            "Odoo model discovery changed while capture was prepared"
+                        )
+                if capture_selections is not None:
+                    assert schema_catalog is not None
+                    for selection in capture_selections:
+                        try:
+                            validate_odoo_capture_selection_reference(
+                                selection,
+                                schema_catalog,
+                            )
+                        except OdooSourceCaptureConfigurationError as error:
+                            raise WorkspaceStateError(
+                                "Prepared Odoo capture plans do not match the "
+                                "prepared schema"
+                            ) from error
                 model_scope_changed = (
                     tuple(json.loads(str(current[1])))
                     != workspace.intended_models
@@ -456,28 +535,79 @@ class WorkspaceStateRepository(DuckDbRepository):
                     connection,
                     relationship_scope,
                 )
-                if model_scope_changed:
+                if model_scope_changed and schema_catalog is None:
                     connection.execute("DELETE FROM odoo_schema_catalog")
                 connection.execute("DELETE FROM odoo_capture_selection_current")
                 connection.execute("DELETE FROM odoo_capture_manifest_current")
                 connection.execute("DELETE FROM schema_governance_current")
                 connection.execute("DELETE FROM mapping_current")
+                if schema_catalog is not None:
+                    connection.execute(
+                        """
+                        INSERT OR REPLACE INTO odoo_schema_catalog
+                        VALUES (1, ?)
+                        """,
+                        [schema_catalog.to_json()],
+                    )
+                if capture_selections is not None:
+                    for selection in capture_selections:
+                        connection.execute(
+                            """
+                            INSERT INTO odoo_capture_selection_revision
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            [
+                                selection.selection_id,
+                                selection.version,
+                                selection.content_hash,
+                                selection.model,
+                                selection.created_at.isoformat(),
+                                selection.created_by,
+                                selection.to_json(),
+                            ],
+                        )
+                        connection.execute(
+                            """
+                            INSERT INTO odoo_capture_selection_current
+                            VALUES (?, ?, ?)
+                            """,
+                            [
+                                selection.model,
+                                selection.selection_id,
+                                selection.version,
+                            ],
+                        )
+                    connection.execute("DELETE FROM source_selection")
+                    connection.execute("DELETE FROM source_snapshot_current")
+                    connection.execute("DELETE FROM derived_entity_plan_current")
                 self._invalidate_canonical_staging(
                     connection,
                     reason="SCHEMA_SCOPE_CHANGED",
+                )
+                capture_detail = (
+                    f"{len(capture_selections)} capture plan(s) published; "
+                    if capture_selections is not None
+                    else ""
                 )
                 self._insert_audit(
                     connection,
                     workspace,
                     event_type=(
-                        "SCHEMA_SCOPE_UPDATED"
-                        if model_scope_changed
-                        else "ODOO_RELATIONSHIP_SCOPE_UPDATED"
+                        "ODOO_CAPTURE_PLAN_PUBLISHED"
+                        if capture_selections is not None
+                        else (
+                            "SCHEMA_SCOPE_UPDATED"
+                            if model_scope_changed
+                            else "ODOO_RELATIONSHIP_SCOPE_UPDATED"
+                        )
                     ),
                     detail=(
                         f"{len(workspace.intended_models)} permitted model(s); "
                         f"{len(relationship_scope.decisions) if relationship_scope else 0} "
-                        "relationship decision(s); active capture and mapping "
+                        "relationship decision(s); "
+                        f"{'prepared schema published; ' if schema_catalog else ''}"
+                        f"{capture_detail}"
+                        "active capture and mapping "
                         "evidence invalidated"
                     ),
                     actor=actor,

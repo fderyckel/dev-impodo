@@ -18,6 +18,8 @@ added to ``OdooReadConnector``. Post-write checks use the separate closed
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from io import StringIO
@@ -27,7 +29,7 @@ from pathlib import Path
 import re
 import socket
 import time
-from typing import Any, Callable, Mapping, Protocol, Sequence
+from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.parse import urlparse
@@ -56,6 +58,16 @@ _MAX_IDENTITY_MODELS = 100
 _MAX_IDENTITY_COMPANIES = 1_000
 STABLE_ODOO_LANGUAGE = "en_US"
 STABLE_ODOO_TIMEZONE = "UTC"
+_JSON2_READ_METHODS = frozenset(
+    {
+        "context_get",
+        "default_get",
+        "fields_get",
+        "has_access",
+        "search_read",
+    }
+)
+_JSON2_FAILURE_CATEGORIES = frozenset({"timeout", "unreachable"})
 
 
 from impodo.domain.odoo.contracts import (
@@ -76,6 +88,69 @@ from impodo.domain.odoo.contracts import (
     metadata_snapshot_payload,
     record_snapshot_json,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class Json2ReadFailureDiagnostic:
+    """Bounded, non-secret evidence for one exhausted JSON-2 read."""
+
+    model: str
+    method: str
+    category: str
+    attempt_count: int
+
+    def __post_init__(self) -> None:
+        if _TECHNICAL_MODEL.fullmatch(self.model) is None:
+            raise ValueError("JSON-2 failure model is invalid")
+        if self.method not in _JSON2_READ_METHODS:
+            raise ValueError("JSON-2 failure method is invalid")
+        if self.category not in _JSON2_FAILURE_CATEGORIES:
+            raise ValueError("JSON-2 failure category is invalid")
+        if not 1 <= self.attempt_count <= 100:
+            raise ValueError("JSON-2 failure attempt count is invalid")
+
+    @property
+    def user_message(self) -> str:
+        """Return a safe, actionable message without transport details."""
+
+        outcome = (
+            "timed out"
+            if self.category == "timeout"
+            else "was unreachable"
+        )
+        attempt_label = "attempt" if self.attempt_count == 1 else "attempts"
+        return (
+            f"Odoo JSON-2 {self.method} read for {self.model} {outcome} "
+            f"after {self.attempt_count} {attempt_label}"
+        )
+
+
+Json2ReadFailureObserver = Callable[[Json2ReadFailureDiagnostic], None]
+_JSON2_READ_FAILURE_OBSERVER: ContextVar[
+    Json2ReadFailureObserver | None
+] = ContextVar("impodo_json2_read_failure_observer", default=None)
+
+
+@contextmanager
+def observe_json2_read_failures(
+    observer: Json2ReadFailureObserver,
+) -> Iterator[None]:
+    """Observe bounded JSON-2 failures within the current execution context."""
+
+    token = _JSON2_READ_FAILURE_OBSERVER.set(observer)
+    try:
+        yield
+    finally:
+        _JSON2_READ_FAILURE_OBSERVER.reset(token)
+
+
+class _Json2TransportFailure(ConnectorTransportError):
+    """Internal transport failure retaining only a safe category and count."""
+
+    def __init__(self, *, category: str, attempt_count: int) -> None:
+        super().__init__("Odoo JSON-2 read timed out or was unreachable")
+        self.category = category
+        self.attempt_count = attempt_count
 
 
 class SnapshotConnector:
@@ -371,15 +446,7 @@ Transport = Callable[
 class Json2ReadConnector:
     """JSON-2 adapter with a deliberately closed read surface."""
 
-    _READ_METHODS = frozenset(
-        {
-            "context_get",
-            "default_get",
-            "fields_get",
-            "has_access",
-            "search_read",
-        }
-    )
+    _READ_METHODS = _JSON2_READ_METHODS
 
     def __init__(
         self,
@@ -992,11 +1059,27 @@ class Json2ReadConnector:
             )
         encoded_model = quote(model, safe=".")
         url = f"{self._config.base_url}/json/2/{encoded_model}/{quote(method, safe='')}"
-        status, response = self._request_url(
-            url,
-            method="POST",
-            body=canonical_json_bytes(dict(payload)),
-        )
+        try:
+            status, response = self._request_url(
+                url,
+                method="POST",
+                body=canonical_json_bytes(dict(payload)),
+            )
+        except _Json2TransportFailure as error:
+            failure = Json2ReadFailureDiagnostic(
+                model=model,
+                method=method,
+                category=error.category,
+                attempt_count=error.attempt_count,
+            )
+            observer = _JSON2_READ_FAILURE_OBSERVER.get()
+            if observer is not None:
+                try:
+                    observer(failure)
+                except Exception:
+                    # Diagnostics must never replace the connector failure.
+                    pass
+            raise ConnectorTransportError(failure.user_message) from error
         if status != 200:
             if status in {401, 403}:
                 raise ConnectorAuthenticationError(
@@ -1052,8 +1135,9 @@ class Json2ReadConnector:
                     )
             except (TimeoutError, socket.timeout, URLError) as exc:
                 if attempt >= self._config.retries:
-                    raise ConnectorTransportError(
-                        "Odoo JSON-2 read timed out or was unreachable"
+                    raise _Json2TransportFailure(
+                        category=_json2_transport_failure_category(exc),
+                        attempt_count=attempt + 1,
                     ) from exc
                 time.sleep(0.05 * (2**attempt))
                 continue
@@ -1062,6 +1146,19 @@ class Json2ReadConnector:
                 continue
             return status, payload
         raise ConnectorTransportError("Odoo JSON-2 read failed")
+
+
+def _json2_transport_failure_category(
+    error: TimeoutError | socket.timeout | URLError,
+) -> str:
+    """Classify a transport exception without retaining its message or URL."""
+
+    if isinstance(error, (TimeoutError, socket.timeout)):
+        return "timeout"
+    reason = error.reason
+    if isinstance(reason, (TimeoutError, socket.timeout)):
+        return "timeout"
+    return "unreachable"
 
 
 class Json2CaptureIdentityProbe:

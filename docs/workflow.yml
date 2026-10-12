@@ -118,6 +118,7 @@ stages:
       - src/impodo/web/templates/workspace_odoo_capture_progress.html
     code_references:
       - src/impodo/application/source_workspace_service.py::SourceWorkspaceService
+      - src/impodo/application/source_workspace_service.py::SourceWorkspaceService.build_guided_odoo_capture_selections
       - src/impodo/application/source_workspace_service.py::SourceWorkspaceService.freeze_selection
       - src/impodo/application/browser_queries.py::BrowserQueryService.get_source_page
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_rules
@@ -150,6 +151,8 @@ stages:
       - src/impodo/web/source_file_commands.py::remove_source_file
     tests:
       - tests/integration/duckdb/test_workspace.py
+      - tests/application/test_source_workspace_service.py
+      - tests/integration/duckdb/test_atomic_odoo_capture_publication.py
       - tests/application/data_version/test_source_worker.py
       - tests/domain/data_version/test_source_snapshot.py
       - tests/integration/odoo/test_source_capture.py

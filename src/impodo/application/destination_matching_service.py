@@ -34,6 +34,7 @@ from impodo.domain.odoo.contracts import (
 )
 from impodo.domain.odoo_provenance import OdooOriginBatch
 from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from impodo.domain.odoo_source_scope import is_writable_related_many2one
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.models import (
     OdooReadIdentity,
@@ -218,14 +219,19 @@ def _is_transferable_relationship_field(
     links as fields that a generic transfer should write.
     """
 
+    writable_related_many2one = is_writable_related_many2one(field)
     return bool(
         field.type in {"many2one", "many2many"}
         and field.relation in selected_model_names
         and field.stored is not False
-        and field.related is not True
+        and (field.related is not True or writable_related_many2one)
         and field.company_dependent is False
         and field.exportable is True
-        and not (field.computed is True and field.has_inverse is not True)
+        and not (
+            field.computed is True
+            and field.has_inverse is not True
+            and not writable_related_many2one
+        )
         and not (field.readonly and field.has_inverse is not True)
     )
 

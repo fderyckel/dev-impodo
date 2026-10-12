@@ -319,8 +319,14 @@ def _schema_model_choices(
     catalog: OdooModelCatalog | None,
     *,
     suggested_models: frozenset[str] = frozenset(),
+    selected_models: frozenset[str] | None = None,
+    automatic_supporting_models: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, object], ...]:
-    selected = set(workspace_state.intended_models)
+    selected = set(
+        workspace_state.intended_models
+        if selected_models is None
+        else selected_models
+    )
     models = list(catalog.models) if catalog else []
     known = {model.name for model in models}
     models.extend(
@@ -343,6 +349,10 @@ def _schema_model_choices(
             ),
             "suggested": (
                 model.name in suggested_models and model.name not in selected
+            ),
+            "automatic_supporting": (
+                model.name in automatic_supporting_models
+                and model.name not in selected
             ),
             "in_focus": _model_matches_application_scope(
                 model,
@@ -575,10 +585,29 @@ def _render_schema(
         for item in request.query_params.getlist("suggested_model")
         if item in supporting_model_plan["suggestable_model_names"]
     )
+    relationship_scope = context.queries.get_current_odoo_relationship_scope(
+        workspace_id
+    )
+    if relationship_scope is None:
+        selected_models = frozenset(workspace_state.intended_models)
+        automatic_supporting_models = frozenset()
+    elif relationship_scope.contract_version >= 2:
+        selected_models = frozenset(relationship_scope.root_models)
+        automatic_supporting_models = (
+            frozenset(workspace_state.intended_models) - selected_models
+        )
+    else:
+        automatic_supporting_models = relationship_scope.included_models
+        selected_models = (
+            frozenset(workspace_state.intended_models)
+            - automatic_supporting_models
+        )
     model_choices = _schema_model_choices(
         workspace_state,
         model_catalog,
         suggested_models=suggested_models,
+        selected_models=selected_models,
+        automatic_supporting_models=automatic_supporting_models,
     )
     return _render(
         request,
@@ -603,6 +632,8 @@ def _render_schema(
         suggested_model_count=sum(
             1 for choice in model_choices if choice["suggested"]
         ),
+        odoo_root_model_count=len(selected_models),
+        automatic_supporting_model_count=len(automatic_supporting_models),
         schema=schema,
         read_credential_present=read_credential_present,
         schema_credential_current=schema_credential_current,

@@ -25,14 +25,26 @@ from typing import Protocol, Sequence
 from uuid import UUID, uuid4
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.odoo_capture import (
+    OdooCaptureContractError,
+    OdooCaptureRole,
+    OdooCaptureSelection,
+    require_consistent_odoo_capture_selection_set,
+)
 from impodo.domain.odoo_relationship_scope import (
     ODOO_RELATIONSHIP_SCOPE_CONTRACT_VERSION,
+    OdooRelationshipCaptureAction,
     OdooRelationshipScope,
     OdooRelationshipScopeDecision,
+)
+from impodo.domain.odoo_source_capture import (
+    OdooSourceCaptureConfigurationError,
+    validate_odoo_capture_selection_reference,
 )
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.run.setup import OdooConnectionMode, validate_odoo_base_url
 from impodo.domain.shared.models import target_identity_hash
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaOrigin
 from impodo.domain.workspace.destination_matching import DestinationMatchPlan
 from impodo.domain.workspace.transfer_order import TransferOrderPlan
 from impodo.domain.workspace.transfer_review import (
@@ -40,7 +52,6 @@ from impodo.domain.workspace.transfer_review import (
     TransferReviewPackage,
 )
 from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
-
 
 class WorkspaceStateError(ValueError):
     """Base error for invalid mutable workspace operations."""
@@ -475,8 +486,13 @@ class WorkspaceStateRepository(Protocol):
         expected_revision: int,
         actor: Actor,
         relationship_scope: OdooRelationshipScope | None = None,
+        schema_catalog: OdooSchemaCatalog | None = None,
+        capture_selections: Sequence[OdooCaptureSelection] | None = None,
+        verify_relationship_scope: bool = False,
+        expected_relationship_scope_content_hash: str | None = None,
+        expected_model_catalog_content_hash: str | None = None,
     ) -> None:
-        """Replace Odoo model and relationship scope, then invalidate dependents."""
+        """Atomically replace Odoo scope and optional prepared capture evidence."""
         ...
 
     def record_credential_event(
@@ -1157,6 +1173,12 @@ class WorkspaceStateService:
             OdooRelationshipScopeDecision
         ] | None = None,
         relationship_root_models: Sequence[str] | None = None,
+        relationship_explicit_actions: Sequence[
+            tuple[str, OdooRelationshipCaptureAction | str]
+        ] | None = None,
+        schema_catalog: OdooSchemaCatalog | None = None,
+        capture_selections: Sequence[OdooCaptureSelection] | None = None,
+        expected_model_catalog_content_hash: str | None = None,
     ) -> WorkspaceState:
         """Set the exact Odoo models that schema discovery may read and map.
 
@@ -1184,8 +1206,24 @@ class WorkspaceStateService:
         models = _clean_choices(permitted_models)
         if not models:
             raise WorkspaceStateError("Add at least one permitted technical Odoo model")
+        try:
+            prepared_selections = (
+                None
+                if capture_selections is None
+                else require_consistent_odoo_capture_selection_set(
+                    tuple(capture_selections)
+                )
+            )
+        except OdooCaptureContractError as error:
+            raise WorkspaceStateError(str(error)) from error
+        publishing_capture = prepared_selections is not None
         relationship_scope: OdooRelationshipScope | None = None
+        current_scope: OdooRelationshipScope | None = None
         relationship_scope_changed = False
+        if relationship_decisions is None and relationship_explicit_actions is not None:
+            raise WorkspaceStateError(
+                "Odoo relationship overrides require relationship decisions"
+            )
         if relationship_decisions is not None:
             decisions = tuple(
                 sorted(
@@ -1213,10 +1251,32 @@ class WorkspaceStateService:
                     )
                 )
             )
+            explicit_actions = tuple(
+                sorted(
+                    (
+                        (
+                            str(model),
+                            OdooRelationshipCaptureAction(action),
+                        )
+                        for model, action in (
+                            relationship_explicit_actions
+                            if relationship_explicit_actions is not None
+                            else (
+                                current_scope.explicit_actions_by_model
+                                if current_scope is not None
+                                and current_scope.contract_version >= 6
+                                else ()
+                            )
+                        )
+                    ),
+                    key=lambda item: item[0],
+                )
+            )
             relationship_scope_changed = bool(
                 current_scope is None
                 or current_scope.decisions != decisions
                 or current_scope.root_models != roots
+                or current_scope.explicit_actions_by_model != explicit_actions
                 or current_scope.contract_version
                 != ODOO_RELATIONSHIP_SCOPE_CONTRACT_VERSION
             )
@@ -1234,12 +1294,22 @@ class WorkspaceStateService:
                     ),
                     decisions=decisions,
                     root_models=roots,
+                    explicit_actions_by_model=explicit_actions,
                     recorded_at=_now(),
                     recorded_by=actor.identity.display_name,
                 )
             else:
                 relationship_scope = current_scope
-        if models == workspace.intended_models and not relationship_scope_changed:
+        if publishing_capture and relationship_decisions is None:
+            raise WorkspaceStateError(
+                "Prepared Odoo capture plans require reviewed relationship decisions"
+            )
+        if (
+            models == workspace.intended_models
+            and not relationship_scope_changed
+            and schema_catalog is None
+            and not publishing_capture
+        ):
             return workspace
         updated = replace(
             workspace,
@@ -1256,11 +1326,102 @@ class WorkspaceStateService:
             revision=workspace.revision + 1,
             updated_at=_now(),
         )
+        if schema_catalog is not None:
+            catalog_models = tuple(
+                sorted(model.name for model in schema_catalog.models)
+            )
+            if (
+                schema_catalog.workspace_id != workspace_id
+                or catalog_models != tuple(sorted(models))
+                or schema_catalog.connection_target_hash
+                != target_identity_hash(
+                    connection_mode=(
+                        saved.odoo_connection_mode.value
+                        if saved.odoo_connection_mode is not None
+                        else ""
+                    ),
+                    base_url=saved.odoo_base_url,
+                    database=saved.odoo_database,
+                )
+                or schema_catalog.origin is not SchemaOrigin.LIVE_API
+                or schema_catalog.pending_refresh is not None
+            ):
+                raise WorkspaceStateError(
+                    "Prepared Odoo schema does not match the new model scope"
+                )
+            if expected_model_catalog_content_hash is None:
+                raise WorkspaceStateError(
+                    "Prepared Odoo schema requires current model discovery evidence"
+                )
+            if re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                expected_model_catalog_content_hash,
+            ) is None:
+                raise WorkspaceStateError(
+                    "Prepared Odoo model discovery evidence is invalid"
+                )
+        if publishing_capture:
+            if workspace.source_mode is not SourceMode.ODOO:
+                raise WorkspaceStateError(
+                    "Only Odoo-source workspaces can publish Odoo capture plans"
+                )
+            if schema_catalog is None or relationship_scope is None:
+                raise WorkspaceStateError(
+                    "Prepared Odoo capture plans require schema and "
+                    "relationship evidence"
+                )
+            assert prepared_selections
+            selection_models = tuple(item.model for item in prepared_selections)
+            if selection_models != tuple(sorted(models)):
+                raise WorkspaceStateError(
+                    "Prepared Odoo capture plans do not cover the new model scope"
+                )
+            if (
+                len({item.selection_id for item in prepared_selections})
+                != len(prepared_selections)
+                or len({item.content_hash for item in prepared_selections})
+                != len(prepared_selections)
+            ):
+                raise WorkspaceStateError(
+                    "Prepared Odoo capture plans must have unique identities"
+                )
+            root_models = frozenset(relationship_scope.root_models)
+            for selection in prepared_selections:
+                expected_role = (
+                    OdooCaptureRole.ROOT
+                    if selection.model in root_models
+                    else OdooCaptureRole.LINKED_ONLY
+                )
+                if selection.capture_role is not expected_role:
+                    raise WorkspaceStateError(
+                        "Prepared Odoo capture roles do not match the "
+                        "relationship scope"
+                    )
+                try:
+                    validate_odoo_capture_selection_reference(
+                        selection,
+                        schema_catalog,
+                    )
+                except OdooSourceCaptureConfigurationError as error:
+                    raise WorkspaceStateError(
+                        "Prepared Odoo capture plans do not match the prepared schema"
+                    ) from error
         self.repository.update_schema_scope(
             saved,
             expected_revision=workspace.revision,
             actor=actor,
             relationship_scope=relationship_scope,
+            schema_catalog=schema_catalog,
+            capture_selections=prepared_selections,
+            verify_relationship_scope=publishing_capture,
+            expected_relationship_scope_content_hash=(
+                current_scope.content_hash if current_scope is not None else None
+            ),
+            expected_model_catalog_content_hash=(
+                expected_model_catalog_content_hash
+                if schema_catalog is not None
+                else None
+            ),
         )
         return saved
 

@@ -11,6 +11,7 @@ from impodo.domain.guided_odoo_capture import (
 from impodo.domain.odoo_capture import (
     MAX_ODOO_CAPTURE_DATASETS,
     MAX_ODOO_CAPTURE_FIELDS,
+    MAX_ODOO_CAPTURE_ROOT_DATASETS,
     OdooCaptureFilterPolicy,
     OdooCaptureRole,
     OdooCaptureSelection,
@@ -269,10 +270,41 @@ class GuidedOdooCapturePlanTests(unittest.TestCase):
         self.assertFalse(proposal.drafts)
         self.assertEqual(proposal.skipped_models, (root.name,))
 
-    def test_dataset_limit_blocks_the_whole_automatic_set(self) -> None:
+    def test_linked_support_does_not_consume_the_main_record_limit(self) -> None:
+        root = _model("x.root", (_field("name", "Name"),))
+        support = tuple(
+            _model(f"x.support_{index}", (_field("name", "Name"),))
+            for index in range(MAX_ODOO_CAPTURE_ROOT_DATASETS)
+        )
+        scope = _scope(
+            root_models=(root.name,),
+            decisions=tuple(
+                _decision(
+                    root.name,
+                    f"support_{index}_id",
+                    model.name,
+                    OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                )
+                for index, model in enumerate(support)
+            ),
+        )
+
+        proposal = propose_guided_odoo_capture_plans(
+            _schema(root, *support),
+            scope,
+        )
+
+        self.assertTrue(proposal.complete)
+        self.assertEqual(len(proposal.drafts), 1 + len(support))
+        self.assertEqual(
+            sum(item.capture_role is OdooCaptureRole.ROOT for item in proposal.drafts),
+            1,
+        )
+
+    def test_main_record_limit_blocks_the_whole_automatic_set(self) -> None:
         models = tuple(
             _model(f"x.model_{index}", (_field("name", "Name"),))
-            for index in range(MAX_ODOO_CAPTURE_DATASETS + 1)
+            for index in range(MAX_ODOO_CAPTURE_ROOT_DATASETS + 1)
         )
 
         proposal = propose_guided_odoo_capture_plans(
@@ -285,6 +317,39 @@ class GuidedOdooCapturePlanTests(unittest.TestCase):
             proposal.issues[0].code,
             GuidedOdooCaptureIssueCode.DATASET_LIMIT,
         )
+        self.assertIn("main Odoo record types", proposal.issues[0].reason)
+
+    def test_total_record_type_limit_includes_linked_support(self) -> None:
+        root = _model("x.root", (_field("name", "Name"),))
+        support = tuple(
+            _model(f"x.support_{index}", (_field("name", "Name"),))
+            for index in range(MAX_ODOO_CAPTURE_DATASETS)
+        )
+        scope = _scope(
+            root_models=(root.name,),
+            decisions=tuple(
+                _decision(
+                    root.name,
+                    f"support_{index}_id",
+                    model.name,
+                    OdooRelationshipCaptureAction.PRESERVE_LINKED,
+                )
+                for index, model in enumerate(support)
+            ),
+        )
+
+        proposal = propose_guided_odoo_capture_plans(
+            _schema(root, *support),
+            scope,
+        )
+
+        self.assertFalse(proposal.drafts)
+        self.assertEqual(
+            proposal.issues[0].code,
+            GuidedOdooCaptureIssueCode.DATASET_LIMIT,
+        )
+        self.assertIn("including related support", proposal.issues[0].reason)
+        self.assertIn("in total", proposal.issues[0].reason)
 
     def test_field_limit_is_not_silently_truncated(self) -> None:
         model = _model(
@@ -416,6 +481,7 @@ def _decision(
         required=False,
         handling=handling,
         action=action,
+        relationship_type="many2one",
     )
 
 

@@ -28,12 +28,22 @@ from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 import h11
+from starlette.concurrency import run_in_threadpool
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
+from impodo.adapters.odoo.connectors import (
+    Json2Config,
+    Json2ReadConnector,
+    Json2ReadFailureDiagnostic,
+)
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.adapters.duckdb.request_timing import (
     record_duckdb_connection_timing,
     record_duckdb_schema_timing,
+)
+from impodo.domain.odoo.contracts import (
+    ConnectorTransportError,
+    MetadataRequest,
 )
 from impodo.web.app import create_local_app
 from impodo.web.diagnostics import (
@@ -255,6 +265,15 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
                 duration_ms=2500,
                 exception_class="RuntimeError",
             )
+            recorder.record_json2_read_failure(
+                request_id="safe-request",
+                failure=Json2ReadFailureDiagnostic(
+                    model="mrp.workcenter",
+                    method="fields_get",
+                    category="timeout",
+                    attempt_count=3,
+                ),
+            )
             recorder.close()
             with (directory / DIAGNOSTIC_LOG_NAME).open(
                 "a",
@@ -304,6 +323,11 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
         self.assertNotIn("private token", encoded)
         self.assertNotIn("private/customer", encoded)
         self.assertNotIn("authorization", encoded.casefold())
+        self.assertIn('"event":"odoo_json2_read_failed"', encoded)
+        self.assertIn('"odoo_model":"mrp.workcenter"', encoded)
+        self.assertIn('"json2_method":"fields_get"', encoded)
+        self.assertIn('"failure_category":"timeout"', encoded)
+        self.assertIn('"attempt_count":3', encoded)
 
 
 class RequestDiagnosticsMiddlewareTests(unittest.IsolatedAsyncioTestCase):
@@ -478,6 +502,91 @@ class RequestDiagnosticsMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record["exception_class"], "RuntimeError")
         self.assertNotIn("private source value", encoded)
         self.assertNotIn("private-source-value", encoded)
+        self.assertNotIn("private-token", encoded)
+
+    async def test_caught_json2_failure_records_only_safe_operation_evidence(
+        self,
+    ) -> None:
+        with _diagnostic_test_directory("impodo-json2-failure") as directory:
+            recorder = LocalDiagnosticRecorder(directory)
+
+            def transport(url, _headers, _body, _timeout, _method):
+                if url.endswith("/web/version"):
+                    return 200, {"version": "19.0"}
+                raise URLError("private-host-and-token")
+
+            connector = Json2ReadConnector(
+                Json2Config(
+                    base_url="https://odoo.example.test",
+                    database="odoo_review",
+                    api_key="private-api-key",
+                    retries=1,
+                ),
+                transport=transport,
+            )
+
+            async def application(scope, _receive, send) -> None:
+                scope["route"] = SimpleNamespace(
+                    path="/workspaces/{workspace_id}/sources/odoo-related-data"
+                )
+                try:
+                    await run_in_threadpool(
+                        connector.get_model_metadata,
+                        [MetadataRequest("mrp.workcenter", ("name",))],
+                    )
+                except ConnectorTransportError:
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": 422,
+                            "headers": [],
+                        }
+                    )
+                    await send({"type": "http.response.body", "body": b"failed"})
+
+            middleware = RequestDiagnosticsMiddleware(
+                application,
+                recorder=recorder,
+            )
+            scope = {
+                "type": "http",
+                "method": "POST",
+                "path": "/workspaces/private-workspace/sources/odoo-related-data",
+                "query_string": b"token=private-token",
+                "headers": [],
+                "state": {},
+            }
+
+            async def receive():
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            async def send(_message) -> None:
+                return None
+
+            await middleware(scope, receive, send)
+            recorder.close()
+            encoded = (directory / DIAGNOSTIC_LOG_NAME).read_text(
+                encoding="utf-8"
+            )
+            records = [json.loads(line) for line in encoded.splitlines()]
+
+        failure = next(
+            record
+            for record in records
+            if record["event"] == "odoo_json2_read_failed"
+        )
+        request = next(
+            record for record in records if record["event"] == "request_completed"
+        )
+        self.assertEqual(failure["request_id"], request["request_id"])
+        self.assertEqual(failure["odoo_model"], "mrp.workcenter")
+        self.assertEqual(failure["json2_method"], "fields_get")
+        self.assertEqual(failure["failure_category"], "unreachable")
+        self.assertEqual(failure["attempt_count"], 2)
+        self.assertEqual(request["status_code"], 422)
+        self.assertNotIn("private-host-and-token", encoded)
+        self.assertNotIn("private-api-key", encoded)
+        self.assertNotIn("private-workspace", encoded)
         self.assertNotIn("private-token", encoded)
 
 

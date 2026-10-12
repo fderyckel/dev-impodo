@@ -275,16 +275,21 @@ plan with these bounds:
 - A limit, access failure, schema change, ambiguous identity, or unexpected
   model stops the capture. Impodo does not silently omit the affected branch.
 
-The current capture policy permits at most ten datasets, 50 closed scalar
-fields per model, and 10,000 rows per model. The first relationship plan should
-remain within those limits. Raising a limit or capturing relational values
-requires separate performance, privacy, and evidence qualification.
+The current Odoo capture policy permits at most ten root record types and 50
+record types in the complete bounded graph, 50 closed scalar fields per model,
+and 10,000 rows per model. The first relationship plan should remain within
+those limits. Raising a limit requires separate performance, privacy, and
+evidence qualification.
 
-The default should follow no relationship automatically. A future convenience
-option may propose required many-to-one dependencies from captured schema, but
-the data manager must review that proposal before capture. One-to-many and
-many-to-many expansion should remain explicit because their fan-out is less
-predictable.
+Impodo now derives safe relationship defaults from schema direction and the
+versioned relationship profile. A generic many-to-one preserves the linked
+value without recursively transferring the full related model. Unprofiled
+one-to-many and many-to-many relationships remain excluded because their
+fan-out is less predictable. Exact profiled edges may transfer linked business
+records. One normal action records those decisions and closes the bounded graph
+internally; only a named ambiguity or unsafe exception requires data-manager
+input, while the full currently applicable matrix remains available under
+**Advanced**.
 
 The captured result becomes normal immutable Data version evidence. The
 subsequent transformation and destination workflow must consume that frozen

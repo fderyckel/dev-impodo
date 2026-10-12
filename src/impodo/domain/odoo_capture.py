@@ -29,7 +29,11 @@ PROTECTED_FILTER_CONTRACT_VERSION = 5
 RELATED_CAPTURE_CONTRACT_VERSION = 6
 MAX_ODOO_CAPTURE_FIELDS = CURRENT_ODOO_SOURCE_POLICY.max_fields
 MAX_ODOO_CAPTURE_ROWS = CURRENT_ODOO_SOURCE_POLICY.max_rows
-MAX_ODOO_CAPTURE_DATASETS = 10
+# Main record types remain deliberately small for a reviewable migration.
+# Relationship preservation may add internal linked-only support plans without
+# widening those roots, so the complete immutable set has its own larger bound.
+MAX_ODOO_CAPTURE_ROOT_DATASETS = 10
+MAX_ODOO_CAPTURE_DATASETS = 50
 # The policy value remains the maximum request size for saved-policy
 # compatibility. Each selection binds its exact approved size in its own hash.
 ODOO_CAPTURE_PAGE_SIZE = CURRENT_ODOO_SOURCE_POLICY.page_size
@@ -544,10 +548,23 @@ def require_consistent_odoo_capture_selection_set(
     """Validate and order a capture set without computing a content digest."""
 
     ordered = tuple(sorted(selections, key=lambda item: item.model))
+    if not ordered:
+        raise OdooCaptureContractError(
+            "Odoo capture selection set must contain at least one record type"
+        )
+    if len(ordered) > MAX_ODOO_CAPTURE_DATASETS:
+        raise OdooCaptureContractError(
+            "Odoo capture selection set exceeds the 50-record-type total limit"
+        )
+    root_count = sum(
+        item.capture_role is OdooCaptureRole.ROOT for item in ordered
+    )
+    if root_count > MAX_ODOO_CAPTURE_ROOT_DATASETS:
+        raise OdooCaptureContractError(
+            "Odoo capture selection set exceeds the 10-main-record-type limit"
+        )
     if (
-        not ordered
-        or len(ordered) > MAX_ODOO_CAPTURE_DATASETS
-        or len({item.model for item in ordered}) != len(ordered)
+        len({item.model for item in ordered}) != len(ordered)
         or len({item.dataset_name for item in ordered}) != len(ordered)
         or len({item.data_version_id for item in ordered}) != 1
         or len({item.connection_target_hash for item in ordered}) != 1

@@ -33,6 +33,7 @@ from .odoo_source_policy import (
     TargetInstanceAssurance,
     odoo_source_policy_from_hash,
 )
+from .odoo_source_scope import is_writable_related_many2one
 from .serialization import canonical_json
 
 
@@ -822,7 +823,10 @@ def is_odoo_capture_relationship_field(
         field is not None
         and field.type in CURRENT_ODOO_SOURCE_POLICY.capture_relationship_types
         and field.relation in selected_models
-        and field.related is not True
+        and (
+            field.related is not True
+            or is_writable_related_many2one(field)
+        )
         and field.company_dependent is False
         and field.exportable is True
     )

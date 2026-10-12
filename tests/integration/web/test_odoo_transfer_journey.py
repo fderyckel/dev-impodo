@@ -238,7 +238,7 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIsNotNone(selection)
         self.assertEqual(selection.field_names, ("name",))
         saved_page = self.client.get(selected.headers["location"])
-        self.assertIn("Capture plan version 1", saved_page.text)
+        self.assertIn("1 main record type selected", saved_page.text)
         self.assertIn("Count selected source records", saved_page.text)
         self.assertIn("Capture plans complete", saved_page.text)
         self.assertLess(

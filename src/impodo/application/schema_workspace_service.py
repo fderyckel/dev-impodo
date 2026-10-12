@@ -355,6 +355,65 @@ class SchemaWorkspaceService:
         )
         return catalog
 
+    def prepare_capture(
+        self,
+        workspace_state: WorkspaceState,
+        snapshot: MetadataSnapshot,
+        *,
+        read_credential_binding_hash: str,
+        read_identity: OdooReadIdentity | None = None,
+        discovered_model_catalog: OdooModelCatalog | None = None,
+        actor: Actor,
+    ) -> OdooSchemaCatalog:
+        """Validate a proposed model scope without publishing any evidence.
+
+        Relationship closure performs remote Odoo reads before it changes the
+        workspace. This boundary validates each in-memory candidate against
+        the registered workspace and model-discovery evidence captured at the
+        start of the operation. Atomic publication later rechecks their hashes
+        and the workspace revision.
+        """
+
+        self.authorization.require(
+            actor,
+            Capability.SCHEMA_DISCOVER,
+            workspace_id=workspace_state.workspace_id,
+        )
+        if workspace_state.status is not WorkspaceStatus.REGISTERED:
+            raise WorkspaceError(
+                "Register the project before capturing Odoo schema"
+            )
+        if workspace_state.source_mode is not SourceMode.ODOO:
+            raise WorkspaceError(
+                "Linked Odoo schema staging requires an Odoo-source project"
+            )
+        if workspace_state.odoo_connection_mode is None:
+            raise WorkspaceError(
+                "Configure the Odoo source before capturing schema"
+            )
+        if (
+            discovered_model_catalog is not None
+            and discovered_model_catalog.workspace_id
+            != workspace_state.workspace_id
+        ):
+            raise WorkspaceError(
+                "The available Odoo record types belong to another project"
+            )
+        permitted = set(workspace_state.intended_models)
+        if not permitted:
+            raise WorkspaceError(
+                "Add at least one permitted technical Odoo model to the project"
+            )
+        return self._validated_live_catalog_for_state(
+            workspace_state,
+            permitted,
+            snapshot,
+            read_credential_binding_hash=read_credential_binding_hash,
+            read_identity=read_identity,
+            discovered_model_catalog=discovered_model_catalog,
+            actor=actor,
+        )
+
     def seed_historical_correction(
         self,
         completed_workspace_id: str,
@@ -748,6 +807,28 @@ class SchemaWorkspaceService:
         """Build one validated live candidate without publishing it."""
 
         workspace_state, permitted = self._capture_context(workspace_id, actor=actor)
+        return self._validated_live_catalog_for_state(
+            workspace_state,
+            permitted,
+            snapshot,
+            read_credential_binding_hash=read_credential_binding_hash,
+            read_identity=read_identity,
+            actor=actor,
+        )
+
+    def _validated_live_catalog_for_state(
+        self,
+        workspace_state: WorkspaceState,
+        permitted: set[str],
+        snapshot: MetadataSnapshot,
+        *,
+        read_credential_binding_hash: str,
+        read_identity: OdooReadIdentity | None,
+        discovered_model_catalog: OdooModelCatalog | None = None,
+        actor: Actor,
+    ) -> OdooSchemaCatalog:
+        """Build one validated live catalog for a current or staged scope."""
+
         _validate_read_credential_binding_hash(read_credential_binding_hash)
         if not snapshot.complete:
             raise WorkspaceError("Odoo schema response is incomplete")
@@ -777,8 +858,23 @@ class SchemaWorkspaceService:
             read_identity,
             required_models=tuple(sorted(permitted)),
         )
-        discovered = self.schemas.get_odoo_model_catalog(workspace_id)
+        discovered = discovered_model_catalog
+        if discovered is None:
+            discovered = self.schemas.get_odoo_model_catalog(
+                workspace_state.workspace_id
+            )
         if discovered is not None:
+            if (
+                discovered.connection_target_hash
+                != _target_identity_hash(workspace_state)
+                or discovered.policy_hash
+                != _live_source_policy_hash(snapshot.fingerprint.odoo_version)
+            ):
+                raise OdooModelCatalogRefreshRequired(
+                    "The saved Odoo model catalogue no longer matches this "
+                    "target or source policy; refresh the model catalogue before "
+                    "capturing schema"
+                )
             if read_identity is None:
                 if (
                     discovered.read_credential_binding_hash

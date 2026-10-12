@@ -8,6 +8,8 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.domain.odoo_capture import (
+    MAX_ODOO_CAPTURE_DATASETS,
+    MAX_ODOO_CAPTURE_ROOT_DATASETS,
     OdooCaptureContractError,
     OdooCaptureFilterPolicy,
     OdooCaptureRole,
@@ -205,6 +207,78 @@ class OdooCaptureContractTests(unittest.TestCase):
 
         self.assertEqual(ordered, (selection,))
         hash_content.assert_not_called()
+
+    def test_selection_set_accepts_linked_support_beyond_the_root_limit(self) -> None:
+        selections = self._selection_set(
+            root_count=MAX_ODOO_CAPTURE_ROOT_DATASETS,
+            linked_count=1,
+        )
+
+        ordered = require_consistent_odoo_capture_selection_set(selections)
+
+        self.assertEqual(len(ordered), MAX_ODOO_CAPTURE_ROOT_DATASETS + 1)
+
+    def test_selection_set_rejects_too_many_roots(self) -> None:
+        selections = self._selection_set(
+            root_count=MAX_ODOO_CAPTURE_ROOT_DATASETS + 1,
+            linked_count=0,
+        )
+
+        with self.assertRaisesRegex(
+            OdooCaptureContractError,
+            "10-main-record-type limit",
+        ):
+            require_consistent_odoo_capture_selection_set(selections)
+
+    def test_selection_set_rejects_too_many_total_record_types(self) -> None:
+        selections = self._selection_set(
+            root_count=1,
+            linked_count=MAX_ODOO_CAPTURE_DATASETS,
+        )
+
+        with self.assertRaisesRegex(
+            OdooCaptureContractError,
+            "50-record-type total limit",
+        ):
+            require_consistent_odoo_capture_selection_set(selections)
+
+    def _selection_set(
+        self,
+        *,
+        root_count: int,
+        linked_count: int,
+    ) -> tuple[OdooCaptureSelection, ...]:
+        base = self._selection()
+        roles = (
+            (OdooCaptureRole.ROOT,) * root_count
+            + (OdooCaptureRole.LINKED_ONLY,) * linked_count
+        )
+        return tuple(
+            OdooCaptureSelection.create(
+                selection_id=str(uuid4()),
+                version=1,
+                data_version_id=base.data_version_id,
+                dataset_name=f"odoo_model_{index:03d}",
+                model=f"x.model_{index:03d}",
+                field_names=("name",),
+                capture_role=role,
+                filter_policy=(
+                    OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS
+                    if role is OdooCaptureRole.LINKED_ONLY
+                    else OdooCaptureFilterPolicy.ACTIVE_RECORDS
+                ),
+                max_rows=base.max_rows,
+                page_size=base.page_size,
+                connection_target_hash=base.connection_target_hash,
+                schema_scope_hash=base.schema_scope_hash,
+                read_principal_hash=base.read_principal_hash,
+                read_permission_hash=base.read_permission_hash,
+                context_hash=base.context_hash,
+                created_at=base.created_at,
+                created_by=base.created_by,
+            )
+            for index, role in enumerate(roles)
+        )
 
     @staticmethod
     def _selection(*, page_size: int = 500) -> OdooCaptureSelection:

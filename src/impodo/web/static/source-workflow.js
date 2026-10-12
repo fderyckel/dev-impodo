@@ -1,6 +1,67 @@
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
+  const linkedDataForm = document.querySelector("[data-linked-data-form]");
+  if (linkedDataForm) {
+    const unsavedNotice = linkedDataForm.querySelector(
+      "[data-linked-data-unsaved-notice]"
+    );
+    let linkedDataIsDirty = false;
+
+    const markLinkedDataDirty = () => {
+      linkedDataIsDirty = true;
+      if (unsavedNotice) {
+        unsavedNotice.hidden = false;
+      }
+    };
+
+    for (const choice of linkedDataForm.querySelectorAll(
+      '[name="related_actions"]'
+    )) {
+      choice.addEventListener("change", markLinkedDataDirty);
+    }
+
+    linkedDataForm.addEventListener(
+      "submit",
+      () => {
+        linkedDataIsDirty = false;
+        if (unsavedNotice) {
+          unsavedNotice.hidden = true;
+        }
+      },
+      true
+    );
+
+    for (const capturePlanForm of document.querySelectorAll(
+      "[data-capture-plan-form]"
+    )) {
+      capturePlanForm.addEventListener(
+        "submit",
+        (event) => {
+          if (!linkedDataIsDirty) {
+            return;
+          }
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          if (unsavedNotice) {
+            unsavedNotice.hidden = false;
+            unsavedNotice.focus({ preventScroll: true });
+            unsavedNotice.scrollIntoView({ block: "nearest" });
+          }
+        },
+        true
+      );
+    }
+
+    window.addEventListener("beforeunload", (event) => {
+      if (!linkedDataIsDirty) {
+        return;
+      }
+      event.preventDefault();
+      event.returnValue = "";
+    });
+  }
+
   const datasetNameInputs = Array.from(
     document.querySelectorAll("[data-dataset-name]")
   );

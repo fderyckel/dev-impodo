@@ -18,6 +18,7 @@ from impodo.domain.mapping.create_field_policy import required_create_hook_input
 from impodo.domain.odoo_capture import (
     MAX_ODOO_CAPTURE_DATASETS,
     MAX_ODOO_CAPTURE_FIELDS,
+    MAX_ODOO_CAPTURE_ROOT_DATASETS,
     OdooCaptureRole,
     OdooCaptureSelection,
 )
@@ -159,6 +160,26 @@ def propose_guided_odoo_capture_plans(
     current_by_model = {selection.model: selection for selection in selections}
     skipped_models = tuple(sorted(target_models & set(current_by_model)))
 
+    if len(relationship_scope.root_models) > MAX_ODOO_CAPTURE_ROOT_DATASETS:
+        return GuidedOdooCapturePlanProposal(
+            drafts=(),
+            issues=(
+                GuidedOdooCapturePlanIssue(
+                    code=GuidedOdooCaptureIssueCode.DATASET_LIMIT,
+                    model=None,
+                    model_label="Main Odoo record types",
+                    reason=(
+                        f"This migration selects "
+                        f"{len(relationship_scope.root_models)} main Odoo record "
+                        f"types, but one capture can include at most "
+                        f"{MAX_ODOO_CAPTURE_ROOT_DATASETS}. Split the main "
+                        "business records into separate migrations before "
+                        "continuing."
+                    ),
+                ),
+            ),
+            skipped_models=skipped_models,
+        )
     if len(target_models) > MAX_ODOO_CAPTURE_DATASETS:
         return GuidedOdooCapturePlanProposal(
             drafts=(),
@@ -168,10 +189,11 @@ def propose_guided_odoo_capture_plans(
                     model=None,
                     model_label="Selected Odoo record types",
                     reason=(
-                        f"This migration selects {len(target_models)} Odoo record "
-                        f"types, but one capture can include at most "
-                        f"{MAX_ODOO_CAPTURE_DATASETS}. Remove a record type or "
-                        "split the migration before continuing."
+                        f"This migration needs {len(target_models)} Odoo record "
+                        "types including related support, but one capture can "
+                        f"include at most {MAX_ODOO_CAPTURE_DATASETS} in total. "
+                        "Review unusually broad relationships or split the "
+                        "migration before continuing."
                     ),
                 ),
             ),

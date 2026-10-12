@@ -109,7 +109,7 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
         self.assertTrue(view.groups[2].models[0].can_select)
         self.assertIs(
             view.groups[2].models[0].action,
-            OdooRelationshipCaptureAction.DO_NOT_CAPTURE,
+            OdooRelationshipCaptureAction.MATCH_EXISTING,
         )
 
         saved_view = build_related_data_scope_view(
@@ -166,6 +166,31 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
         self.assertTrue(by_name["product.category"]["suggested"])
         self.assertNotIn("not.available", by_name)
 
+    def test_schema_review_keeps_automatic_support_out_of_main_choices(self) -> None:
+        workspace = SimpleNamespace(
+            intended_models=("mrp.bom.line", "product.product"),
+            intended_applications=("Manufacturing",),
+        )
+        catalog = SimpleNamespace(
+            models=(
+                _model("mrp.bom.line", "Bill of Material Lines"),
+                _model("product.product", "Product Variants"),
+            )
+        )
+
+        choices = _schema_model_choices(
+            workspace,
+            catalog,
+            selected_models=frozenset({"mrp.bom.line"}),
+            automatic_supporting_models=frozenset({"product.product"}),
+        )
+        by_name = {item["name"]: item for item in choices}
+
+        self.assertTrue(by_name["mrp.bom.line"]["selected"])
+        self.assertFalse(by_name["mrp.bom.line"]["automatic_supporting"])
+        self.assertFalse(by_name["product.product"]["selected"])
+        self.assertTrue(by_name["product.product"]["automatic_supporting"])
+
     def test_one_related_model_gets_one_selection_control(self) -> None:
         view = build_related_data_scope_view(
             "workspace-1",
@@ -194,6 +219,46 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
                 for model in group.models
             ),
             1,
+        )
+
+    def test_incompatible_model_defaults_become_one_named_exception(self) -> None:
+        view = build_related_data_scope_view(
+            "workspace-1",
+            (
+                _suggestion(
+                    "owner_id",
+                    "Owner",
+                    "x.shared",
+                    RelatedDataHandling.NEEDS_DECISION,
+                ),
+                _suggestion(
+                    "shared_ids",
+                    "Shared rows",
+                    "x.shared",
+                    RelatedDataHandling.NEEDS_DECISION,
+                    relationship_type="one2many",
+                ),
+            ),
+            model_labels={"x.shared": "Shared records"},
+            available_models=frozenset({"x.shared"}),
+        )
+
+        self.assertEqual(view.decision_required_count, 1)
+        self.assertEqual(view.conflicting_model_names, ("x.shared",))
+        self.assertEqual(
+            tuple(model.name for model in view.exception_models),
+            ("x.shared",),
+        )
+        self.assertTrue(view.exception_models[0].preserve_allowed)
+        self.assertEqual(
+            tuple(
+                (item.field_label, item.recommended_action_title)
+                for item in view.exception_models[0].items
+            ),
+            (
+                ("Owner", "Keep linked value"),
+                ("Shared rows", "Do not include"),
+            ),
         )
 
     def test_unprofiled_relationship_gets_safe_default_without_profile_badge(
@@ -271,6 +336,55 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
         )
         self.assertIs(model.action, model.recommended_action)
 
+    def test_deliberate_linked_data_choice_is_visible_after_refresh(self) -> None:
+        category = _suggestion(
+            "categ_id",
+            "Product Category",
+            "product.category",
+            RelatedDataHandling.INCLUDE_SUPPORTING,
+        )
+        scope = OdooRelationshipScope.create(
+            scope_id=str(uuid4()),
+            version=1,
+            decisions=relationship_scope_decisions(
+                (category,),
+                actions_by_model={
+                    "product.category": (
+                        OdooRelationshipCaptureAction.MATCH_EXISTING
+                    )
+                },
+            ),
+            root_models=("product.template",),
+            explicit_actions_by_model=(
+                (
+                    "product.category",
+                    OdooRelationshipCaptureAction.MATCH_EXISTING,
+                ),
+            ),
+            recorded_at=datetime.now(timezone.utc),
+            recorded_by="Data manager",
+        )
+
+        view = build_related_data_scope_view(
+            "workspace-1",
+            (category,),
+            model_labels={"product.category": "Product Categories"},
+            selected_models=frozenset(
+                {"product.template", "product.category"}
+            ),
+            available_models=frozenset({"product.category"}),
+            relationship_scope=scope,
+        )
+
+        self.assertEqual(len(view.saved_choice_models), 1)
+        saved = view.saved_choice_models[0]
+        self.assertEqual(saved.label, "Product Categories")
+        self.assertEqual(
+            saved.action_title,
+            "Use existing destination records only",
+        )
+        self.assertTrue(saved.saved_choice)
+
     def test_new_graph_level_is_pending_without_rewriting_saved_decision(self) -> None:
         owner = _suggestion(
             "owner_id",
@@ -292,6 +406,12 @@ class OdooSourceScopePresenterTests(unittest.TestCase):
             decisions=relationship_scope_decisions(
                 (owner,),
                 included_models={"x.owner"},
+            ),
+            explicit_actions_by_model=(
+                (
+                    "x.owner",
+                    OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                ),
             ),
             recorded_at=datetime.now(timezone.utc),
             recorded_by="Data manager",
@@ -327,6 +447,7 @@ def _suggestion(
     handling: RelatedDataHandling,
     *,
     profiled: bool = True,
+    relationship_type: str = "many2one",
 ) -> RelatedDataSuggestion:
     return RelatedDataSuggestion(
         source_model="product.template",
@@ -334,6 +455,7 @@ def _suggestion(
         field_name=field_name,
         field_label=field_label,
         relation_model=relation_model,
+        relationship_type=relationship_type,
         required=False,
         handling=handling,
         recommendation_profile_id=(

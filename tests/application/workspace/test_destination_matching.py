@@ -1672,6 +1672,18 @@ class DestinationMatchingTests(unittest.TestCase):
             "product.template",
             relation_field="uom_id",
         )
+        writable_related_many2one = replace(
+            _relation(
+                "working_time_uom_id",
+                "Working Time Unit",
+                "many2one",
+                "uom.uom",
+            ),
+            computed=True,
+            has_inverse=False,
+            related=True,
+            stored=True,
+        )
         managed_relationships = (
             replace(
                 _relation(
@@ -1704,6 +1716,31 @@ class DestinationMatchingTests(unittest.TestCase):
                 ),
                 stored=False,
             ),
+            replace(
+                _relation(
+                    "next_activity_uom_id",
+                    "Next Activity Unit",
+                    "many2one",
+                    "uom.uom",
+                ),
+                computed=True,
+                has_inverse=False,
+                related=True,
+                stored=False,
+            ),
+            replace(
+                _relation(
+                    "readonly_related_uom_id",
+                    "Readonly Related Unit",
+                    "many2one",
+                    "uom.uom",
+                ),
+                computed=True,
+                has_inverse=False,
+                related=True,
+                readonly=True,
+                stored=True,
+            ),
         )
         schema = replace(
             self.schema,
@@ -1712,7 +1749,11 @@ class DestinationMatchingTests(unittest.TestCase):
                     product_model,
                     fields=(
                         product_model.fields
-                        + (many2many, many2one)
+                        + (
+                            many2many,
+                            many2one,
+                            writable_related_many2one,
+                        )
                         + managed_relationships
                     ),
                 ),
@@ -1748,6 +1789,12 @@ class DestinationMatchingTests(unittest.TestCase):
                             relation_model="uom.uom",
                             values=((7,), (8,)),
                         ),
+                        OdooRelationshipOriginColumn(
+                            field_name="working_time_uom_id",
+                            kind="many2one",
+                            relation_model="uom.uom",
+                            values=((8,), (7,)),
+                        ),
                     ),
                 ),
             ),
@@ -1778,7 +1825,10 @@ class DestinationMatchingTests(unittest.TestCase):
 
         self.assertTrue(plan.ready)
         by_field = {item.field_name: item for item in plan.relationship_matches}
-        self.assertEqual(set(by_field), {"alternate_uom_ids", "uom_id"})
+        self.assertEqual(
+            set(by_field),
+            {"alternate_uom_ids", "uom_id", "working_time_uom_id"},
+        )
         self.assertEqual(
             next(
                 item
@@ -1792,6 +1842,14 @@ class DestinationMatchingTests(unittest.TestCase):
         self.assertEqual(by_field["uom_id"].inverse_field, "product_ids")
         self.assertEqual(by_field["uom_id"].destination_reused_link_count, 1)
         self.assertEqual(by_field["uom_id"].incoming_link_count, 1)
+        self.assertEqual(
+            by_field["working_time_uom_id"].kind,
+            "many2one",
+        )
+        self.assertEqual(
+            by_field["working_time_uom_id"].source_link_count,
+            2,
+        )
         self.assertEqual(by_field["alternate_uom_ids"].kind, "many2many")
         self.assertEqual(by_field["alternate_uom_ids"].operation, "replace")
         self.assertEqual(by_field["alternate_uom_ids"].source_link_count, 3)

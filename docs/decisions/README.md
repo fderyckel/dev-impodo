@@ -596,16 +596,24 @@ The graph separates two concerns:
 - a related model records whether reached records may be created, must already
   exist, or are managed outside the generic transfer.
 
-For every discovered many-to-one, many-to-many, or one-to-many/inverse
-relationship that is relevant to selected records, the engine exposes the
-safe applicable choices. These include matching an existing destination
-record, transferring only reached linked records when missing, accepting
-verified Odoo-managed behavior, excluding an optional link, or assigning the
-link to a separately governed process. An unfamiliar custom relationship is
-shown as an unclassified link with **Keep linked value** as its bounded
-recommendation. The data manager must still save that visible decision. It is
-not silently excluded, it does not expand the related model's whole graph, and
-it does not require a new core-code model rule merely to become visible.
+For every discovered relationship that is relevant to selected records, the
+engine exposes the safe applicable choices. Direction is part of that
+relevance. A direct many-to-one value stored on a selected record is preserved
+by default unless a versioned profile identifies that exact edge as a related
+business record that normally transfers in full. A many-to-many or one-to-many
+collection changes record membership and stays closed by default unless an
+applicable profile identifies it as owned supporting data or the data manager
+deliberately includes it. A reverse
+operational collection must therefore never enter the migration merely because
+Odoo exposes it on a selected model. Applicable choices include matching an
+existing destination record, transferring only reached linked records when
+missing, accepting verified Odoo-managed behavior, excluding an optional
+link, or assigning the link to a separately governed process. An unfamiliar
+custom many-to-one is shown with **Keep linked value** as its bounded
+recommendation. An unfamiliar collection is shown as excluded unless the data
+manager opens the advanced choice. Neither default expands the related model's
+whole graph, and neither requires a new core-code model rule merely to become
+visible.
 
 Metadata-derived capabilities determine which choices are safe. Readability,
 storage, inverse information, requiredness, create defaults, access, company
@@ -617,6 +625,13 @@ blocker. Odoo-specific create hooks and other exceptional behavior belong in
 versioned, qualified capability adapters, not in a model-name classification
 that silently decides business scope.
 
+A read-only, non-stored one-to-many collection with neither a usable relation
+field nor a proven inverse is Odoo-managed evidence. It is not a selectable
+source-scope edge because the generic transfer cannot use that collection to
+own or write the relationship. It therefore cannot create a model-wide
+destination-policy conflict with the writable forward relationship that owns
+the linked value.
+
 Profiles provide usability above that engine. Impodo may ship versioned
 standard profiles by Odoo version and installed application, and an
 organization may add its own profile. A profile supplies labels,
@@ -625,18 +640,50 @@ It does not grant a capability that captured metadata and qualification do not
 support. Decisions use this precedence:
 
 1. safety and capability constraints;
-2. the explicit decision saved for this workspace or Recipe revision;
+2. a deliberate model-level override saved by the data manager;
 3. the organization's applicable profile;
 4. Impodo's applicable standard profile; and
-5. an explicit data-manager decision when no profile applies.
+5. the generic direction-aware default derived from the current schema.
 
-The source-scope page groups edges by related model for readability but the
-completed design saves the decision per edge. Choosing to transfer linked
-records expands the graph on the same page and proposes their outgoing
-relationships. Expansion follows only approved edges, captures only reached
-records, deduplicates records, detects cycles, and enforces depth, row,
-company, and access bounds. It continues until every reached edge is resolved
-or a precise blocker is shown.
+When those inputs do not produce one compatible safe policy, Impodo presents a
+named exception and requires a deliberate override. A stored automatic result
+does not outrank a newer applicable profile merely because an earlier contract
+serialized it.
+
+If recursive expansion first discovers that exception, Impodo records a
+resumable review checkpoint instead of returning an action error. One atomic
+publication stores the candidate schema and the compatible version-6 edge
+decisions, while the conflicting selectable edges remain absent rather than
+becoming implicit exclusions. The checkpoint contains no capture plans. The
+browser redirects to the same linked-data section and shows the named
+exception with no preselected answer. After the data manager chooses one
+model-wide destination policy, the same command resumes expansion from the
+checkpoint.
+
+The source-scope page groups compatible edges by related model for readability
+but the completed design saves the decision per edge, including relationship
+type. Choosing to transfer linked records expands the graph on the same page
+and proposes their outgoing relationships. Expansion follows only approved
+edges, captures only reached records, deduplicates records, detects cycles,
+and enforces depth, row, relationship, company, and access bounds. It
+continues until every reached edge is resolved or a precise blocker is shown.
+Compatible metadata/profile defaults are evidence-backed decisions and do not
+require one confirmation per related model. Impodo may persist them as one
+bounded normal-path action, repeat them for newly reached schema levels, and
+show the result as a business summary. The complete currently applicable
+matrix remains reviewable under **Advanced**. Unavailable evidence,
+incompatible model-wide policies,
+ambiguous identity or create evidence, and safety-limit failures remain named
+exceptions that require attention.
+
+Relationship-scope contract version 6 separates the inputs from the derived
+result. It stores only deliberate model-level **Advanced** choices as override
+intent. It may also store the expanded field-level decisions as immutable
+evidence of the plan that was current at that revision. On the next rebuild,
+Impodo recomputes every non-overridden action from the current root models,
+schema, capabilities, and profile. Versions 1 through 5 remain readable as
+historical evidence, but their serialized choices are not proof that the data
+manager deliberately overrode a default.
 
 The grouped Stage 2 control exposes four generic actions wherever metadata
 permits a source-scope choice:
@@ -715,10 +762,11 @@ wrapper while its resolution and dependency meaning converge on the canonical
 contracts.
 
 Saved decisions contain portable business identities and metadata hashes, not
-numeric source or destination Odoo IDs. A changed profile does not silently
-rewrite a saved decision. Changed schema, capability evidence, or identity
-meaning invalidates the affected assessment and names the decision that must
-be reviewed.
+numeric source or destination Odoo IDs. A later rebuild leaves the older
+revision immutable but recomputes automatic choices from current evidence. It
+retains only deliberate version-6 overrides that remain safe. Changed schema,
+capability evidence, or identity meaning invalidates the affected assessment
+and names the decision that must be reviewed.
 
 **Why:** Standard guidance is necessary for a data manager who cannot be
 expected to discover every dependency manually. A closed standard workflow is
@@ -739,52 +787,85 @@ only as an acceptance example.
 
 **Current implementation:** The implementation separates standard
 recommendations into a versioned, injectable profile. Schema discovery exposes
-an available unprofiled relationship as an explicit choice and recommends the
-bounded **Keep linked value** outcome. When the data manager includes that
-related record type, Impodo defaults its capture plan to reached linked records
-only. Related,
+an available unprofiled direct many-to-one with the bounded **Keep linked
+value** outcome. An unprofiled collection starts excluded. When a profile marks
+an exact edge for full related-record transfer, reached records retain their
+selected business values and remain on the bounded frontier. Related,
 computed, or read-only relationship metadata remains visible as Odoo-managed
 evidence rather than disappearing solely because it is not directly writable.
 Destination matching translates `transfer` and `reuse_or_create` to the
 canonical `TARGET_THEN_DATASET` resolver and both no-write modes to
-`TARGET_CATALOG`. The latter compiles to canonical
+`TARGET_CATALOG`. The `reuse_or_create` policy compiles to canonical
 `MappingTargetMode.CREATE` with `on_existing="unchanged"`, so it can create a
 missing related record without acquiring authority to update an existing one.
 
-The source page presents one recommended outcome per related model and keeps
-the other permitted outcomes under **Advanced**. Saving that grouped choice
-creates one immutable decision for every source field in the group. Each
-decision retains the field identity, selected source-capture
-action, requiredness, handling, and recommendation-profile provenance. The
-workspace stores revision history and a current pointer atomically with the
-model-scope change. A later profile change therefore does not silently rewrite
-the saved decision.
+The source page presents a compact recommended plan and keeps the currently
+applicable relationship matrix and other permitted outcomes under **Advanced**.
+One normal-path action applies every compatible safe default; it does not
+require one confirmation per model. Each resulting immutable decision retains
+the field identity, relationship type, selected source-capture action,
+requiredness, handling, and recommendation-profile provenance. Contract
+version 6 separately records only the deliberate model-level overrides made
+under **Advanced**. Automatic actions are derived results, not override
+provenance. If edges to one model imply incompatible model-wide destination
+policies, the browser shows that model as an exception with no preselected
+answer instead of collapsing the actions.
 
-Stage 2 now expands that relationship graph iteratively on the same page. Each
-save refreshes the schema for newly included record types, discovers their
-outgoing relationships, and marks every new or changed selectable edge as
-needing review. A matching saved inclusion or exclusion stays reviewed;
-verified Odoo-managed, separate-process, and excluded-history handling does not
-require a redundant user choice. An unavailable related record type is a named
-blocker, not an implicit exclusion. Both the browser and the capture
-application service prevent record checking or freezing until the current
-schema graph has no unresolved selectable edge. The normal choice is now
-**Keep linked value** for an ordinary supporting or unprofiled relationship.
-The browser presents that business outcome first and moves full transfer,
-existing-only matching, and exclusion under **Advanced**. Another optional
-graph level appears only after a full-transfer decision; a minimum-create leaf
-retains only a required dependency needed to create that record safely and a
-relationship component needed to prove its portable identity.
+Stage 2 expands that relationship graph internally. Each pass refreshes the
+schema for newly included record types, applies the same direction/profile
+defaults, and stops at the capture depth bound or a named exception. A matching
+saved inclusion or exclusion stays reviewed; verified Odoo-managed and
+excluded-history handling does not require a redundant user choice. A direct
+many-to-one normally starts as **Keep linked value**; destination-owned and
+separate-process many-to-one values start as existing-only. Optional unprofiled
+many-to-many and one-to-many collections start as **Do not include**. A
+required unprofiled collection has no safe automatic omission and therefore
+becomes a named exception. A profile
+may identify a specific owned collection or common related business record for
+full transfer, but cannot make arbitrary reverse history part of the default
+graph. Profile version 4 applies that recommendation to operation Work Centers,
+Work Center Working Hours, BoM children, and working-time rows as one standard
+manufacturing example. The browser moves the full currently applicable matrix
+under **Advanced**.
+
+A minimum-create leaf retains only a required dependency needed to create that
+record safely, an explicitly profiled owned child, and a relationship component
+needed to prove its portable identity.
 
 When the relationship review closes, Impodo prepares the safe capture plans
 instead of requiring the data manager to configure every selected record type.
 The pure guided planner assigns full scalar evidence to roots and expanding
 models, identity evidence to existing-only leaves, and identity plus required
-create inputs to create-capable leaves. It preserves previously edited plans
-and names only the remaining unsafe or ambiguous exceptions. This automation
+create inputs to create-capable leaves. The ordinary UI counts and presents
+explicit roots as the main migration scope; automatically reached support is
+summarized separately and its editor stays under **Advanced** unless a named
+exception needs attention. It builds one complete candidate set and names only
+the remaining unsafe or ambiguous exceptions. The main-record safeguard
+allows at most ten explicit roots, while a separate bounded total allows up to
+fifty plans including linked-only support. Existing depth, row, relationship,
+per-model, snapshot-size, and project-quota bounds still apply. This automation
 does not silently widen a root: the saved summary still states that an
 unfiltered root reads all matching records and exposes the ordinary filter
 editor before the bounded count and freeze.
+
+Impodo builds a complete linked-data candidate before it publishes capture
+plans. It starts from the retained root models, recomputes the graph and
+automatic choices, completes every required remote schema read, and builds and
+validates the final schema and complete capture-plan set in memory. When every
+edge has a compatible policy, one revision-checked DuckDB transaction publishes
+the root and linked model scope, version-6 relationship revision, final schema,
+and all capture-plan pointers.
+
+A genuine policy conflict found during expansion uses the same atomic boundary
+for an intentional review checkpoint. That transaction publishes the candidate
+schema, reached model scope, and partial version-6 relationship revision, omits
+the unresolved selectable edges, and clears the capture-plan pointers. It then
+redirects to the visible named exception. A JSON-2 timeout, unreachable source,
+validation failure, stale evidence conflict, or database failure before either
+publication leaves the prior current workspace evidence unchanged. The data
+manager can repair access or resolve the named exception and continue inside
+the same project from the retained main record types; restarting source
+selection or creating a new project is not part of recovery.
 
 After Stage 4 has supplied the related model's reviewed business key, Impodo
 now joins that evidence to the saved Stage 2 edge decision and derives
@@ -815,8 +896,12 @@ surface needed for a create-capable leaf. Stage 5 fixes that model to
 relationships from its write scope, and leaves exact existing matches
 unchanged. Required create defaults and qualified create hooks continue through
 the existing create-field decision workflow. Relationship-scope contract
-version 3 records `PRESERVE_LINKED`; versions 1 and 2 remain readable and are
-not reinterpreted.
+version 6 records the current expanded decisions and the separate deliberate
+model-level override map. Version 4 introduced relationship type, and version
+5 recorded the direction/profile-derived plan. Versions 1 through 5 remain
+readable, but none contains reliable override provenance. Their next
+successful rebuild derives automatic choices from the retained roots and
+current profile before it writes version-6 evidence.
 
 **Consequences:**
 
@@ -824,12 +909,17 @@ not reinterpreted.
   engine;
 - Odoo-to-Odoo relationship work must reuse the canonical mapping, dependency,
   preparation, and execution semantics instead of reimplementing them;
-- a new custom relationship appears automatically as a reviewable decision,
-  even when no shipped profile mentions it;
+- a new custom relationship receives a safe direction-aware default and remains
+  reviewable under **Advanced**, even when no shipped profile mentions it;
 - the UI must distinguish a recommendation, an unavailable choice, an
   explicit saved choice, and a blocker;
+- only a deliberate version-6 model override may survive recomputation as user
+  intent; legacy or automatic choices may not be promoted into overrides;
 - model-level create or reuse policy cannot replace per-edge relationship
   intent, although the UI may summarize repeated compatible choices;
+- a completed linked-data result must publish scope, schema, and capture plans
+  together; a genuine conflict may instead publish only its atomic review
+  checkpoint, and an interrupted remote read may publish neither;
 - destination checks are limited to reached records, so unrelated source
   setup is neither transferred nor required to match;
 - Recipe publication must retain the portable relationship decisions and the

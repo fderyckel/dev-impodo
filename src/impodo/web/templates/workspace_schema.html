@@ -316,6 +316,7 @@
               <span>
                 <strong>{{ choice.label }}</strong>
                 {% if choice.suggested %}<small>Recommended supporting data</small>{% endif %}
+                {% if choice.automatic_supporting %}<small>Automatically linked; not a main record type</small>{% endif %}
               </span>
             </label>
           {% endfor %}
@@ -400,7 +401,7 @@
 
     {% include "_workflow_issue_summary.html" %}
 
-    <p id="odoo-details">{% if is_recipe_run_setup %}Recipe-required Odoo record types{% else %}Odoo choices selected{% endif %}: <strong>{% if is_recipe_run_setup %}{{ odoo_check_models|length }}{% else %}{{ workspace_state.intended_models|length if workspace_state.intended_models else 0 }}{% endif %}</strong></p>
+    <p id="odoo-details">{% if is_recipe_run_setup %}Recipe-required Odoo record types{% else %}Main Odoo record types selected{% endif %}: <strong>{% if is_recipe_run_setup %}{{ odoo_check_models|length }}{% else %}{{ odoo_root_model_count }}{% endif %}</strong>{% if not is_recipe_run_setup and automatic_supporting_model_count %} <small>Impodo also keeps {{ automatic_supporting_model_count }} linked record type{% if automatic_supporting_model_count != 1 %}s{% endif %} automatically.</small>{% endif %}</p>
     {% if schema_load_failed %}
       <div
         class="notice error"

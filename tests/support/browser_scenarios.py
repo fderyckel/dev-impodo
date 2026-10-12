@@ -192,6 +192,8 @@ from impodo.web.composition.target_readers import _source_value_choices
 from impodo.domain.workspace.errors import WorkspaceError
 
 from impodo.domain.workspace.contracts import (
+    OdooModelCatalog,
+    OdooModelSummary,
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,
@@ -1115,6 +1117,34 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
             read_permission_hash="sha256:" + "3" * 64,
             read_context_hash="sha256:" + "4" * 64,
             connection_target_hash=snapshot.fingerprint.target_hash,
+        )
+        model_catalog = OdooModelCatalog(
+            workspace_id=workspace_state.workspace_id,
+            connection_target_hash=snapshot.fingerprint.target_hash,
+            policy_hash=ODOO_SOURCE_POLICY_HASH,
+            captured_at=now,
+            captured_by=context.actor.identity.display_name,
+            connection_mode=workspace_state.odoo_connection_mode.value,
+            database=workspace_state.odoo_database,
+            odoo_version=snapshot.fingerprint.odoo_version,
+            models=(
+                OdooModelSummary(
+                    name="res.partner",
+                    label=model.description or model.model,
+                    modules=("base",),
+                    state="base",
+                ),
+            ),
+            content_hash="sha256:" + "7" * 64,
+            read_credential_binding_hash="sha256:" + "6" * 64,
+            read_principal_hash="sha256:" + "1" * 64,
+            read_permission_hash="sha256:" + "3" * 64,
+            read_context_hash="sha256:" + "4" * 64,
+        )
+        context.schema_workspace.schemas.save_odoo_model_catalog(
+            workspace_state.workspace_id,
+            model_catalog,
+            actor=context.actor,
         )
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             workspace_state.workspace_id,

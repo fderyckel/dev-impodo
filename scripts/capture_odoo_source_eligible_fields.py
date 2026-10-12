@@ -1,8 +1,8 @@
-"""Capture the authenticated Odoo-source eligible-field decision point.
+"""Capture authenticated Odoo-source relationship and field decisions.
 
 The helper creates only fictional Product data, serves the current application
 on an ephemeral loopback port, authenticates through the normal launch route,
-and writes one 1440 by 1024 PNG under ``docs/images/user``.
+and writes two 1440 by 1024 PNGs under ``docs/images/user``.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import argparse
 from dataclasses import replace
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,13 @@ DEFAULT_OUTPUT = (
     / "images"
     / "user"
     / "08g-odoo-source-eligible-fields.png"
+)
+DEFAULT_RELATIONSHIP_OUTPUT = (
+    REPOSITORY_ROOT
+    / "docs"
+    / "images"
+    / "user"
+    / "08h-odoo-linked-data-plan.png"
 )
 
 
@@ -66,12 +74,25 @@ def _product_schema(schema, *, credential_binding_hash: str):
             name="categ_id",
             label="Product category",
             relation="product.category",
+            required=True,
+            readonly=False,
+            stored=True,
+            computed=False,
+            related=False,
+            company_dependent=False,
+            exportable=True,
         ),
         replace(
             original["category_ids"],
             name="tag_ids",
             label="Product tags",
             relation="product.tag",
+            readonly=False,
+            stored=True,
+            computed=False,
+            related=False,
+            company_dependent=False,
+            exportable=True,
         ),
         replace(
             original["child_ids"],
@@ -79,6 +100,12 @@ def _product_schema(schema, *, credential_binding_hash: str):
             label="Bills of Materials",
             relation="mrp.bom",
             relation_field="product_tmpl_id",
+            readonly=False,
+            stored=True,
+            computed=False,
+            related=False,
+            company_dependent=False,
+            exportable=True,
         ),
         original["write_date"],
     )
@@ -87,9 +114,7 @@ def _product_schema(schema, *, credential_binding_hash: str):
         name="product.template",
         label="Product",
         fields=fields,
-        unique_constraints=(
-            ("default_code",),
-        ),
+        unique_constraints=(),
     )
     return replace(
         schema,
@@ -99,7 +124,12 @@ def _product_schema(schema, *, credential_binding_hash: str):
     )
 
 
-def capture(output: Path, *, browser_channel: str) -> None:
+def capture(
+    output: Path,
+    relationship_output: Path,
+    *,
+    browser_channel: str,
+) -> None:
     try:
         from playwright.sync_api import expect, sync_playwright
     except ModuleNotFoundError as error:  # pragma: no cover - operator guidance
@@ -108,6 +138,7 @@ def capture(output: Path, *, browser_channel: str) -> None:
         ) from error
 
     output.parent.mkdir(parents=True, exist_ok=True)
+    relationship_output.parent.mkdir(parents=True, exist_ok=True)
     fixture = ProjectSetupBrowserTestCase(methodName="runTest")
     fixture.setUp()
     server = None
@@ -128,13 +159,30 @@ def capture(output: Path, *, browser_channel: str) -> None:
         )
         queries = fixture.app.state.context.queries
         original_schema_reader = queries.get_odoo_schema_catalog
+        original_model_catalog_reader = queries.get_odoo_model_catalog
 
         def schema_reader(workspace_id):
             if workspace_id == workspace_state.workspace_id:
                 return product_schema
             return original_schema_reader(workspace_id)
 
+        def model_catalog_reader(workspace_id):
+            if workspace_id == workspace_state.workspace_id:
+                return SimpleNamespace(
+                    models=tuple(
+                        SimpleNamespace(name=name, label=label)
+                        for name, label in (
+                            ("product.template", "Products"),
+                            ("product.category", "Product Categories"),
+                            ("product.tag", "Product Tags"),
+                            ("mrp.bom", "Bills of Materials"),
+                        )
+                    )
+                )
+            return original_model_catalog_reader(workspace_id)
+
         queries.get_odoo_schema_catalog = schema_reader
+        queries.get_odoo_model_catalog = model_catalog_reader
         session_cookie = fixture.client.cookies.get("impodo_session")
         if not session_cookie:
             raise RuntimeError("The isolated setup did not create an Impodo session.")
@@ -192,6 +240,29 @@ def capture(output: Path, *, browser_channel: str) -> None:
                 decision.scroll_into_view_if_needed()
                 page.evaluate("window.scrollBy(0, -120)")
                 _capture(page, output)
+
+                response = page.goto(
+                    f"{base_url}/workspaces/{workspace_state.workspace_id}"
+                    "/sources#related-data-scope",
+                    wait_until="networkidle",
+                )
+                if response is None or response.status != 200:
+                    status = "no response" if response is None else response.status
+                    raise RuntimeError(
+                        "The linked-data plan page did not load successfully: "
+                        f"{status}"
+                    )
+                linked_data = page.locator("#related-data-scope")
+                expect(linked_data).to_be_visible()
+                expect(
+                    page.get_by_role(
+                        "heading",
+                        name="Linked data needed for this migration",
+                    )
+                ).to_be_visible()
+                linked_data.scroll_into_view_if_needed()
+                page.evaluate("window.scrollBy(0, -80)")
+                _capture(page, relationship_output)
                 context.close()
             finally:
                 browser.close()
@@ -207,9 +278,18 @@ def capture(output: Path, *, browser_channel: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--relationship-output",
+        type=Path,
+        default=DEFAULT_RELATIONSHIP_OUTPUT,
+    )
     parser.add_argument("--browser-channel", default="msedge")
     arguments = parser.parse_args()
-    capture(arguments.output.resolve(), browser_channel=arguments.browser_channel)
+    capture(
+        arguments.output.resolve(),
+        arguments.relationship_output.resolve(),
+        browser_channel=arguments.browser_channel,
+    )
     return 0
 
 

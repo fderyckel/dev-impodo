@@ -89,6 +89,7 @@ class OdooRelationshipCompilationTests(unittest.TestCase):
                     required=False,
                     handling=RelatedDataHandling.REUSE_DESTINATION,
                     action=OdooRelationshipCaptureAction.MATCH_EXISTING,
+                    relationship_type="many2one",
                 )
             ),
         )
@@ -124,6 +125,7 @@ class OdooRelationshipCompilationTests(unittest.TestCase):
             required=True,
             handling=RelatedDataHandling.NEEDS_DECISION,
             action=OdooRelationshipCaptureAction.PRESERVE_LINKED,
+            relationship_type="many2one",
         )
 
         datasets = compile_odoo_relationship_datasets(
@@ -161,6 +163,7 @@ class OdooRelationshipCompilationTests(unittest.TestCase):
             required=decision.required,
             handling=decision.handling,
             action=OdooRelationshipCaptureAction.MATCH_EXISTING,
+            relationship_type=decision.relationship_type,
         )
 
         with self.assertRaisesRegex(
@@ -185,7 +188,12 @@ class OdooRelationshipCompilationTests(unittest.TestCase):
         datasets = compile_odoo_relationship_datasets(
             _plan((parent, child), (relationship,)),
             relationship_scope=_scope(
-                _decision(parent.model, "child_ids", child.model)
+                _decision(
+                    parent.model,
+                    "child_ids",
+                    child.model,
+                    relationship_type="one2many",
+                )
             ),
         )
 
@@ -204,6 +212,7 @@ class OdooRelationshipCompilationTests(unittest.TestCase):
             required=decision.required,
             handling=decision.handling,
             action=OdooRelationshipCaptureAction.DO_NOT_CAPTURE,
+            relationship_type=decision.relationship_type,
         )
 
         with self.assertRaisesRegex(
@@ -311,6 +320,7 @@ def _decision(
     relation_model: str,
     *,
     handling: RelatedDataHandling = RelatedDataHandling.NEEDS_DECISION,
+    relationship_type: str = "many2one",
 ) -> OdooRelationshipScopeDecision:
     return OdooRelationshipScopeDecision(
         source_model=source_model,
@@ -319,6 +329,7 @@ def _decision(
         required=False,
         handling=handling,
         action=OdooRelationshipCaptureAction.CAPTURE_LINKED,
+        relationship_type=relationship_type,
     )
 
 

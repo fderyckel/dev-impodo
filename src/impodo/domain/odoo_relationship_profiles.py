@@ -19,6 +19,7 @@ class OdooRelationshipRecommendation(StrEnum):
     """One profile recommendation understood by Odoo source scope."""
 
     INCLUDE_SUPPORTING = "INCLUDE_SUPPORTING"
+    TRANSFER_RELATED = "TRANSFER_RELATED"
     OPTIONAL_BUSINESS_DATA = "OPTIONAL_BUSINESS_DATA"
     REUSE_DESTINATION = "REUSE_DESTINATION"
     ODOO_MANAGED = "ODOO_MANAGED"
@@ -35,6 +36,7 @@ class OdooRelationshipProfile:
     destination_configuration_models: frozenset[str] = frozenset()
     history_models: frozenset[str] = frozenset()
     supporting_relationships: frozenset[tuple[str, str]] = frozenset()
+    transfer_relationships: frozenset[tuple[str, str]] = frozenset()
     optional_relationships: frozenset[tuple[str, str]] = frozenset()
     generated_relationships: frozenset[tuple[str, str]] = frozenset()
     separate_process_models: frozenset[str] = frozenset()
@@ -59,6 +61,8 @@ class OdooRelationshipProfile:
             return OdooRelationshipRecommendation.ODOO_MANAGED
         if relation in self.destination_configuration_models:
             return OdooRelationshipRecommendation.REUSE_DESTINATION
+        if (source_model, field.name) in self.transfer_relationships:
+            return OdooRelationshipRecommendation.TRANSFER_RELATED
         if (source_model, field.name) in self.supporting_relationships:
             return OdooRelationshipRecommendation.INCLUDE_SUPPORTING
         if relation in self.separate_process_models:
@@ -70,7 +74,7 @@ class OdooRelationshipProfile:
 
 STANDARD_ODOO_RELATIONSHIP_PROFILE = OdooRelationshipProfile(
     profile_id="impodo.standard.odoo.relationships",
-    version=2,
+    version=4,
     destination_configuration_models=frozenset(
         {
             "account.account",
@@ -99,7 +103,14 @@ STANDARD_ODOO_RELATIONSHIP_PROFILE = OdooRelationshipProfile(
             ("product.template", "uom_po_id"),
             ("mrp.bom", "bom_line_ids"),
             ("mrp.bom", "operation_ids"),
+            ("resource.calendar", "attendance_ids"),
             ("uom.uom", "category_id"),
+        }
+    ),
+    transfer_relationships=frozenset(
+        {
+            ("mrp.routing.workcenter", "workcenter_id"),
+            ("mrp.workcenter", "resource_calendar_id"),
         }
     ),
     optional_relationships=frozenset(
@@ -115,8 +126,11 @@ STANDARD_ODOO_RELATIONSHIP_PROFILE = OdooRelationshipProfile(
     ),
     generated_relationships=frozenset(
         {
+            ("mrp.workcenter", "resource_id"),
             ("product.template", "product_variant_id"),
             ("product.template", "product_variant_ids"),
+            ("resource.calendar", "attendance_ids_1st_week"),
+            ("resource.calendar", "attendance_ids_2nd_week"),
         }
     ),
     separate_process_models=frozenset(

@@ -65,71 +65,113 @@ version.
 ### Odoo source
 
 1. Open **Download and freeze** after eligible fields have been captured.
-2. Choose each **Odoo record type** in turn. The page shows that record
-   type's eligible fields and its own saved plan.
-3. Review **Review the related data for this migration**. Impodo groups the
-   available links into supporting records needed to preserve meaning,
-   optional business data, destination setup to reuse, records created by
-   Odoo, separate business processes, history to leave out, and links with no
-   standard default. For ordinary linked values, Impodo recommends **Keep
-   linked value**. This reuses an exact destination match or creates only the
-   minimum record needed when no match exists; it does not follow optional
-   relationships from that record type. Open **Advanced: choose a different
-   outcome** only when you need **Transfer related records as migration data**, **Use existing
-   destination records only**, or **Do not include**. Full transfer captures
-   reached records and reviews their own relationships. Existing-only captures
-   reached identity evidence, stops relationship expansion, and prevents that
-   record type from being created or updated. If you explicitly make the same
-   record type a source root by clearing **Capture only records linked from the
-   selected source records**, it may still lead Impodo to its reviewed linked
-   child records. This does not allow Impodo to create or update that root in
-   the destination. For Products, Impodo recommends
-   appropriate initial actions for Product Categories and Units of Measure when
-   those record types are available. Then select **Save related-data
-   decisions**. One action applies to every link shown beneath that related
-   record type. Impodo saves each link as a separate
-   decision, so a later recommendation change does not silently change what
-   you approved. **Keep linked value** leaves exact identity and any missing
-   create-only values for **Match destination data**. **Use existing destination
-   records only** requires Stage 4 to prove an exact existing destination match
-   and never permits creation. Destination-owned choices such as Company do not
-   offer creation of identity and required values. Odoo-managed records and
-   excluded history show their automatic handling. Separate-process profiles
-   remain editable recommendations. If a transferred
-   record type reveals more relationships, Impodo shows them as **Needs review**
-   in the next review on the same page. Repeat **Save related-data decisions**
-   until the page shows **Related-data review complete**. Impodo does not
-   expand optional relationships from a record kept this way, and it will not let
-   you check or freeze records while a newly found relationship still needs a decision. If a
-   related record type is unavailable, Impodo shows that as a blocker instead
-   of treating the relationship as excluded.
-   Saving a changed model choice refreshes its eligible fields from Odoo and
-   requires you to review the affected capture plans again. A record type added
-   from this section starts with **Capture only records linked from the selected
-   source records** selected. Use **Review all available Odoo data** only when
-   you need to change the wider model scope.
-4. When the related-data review is complete, select **Prepare capture plans**
+2. Review **Linked data needed for this migration**. You do not have to
+   confirm every related record type. Impodo prepares one bounded plan:
+
+   - a direct many-to-one value normally uses **Keep linked value**, which
+     reuses an exact destination match or creates only the identity and
+     required values needed to preserve that link;
+   - an owned collection or common related business record identified by a
+     versioned profile uses **Transfer related records as migration data**, so
+     quantities, durations, schedule hours, and other selected business values
+     are retained;
+   - destination setup such as Company uses **Use existing destination records
+     only**; and
+   - an unclassified one-to-many or many-to-many collection uses **Do not
+     include** instead of widening the migration silently.
+
+   Select **Save linked-data choices** once. This is separate from saving the
+   fields for one record type. Impodo saves the linked-data choices, refreshes
+   any newly reached record types, and applies the same bounded rules for up to
+   four steps. If you change a linked-data choice and then try to save fields,
+   Impodo stops you and points back to **Save linked-data choices**. Your
+   browser also warns you before a refresh or page change can discard an
+   unsaved choice.
+
+   After a successful save, **Your saved linked-data choices** remains visible
+   when you refresh the page. Impodo recalculates its automatic recommendations
+   when the plan changes, but it keeps a deliberate choice made either in a
+   named exception or under **Advanced** while that choice remains valid.
+
+   Select **Companies** as a main record type only when you intend to migrate
+   company records themselves. If you need Company only to connect the main
+   records to a company that already exists in the destination, leave it as
+   linked data. Impodo then prepares only **Company Name** for matching.
+
+   The ordinary page shows only a real exception, such as unavailable metadata
+   or one related record type reached through links that require incompatible
+   destination policies. Open **Advanced: inspect or change relationship
+   handling** only for an unusual migration or to override a recommendation.
+   The complete currently applicable matrix and all safe alternatives remain
+   available there.
+
+   If Impodo discovers a policy conflict while it follows newly included
+   records, it saves the safe review progress and returns you to this same
+   section. It does not create capture plans yet. Choose one outcome in the
+   named relationship exception, then select **Save linked-data choices**
+   again. Impodo resumes the linked-data review in the same project.
+
+   Some read-only lists are calculated by Odoo from another relationship. They
+   stay under Odoo-managed handling and do not create a second choice or a
+   conflict with the linked value that owns the relationship.
+
+   Each time you rebuild this plan, Impodo recalculates its automatic handling
+   from your current main record types and current recommendations. It remembers
+   the choices that you deliberately made in a named exception or under
+   **Advanced**. An automatic choice saved by an older Impodo version does not
+   make an old supporting record type part of your intended migration.
+
+   Impodo first completes the required Odoo reads without changing the project.
+   After those reads succeed, it publishes either the complete linked-data and
+   capture plan or the resumable review checkpoint described above. If Odoo
+   times out or cannot be reached before that point, your current choices and
+   plans stay unchanged. Keep this project open, restore access if necessary,
+   and select the action again. You do not need to choose the main record types
+   again or create another project.
+
+   ![Impodo's one-click linked-data plan with the Advanced relationship matrix collapsed.](../../images/user/08h-odoo-linked-data-plan.png)
+
+   **Keep linked value** does not follow optional relationships from its
+   related record. Full transfer also checks the linked data that record needs.
+   Existing-only captures the value needed for matching and permits neither
+   creation nor update. A standard manufacturing profile can therefore
+   transfer reached BoM lines, operations, Work Centers, Working Hours, and
+   working-time rows without making those models rules in the generic engine.
+   If a required related record type is unavailable, Impodo names it as a
+   blocker instead of treating it as excluded.
+
+   Saving a changed main model choice refreshes its eligible fields from Odoo
+   and requires you to review the affected capture plans again. A record type
+   added from this section starts with **Capture only records linked from the
+   selected source records** selected. Use **Review all available Odoo data**
+   only when you need to change the wider main-record scope. Automatically
+   linked record types remain visibly separate and are not checked as main
+   record types.
+3. When the related-data plan is complete, select **Prepare capture plans**
    when that action is shown. Impodo prepares every capture plan it can prove
    safely. Main record types receive their eligible business
    values. Full related records receive the same full plan. Existing-only
    records receive identity evidence, while **Keep linked value** records
-   receive their identity and required values only. Impodo does
-   not replace a plan you already edited. If one record type has no safe
-   identity or exceeds a capture limit, the page names that exception and opens
-   only that plan for review. You do not need to configure all the other record
-   types individually.
+   receive their identity and required values only. A successful rebuild
+   publishes one complete generated set. If you edited a capture plan before
+   rebuilding linked data, review the regenerated plan again. If one record
+   type has no safe identity or exceeds a capture limit, the page names that
+   exception and opens only that plan for review. You do not need to configure
+   all the other record types individually.
 
-   Review the saved-plan summary before continuing. An automatically prepared
-   root plan reads all matching records and remains subject to the 10,000-row
-   safety limit. Select **Edit saved capture plans** if you need to add an exact
-   **Root record filter**, change the fields, or change the request size. A
-   related plan remains limited to records reached through the reviewed links.
-5. If you chose a linked supporting type, review **Relationship fields used to
+   Review the saved-plan summary before continuing. It lists the main record
+   types first and summarizes automatic linked-value support separately. An
+   automatically prepared root plan reads all matching records and remains
+   subject to the 10,000-row safety limit. Select **Edit saved capture plans**
+   if you need to add an exact **Root record filter**, change the fields, or
+   change the request size. A related plan remains limited to records reached
+   through the reviewed links.
+4. If Impodo included linked support, review **Relationship fields used to
    find linked records** and confirm **I reviewed the selected relationship
-   fields above**. Then select **Check matching records and continue**. Impodo
-   shows the count and request estimate for each dataset and for the complete
-   capture.
-6. Confirm the read-only action and wait while Impodo freezes every dataset as
+   fields above**. Then select **Count selected source records and continue**.
+   Impodo shows the count and request estimate for each dataset and for the
+   complete capture.
+5. Confirm the read-only action and wait while Impodo freezes every dataset as
    one source version. A failure leaves the previous complete version current.
 
 If you return to this stage and change the selected Odoo record types, fields,
@@ -147,20 +189,26 @@ relationship gives **Match destination data** the records and protected link
 evidence it needs. A link to an unselected record type is not transferred. The
 related-data proposal explains why each available link may or may not belong
 in the migration. Its technical model and field names remain under **Support
-details**. The page does not require a separate checkbox for every technical
-field, but Impodo records the resulting decision for each displayed link. Once
-you select a supporting type and mark it for linked capture,
-Impodo finds its records from selected relationship fields. It stops if a
-referenced record is missing, inaccessible, or outside the selected root
-group. Capture alone does not authorize recreating records in another Odoo
-instance.
+details**. The ordinary page does not require a separate choice for every
+technical field. A completed plan records the current result for each displayed
+link. On a later rebuild, Impodo recalculates automatic results and carries only
+your deliberate named-exception and **Advanced** choices. It finds reached
+supporting records
+from the selected relationship fields. It stops if a referenced record is
+missing, inaccessible, or outside the selected root group. Capture alone does
+not authorize recreating records in another Odoo instance.
 
 The root filter currently matches one direct field by exact value. Editing
 other plan choices keeps a saved filter. Enter a new field and value to replace
 it, or choose **Remove the saved root filter** to remove it. Related record
-types still need their own selected types and plans. Impodo follows links only
-between those selected types, up to four steps. The current interface reviews
-the eligible fields as a group; it does not offer a field-by-field link choice.
+types kept by a relationship receive automatic linked-only plans; they do not
+become main record types. Impodo follows only reviewed links, up to four steps.
+The Advanced interface groups only compatible fields while retaining a
+separate saved decision for each field. If edges to one model imply different
+model-wide destination policies, Impodo saves a resumable review checkpoint and
+shows one named exception instead of collapsing them silently. The checkpoint
+contains the Odoo details needed to present that exception, but no capture
+plans. Your deliberate choice lets the same review continue.
 
 Impodo accepts finite Odoo floating point values such as quantities, rates,
 and durations in this source capture. Review the captured values before

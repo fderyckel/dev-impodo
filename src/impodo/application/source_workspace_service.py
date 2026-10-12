@@ -36,6 +36,15 @@ from ..domain.odoo_capture import (
     OdooCaptureFilterOperator,
     OdooCaptureRole,
     OdooCaptureSelection,
+    require_consistent_odoo_capture_selection_set,
+)
+from ..domain.guided_odoo_capture import (
+    GuidedOdooCaptureMode,
+    GuidedOdooCapturePlanDraft,
+)
+from ..domain.odoo_relationship_scope import (
+    OdooRelationshipCaptureAction,
+    OdooRelationshipScope,
 )
 from ..domain.odoo_source_capture import (
     OdooSourceCaptureConfigurationError,
@@ -226,6 +235,190 @@ class SourceWorkspaceService:
             SourceSnapshotPublisher(artifacts) if artifacts is not None else None
         )
         self._snapshot_lock = RLock()
+
+    def build_guided_odoo_capture_selections(
+        self,
+        workspace_id: str,
+        *,
+        drafts: Iterable[GuidedOdooCapturePlanDraft],
+        schema: OdooSchemaCatalog,
+        relationship_scope: OdooRelationshipScope,
+        actor: Actor,
+        page_size: int = 100,
+    ) -> tuple[OdooCaptureSelection, ...]:
+        """Build a complete guided capture set without publishing any evidence.
+
+        The caller supplies the final live schema and relationship scope that
+        will be published atomically with the returned selections.  This method
+        validates that every draft has the role and capture mode implied by
+        that scope, binds all plans to the supplied schema identity, and makes
+        no repository or protected-artifact writes.
+        """
+
+        context = self.authorization.require(
+            actor,
+            Capability.SOURCE_SELECT,
+            workspace_id=workspace_id,
+        )
+        workspace_state = self.workspace_states.get(workspace_id)
+        if workspace_state.status is not WorkspaceStatus.REGISTERED:
+            raise WorkspaceError(
+                "Register the project before selecting Odoo source records"
+            )
+        if workspace_state.source_mode is not SourceMode.ODOO:
+            raise WorkspaceError(
+                "Odoo capture selections are available only for Odoo-source projects"
+            )
+        if schema.workspace_id != workspace_id:
+            raise WorkspaceError("The capture schema belongs to another workspace")
+        if schema.origin is not SchemaOrigin.LIVE_API:
+            raise WorkspaceError(
+                "Replace the unverified local schema draft with a live capture"
+            )
+        if schema.pending_refresh is not None:
+            raise WorkspaceError(
+                "Review the changed Odoo details before preparing capture plans"
+            )
+        version_decision = assess_odoo_operation(
+            schema.odoo_version,
+            OdooOperation.CAPTURE_SOURCE,
+        )
+        expected_policy_hash = (
+            odoo_source_policy_hash(version_decision.version.major)
+            if version_decision.allowed
+            else None
+        )
+        if not (
+            expected_policy_hash is not None
+            and schema.policy_hash == expected_policy_hash
+            and schema.connection_target_hash
+            and schema.read_principal_hash
+            and schema.read_permission_hash
+            and schema.read_context_hash
+        ):
+            raise WorkspaceError(
+                "Refresh the authenticated Odoo schema identity before selecting records"
+            )
+
+        candidates = tuple(drafts)
+        target_models = frozenset(
+            {
+                *relationship_scope.root_models,
+                *relationship_scope.included_models,
+            }
+        )
+        root_models = frozenset(relationship_scope.root_models)
+        schema_models = {model.name: model for model in schema.models}
+        draft_models = {draft.model for draft in candidates}
+        if not root_models:
+            raise WorkspaceError(
+                "Choose at least one main Odoo record type before preparing capture plans"
+            )
+        if (
+            len(draft_models) != len(candidates)
+            or draft_models != target_models
+            or len(schema_models) != len(schema.models)
+            or set(schema_models) != target_models
+        ):
+            raise WorkspaceError(
+                "Prepare one guided capture-plan draft for every selected Odoo record type"
+            )
+        if len({draft.dataset_name for draft in candidates}) != len(candidates):
+            raise WorkspaceError(
+                "Give each Odoo record type a different dataset name"
+            )
+
+        linked_models = frozenset(target_models - root_models)
+        allowed_relationships = frozenset(
+            decision.identity
+            for decision in relationship_scope.decisions
+            if decision.action
+            in {
+                OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                OdooRelationshipCaptureAction.PRESERVE_LINKED,
+                OdooRelationshipCaptureAction.MATCH_EXISTING,
+            }
+        )
+        created_at = datetime.now(timezone.utc)
+        selections: list[OdooCaptureSelection] = []
+        for draft in candidates:
+            expected_role = (
+                OdooCaptureRole.ROOT
+                if draft.model in root_models
+                else OdooCaptureRole.LINKED_ONLY
+            )
+            if draft.capture_role is not expected_role:
+                raise WorkspaceError(
+                    f"Guided capture role for {draft.model} no longer matches the relationship scope"
+                )
+            expected_mode = _guided_capture_mode(
+                draft.model,
+                relationship_scope,
+            )
+            if draft.mode is not expected_mode:
+                raise WorkspaceError(
+                    f"Guided capture mode for {draft.model} no longer matches the relationship scope"
+                )
+            schema_model = schema_models[draft.model]
+            fields_by_name = {field.name: field for field in schema_model.fields}
+            active = fields_by_name.get("active")
+            filter_policy = (
+                (
+                    OdooCaptureFilterPolicy.ACTIVE_RECORDS
+                    if expected_role is OdooCaptureRole.ROOT
+                    else OdooCaptureFilterPolicy.ACTIVE_AND_ARCHIVED_RECORDS
+                )
+                if (
+                    active is not None
+                    and active.type == "boolean"
+                    and is_odoo_capture_filter_field(active)
+                )
+                else OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS
+            )
+            try:
+                selection = OdooCaptureSelection.create(
+                    selection_id=str(uuid4()),
+                    version=1,
+                    data_version_id=context.data_version_id,
+                    dataset_name=draft.dataset_name,
+                    model=draft.model,
+                    field_names=draft.field_names,
+                    capture_role=expected_role,
+                    filter_policy=filter_policy,
+                    max_rows=MAX_ODOO_CAPTURE_ROWS,
+                    page_size=page_size,
+                    policy_hash=schema.policy_hash,
+                    connection_target_hash=schema.connection_target_hash,
+                    schema_scope_hash=schema.content_hash,
+                    read_principal_hash=schema.read_principal_hash,
+                    read_permission_hash=schema.read_permission_hash,
+                    context_hash=schema.read_context_hash,
+                    created_at=created_at,
+                    created_by=actor.identity.display_name,
+                )
+                plan_odoo_source_capture(
+                    selection,
+                    schema,
+                    linked_models=linked_models,
+                    allowed_relationships=allowed_relationships,
+                    reference_models=relationship_scope.reference_models,
+                    leaf_models=relationship_scope.leaf_models,
+                    create_if_missing_models=(
+                        relationship_scope.create_if_missing_models
+                    ),
+                )
+            except (
+                OdooCaptureContractError,
+                OdooSourceCaptureConfigurationError,
+            ) as error:
+                raise WorkspaceError(str(error)) from error
+            selections.append(selection)
+        try:
+            return require_consistent_odoo_capture_selection_set(
+                tuple(selections)
+            )
+        except OdooCaptureContractError as error:
+            raise WorkspaceError(str(error)) from error
 
     def define_odoo_capture_selection(
         self,
@@ -795,6 +988,32 @@ class SourceWorkspaceService:
         assert self.artifacts is not None
         referenced = self.sources.source_snapshot_storage_keys(workspace_id)
         self.artifacts.cleanup_source_snapshots(data_version_id, referenced)
+
+
+def _guided_capture_mode(
+    model: str,
+    relationship_scope: OdooRelationshipScope,
+) -> GuidedOdooCaptureMode:
+    """Return the only guided capture mode allowed by reviewed scope intent."""
+
+    if (
+        model in relationship_scope.root_models
+        or model in relationship_scope.expanding_models
+    ):
+        return GuidedOdooCaptureMode.FULL
+    reference = model in relationship_scope.reference_models
+    create_if_missing = model in relationship_scope.create_if_missing_models
+    if reference and create_if_missing:
+        raise WorkspaceError(
+            f"Relationship scope for {model} has conflicting capture modes"
+        )
+    if reference:
+        return GuidedOdooCaptureMode.IDENTITY_ONLY
+    if create_if_missing:
+        return GuidedOdooCaptureMode.MINIMUM_CREATE
+    raise WorkspaceError(
+        f"Relationship scope for {model} does not define a guided capture mode"
+    )
 
 
 def _unsafe_cell_problem(

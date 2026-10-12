@@ -140,11 +140,11 @@ saved selection carries only the artifact hash. Assessment and capture require
 that artifact. Linked-only capture now derives related IDs inside the protected
 boundary and enforces row, link, and depth limits before promoting the complete
 set. The browser shows model and row counts without exposing source IDs.
-Broader root filters, individual edge approval, and automatic selection of
-missing model types remain to be implemented. Company access is bound to the
-source identity check, but a separate company-specific closure rule remains.
+Broader root filters remain to be implemented. Company access is bound to the
+source identity check.
 
-**Implementation status (2026-09-23):** The source page now presents captured
+**Historical implementation status (2026-09-23):** The source page first
+presented captured
 out-of-scope relationships as a business-scope proposal instead of a technical
 model warning. It distinguishes supporting data, optional data, destination
 configuration, Odoo-managed records, separate processes, excluded history,
@@ -153,7 +153,10 @@ Categories, Units of Measure, and the Unit of Measure Category when its link is
 discovered. The review link preselects only recommendations that exist in the
 current model catalogue, while the existing schema-scope POST remains the
 explicit save boundary. The grouped control now persists individual edge
-decisions, but one save does not yet expand every new graph level recursively.
+decisions. One normal continue action applies compatible safe defaults and
+expands the bounded graph internally until it closes. The page asks the data
+manager only about named exceptions; the complete currently applicable
+field-level decision matrix remains available under **Advanced**.
 
 [ADR-016](../decisions/README.md#adr-016--odoo-relationship-scope-combines-generic-decisions-with-profiles)
 records the accepted direction for closing that gap by extending the existing
@@ -161,21 +164,23 @@ file-to-Odoo relationship engine. Schema-derived per-edge decisions remain
 authoritative; versioned standard and organization profiles recommend common
 choices but cannot turn a default into the only workflow.
 
-**Implementation status (2026-10-09):** Standard recommendations now belong to
-a versioned, injectable profile instead of the discovery engine. An available
-unprofiled related model is an explicit unchecked source-scope choice, and a
-model added from the relationship proposal defaults to linked-only capture.
-Metadata for a non-writable related, computed, or read-only relationship is
-shown as Odoo-managed evidence instead of being silently removed. Saving the
-grouped model choices records an immutable, versioned decision for every
-source relationship field, including its profile provenance. Multi-level
-review now proceeds iteratively on the same Stage 2 page: saving an included
-record type refreshes its schema, newly discovered or changed edges remain
-pending, and checking or freezing records is blocked until every current
-selectable edge has an explicit inclusion or exclusion. Profiles do not
-auto-select the next graph level, and an unavailable related record type is
-reported as a blocker. Once Stage 4 has chosen each selected model's business
-key, the saved Stage 2 edge decision and Stage 4 evidence now compile into the
+**Implementation status (2026-10-11):** Standard recommendations now belong to
+a versioned, injectable profile instead of the discovery engine. Generic
+many-to-one relationships preserve the linked value without expanding the
+related model's graph; unprofiled one-to-many and many-to-many relationships
+remain excluded. Exact profiled edges may recommend transferring the complete
+linked business record, such as BoM operations to Work Centers and Work
+Centers to their Working Hours. Metadata for a non-writable related, computed,
+or read-only relationship is shown as Odoo-managed evidence instead of being
+silently removed. A single normal action records immutable, versioned defaults
+for each current edge, refreshes newly included schema, and repeats within the
+bounded depth until the graph closes. Incompatible model-wide policies,
+unavailable selectable metadata, changed legacy edge meaning, depth or capture
+bounds, and missing identity or create evidence interrupt that flow with a
+named exception; all defaults remain inspectable and overridable under
+**Advanced**. Once Stage 4
+has chosen each selected model's business key, the saved Stage 2 edge decision
+and Stage 4 evidence now compile into the
 canonical `DatasetMapping`,
 `RelationshipMapping`, and `RelationshipResolver` contracts. `transfer` means
 target first and then the incoming dataset; both no-write modes mean target

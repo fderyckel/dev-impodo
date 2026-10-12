@@ -4,12 +4,14 @@ from datetime import datetime, timezone
 import json
 import unittest
 from unittest.mock import patch
+from urllib.error import URLError
 
 from impodo.adapters.odoo.connectors import (
     Json2Config,
     Json2ReadConnector,
     Json2WriteIdentityConnector,
     _NoRedirectHandler,
+    observe_json2_read_failures,
     target_record_read_config,
 )
 from impodo.domain.odoo.contracts import (
@@ -672,15 +674,59 @@ class Json2ConnectorTests(unittest.TestCase):
         )
 
     def test_timeout_error_is_redacted(self) -> None:
+        failures = []
+        calls = []
+
         def transport(url, headers, body, timeout, method):
+            calls.append(url)
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
             raise TimeoutError("contains super-secret-token")
 
         connector = Json2ReadConnector(self.config(), transport=transport)
-        with self.assertRaises(ConnectorTransportError) as caught:
-            connector.get_model_metadata(
-                [MetadataRequest("x.model", ("name",))]
-            )
+        with (
+            observe_json2_read_failures(failures.append),
+            self.assertRaises(ConnectorTransportError) as caught,
+        ):
+            connector.get_model_metadata([MetadataRequest("x.model", ("name",))])
+
+        self.assertEqual(
+            str(caught.exception),
+            "Odoo JSON-2 fields_get read for x.model timed out after 2 attempts",
+        )
+        self.assertEqual(len([url for url in calls if "/fields_get" in url]), 2)
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0].model, "x.model")
+        self.assertEqual(failures[0].method, "fields_get")
+        self.assertEqual(failures[0].category, "timeout")
+        self.assertEqual(failures[0].attempt_count, 2)
         self.assertNotIn("super-secret-token", str(caught.exception))
+
+    def test_unreachable_error_names_only_safe_json2_operation(self) -> None:
+        failures = []
+
+        def transport(url, headers, body, timeout, method):
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
+            raise URLError("private-host-and-token")
+
+        connector = Json2ReadConnector(
+            self.config(retries=0),
+            transport=transport,
+        )
+        with (
+            observe_json2_read_failures(failures.append),
+            self.assertRaises(ConnectorTransportError) as caught,
+        ):
+            connector.get_records([RecordRequest("res.partner", ("name",))])
+
+        self.assertEqual(
+            str(caught.exception),
+            "Odoo JSON-2 search_read read for res.partner was unreachable "
+            "after 1 attempt",
+        )
+        self.assertEqual(failures[0].category, "unreachable")
+        self.assertNotIn("private-host-and-token", str(caught.exception))
 
     def test_default_transport_does_not_reserialize_bounded_response(self) -> None:
         connector = Json2ReadConnector(self.config())
