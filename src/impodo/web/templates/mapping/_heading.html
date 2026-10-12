@@ -2,7 +2,6 @@
   <div>
     <p class="eyebrow">{% if correction_binding %}Completed-load correction{% else %}Stage 3 of 6 · Match data{% endif %}</p>
     <h1>{% if correction_binding %}Correct the matching rules{% else %}Match your data to Odoo{% endif %}</h1>
-    <p>{% if correction_binding %}Change only the rule, field match, value choice, or casing behavior that was wrong. The completed load remains unchanged.{% elif odoo_pinned %}Choose which captured values to prepare, then separately approve every field that may be updated.{% else %}Choose where each source value belongs and how existing records are found.{% endif %}</p>
   </div>
   {% if has_unvalidated_changes %}
     <span class="status">Saved changes need checking</span>

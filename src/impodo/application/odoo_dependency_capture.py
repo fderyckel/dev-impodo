@@ -12,6 +12,7 @@ from ..domain.odoo_provenance import OdooOriginBatch
 from ..domain.odoo_source_capture import (
     OdooSourceCaptureConsistencyError,
     OdooSourceCaptureLimitError,
+    OdooSourceCaptureRowLimitExceeded,
     OdooSourceCaptureRequest,
 )
 
@@ -100,10 +101,12 @@ def discover_dependency_closure(
                 )
                 found.append(identifier)
                 total_rows += 1
-                if (
-                    len(model_facts) > request.maximum_rows
-                    or total_rows > MAX_DEPENDENCY_TOTAL_ROWS
-                ):
+                if len(model_facts) > request.maximum_rows:
+                    raise OdooSourceCaptureRowLimitExceeded(
+                        model=request.model,
+                        maximum_rows=request.maximum_rows,
+                    )
+                if total_rows > MAX_DEPENDENCY_TOTAL_ROWS:
                     raise OdooSourceCaptureLimitError(
                         "Odoo linked-record closure exceeds the row limit"
                     )
@@ -135,8 +138,9 @@ def discover_dependency_closure(
                         )
                     enqueued[target.model].update(new_members)
                     if len(enqueued[target.model]) > target.maximum_rows:
-                        raise OdooSourceCaptureLimitError(
-                            "Odoo linked-record closure exceeds the model row limit"
+                        raise OdooSourceCaptureRowLimitExceeded(
+                            model=target.model,
+                            maximum_rows=target.maximum_rows,
                         )
                     # Combine links discovered at the same depth and model;
                     # otherwise many2one links cause one Odoo call per owner.

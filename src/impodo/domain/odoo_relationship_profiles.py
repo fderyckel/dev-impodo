@@ -74,12 +74,14 @@ class OdooRelationshipProfile:
 
 STANDARD_ODOO_RELATIONSHIP_PROFILE = OdooRelationshipProfile(
     profile_id="impodo.standard.odoo.relationships",
-    version=4,
+    version=5,
     destination_configuration_models=frozenset(
         {
             "account.account",
             "account.account.tag",
             "account.tax",
+            "ir.model",
+            "ir.model.fields",
             "ir.sequence",
             "res.company",
             "res.currency",
@@ -126,6 +128,7 @@ STANDARD_ODOO_RELATIONSHIP_PROFILE = OdooRelationshipProfile(
     ),
     generated_relationships=frozenset(
         {
+            ("maintenance.team", "alias_id"),
             ("mrp.workcenter", "resource_id"),
             ("product.template", "product_variant_id"),
             ("product.template", "product_variant_ids"),

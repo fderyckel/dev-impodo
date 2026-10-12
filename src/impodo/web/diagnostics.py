@@ -449,6 +449,9 @@ class LocalDiagnosticRecorder:
         exception_class: str | None = None,
         completed_rows: int | None = None,
         total_rows: int | None = None,
+        pass_number: int | None = None,
+        total_record_types: int | None = None,
+        new_record_types: int | None = None,
     ) -> None:
         """Record one bounded application stage without business identifiers."""
 
@@ -473,6 +476,16 @@ class LocalDiagnosticRecorder:
             payload["completed_rows"] = max(0, int(completed_rows))
         if total_rows is not None:
             payload["total_rows"] = max(0, int(total_rows))
+        if pass_number is not None:
+            payload["pass_number"] = max(0, min(100, int(pass_number)))
+        if total_record_types is not None:
+            payload["total_record_types"] = max(
+                0, min(10_000, int(total_record_types))
+            )
+        if new_record_types is not None:
+            payload["new_record_types"] = max(
+                0, min(10_000, int(new_record_types))
+            )
         self._write(payload)
 
     def close(self) -> None:
@@ -913,6 +926,9 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
         "database_lock_retry_count": (0, 1_000_000),
         "completed_rows": (0, 9_223_372_036_854_775_807),
         "total_rows": (0, 9_223_372_036_854_775_807),
+        "pass_number": (0, 100),
+        "total_record_types": (0, 10_000),
+        "new_record_types": (0, 10_000),
         "attempt_count": (1, 100),
     }
     for field, (minimum, maximum) in integer_fields.items():

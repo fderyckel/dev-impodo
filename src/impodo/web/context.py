@@ -15,7 +15,7 @@ See ``docs/architecture/python-code-map.md`` and
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Callable
+from typing import Callable, Protocol
 
 from impodo.domain.shared.access import Actor, AuthorizationPolicy
 from ..application.browser_queries import BrowserQueryService
@@ -125,6 +125,25 @@ WriteIdentityProbe = Callable[
 ]
 
 SchemaReader = Callable[[WorkspaceState, str], MetadataSnapshot]
+
+
+class SchemaReadSession(Protocol):
+    """Read one request-local, monotonically growing Odoo schema scope."""
+
+    def read_models(self, models: tuple[str, ...]) -> MetadataSnapshot:
+        """Read metadata for exactly these newly reached models."""
+
+    def verify_identity(
+        self,
+        models: tuple[str, ...],
+    ) -> OdooReadIdentity | None:
+        """Verify read access for the final complete model scope."""
+
+
+SchemaReadSessionFactory = Callable[
+    [WorkspaceState, str],
+    SchemaReadSession,
+]
 
 ModelCatalogReader = Callable[[WorkspaceState, str], RecordSnapshot]
 
@@ -248,6 +267,7 @@ class WebContext:
     read_identity_probe: ReadIdentityProbe
     write_identity_probe: WriteIdentityProbe
     schema_reader: SchemaReader
+    schema_read_session_factory: SchemaReadSessionFactory | None
     model_catalog_reader: ModelCatalogReader
     readiness_reader: BrowserReadinessReader | None
     destination_match_reader: DestinationMatchingReader

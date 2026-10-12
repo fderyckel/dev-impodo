@@ -235,6 +235,7 @@ from .context import (
     OdooSourceCaptureFactory,
     ReadIdentityProbe,
     SchemaReader,
+    SchemaReadSessionFactory,
     WriteIdentityProbe,
     WebContext,
 )
@@ -247,6 +248,7 @@ from impodo.web.composition.target_readers import (
     _read_destination_match,
     _read_model_catalog,
     _read_schema,
+    _open_schema_read_session,
     _probe_read_identity,
     _test_connection,
 )
@@ -317,6 +319,7 @@ def create_local_app(
     read_identity_probe: ReadIdentityProbe | None = None,
     write_identity_probe: WriteIdentityProbe | None = None,
     schema_reader: SchemaReader | None = None,
+    schema_read_session_factory: SchemaReadSessionFactory | None = None,
     model_catalog_reader: ModelCatalogReader | None = None,
     readiness_reader: BrowserReadinessReader | None = None,
     destination_match_reader: DestinationMatchingReader | None = None,
@@ -819,6 +822,17 @@ def create_local_app(
     load_jobs = LoadJobManager() if load_jobs_enabled else None
     resolved_connection_tester = connection_tester or _test_connection
     resolved_read_identity_probe = read_identity_probe or _probe_read_identity
+    resolved_schema_reader = schema_reader or _read_schema
+    if schema_read_session_factory is not None:
+        resolved_schema_read_session_factory = schema_read_session_factory
+    elif schema_reader is None and read_identity_probe is None:
+        resolved_schema_read_session_factory = _open_schema_read_session
+    else:
+        # Existing injected readers predate request-local sessions and may
+        # capture a fresh target fingerprint on every call.  Keep those
+        # integrations on the established full-read path unless they opt in
+        # with an explicit session factory.
+        resolved_schema_read_session_factory = None
     resolved_readback_reader_factory = (
         readback_reader_factory or _readback_reader
     )
@@ -1119,7 +1133,8 @@ def create_local_app(
         connection_tester=resolved_connection_tester,
         read_identity_probe=resolved_read_identity_probe,
         write_identity_probe=write_identity_probe or _probe_write_identity,
-        schema_reader=schema_reader or _read_schema,
+        schema_reader=resolved_schema_reader,
+        schema_read_session_factory=resolved_schema_read_session_factory,
         model_catalog_reader=model_catalog_reader or _read_model_catalog,
         readiness_reader=readiness_reader,
         destination_match_reader=(

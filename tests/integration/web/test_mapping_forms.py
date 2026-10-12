@@ -61,6 +61,8 @@ from impodo.domain.workspace.contracts import (
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.derived_entities import DerivedDatasetLink
 from impodo.web.presenters.mapping_forms import (
+    _related_business_keys,
+    _resolver_business_key,
     _mapping_allowed_fields,
     _mapping_datasets_from_form,
     _text_steps_from_form,
@@ -77,6 +79,36 @@ from impodo.web.presenters.mapping_view import (
 
 
 class OrderedTextStepFormTests(unittest.TestCase):
+    def test_bom_and_product_support_default_to_portable_candidate_keys(
+        self,
+    ) -> None:
+        cases = (
+            ("mrp.bom", "code"),
+            ("product.product", "default_code"),
+        )
+        for model, field_name in cases:
+            with self.subTest(model=model):
+                candidates = _related_business_keys((), model)
+                selected = _resolver_business_key(None, candidates)
+
+                self.assertIsNotNone(selected)
+                self.assertEqual(selected.key_fields, (field_name,))
+                self.assertTrue(selected.key_id.startswith("odoo-supporting:"))
+                self.assertNotIn(
+                    ("name",),
+                    tuple(item.key_fields for item in candidates),
+                )
+
+                legacy_name = RelationshipResolver(
+                    origin=ResolverOrigin.TARGET_CATALOG,
+                    model=model,
+                    key_mappings=(
+                        ReferenceKeyMapping("source.key", "name"),
+                    ),
+                )
+                upgraded = _resolver_business_key(legacy_name, candidates)
+                self.assertEqual(upgraded, selected)
+
     def test_missing_parent_link_prefills_exact_unsaved_not_in_rule(self) -> None:
         exact = ("CK0291ABK332 -  Idru", "CK0291ABK378  LT004")
         group = missing_parent_groups([
@@ -1286,6 +1318,14 @@ class OrderedTextStepFormTests(unittest.TestCase):
         script = (root / "src" / "impodo" / "web" / "static" / "mapping.js").read_text(
             encoding="utf-8"
         )
+        relationship_script = (
+            root
+            / "src"
+            / "impodo"
+            / "web"
+            / "static"
+            / "mapping-relation-row.js"
+        ).read_text(encoding="utf-8")
         save_recovery_script = (
             root
             / "src"
@@ -1352,6 +1392,20 @@ class OrderedTextStepFormTests(unittest.TestCase):
             "Use Odoo first, otherwise use the incoming table",
             dataset_template,
         )
+        self.assertIn("data-relationship-origin-controls", dataset_template)
+        self.assertIn("data-relationship-origin", dataset_template)
+        self.assertIn("data-relationship-incoming-control", dataset_template)
+        self.assertIn("data-relationship-odoo-control", dataset_template)
+        self.assertIn(
+            "How should Impodo identify the existing Odoo record?",
+            dataset_template,
+        )
+        self.assertIn("initializeRelationshipOriginControls", relationship_script)
+        self.assertIn('origin.value !== "target_catalog"', relationship_script)
+        self.assertIn('origin.value !== "dataset"', relationship_script)
+        self.assertIn('origin.value === "target_then_dataset"', relationship_script)
+        self.assertIn("[data-relationship-incoming-control][hidden]", styles)
+        self.assertIn("[data-relationship-odoo-control][hidden]", styles)
         self.assertLess(
             dataset_template.index("data-table-fields-toggle"),
             dataset_template.index("data-table-fields-panel"),

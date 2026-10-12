@@ -17,7 +17,10 @@ from impodo.application.odoo_dependency_capture import (
     require_capture_matches_discovery,
 )
 from impodo.domain.shared.access import LOCAL_ACTOR
-from impodo.application.odoo_source_capture_service import OdooSourceCaptureService
+from impodo.application.odoo_source_capture_service import (
+    OdooSourceCaptureService,
+    PreparedOdooCaptureAssessment,
+)
 from impodo.adapters.odoo.connectors import Json2Config
 from impodo.domain.odoo.contracts import MetadataSnapshot
 from impodo.domain.odoo_capture import (
@@ -41,6 +44,7 @@ from impodo.domain.odoo_source_capture import (
     OdooSourceCaptureConfigurationError,
     OdooSourceCaptureConsistencyError,
     OdooSourceCaptureLimitError,
+    OdooSourceCaptureRowLimitExceeded,
     OdooSourceCaptureRequest,
     plan_odoo_source_capture,
     validate_odoo_capture_selection_reference,
@@ -54,6 +58,7 @@ from impodo.domain.odoo_source_policy import (
 )
 from impodo.domain.odoo_provenance import OdooOriginBatch, OdooRelationshipOriginColumn
 from impodo.domain.odoo_relationship_scope import (
+    OdooRelationshipCaptureAction,
     OdooRelationshipScope,
     relationship_scope_decisions,
 )
@@ -178,6 +183,16 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
         self.assertEqual([call["limit"] for call in scan_calls], [500, 1])
         self.assertEqual([batch.row_count for batch in batches], [500, 1])
         self.assertEqual(observed, [(500, 501), (501, 501)])
+
+    def test_relationship_scan_identifies_a_per_model_row_limit(self) -> None:
+        with self.assertRaises(OdooSourceCaptureRowLimitExceeded) as raised:
+            self._adapter(DatasetTransport(_rows(2))).scan_origins(
+                _request(maximum_rows=1),
+                _context(),
+            )
+
+        self.assertEqual(raised.exception.model, "res.partner")
+        self.assertEqual(raised.exception.maximum_rows, 1)
 
     def test_relationship_scan_falls_back_to_selected_page_size(self) -> None:
         dataset = DatasetTransport(_rows(101))
@@ -694,6 +709,35 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
 
 
 class OdooDependencyClosureTests(unittest.TestCase):
+    def test_linked_model_row_limit_names_the_offending_model(self) -> None:
+        related_name = "res.partner.category"
+        root = _request(
+            schema_model_names=("res.partner", related_name),
+            relationship_projection=(OdooCaptureRelationshipProjection(
+                "category_ids", "one2many", related_name
+            ),),
+        )
+        related = _request(
+            model=related_name,
+            schema_model_names=("res.partner", related_name),
+            capture_role=OdooCaptureRole.LINKED_ONLY,
+            maximum_rows=1,
+        )
+
+        def scan(request):
+            self.assertEqual(request.model, "res.partner")
+            return (OdooOriginBatch(1, (41,), (None,), (
+                OdooRelationshipOriginColumn(
+                    "category_ids", "one2many", related_name, ((7, 8),)
+                ),
+            )),)
+
+        with self.assertRaises(OdooSourceCaptureRowLimitExceeded) as raised:
+            discover_dependency_closure((root, related), scan)
+
+        self.assertEqual(raised.exception.model, related_name)
+        self.assertEqual(raised.exception.maximum_rows, 1)
+
     def test_batches_links_across_owner_rows_with_exact_membership(self) -> None:
         models = ("product.template", "product.category", "uom.uom")
         count = 205
@@ -1535,6 +1579,11 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
                 suggestions,
                 included_models=(),
             ),
+            root_models=("res.partner",),
+            explicit_actions_by_model=((
+                "res.company",
+                OdooRelationshipCaptureAction.DO_NOT_CAPTURE,
+            ),),
             recorded_at=datetime.now(timezone.utc),
             recorded_by="Manager",
         )
@@ -1624,6 +1673,11 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
                 ),
                 included_models={related_name},
             ),
+            root_models=("res.partner",),
+            explicit_actions_by_model=((
+                related_name,
+                OdooRelationshipCaptureAction.CAPTURE_LINKED,
+            ),),
             recorded_at=datetime.now(timezone.utc),
             recorded_by="Manager",
         )
@@ -1737,6 +1791,62 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
             OdooSourceCaptureConsistencyError, "missing or inaccessible"
         ):
             service.assess_all(self.workspace_id, gateway, actor=LOCAL_ACTOR)
+
+    def test_linked_assessment_returns_a_blocked_result_for_model_row_limit(
+        self,
+    ) -> None:
+        related = replace(
+            self.selection,
+            selection_id="00000000-0000-0000-0000-000000000003",
+            dataset_name="categories",
+            model="res.partner.category",
+            contract_version=6,
+            capture_role=OdooCaptureRole.LINKED_ONLY,
+            content_hash="",
+            _calculate_content_hash=True,
+        )
+        root_request = plan_odoo_source_capture(self.selection, self.schema)
+        related_request = _request(
+            selection_id=related.selection_id,
+            selection_hash=related.content_hash,
+            model=related.model,
+            schema_model_names=(self.selection.model, related.model),
+            capture_role=OdooCaptureRole.LINKED_ONLY,
+            maximum_rows=10_000,
+        )
+        prepared = PreparedOdooCaptureAssessment(
+            workspace_id=self.workspace_id,
+            contexts=(
+                (root_request, self.schema, self.selection),
+                (related_request, self.schema, related),
+            ),
+        )
+        for overflow_request, expected_selection in (
+            (root_request, self.selection),
+            (related_request, related),
+        ):
+            with self.subTest(model=overflow_request.model):
+                gateway = _Gateway(self.schema)
+                with patch.object(
+                    self.service,
+                    "_discover_dependencies",
+                    side_effect=OdooSourceCaptureRowLimitExceeded(
+                        model=overflow_request.model,
+                        maximum_rows=overflow_request.maximum_rows,
+                    ),
+                ):
+                    assessment = self.service.assess_prepared(prepared, gateway)
+
+                self.assertTrue(assessment.exceeds_maximum)
+                self.assertEqual(len(assessment.items), 1)
+                overflow_selection, overflow_item = assessment.items[0]
+                self.assertEqual(overflow_selection, expected_selection)
+                self.assertEqual(
+                    overflow_item.matching_rows,
+                    overflow_item.maximum_rows + 1,
+                )
+                self.assertEqual(gateway.identity_calls, 2)
+                self.assertEqual(gateway.schema_calls, 2)
 
     def test_service_rejects_end_identity_drift(self) -> None:
         gateway = _Gateway(self.schema, drift_identity=True)

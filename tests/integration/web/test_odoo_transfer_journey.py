@@ -450,6 +450,41 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         )
         real_assess_prepared = context.odoo_source_capture.assess_prepared
 
+        def over_limit_assessment(*args, **kwargs):
+            current = real_assess_prepared(*args, **kwargs)
+            current_selection, current_item = current.items[0]
+            return replace(
+                current,
+                items=((
+                    current_selection,
+                    replace(
+                        current_item,
+                        matching_rows=current_item.maximum_rows + 1,
+                    ),
+                ),),
+            )
+
+        with patch.object(
+            context.odoo_source_capture,
+            "assess_prepared",
+            side_effect=over_limit_assessment,
+        ):
+            over_limit = self._post(
+                f"/workspaces/{workspace_id}/sources/odoo-assessment",
+                {
+                    "csrf_token": self.csrf,
+                    "selection_id": selection.selection_id,
+                    "selection_hash": selection.content_hash,
+                },
+            )
+        self.assertEqual(over_limit.status_code, 200)
+        self.assertIn("Too many records to freeze safely", over_limit.text)
+        self.assertIn(
+            "More than 10,000 records match odoo_contacts (res.partner).",
+            over_limit.text,
+        )
+        self.assertNotIn("Freeze these Odoo records", over_limit.text)
+
         def assess_prepared(*args, **kwargs):
             from impodo.adapters.duckdb.unit_of_work import _read_databases
 

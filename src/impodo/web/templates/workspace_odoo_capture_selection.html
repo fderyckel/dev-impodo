@@ -442,41 +442,42 @@
             </label>
           </div>
 
-          <label class="checkbox">
-            <input type="checkbox" name="linked_only" value="1" {% if (current and current.capture_role.value == 'LINKED_ONLY') or recommend_linked_only %}checked{% endif %}>
-            Capture only records linked from the selected source records
-          </label>
-          {% if recommend_linked_only %}
-            <p class="notice success"><strong>Recommended for this related data.</strong> Impodo preselected only records reached through the reviewed links, so it does not download every record of this type. Archived linked records are included. The related-data outcome saved above remains fixed during destination matching.</p>
-          {% elif supporting_plan_is_root %}
-            <p class="notice warning"><strong>This recommended related data is currently a root dataset.</strong> Select linked records only when it should follow the main business records. Leave it as a root only when you deliberately want every matching record of this type.</p>
+          {% if selected_plan_is_root %}
+            <p class="notice success"><strong>Main record type.</strong> Impodo keeps this role from the reviewed selection contract. You may optionally limit which matching source records are captured.</p>
+            <div class="form-grid compact-grid">
+              <label>
+                Root record filter (optional)
+                <select name="filter_field">
+                  <option value="">{% if current and (current.protected_filter_artifact_hash or current.filter_clauses) %}Keep saved root filter{% else %}No root filter{% endif %}</option>
+                  {% for field in filter_fields %}
+                    <option value="{{ field.name }}">{{ field.label }} ({{ field.name }})</option>
+                  {% endfor %}
+                </select>
+                <small>Choose one direct Odoo field. Impodo will match its exact value.</small>
+              </label>
+              <label>
+                Exact value
+                <input name="filter_value" maxlength="4096" autocomplete="off" placeholder="Enter a value for the chosen field">
+                <small>For a Boolean field, enter true or false. Use the Odoo code for a selection field.</small>
+              </label>
+            </div>
+            {% if current and (current.protected_filter_artifact_hash or current.filter_clauses) %}
+              <p class="notice warning">This plan has a protected root filter. Saving other changes keeps it. Enter a new field and value to replace it.</p>
+              <label class="checkbox">
+                <input type="checkbox" name="remove_filter" value="1">
+                Remove the saved root filter
+              </label>
+            {% endif %}
           {% else %}
-            <p class="muted">Use this for a related record type. Impodo includes archived linked records. Keep at least one root record type.</p>
-          {% endif %}
-
-          <div class="form-grid compact-grid">
-            <label>
-              Root record filter (optional)
-              <select name="filter_field">
-                <option value="">{% if current and (current.protected_filter_artifact_hash or current.filter_clauses) %}Keep saved root filter{% else %}No root filter{% endif %}</option>
-                {% for field in filter_fields %}
-                  <option value="{{ field.name }}">{{ field.label }} ({{ field.name }})</option>
-                {% endfor %}
-              </select>
-              <small>Choose one direct Odoo field. Impodo will match its exact value.</small>
-            </label>
-            <label>
-              Exact value
-              <input name="filter_value" maxlength="4096" autocomplete="off" placeholder="Enter a value for the chosen field">
-              <small>For a Boolean field, enter true or false. Use the Odoo code for a selection field.</small>
-            </label>
-          </div>
-          {% if current and (current.protected_filter_artifact_hash or current.filter_clauses) %}
-            <p class="notice warning">This plan has a protected root filter. Saving other changes keeps it. Enter a new field and value to replace it.</p>
-            <label class="checkbox">
-              <input type="checkbox" name="remove_filter" value="1">
-              Remove the saved root filter
-            </label>
+            <input type="hidden" name="linked_only" value="1">
+            <p class="notice success"><strong>Linked-value support.</strong> Impodo keeps this role from the reviewed selection contract and captures only records reached through those links. Archived linked records are included.</p>
+            {% if current and (current.protected_filter_artifact_hash or current.filter_clauses) %}
+              <p class="notice warning">This older plan has a root filter. Remove it before saving the linked-value support plan.</p>
+              <label class="checkbox">
+                <input type="checkbox" name="remove_filter" value="1" required>
+                Remove the saved root filter
+              </label>
+            {% endif %}
           {% endif %}
 
           <fieldset class="model-picker-list">
@@ -491,10 +492,12 @@
             {% endfor %}
           </fieldset>
 
-          <label class="checkbox">
-            <input type="checkbox" name="include_archived" value="1" {% if current and current.model == selected_model.name and current.filter_policy.value == 'ACTIVE_AND_ARCHIVED_RECORDS' %}checked{% endif %}>
-            Include archived records as well as active records
-          </label>
+          {% if selected_plan_is_root %}
+            <label class="checkbox">
+              <input type="checkbox" name="include_archived" value="1" {% if current and current.model == selected_model.name and current.filter_policy.value == 'ACTIVE_AND_ARCHIVED_RECORDS' %}checked{% endif %}>
+              Include archived records as well as active records
+            </label>
+          {% endif %}
 
           <div class="actions">
             <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Back to Odoo fields</a>
@@ -684,7 +687,12 @@
         </div>
         {% if assessment.exceeds_maximum %}
           <div class="notice warning" role="alert">
-            More than {{ "{:,}".format(assessment.maximum_rows) }} records currently match. Impodo did not download their business values. Narrow the selection before freezing records.
+            {% for plan, item in assessment.items %}
+              {% if item.exceeds_maximum %}
+                <p>More than {{ "{:,}".format(item.maximum_rows) }} records match {{ plan.dataset_name }} ({{ plan.model }}).</p>
+              {% endif %}
+            {% endfor %}
+            <p>Impodo did not download their business values. Narrow the selection before freezing records.</p>
           </div>
           <div class="dialog-actions">
             <form method="dialog"><button class="button secondary" type="submit">Close</button></form>

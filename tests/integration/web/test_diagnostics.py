@@ -252,6 +252,48 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
         self.assertTrue(record["slow"])
         self.assertNotIn("workspace_id", record)
 
+    def test_operation_stage_records_bounded_related_data_pass_counts(
+        self,
+    ) -> None:
+        with _diagnostic_test_directory("impodo-related-data-pass") as directory:
+            recorder = LocalDiagnosticRecorder(directory)
+            try:
+                recorder.record_operation_stage(
+                    "odoo_related_data",
+                    "schema_capture_pass",
+                    duration_ms=1250.25,
+                    pass_number=2,
+                    total_record_types=23,
+                    new_record_types=5,
+                )
+            finally:
+                recorder.close()
+            record = json.loads(
+                (directory / DIAGNOSTIC_LOG_NAME).read_text(encoding="utf-8")
+            )
+            payload = create_diagnostic_bundle(
+                directory,
+                build_contract=PROCESS_BUILD_CONTRACT,
+            )
+            with ZipFile(BytesIO(payload)) as archive:
+                bundled_record = json.loads(
+                    archive.read("diagnostics.jsonl").decode("utf-8")
+                )
+
+        self.assertEqual(record["operation"], "odoo_related_data")
+        self.assertEqual(record["stage"], "schema_capture_pass")
+        self.assertEqual(record["duration_ms"], 1250.25)
+        self.assertEqual(record["pass_number"], 2)
+        self.assertEqual(record["total_record_types"], 23)
+        self.assertEqual(record["new_record_types"], 5)
+        self.assertNotIn("workspace_id", record)
+        self.assertNotIn("odoo_model", record)
+        self.assertEqual(bundled_record["pass_number"], 2)
+        self.assertEqual(bundled_record["total_record_types"], 23)
+        self.assertEqual(bundled_record["new_record_types"], 5)
+        self.assertNotIn("workspace_id", bundled_record)
+        self.assertNotIn("odoo_model", bundled_record)
+
     def test_bundle_resanitizes_logs_and_contains_only_bounded_support_data(
         self,
     ) -> None:

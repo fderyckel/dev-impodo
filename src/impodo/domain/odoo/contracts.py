@@ -69,6 +69,64 @@ class MetadataSnapshot:
     content_hash: str | None = None
 
 
+def merge_disjoint_metadata_snapshots(
+    current: MetadataSnapshot,
+    addition: MetadataSnapshot,
+) -> MetadataSnapshot:
+    """Merge request-local schema deltas from one exact Odoo fingerprint.
+
+    Relationship discovery reads a monotonically growing model scope.  Deltas
+    must therefore be complete, disjoint, and captured through the same
+    request-local connector.  The merged result deliberately drops any input
+    content hash because its combined payload has not yet been bound.
+    """
+
+    if not current.complete or not addition.complete:
+        raise ConnectorIncompleteResultError(
+            "Odoo field details were incomplete while Impodo was checking "
+            "linked data"
+        )
+    if current.fingerprint != addition.fingerprint:
+        raise ConnectorIncompleteResultError(
+            "Odoo changed while Impodo was checking linked data. Reload and "
+            "try again."
+        )
+    current_models = set(current.models)
+    addition_models = set(addition.models)
+    if current_models & addition_models:
+        raise ConnectorIncompleteResultError(
+            "Odoo returned the same record type more than once while Impodo "
+            "was checking linked data"
+        )
+    if not set(current.create_defaults).issubset(current_models):
+        raise ConnectorIncompleteResultError(
+            "Odoo returned field defaults for an unexpected record type"
+        )
+    if not set(addition.create_defaults).issubset(addition_models):
+        raise ConnectorIncompleteResultError(
+            "Odoo returned field defaults for an unexpected record type"
+        )
+    return MetadataSnapshot(
+        fingerprint=current.fingerprint,
+        models={**current.models, **addition.models},
+        create_defaults={
+            **current.create_defaults,
+            **addition.create_defaults,
+        },
+        complete=True,
+        limitations=tuple(
+            sorted(set(current.limitations) | set(addition.limitations))
+        ),
+        reference_evidence=tuple(
+            sorted(
+                set(current.reference_evidence)
+                | set(addition.reference_evidence)
+            )
+        ),
+        content_hash=None,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class RecordSnapshot:
     """Target records and exact fields returned for each requested model."""

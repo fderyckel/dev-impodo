@@ -153,9 +153,7 @@ def propose_guided_odoo_capture_plans(
     """
 
     models_by_name = {model.name: model for model in schema.models}
-    target_models = frozenset(
-        {*relationship_scope.root_models, *relationship_scope.included_models}
-    )
+    target_models = relationship_scope.required_capture_models
     selections = tuple(current_selections)
     current_by_model = {selection.model: selection for selection in selections}
     skipped_models = tuple(sorted(target_models & set(current_by_model)))

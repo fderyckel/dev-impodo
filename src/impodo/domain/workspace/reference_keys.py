@@ -9,7 +9,7 @@ from typing import Iterable, Protocol
 from impodo.domain.serialization import content_hash
 
 
-REFERENCE_POLICY_VERSION = 3
+REFERENCE_POLICY_VERSION = 4
 
 
 class ReferenceReadPurpose(StrEnum):
@@ -87,6 +87,26 @@ class StandardReferenceKey:
             (item for item in self.field_contracts if item.name == field_name),
             None,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class SupportingReferenceCandidate:
+    """A reviewed lookup candidate whose uniqueness must be proved per target.
+
+    Unlike ``StandardReferenceKey``, this contract does not declare a globally
+    safe identity.  It only authorizes one bounded Match-data probe.  The
+    resulting target-bound lookup snapshot is what governs later validation.
+    """
+
+    model: str
+    odoo_major_version: int
+    key_fields: tuple[str, ...]
+    scope_fields: tuple[str, ...]
+    display_field: str
+    field_contracts: tuple[StandardReferenceFieldContract, ...]
+    description: str
+    reason: str
+    warning: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +195,59 @@ ODOO_20_CURRENCY_REFERENCE_KEY = replace(
     odoo_major_version=20,
 )
 
+BOM_REFERENCE_CANDIDATE = SupportingReferenceCandidate(
+    model="mrp.bom",
+    odoo_major_version=19,
+    key_fields=("code",),
+    scope_fields=(),
+    display_field="code",
+    field_contracts=(
+        StandardReferenceFieldContract("code", "char", False, False),
+    ),
+    description="Bill of materials reference",
+    reason="Reference is the usual portable identity for a bill of materials.",
+    warning=(
+        "Odoo permits a blank or repeated reference. The connected destination "
+        "must prove that every incoming reference identifies at most one bill "
+        "of materials."
+    ),
+)
+PRODUCT_VARIANT_REFERENCE_CANDIDATE = SupportingReferenceCandidate(
+    model="product.product",
+    odoo_major_version=19,
+    key_fields=("default_code",),
+    scope_fields=(),
+    display_field="default_code",
+    field_contracts=(
+        StandardReferenceFieldContract("default_code", "char", False, False),
+    ),
+    description="Product variant internal reference",
+    reason="Internal Reference is the usual portable identity for product variants.",
+    warning=(
+        "Odoo allows duplicate Internal References. The connected destination "
+        "must prove that every incoming reference identifies at most one product."
+    ),
+)
+
+
+def _candidate_for_major(
+    candidate: SupportingReferenceCandidate,
+    major: int,
+) -> SupportingReferenceCandidate:
+    return replace(candidate, odoo_major_version=major)
+
+
+_SUPPORTING_REFERENCE_CANDIDATES_BY_MAJOR = {
+    major: {
+        item.model: _candidate_for_major(item, major)
+        for item in (
+            BOM_REFERENCE_CANDIDATE,
+            PRODUCT_VARIANT_REFERENCE_CANDIDATE,
+        )
+    }
+    for major in (19, 20)
+}
+
 
 # This allowlist is intentionally narrower than general business-key
 # recommendations. Each entry must be stable and unambiguous without caveats.
@@ -200,6 +273,7 @@ _STANDARD_REFERENCE_KEYS_BY_MAJOR = {
 
 def _reference_policy_hash(
     references: dict[str, StandardReferenceKey],
+    candidates: dict[str, SupportingReferenceCandidate],
 ) -> str:
     return content_hash({
         "contract": "governed-reference-policy",
@@ -220,6 +294,26 @@ def _reference_policy_hash(
                     "company_relation": "res.company",
                 },
             ),
+            "reviewed_candidates": [
+                {
+                    "model": item.model,
+                    "key_fields": item.key_fields,
+                    "scope_fields": item.scope_fields,
+                    "display_field": item.display_field,
+                    "field_contracts": [
+                        {
+                            "name": field.name,
+                            "field_type": field.field_type,
+                            "relation_model": field.relation_model,
+                        }
+                        for field in item.field_contracts
+                    ],
+                }
+                for item in sorted(
+                    candidates.values(),
+                    key=lambda candidate: candidate.model,
+                )
+            ],
         },
         "references": [
             {
@@ -248,16 +342,26 @@ def _reference_policy_hash(
 
 
 REFERENCE_POLICY_HASHES = {
-    major: _reference_policy_hash(references)
+    major: _reference_policy_hash(
+        references,
+        _SUPPORTING_REFERENCE_CANDIDATES_BY_MAJOR[major],
+    )
     for major, references in _STANDARD_REFERENCE_KEYS_BY_MAJOR.items()
 }
 # Compatibility alias for existing Odoo 19 Recipes and evidence.
 REFERENCE_POLICY_HASH = REFERENCE_POLICY_HASHES[19]
 PREVIOUS_REFERENCE_POLICY_HASH = (
-    "sha256:462e13bfba360a4c4ddc1124a8ed3426fad99755bb6d62f98305d6ecf1fe5a11"
+    "sha256:984830d24799fff9c59d53e13db6dc1b7221c2cec6e9fc5a758cdf9e0c12a12b"
+)
+PREVIOUS_REFERENCE_POLICY_HASHES = frozenset(
+    {
+        PREVIOUS_REFERENCE_POLICY_HASH,
+        "sha256:b0f241e8d0b5a302799ac4a8db0673123fb3d4d6523ed6e3d6dede30bfc359b8",
+        "sha256:462e13bfba360a4c4ddc1124a8ed3426fad99755bb6d62f98305d6ecf1fe5a11",
+    }
 )
 READABLE_REFERENCE_POLICY_HASHES = frozenset(
-    {*REFERENCE_POLICY_HASHES.values(), PREVIOUS_REFERENCE_POLICY_HASH}
+    {*REFERENCE_POLICY_HASHES.values(), *PREVIOUS_REFERENCE_POLICY_HASHES}
 )
 
 
@@ -272,12 +376,13 @@ def authorize_supporting_match_probe(
     *,
     captured_fields: tuple[StandardReferenceFieldContract, ...] | None = None,
 ) -> GovernedReferenceDecision:
-    """Authorize a bounded name probe, optionally scoped to a real company.
+    """Authorize one bounded, target-bound Match-data identity probe.
 
     This is deliberately narrower than normal reference authorization.  It
-    lets Stage 3 inspect ``name`` and, when requested, ``company_id`` on the
-    exact related model named by a captured parent field. The returned field
-    types must be verified before any choices become evidence.
+    lets Match data inspect either the generic ``name`` fallback or an exact
+    reviewed supporting candidate on the related model named by a captured
+    parent field. The returned field types must be verified before any choices
+    become evidence.
     """
 
     name_only = request.scope_fields == () and request.requested_fields == ("name",)
@@ -286,6 +391,21 @@ def authorize_supporting_match_probe(
         and request.requested_fields == ("name", "company_id")
     )
     current_policy_hash = reference_policy_hash(request.odoo_major_version)
+    candidate = supporting_reference_candidate(
+        request.related_model,
+        odoo_major_version=request.odoo_major_version,
+    )
+    candidate_identity = bool(
+        candidate is not None
+        and candidate.key_fields == request.key_fields
+        and candidate.scope_fields == request.scope_fields
+        and set(request.requested_fields)
+        == {
+            *candidate.key_fields,
+            *candidate.scope_fields,
+            candidate.display_field,
+        }
+    )
     accepted = bool(
         current_policy_hash is not None
         and request.purpose is ReferenceReadPurpose.MATCH_CHOICES
@@ -293,8 +413,14 @@ def authorize_supporting_match_probe(
         and request.relationship_model == request.related_model
         and bool(request.parent_model)
         and bool(request.relationship_field)
-        and request.key_fields == ("name",)
-        and (name_only or name_within_company)
+        and (
+            (
+                candidate is None
+                and request.key_fields == ("name",)
+                and (name_only or name_within_company)
+            )
+            or candidate_identity
+        )
         and request.governed_key
         and not request.write_use
         and not request.all_fields
@@ -302,11 +428,23 @@ def authorize_supporting_match_probe(
     )
     if accepted and captured_fields is not None:
         fields = {field.name: field for field in captured_fields}
-        name = fields.get("name")
-        accepted = name is not None and name.field_type in {
-            "char", "text", "selection"
-        }
-        if accepted and name_within_company:
+        if candidate_identity:
+            assert candidate is not None
+            expected_fields = {
+                field.name: field for field in candidate.field_contracts
+            }
+            accepted = all(
+                (actual := fields.get(field_name)) is not None
+                and actual.field_type == expected.field_type
+                and actual.relation_model == expected.relation_model
+                for field_name, expected in expected_fields.items()
+            )
+        else:
+            name = fields.get("name")
+            accepted = name is not None and name.field_type in {
+                "char", "text", "selection"
+            }
+        if accepted and name_within_company and not candidate_identity:
             company = fields.get("company_id")
             accepted = bool(
                 company is not None
@@ -339,6 +477,19 @@ def standard_reference_key(
     """Return an exact reviewed reference rule, never a field-name guess."""
 
     return _STANDARD_REFERENCE_KEYS_BY_MAJOR.get(odoo_major_version, {}).get(model)
+
+
+def supporting_reference_candidate(
+    model: str,
+    *,
+    odoo_major_version: int = 19,
+) -> SupportingReferenceCandidate | None:
+    """Return a bounded candidate, never a globally trusted reference key."""
+
+    return _SUPPORTING_REFERENCE_CANDIDATES_BY_MAJOR.get(
+        odoo_major_version,
+        {},
+    ).get(model)
 
 
 def captured_reference_field_contracts(

@@ -33,6 +33,7 @@ from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeySt
 from impodo.domain.shared.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from impodo.domain.odoo_source_policy import odoo_source_policy_hash
 from impodo.domain.execution.planner import (
+    MAX_KEYS_PER_RECORD_REQUEST,
     PreflightRequirementPlan,
     ReferenceReadRequirement,
 )
@@ -45,6 +46,10 @@ from impodo.domain.workspace.reference_keys import (
     captured_reference_field_contracts,
     reference_policy_hash,
     standard_reference_key,
+    supporting_reference_candidate,
+)
+from impodo.application.workspace.mapping.supporting_values import (
+    plan_mapping_supporting_values,
 )
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.supporting_lookups import (
@@ -62,7 +67,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.constants import (
     VALUE_MATCH_MAX_TARGET_CHOICES,
 )
-from impodo.web.context import WebContext
+from impodo.web.context import SchemaReadSession, WebContext
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     get_target_credential,
@@ -95,6 +100,8 @@ class _PreparedSupportingLookup:
     scope_fields: tuple[str, ...]
     display_field: str
     requested_fields: tuple[str, ...]
+    targeted_values: tuple[tuple[str, ...], ...] | None = None
+    relationships: tuple[object, ...] = ()
 
 
 def _target_json2_config(
@@ -138,6 +145,61 @@ def _probe_read_identity(
         raise WorkspaceStateError("Configure the Odoo target before identity probing")
     connector = Json2ReadConnector(_target_json2_config(workspace_state, api_key))
     return connector.probe_read_identity(models)
+
+
+def _schema_metadata_requests(
+    models: tuple[str, ...],
+) -> tuple[MetadataRequest, ...]:
+    """Build the closed all-field requests used by governed schema capture."""
+
+    if not models:
+        raise WorkspaceStateError("Choose at least one Odoo record type")
+    return tuple(
+        MetadataRequest(
+            model=model,
+            fields=(),
+            all_fields=True,
+            include_unique_constraints=True,
+        )
+        for model in models
+    )
+
+
+class _Json2SchemaReadSession:
+    """Reuse one connector only for one in-flight schema discovery request."""
+
+    def __init__(self, workspace_state: WorkspaceState, api_key: str) -> None:
+        self._connector = Json2ReadConnector(
+            _target_json2_config(workspace_state, api_key)
+        )
+
+    def read_models(self, models: tuple[str, ...]) -> MetadataSnapshot:
+        """Read metadata for exactly the newly reached model names."""
+
+        return self._connector.get_model_metadata(
+            _schema_metadata_requests(models)
+        )
+
+    def verify_identity(
+        self,
+        models: tuple[str, ...],
+    ) -> OdooReadIdentity:
+        """Verify the authenticated reader against the stable final scope."""
+
+        return self._connector.probe_read_identity(models)
+
+
+def _open_schema_read_session(
+    workspace_state: WorkspaceState,
+    api_key: str,
+) -> SchemaReadSession:
+    """Open one non-persistent JSON-2 session for one browser operation."""
+
+    if workspace_state.odoo_connection_mode is None:
+        raise WorkspaceStateError(
+            "Connect the Odoo system before checking linked data"
+        )
+    return _Json2SchemaReadSession(workspace_state, api_key)
 
 
 def _selected_local_profile(
@@ -185,21 +247,13 @@ def _read_schema(workspace_state: WorkspaceState, api_key: str) -> MetadataSnaps
     """Read all fields once per explicitly permitted Odoo model."""
 
     if workspace_state.odoo_connection_mode is None:
-        raise WorkspaceStateError("Configure the Odoo target before schema capture")
-    if not workspace_state.intended_models:
-        raise WorkspaceStateError("Add at least one permitted technical Odoo model")
-    connector = Json2ReadConnector(_target_json2_config(workspace_state, api_key))
-    return connector.get_model_metadata(
-        tuple(
-            MetadataRequest(
-                model=model,
-                fields=(),
-                all_fields=True,
-                include_unique_constraints=True,
-            )
-            for model in workspace_state.intended_models
+        raise WorkspaceStateError(
+            "Connect the Odoo system before checking its available fields"
         )
-    )
+    if not workspace_state.intended_models:
+        raise WorkspaceStateError("Choose at least one Odoo record type")
+    session = _open_schema_read_session(workspace_state, api_key)
+    return session.read_models(tuple(workspace_state.intended_models))
 
 
 def _read_destination_match(
@@ -1068,12 +1122,22 @@ def _relationship_value_choices(
         field.relation or "",
         odoo_major_version=odoo_major_version,
     )
+    supporting_candidate = supporting_reference_candidate(
+        field.relation or "",
+        odoo_major_version=odoo_major_version,
+    )
     display_field = (
         standard_key.display_field
         if standard_key is not None
         and standard_key.key_fields == key.key_fields
         and standard_key.scope_fields == key.scope_fields
-        else ("name" if "name" in available_fields else key_field)
+        else (
+            supporting_candidate.display_field
+            if supporting_candidate is not None
+            and supporting_candidate.key_fields == key.key_fields
+            and supporting_candidate.scope_fields == key.scope_fields
+            else ("name" if "name" in available_fields else key_field)
+        )
     )
     requested_fields = tuple(
         dict.fromkeys((key_field, *key.scope_fields, display_field))
@@ -1316,28 +1380,131 @@ def _capture_recipe_supporting_values(
 ) -> tuple[object, ...]:
     """Refresh every Recipe-owned supporting value set in one bounded read."""
 
+    return _capture_supporting_values(
+        context,
+        workspace_state,
+        schema,
+        requirements,
+        purpose=ReferenceReadPurpose.RECIPE_APPLICATION,
+        operation=OdooOperation.RECIPE,
+        workflow_label="Recipe",
+    )
+
+
+def _capture_mapping_supporting_values(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+    schema: OdooSchemaCatalog,
+    datasets,
+) -> tuple[object, ...]:
+    """Capture every external resolver required by the submitted mapping.
+
+    Only distinct keys from included frozen source rows are queried. Related
+    models remain supporting read evidence and never enter ``intended_models``
+    or the primary Odoo schema catalogue.
+    """
+
+    requirements = plan_mapping_supporting_values(tuple(datasets), schema)
+    targeted: dict[
+        tuple[str, tuple[str, ...], tuple[str, ...]],
+        tuple[tuple[str, ...], ...],
+    ] = {}
+    for requirement in requirements:
+        values = set(requirement.constant_values)
+        field_count = len((*requirement.key_fields, *requirement.scope_fields))
+        for source in requirement.sources:
+            rows = context.categorical_coverage.source_included_key_tuples(
+                workspace_state.workspace_id,
+                source.dataset_id,
+                source.source_column_keys,
+                source.row_inclusion,
+            )
+            translations = {
+                item.source_value: item.target_value
+                for item in source.value_mappings
+            }
+            for row in rows:
+                if len(row) != field_count or any(value is None for value in row):
+                    continue
+                normalized = tuple(str(value).strip() for value in row)
+                if normalized:
+                    normalized = (
+                        translations.get(normalized[0], normalized[0]),
+                        *normalized[1:],
+                    )
+                if all(normalized):
+                    values.add(normalized)
+        if len(values) > 10_000:
+            raise WorkspaceError(
+                f"{requirement.model_name} needs more than 10,000 linked "
+                "destination values; reduce the included source rows"
+            )
+        targeted[
+            (
+                requirement.model_name,
+                requirement.key_fields,
+                requirement.scope_fields,
+            )
+        ] = tuple(sorted(values))
+    return _capture_supporting_values(
+        context,
+        workspace_state,
+        schema,
+        requirements,
+        purpose=ReferenceReadPurpose.MATCH_CHOICES,
+        operation=OdooOperation.COMPARE,
+        workflow_label="mapping",
+        targeted_values=targeted,
+    )
+
+
+def _capture_supporting_values(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+    schema: OdooSchemaCatalog,
+    requirements,
+    *,
+    purpose: ReferenceReadPurpose,
+    operation: OdooOperation,
+    workflow_label: str,
+    targeted_values: dict[
+        tuple[str, tuple[str, ...], tuple[str, ...]],
+        tuple[tuple[str, ...], ...],
+    ]
+    | None = None,
+) -> tuple[object, ...]:
+    """Authorize, batch, verify, and persist supporting destination values."""
+
     if schema.origin is not SchemaOrigin.LIVE_API:
         raise WorkspaceError(
             "Capture the live Odoo details before checking supporting values"
         )
-    version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.RECIPE)
+    version_decision = assess_odoo_operation(schema.odoo_version, operation)
     odoo_major_version = version_decision.version.major if version_decision.allowed else -1
     if not version_decision.allowed:
-        raise WorkspaceError("This Recipe run requires a supported Odoo version")
+        raise WorkspaceError(
+            f"This {workflow_label} requires a supported Odoo version"
+        )
     current_reference_policy_hash = reference_policy_hash(odoo_major_version)
     if current_reference_policy_hash is None:
-        raise WorkspaceError("This Recipe run has no qualified reference policy")
+        raise WorkspaceError(
+            f"This {workflow_label} has no qualified reference policy"
+        )
 
     models = {item.name: item for item in schema.models}
     prepared: list[_PreparedSupportingLookup] = []
     for requirement in requirements:
         related_model = models.get(requirement.model_name)
-        if related_model is None:
-            raise WorkspaceError(
-                f"Odoo did not return {requirement.model_name}, which a Recipe relationship needs"
-            )
-        fields = {item.name: item for item in related_model.fields}
+        fields = (
+            {item.name: item for item in related_model.fields}
+            if related_model is not None
+            else {}
+        )
         standard_key = standard_reference_key(
+            requirement.model_name,
+            odoo_major_version=odoo_major_version,
+        )
+        supporting_candidate = supporting_reference_candidate(
             requirement.model_name,
             odoo_major_version=odoo_major_version,
         )
@@ -1347,9 +1514,15 @@ def _capture_recipe_supporting_values(
             and standard_key.key_fields == requirement.key_fields
             and standard_key.scope_fields == requirement.scope_fields
             else (
-                "name"
-                if "name" in fields
-                else requirement.key_fields[0]
+                supporting_candidate.display_field
+                if supporting_candidate is not None
+                and supporting_candidate.key_fields == requirement.key_fields
+                and supporting_candidate.scope_fields == requirement.scope_fields
+                else (
+                    "name"
+                    if "name" in fields
+                    else requirement.key_fields[0]
+                )
             )
         )
         requested_fields = tuple(
@@ -1372,7 +1545,7 @@ def _capture_recipe_supporting_values(
                 None,
             )
             decision = authorize_governed_reference(
-                GovernedReferenceRequest(
+                request := GovernedReferenceRequest(
                     parent_model=relationship.parent_model,
                     relationship_field=relationship.relationship_field,
                     relationship_type=(
@@ -1389,18 +1562,40 @@ def _capture_recipe_supporting_values(
                     key_fields=requirement.key_fields,
                     scope_fields=requirement.scope_fields,
                     requested_fields=requested_fields,
-                    purpose=ReferenceReadPurpose.RECIPE_APPLICATION,
+                    purpose=purpose,
                     odoo_major_version=odoo_major_version,
                     governed_key=True,
                 ),
-                captured_fields=captured_reference_field_contracts(
-                    related_model.fields
+                captured_fields=(
+                    captured_reference_field_contracts(related_model.fields)
+                    if related_model is not None
+                    else None
                 ),
             )
-            if not decision.accepted:
-                raise WorkspaceError(
-                    "A Recipe relationship no longer matches the current Odoo fields"
+            candidate_probe = (
+                authorize_supporting_match_probe(
+                    request,
+                    captured_fields=(
+                        captured_reference_field_contracts(related_model.fields)
+                        if related_model is not None
+                        else None
+                    ),
                 )
+                if purpose is ReferenceReadPurpose.MATCH_CHOICES
+                else None
+            )
+            if not decision.accepted and not (
+                candidate_probe is not None and candidate_probe.accepted
+            ):
+                raise WorkspaceError(
+                    f"A {workflow_label} relationship is not permitted for "
+                    f"{requirement.model_name}"
+                )
+        identity = (
+            requirement.model_name,
+            requirement.key_fields,
+            requirement.scope_fields,
+        )
         prepared.append(
             _PreparedSupportingLookup(
                 relation_model=requirement.model_name,
@@ -1408,6 +1603,12 @@ def _capture_recipe_supporting_values(
                 scope_fields=requirement.scope_fields,
                 display_field=display_field,
                 requested_fields=requested_fields,
+                targeted_values=(
+                    targeted_values.get(identity, ())
+                    if targeted_values is not None
+                    else None
+                ),
+                relationships=tuple(requirement.relationships),
             )
         )
 
@@ -1422,11 +1623,16 @@ def _capture_recipe_supporting_values(
         (model_name, tuple(sorted(fields_by_model[model_name])))
         for model_name in sorted(fields_by_model)
     )
+    record_requests = _supporting_record_requests(
+        tuple(prepared),
+        grouped_requests,
+    )
     metadata, record_snapshot, access = _read_supporting_lookup_batches(
         context,
         workspace_state,
         schema,
         grouped_requests=grouped_requests,
+        record_requests=record_requests,
     )
     expected_target_hash = target_identity_hash(
         connection_mode=(
@@ -1467,10 +1673,68 @@ def _capture_recipe_supporting_values(
             raise WorkspaceError(
                 f"Odoo did not return every required value for {item.relation_model}"
             )
+        returned_contracts = captured_reference_field_contracts(
+            returned_model.fields[name] for name in item.requested_fields
+        )
+        for relationship in item.relationships:
+            parent = models.get(relationship.parent_model)
+            relation_field = next(
+                (
+                    field
+                    for field in (parent.fields if parent is not None else ())
+                    if field.name == relationship.relationship_field
+                ),
+                None,
+            )
+            request = GovernedReferenceRequest(
+                parent_model=relationship.parent_model,
+                relationship_field=relationship.relationship_field,
+                relationship_type=(
+                    relation_field.type
+                    if relation_field is not None
+                    else relationship.relationship_type
+                ),
+                relationship_model=(
+                    relation_field.relation if relation_field is not None else None
+                ),
+                related_model=item.relation_model,
+                key_fields=item.key_fields,
+                scope_fields=item.scope_fields,
+                requested_fields=item.requested_fields,
+                purpose=purpose,
+                odoo_major_version=odoo_major_version,
+                governed_key=True,
+            )
+            returned_decision = authorize_governed_reference(
+                request,
+                captured_fields=returned_contracts,
+            )
+            returned_probe = (
+                authorize_supporting_match_probe(
+                    request,
+                    captured_fields=returned_contracts,
+                )
+                if purpose is ReferenceReadPurpose.MATCH_CHOICES
+                else None
+            )
+            if not returned_decision.accepted and not (
+                returned_probe is not None and returned_probe.accepted
+            ):
+                raise WorkspaceError(
+                    f"Odoo returned incompatible supporting fields for "
+                    f"{item.relation_model}"
+                )
         records = record_snapshot.records.get(item.relation_model, ())
-        if len(records) > VALUE_MATCH_MAX_TARGET_CHOICES:
+        _ensure_targeted_supporting_read_complete(item, records)
+        maximum_records = (
+            10_000
+            if item.targeted_values is not None
+            else VALUE_MATCH_MAX_TARGET_CHOICES
+        )
+        if len(records) > maximum_records:
             raise WorkspaceError(
-                f"{item.relation_model} has more than {VALUE_MATCH_MAX_TARGET_CHOICES:,} records; narrow the governed Recipe relationship before reuse"
+                f"{item.relation_model} returned more than "
+                f"{maximum_records:,} supporting records"
             )
         by_key: dict[str, list[object]] = {}
         identity_fields = (*item.key_fields, *item.scope_fields)
@@ -1501,10 +1765,7 @@ def _capture_recipe_supporting_values(
                 key_fields=item.key_fields,
                 scope_fields=item.scope_fields,
                 display_field=item.display_field,
-                field_contracts=captured_reference_field_contracts(
-                    returned_model.fields[name]
-                    for name in item.requested_fields
-                ),
+                field_contracts=returned_contracts,
                 target_hash=expected_target_hash,
                 read_credential_binding_hash=access.credential_binding_hash,
                 read_principal_hash=access.principal_hash,
@@ -1520,12 +1781,113 @@ def _capture_recipe_supporting_values(
     return tuple(stored)
 
 
+def _ensure_targeted_supporting_read_complete(
+    item: _PreparedSupportingLookup,
+    records,
+) -> None:
+    """Reject a capped lookup before it could falsely prove uniqueness."""
+
+    if item.targeted_values is None:
+        return
+    identity_fields = (*item.key_fields, *item.scope_fields)
+    if len(identity_fields) != 1:
+        if len(records) >= VALUE_MATCH_MAX_TARGET_CHOICES + 1:
+            raise WorkspaceError(
+                f"{item.relation_model} has too many linked destination "
+                "records to prove unique matches"
+            )
+        return
+    chunk_by_value = {
+        portable_supporting_value((value[0],)): index // MAX_KEYS_PER_RECORD_REQUEST
+        for index, value in enumerate(item.targeted_values)
+        if len(value) == 1 and value[0]
+    }
+    counts: dict[int, int] = {}
+    for record in records:
+        raw_value = _portable_relationship_choice_component(
+            record.values.get(identity_fields[0])
+        )
+        chunk = chunk_by_value.get(portable_supporting_value((raw_value,)))
+        if chunk is not None:
+            counts[chunk] = counts.get(chunk, 0) + 1
+    if any(
+        count >= MAX_KEYS_PER_RECORD_REQUEST + 1
+        for count in counts.values()
+    ):
+        raise WorkspaceError(
+            f"{item.relation_model} has too many duplicate destination "
+            "matches to prove unique linked values"
+        )
+
+
+def _supporting_record_requests(
+    prepared: tuple[_PreparedSupportingLookup, ...],
+    grouped_requests: tuple[tuple[str, tuple[str, ...]], ...],
+) -> tuple[RecordRequest, ...] | None:
+    """Build narrow source-key domains, or preserve Recipe full-model reads."""
+
+    if all(item.targeted_values is None for item in prepared):
+        return None
+    fields_by_model = dict(grouped_requests)
+    requests: list[RecordRequest] = []
+    for model_name, field_names in grouped_requests:
+        model_items = tuple(
+            item for item in prepared if item.relation_model == model_name
+        )
+        if any(
+            item.targeted_values is None
+            or len((*item.key_fields, *item.scope_fields)) != 1
+            for item in model_items
+        ):
+            requests.append(
+                RecordRequest(
+                    model=model_name,
+                    fields=field_names,
+                    limit=VALUE_MATCH_MAX_TARGET_CHOICES + 1,
+                )
+            )
+            continue
+        model_requests: set[tuple[str, tuple[str, ...]]] = set()
+        for item in model_items:
+            target_field = (*item.key_fields, *item.scope_fields)[0]
+            values = tuple(
+                value[0]
+                for value in (item.targeted_values or ())
+                if len(value) == 1 and value[0]
+            )
+            if not values:
+                model_requests.add(("id", ()))
+                continue
+            for start in range(0, len(values), MAX_KEYS_PER_RECORD_REQUEST):
+                model_requests.add(
+                    (
+                        target_field,
+                        values[start : start + MAX_KEYS_PER_RECORD_REQUEST],
+                    )
+                )
+        for target_field, values in sorted(model_requests):
+            requests.append(
+                RecordRequest(
+                    model=model_name,
+                    fields=fields_by_model[model_name],
+                    domain=(
+                        (target_field, "in", values)
+                        if target_field != "id"
+                        else ("id", "=", 0),
+                    ),
+                    limit=(MAX_KEYS_PER_RECORD_REQUEST + 1 if values else 1),
+                )
+            )
+    return tuple(requests)
+
+
 def _read_supporting_lookup_batches(
     context: WebContext,
     workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
     *,
     grouped_requests: tuple[tuple[str, tuple[str, ...]], ...],
+    record_requests: tuple[RecordRequest, ...] | None = None,
 ) -> tuple[MetadataSnapshot, RecordSnapshot, _SupportingLookupAccess]:
     """Read several related models with one identity probe and bounded requests."""
 
@@ -1534,14 +1896,15 @@ def _read_supporting_lookup_batches(
         MetadataRequest(model=model_name, fields=field_names)
         for model_name, field_names in grouped_requests
     )
-    record_requests = tuple(
-        RecordRequest(
-            model=model_name,
-            fields=field_names,
-            limit=VALUE_MATCH_MAX_TARGET_CHOICES + 1,
+    if record_requests is None:
+        record_requests = tuple(
+            RecordRequest(
+                model=model_name,
+                fields=field_names,
+                limit=VALUE_MATCH_MAX_TARGET_CHOICES + 1,
+            )
+            for model_name, field_names in grouped_requests
         )
-        for model_name, field_names in grouped_requests
-    )
     if context.readiness_reader is not None:
         metadata, records = context.readiness_reader(
             workspace_state,

@@ -1673,9 +1673,6 @@ label.model-choice input {
 }
 
 .notice > strong,
-.notice > span {
-  display: block;
-}
 
 .notice > strong + span {
   margin-top: .25rem;

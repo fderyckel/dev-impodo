@@ -381,15 +381,16 @@ class SchemaWorkspaceService:
         )
         if workspace_state.status is not WorkspaceStatus.REGISTERED:
             raise WorkspaceError(
-                "Register the project before capturing Odoo schema"
+                "Finish connecting the Odoo project before checking linked data"
             )
         if workspace_state.source_mode is not SourceMode.ODOO:
             raise WorkspaceError(
-                "Linked Odoo schema staging requires an Odoo-source project"
+                "Linked-data review is available only for projects using an "
+                "Odoo source"
             )
         if workspace_state.odoo_connection_mode is None:
             raise WorkspaceError(
-                "Configure the Odoo source before capturing schema"
+                "Connect the Odoo source before checking linked data"
             )
         if (
             discovered_model_catalog is not None
@@ -402,7 +403,8 @@ class SchemaWorkspaceService:
         permitted = set(workspace_state.intended_models)
         if not permitted:
             raise WorkspaceError(
-                "Add at least one permitted technical Odoo model to the project"
+                "Choose at least one main Odoo record type before checking "
+                "linked data"
             )
         return self._validated_live_catalog_for_state(
             workspace_state,
@@ -413,6 +415,77 @@ class SchemaWorkspaceService:
             discovered_model_catalog=discovered_model_catalog,
             actor=actor,
         )
+
+    def prepare_relationship_models(
+        self,
+        workspace_state: WorkspaceState,
+        snapshot: MetadataSnapshot,
+        *,
+        discovered_model_catalog: OdooModelCatalog,
+        actor: Actor,
+    ) -> tuple[SchemaModel, ...]:
+        """Validate and project a temporary linked-data discovery snapshot.
+
+        This method returns field shapes only.  It does not create publishable
+        access evidence or save anything.  The final complete scope must still
+        pass :meth:`prepare_capture` with a fresh full-scope identity probe.
+        """
+
+        self.authorization.require(
+            actor,
+            Capability.SCHEMA_DISCOVER,
+            workspace_id=workspace_state.workspace_id,
+        )
+        if workspace_state.status is not WorkspaceStatus.REGISTERED:
+            raise WorkspaceError(
+                "Finish connecting the Odoo project before checking linked data"
+            )
+        if workspace_state.source_mode is not SourceMode.ODOO:
+            raise WorkspaceError(
+                "Linked-data review is available only for projects using an "
+                "Odoo source"
+            )
+        if workspace_state.odoo_connection_mode is None:
+            raise WorkspaceError(
+                "Connect the Odoo source before checking linked data"
+            )
+        if (
+            discovered_model_catalog.workspace_id
+            != workspace_state.workspace_id
+        ):
+            raise WorkspaceError(
+                "The available Odoo record types belong to another project"
+            )
+        permitted = set(workspace_state.intended_models)
+        if not permitted:
+            raise WorkspaceError(
+                "Choose at least one main Odoo record type before checking "
+                "linked data"
+            )
+        self._validate_live_snapshot_scope(
+            workspace_state,
+            permitted,
+            snapshot,
+        )
+        if (
+            discovered_model_catalog.connection_target_hash
+            != _target_identity_hash(workspace_state)
+            or discovered_model_catalog.policy_hash
+            != _live_source_policy_hash(snapshot.fingerprint.odoo_version)
+        ):
+            raise OdooModelCatalogRefreshRequired(
+                "The saved list of Odoo record types no longer matches this "
+                "Odoo connection. Refresh the available record types and try "
+                "again."
+            )
+        models = self._schema_models_from_snapshot(
+            workspace_state,
+            permitted,
+            snapshot,
+            discovered=discovered_model_catalog,
+        )
+        self._validate_schema_models(models, permitted)
+        return models
 
     def seed_historical_correction(
         self,
@@ -830,29 +903,11 @@ class SchemaWorkspaceService:
         """Build one validated live catalog for a current or staged scope."""
 
         _validate_read_credential_binding_hash(read_credential_binding_hash)
-        if not snapshot.complete:
-            raise WorkspaceError("Odoo schema response is incomplete")
-        if set(snapshot.models) != permitted:
-            raise WorkspaceError(
-                "Odoo schema response does not match permitted models"
-            )
-        if snapshot.fingerprint.target_hash != _target_identity_hash(workspace_state):
-            raise WorkspaceError("Odoo schema target does not match the project")
-        if (
-            snapshot.fingerprint.connection_mode
-            != workspace_state.odoo_connection_mode.value
-        ):
-            raise WorkspaceError(
-                "Odoo schema connection mode does not match the project"
-            )
-        if snapshot.fingerprint.database != workspace_state.odoo_database:
-            raise WorkspaceError(
-                "Odoo schema database does not match the project"
-            )
-        if not assess_odoo_operation(
-            snapshot.fingerprint.odoo_version, OdooOperation.CAPTURE_SCHEMA,
-        ).allowed:
-            raise WorkspaceError("Odoo schema capture requires a supported Odoo version")
+        self._validate_live_snapshot_scope(
+            workspace_state,
+            permitted,
+            snapshot,
+        )
         identity_hashes = _validate_read_identity(
             workspace_state,
             read_identity,
@@ -1437,6 +1492,43 @@ class SchemaWorkspaceService:
             business_keys=definitions,
             actor=actor,
         )
+
+    @staticmethod
+    def _validate_live_snapshot_scope(
+        workspace_state: WorkspaceState,
+        permitted: set[str],
+        snapshot: MetadataSnapshot,
+    ) -> None:
+        """Validate target and model coverage before semantic projection."""
+
+        if not snapshot.complete:
+            raise WorkspaceError("Odoo schema response is incomplete")
+        if set(snapshot.models) != permitted:
+            raise WorkspaceError(
+                "Odoo schema response does not match permitted models"
+            )
+        if snapshot.fingerprint.target_hash != _target_identity_hash(
+            workspace_state
+        ):
+            raise WorkspaceError("Odoo schema target does not match the project")
+        if (
+            snapshot.fingerprint.connection_mode
+            != workspace_state.odoo_connection_mode.value
+        ):
+            raise WorkspaceError(
+                "Odoo schema connection mode does not match the project"
+            )
+        if snapshot.fingerprint.database != workspace_state.odoo_database:
+            raise WorkspaceError(
+                "Odoo schema database does not match the project"
+            )
+        if not assess_odoo_operation(
+            snapshot.fingerprint.odoo_version,
+            OdooOperation.CAPTURE_SCHEMA,
+        ).allowed:
+            raise WorkspaceError(
+                "Odoo schema capture requires a supported Odoo version"
+            )
 
 
 def _schema_field_from_metadata(

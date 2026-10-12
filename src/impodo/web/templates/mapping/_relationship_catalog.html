@@ -141,8 +141,9 @@
                       </div>
                     </div>
                   </div>
+                  {% set selected_origin = mapping.resolver.origin.value if mapping else (row.recommended_origin if row.recommended_dataset_id else 'target_catalog') %}
                   <div class="provider-control" data-relation-provider-source {% if relation_value_source != 'source' %}hidden{% endif %}>
-                  <div class="form-grid">
+                  <div class="form-grid" data-relationship-origin-controls>
                     <label>
                       Use value(s) from
                       <select name="relation_source_{{ dataset_index }}_{{ relation_index }}" multiple size="{{ [view.source.columns|length, 5]|min }}" data-lazy-source-column>
@@ -155,15 +156,14 @@
                     </label>
                     <label>
                       Where should Impodo find the matching choice?
-                      {% set selected_origin = mapping.resolver.origin.value if mapping else (row.recommended_origin if row.recommended_dataset_id else 'target_catalog') %}
-                      <select name="relation_origin_{{ dataset_index }}_{{ relation_index }}">
+                      <select name="relation_origin_{{ dataset_index }}_{{ relation_index }}" data-relationship-origin>
                         <option value="target_catalog" {% if selected_origin == 'target_catalog' %}selected{% endif %}>Only existing Odoo records</option>
                         <option value="dataset" {% if selected_origin == 'dataset' %}selected{% endif %}>Only another incoming table</option>
                         <option value="target_then_dataset" {% if selected_origin == 'target_then_dataset' %}selected{% endif %}>Use Odoo first, otherwise use the incoming table</option>
                       </select>
-                      <small>The combined choice reuses one exact Odoo record and never updates it merely because it won this match.</small>
+                      <small data-relationship-combined-control {% if selected_origin != 'target_then_dataset' %}hidden{% endif %}>The combined choice reuses one exact Odoo record and never updates it merely because it won this match.</small>
                     </label>
-                    <label>
+                    <label data-relationship-incoming-control {% if selected_origin == 'target_catalog' %}hidden{% endif %}>
                       Which related source table?
                       <select name="relation_dataset_{{ dataset_index }}_{{ relation_index }}">
                         <option value="">Not from another table</option>
@@ -176,7 +176,7 @@
                       </select>
                     </label>
                     {% if row.projection_options %}
-                      <label>
+                      <label data-relationship-incoming-control {% if selected_origin == 'target_catalog' %}hidden{% endif %}>
                         If Odoo creates the linked record from that table
                         <select name="relation_projection_{{ dataset_index }}_{{ relation_index }}">
                           <option value="">The incoming table already targets this Odoo model</option>
@@ -191,8 +191,8 @@
                     {% else %}
                       <input type="hidden" name="relation_projection_{{ dataset_index }}_{{ relation_index }}" value="">
                     {% endif %}
-                    <label>
-                      How is the matching choice identified?
+                    <label data-relationship-odoo-control {% if selected_origin == 'dataset' %}hidden{% endif %}>
+                      How should Impodo identify the existing Odoo record?
                       <select name="relation_key_{{ dataset_index }}_{{ relation_index }}" {% if not row.related_keys %}disabled{% endif %}>
                         <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
                         {% for key in row.related_keys %}

@@ -30,8 +30,9 @@ See ``docs/developer/workflow/01-source-data.md``,
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from threading import Lock
 from time import perf_counter
 from types import SimpleNamespace
 from uuid import uuid4
@@ -41,13 +42,20 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from impodo.application.browser_queries import SourceReviewPage
 from impodo.application.odoo_dependency_capture import MAX_DEPENDENCY_DEPTH
+from impodo.application.odoo_read_failures import OdooReadCredentialMissingError
 from impodo.domain.shared.access import Capability
 from ...application.odoo_capture_job_service import (
     OdooCaptureJobNotFoundError,
     OdooCaptureJobStateError,
 )
-from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.odoo.contracts import (
+    ConnectorError,
+    ConnectorIncompleteResultError,
+    MetadataSnapshot,
+    merge_disjoint_metadata_snapshots,
+)
 from impodo.domain.guided_odoo_capture import (
+    GuidedOdooCapturePlanDraft,
     propose_guided_odoo_capture_plans,
 )
 from ...domain.odoo_source_capture import (
@@ -69,11 +77,11 @@ from ...domain.odoo_source_scope import (
     RelatedDataSuggestion,
     propose_related_odoo_data,
     related_model_can_be_selected,
-    related_model_should_default_linked_only,
 )
 from ...domain.odoo_relationship_scope import (
     OdooRelationshipCaptureAction,
     OdooRelationshipScope,
+    OdooRelationshipScopeDecision,
     OdooRelationshipScopeError,
     propose_relationship_action_defaults,
     relationship_expansion_suggestions,
@@ -84,6 +92,7 @@ from ...domain.odoo_relationship_scope import (
 from ...domain.odoo_capture import (
     ODOO_CAPTURE_PAGE_SIZES,
     OdooCaptureRole,
+    OdooCaptureSelection,
     odoo_capture_selection_set_hash,
 )
 from ...domain.data_version.models import DataVersionState
@@ -98,13 +107,18 @@ from impodo.domain.workspace.workbench import (
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
     OdooSchemaCatalog,
+    SchemaModel,
 )
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..composition.page_reads import run_local_operation, run_page_read
-from ..context import WebContext
+from ..context import SchemaReadSession, WebContext
+from ..composition.target_readers import (
+    _missing_schema_reader_message,
+    _selected_local_profile,
+)
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.odoo_source_scope import build_related_data_scope_view
@@ -126,6 +140,33 @@ from ..source_file_commands import accept_source_uploads, remove_source_file
 
 
 _ODOO_CAPTURE_ASSESSMENT_SESSION_KEY = "odoo_capture_assessment"
+_LINKED_DATA_CHECK_IN_PROGRESS = (
+    "Impodo is already checking linked data for this project. Wait for it to "
+    "finish, then refresh."
+)
+
+
+class _WorkspaceOperationGate:
+    """Reject overlapping process-local work for the same project."""
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._active_workspace_ids: set[str] = set()
+
+    def try_start(self, workspace_id: str) -> bool:
+        """Claim one project without waiting for its current operation."""
+
+        with self._lock:
+            if workspace_id in self._active_workspace_ids:
+                return False
+            self._active_workspace_ids.add(workspace_id)
+            return True
+
+    def finish(self, workspace_id: str) -> None:
+        """Release a project after success or failure."""
+
+        with self._lock:
+            self._active_workspace_ids.discard(workspace_id)
 
 
 async def _prepare_related_schema_candidate(
@@ -149,6 +190,201 @@ async def _prepare_related_schema_candidate(
         )
 
     return await run_in_threadpool(prepare)
+
+
+@dataclass(slots=True)
+class _IncrementalRelatedSchemaSession:
+    """Accumulate fresh schema deltas for one linked-data save only."""
+
+    context: WebContext
+    workspace_state: WorkspaceState
+    model_catalog: OdooModelCatalog
+    reader: SchemaReadSession
+    credential_binding_hash: str
+    snapshot: MetadataSnapshot | None = None
+
+    @property
+    def captured_models(self) -> frozenset[str]:
+        """Return record types already read during this one request."""
+
+        return (
+            frozenset(self.snapshot.models)
+            if self.snapshot is not None
+            else frozenset()
+        )
+
+    def _snapshot_for(
+        self,
+        requested: frozenset[str],
+    ) -> MetadataSnapshot:
+        """Project fetched metadata onto one exact candidate model set."""
+
+        if self.snapshot is None or not requested.issubset(self.snapshot.models):
+            raise ConnectorIncompleteResultError(
+                "Impodo could not complete the linked-data field check"
+            )
+        return replace(
+            self.snapshot,
+            models={
+                model: self.snapshot.models[model]
+                for model in sorted(requested)
+            },
+            create_defaults={
+                model: self.snapshot.create_defaults[model]
+                for model in sorted(requested)
+                if model in self.snapshot.create_defaults
+            },
+            content_hash=None,
+        )
+
+    async def prepare_models(
+        self,
+        staged_state: WorkspaceState,
+    ) -> tuple[SchemaModel, ...]:
+        """Read only a candidate's new record types and project field shapes."""
+
+        requested = frozenset(staged_state.intended_models)
+        captured = self.captured_models
+        new_models = tuple(sorted(requested - captured))
+        if new_models:
+            addition = await run_in_threadpool(
+                self.reader.read_models,
+                new_models,
+            )
+            if not addition.complete or set(addition.models) != set(new_models):
+                raise ConnectorIncompleteResultError(
+                    "Odoo did not return all field details needed for linked data"
+                )
+            if not set(addition.create_defaults).issubset(addition.models):
+                raise ConnectorIncompleteResultError(
+                    "Odoo returned field defaults for an unexpected record type"
+                )
+            addition = replace(addition, content_hash=None)
+            self.snapshot = (
+                addition
+                if self.snapshot is None
+                else merge_disjoint_metadata_snapshots(self.snapshot, addition)
+            )
+        candidate_snapshot = self._snapshot_for(requested)
+        return await run_in_threadpool(
+            self.context.schema_workspace.prepare_relationship_models,
+            staged_state,
+            candidate_snapshot,
+            discovered_model_catalog=self.model_catalog,
+            actor=self.context.actor,
+        )
+
+    async def finalize(
+        self,
+        staged_state: WorkspaceState,
+    ) -> OdooSchemaCatalog:
+        """Verify final access and build publishable evidence exactly once."""
+
+        final_models = tuple(sorted(staged_state.intended_models))
+        final_snapshot = self._snapshot_for(frozenset(final_models))
+        read_identity = await run_in_threadpool(
+            self.reader.verify_identity,
+            final_models,
+        )
+
+        def prepare_final() -> OdooSchemaCatalog:
+            current_credential = get_target_credential(
+                self.context.secret_store,
+                self.workspace_state,
+                TargetCredentialRole.READ,
+            )
+            if (
+                current_credential is None
+                or current_credential.binding_hash
+                != self.credential_binding_hash
+            ):
+                raise WorkspaceStateError(
+                    "Odoo read access changed while Impodo was checking linked "
+                    "data. Reload and try again."
+                )
+            return self.context.schema_workspace.prepare_capture(
+                staged_state,
+                final_snapshot,
+                read_credential_binding_hash=self.credential_binding_hash,
+                read_identity=read_identity,
+                discovered_model_catalog=self.model_catalog,
+                actor=self.context.actor,
+            )
+
+        return await run_in_threadpool(prepare_final)
+
+
+def _open_incremental_related_schema_session(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+    model_catalog: OdooModelCatalog,
+) -> _IncrementalRelatedSchemaSession | None:
+    """Open a remote request-local session; keep local shell reads unchanged."""
+
+    local_profile = _selected_local_profile(context, workspace_state)
+    credential = get_target_credential(
+        context.secret_store,
+        workspace_state,
+        TargetCredentialRole.READ,
+    )
+    if local_profile is not None and credential is None:
+        return None
+    if credential is None:
+        raise OdooReadCredentialMissingError(
+            _missing_schema_reader_message(workspace_state)
+        )
+    if context.schema_read_session_factory is None:
+        return None
+    return _IncrementalRelatedSchemaSession(
+        context=context,
+        workspace_state=workspace_state,
+        model_catalog=model_catalog,
+        reader=context.schema_read_session_factory(
+            workspace_state,
+            credential.secret,
+        ),
+        credential_binding_hash=credential.binding_hash,
+    )
+
+
+@contextmanager
+def _diagnostic_related_data_stage(
+    request: Request,
+    stage: str,
+    *,
+    pass_number: int | None = None,
+    total_record_types: int | None = None,
+    new_record_types: int | None = None,
+):
+    """Time one privacy-safe linked-data discovery stage."""
+
+    recorder = getattr(request.app.state, "diagnostic_recorder", None)
+    started = perf_counter()
+    try:
+        yield
+    except Exception as error:
+        if recorder is not None:
+            recorder.record_operation_stage(
+                "odoo_related_data",
+                stage,
+                duration_ms=(perf_counter() - started) * 1000,
+                outcome="failed",
+                exception_class=type(error).__name__,
+                pass_number=pass_number,
+                total_record_types=total_record_types,
+                new_record_types=new_record_types,
+            )
+        raise
+    else:
+        if recorder is not None:
+            recorder.record_operation_stage(
+                "odoo_related_data",
+                stage,
+                duration_ms=(perf_counter() - started) * 1000,
+                pass_number=pass_number,
+                total_record_types=total_record_types,
+                new_record_types=new_record_types,
+            )
 
 
 @contextmanager
@@ -178,6 +414,45 @@ def _diagnostic_assessment_stage(request: Request, stage: str):
             )
 
 
+def _publish_guided_capture_plans(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+    model_catalog: OdooModelCatalog,
+    schema: OdooSchemaCatalog,
+    relationship_scope: OdooRelationshipScope,
+    drafts: tuple[GuidedOdooCapturePlanDraft, ...],
+    *,
+    current_selections: tuple[OdooCaptureSelection, ...] = (),
+) -> tuple[WorkspaceState, tuple[OdooCaptureSelection, ...]]:
+    """Atomically publish reviewed manual plans plus safe guided plans."""
+
+    capture_selections = context.sources.build_guided_odoo_capture_selections(
+        workspace_state.workspace_id,
+        drafts=drafts,
+        current_selections=current_selections,
+        schema=schema,
+        relationship_scope=relationship_scope,
+        actor=context.actor,
+    )
+    saved = context.workspace_states.update_schema_scope(
+        workspace_state.workspace_id,
+        actor=context.actor,
+        expected_revision=workspace_state.revision,
+        permitted_models=tuple(
+            sorted(relationship_scope.required_capture_models)
+        ),
+        relationship_decisions=relationship_scope.decisions,
+        relationship_root_models=relationship_scope.root_models,
+        relationship_explicit_actions=(
+            relationship_scope.explicit_actions_by_model
+        ),
+        schema_catalog=schema,
+        capture_selections=capture_selections,
+        expected_model_catalog_content_hash=model_catalog.content_hash,
+    )
+    return saved, capture_selections
+
+
 def build_sources_router(context: WebContext) -> APIRouter:
     """Build file-source and Odoo-source routes from one application context.
 
@@ -187,6 +462,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
     """
 
     router = APIRouter()
+    related_data_checks = _WorkspaceOperationGate()
 
     @router.get("/workspaces/{workspace_id}/sources", response_class=HTMLResponse)
     async def workspace_sources(request: Request, workspace_id: str):
@@ -379,17 +655,64 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 if schema is not None
                 else ()
             )
+            relationship_scope = (
+                context.queries.get_current_odoo_relationship_scope(
+                    workspace_id
+                )
+            )
+            if schema is not None and relationship_scope is not None:
+                proposal = propose_guided_odoo_capture_plans(
+                    schema,
+                    relationship_scope,
+                    current_selections=current_selections,
+                )
+                if proposal.issues:
+                    next_issue = next(
+                        (
+                            issue
+                            for issue in proposal.issues
+                            if issue.model is not None
+                        ),
+                        proposal.issues[0],
+                    )
+                    return selection, next_issue, (), 0
+                model_catalog = context.queries.get_odoo_model_catalog(
+                    workspace_id
+                )
+                if model_catalog is None:
+                    raise WorkspaceError(
+                        "Refresh the available Odoo record types before "
+                        "preparing capture plans"
+                    )
+                workspace_state = context.queries.get(workspace_id)
+                _saved, complete_selections = _publish_guided_capture_plans(
+                    context,
+                    workspace_state,
+                    model_catalog,
+                    schema,
+                    relationship_scope,
+                    proposal.drafts,
+                    current_selections=current_selections,
+                )
+                return (
+                    selection,
+                    None,
+                    (),
+                    len(complete_selections) - len(current_selections),
+                )
             planned_models = {item.model for item in current_selections}
             missing_models = tuple(
                 item
                 for item in (schema.models if schema is not None else ())
                 if item.name not in planned_models
             )
-            return selection, missing_models
+            return selection, None, missing_models, 0
 
         try:
-            selection, missing_models = await run_local_operation(save_selection)
-        except WorkspaceError as error:
+            selection, next_issue, missing_models, generated_count = (
+                await run_local_operation(save_selection)
+            )
+        except (WorkspaceError, WorkspaceStateError) as error:
             def render_error():
                 return _render_odoo_capture_selection(
                     request,
@@ -400,6 +723,21 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 )
 
             return await run_page_read(render_error)
+        if next_issue is not None:
+            _flash(
+                request,
+                f"Saved {selection.model}. Review the remaining exception for "
+                f"{next_issue.model_label}.",
+            )
+            suffix = (
+                f"?model={next_issue.model}&edit=1"
+                if next_issue.model is not None
+                else ""
+            )
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/sources{suffix}#capture-plan",
+                status_code=303,
+            )
         if missing_models:
             next_model = missing_models[0]
             _flash(
@@ -414,8 +752,14 @@ def build_sources_router(context: WebContext) -> APIRouter:
             )
         _flash(
             request,
-            "All Odoo capture plans are saved. Count the selected source records "
-            "to continue.",
+            (
+                f"Saved {selection.model} and prepared {generated_count} safe "
+                "linked-data capture plans automatically. Count the selected "
+                "source records to continue."
+                if generated_count
+                else "All Odoo capture plans are saved. Count the selected "
+                "source records to continue."
+            ),
         )
         return RedirectResponse(
             f"/workspaces/{workspace_id}/sources#capture-next-action",
@@ -424,7 +768,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.post("/workspaces/{workspace_id}/sources/odoo-related-data")
     async def save_odoo_related_data(request: Request, workspace_id: str):
-        """Stage the complete linked-data plan, then publish it once."""
+        """Reject duplicate saves before staging one linked-data plan."""
 
         form = await request.form()
         _secure_form(
@@ -432,6 +776,22 @@ def build_sources_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "revision", "related_actions"},
         )
+        if not related_data_checks.try_start(workspace_id):
+            return HTMLResponse(
+                _LINKED_DATA_CHECK_IN_PROGRESS,
+                status_code=409,
+            )
+        try:
+            return await _save_odoo_related_data(
+                request,
+                workspace_id,
+                form,
+            )
+        finally:
+            related_data_checks.finish(workspace_id)
+
+    async def _save_odoo_related_data(request, workspace_id, form):
+        """Stage the complete linked-data plan, then publish it once."""
 
         def submitted_actions() -> dict[
             str, OdooRelationshipCaptureAction
@@ -550,21 +910,29 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 available,
             )
 
-        def decisions_for_schema(
-            schema: OdooSchemaCatalog,
+        def decisions_for_models(
+            schema_models: tuple[SchemaModel, ...],
             *,
             current_scope: OdooRelationshipScope | None,
             roots: set[str],
             available: set[str],
             explicit_actions: dict[str, OdooRelationshipCaptureAction],
+            frontier_decisions: tuple[OdooRelationshipScopeDecision, ...],
         ):
             all_suggestions = propose_related_odoo_data(
-                schema.models,
+                schema_models,
                 include_selected=True,
+            )
+            frontier_suggestions = (
+                relationship_expansion_suggestions_for_decisions(
+                    all_suggestions,
+                    frontier_decisions,
+                    root_models=roots,
+                )
             )
             selectable = {
                 item.relation_model
-                for item in all_suggestions
+                for item in frontier_suggestions
                 if related_model_can_be_selected(item.handling)
             }
             applicable_explicit = {
@@ -573,13 +941,13 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 if model in selectable
             }
             defaults = propose_relationship_action_defaults(
-                all_suggestions,
+                frontier_suggestions,
                 root_models=roots,
                 current_scope=current_scope,
                 explicit_actions_by_model=applicable_explicit,
             )
             preliminary = relationship_scope_decisions(
-                all_suggestions,
+                frontier_suggestions,
                 actions_by_model={
                     model: action
                     for model, action in defaults.actions.items()
@@ -684,17 +1052,51 @@ def build_sources_router(context: WebContext) -> APIRouter:
             candidate_models = set(root_models)
             prepared_schema = None
             final_decisions = ()
+            frontier_decisions = (
+                current_scope.decisions if current_scope is not None else ()
+            )
             final_conflicting_models: tuple[str, ...] = ()
+            incremental_session = await run_in_threadpool(
+                _open_incremental_related_schema_session,
+                context,
+                workspace_state,
+                model_catalog,
+            )
             for pass_index in range(MAX_DEPENDENCY_DEPTH + 1):
                 staged_state = replace(
                     workspace_state,
                     intended_models=tuple(sorted(candidate_models)),
                 )
-                prepared_schema = await _prepare_related_schema_candidate(
-                    context,
-                    staged_state,
-                    model_catalog,
+                new_record_types = (
+                    len(
+                        candidate_models
+                        - set(incremental_session.captured_models)
+                    )
+                    if incremental_session is not None
+                    else None
                 )
+                with _diagnostic_related_data_stage(
+                    request,
+                    "schema_capture_pass",
+                    pass_number=pass_index + 1,
+                    total_record_types=len(candidate_models),
+                    new_record_types=new_record_types,
+                ):
+                    if incremental_session is None:
+                        prepared_schema = (
+                            await _prepare_related_schema_candidate(
+                                context,
+                                staged_state,
+                                model_catalog,
+                            )
+                        )
+                        staged_models = prepared_schema.models
+                    else:
+                        staged_models = (
+                            await incremental_session.prepare_models(
+                                staged_state
+                            )
+                        )
                 (
                     final_decisions,
                     chosen_models,
@@ -702,14 +1104,16 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     final_selectable,
                     final_conflicting_models,
                 ) = (
-                    decisions_for_schema(
-                        prepared_schema,
+                    decisions_for_models(
+                        staged_models,
                         current_scope=current_scope,
                         roots=root_models,
                         available=available_models,
                         explicit_actions=explicit_actions,
+                        frontier_decisions=frontier_decisions,
                     )
                 )
+                frontier_decisions = final_decisions
                 if chosen_models == candidate_models:
                     explicit_actions = {
                         model: action
@@ -724,6 +1128,20 @@ def build_sources_router(context: WebContext) -> APIRouter:
                         "Review that graph under Advanced."
                     )
                 candidate_models = chosen_models
+            if incremental_session is not None:
+                final_state = replace(
+                    workspace_state,
+                    intended_models=tuple(sorted(candidate_models)),
+                )
+                with _diagnostic_related_data_stage(
+                    request,
+                    "final_access_check",
+                    total_record_types=len(candidate_models),
+                    new_record_types=0,
+                ):
+                    prepared_schema = await incremental_session.finalize(
+                        final_state
+                    )
             assert prepared_schema is not None
             staged_scope = OdooRelationshipScope.create(
                 scope_id=(current_scope.scope_id if current_scope else str(uuid4())),
@@ -803,32 +1221,14 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     )
             else:
                 def publish_complete_capture_plan():
-                    capture_selections = (
-                        context.sources.build_guided_odoo_capture_selections(
-                            workspace_id,
-                            drafts=guided_proposal.drafts,
-                            schema=prepared_schema,
-                            relationship_scope=staged_scope,
-                            actor=context.actor,
-                        )
+                    return _publish_guided_capture_plans(
+                        context,
+                        workspace_state,
+                        model_catalog,
+                        prepared_schema,
+                        staged_scope,
+                        guided_proposal.drafts,
                     )
-                    saved = context.workspace_states.update_schema_scope(
-                        workspace_id,
-                        actor=context.actor,
-                        expected_revision=expected_revision,
-                        permitted_models=tuple(sorted(candidate_models)),
-                        relationship_decisions=tuple(final_decisions),
-                        relationship_root_models=tuple(sorted(root_models)),
-                        relationship_explicit_actions=tuple(
-                            sorted(explicit_actions.items())
-                        ),
-                        schema_catalog=prepared_schema,
-                        capture_selections=capture_selections,
-                        expected_model_catalog_content_hash=(
-                            model_catalog.content_hash
-                        ),
-                    )
-                    return saved, capture_selections
 
                 _saved_workspace_state, capture_selections = (
                     await run_local_operation(publish_complete_capture_plan)
@@ -1178,11 +1578,26 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 workspace_id
             )
             schema = context.queries.get_odoo_schema_catalog(workspace_id)
+            relationship_scope = (
+                context.queries.get_current_odoo_relationship_scope(
+                    workspace_id
+                )
+            )
+            required_models = (
+                relationship_scope.required_capture_models
+                if relationship_scope is not None
+                else frozenset(
+                    item.name for item in (schema.models if schema else ())
+                )
+            )
             if (
                 not selections
                 or schema is None
                 or {item.model for item in selections}
-                != {item.name for item in schema.models}
+                != required_models
+                or not required_models.issubset(
+                    item.name for item in schema.models
+                )
             ):
                 raise WorkspaceError(
                     "Save a capture plan for every selected Odoo record type "
@@ -1815,11 +2230,11 @@ def _render_odoo_capture_selection(
         item.model for item in current_selections
         if item.capture_role is OdooCaptureRole.ROOT
     }
-    presentation_root_models = frozenset(
-        relationship_scope.root_models
+    presentation_root_models = (
+        frozenset(relationship_scope.root_models)
         if relationship_scope is not None
-        else workspace_state.intended_models
-    ) | frozenset(root_models)
+        else frozenset(workspace_state.intended_models) | frozenset(root_models)
+    )
     root_capture_selections = tuple(
         item for item in current_selections
         if item.capture_role is OdooCaptureRole.ROOT
@@ -1940,21 +2355,6 @@ def _render_odoo_capture_selection(
         current_by_model.get(selected_model.name)
         if selected_model is not None
         else None
-    )
-    linked_only_models = frozenset(
-        item.relation_model
-        for item in related_data_suggestions
-        if related_model_should_default_linked_only(item.handling)
-    )
-    recommend_linked_only = bool(
-        selected_model is not None
-        and selected_model.name in linked_only_models
-        and current is None
-    )
-    supporting_plan_is_root = bool(
-        current is not None
-        and current.model in linked_only_models
-        and current.capture_role is OdooCaptureRole.ROOT
     )
     fields = tuple(
         sorted(
@@ -2141,8 +2541,10 @@ def _render_odoo_capture_selection(
         selected_field_names=selected_field_names,
         dataset_name_default=dataset_name_default,
         current=current,
-        recommend_linked_only=recommend_linked_only,
-        supporting_plan_is_root=supporting_plan_is_root,
+        selected_plan_is_root=(
+            selected_model is not None
+            and selected_model.name in presentation_root_models
+        ),
         current_selections=current_selections,
         root_capture_selections=root_capture_selections,
         linked_capture_selections=linked_capture_selections,

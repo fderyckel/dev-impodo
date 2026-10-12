@@ -57,6 +57,17 @@ class OdooSourceCaptureLimitError(OdooSourceCaptureError):
     """A fixed request, value, row, page, or snapshot limit was exceeded."""
 
 
+class OdooSourceCaptureRowLimitExceeded(OdooSourceCaptureLimitError):
+    """One capture plan exceeded its governed per-model row limit."""
+
+    def __init__(self, *, model: str, maximum_rows: int) -> None:
+        self.model = model
+        self.maximum_rows = maximum_rows
+        super().__init__(
+            f"Odoo relationship scan for {model} exceeds the selected row limit"
+        )
+
+
 class OdooSourceCaptureConsistencyError(OdooSourceCaptureError):
     """A response or end probe no longer matches the bound capture contract."""
 

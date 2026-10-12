@@ -16,6 +16,7 @@ from impodo.domain.workspace.reference_keys import (
     authorize_governed_reference,
     authorize_supporting_match_probe,
     standard_reference_key,
+    supporting_reference_candidate,
 )
 
 
@@ -288,6 +289,95 @@ class GovernedReferencePolicyTests(unittest.TestCase):
         )
         self.assertFalse(wrong_field.accepted)
         self.assertFalse(wrong_purpose.accepted)
+
+    def test_bom_and_product_candidates_are_bounded_not_standard_keys(self):
+        cases = (
+            ("mrp.bom", "code"),
+            ("product.product", "default_code"),
+        )
+
+        for major in (19, 20):
+            for model, field_name in cases:
+                with self.subTest(major=major, model=model):
+                    candidate = supporting_reference_candidate(
+                        model,
+                        odoo_major_version=major,
+                    )
+                    self.assertIsNotNone(candidate)
+                    self.assertEqual(candidate.key_fields, (field_name,))
+                    self.assertIsNone(
+                        standard_reference_key(
+                            model,
+                            odoo_major_version=major,
+                        )
+                    )
+
+                    request = GovernedReferenceRequest(
+                        parent_model="mrp.bom.line",
+                        relationship_field=(
+                            "bom_id" if model == "mrp.bom" else "product_id"
+                        ),
+                        relationship_type="many2one",
+                        relationship_model=model,
+                        related_model=model,
+                        key_fields=(field_name,),
+                        scope_fields=(),
+                        requested_fields=(field_name,),
+                        purpose=ReferenceReadPurpose.MATCH_CHOICES,
+                        odoo_major_version=major,
+                        governed_key=True,
+                    )
+                    self.assertTrue(
+                        authorize_supporting_match_probe(request).accepted
+                    )
+                    self.assertFalse(
+                        authorize_supporting_match_probe(
+                            replace(request, purpose=ReferenceReadPurpose.PREFLIGHT)
+                        ).accepted
+                    )
+                    self.assertFalse(
+                        authorize_supporting_match_probe(
+                            replace(
+                                request,
+                                key_fields=("name",),
+                                requested_fields=("name",),
+                            )
+                        ).accepted
+                    )
+
+    def test_reviewed_candidate_probe_verifies_returned_field_type(self):
+        request = GovernedReferenceRequest(
+            parent_model="mrp.bom.line",
+            relationship_field="product_id",
+            relationship_type="many2one",
+            relationship_model="product.product",
+            related_model="product.product",
+            key_fields=("default_code",),
+            scope_fields=(),
+            requested_fields=("default_code",),
+            purpose=ReferenceReadPurpose.MATCH_CHOICES,
+            governed_key=True,
+        )
+
+        accepted = authorize_supporting_match_probe(
+            request,
+            captured_fields=(
+                StandardReferenceFieldContract(
+                    "default_code", "char", False, False
+                ),
+            ),
+        )
+        wrong_type = authorize_supporting_match_probe(
+            request,
+            captured_fields=(
+                StandardReferenceFieldContract(
+                    "default_code", "integer", False, False
+                ),
+            ),
+        )
+
+        self.assertTrue(accepted.accepted)
+        self.assertFalse(wrong_type.accepted)
 
 
 if __name__ == "__main__":

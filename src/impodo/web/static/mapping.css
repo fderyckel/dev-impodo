@@ -356,6 +356,12 @@
   font-size: .86rem;
 }
 
+[data-relationship-incoming-control][hidden],
+[data-relationship-odoo-control][hidden],
+[data-relationship-combined-control][hidden] {
+  display: none;
+}
+
 .mapping-dataset > h3 {
   margin-top: 2.25rem;
   border-top: 1px solid var(--line);

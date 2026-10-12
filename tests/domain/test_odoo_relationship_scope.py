@@ -13,6 +13,7 @@ from impodo.domain.odoo_relationship_scope import (
     propose_relationship_action_defaults,
     relationship_scope_decisions,
     relationship_expansion_suggestions,
+    relationship_expansion_suggestions_for_decisions,
     review_relationship_scope,
 )
 from impodo.domain.odoo_source_scope import (
@@ -22,6 +23,62 @@ from impodo.domain.odoo_source_scope import (
 
 
 class OdooRelationshipScopeTests(unittest.TestCase):
+    def test_required_capture_models_exclude_odoo_managed_targets(self) -> None:
+        scope = OdooRelationshipScope.create(
+            scope_id=str(uuid4()),
+            version=1,
+            decisions=(
+                OdooRelationshipScopeDecision(
+                    source_model="maintenance.team",
+                    field_name="alias_id",
+                    relation_model="mail.alias",
+                    required=True,
+                    handling=RelatedDataHandling.ODOO_MANAGED,
+                    action=OdooRelationshipCaptureAction.ODOO_MANAGED,
+                    relationship_type="many2one",
+                ),
+            ),
+            root_models=("maintenance.team",),
+            recorded_at=datetime.now(timezone.utc),
+            recorded_by="Data Manager",
+        )
+
+        self.assertEqual(
+            scope.required_capture_models,
+            frozenset({"maintenance.team"}),
+        )
+
+    def test_odoo_managed_alias_closes_the_registry_metadata_chain(self) -> None:
+        alias = RelatedDataSuggestion(
+            source_model="maintenance.team",
+            source_label="Maintenance Team",
+            field_name="alias_id",
+            field_label="Email Alias",
+            relation_model="mail.alias",
+            relationship_type="many2one",
+            required=True,
+            handling=RelatedDataHandling.ODOO_MANAGED,
+        )
+        registry = RelatedDataSuggestion(
+            source_model="mail.alias",
+            source_label="Email Alias",
+            field_name="alias_model_id",
+            field_label="Aliased Model",
+            relation_model="ir.model",
+            relationship_type="many2one",
+            required=True,
+            handling=RelatedDataHandling.REUSE_DESTINATION,
+        )
+        decisions = relationship_scope_decisions((alias, registry))
+
+        frontier = relationship_expansion_suggestions_for_decisions(
+            (alias, registry),
+            decisions,
+            root_models=("maintenance.team",),
+        )
+
+        self.assertEqual(frontier, (alias,))
+
     def test_safe_defaults_are_direction_aware_and_model_compatible(self) -> None:
         defaults = propose_relationship_action_defaults(
             (
@@ -507,7 +564,7 @@ class OdooRelationshipScopeTests(unittest.TestCase):
                     "res.company": OdooRelationshipCaptureAction.MATCH_EXISTING,
                 },
             ),
-            root_models=("res.company",),
+            root_models=("res.company", "x.document"),
             recorded_at=datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc),
             recorded_by="Data Manager",
         )
@@ -605,6 +662,59 @@ class OdooRelationshipScopeTests(unittest.TestCase):
         self.assertEqual(scope.leaf_models, frozenset({"product.product"}))
         self.assertFalse(scope.reference_models)
         self.assertFalse(scope.expanding_models)
+
+    def test_unreachable_model_cannot_influence_the_decision_frontier(self) -> None:
+        owner = _suggestion(
+            "owner_id",
+            "x.owner",
+            RelatedDataHandling.NEEDS_DECISION,
+        )
+        employee = _suggestion(
+            "employee_ids",
+            "hr.employee",
+            RelatedDataHandling.NEEDS_DECISION,
+            relationship_type="many2many",
+        )
+        unreachable_employee = RelatedDataSuggestion(
+            source_model="x.unreachable",
+            source_label="Unreachable records",
+            field_name="employee_id",
+            field_label="Employee",
+            relation_model="hr.employee",
+            relationship_type="many2one",
+            required=False,
+            handling=RelatedDataHandling.NEEDS_DECISION,
+        )
+        decisions = relationship_scope_decisions(
+            (owner, employee),
+            actions_by_model={
+                "hr.employee": OdooRelationshipCaptureAction.DO_NOT_CAPTURE,
+                "x.owner": OdooRelationshipCaptureAction.PRESERVE_LINKED,
+            },
+        )
+
+        frontier = relationship_expansion_suggestions_for_decisions(
+            (owner, employee, unreachable_employee),
+            decisions,
+            root_models=("x.document",),
+        )
+        scope = OdooRelationshipScope.create(
+            scope_id=str(uuid4()),
+            version=1,
+            decisions=decisions,
+            root_models=("x.document",),
+            recorded_at=datetime(2026, 10, 12, 12, 0, tzinfo=timezone.utc),
+            recorded_by="Data Manager",
+        )
+
+        self.assertEqual(frontier, (owner, employee))
+        self.assertEqual(
+            relationship_expansion_suggestions(
+                (owner, employee, unreachable_employee),
+                scope,
+            ),
+            frontier,
+        )
 
     def test_destination_owned_relationship_rejects_preserve_linked(self) -> None:
         with self.assertRaisesRegex(

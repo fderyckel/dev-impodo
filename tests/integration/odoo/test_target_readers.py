@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from impodo.adapters.odoo.connectors import Json2ReadConnector
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
@@ -24,13 +25,26 @@ from impodo.domain.shared.models import (
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode
 from impodo.domain.execution.planner import PreflightRequirementPlan, ReferenceReadRequirement
+from impodo.domain.mapping.contracts import (
+    CategoricalCoveragePolicy,
+    DatasetMapping,
+    IdentityComponentMapping,
+    ReferenceKeyMapping,
+    RelationshipMapping,
+    RelationshipResolver,
+    ResolverOrigin,
+)
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     store_target_credential,
 )
 from impodo.web.composition.target_readers import (
+    _PreparedSupportingLookup,
+    _capture_mapping_supporting_values,
     _capture_recipe_supporting_values,
+    _ensure_targeted_supporting_read_complete,
+    _open_schema_read_session,
     _read_readiness_snapshots,
     _read_supporting_lookup_snapshots,
     _relationship_value_choices,
@@ -52,6 +66,112 @@ from impodo.domain.schema.governance import BusinessKeyDefinition
 
 
 HASH = "sha256:" + "1" * 64
+
+
+class Json2SchemaReadSessionTests(unittest.TestCase):
+    def test_one_connector_reuses_its_fingerprint_for_deltas_and_final_identity(
+        self,
+    ) -> None:
+        workspace_state = WorkspaceState(
+            workspace_id="linked-data",
+            name="Linked data",
+            source_system="ODOO",
+            odoo_connection_mode=OdooConnectionMode.REMOTE,
+            odoo_base_url="https://odoo.example.test",
+            odoo_database="migration",
+            intended_models=("x.parent",),
+        )
+        calls: list[tuple[str, dict | None]] = []
+        connectors: list[Json2ReadConnector] = []
+        model_ids = {"x.parent": 41, "x.child": 42}
+
+        def transport(url, _headers, body, _timeout, _method):
+            payload = json.loads(body) if body else None
+            calls.append((url, payload))
+            if url.endswith("/web/version"):
+                return 200, {"version": "20.0"}
+            if url.endswith("/json/2/ir.model/search_read"):
+                model = payload["domain"][0][2][0]
+                return 200, [{"id": model_ids[model], "model": model}]
+            if url.endswith("/json/2/ir.model.constraint/search_read"):
+                return 200, []
+            if url.endswith("/fields_get"):
+                return 200, {
+                    "name": {
+                        "string": "Name",
+                        "type": "char",
+                        "required": False,
+                        "readonly": False,
+                    }
+                }
+            if url.endswith("/json/2/res.users/context_get"):
+                return 200, {"uid": 17}
+            if url.endswith("/json/2/res.users/search_read"):
+                return 200, [
+                    {
+                        "id": 17,
+                        "login": "reader@example.test",
+                        "company_id": [3, "Migration"],
+                        "group_ids": [8],
+                        "share": False,
+                    }
+                ]
+            if url.endswith("/json/2/res.company/search_read"):
+                return 200, [{"id": 3}]
+            if url.endswith("/has_access"):
+                return 200, True
+            self.fail(f"unexpected URL: {url}")
+
+        def connector_factory(config):
+            connector = Json2ReadConnector(
+                config,
+                transport=transport,
+                now=lambda: datetime(2026, 10, 12, tzinfo=timezone.utc),
+            )
+            connectors.append(connector)
+            return connector
+
+        with patch(
+            "impodo.web.composition.target_readers.Json2ReadConnector",
+            side_effect=connector_factory,
+        ):
+            session = _open_schema_read_session(
+                workspace_state,
+                "request-local-secret",
+            )
+            first = session.read_models(("x.parent",))
+            second = session.read_models(("x.child",))
+            identity = session.verify_identity(("x.parent", "x.child"))
+
+        self.assertEqual(len(connectors), 1)
+        self.assertIs(first.fingerprint, second.fingerprint)
+        self.assertEqual(identity.observed_at, first.fingerprint.snapshot_timestamp)
+        self.assertEqual(
+            [url for url, _payload in calls if url.endswith("/web/version")],
+            ["https://odoo.example.test/web/version"],
+        )
+        self.assertEqual(
+            [
+                url.split("/json/2/", 1)[1].split("/fields_get", 1)[0]
+                for url, _payload in calls
+                if url.endswith("/fields_get")
+            ],
+            ["x.parent", "x.child"],
+        )
+        self.assertEqual(
+            len(
+                [
+                    url
+                    for url, _payload in calls
+                    if url.endswith("/json/2/res.users/context_get")
+                ]
+            ),
+            1,
+        )
+        self.assertEqual(
+            identity.readable_models,
+            ("x.child", "x.parent"),
+        )
 
 
 class RemoteReadinessCredentialTests(unittest.TestCase):
@@ -550,6 +670,30 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
 
 
 class RecipeSupportingValueBatchTests(unittest.TestCase):
+    def test_targeted_support_rejects_a_truncated_duplicate_chunk(self) -> None:
+        prepared = _PreparedSupportingLookup(
+            relation_model="product.product",
+            key_fields=("default_code",),
+            scope_fields=(),
+            display_field="default_code",
+            requested_fields=("default_code",),
+            targeted_values=(("ITEM-1",),),
+        )
+        records = tuple(
+            TargetRecord(
+                "product.product",
+                index,
+                {"default_code": "ITEM-1"},
+            )
+            for index in range(1, 502)
+        )
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "too many duplicate destination matches",
+        ):
+            _ensure_targeted_supporting_read_complete(prepared, records)
+
     def test_several_recipe_relationships_use_one_bounded_reader_call(self) -> None:
         workspace = WorkspaceState(
             workspace_id="recipe-setup",
@@ -739,6 +883,263 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
         self.assertEqual(
             {item["relation_model"] for item in captures},
             {"res.country", "res.currency"},
+        )
+
+    def test_file_mapping_captures_bom_and_product_support_in_one_narrow_read(
+        self,
+    ) -> None:
+        workspace = WorkspaceState(
+            workspace_id="bom-file-mapping",
+            name="BOM file mapping",
+            source_system="XLSX",
+            odoo_connection_mode=OdooConnectionMode.REMOTE,
+            odoo_base_url="https://test.example.test",
+            odoo_database="test",
+            intended_models=("mrp.bom.line", "mrp.routing.workcenter"),
+        )
+        target_hash = target_identity_hash(
+            connection_mode="REMOTE",
+            base_url=workspace.odoo_base_url,
+            database=workspace.odoo_database,
+        )
+
+        def field(name, field_type="char", *, relation=None, required=False):
+            return SchemaField(
+                name=name,
+                label=name.replace("_", " ").title(),
+                type=field_type,
+                required=required,
+                readonly=False,
+                relation=relation,
+                relation_field=None,
+                selection=(),
+            )
+
+        schema = OdooSchemaCatalog(
+            workspace_id=workspace.workspace_id,
+            policy_hash=HASH,
+            captured_at=datetime.now(timezone.utc),
+            captured_by="Data manager",
+            connection_mode="REMOTE",
+            database="test",
+            odoo_version="19.0",
+            models=(
+                SchemaModel(
+                    "mrp.routing.workcenter",
+                    "Operations",
+                    (
+                        field("name", required=True),
+                        field(
+                            "bom_id",
+                            "many2one",
+                            relation="mrp.bom",
+                            required=True,
+                        ),
+                    ),
+                ),
+                SchemaModel(
+                    "mrp.bom.line",
+                    "BOM Lines",
+                    (
+                        field("sequence", "integer", required=True),
+                        field(
+                            "bom_id",
+                            "many2one",
+                            relation="mrp.bom",
+                            required=True,
+                        ),
+                        field(
+                            "product_id",
+                            "many2one",
+                            relation="product.product",
+                            required=True,
+                        ),
+                    ),
+                ),
+            ),
+            content_hash=HASH,
+            origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash="credential",
+            read_principal_hash="principal",
+            read_permission_hash="permission",
+            read_context_hash="context",
+            connection_target_hash=target_hash,
+        )
+        bom_resolver = lambda source: RelationshipResolver(
+            origin=ResolverOrigin.TARGET_CATALOG,
+            model="mrp.bom",
+            key_mappings=(ReferenceKeyMapping(source, "code"),),
+        )
+        datasets = (
+            DatasetMapping(
+                dataset_id="operations",
+                target_model="mrp.routing.workcenter",
+                source_identity_column_keys=("operation", "operation_bom"),
+                target_identity=(
+                    IdentityComponentMapping(("operation",), ("name",)),
+                ),
+                target_scope=(
+                    IdentityComponentMapping(
+                        ("operation_bom",),
+                        ("bom_id",),
+                        resolver=bom_resolver("operation_bom"),
+                    ),
+                ),
+            ),
+            DatasetMapping(
+                dataset_id="lines",
+                target_model="mrp.bom.line",
+                source_identity_column_keys=("line", "line_bom"),
+                target_identity=(
+                    IdentityComponentMapping(
+                        ("line",),
+                        ("sequence",),
+                        value_type="integer",
+                    ),
+                ),
+                target_scope=(
+                    IdentityComponentMapping(
+                        ("line_bom",),
+                        ("bom_id",),
+                        resolver=bom_resolver("line_bom"),
+                    ),
+                ),
+                relationships=(
+                    RelationshipMapping(
+                        target_field="product_id",
+                        kind="many2one",
+                        source_column_keys=("item",),
+                        resolver=RelationshipResolver(
+                            origin=ResolverOrigin.TARGET_CATALOG,
+                            model="product.product",
+                            key_mappings=(
+                                ReferenceKeyMapping("item", "default_code"),
+                            ),
+                        ),
+                        categorical_policy=(
+                            CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+                        ),
+                    ),
+                ),
+            ),
+        )
+        source_values = {
+            ("operations", ("operation_bom",)): (("BOM-A",),),
+            ("lines", ("line_bom",)): (("BOM-A",), ("BOM-B",)),
+            ("lines", ("item",)): (("ITEM-1",), ("ITEM-2",)),
+        }
+        fingerprint = TargetFingerprint(
+            target_hash=target_hash,
+            connection_mode="REMOTE",
+            database="test",
+            odoo_version="19.0",
+            snapshot_timestamp="2026-10-12T00:00:00Z",
+        )
+        calls = []
+
+        def reader(_workspace, metadata_requests, record_requests):
+            calls.append((tuple(metadata_requests), tuple(record_requests)))
+            return (
+                MetadataSnapshot(
+                    fingerprint=fingerprint,
+                    models={
+                        "mrp.bom": ModelMetadata(
+                            "mrp.bom",
+                            "Bills of Materials",
+                            {"code": FieldMetadata("code", "char")},
+                        ),
+                        "product.product": ModelMetadata(
+                            "product.product",
+                            "Product Variants",
+                            {
+                                "default_code": FieldMetadata(
+                                    "default_code", "char"
+                                )
+                            },
+                        ),
+                    },
+                ),
+                RecordSnapshot(
+                    fingerprint=fingerprint,
+                    records={
+                        "mrp.bom": (
+                            TargetRecord("mrp.bom", 10, {"code": "BOM-A"}),
+                            TargetRecord("mrp.bom", 11, {"code": "BOM-B"}),
+                        ),
+                        "product.product": (
+                            TargetRecord(
+                                "product.product",
+                                20,
+                                {"default_code": "ITEM-1"},
+                            ),
+                            TargetRecord(
+                                "product.product",
+                                21,
+                                {"default_code": "ITEM-2"},
+                            ),
+                        ),
+                    },
+                    requested_fields={
+                        request.model: request.fields
+                        for request in record_requests
+                    },
+                ),
+            )
+
+        captures = []
+        context = SimpleNamespace(
+            actor=SimpleNamespace(),
+            readiness_reader=reader,
+            categorical_coverage=SimpleNamespace(
+                source_included_key_tuples=(
+                    lambda _workspace, dataset_id, columns, _rows: source_values[
+                        (dataset_id, tuple(columns))
+                    ]
+                )
+            ),
+            supporting_lookups=SimpleNamespace(
+                capture=lambda _workspace, **values: (
+                    captures.append(values) or SimpleNamespace(**values)
+                )
+            ),
+        )
+
+        stored = _capture_mapping_supporting_values(
+            context,
+            workspace,
+            schema,
+            datasets,
+        )
+
+        self.assertEqual(len(calls), 1)
+        metadata_requests, record_requests = calls[0]
+        self.assertEqual(
+            tuple(request.model for request in metadata_requests),
+            ("mrp.bom", "product.product"),
+        )
+        self.assertEqual(len(record_requests), 2)
+        self.assertEqual(
+            {request.model: request.domain for request in record_requests},
+            {
+                "mrp.bom": (("code", "in", ("BOM-A", "BOM-B")),),
+                "product.product": (
+                    ("default_code", "in", ("ITEM-1", "ITEM-2")),
+                ),
+            },
+        )
+        self.assertEqual(len(stored), 2)
+        self.assertEqual(len(captures), 2)
+        self.assertEqual(
+            {item["relation_model"] for item in captures},
+            {"mrp.bom", "product.product"},
+        )
+        self.assertEqual(
+            tuple(model.name for model in schema.models),
+            ("mrp.routing.workcenter", "mrp.bom.line"),
+        )
+        self.assertEqual(
+            workspace.intended_models,
+            ("mrp.bom.line", "mrp.routing.workcenter"),
         )
 
 

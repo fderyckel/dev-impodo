@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from impodo.domain.odoo_relationship_profiles import OdooRelationshipProfile
+from impodo.domain.odoo_relationship_profiles import (
+    OdooRelationshipProfile,
+    OdooRelationshipRecommendation,
+    STANDARD_ODOO_RELATIONSHIP_PROFILE,
+)
 from impodo.domain.odoo_source_scope import (
     RelatedDataDefaultAction,
     RelatedDataHandling,
@@ -216,8 +220,56 @@ class OdooSourceScopeTests(unittest.TestCase):
             suggestions[0].recommendation_profile_id,
             "impodo.standard.odoo.relationships",
         )
-        self.assertEqual(suggestions[0].recommendation_profile_version, 4)
+        self.assertEqual(suggestions[0].recommendation_profile_version, 5)
         self.assertTrue(suggestions[0].identity_scope)
+
+    def test_generated_alias_stops_before_odoo_registry_metadata(self) -> None:
+        alias_field = _relationship(
+            "alias_id",
+            "Email Alias",
+            "mail.alias",
+            required=True,
+        )
+        suggestions = propose_related_odoo_data(
+            (
+                SchemaModel(
+                    name="maintenance.team",
+                    label="Maintenance Team",
+                    fields=(alias_field,),
+                ),
+                SchemaModel(
+                    name="mail.alias",
+                    label="Email Alias",
+                    fields=(
+                        _relationship(
+                            "alias_model_id",
+                            "Aliased Model",
+                            "ir.model",
+                            required=True,
+                        ),
+                    ),
+                ),
+            ),
+            include_selected=True,
+        )
+
+        by_identity = {
+            (item.source_model, item.field_name): item
+            for item in suggestions
+        }
+        registry = by_identity[("mail.alias", "alias_model_id")]
+        self.assertIs(
+            STANDARD_ODOO_RELATIONSHIP_PROFILE.recommend(
+                "maintenance.team",
+                alias_field,
+            ),
+            OdooRelationshipRecommendation.ODOO_MANAGED,
+        )
+        self.assertNotIn(("maintenance.team", "alias_id"), by_identity)
+        self.assertIs(
+            registry.handling,
+            RelatedDataHandling.REUSE_DESTINATION,
+        )
 
     def test_manufacturing_profile_transfers_owned_rows_and_workcenters(self) -> None:
         suggestions = propose_related_odoo_data(

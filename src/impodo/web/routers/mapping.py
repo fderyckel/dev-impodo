@@ -60,6 +60,7 @@ from impodo.domain.workspace.derived_entities import (
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateError
 from impodo.web.composition.target_readers import (
+    _capture_mapping_supporting_values,
     _read_readiness_snapshots,
     _refresh_mapping_odoo_defaults,
     _relationship_value_choices,
@@ -1731,6 +1732,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     status_code=303,
                 )
             elif action == "draft":
+                workspace_state = context.queries.get(workspace_id)
+                await run_in_threadpool(
+                    _capture_mapping_supporting_values,
+                    context,
+                    workspace_state,
+                    schema,
+                    datasets,
+                )
                 _revision, validation = await run_in_threadpool(
                     context.mapping_workspace.check_definition,
                     workspace_id,

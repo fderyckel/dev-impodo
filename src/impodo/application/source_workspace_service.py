@@ -104,6 +104,13 @@ class WorkspaceStateReader(Protocol):
         """Return the project whose registration gates dataset freezing."""
         ...
 
+    def get_current_odoo_relationship_scope(
+        self,
+        workspace_id: str,
+    ) -> OdooRelationshipScope | None:
+        """Return the reviewed relationship scope that owns capture roles."""
+        ...
+
 
 class SourceWorkspaceRepository(Protocol):
     """Persist catalogs, confirmations, and the current frozen selection."""
@@ -245,6 +252,7 @@ class SourceWorkspaceService:
         relationship_scope: OdooRelationshipScope,
         actor: Actor,
         page_size: int = 100,
+        current_selections: Iterable[OdooCaptureSelection] = (),
     ) -> tuple[OdooCaptureSelection, ...]:
         """Build a complete guided capture set without publishing any evidence.
 
@@ -301,29 +309,33 @@ class SourceWorkspaceService:
             )
 
         candidates = tuple(drafts)
-        target_models = frozenset(
-            {
-                *relationship_scope.root_models,
-                *relationship_scope.included_models,
-            }
-        )
+        retained = tuple(current_selections)
+        target_models = relationship_scope.required_capture_models
         root_models = frozenset(relationship_scope.root_models)
         schema_models = {model.name: model for model in schema.models}
         draft_models = {draft.model for draft in candidates}
+        retained_models = {selection.model for selection in retained}
         if not root_models:
             raise WorkspaceError(
                 "Choose at least one main Odoo record type before preparing capture plans"
             )
         if (
             len(draft_models) != len(candidates)
-            or draft_models != target_models
+            or len(retained_models) != len(retained)
+            or draft_models & retained_models
+            or draft_models | retained_models != target_models
             or len(schema_models) != len(schema.models)
             or set(schema_models) != target_models
         ):
             raise WorkspaceError(
-                "Prepare one guided capture-plan draft for every selected Odoo record type"
+                "Prepare one current or guided capture plan for every selected Odoo record type"
             )
-        if len({draft.dataset_name for draft in candidates}) != len(candidates):
+        if len(
+            {
+                *(draft.dataset_name for draft in candidates),
+                *(selection.dataset_name for selection in retained),
+            }
+        ) != len(candidates) + len(retained):
             raise WorkspaceError(
                 "Give each Odoo record type a different dataset name"
             )
@@ -340,7 +352,42 @@ class SourceWorkspaceService:
             }
         )
         created_at = datetime.now(timezone.utc)
-        selections: list[OdooCaptureSelection] = []
+        selections: list[OdooCaptureSelection] = list(retained)
+        for selection in retained:
+            expected_role = (
+                OdooCaptureRole.ROOT
+                if selection.model in root_models
+                else OdooCaptureRole.LINKED_ONLY
+            )
+            if selection.capture_role is not expected_role:
+                raise WorkspaceError(
+                    f"Saved capture role for {selection.model} no longer matches the relationship scope"
+                )
+            protected_filter_clauses = None
+            if selection.protected_filter_artifact_hash is not None:
+                if self.capture_filters is None:
+                    raise WorkspaceError(
+                        "Protected Odoo source filters are not configured"
+                    )
+                protected_filter_clauses = self.capture_filters.read(
+                    context.project_id,
+                    selection,
+                )
+            try:
+                plan_odoo_source_capture(
+                    selection,
+                    schema,
+                    protected_filter_clauses=protected_filter_clauses,
+                    linked_models=linked_models,
+                    allowed_relationships=allowed_relationships,
+                    reference_models=relationship_scope.reference_models,
+                    leaf_models=relationship_scope.leaf_models,
+                    create_if_missing_models=(
+                        relationship_scope.create_if_missing_models
+                    ),
+                )
+            except OdooSourceCaptureConfigurationError as error:
+                raise WorkspaceError(str(error)) from error
         for draft in candidates:
             expected_role = (
                 OdooCaptureRole.ROOT
@@ -488,6 +535,21 @@ class SourceWorkspaceService:
             raise WorkspaceError(
                 "Refresh the authenticated Odoo schema identity before selecting records"
             )
+        relationship_scope = (
+            self.workspace_states.get_current_odoo_relationship_scope(
+                workspace_id
+            )
+        )
+        if relationship_scope is not None:
+            if model not in relationship_scope.required_capture_models:
+                raise WorkspaceError(
+                    "Choose one record type from the reviewed relationship scope"
+                )
+            capture_linked_only = model not in relationship_scope.root_models
+        else:
+            # Compatibility for pre-relationship-scope workspaces. New guided
+            # workspaces always derive this role from their reviewed scope.
+            capture_linked_only = linked_only
         schema_model = next(
             (item for item in schema.models if item.name == model),
             None,
@@ -529,7 +591,7 @@ class SourceWorkspaceService:
         clauses: tuple[OdooCaptureFilterClause, ...] = ()
         if remove_filter and (filter_field or filter_value):
             raise WorkspaceError("Choose either a replacement root filter or remove the saved filter")
-        if linked_only and (filter_field or filter_value):
+        if capture_linked_only and (filter_field or filter_value):
             raise WorkspaceError("Linked-only records use source relationships, not a root filter")
         if filter_field or filter_value:
             field = fields_by_name.get(filter_field)
@@ -573,7 +635,7 @@ class SourceWorkspaceService:
             None,
         )
         if (
-            linked_only
+            capture_linked_only
             and current is not None
             and (current.protected_filter_artifact_hash or current.filter_clauses)
             and not remove_filter
@@ -581,7 +643,12 @@ class SourceWorkspaceService:
             raise WorkspaceError(
                 "Remove the saved root filter before changing this plan to linked-only"
             )
-        if not clauses and not remove_filter and not linked_only and current is not None:
+        if (
+            not clauses
+            and not remove_filter
+            and not capture_linked_only
+            and current is not None
+        ):
             if current.protected_filter_artifact_hash is not None:
                 if self.capture_filters is None:
                     raise WorkspaceError("Protected Odoo source filters are not configured")
@@ -611,12 +678,12 @@ class SourceWorkspaceService:
                 filter_clauses=clauses,
                 capture_role=(
                     OdooCaptureRole.LINKED_ONLY
-                    if linked_only else OdooCaptureRole.ROOT
+                    if capture_linked_only else OdooCaptureRole.ROOT
                 ),
                 filter_policy=(
                     (
                         OdooCaptureFilterPolicy.ACTIVE_AND_ARCHIVED_RECORDS
-                        if include_archived or linked_only
+                        if include_archived or capture_linked_only
                         else OdooCaptureFilterPolicy.ACTIVE_RECORDS
                     )
                     if (
@@ -640,7 +707,45 @@ class SourceWorkspaceService:
         except OdooCaptureContractError as error:
             raise WorkspaceError(str(error)) from error
         try:
-            plan_odoo_source_capture(selection, schema)
+            plan_odoo_source_capture(
+                selection,
+                schema,
+                linked_models=(
+                    relationship_scope.required_capture_models
+                    - frozenset(relationship_scope.root_models)
+                    if relationship_scope is not None
+                    else frozenset()
+                ),
+                allowed_relationships=(
+                    frozenset(
+                        decision.identity
+                        for decision in relationship_scope.decisions
+                        if decision.action
+                        in {
+                            OdooRelationshipCaptureAction.CAPTURE_LINKED,
+                            OdooRelationshipCaptureAction.PRESERVE_LINKED,
+                            OdooRelationshipCaptureAction.MATCH_EXISTING,
+                        }
+                    )
+                    if relationship_scope is not None
+                    else frozenset()
+                ),
+                reference_models=(
+                    relationship_scope.reference_models
+                    if relationship_scope is not None
+                    else frozenset()
+                ),
+                leaf_models=(
+                    relationship_scope.leaf_models
+                    if relationship_scope is not None
+                    else frozenset()
+                ),
+                create_if_missing_models=(
+                    relationship_scope.create_if_missing_models
+                    if relationship_scope is not None
+                    else frozenset()
+                ),
+            )
         except OdooSourceCaptureConfigurationError as error:
             raise WorkspaceError(str(error)) from error
         if clauses:
@@ -661,6 +766,7 @@ class SourceWorkspaceService:
                     dataset_name=selection.dataset_name,
                     model=selection.model,
                     field_names=selection.field_names,
+                    capture_role=selection.capture_role,
                     filter_policy=selection.filter_policy,
                     max_rows=selection.max_rows,
                     page_size=selection.page_size,

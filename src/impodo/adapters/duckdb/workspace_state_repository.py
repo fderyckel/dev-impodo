@@ -551,21 +551,38 @@ class WorkspaceStateRepository(DuckDbRepository):
                     )
                 if capture_selections is not None:
                     for selection in capture_selections:
-                        connection.execute(
+                        existing_selection = connection.execute(
                             """
-                            INSERT INTO odoo_capture_selection_revision
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            SELECT content_hash, model
+                              FROM odoo_capture_selection_revision
+                             WHERE selection_id = ? AND version = ?
                             """,
-                            [
-                                selection.selection_id,
-                                selection.version,
-                                selection.content_hash,
-                                selection.model,
-                                selection.created_at.isoformat(),
-                                selection.created_by,
-                                selection.to_json(),
-                            ],
-                        )
+                            [selection.selection_id, selection.version],
+                        ).fetchone()
+                        if existing_selection is None:
+                            connection.execute(
+                                """
+                                INSERT INTO odoo_capture_selection_revision
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                [
+                                    selection.selection_id,
+                                    selection.version,
+                                    selection.content_hash,
+                                    selection.model,
+                                    selection.created_at.isoformat(),
+                                    selection.created_by,
+                                    selection.to_json(),
+                                ],
+                            )
+                        elif (
+                            str(existing_selection[0]) != selection.content_hash
+                            or str(existing_selection[1]) != selection.model
+                        ):
+                            raise WorkspaceStateConflictError(
+                                "An Odoo capture-plan revision changed while "
+                                "the complete plan set was prepared"
+                            )
                         connection.execute(
                             """
                             INSERT INTO odoo_capture_selection_current

@@ -57,7 +57,10 @@ from impodo.domain.recipe.value_rules import (
 from ...domain.source_binding import OdooSourceBinding, SourceOriginKind
 from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus
 from impodo.domain.workspace.derived_entities import DerivedDatasetLink
-from impodo.domain.workspace.reference_keys import standard_reference_key
+from impodo.domain.workspace.reference_keys import (
+    standard_reference_key,
+    supporting_reference_candidate,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from ..context import WebContext
 from ..forms import (
@@ -1630,6 +1633,29 @@ def _supporting_name_business_key(
     )
 
 
+def _reviewed_supporting_business_key(
+    model: str | None,
+) -> BusinessKeyDefinition | None:
+    """Offer one reviewed candidate without claiming target-wide uniqueness."""
+
+    candidate = supporting_reference_candidate(model or "")
+    if candidate is None:
+        return None
+    return BusinessKeyDefinition(
+        key_id=(
+            f"odoo-supporting:{candidate.model}:"
+            f"{'+'.join((*candidate.key_fields, *candidate.scope_fields))}"
+        ),
+        model=candidate.model,
+        key_fields=candidate.key_fields,
+        scope_fields=candidate.scope_fields,
+        description=candidate.description,
+        status=BusinessKeyStatus.CANDIDATE,
+        recommendation_basis="CURATED_CONVENTION",
+        recommendation_policy_version=1,
+    )
+
+
 def _supporting_name_company_business_key(
     model: str | None,
 ) -> BusinessKeyDefinition | None:
@@ -1666,7 +1692,14 @@ def _related_business_keys(
         for item in available
     ):
         available.append(standard)
-    if include_supporting_name:
+    reviewed_candidate = _reviewed_supporting_business_key(model)
+    if reviewed_candidate is not None and not any(
+        item.key_fields == reviewed_candidate.key_fields
+        and item.scope_fields == reviewed_candidate.scope_fields
+        for item in available
+    ):
+        available.append(reviewed_candidate)
+    if include_supporting_name and reviewed_candidate is None:
         for candidate in (
             _supporting_name_business_key(model),
             _supporting_name_company_business_key(model),
@@ -1737,6 +1770,14 @@ def _target_catalog_resolver(
 
 
 def _resolver_business_key(resolver, candidates):
+    reviewed_candidate = next(
+        (
+            item
+            for item in candidates
+            if item.key_id.startswith("odoo-supporting:")
+        ),
+        None,
+    )
     if resolver is None or resolver.origin not in {
         ResolverOrigin.TARGET_CATALOG,
         ResolverOrigin.TARGET_THEN_DATASET,
@@ -1747,11 +1788,11 @@ def _resolver_business_key(resolver, candidates):
                 for item in candidates
                 if item.status is BusinessKeyStatus.CONFIRMED
             ),
-            None,
+            reviewed_candidate,
         )
     key_fields = tuple(item.target_field for item in resolver.key_mappings)
     scope_fields = tuple(item.target_field for item in resolver.scope_mappings)
-    return next(
+    matched = next(
         (
             item
             for item in candidates
@@ -1764,9 +1805,10 @@ def _resolver_business_key(resolver, candidates):
                 for item in candidates
                 if item.status is BusinessKeyStatus.CONFIRMED
             ),
-            None,
+            reviewed_candidate,
         ),
     )
+    return matched
 
 
 def _canonical_mapping_type(odoo_type: str) -> str:

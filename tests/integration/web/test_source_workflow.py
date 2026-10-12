@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from threading import Event, Thread
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -14,9 +15,19 @@ from impodo.domain.guided_odoo_capture import (
     GuidedOdooCapturePlanProposal,
 )
 from impodo.domain.project.foundation import MigrationFoundationError
-from impodo.domain.odoo.contracts import ConnectorTransportError
+from impodo.domain.odoo.contracts import (
+    ConnectorAuthorizationError,
+    ConnectorTransportError,
+    MetadataSnapshot,
+)
+from impodo.domain.shared.models import (
+    FieldMetadata,
+    ModelMetadata,
+    OdooReadIdentity,
+)
 from impodo.domain.odoo_relationship_scope import (
     OdooRelationshipCaptureAction,
+    OdooRelationshipScope,
     relationship_scope_decisions,
 )
 from impodo.domain.odoo_source_scope import propose_related_odoo_data
@@ -36,6 +47,7 @@ from tests.support.browser_scenarios import (
     ProjectSetupBrowserTestCase,
     SourceSelection,
     _BrowserOdooCaptureGateway,
+    _browser_schema,
     _created_workspace_id,
     _workspace_data_version_id,
     datetime,
@@ -221,6 +233,156 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             relationship_root_models=("x.root",),
         )
         return saved_state, decisions
+
+    @staticmethod
+    def _metadata_model(model) -> ModelMetadata:
+        """Mirror one governed schema model as connector metadata."""
+
+        return ModelMetadata(
+            model=model.name,
+            description=model.label,
+            fields={
+                field.name: FieldMetadata(
+                    name=field.name,
+                    type=field.type,
+                    label=field.label,
+                    required=field.required,
+                    readonly=field.readonly,
+                    relation=field.relation,
+                    relation_field=field.relation_field,
+                    selection=field.selection,
+                    stored=field.stored,
+                    computed=field.computed,
+                    related=field.related,
+                    company_dependent=field.company_dependent,
+                    exportable=field.exportable,
+                )
+                for field in model.fields
+            },
+        )
+
+    def _incremental_relationship_capture_workspace(self):
+        """Build a three-level graph backed by exact remote-read fixtures."""
+
+        workspace_state, schema = self._registered_remote_schema_workspace()
+        context = self.app.state.context
+        workspace_state = context.workspace_states.update_schema_scope(
+            workspace_state.workspace_id,
+            actor=context.actor,
+            expected_revision=workspace_state.revision,
+            permitted_models=("product.template",),
+        )
+        name = SchemaField(
+            name="name",
+            label="Name",
+            type="char",
+            required=True,
+            readonly=False,
+            relation=None,
+            relation_field=None,
+            selection=(),
+            stored=True,
+            computed=False,
+            related=False,
+            company_dependent=False,
+            exportable=True,
+        )
+        product = replace(
+            schema.models[0],
+            name="product.template",
+            label="Products",
+            fields=(
+                name,
+                SchemaField(
+                    name="x_owner_id",
+                    label="Owner",
+                    type="many2one",
+                    required=False,
+                    readonly=False,
+                    relation="x.owner",
+                    relation_field=None,
+                    selection=(),
+                    stored=True,
+                    computed=False,
+                    related=False,
+                    company_dependent=False,
+                    exportable=True,
+                ),
+            ),
+            unique_constraints=(),
+        )
+        owner = replace(
+            product,
+            name="x.owner",
+            label="Owners",
+            fields=(
+                name,
+                SchemaField(
+                    name="calendar_id",
+                    label="Working Hours",
+                    type="many2one",
+                    required=False,
+                    readonly=False,
+                    relation="resource.calendar",
+                    relation_field=None,
+                    selection=(),
+                    stored=True,
+                    computed=False,
+                    related=False,
+                    company_dependent=False,
+                    exportable=True,
+                ),
+            ),
+            unique_constraints=(),
+        )
+        calendar = replace(
+            product,
+            name="resource.calendar",
+            label="Working Hours",
+            fields=(name,),
+            unique_constraints=(),
+        )
+        root_schema = replace(
+            schema,
+            models=(product,),
+            content_hash="sha256:" + "8" * 64,
+        )
+        model_catalog = replace(
+            context.queries.get_odoo_model_catalog(workspace_state.workspace_id),
+            models=tuple(
+                OdooModelSummary(
+                    name=model.name,
+                    label=model.label,
+                    modules=(),
+                    state="base",
+                )
+                for model in (product, owner, calendar)
+            ),
+            content_hash="sha256:" + "9" * 64,
+        )
+        context.schema_workspace.schemas.save_odoo_model_catalog(
+            workspace_state.workspace_id,
+            model_catalog,
+            actor=context.actor,
+        )
+        context.schema_workspace.schemas.save_odoo_schema_catalog(
+            workspace_state.workspace_id,
+            root_schema,
+            actor=context.actor,
+        )
+        store_target_credential(
+            self.secrets,
+            workspace_state,
+            TargetCredentialRole.READ,
+            "incremental-read-secret",
+            persistent=False,
+        )
+
+        raw_models = {
+            model.name: self._metadata_model(model)
+            for model in (product, owner, calendar)
+        }
+        return workspace_state, root_schema, raw_models
 
     def test_changing_a_frozen_odoo_source_starts_a_clean_successor(self) -> None:
         context = self.app.state.context
@@ -917,6 +1079,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 return_value=model_catalog,
             ),
             patch(
+                "impodo.web.routers.sources._open_incremental_related_schema_session",
+                return_value=None,
+            ),
+            patch(
                 "impodo.web.routers.sources._prepare_related_schema_candidate",
                 remote_failure,
             ),
@@ -1184,6 +1350,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 return_value=model_catalog,
             ),
             patch(
+                "impodo.web.routers.sources._open_incremental_related_schema_session",
+                return_value=None,
+            ),
+            patch(
                 "impodo.web.routers.sources._prepare_related_schema_candidate",
                 capture_schema,
             ),
@@ -1251,6 +1421,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 context.queries,
                 "get_odoo_model_catalog",
                 return_value=model_catalog,
+            ),
+            patch(
+                "impodo.web.routers.sources._open_incremental_related_schema_session",
+                return_value=None,
             ),
             patch(
                 "impodo.web.routers.sources._prepare_related_schema_candidate",
@@ -1335,6 +1509,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 return_value=model_catalog,
             ),
             patch(
+                "impodo.web.routers.sources._open_incremental_related_schema_session",
+                return_value=None,
+            ),
+            patch(
                 "impodo.web.routers.sources._prepare_related_schema_candidate",
                 capture_schema,
             ),
@@ -1417,6 +1595,59 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             f'action="{sources_url}/odoo-selection"',
             set_issue_page.text,
         )
+
+        completed = self._post(
+            f"{sources_url}/odoo-selection",
+            {
+                "csrf_token": self.csrf,
+                "dataset_name": "owners",
+                "model": "x.owner",
+                "field_names": "name",
+                "include_archived": "",
+                "page_size": "100",
+                "linked_only": "1",
+            },
+        )
+
+        self.assertEqual(completed.status_code, 303, completed.text)
+        self.assertEqual(
+            completed.headers["location"],
+            f"{sources_url}#capture-next-action",
+        )
+        selections = context.queries.get_current_odoo_capture_selections(
+            workspace_state.workspace_id
+        )
+        self.assertEqual(
+            {(item.model, item.capture_role.value) for item in selections},
+            {
+                ("res.company", "LINKED_ONLY"),
+                ("x.owner", "LINKED_ONLY"),
+                ("x.root", "ROOT"),
+            },
+        )
+
+        root_resaved = self._post(
+            f"{sources_url}/odoo-selection",
+            {
+                "csrf_token": self.csrf,
+                "dataset_name": "odoo_x_root",
+                "model": "x.root",
+                "field_names": "name",
+                "include_archived": "",
+                "page_size": "100",
+                "linked_only": "1",
+            },
+        )
+
+        self.assertEqual(root_resaved.status_code, 303, root_resaved.text)
+        root_selection = next(
+            item
+            for item in context.queries.get_current_odoo_capture_selections(
+                workspace_state.workspace_id
+            )
+            if item.model == "x.root"
+        )
+        self.assertEqual(root_selection.capture_role.value, "ROOT")
 
     def test_odoo_source_page_saves_unprofiled_related_data_without_backtracking(self) -> None:
         workspace_state, schema = self._registered_remote_schema_workspace()
@@ -1537,6 +1768,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 context.queries,
                 "get_odoo_model_catalog",
                 return_value=model_catalog,
+            ),
+            patch(
+                "impodo.web.routers.sources._open_incremental_related_schema_session",
+                return_value=None,
             ),
             patch(
                 "impodo.web.routers.sources._prepare_related_schema_candidate",
@@ -1699,6 +1934,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 return_value=model_catalog,
             ),
             patch(
+                "impodo.web.routers.sources._open_incremental_related_schema_session",
+                return_value=None,
+            ),
+            patch(
                 "impodo.web.routers.sources._prepare_related_schema_candidate",
                 capture_schema,
             ),
@@ -1843,6 +2082,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 return_value=model_catalog,
             ),
             patch(
+                "impodo.web.routers.sources._open_incremental_related_schema_session",
+                return_value=None,
+            ),
+            patch(
                 "impodo.web.routers.sources._prepare_related_schema_candidate",
                 capture_schema,
             ),
@@ -1894,6 +2137,577 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             },
         )
         self.assertEqual(capture_schema.await_count, 2)
+
+    def test_unreachable_relationships_do_not_create_false_model_conflicts(
+        self,
+    ) -> None:
+        workspace_state, schema = self._registered_remote_schema_workspace()
+        context = self.app.state.context
+        workspace_state = context.workspace_states.update_schema_scope(
+            workspace_state.workspace_id,
+            actor=context.actor,
+            expected_revision=workspace_state.revision,
+            permitted_models=("x.root",),
+        )
+        base = schema.models[0]
+        name = SchemaField(
+            name="name",
+            label="Name",
+            type="char",
+            required=True,
+            readonly=False,
+            relation=None,
+            relation_field=None,
+            selection=(),
+            stored=True,
+            computed=False,
+            related=False,
+            company_dependent=False,
+            exportable=True,
+        )
+
+        def relationship(
+            name: str,
+            label: str,
+            field_type: str,
+            relation: str,
+            *,
+            required: bool = False,
+        ) -> SchemaField:
+            return SchemaField(
+                name=name,
+                label=label,
+                type=field_type,
+                required=required,
+                readonly=False,
+                relation=relation,
+                relation_field=None,
+                selection=(),
+                stored=True,
+                computed=False,
+                related=False,
+                company_dependent=False,
+                exportable=True,
+            )
+
+        root = replace(
+            base,
+            name="x.root",
+            label="Main records",
+            fields=(
+                name,
+                relationship("owner_id", "Owner", "many2one", "x.owner"),
+                relationship(
+                    "employee_ids",
+                    "Employees",
+                    "many2many",
+                    "hr.employee",
+                ),
+            ),
+            unique_constraints=(),
+        )
+        owner = replace(
+            base,
+            name="x.owner",
+            label="Owners",
+            fields=(
+                name,
+                relationship(
+                    "bridge_id",
+                    "Bridge",
+                    "many2one",
+                    "x.bridge",
+                    required=True,
+                ),
+                relationship(
+                    "employee_id",
+                    "Employee",
+                    "many2one",
+                    "hr.employee",
+                ),
+            ),
+            unique_constraints=(),
+        )
+        bridge = replace(
+            base,
+            name="x.bridge",
+            label="Bridges",
+            fields=(
+                name,
+                relationship(
+                    "owner_ids",
+                    "Owners",
+                    "one2many",
+                    "x.owner",
+                ),
+            ),
+            unique_constraints=(),
+        )
+        employee = replace(
+            base,
+            name="hr.employee",
+            label="Employees",
+            fields=(name,),
+            unique_constraints=(),
+        )
+        models_by_name = {
+            model.name: model for model in (root, owner, bridge, employee)
+        }
+        current = {"schema": replace(schema, models=(root,))}
+        model_catalog = SimpleNamespace(
+            content_hash=context.queries.get_odoo_model_catalog(
+                workspace_state.workspace_id
+            ).content_hash,
+            models=tuple(
+                SimpleNamespace(name=model.name, label=model.label)
+                for model in models_by_name.values()
+            ),
+        )
+
+        async def capture_candidate(_context, saved_state, _model_catalog):
+            current["schema"] = replace(
+                schema,
+                models=tuple(
+                    models_by_name[model]
+                    for model in saved_state.intended_models
+                ),
+            )
+            return current["schema"]
+
+        capture_schema = AsyncMock(side_effect=capture_candidate)
+        with (
+            patch.object(
+                context.queries,
+                "get_odoo_schema_catalog",
+                side_effect=lambda _workspace_id: current["schema"],
+            ),
+            patch.object(
+                context.queries,
+                "get_odoo_model_catalog",
+                return_value=model_catalog,
+            ),
+            patch(
+                "impodo.web.routers.sources._open_incremental_related_schema_session",
+                return_value=None,
+            ),
+            patch(
+                "impodo.web.routers.sources._prepare_related_schema_candidate",
+                capture_schema,
+            ),
+        ):
+            response = self._post(
+                f"/workspaces/{workspace_state.workspace_id}"
+                "/sources/odoo-related-data",
+                {
+                    "csrf_token": self.csrf,
+                    "revision": str(workspace_state.revision),
+                },
+            )
+
+        self.assertEqual(response.status_code, 303, response.text)
+        saved_state = context.queries.get(workspace_state.workspace_id)
+        self.assertEqual(
+            frozenset(saved_state.intended_models),
+            frozenset({"x.root", "x.owner", "x.bridge"}),
+        )
+        scope = context.queries.get_current_odoo_relationship_scope(
+            workspace_state.workspace_id
+        )
+        self.assertEqual(
+            {item.identity: item.action for item in scope.decisions},
+            {
+                ("x.owner", "bridge_id"): (
+                    OdooRelationshipCaptureAction.PRESERVE_LINKED
+                ),
+                ("x.root", "employee_ids"): (
+                    OdooRelationshipCaptureAction.DO_NOT_CAPTURE
+                ),
+                ("x.root", "owner_id"): (
+                    OdooRelationshipCaptureAction.PRESERVE_LINKED
+                ),
+            },
+        )
+        self.assertEqual(capture_schema.await_count, 3)
+
+    def test_related_data_closure_reads_each_record_type_once_and_binds_full_access(
+        self,
+    ) -> None:
+        workspace_state, _root_schema, raw_models = (
+            self._incremental_relationship_capture_workspace()
+        )
+        context = self.app.state.context
+        fingerprint = _browser_schema(workspace_state).fingerprint
+        full_scope = (
+            "product.template",
+            "resource.calendar",
+            "x.owner",
+        )
+        full_permission_hash = "sha256:" + "f" * 64
+        schema_read_scopes: list[tuple[str, ...]] = []
+        identity_scopes: list[tuple[str, ...]] = []
+        opened_sessions: list[tuple[str, str]] = []
+
+        class RecordingSchemaSession:
+            def read_models(self, models):
+                scope = tuple(sorted(models))
+                schema_read_scopes.append(scope)
+                return MetadataSnapshot(
+                    fingerprint=fingerprint,
+                    models={model: raw_models[model] for model in scope},
+                )
+
+            def verify_identity(self, models):
+                scope = tuple(sorted(models))
+                identity_scopes.append(scope)
+                return OdooReadIdentity(
+                    target_hash=fingerprint.target_hash,
+                    principal_hash="sha256:" + "1" * 64,
+                    permission_hash=full_permission_hash,
+                    context_hash="sha256:" + "4" * 64,
+                    readable_models=scope,
+                    observed_at="2026-10-12T08:00:00Z",
+                )
+
+        session = RecordingSchemaSession()
+
+        def open_session(saved_state, api_key):
+            opened_sessions.append((saved_state.workspace_id, api_key))
+            return session
+
+        with patch.object(
+            context,
+            "schema_read_session_factory",
+            new=open_session,
+        ):
+            saved = self._post(
+                f"/workspaces/{workspace_state.workspace_id}"
+                "/sources/odoo-related-data",
+                {
+                    "csrf_token": self.csrf,
+                    "revision": str(workspace_state.revision),
+                    "related_actions": "x.owner::CAPTURE_LINKED",
+                },
+            )
+
+        self.assertEqual(saved.status_code, 303, saved.text)
+        self.assertEqual(
+            schema_read_scopes,
+            [
+                ("product.template",),
+                ("x.owner",),
+                ("resource.calendar",),
+            ],
+        )
+        self.assertEqual(identity_scopes, [full_scope])
+        self.assertEqual(
+            opened_sessions,
+            [(workspace_state.workspace_id, "incremental-read-secret")],
+        )
+        persisted_schema = context.queries.get_odoo_schema_catalog(
+            workspace_state.workspace_id
+        )
+        self.assertEqual(
+            {model.name for model in persisted_schema.models},
+            set(full_scope),
+        )
+        self.assertEqual(
+            persisted_schema.read_permission_hash,
+            full_permission_hash,
+        )
+
+    def test_related_data_rejects_an_overlapping_save_and_releases_after_success(
+        self,
+    ) -> None:
+        workspace_state, _root_schema, raw_models = (
+            self._incremental_relationship_capture_workspace()
+        )
+        context = self.app.state.context
+        fingerprint = _browser_schema(workspace_state).fingerprint
+        first_read_started = Event()
+        release_first_read = Event()
+
+        class BlockingSchemaSession:
+            def read_models(self, models):
+                scope = tuple(sorted(models))
+                if not first_read_started.is_set():
+                    first_read_started.set()
+                    if not release_first_read.wait(10):
+                        raise AssertionError(
+                            "Timed out waiting to release the first linked-data save"
+                        )
+                return MetadataSnapshot(
+                    fingerprint=fingerprint,
+                    models={model: raw_models[model] for model in scope},
+                )
+
+            def verify_identity(self, models):
+                scope = tuple(sorted(models))
+                return OdooReadIdentity(
+                    target_hash=fingerprint.target_hash,
+                    principal_hash="sha256:" + "1" * 64,
+                    permission_hash="sha256:" + "f" * 64,
+                    context_hash="sha256:" + "4" * 64,
+                    readable_models=scope,
+                    observed_at="2026-10-12T08:00:00Z",
+                )
+
+        first_client = type(self.client)(
+            self.app,
+            cookies=dict(self.client.cookies),
+        )
+        first_responses = []
+        first_errors = []
+        path = (
+            f"/workspaces/{workspace_state.workspace_id}"
+            "/sources/odoo-related-data"
+        )
+        form = {
+            "csrf_token": self.csrf,
+            "revision": str(workspace_state.revision),
+            "related_actions": "x.owner::CAPTURE_LINKED",
+        }
+
+        def submit_first_save() -> None:
+            try:
+                first_responses.append(
+                    first_client.post(
+                        path,
+                        data=form,
+                        headers=POST_HEADERS,
+                        follow_redirects=False,
+                    )
+                )
+            except BaseException as error:  # pragma: no cover - assertion aid
+                first_errors.append(error)
+
+        with patch.object(
+            context,
+            "schema_read_session_factory",
+            new=lambda _saved_state, _api_key: BlockingSchemaSession(),
+        ):
+            first_thread = Thread(target=submit_first_save, daemon=True)
+            first_thread.start()
+            try:
+                self.assertTrue(
+                    first_read_started.wait(10),
+                    "The first linked-data save did not reach its Odoo read",
+                )
+                overlapping = self._post(path, form)
+            finally:
+                release_first_read.set()
+                first_thread.join(15)
+                first_client.close()
+
+            self.assertFalse(first_thread.is_alive())
+            self.assertEqual(first_errors, [])
+            self.assertEqual(len(first_responses), 1)
+            self.assertEqual(first_responses[0].status_code, 303)
+            self.assertEqual(overlapping.status_code, 409)
+            self.assertEqual(
+                overlapping.text,
+                "Impodo is already checking linked data for this project. "
+                "Wait for it to finish, then refresh.",
+            )
+
+            current_state = context.queries.get(workspace_state.workspace_id)
+            after_success = self._post(
+                path,
+                {
+                    **form,
+                    "revision": str(current_state.revision),
+                },
+            )
+
+        self.assertEqual(after_success.status_code, 303, after_success.text)
+
+    def test_related_data_releases_the_in_flight_gate_after_failure(self) -> None:
+        workspace_state, _root_schema, _raw_models = (
+            self._incremental_relationship_capture_workspace()
+        )
+        context = self.app.state.context
+        first_read_started = Event()
+        release_first_read = Event()
+
+        class FailingBlockingSchemaSession:
+            def read_models(self, _models):
+                if not first_read_started.is_set():
+                    first_read_started.set()
+                    if not release_first_read.wait(10):
+                        raise AssertionError(
+                            "Timed out waiting to release the first linked-data save"
+                        )
+                raise ConnectorTransportError(
+                    "Odoo stopped responding during the linked-data check"
+                )
+
+            def verify_identity(self, _models):  # pragma: no cover - defensive
+                raise AssertionError("A failed field read cannot reach identity check")
+
+        first_client = type(self.client)(
+            self.app,
+            cookies=dict(self.client.cookies),
+        )
+        first_responses = []
+        first_errors = []
+        path = (
+            f"/workspaces/{workspace_state.workspace_id}"
+            "/sources/odoo-related-data"
+        )
+        form = {
+            "csrf_token": self.csrf,
+            "revision": str(workspace_state.revision),
+            "related_actions": "x.owner::CAPTURE_LINKED",
+        }
+
+        def submit_first_save() -> None:
+            try:
+                first_responses.append(
+                    first_client.post(
+                        path,
+                        data=form,
+                        headers=POST_HEADERS,
+                        follow_redirects=False,
+                    )
+                )
+            except BaseException as error:  # pragma: no cover - assertion aid
+                first_errors.append(error)
+
+        with patch.object(
+            context,
+            "schema_read_session_factory",
+            new=lambda _saved_state, _api_key: FailingBlockingSchemaSession(),
+        ):
+            first_thread = Thread(target=submit_first_save, daemon=True)
+            first_thread.start()
+            try:
+                self.assertTrue(
+                    first_read_started.wait(10),
+                    "The first linked-data save did not reach its Odoo read",
+                )
+                overlapping = self._post(path, form)
+            finally:
+                release_first_read.set()
+                first_thread.join(15)
+                first_client.close()
+
+            self.assertFalse(first_thread.is_alive())
+            self.assertEqual(first_errors, [])
+            self.assertEqual(len(first_responses), 1)
+            self.assertEqual(first_responses[0].status_code, 422)
+            self.assertEqual(overlapping.status_code, 409)
+
+            after_failure = self._post(path, form)
+
+        self.assertEqual(after_failure.status_code, 422)
+        self.assertIn(
+            "Odoo stopped responding during the linked-data check",
+            after_failure.text,
+        )
+
+    def test_failed_final_related_data_access_check_publishes_nothing(
+        self,
+    ) -> None:
+        workspace_state, root_schema, raw_models = (
+            self._incremental_relationship_capture_workspace()
+        )
+        context = self.app.state.context
+        fingerprint = _browser_schema(workspace_state).fingerprint
+        full_scope = (
+            "product.template",
+            "resource.calendar",
+            "x.owner",
+        )
+        schema_read_scopes: list[tuple[str, ...]] = []
+        identity_scopes: list[tuple[str, ...]] = []
+        opened_sessions: list[tuple[str, str]] = []
+        before_scope = context.queries.get_current_odoo_relationship_scope(
+            workspace_state.workspace_id
+        )
+        before_selections = (
+            context.queries.get_current_odoo_capture_selections(
+                workspace_state.workspace_id
+            )
+        )
+
+        class FailingFinalSchemaSession:
+            def read_models(self, models):
+                scope = tuple(sorted(models))
+                schema_read_scopes.append(scope)
+                return MetadataSnapshot(
+                    fingerprint=fingerprint,
+                    models={model: raw_models[model] for model in scope},
+                )
+
+            def verify_identity(self, models):
+                scope = tuple(sorted(models))
+                identity_scopes.append(scope)
+                raise ConnectorAuthorizationError(
+                    "Odoo access changed before linked data could be saved"
+                )
+
+        session = FailingFinalSchemaSession()
+
+        def open_session(saved_state, api_key):
+            opened_sessions.append((saved_state.workspace_id, api_key))
+            return session
+
+        with patch.object(
+            context,
+            "schema_read_session_factory",
+            new=open_session,
+        ):
+            failed = self._post(
+                f"/workspaces/{workspace_state.workspace_id}"
+                "/sources/odoo-related-data",
+                {
+                    "csrf_token": self.csrf,
+                    "revision": str(workspace_state.revision),
+                    "related_actions": "x.owner::CAPTURE_LINKED",
+                },
+            )
+
+        self.assertEqual(failed.status_code, 422, failed.text)
+        self.assertIn(
+            "Odoo access changed before linked data could be saved",
+            failed.text,
+        )
+        self.assertEqual(
+            schema_read_scopes,
+            [
+                ("product.template",),
+                ("x.owner",),
+                ("resource.calendar",),
+            ],
+        )
+        self.assertEqual(identity_scopes, [full_scope])
+        self.assertEqual(
+            opened_sessions,
+            [(workspace_state.workspace_id, "incremental-read-secret")],
+        )
+        after_state = context.queries.get(workspace_state.workspace_id)
+        self.assertEqual(after_state.revision, workspace_state.revision)
+        self.assertEqual(
+            after_state.intended_models,
+            workspace_state.intended_models,
+        )
+        self.assertEqual(
+            context.queries.get_current_odoo_relationship_scope(
+                workspace_state.workspace_id
+            ),
+            before_scope,
+        )
+        self.assertEqual(
+            context.queries.get_odoo_schema_catalog(
+                workspace_state.workspace_id
+            ),
+            root_schema,
+        )
+        self.assertEqual(
+            context.queries.get_current_odoo_capture_selections(
+                workspace_state.workspace_id
+            ),
+            before_selections,
+        )
 
     def test_later_relationship_conflict_is_saved_as_resumable_checkpoint(
         self,
@@ -1995,11 +2809,6 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             models=(root, workcenter, calendar),
             content_hash="sha256:" + "9" * 64,
         )
-        root_and_workcenter_schema = replace(
-            schema,
-            models=(root, workcenter),
-            content_hash="sha256:" + "a" * 64,
-        )
         stored_model_catalog = context.queries.get_odoo_model_catalog(
             workspace_state.workspace_id
         )
@@ -2026,6 +2835,18 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             root_schema,
             actor=context.actor,
         )
+        store_target_credential(
+            self.secrets,
+            workspace_state,
+            TargetCredentialRole.READ,
+            "checkpoint-read-secret",
+            persistent=False,
+        )
+        fingerprint = _browser_schema(workspace_state).fingerprint
+        raw_models = {
+            model.name: self._metadata_model(model)
+            for model in complete_schema.models
+        }
         existing_capture = context.sources.define_odoo_capture_selection(
             workspace_state.workspace_id,
             dataset_name="main_records",
@@ -2042,26 +2863,44 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             (existing_capture,),
         )
 
-        async def capture_linked_models(
-            _context, saved_state, _model_catalog
-        ):
-            selected = frozenset(saved_state.intended_models)
-            if selected == {"x.root"}:
-                return root_schema
-            if selected == {"mrp.workcenter", "x.root"}:
-                return root_and_workcenter_schema
-            if selected == {
-                "mrp.workcenter",
-                "resource.calendar",
-                "x.root",
-            }:
-                return complete_schema
-            self.fail(f"Unexpected staged model scope: {sorted(selected)}")
+        sessions = []
 
-        capture_schema = AsyncMock(side_effect=capture_linked_models)
-        with patch(
-            "impodo.web.routers.sources._prepare_related_schema_candidate",
-            capture_schema,
+        class RecordingSchemaSession:
+            def __init__(self):
+                self.schema_reads = []
+                self.identity_checks = []
+
+            def read_models(self, models):
+                selected = tuple(sorted(models))
+                self.schema_reads.append(selected)
+                return MetadataSnapshot(
+                    fingerprint=fingerprint,
+                    models={model: raw_models[model] for model in selected},
+                )
+
+            def verify_identity(self, models):
+                selected = tuple(sorted(models))
+                self.identity_checks.append(selected)
+                return OdooReadIdentity(
+                    target_hash=fingerprint.target_hash,
+                    principal_hash="sha256:" + "1" * 64,
+                    permission_hash="sha256:" + "3" * 64,
+                    context_hash="sha256:" + "4" * 64,
+                    readable_models=selected,
+                    observed_at="2026-10-12T08:00:00Z",
+                )
+
+        def open_session(saved_state, api_key):
+            self.assertEqual(saved_state.workspace_id, workspace_state.workspace_id)
+            self.assertEqual(api_key, "checkpoint-read-secret")
+            session = RecordingSchemaSession()
+            sessions.append(session)
+            return session
+
+        with patch.object(
+            context,
+            "schema_read_session_factory",
+            new=open_session,
         ):
             checkpoint = self._post(
                 f"/workspaces/{workspace_state.workspace_id}"
@@ -2080,6 +2919,9 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 context.queries.get_current_odoo_relationship_scope(
                     workspace_state.workspace_id
                 )
+            )
+            checkpoint_schema = context.queries.get_odoo_schema_catalog(
+                workspace_state.workspace_id
             )
             checkpoint_capture_selections = (
                 context.queries.get_current_odoo_capture_selections(
@@ -2102,7 +2944,35 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 },
             )
 
+        self.assertEqual(len(sessions), 2)
+        self.assertEqual(
+            [session.schema_reads for session in sessions],
+            [
+                [
+                    ("x.root",),
+                    ("mrp.workcenter", "resource.calendar"),
+                ],
+                [
+                    ("x.root",),
+                    ("mrp.workcenter", "resource.calendar"),
+                ],
+            ],
+        )
+        self.assertEqual(
+            [session.identity_checks for session in sessions],
+            [
+                [("mrp.workcenter", "x.root")],
+                [
+                    (
+                        "mrp.workcenter",
+                        "resource.calendar",
+                        "x.root",
+                    )
+                ],
+            ],
+        )
         self.assertEqual(checkpoint.status_code, 303, checkpoint.text)
+        self.assertGreater(checkpoint_state.revision, workspace_state.revision)
         self.assertEqual(
             checkpoint.headers["location"],
             f"/workspaces/{workspace_state.workspace_id}/sources#related-data-scope",
@@ -2138,6 +3008,10 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(
             frozenset(checkpoint_state.intended_models),
             frozenset({"x.root", "mrp.workcenter"}),
+        )
+        self.assertEqual(
+            {model.name for model in checkpoint_schema.models},
+            {"x.root", "mrp.workcenter"},
         )
         self.assertEqual(checkpoint_capture_selections, ())
         self.assertEqual(resumed.status_code, 303, resumed.text)
@@ -2215,6 +3089,21 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 ),
             )
         )
+        decisions = relationship_scope_decisions(
+            propose_related_odoo_data(
+                product_schema.models,
+                include_selected=True,
+            ),
+            included_models={"product.category"},
+        )
+        relationship_scope = OdooRelationshipScope.create(
+            scope_id=str(uuid4()),
+            version=1,
+            decisions=decisions,
+            root_models=("product.template",),
+            recorded_at=datetime.now(timezone.utc),
+            recorded_by=context.actor.identity.display_name,
+        )
 
         with (
             patch.object(
@@ -2227,6 +3116,11 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 "get_odoo_model_catalog",
                 return_value=model_catalog,
             ),
+            patch.object(
+                context.queries,
+                "get_current_odoo_relationship_scope",
+                return_value=relationship_scope,
+            ),
         ):
             page = self.client.get(
                 f"/workspaces/{workspace_state.workspace_id}/sources"
@@ -2234,11 +3128,12 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             )
 
         self.assertEqual(page.status_code, 200)
-        self.assertRegex(
+        self.assertIn('type="hidden" name="linked_only" value="1"', page.text)
+        self.assertNotRegex(
             page.text,
-            r'name="linked_only" value="1"\s+checked',
+            r'type="checkbox" name="linked_only"',
         )
-        self.assertIn("Recommended for this related data", page.text)
+        self.assertIn("Linked-value support", page.text)
         self.assertIn("Archived linked records are included", page.text)
 
     def test_completed_capture_action_is_inside_current_evidence(self) -> None:

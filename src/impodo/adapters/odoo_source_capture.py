@@ -38,6 +38,7 @@ from ..domain.odoo_source_capture import (
     OdooSourceCaptureConfigurationError,
     OdooSourceCaptureConsistencyError,
     OdooSourceCaptureLimitError,
+    OdooSourceCaptureRowLimitExceeded,
     OdooSourceCaptureRequest,
     normalize_odoo_datetime,
     require_not_cancelled,
@@ -259,9 +260,9 @@ class Json2OdooSourceCapture:
                 cancellation=cancellation,
             )
             if count > request.maximum_rows:
-                raise OdooSourceCaptureLimitError(
-                    "Odoo relationship scan for "
-                    f"{request.model} exceeds the selected row limit"
+                raise OdooSourceCaptureRowLimitExceeded(
+                    model=request.model,
+                    maximum_rows=request.maximum_rows,
                 )
             response_total = first_bytes + count_bytes
             if response_total > request.max_snapshot_bytes:

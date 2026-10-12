@@ -444,13 +444,12 @@
             <div>
               <p class="eyebrow">Review the resulting table</p>
               <h2>{{ pending_rule.output_dataset_name }}</h2>
-              <p>Impodo checked every row in the accepted source data. Review the result before adding this table to Match data.</p>
             </div>
             <span class="status registered">{{ "Needs attention" if pending_preview.needs_attention else "Complete" }}</span>
           </div>
 
           <div class="notice success">
-            The original <strong>{{ pending_preview.source_dataset_name }}</strong> table stays unchanged. After you confirm, Impodo adds <strong>{{ pending_rule.output_dataset_name }}</strong> to Match data. There, you can review how <strong>{{ pending_preview.source_column_name }}</strong> links to it. This action does not create or change records in Odoo.
+            The original <strong>{{ pending_preview.source_dataset_name }}</strong> table stays unchanged. After you confirm, Impodo adds <strong>{{ pending_rule.output_dataset_name }}</strong> to Match data. There, you can review how <strong>{{ pending_preview.source_column_name }}</strong> links to it.
           </div>
           <div class="metric-grid">
             <div><span>Source rows checked</span><strong>{{ pending_preview.source_rows }}</strong></div>

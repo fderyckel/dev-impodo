@@ -3,11 +3,51 @@
 document.addEventListener("DOMContentLoaded", () => {
   const { mappingForm } = window.impodoMappingEditor;
 
+  const initializeRelationshipOriginControls = (controls) => {
+    if (controls.dataset.relationshipOriginInitialized === "true") {
+      return;
+    }
+    const origin = controls.querySelector("[data-relationship-origin]");
+    if (!origin) {
+      return;
+    }
+    controls.dataset.relationshipOriginInitialized = "true";
+
+    const syncOriginControls = () => {
+      const allowsIncoming = origin.value !== "target_catalog";
+      const allowsExistingOdoo = origin.value !== "dataset";
+      const usesCombinedLookup = origin.value === "target_then_dataset";
+      for (const control of controls.querySelectorAll(
+        "[data-relationship-incoming-control]"
+      )) {
+        control.hidden = !allowsIncoming;
+      }
+      for (const control of controls.querySelectorAll(
+        "[data-relationship-odoo-control]"
+      )) {
+        control.hidden = !allowsExistingOdoo;
+      }
+      for (const control of controls.querySelectorAll(
+        "[data-relationship-combined-control]"
+      )) {
+        control.hidden = !usesCombinedLookup;
+      }
+    };
+
+    origin.addEventListener("change", syncOriginControls);
+    syncOriginControls();
+  };
+
   const initializeRelationRow = (row) => {
     if (row.dataset.relationRowInitialized === "true") {
       return;
     }
     row.dataset.relationRowInitialized = "true";
+    for (const controls of row.querySelectorAll(
+      "[data-relationship-origin-controls]"
+    )) {
+      initializeRelationshipOriginControls(controls);
+    }
     const provider = row.querySelector("[data-relation-value-source]");
     const sourceControls = row.querySelector("[data-relation-provider-source]");
     const sourcePolicy = row.querySelector("[data-relation-source-policy]");
@@ -250,6 +290,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   for (const row of document.querySelectorAll("[data-relation-mapping-row]")) {
     initializeRelationRow(row);
+  }
+  for (const controls of document.querySelectorAll(
+    "[data-relationship-origin-controls]"
+  )) {
+    initializeRelationshipOriginControls(controls);
   }
 
   window.impodoMappingEditor.initializeRelationRow = initializeRelationRow;

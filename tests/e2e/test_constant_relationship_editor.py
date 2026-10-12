@@ -154,6 +154,29 @@ class ConstantRelationshipEditorTests(unittest.TestCase):
         self.assertFalse(self.key.evaluate("select => select.checkValidity()"))
         self.assertEqual(self.errors, [])
 
+    def test_lookup_origin_shows_only_relevant_controls(self):
+        self.provider.select_option("source")
+        origin = self.row.locator("[data-relationship-origin]")
+        incoming = self.row.locator("[data-relationship-incoming-control]")
+        existing_odoo = self.row.locator("[data-relationship-odoo-control]")
+        combined = self.row.locator("[data-relationship-combined-control]")
+
+        origin.select_option("target_catalog")
+        self.assertFalse(incoming.is_visible())
+        self.assertTrue(existing_odoo.is_visible())
+        self.assertFalse(combined.is_visible())
+
+        origin.select_option("dataset")
+        self.assertTrue(incoming.is_visible())
+        self.assertFalse(existing_odoo.is_visible())
+        self.assertFalse(combined.is_visible())
+
+        origin.select_option("target_then_dataset")
+        self.assertTrue(incoming.is_visible())
+        self.assertTrue(existing_odoo.is_visible())
+        self.assertTrue(combined.is_visible())
+        self.assertEqual(self.errors, [])
+
     def test_scoped_choice_fills_name_and_company(self):
         self.key.evaluate("""select => {
           const option = new Option('Name within Company', 'key:scoped');

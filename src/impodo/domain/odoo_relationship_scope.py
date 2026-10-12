@@ -652,6 +652,11 @@ def relationship_expansion_suggestions(
 
     return _filter_relationship_expansion_suggestions(
         suggestions,
+        reachable_models=(
+            frozenset(scope.root_models) | scope.included_models
+            if scope is not None and scope.root_models
+            else None
+        ),
         reference_models=(
             scope.reference_models if scope is not None else frozenset()
         ),
@@ -677,8 +682,20 @@ def relationship_expansion_suggestions_for_decisions(
     """Apply the canonical frontier policy to a not-yet-persisted decision set."""
 
     current = tuple(decisions)
+    included_models = frozenset(
+        item.relation_model
+        for item in current
+        if item.action
+        in {
+            OdooRelationshipCaptureAction.CAPTURE_LINKED,
+            OdooRelationshipCaptureAction.PRESERVE_LINKED,
+            OdooRelationshipCaptureAction.MATCH_EXISTING,
+        }
+    )
+    roots = frozenset(root_models)
     return _filter_relationship_expansion_suggestions(
         suggestions,
+        reachable_models=(roots | included_models if roots else None),
         reference_models=frozenset(
             item.relation_model
             for item in current
@@ -689,22 +706,24 @@ def relationship_expansion_suggestions_for_decisions(
             for item in current
             if item.action is OdooRelationshipCaptureAction.PRESERVE_LINKED
         ),
-        root_models=frozenset(root_models),
+        root_models=roots,
     )
 
 
 def _filter_relationship_expansion_suggestions(
     suggestions: Iterable[RelatedDataSuggestion],
     *,
+    reachable_models: frozenset[str] | None,
     reference_models: frozenset[str],
     create_if_missing_models: frozenset[str],
     root_models: frozenset[str],
 ) -> tuple[RelatedDataSuggestion, ...]:
-    """Keep one shared implementation of reference and create-leaf closure."""
+    """Keep one shared implementation of graph reachability and leaf closure."""
 
     return tuple(
         item for item in suggestions
-        if (
+        if (reachable_models is None or item.source_model in reachable_models)
+        and (
             item.source_model in root_models
             or item.source_model not in reference_models
             or item.identity_scope
@@ -924,6 +943,12 @@ class OdooRelationshipScope:
                 OdooRelationshipCaptureAction.MATCH_EXISTING,
             }
         )
+
+    @property
+    def required_capture_models(self) -> frozenset[str]:
+        """Return the one authoritative set requiring source capture plans."""
+
+        return frozenset(self.root_models) | self.included_models
 
     @property
     def explicit_actions(self) -> dict[str, OdooRelationshipCaptureAction]:

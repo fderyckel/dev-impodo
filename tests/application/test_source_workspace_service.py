@@ -130,7 +130,7 @@ class GuidedOdooCaptureSelectionBuilderTests(unittest.TestCase):
     def test_rejects_an_incomplete_or_stale_draft_set(self) -> None:
         with self.assertRaisesRegex(
             WorkspaceError,
-            "one guided capture-plan draft for every selected Odoo record type",
+            "one current or guided capture plan for every selected Odoo record type",
         ):
             self.service.build_guided_odoo_capture_selections(
                 self.workspace_id,
@@ -140,6 +140,35 @@ class GuidedOdooCaptureSelectionBuilderTests(unittest.TestCase):
                 actor=self.actor,
             )
 
+        self.sources.save_odoo_capture_selection.assert_not_called()
+
+    def test_merges_a_reviewed_manual_plan_with_remaining_safe_drafts(self) -> None:
+        complete = self.service.build_guided_odoo_capture_selections(
+            self.workspace_id,
+            drafts=self.drafts,
+            schema=self.schema,
+            relationship_scope=self.scope,
+            actor=self.actor,
+        )
+        manual_root = next(item for item in complete if item.model == "x.root")
+
+        merged = self.service.build_guided_odoo_capture_selections(
+            self.workspace_id,
+            drafts=(self.drafts[0],),
+            current_selections=(manual_root,),
+            schema=self.schema,
+            relationship_scope=self.scope,
+            actor=self.actor,
+        )
+
+        self.assertEqual(
+            tuple(item.model for item in merged),
+            ("res.company", "x.root"),
+        )
+        self.assertEqual(
+            next(item for item in merged if item.model == "x.root"),
+            manual_root,
+        )
         self.sources.save_odoo_capture_selection.assert_not_called()
 
     def test_rejects_a_draft_role_or_mode_that_disagrees_with_scope(self) -> None:

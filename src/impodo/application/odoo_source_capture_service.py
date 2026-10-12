@@ -34,6 +34,7 @@ from ..domain.odoo_source_capture import (
     OdooCaptureSample,
     OdooSourceCaptureAccessRefreshRequired,
     OdooSourceCaptureConsistencyError,
+    OdooSourceCaptureRowLimitExceeded,
     OdooSourceCaptureRequest,
     plan_odoo_source_capture,
     require_not_cancelled,
@@ -165,7 +166,7 @@ class OdooSourceCaptureResult:
 
 @dataclass(frozen=True, slots=True)
 class OdooCaptureSetAssessment:
-    """One current count for every model plan in a frozen capture set."""
+    """Current model counts, or the single plan that exceeded its limit."""
 
     selection_hash: str
     items: tuple[tuple[OdooCaptureSelection, OdooCaptureAssessment], ...]
@@ -636,9 +637,45 @@ class OdooSourceCaptureService:
             request.capture_role is OdooCaptureRole.LINKED_ONLY
             for request, _, _ in contexts
         ):
-            closure = self._discover_dependencies(
-                gateway, contexts, protected_context, cancellation=cancellation
-            )
+            try:
+                closure = self._discover_dependencies(
+                    gateway, contexts, protected_context, cancellation=cancellation
+                )
+            except OdooSourceCaptureRowLimitExceeded as error:
+                overflow_context = next((
+                    context for context in contexts
+                    if context[0].model == error.model
+                ), None)
+                if (
+                    overflow_context is None
+                    or overflow_context[0].maximum_rows != error.maximum_rows
+                ):
+                    raise
+                request, _, selection = overflow_context
+                observed_at = datetime.now(timezone.utc)
+                self._verify_end(
+                    gateway, first_request, schema, protected_context,
+                    cancellation=cancellation,
+                )
+                return OdooCaptureSetAssessment(
+                    selection_hash=odoo_capture_selection_set_hash(
+                        prepared.selections
+                    ),
+                    items=((
+                        selection,
+                        OdooCaptureAssessment(
+                            selection_hash=request.selection_hash,
+                            matching_rows=request.maximum_rows + 1,
+                            maximum_rows=request.maximum_rows,
+                            page_size=(
+                                min(request.page_size, 100)
+                                if request.capture_role is OdooCaptureRole.LINKED_ONLY
+                                else request.page_size
+                            ),
+                            observed_at=observed_at,
+                        ),
+                    ),),
+                )
             observed_at = datetime.now(timezone.utc)
             items = tuple((
                 selection,
