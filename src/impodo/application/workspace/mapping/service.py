@@ -65,6 +65,7 @@ from impodo.domain.workspace.supporting_lookups import (
     supporting_lookup_key,
 )
 from .categorical_coverage import CategoricalCoverageService
+from .numeric_precision_coverage import NumericPrecisionCoverageService
 from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
@@ -306,6 +307,7 @@ class MappingWorkspaceService:
         mappings: MappingWorkspaceRepository,
         authorization: AuthorizationPolicy,
         categorical_coverage: CategoricalCoverageService,
+        numeric_precision_coverage: NumericPrecisionCoverageService | None = None,
         supporting_lookups: MappingSupportingLookupRepository | None = None,
         downstream_invalidator: MappingDownstreamInvalidator | None = None,
         recipe_applications: RecipeMappingPolicy | None = None,
@@ -318,6 +320,7 @@ class MappingWorkspaceService:
         self.mappings = mappings
         self.authorization = authorization
         self.categorical_coverage = categorical_coverage
+        self.numeric_precision_coverage = numeric_precision_coverage
         self.supporting_lookups = supporting_lookups
         self.downstream_invalidator = downstream_invalidator
         self.recipe_applications = recipe_applications
@@ -1279,9 +1282,21 @@ class MappingWorkspaceService:
             selection,
             schema,
         )
+        precision_issues = (
+            self.numeric_precision_coverage.collect(
+                workspace_id,
+                definition,
+                selection,
+                schema,
+            )
+            if self.numeric_precision_coverage is not None
+            and validation.status is not MappingValidationStatus.INVALID
+            and not any(item.severity == "error" for item in collected.issues)
+            else ()
+        )
         issues = tuple(
             sorted(
-                (*validation.issues, *collected.issues),
+                (*validation.issues, *collected.issues, *precision_issues),
                 key=lambda item: (
                     item.severity,
                     item.path,

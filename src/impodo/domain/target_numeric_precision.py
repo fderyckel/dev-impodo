@@ -51,6 +51,43 @@ class _PrecisionLoss:
     examples: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class TargetNumericPrecisionSummary:
+    """Expose aggregate precision evidence without retaining every value."""
+
+    model: str
+    field_name: str
+    digits: tuple[int, int]
+    count: int
+    zeroed_positive_count: int
+    required_places: int
+    examples: tuple[str, ...]
+
+    def message(self) -> str:
+        """Render the authoritative pre-load precision explanation."""
+
+        guidance = (
+            f" These values need at least {self.required_places} decimal places."
+            if self.required_places > self.digits[1]
+            else " These values exceed the target numeric precision."
+        )
+        zero_warning = (
+            f" Rounding to {self.digits[1]} places would turn "
+            f"{self.zeroed_positive_count:,} positive value(s) into zero."
+            if self.zeroed_positive_count
+            else ""
+        )
+        return (
+            f"{self.model}.{self.field_name}: {self.count:,} prepared value(s) "
+            f"cannot be represented at Odoo precision "
+            f"({self.digits[0]}, {self.digits[1]}) without changing them."
+            f"{guidance}{zero_warning} Change the Odoo precision or approve an "
+            "explicit rounding or conversion rule, then compare again. "
+            f"Examples: {', '.join(self.examples)}. "
+            "Support code: TARGET_NUMERIC_PRECISION_LOSS."
+        )
+
+
 class TargetNumericPrecisionLosses:
     """Keep compact evidence for every affected model and field."""
 
@@ -79,27 +116,23 @@ class TargetNumericPrecisionLosses:
     def first_message(self) -> str | None:
         """Explain the largest affected field without retaining every value."""
 
+        summary = self.first_summary()
+        return summary.message() if summary is not None else None
+
+    def first_summary(self) -> TargetNumericPrecisionSummary | None:
+        """Return the largest deterministic aggregate for early-stage warnings."""
+
         if not self._groups:
             return None
         (model, field_name, digits), group = sorted(
             self._groups.items(), key=lambda item: (-item[1].count, item[0])
         )[0]
-        guidance = (
-            f" These values need at least {group.required_places} decimal places."
-            if group.required_places > digits[1]
-            else " These values exceed the target numeric precision."
-        )
-        zero_warning = (
-            f" Rounding to {digits[1]} places would turn "
-            f"{group.zeroed_positive_count:,} positive value(s) into zero."
-            if group.zeroed_positive_count
-            else ""
-        )
-        return (
-            f"{model}.{field_name}: {group.count:,} prepared value(s) cannot be "
-            f"represented at Odoo precision ({digits[0]}, {digits[1]}) without "
-            f"changing them.{guidance}{zero_warning} Change the Odoo precision "
-            "or approve an explicit rounding or conversion rule, then compare again. "
-            f"Examples: {', '.join(group.examples)}. "
-            "Support code: TARGET_NUMERIC_PRECISION_LOSS."
+        return TargetNumericPrecisionSummary(
+            model=model,
+            field_name=field_name,
+            digits=digits,
+            count=group.count,
+            zeroed_positive_count=group.zeroed_positive_count,
+            required_places=group.required_places,
+            examples=tuple(group.examples),
         )

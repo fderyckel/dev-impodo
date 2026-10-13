@@ -1,0 +1,26 @@
+      {% for item in warning_issues %}
+        {% if item.issue.code == 'MAPPING_TARGET_NUMERIC_PRECISION_LOSS' %}
+          <section
+            class="notice warning mapping-numeric-precision-warning"
+            id="numeric-precision-warning-{{ loop.index }}"
+            aria-labelledby="numeric-precision-warning-title-{{ loop.index }}"
+          >
+            <p class="eyebrow">Potential Load into Odoo blocker</p>
+            <strong id="numeric-precision-warning-title-{{ loop.index }}">
+              {{ item.dataset_label }}: {{ item.field_label }} needs a number decision
+            </strong>
+            <p>{{ item.issue.message }}</p>
+            <p><strong>How to fix:</strong> {{ item.issue.remediation }}</p>
+            {% if item.fix_url %}
+              <div class="actions">
+                <a class="button secondary" href="{{ item.fix_url }}">Adjust this number rule</a>
+              </div>
+            {% endif %}
+            <details class="technical-details">
+              <summary>Support details</summary>
+              <code>{{ item.issue.code }}</code>
+              &middot; <code>{{ item.issue.target_model }}.{{ item.issue.target_field }}</code>
+            </details>
+          </section>
+        {% endif %}
+      {% endfor %}

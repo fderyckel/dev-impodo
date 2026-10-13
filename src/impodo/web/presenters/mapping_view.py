@@ -16,6 +16,9 @@ from impodo.adapters.artifacts.mapping_review import (
     mapping_review_workbook_name,
 )
 from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.application.workspace.mapping.incoming_dependencies import (
+    repair_unambiguous_incoming_dependencies,
+)
 from impodo.application.workspace.mapping.order_service import MatchingOrderService
 from impodo.domain.mapping.source_conditions import parse_source_text_list
 from impodo.domain.shared.access import Capability
@@ -2046,6 +2049,12 @@ def _mapping_dataset_views(
     catalog_projection_identity=(),
     only_active_dataset=False,
 ) -> tuple[dict[str, object], ...]:
+    existing_datasets = repair_unambiguous_incoming_dependencies(
+        tuple(existing_datasets),
+        selection,
+        schema,
+        governance,
+    ).datasets
     existing_by_id = {item.dataset_id: item for item in existing_datasets}
     models = {item.name: item for item in schema.models}
     keys = tuple(governance.business_keys) if governance else ()

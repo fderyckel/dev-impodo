@@ -41,6 +41,7 @@ from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode
 from impodo.domain.workspace.reference_keys import (
     GovernedReferenceRequest,
     ReferenceReadPurpose,
+    StandardReferenceFieldContract,
     authorize_governed_reference,
     authorize_supporting_match_probe,
     captured_reference_field_contracts,
@@ -102,6 +103,16 @@ class _PreparedSupportingLookup:
     requested_fields: tuple[str, ...]
     targeted_values: tuple[tuple[str, ...], ...] | None = None
     relationships: tuple[object, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _VerifiedSupportingLookup:
+    """Portable values verified before any supporting evidence is published."""
+
+    prepared: _PreparedSupportingLookup
+    field_contracts: tuple[StandardReferenceFieldContract, ...]
+    choices: tuple[SupportingLookupChoice, ...]
+    ambiguous_values: tuple[str, ...]
 
 
 def _target_json2_config(
@@ -1653,7 +1664,7 @@ def _capture_supporting_values(
         raise WorkspaceError("Odoo supporting values came from a different target")
 
     captured_at = _snapshot_datetime(record_snapshot.fingerprint.snapshot_timestamp)
-    stored = []
+    verified: list[_VerifiedSupportingLookup] = []
     for item in prepared:
         returned_model = metadata.models.get(item.relation_model)
         if returned_model is None or any(
@@ -1758,6 +1769,18 @@ def _capture_supporting_values(
             if item.display_field not in identity_fields:
                 label = f"{label} ({value})"
             choices.append(SupportingLookupChoice(value=value, label=label))
+        verified.append(
+            _VerifiedSupportingLookup(
+                prepared=item,
+                field_contracts=returned_contracts,
+                choices=tuple(choices),
+                ambiguous_values=ambiguous_values,
+            )
+        )
+
+    stored = []
+    for verified_item in verified:
+        item = verified_item.prepared
         stored.append(
             context.supporting_lookups.capture(
                 workspace_state.workspace_id,
@@ -1765,15 +1788,15 @@ def _capture_supporting_values(
                 key_fields=item.key_fields,
                 scope_fields=item.scope_fields,
                 display_field=item.display_field,
-                field_contracts=returned_contracts,
+                field_contracts=verified_item.field_contracts,
                 target_hash=expected_target_hash,
                 read_credential_binding_hash=access.credential_binding_hash,
                 read_principal_hash=access.principal_hash,
                 read_permission_hash=access.permission_hash,
                 read_context_hash=access.context_hash,
                 captured_at=captured_at,
-                choices=tuple(choices),
-                ambiguous_values=ambiguous_values,
+                choices=verified_item.choices,
+                ambiguous_values=verified_item.ambiguous_values,
                 actor=context.actor,
                 reference_policy_hash=current_reference_policy_hash,
             )

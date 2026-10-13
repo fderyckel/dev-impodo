@@ -40,6 +40,9 @@ from impodo.adapters.artifacts.mapping_review import (
 )
 from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.application.shared.secrets import SecretStoreError
+from impodo.application.workspace.mapping.incoming_dependencies import (
+    repair_unambiguous_incoming_dependencies,
+)
 from impodo.domain.matching_order import (
     MatchingOrderCheckStatus,
     MatchingOrderVersionConflict,
@@ -1267,6 +1270,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         operation_id = ""
         mutation_started = False
         row_review_check_started = False
+        dependency_repairs = ()
         try:
             form = await _mapping_request_form(request)
             allowed = _mapping_allowed_fields(form, selection, schema)
@@ -1605,6 +1609,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     selection,
                     schema,
                 )
+                dependency_repair = repair_unambiguous_incoming_dependencies(
+                    datasets,
+                    selection,
+                    schema,
+                    governance,
+                )
+                datasets = dependency_repair.datasets
+                dependency_repairs = dependency_repair.repairs
             if action == "confirm_rows":
                 await run_in_threadpool(
                     context.row_inclusion_reviews.confirm_current,
@@ -1642,6 +1654,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     saved_with_formula_issues_message(len(formula_issues))
                     if formula_issues
                     else "Progress saved. Check matches when ready."
+                )
+                save_message = _with_incoming_dependency_notice(
+                    save_message,
+                    dependency_repairs,
                 )
                 preparation_plan = context.queries.get_derived_entity_plan(
                     workspace_id
@@ -1795,6 +1811,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     )
                 else:
                     message = "Matches checked and ready to confirm."
+                message = _with_incoming_dependency_notice(
+                    message,
+                    dependency_repairs,
+                )
                 _flash(request, message)
             else:
                 await run_in_threadpool(
@@ -1840,6 +1860,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 else:
                     message = "Field matches confirmed."
                     mapping_return_url = f"/workspaces/{workspace_id}/prepare"
+                message = _with_incoming_dependency_notice(
+                    message,
+                    dependency_repairs,
+                )
                 _flash(request, message)
         except MappingVersionConflict as error:
             rejected = await _reject_mapping_mutation(
@@ -2494,6 +2518,19 @@ def _checked_default_message(
             "Review the remaining items that need attention."
         )
     return f"{action_message} Matches checked and ready to confirm."
+
+
+def _with_incoming_dependency_notice(message: str, repairs) -> str:
+    """Make an inferred incoming-table link visible to the data manager."""
+
+    count = len(repairs)
+    if not count:
+        return message
+    noun = "relationship" if count == 1 else "relationships"
+    return (
+        f"{message} Impodo linked {count} {noun} through the matching "
+        "incoming table."
+    )
 
 
 def _checked_mapping_return_url(

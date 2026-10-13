@@ -546,8 +546,13 @@ class OrderedTextStepFormTests(unittest.TestCase):
             source=file_binding,
             row_count=17_292,
             columns=(
-                SourceDatasetColumn(7, "Opr Id", "operation.opr", "string"),
-                SourceDatasetColumn(25, "BOMId", "operation.bom", "string"),
+                SourceDatasetColumn(1, "Item Id", "operation.item", "string"),
+                SourceDatasetColumn(
+                    5,
+                    "Opr Num",
+                    "operation.number",
+                    "integer",
+                ),
             ),
         )
         lines = SourceDataset(
@@ -556,8 +561,8 @@ class OrderedTextStepFormTests(unittest.TestCase):
             source=file_binding,
             row_count=15_142,
             columns=(
-                SourceDatasetColumn(2, "BOMId", "line.bom", "string"),
-                SourceDatasetColumn(9, "Opr Id", "line.opr", "string"),
+                SourceDatasetColumn(8, "OprNum", "line.number", "integer"),
+                SourceDatasetColumn(6, "ItemId", "line.item", "string"),
             ),
         )
         schema = SimpleNamespace(
@@ -584,12 +589,12 @@ class OrderedTextStepFormTests(unittest.TestCase):
         form = FormData(
             (
                 ("target_model_0", "mrp.routing.workcenter"),
-                ("source_identity_0", "operation.opr"),
-                ("source_identity_0", "operation.bom"),
+                ("source_identity_0", "operation.item"),
+                ("source_identity_0", "operation.number"),
                 ("target_model_1", "mrp.bom.line"),
                 ("relation_value_source_1_0", "source"),
-                ("relation_source_1_0", "line.bom"),
-                ("relation_source_1_0", "line.opr"),
+                ("relation_source_1_0", "line.number"),
+                ("relation_source_1_0", "line.item"),
                 ("relation_origin_1_0", "dataset"),
                 ("relation_dataset_1_0", "dataset:operations"),
                 (
@@ -608,11 +613,11 @@ class OrderedTextStepFormTests(unittest.TestCase):
 
         self.assertEqual(
             datasets[0].source_identity_column_keys,
-            ("operation.opr", "operation.bom"),
+            ("operation.item", "operation.number"),
         )
         self.assertEqual(
             datasets[1].relationships[0].source_column_keys,
-            ("line.opr", "line.bom"),
+            ("line.item", "line.number"),
         )
 
     def test_generated_hierarchy_self_parent_allows_an_explicit_root_null(

@@ -65,6 +65,13 @@ from impodo.domain.workspace.contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
+from impodo.domain.workspace.reference_keys import (
+    StandardReferenceFieldContract,
+)
+from impodo.domain.workspace.supporting_lookups import (
+    SupportingLookupChoice,
+    SupportingLookupSnapshot,
+)
 from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 
 
@@ -312,7 +319,7 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         )
         self.assertEqual(
             first.validation_hash,
-            "sha256:684cdbb47b821e6a522d42880bc029bd114dafa61366217f4bd050e46103b988",
+            "sha256:710bea9c284d426e86cf692851643db5dd531ba14af21557b92a37316654f376",
         )
         reversed_definition = replace(
             definition,
@@ -403,10 +410,12 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             self.schema,
             self.governance,
         )
-        self.assertIn(
-            "MAPPING_BUSINESS_KEY_NOT_GOVERNED",
-            {item.code for item in invalid.issues},
+        ungoverned_issue = next(
+            item
+            for item in invalid.issues
+            if item.code == "MAPPING_BUSINESS_KEY_NOT_GOVERNED"
         )
+        self.assertEqual(ungoverned_issue.target_field, "category_id")
 
     def test_pinned_odoo_update_needs_no_portable_business_key(self) -> None:
         selection, schema = _pinned_odoo_inputs()
@@ -653,6 +662,297 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertIn(
             "MAPPING_BUSINESS_KEY_NOT_GOVERNED",
             {item.code for item in wrong_key.issues},
+        )
+
+    def test_bom_file_mappings_accept_target_bound_bom_and_product_support(
+        self,
+    ) -> None:
+        binding = FileSourceBinding(
+            file_id="file:bom",
+            table_key="xlsx",
+            source_sha256="a" * 64,
+            catalog_hash="sha256:" + "b" * 64,
+            encoding=None,
+            delimiter=None,
+            header_row=1,
+        )
+        selection = SourceSelection(
+            selection_id="selection:bom-files",
+            version=1,
+            data_version_id="project:test",
+            created_at=NOW,
+            created_by="Test operator",
+            datasets=(
+                SourceDataset(
+                    dataset_id="dataset:operations",
+                    name="plw_bom_operations",
+                    source=binding,
+                    row_count=2,
+                    columns=(
+                        SourceDatasetColumn(
+                            1, "Opr Id", "operation.name", "string"
+                        ),
+                        SourceDatasetColumn(
+                            2, "BOMId", "operation.bom", "string"
+                        ),
+                    ),
+                ),
+                SourceDataset(
+                    dataset_id="dataset:lines",
+                    name="plw_bom_lines",
+                    source=replace(
+                        binding,
+                        file_id="file:bom-lines",
+                        source_sha256="c" * 64,
+                    ),
+                    row_count=2,
+                    columns=(
+                        SourceDatasetColumn(
+                            1, "Sequence", "line.sequence", "integer"
+                        ),
+                        SourceDatasetColumn(
+                            2, "BOMId", "line.bom", "string"
+                        ),
+                        SourceDatasetColumn(
+                            3, "ItemId", "line.product", "string"
+                        ),
+                        SourceDatasetColumn(
+                            4, "Opr Id", "line.operation", "string"
+                        ),
+                    ),
+                ),
+            ),
+            content_hash="sha256:bom-source-selection",
+        )
+        schema = replace(
+            self.schema,
+            models=(
+                SchemaModel(
+                    "mrp.routing.workcenter",
+                    "Operations",
+                    (
+                        _field("name", required=True),
+                        _field(
+                            "bom_id",
+                            "many2one",
+                            required=True,
+                            relation="mrp.bom",
+                        ),
+                    ),
+                ),
+                SchemaModel(
+                    "mrp.bom.line",
+                    "BOM Lines",
+                    (
+                        _field("sequence", "integer", required=True),
+                        _field(
+                            "bom_id",
+                            "many2one",
+                            required=True,
+                            relation="mrp.bom",
+                        ),
+                        _field(
+                            "product_id",
+                            "many2one",
+                            required=True,
+                            relation="product.product",
+                        ),
+                        _field(
+                            "operation_id",
+                            "many2one",
+                            relation="mrp.routing.workcenter",
+                        ),
+                    ),
+                ),
+            ),
+            content_hash="sha256:bom-schema",
+        )
+        governance = SchemaGovernance(
+            governance_id="governance:bom",
+            version=1,
+            workspace_id=schema.workspace_id,
+            catalog_hash=schema.content_hash,
+            permitted_models=tuple(model.name for model in schema.models),
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="operation-within-bom",
+                    model="mrp.routing.workcenter",
+                    key_fields=("name",),
+                    scope_fields=("bom_id",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+                BusinessKeyDefinition(
+                    key_id="line-within-bom",
+                    model="mrp.bom.line",
+                    key_fields=("sequence",),
+                    scope_fields=("bom_id",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+            recorded_at=NOW,
+            recorded_by="Test operator",
+        )
+
+        def bom_resolver(source_column: str) -> RelationshipResolver:
+            return RelationshipResolver(
+                origin=ResolverOrigin.TARGET_CATALOG,
+                model="mrp.bom",
+                key_mappings=(
+                    ReferenceKeyMapping(source_column, "code"),
+                ),
+            )
+
+        definition = MappingDefinition(
+            mapping_id="mapping:bom-files",
+            source_selection_hash=selection.content_hash,
+            schema_hash=governance.content_hash,
+            datasets=(
+                DatasetMapping(
+                    dataset_id="dataset:operations",
+                    target_model="mrp.routing.workcenter",
+                    source_identity_column_keys=(
+                        "operation.name",
+                        "operation.bom",
+                    ),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            ("operation.name",),
+                            ("name",),
+                        ),
+                    ),
+                    target_scope=(
+                        IdentityComponentMapping(
+                            ("operation.bom",),
+                            ("bom_id",),
+                            resolver=bom_resolver("operation.bom"),
+                        ),
+                    ),
+                ),
+                DatasetMapping(
+                    dataset_id="dataset:lines",
+                    target_model="mrp.bom.line",
+                    source_identity_column_keys=(
+                        "line.sequence",
+                        "line.bom",
+                    ),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            ("line.sequence",),
+                            ("sequence",),
+                            value_type="integer",
+                        ),
+                    ),
+                    target_scope=(
+                        IdentityComponentMapping(
+                            ("line.bom",),
+                            ("bom_id",),
+                            resolver=bom_resolver("line.bom"),
+                        ),
+                    ),
+                    relationships=(
+                        RelationshipMapping(
+                            target_field="product_id",
+                            kind="many2one",
+                            source_column_keys=("line.product",),
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.TARGET_CATALOG,
+                                model="product.product",
+                                key_mappings=(
+                                    ReferenceKeyMapping(
+                                        "line.product",
+                                        "default_code",
+                                    ),
+                                ),
+                            ),
+                            categorical_policy=(
+                                CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+                            ),
+                        ),
+                        RelationshipMapping(
+                            target_field="operation_id",
+                            kind="many2one",
+                            source_column_keys=(
+                                "line.operation",
+                                "line.bom",
+                            ),
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.DATASET,
+                                dataset_id="dataset:operations",
+                            ),
+                            categorical_policy=(
+                                CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        def supporting(
+            model: str,
+            field_name: str,
+            value: str,
+        ) -> SupportingLookupSnapshot:
+            return SupportingLookupSnapshot.capture(
+                workspace_id=schema.workspace_id,
+                relation_model=model,
+                key_fields=(field_name,),
+                scope_fields=(),
+                display_field=field_name,
+                field_contracts=(
+                    StandardReferenceFieldContract(
+                        field_name,
+                        "char",
+                        False,
+                        False,
+                    ),
+                ),
+                target_hash=schema.connection_target_hash,
+                read_credential_binding_hash=(
+                    schema.read_credential_binding_hash
+                ),
+                read_principal_hash=schema.read_principal_hash,
+                read_permission_hash=schema.read_permission_hash,
+                read_context_hash=schema.read_context_hash,
+                captured_at=NOW,
+                captured_by="Test operator",
+                choices=(SupportingLookupChoice(value, value),),
+                ambiguous_values=(),
+            )
+
+        unsupported = self.validator.validate(
+            definition,
+            selection,
+            schema,
+            governance,
+        )
+        supported = self.validator.validate(
+            definition,
+            selection,
+            schema,
+            governance,
+            (
+                supporting("mrp.bom", "code", "BOM-A"),
+                supporting(
+                    "product.product",
+                    "default_code",
+                    "ITEM-1",
+                ),
+            ),
+        )
+
+        unsupported_codes = {item.code for item in unsupported.issues}
+        supported_codes = {item.code for item in supported.issues}
+        self.assertIn("MAPPING_TARGET_MODEL_UNKNOWN", unsupported_codes)
+        self.assertIsNot(
+            supported.status,
+            MappingValidationStatus.INVALID,
+            supported.issues,
+        )
+        self.assertNotIn("MAPPING_TARGET_MODEL_UNKNOWN", supported_codes)
+        self.assertNotIn(
+            "MAPPING_BUSINESS_KEY_NOT_GOVERNED",
+            supported_codes,
         )
 
     def test_unsafe_relationships_are_blocking_but_self_edges_are_retained(

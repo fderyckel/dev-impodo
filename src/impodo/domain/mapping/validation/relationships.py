@@ -620,5 +620,6 @@ def _validate_resolver(
                 "Resolver key and scope are not a confirmed business key.",
                 "Select one confirmed definition for the related model.",
                 dataset=dataset,
+                target_field=relationship_metadata.name,
             )
         )

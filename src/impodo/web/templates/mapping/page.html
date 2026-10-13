@@ -70,6 +70,7 @@
           {% if validation %}<div><dt>Validation</dt><dd><code title="{{ validation.validation_hash }}">{{ validation.validation_hash }}</code></dd></div>{% endif %}
         </div>
       </details>
+      {% include "mapping/_numeric_precision_warnings.html" %}
       {% for view in dataset_views %}
         {% include "mapping/_dataset.html" %}
       {% endfor %}

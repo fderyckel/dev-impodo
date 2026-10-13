@@ -55,6 +55,9 @@ from ..application.correction_workflow import CorrectionWorkflowService
 from ..application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
 )
+from ..application.workspace.mapping.numeric_precision_coverage import (
+    NumericPrecisionCoverageService,
+)
 from ..application.workspace.mapping.service import MappingWorkspaceService
 from ..application.workspace.preparation.normalization_service import NormalizationService
 from ..application.odoo_capture_publication_service import OdooCapturePublicationService
@@ -590,6 +593,10 @@ def create_local_app(
         source_repository,
         artifacts,
     )
+    numeric_precision_coverage = NumericPrecisionCoverageService(
+        source_repository,
+        artifacts,
+    )
     schema_workspace = SchemaWorkspaceService(
         workspace_state_repository,
         source_repository,
@@ -603,6 +610,7 @@ def create_local_app(
         mapping_repository,
         workspace_access,
         categorical_coverage=categorical_coverage,
+        numeric_precision_coverage=numeric_precision_coverage,
         supporting_lookups=supporting_lookup_repository,
         downstream_invalidator=correction_repository,
         recipe_applications=recipe_application_state,

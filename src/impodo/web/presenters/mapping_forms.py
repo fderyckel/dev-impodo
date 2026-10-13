@@ -10,6 +10,9 @@ from typing import Iterable, Mapping
 from fastapi.responses import RedirectResponse
 from starlette.datastructures import FormData
 
+from impodo.application.workspace.mapping.incoming_dependencies import (
+    match_incoming_identity_columns,
+)
 from ...domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
@@ -1283,30 +1286,13 @@ def _ordered_incoming_relationship_sources(
     if len(referenced_identity) != len(selected_sources):
         return selected_sources
 
-    selected_names = {
-        column.stable_key: column.source_name
-        for column in source_dataset.columns
-        if column.stable_key in selected_sources
-    }
-    identity_names = {
-        column.stable_key: column.source_name
-        for column in referenced_dataset.columns
-        if column.stable_key in referenced_identity
-    }
-    if (
-        len(selected_names) != len(selected_sources)
-        or len(identity_names) != len(referenced_identity)
-    ):
-        return selected_sources
-    selected_by_name = {name: key for key, name in selected_names.items()}
-    ordered_names = tuple(identity_names[key] for key in referenced_identity)
-    if (
-        len(selected_by_name) != len(selected_sources)
-        or len(set(ordered_names)) != len(ordered_names)
-        or set(selected_by_name) != set(ordered_names)
-    ):
-        return selected_sources
-    return tuple(selected_by_name[name] for name in ordered_names)
+    aligned = match_incoming_identity_columns(
+        owner=source_dataset,
+        referenced=referenced_dataset,
+        referenced_identity=referenced_identity,
+        owner_column_keys=selected_sources,
+    )
+    return aligned if aligned is not None else selected_sources
 
 
 def _active_mapping_definition(
