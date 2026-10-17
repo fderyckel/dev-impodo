@@ -291,6 +291,29 @@ exists, the confirmation page requires a key approved for loading. Remote
 execution probes the selected key against the exact reviewed readable and
 writable model scope before writer construction.
 
+Prepared-data recovery uses a separate two-stage browser contract. `POST
+.../load/recovery/check` performs no Odoo or execution-journal write. It
+re-probes the current write identity and read-back scope, checks production
+authority, assesses the targeted recovery scope, and asks
+`ExecutionService.review_recovery` to classify safe continuation counts. A
+current read-role key is also re-probed when it is available, but losing a
+session-only comparison key does not block Test recovery; a bound Production
+authority may still require it. The route stores only a disposable, signed-
+session receipt bound to the workspace, run, snapshot, and current write-
+credential generation. If the original session-only write key disappeared,
+the route can stage a replacement generation. It commits and audits that
+generation only after its target, principal, observed permissions, and company
+context exactly match the interrupted run and the recovery assessment
+succeeds. The commit also requires the prior vault entry to remain unchanged
+while those remote checks run. A failed or concurrent check leaves the current
+vault entry unchanged.
+
+The route groups its synchronous workspace, access, cutover, preview, and
+credential reads in one `run_local_operation` callback and ends that scope
+before remote Odoo probes. The focused browser test verifies that this work
+runs off the event loop and holds the isolated request to at most 12 physical
+DuckDB connections, including the reauthorization audit.
+
 `ExecutionService` validates the workspace evidence and API scope, bulk-checks
 the frozen existing-target crosswalk, starts a durable run, records planned
 rows before write transport, executes datasets in dependency order, and
@@ -502,7 +525,9 @@ recorded outcome.
 | Hash-bound Odoo-transfer resume | [`ExecutionService.resume_transfer`](../../../src/impodo/application/workspace/execution/service.py) |
 | Durable batch and recovery transitions | [`ExecutionRepository`](../../../src/impodo/adapters/duckdb/execution_repository.py) |
 | Browser routes | [`execution.py`](../../../src/impodo/web/routers/execution.py) |
+| Recovery credential staging | [`target_credentials.py`](../../../src/impodo/web/target_credentials.py) |
 | Local browser database scopes | [`page_reads.py`](../../../src/impodo/web/composition/page_reads.py) |
+| Isolated recovery screenshot | [`capture_load_recovery.py`](../../../scripts/capture_load_recovery.py) |
 | Correction browser orchestration | [`CorrectionWorkflowService`](../../../src/impodo/application/correction_workflow.py) |
 | Resumable correction jobs | [`CorrectionJobManager`](../../../src/impodo/application/correction_jobs.py) |
 | Correction origin and review owners | [`correction_orchestration.py`](../../../src/impodo/application/correction_orchestration.py) |
@@ -531,7 +556,9 @@ after a process restart without adding a parallel recovery store. Final reconcil
 does not rewrite the journal. A recovery assessment remains unpublished;
 execution atomically records its semantic hash on every row before resume.
 The compact browser summary and job counters are disposable projections of
-this evidence. They do not alter the snapshot or journal contract.
+this evidence. The read-only recovery-check receipt is another disposable
+browser-session projection; it does not alter the snapshot or journal
+contract.
 
 ## Completion and navigation
 
@@ -580,17 +607,22 @@ may therefore be found after new writes; that result needs attention and does
 not roll those writes back. The targeted assessment is a continuation safety
 check, not evidence that the whole load has been verified.
 
-For prepared-data workspaces, `POST /workspaces/{workspace_id}/load/recover`
-exposes **Assess and resume interrupted load** when the saved run is `RUNNING`
-and no local load job is active. The form binds the execution run and snapshot;
-it cannot replace credentials or batch size. The shared load worker checks
-workspace access, cutover eligibility, production authority, and the original
-saved loading-key binding. It checks the current preview again when queued
-work starts and assesses read-back before constructing the writer. It resumes
-the same journal and uses the normal automatic verification and completion
-publication. Duplicate submissions return the existing progress page.
+For prepared-data workspaces, a `RUNNING` saved run first exposes **Check
+recovery**. Only a successful check exposes the separately confirmed **Resume
+saved load** form. `POST /workspaces/{workspace_id}/load/recover` requires the
+current session receipt, run, snapshot, credential generation, and explicit
+checkbox; it cannot accept a key or batch size. The shared load worker checks
+workspace access, cutover eligibility, production authority, the current
+preview, and the checked loading-key generation again. It repeats the targeted
+read-back assessment before constructing the writer, resumes the same journal,
+and uses the normal automatic verification and completion publication. The
+receipt is consumed when the job is queued. Duplicate submissions return the
+existing progress page. Losing the browser session requires another read-only
+check, not a new load.
 The browser contract is covered by
 [`test_load_recovery.py`](../../../tests/integration/web/test_load_recovery.py).
+The no-commit-before-validation boundary is also covered by
+[`test_target_credentials.py`](../../../tests/integration/protected_evidence/test_target_credentials.py).
 
 When an operator keeps changed Odoo access, the original snapshot cannot
 authorize continuation. After refreshing schema and access, confirming the

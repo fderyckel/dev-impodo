@@ -169,6 +169,64 @@ class Stage2MatchingRuleJourneyTests(ProjectSetupBrowserTestCase):
         self.assertEqual(product.recommendation_basis, "")
         self.assertIsNone(product.recommendation_policy_version)
 
+    def test_confirmed_rule_can_be_changed_and_confirmed_again(self) -> None:
+        workspace_id, schema = self._representative_workspace()
+        selections = representative_stage2_selections()
+        first_confirmation = self.client.post(
+            f"/workspaces/{workspace_id}/schema/govern",
+            data=matching_rule_form(self.csrf, schema, selections),
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(first_confirmation.status_code, 303)
+
+        reopened = self.client.get(f"/workspaces/{workspace_id}/schema")
+        self.assertRegex(
+            reopened.text,
+            re.compile(
+                r"How should Impodo find an existing Product\?.*?"
+                r"Confirmed matching rule.*?Internal Reference.*?"
+                r"Save changes and continue",
+                re.DOTALL,
+            ),
+        )
+        self.assertIn("data-key-confirmed=\"true\"", reopened.text)
+
+        selections["product.template"] = (
+            ("x_legacy_code",),
+            (),
+            "Approved legacy product reference",
+        )
+        changed = self.client.post(
+            f"/workspaces/{workspace_id}/schema/govern",
+            data=matching_rule_form(self.csrf, schema, selections),
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(changed.status_code, 303)
+        self.assertEqual(
+            changed.headers["location"],
+            f"/workspaces/{workspace_id}/mapping",
+        )
+
+        governance = self.app.state.context.queries.get_schema_governance(
+            workspace_id
+        )
+        self.assertIsNotNone(governance)
+        assert governance is not None
+        product = next(
+            item
+            for item in governance.business_keys
+            if item.model == "product.template"
+        )
+        self.assertEqual(product.key_fields, ("x_legacy_code",))
+        self.assertEqual(
+            product.description,
+            "Approved legacy product reference",
+        )
+        self.assertEqual(product.recommendation_basis, "")
+        self.assertIsNone(product.recommendation_policy_version)
+
     def test_unresolved_custom_model_is_visible_and_blocks_completion(
         self,
     ) -> None:

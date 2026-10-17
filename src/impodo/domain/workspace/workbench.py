@@ -1467,6 +1467,39 @@ class WorkspaceStateService:
             actor=actor,
         )
 
+    def record_recovery_credential_event(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        original_binding_hash: str,
+        recovery_binding_hash: str,
+        persistent: bool,
+    ) -> None:
+        """Audit recovery reauthorization without recording either secret."""
+
+        canonical_workspace_id = _canonical_workspace_id(workspace_id)
+        for value in (original_binding_hash, recovery_binding_hash):
+            if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+                raise WorkspaceStateError(
+                    "Recovery credential audit binding is invalid"
+                )
+        self.authorization.require(
+            actor,
+            Capability.EXPORT_PLAN_EXECUTE,
+            workspace_id=canonical_workspace_id,
+        )
+        self.repository.record_credential_event(
+            canonical_workspace_id,
+            event_type="ODOO_WRITE_CREDENTIAL_REAUTHORIZED",
+            detail=(
+                f"original binding {original_binding_hash}; recovery binding "
+                f"{recovery_binding_hash}; storage "
+                f"{'OPERATING_SYSTEM_VAULT' if persistent else 'SESSION'}"
+            ),
+            actor=actor,
+        )
+
     def record_credential_removal_receipt(
         self,
         *,

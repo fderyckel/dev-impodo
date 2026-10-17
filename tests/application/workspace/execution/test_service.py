@@ -1660,6 +1660,22 @@ class ExecutionServiceTests(unittest.TestCase):
                 for index, row in enumerate(snapshot.rows)
             ),
         )
+        plan = service.review_recovery(
+            snapshot.workspace_id,
+            expected_execution_run_id=interrupted.run_id,
+            recovery=recovery,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(plan.execution_run_id, interrupted.run_id)
+        self.assertEqual(plan.total_count, 3)
+        self.assertEqual(plan.already_accepted_count, 0)
+        self.assertEqual(plan.waiting_count, 2)
+        self.assertEqual(plan.uncertain_count, 1)
+        self.assertEqual(plan.confirmed_after_interruption_count, 0)
+        self.assertEqual(plan.safe_to_retry_count, 1)
+        self.assertEqual(plan.relationship_pending_count, 0)
+        self.assertEqual(plan.resume_count, 3)
+        self.assertEqual(journal.run.rows[0].status, ExecutionRowStatus.IN_FLIGHT)
         recovery_hash = recovery.semantic_hash
         with patch.object(
             ReconciliationRun,

@@ -1813,6 +1813,26 @@ class MappingSemanticValidatorTests(unittest.TestCase):
                 None,
             )
 
+    def test_month_day_year_accepts_one_or_two_digit_month_and_day(self) -> None:
+        mapping = ScalarFieldMapping(
+            target_field="assign_date",
+            value_type="date",
+            transform=ScalarTransformPolicy(date_format="mdy_slash"),
+        )
+
+        expected = {
+            "5/9/2007": "2007-05-09",
+            "5/29/2003": "2003-05-29",
+            "11/11/2008": "2008-11-11",
+            "09/08/2022": "2022-09-08",
+        }
+        for source_value, canonical_date in expected.items():
+            with self.subTest(source_value=source_value):
+                self.assertEqual(
+                    canonicalize_scalar_value(mapping, source_value).isoformat(),
+                    canonical_date,
+                )
+
     def test_guided_text_rules_transform_and_validate_the_proposed_value(
         self,
     ) -> None:

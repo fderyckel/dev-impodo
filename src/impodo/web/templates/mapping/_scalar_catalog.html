@@ -315,7 +315,7 @@
                           {% set date_format = mapping.transform.date_format if mapping else 'iso' %}
                           <option value="iso" {% if date_format == 'iso' %}selected{% endif %}>YYYY-MM-DD / ISO</option>
                           <option value="dmy_slash" {% if date_format == 'dmy_slash' %}selected{% endif %}>DD/MM/YYYY</option>
-                          <option value="mdy_slash" {% if date_format == 'mdy_slash' %}selected{% endif %}>MM/DD/YYYY</option>
+                          <option value="mdy_slash" {% if date_format == 'mdy_slash' %}selected{% endif %}>M/D/YYYY or MM/DD/YYYY</option>
                           <option value="dmy_dot" {% if date_format == 'dmy_dot' %}selected{% endif %}>DD.MM.YYYY</option>
                         </select>
                       </label>

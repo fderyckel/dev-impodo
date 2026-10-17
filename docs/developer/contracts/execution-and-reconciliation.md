@@ -54,6 +54,18 @@ Before a write, the service revalidates every binding and records the
 credential generation, write principal, observed permissions, and context as
 non-secret hashes. Any mismatch fails closed.
 
+For a prepared-data run interrupted after those hashes were recorded, recovery
+may use a new write-credential generation only after a read-only probe proves
+the exact same target, principal, observed permissions, and company context.
+The candidate generation is not placed in the vault before that proof and a
+successful replacement records a non-secret reauthorization audit event.
+The durable comparison evidence remains bound to its original read generation;
+a lost session-only read key does not block Test recovery because continuation
+uses the exact saved write identity and read-back scope. A Production authority
+may still require the current read generation before it permits continuation.
+This exception does not apply to Odoo-to-Odoo transfer recovery, which still
+requires the original `DESTINATION_TRANSFER` credential generation.
+
 The execution snapshot carries an opaque binding hash for each uniquely
 reviewed existing row and target relationship. It never carries a numeric Odoo
 ID. Immediately before journaling, execution bulk-resolves all existing keys
@@ -181,6 +193,15 @@ final reconciliation. `ExecutionService.resume` recomputes the frontier and
 accepts only that hash-bound report, the original target and write identity,
 and a still-current snapshot. It atomically binds every row to the
 recovery-report hash before another Odoo call can begin.
+
+The browser exposes that assessment as two distinct actions. **Check recovery**
+performs the identity probes and targeted assessment without updating the
+journal or constructing a writer, then stores a short-lived signed-session
+receipt bound to the current run, snapshot, and credential generation. Only
+**Resume saved load**, with an explicit confirmation, can enqueue execution.
+The worker repeats authority, identity, preview, and recovery assessment before
+writer construction. A lost or stale receipt requires another read-only check;
+it never authorizes a second journal.
 
 For an Odoo-to-Odoo transfer, `ExecutionService.resume_transfer` adds the
 current ready transfer preflight, exact staged snapshot, destination read identity,

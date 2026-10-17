@@ -365,6 +365,22 @@ class ExecutionPreview:
 
 
 @dataclass(frozen=True, slots=True)
+class RecoveryResumePlan:
+    """Safe counts from a read-only assessment of one interrupted load."""
+
+    execution_run_id: str
+    snapshot_hash: str
+    total_count: int
+    already_accepted_count: int
+    waiting_count: int
+    uncertain_count: int
+    confirmed_after_interruption_count: int
+    safe_to_retry_count: int
+    relationship_pending_count: int
+    resume_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionNavigationPreview:
     """Bounded load-stage state that never materializes execution rows."""
 
@@ -1025,6 +1041,105 @@ class ExecutionService:
             actor,
             identity_cache=identity_cache,
             progress=progress,
+        )
+
+    def review_recovery(
+        self,
+        workspace_id: str,
+        *,
+        expected_execution_run_id: str,
+        recovery: ReconciliationRun,
+        actor: Actor,
+        write_identity: OdooWriteIdentity | None = None,
+        write_credential_binding_hash: str = "",
+    ) -> RecoveryResumePlan:
+        """Validate read-only recovery evidence and summarize the safe resume."""
+
+        self.authorization.require(
+            actor,
+            Capability.EXPORT_PLAN_EXECUTE,
+            workspace_id=workspace_id,
+        )
+        workspace_state = self.workspaces.get(workspace_id)
+        if workspace_state.source_mode is SourceMode.ODOO:
+            raise WorkspaceError(
+                "Use the transfer recovery action for an interrupted "
+                "Odoo-to-Odoo load."
+            )
+        snapshot = self.preflight.current_execution_snapshot(workspace_id)
+        if snapshot is None:
+            raise WorkspaceError("The interrupted load preview is no longer current")
+        if not assess_odoo_operation(
+            snapshot.target_odoo_version,
+            OdooOperation.RECOVER,
+        ).allowed:
+            raise WorkspaceError(
+                "This Odoo version is not enabled for the schema-bound load path"
+            )
+        run = self.journal.get_run(workspace_id, expected_execution_run_id)
+        current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
+        if (
+            run is None
+            or current is None
+            or current.run_id != expected_execution_run_id
+            or run.status is not ExecutionRunStatus.RUNNING
+            or run.snapshot_hash != snapshot.semantic_hash
+            or run.snapshot_root_hash != snapshot.root_hash
+            or run.preflight_run_id != snapshot.preflight_run_id
+            or run.target_hash != snapshot.target_hash
+            or run.target_database != snapshot.target_database
+        ):
+            raise WorkspaceError("The interrupted load or preview is no longer current")
+        _require_resume_write_identity(
+            run,
+            write_identity,
+            write_credential_binding_hash,
+            required=(
+                self.require_remote_write_identity
+                and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+            ),
+        )
+        classified = self._classify_recovery(
+            snapshot,
+            run,
+            ReconciliationRun.from_json(recovery.to_json()),
+            targeted=True,
+        )
+        original = {item.row_id: item for item in run.rows}
+        confirmed_after_interruption_count = sum(
+            original[item.row_id].status is ExecutionRowStatus.IN_FLIGHT
+            and item.status is ExecutionRowStatus.COMMITTED
+            for item in classified
+        )
+        safe_to_retry_count = sum(
+            original[item.row_id].status is ExecutionRowStatus.IN_FLIGHT
+            and item.status is ExecutionRowStatus.RETRY_READY
+            for item in classified
+        )
+        relationship_pending_count = sum(
+            item.status is ExecutionRowStatus.PARTIALLY_APPLIED
+            for item in classified
+        )
+        resume_count = sum(
+            item.status
+            in {
+                ExecutionRowStatus.PLANNED,
+                ExecutionRowStatus.RETRY_READY,
+                ExecutionRowStatus.PARTIALLY_APPLIED,
+            }
+            for item in classified
+        )
+        return RecoveryResumePlan(
+            execution_run_id=run.run_id,
+            snapshot_hash=snapshot.semantic_hash,
+            total_count=run.total_count,
+            already_accepted_count=run.committed_count,
+            waiting_count=run.planned_count + run.retry_ready_count,
+            uncertain_count=run.in_flight_count + run.unknown_count,
+            confirmed_after_interruption_count=confirmed_after_interruption_count,
+            safe_to_retry_count=safe_to_retry_count,
+            relationship_pending_count=relationship_pending_count,
+            resume_count=resume_count,
         )
 
     def resume_transfer(

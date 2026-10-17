@@ -625,6 +625,7 @@
         <section
           class="form-card catalog-card{% if view.has_submitted_draft %} has-unconfirmed-changes{% elif existing %} is-confirmed{% elif recommendation %} needs-confirmation{% else %} has-unconfirmed-changes{% endif %}"
           data-key-decision
+          data-key-confirmed="{{ 'true' if existing else 'false' }}"
           data-field-labels='{{ view.field_labels|tojson }}'
         >
           <div class="page-heading compact">
@@ -633,13 +634,13 @@
               <p>{{ model.fields|length }} available fields</p>
             </div>
             {% if view.has_submitted_draft %}
-              <span class="status attention">Review change</span>
+              <span class="status attention" data-key-decision-status>Review change</span>
             {% elif existing %}
-              <span class="status complete">Rule confirmed</span>
+              <span class="status complete" data-key-decision-status>Rule confirmed</span>
             {% elif recommendation %}
-              <span class="status current">Suggested</span>
+              <span class="status current" data-key-decision-status>Suggested</span>
             {% else %}
-              <span class="status attention">Needs attention</span>
+              <span class="status attention" data-key-decision-status>Needs attention</span>
             {% endif %}
           </div>
 
@@ -664,7 +665,7 @@
                   within {% for field_name in existing.scope_fields %}{{ view.field_labels.get(field_name, "selected area") }}{% if not loop.last %} + {% endif %}{% endfor %}
                 {% endif %}
               </p>
-              {% if existing.description %}<p>{{ existing.description }}</p>{% endif %}
+              {% if existing.description %}<p><strong>Meaning:</strong> {{ existing.description }}</p>{% endif %}
             {% elif recommendation %}
               <p class="eyebrow">Suggested and ready to confirm</p>
               <p class="key-rule-title">{{ recommendation.title }}</p>
@@ -789,6 +790,17 @@
               tabindex="-1"
               hidden
             ></p>
+            {% if existing %}
+              <div class="actions key-editor-actions">
+                <small>Confirms the complete matching-rule set, including this change, then continues to Match data.</small>
+                <button
+                  class="button primary"
+                  type="submit"
+                  data-key-card-submit
+                  {% if workflow_issue_summary.must_fix_count %}disabled aria-describedby="matching-rules-blocked-reason"{% endif %}
+                >Save changes and continue</button>
+              </div>
+            {% endif %}
           </details>
 
           <details data-field-catalog>

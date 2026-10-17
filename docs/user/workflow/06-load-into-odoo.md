@@ -374,14 +374,21 @@ interrupted, use **Verify what happened in Odoo**; do not submit the transfer
 again.
 
 For a prepared-data load interrupted when Impodo or your computer stopped,
-open **Review interrupted load**, then select **Assess and resume interrupted
-load**. The page shows accepted records, records waiting to load, uncertain
-requests, and partially applied records. Impodo checks uncertain requests and
-the earlier records that the remaining work depends on. It then continues the
-same saved load with the original loading key and batch size. Impodo reads all
-loaded records after the remaining work before it can report a verified result.
-Keep the workspace and its matching rules intact while recovering; the
-original preview totals do not show how many records remain.
+open **Review interrupted load**. If Impodo restarted and no longer has the
+loading key, enter a key for the same Odoo user, target, permissions, and
+company context that started the load. Select **Check recovery**. This action
+does not create or update records. It checks the current Odoo identity, the
+uncertain requests, and the earlier records that the remaining work depends
+on. A re-entered key is retained only after those checks succeed.
+
+Review the resulting accepted, safe-to-retry, relationship-completion, and
+remaining-work counts. Select the confirmation, then select **Resume saved
+load**. Impodo repeats the safety check before constructing the writer, keeps
+the accepted records, and continues the same saved journal and batch size.
+Repeated checks are read-only, and a repeated resume returns to the active
+recovery instead of starting a second load. Impodo reads all loaded records
+after the remaining work before it can report a verified result. Keep the
+workspace and its matching rules intact while recovering.
 
 If Odoo access changed and you keep the new access, refresh the Odoo fields,
 confirm the prepared review, and compare again. **Confirm and load** then
@@ -389,7 +396,7 @@ explains that an earlier upload was interrupted. Its load action checks the
 saved receipts and closes the earlier attempt before loading the fresh
 comparison. The original records and receipts remain saved.
 
-![Interrupted prepared-data load with saved counts and an explicit assessment and resume action.](../../images/user/18b-load-recovery.png)
+![Interrupted prepared-data load offering a read-only Check recovery action before resume.](../../images/user/18b-load-recovery.png)
 
 For an Odoo-to-Odoo transfer, Impodo checks every earlier completed group before
 it continues. For a prepared-data load, it checks the earlier records needed by

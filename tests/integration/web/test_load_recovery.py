@@ -1,11 +1,17 @@
 """Exercise explicit prepared-data recovery without repeating a saved load."""
 
+import asyncio
 from contextlib import contextmanager, ExitStack
 from dataclasses import replace
+import re
 from threading import Event
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.web.target_credentials import target_write_credential_id
+from impodo.web.target_credentials import (
+    target_read_credential_id,
+    target_write_credential_id,
+)
 from tests.support.browser_scenarios import (
     ExecutionRowStatus, ExecutionRunStatus, OdooReadIdentity, OdooWriteIdentity,
     POST_HEADERS, ProjectSetupBrowserTestCase, SimpleNamespace,
@@ -40,6 +46,10 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             retry_ready_count=0, unknown_count=0, partially_applied_count=0,
             failed_count=0, blocked_count=0,
             write_credential_binding_hash=self.write_key.binding_hash,
+            write_principal_hash="sha256:" + "1" * 64,
+            write_permission_hash="sha256:" + "2" * 64,
+            write_context_hash="sha256:" + "c" * 64,
+            target_hash="sha256:" + "b" * 64,
         )
         self.snapshot = SimpleNamespace(
             semantic_hash="sha256:" + "a" * 64, target_hash="sha256:" + "b" * 64,
@@ -72,6 +82,19 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.events = []
         self.recovery = object()
+        self.last_recovery_check_id = None
+        self.recovery_plan = SimpleNamespace(
+            execution_run_id=self.run.run_id,
+            snapshot_hash=self.snapshot.semantic_hash,
+            total_count=5,
+            already_accepted_count=2,
+            waiting_count=2,
+            uncertain_count=1,
+            confirmed_after_interruption_count=1,
+            safe_to_retry_count=0,
+            relationship_pending_count=0,
+            resume_count=2,
+        )
 
     @contextmanager
     def recovery_context(self, *, assessment_error=None, preview_reader=None, assess=None):
@@ -106,6 +129,8 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
                     **({"side_effect": preview_reader} if preview_reader else {"return_value": self.preview}))
             patched("current", type(context.reconciliation), "current", return_value=None)
             patched("assess", type(context.reconciliation), "assess_recovery", side_effect=assessment)
+            patched("review", type(context.execution), "review_recovery",
+                    return_value=self.recovery_plan)
             patched("resume", type(context.execution), "resume", side_effect=resume)
             patched("execute", type(context.execution), "execute")
             patched("verify", type(context.reconciliation), "reconcile", side_effect=verify)
@@ -120,9 +145,34 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             patched("reader", context, "readback_reader_factory", return_value=object())
             yield mocks
 
-    def submit(self, **overrides):
+    def check(self, **overrides):
         data = {"csrf_token": self.csrf, "snapshot_hash": self.snapshot.semantic_hash,
                 "execution_run_id": self.run.run_id}
+        data.update(overrides)
+        response = self.client.post(
+            f"/workspaces/{self.workspace.workspace_id}/load/recovery/check",
+            data=data, headers=POST_HEADERS, follow_redirects=False,
+        )
+        if response.status_code == 303:
+            self.last_recovery_check_id = self.recovery_check_id()
+        return response
+
+    def recovery_check_id(self):
+        page = self.client.get(f"/workspaces/{self.workspace.workspace_id}/load/outcome")
+        match = re.search(r'name="recovery_check_id" value="([^"]+)"', page.text)
+        self.assertIsNotNone(match, page.text)
+        return match.group(1)
+
+    def submit(self, **overrides):
+        recovery_check_id = overrides.pop(
+            "recovery_check_id",
+            self.last_recovery_check_id,
+        )
+        self.assertIsNotNone(recovery_check_id, "Call check() before submit()")
+        data = {"csrf_token": self.csrf, "snapshot_hash": self.snapshot.semantic_hash,
+                "execution_run_id": self.run.run_id,
+                "recovery_check_id": recovery_check_id,
+                "confirm_resume": "on"}
         data.update(overrides)
         return self.client.post(
             f"/workspaces/{self.workspace.workspace_id}/load/recover",
@@ -138,11 +188,50 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             self.assertIn("2 accepted", outcome.text)
             self.assertIn("2 waiting to load", outcome.text)
             self.assertIn("1 uncertain", outcome.text)
-            self.assertIn("Assess and resume interrupted load", outcome.text)
+            self.assertIn("Reconnect and check recovery", outcome.text)
+            self.assertIn("Check recovery", outcome.text)
+            self.assertIn("Different Odoo loading key", outcome.text)
+            self.assertNotIn("Resume saved load", outcome.text)
             self.assertNotIn("Verify what happened in Odoo", outcome.text)
             self.assertNotIn("write-secret", outcome.text)
             mocks["assess"].assert_not_called()
             mocks["writer"].assert_not_called()
+
+    def test_recovery_check_runs_local_work_off_loop_with_bounded_database_opens(self):
+        self.context.secret_store.delete(
+            target_write_credential_id(self.workspace)
+        )
+        get_workspace = self.context.queries.get
+
+        def read_in_worker(workspace_id):
+            with self.assertRaises(RuntimeError):
+                asyncio.get_running_loop()
+            return get_workspace(workspace_id)
+
+        with (
+            self.recovery_context(),
+            collect_duckdb_request_timings() as timings,
+            patch.object(
+                self.context.queries,
+                "get",
+                side_effect=read_in_worker,
+            ),
+        ):
+            response = self.client.post(
+                f"/workspaces/{self.workspace.workspace_id}/load/recovery/check",
+                data={
+                    "csrf_token": self.csrf,
+                    "snapshot_hash": self.snapshot.semantic_hash,
+                    "execution_run_id": self.run.run_id,
+                    "write_api_key": "replacement",
+                },
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303, response.text)
+        self.assertGreater(timings.connection_count, 0)
+        self.assertLessEqual(timings.connection_count, 12)
 
     def test_fresh_confirmation_binds_the_prior_interrupted_run(self):
         self.preview.current_run = None
@@ -208,6 +297,13 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
 
     def test_resume_assesses_before_writer_and_verifies_same_run(self):
         with self.recovery_context() as mocks:
+            checked = self.check()
+            self.assertEqual(checked.status_code, 303, checked.text)
+            checked_page = self.client.get(checked.headers["location"])
+            self.assertIn("Recovery ready", checked_page.text)
+            self.assertIn("Resume saved load", checked_page.text)
+            mocks["review"].assert_called_once()
+            self.events.clear()
             started = self.submit()
             self.assertEqual(started.status_code, 303, started.text)
             finished = _wait_for_load(self.client, started.headers["location"])
@@ -225,7 +321,9 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             self.assertNotIn("batch_rows", mocks["resume"].call_args.kwargs)
 
     def test_failed_assessment_never_constructs_writer(self):
-        with self.recovery_context(assessment_error=WorkspaceError("Earlier Odoo record changed")) as mocks:
+        with self.recovery_context() as mocks:
+            self.assertEqual(self.check().status_code, 303)
+            mocks["assess"].side_effect = WorkspaceError("Earlier Odoo record changed")
             started = self.submit()
             finished = _wait_for_load(self.client, started.headers["location"])
             self.assertEqual(finished["status"], "FAILED", finished)
@@ -245,16 +343,17 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             mocks["write_identity"].return_value = replace(
                 self.write_identity, context_hash="sha256:" + "f" * 64,
             )
-            started = self.submit()
-            finished = _wait_for_load(self.client, started.headers["location"])
-            self.assertEqual(finished["status"], "FAILED", finished)
-            self.assertIn("reviewed Odoo context", finished["failure_message"])
+            checked = self.check()
+            self.assertEqual(checked.status_code, 422, checked.text)
+            self.assertIn("reviewed Odoo context", checked.text)
             mocks["assess"].assert_not_called()
             mocks["writer"].assert_not_called()
             mocks["resume"].assert_not_called()
 
-    def test_stale_run_snapshot_terminal_run_and_replaced_key_cannot_start(self):
+    def test_stale_run_snapshot_terminal_run_and_replaced_key_require_a_new_check(self):
         with self.recovery_context() as mocks:
+            self.assertEqual(self.check().status_code, 303)
+            mocks["assess"].reset_mock()
             for overrides in ({"execution_run_id": "another-run"}, {"snapshot_hash": "stale"}):
                 with self.subTest(overrides=overrides):
                     self.assertEqual(self.submit(**overrides).status_code, 422)
@@ -266,19 +365,30 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             self.run.status = ExecutionRunStatus.RUNNING
             store_target_credential(self.context.secret_store, self.workspace,
                                     TargetCredentialRole.WRITE, "replacement", persistent=False)
-            response = self.submit()
+            response = self.client.post(
+                f"/workspaces/{self.workspace.workspace_id}/load/recover",
+                data={"csrf_token": self.csrf,
+                      "snapshot_hash": self.snapshot.semantic_hash,
+                      "execution_run_id": self.run.run_id,
+                      "recovery_check_id": "stale-check",
+                      "confirm_resume": "on"},
+                headers=POST_HEADERS, follow_redirects=False,
+            )
             self.assertEqual(response.status_code, 422)
-            self.assertIn("original credential binding", response.text)
+            self.assertIn("Run Check recovery", response.text)
             mocks["assess"].assert_not_called()
             mocks["writer"].assert_not_called()
 
     def test_rechecks_preview_when_background_worker_starts(self):
-        reads = 0
-        def preview_reader(workspace_id):
-            nonlocal reads
-            reads += 1
-            return self.preview if reads == 1 else None
-        with self.recovery_context(preview_reader=preview_reader) as mocks:
+        with self.recovery_context() as mocks:
+            self.assertEqual(self.check().status_code, 303)
+            mocks["assess"].reset_mock()
+            reads = 0
+            def preview_reader(workspace_id):
+                nonlocal reads
+                reads += 1
+                return self.preview if reads == 1 else None
+            mocks["preview"].side_effect = preview_reader
             started = self.submit()
             finished = _wait_for_load(self.client, started.headers["location"])
             self.assertEqual(finished["status"], "FAILED", finished)
@@ -292,7 +402,13 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             entered.set()
             if not release.wait(10):
                 raise AssertionError("Recovery test did not release the reader")
-        with self.recovery_context(assess=assess) as mocks:
+        with self.recovery_context() as mocks:
+            self.assertEqual(self.check().status_code, 303)
+            def blocking_assessment(*args, **kwargs):
+                self.events.append("assess")
+                assess()
+                return self.recovery
+            mocks["assess"].side_effect = blocking_assessment
             started = self.submit()
             try:
                 self.assertTrue(entered.wait(5))
@@ -306,21 +422,84 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
 
     def test_csrf_and_new_write_parameters_are_rejected(self):
         with self.recovery_context() as mocks:
+            self.assertEqual(self.check().status_code, 303)
             self.assertEqual(self.submit(csrf_token="invalid").status_code, 403)
+            self.assertEqual(self.submit(confirm_resume="").status_code, 422)
             for extra in ({"batch_rows": "100"}, {"write_api_key": "replacement"}):
                 with self.subTest(extra=extra):
                     self.assertEqual(self.submit(**extra).status_code, 422)
-            mocks["assess"].assert_not_called()
             mocks["writer"].assert_not_called()
 
-    def test_missing_loading_key_does_not_fall_back_to_read_key(self):
+    def test_missing_loading_key_can_be_reauthorized_for_the_exact_identity(self):
         self.context.secret_store.delete(target_write_credential_id(self.workspace))
         with self.recovery_context() as mocks:
             page = self.client.get(f"/workspaces/{self.workspace.workspace_id}/load/outcome")
-            self.assertIn("original saved loading key is unavailable", page.text)
-            self.assertNotIn("/load/recover", page.text)
-            response = self.submit()
+            self.assertIn("Odoo loading key", page.text)
+            self.assertIn("same Odoo user and company context", page.text)
+            checked = self.check(write_api_key="replacement")
+            self.assertEqual(checked.status_code, 303, checked.text)
+            self.assertTrue(
+                self.context.workspace_states.repository.has_audit_event(
+                    self.workspace.workspace_id,
+                    "ODOO_WRITE_CREDENTIAL_REAUTHORIZED",
+                )
+            )
+            ready = self.client.get(checked.headers["location"])
+            self.assertIn("Recovery ready", ready.text)
+            self.assertNotIn("replacement", ready.text)
+            self.events.clear()
+            started = self.submit()
+            finished = _wait_for_load(self.client, started.headers["location"])
+            self.assertEqual(finished["status"], "SUCCEEDED", finished)
+            self.assertEqual(self.events, ["assess", "writer", "resume", "verify"])
+
+    def test_recovery_survives_loss_of_both_session_credentials(self):
+        self.context.secret_store.delete(
+            target_read_credential_id(self.workspace)
+        )
+        self.context.secret_store.delete(
+            target_write_credential_id(self.workspace)
+        )
+        with self.recovery_context() as mocks:
+            checked = self.check(write_api_key="replacement")
+            self.assertEqual(checked.status_code, 303, checked.text)
+            self.events.clear()
+            started = self.submit()
+            finished = _wait_for_load(self.client, started.headers["location"])
+
+            self.assertEqual(finished["status"], "SUCCEEDED", finished)
+            mocks["read_identity"].assert_not_called()
+            self.assertEqual(self.events, ["assess", "writer", "resume", "verify"])
+
+    def test_failed_reauthorization_does_not_store_the_submitted_key(self):
+        self.context.secret_store.delete(target_write_credential_id(self.workspace))
+        with self.recovery_context() as mocks:
+            mocks["write_identity"].return_value = replace(
+                self.write_identity, context_hash="sha256:" + "f" * 64,
+            )
+            response = self.check(write_api_key="replacement")
             self.assertEqual(response.status_code, 422, response.text)
-            self.assertIn("Recovery requires the original saved loading key", response.text)
+            self.assertIsNone(
+                self.context.secret_store.get(
+                    target_write_credential_id(self.workspace)
+                )
+            )
             mocks["assess"].assert_not_called()
+            mocks["writer"].assert_not_called()
+
+    def test_failed_readback_assessment_does_not_store_the_submitted_key(self):
+        self.context.secret_store.delete(
+            target_write_credential_id(self.workspace)
+        )
+        with self.recovery_context(
+            assessment_error=WorkspaceError("Earlier Odoo record changed")
+        ) as mocks:
+            response = self.check(write_api_key="replacement")
+            self.assertEqual(response.status_code, 422, response.text)
+            self.assertIn("Earlier Odoo record changed", response.text)
+            self.assertIsNone(
+                self.context.secret_store.get(
+                    target_write_credential_id(self.workspace)
+                )
+            )
             mocks["writer"].assert_not_called()

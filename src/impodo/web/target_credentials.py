@@ -68,6 +68,16 @@ class TargetCredential:
 
 
 @dataclass(frozen=True, slots=True)
+class PreparedTargetCredential:
+    """One uncommitted credential generation for identity-first validation."""
+
+    credential_id: str
+    expected_current: str | None = field(repr=False)
+    encoded: str = field(repr=False)
+    credential: TargetCredential = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
 class TargetCredentialStatus:
     """Expose credential availability without exposing the stored secret."""
 
@@ -167,11 +177,32 @@ def store_target_credential(
 ) -> TargetCredential:
     """Replace one exact role binding with a new random generation."""
 
+    prepared = prepare_target_credential(
+        store,
+        workspace_state,
+        role,
+        secret,
+        persistent=persistent,
+    )
+    return commit_target_credential(store, prepared)
+
+
+def prepare_target_credential(
+    store: SecretStore,
+    workspace_state: WorkspaceState,
+    role: TargetCredentialRole,
+    secret: str,
+    *,
+    persistent: bool,
+) -> PreparedTargetCredential:
+    """Build a credential generation without changing the current vault entry."""
+
     clean_secret = secret.strip()
     if not clean_secret:
         raise SecretStoreError("API key is empty")
     credential_id = _target_credential_id(workspace_state, role)
-    replaced = store.get(credential_id) is not None
+    expected_current = store.get(credential_id)
+    replaced = expected_current is not None
     binding_id = str(uuid4())
     target_hash = _target_hash(workspace_state, role)
     envelope = json.dumps(
@@ -189,17 +220,35 @@ def store_target_credential(
         separators=(",", ":"),
         sort_keys=True,
     )
+    return PreparedTargetCredential(
+        credential_id=credential_id,
+        expected_current=expected_current,
+        encoded=envelope,
+        credential=TargetCredential(
+            secret=clean_secret,
+            binding_hash=_binding_hash(role, target_hash, binding_id),
+            replaced=replaced,
+            persistent=persistent,
+        ),
+    )
+
+
+def commit_target_credential(
+    store: SecretStore,
+    prepared: PreparedTargetCredential,
+) -> TargetCredential:
+    """Commit an identity-validated credential generation to its exact role."""
+
+    if store.get(prepared.credential_id) != prepared.expected_current:
+        raise SecretStoreError(
+            "The Odoo credential changed while the new key was being checked"
+        )
     store.set(
-        credential_id,
-        envelope,
-        persistent=persistent,
+        prepared.credential_id,
+        prepared.encoded,
+        persistent=prepared.credential.persistent,
     )
-    return TargetCredential(
-        secret=clean_secret,
-        binding_hash=_binding_hash(role, target_hash, binding_id),
-        replaced=replaced,
-        persistent=persistent,
-    )
+    return prepared.credential
 
 
 def get_target_credential(
@@ -291,6 +340,25 @@ def audit_stored_target_credential(
         role=role.value,
         action="REPLACED" if credential.replaced else "STORED",
         binding_hash=credential.binding_hash,
+        persistent=credential.persistent,
+    )
+
+
+def audit_reauthorized_target_credential(
+    workspace_states: WorkspaceStateService,
+    workspace_state: WorkspaceState,
+    credential: TargetCredential,
+    *,
+    original_binding_hash: str,
+    actor: Actor,
+) -> None:
+    """Record an identity-validated recovery credential without its secret."""
+
+    workspace_states.record_recovery_credential_event(
+        workspace_state.workspace_id,
+        actor=actor,
+        original_binding_hash=original_binding_hash,
+        recovery_binding_hash=credential.binding_hash,
         persistent=credential.persistent,
     )
 

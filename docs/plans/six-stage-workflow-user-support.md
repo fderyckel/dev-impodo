@@ -958,8 +958,8 @@ Planned -> Submitted -> Accepted by Odoo
 
 If the process stops, the timeline should distinguish **Outcome unknown**,
 **Assessment required**, **Safe to resume**, and **Verified**. The primary
-action should remain **Assess and resume interrupted load** when that is the
-current recovery route.
+actions should be **Check recovery** for the non-writing Odoo assessment and,
+only after that succeeds, **Resume saved load** with explicit confirmation.
 
 ### Impact justification
 

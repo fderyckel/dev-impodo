@@ -82,8 +82,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const editor = decision.querySelector("[data-key-editor]");
     const technicalFields = decision.querySelector(".key-technical-fields");
     const fieldError = decision.querySelector("[data-key-field-error]");
+    const description = decision.querySelector("[data-key-description]");
+    const decisionStatus = decision.querySelector(
+      "[data-key-decision-status]"
+    );
+    const cardSubmit = decision.querySelector("[data-key-card-submit]");
     const keyForm = decision.closest("form");
+    const wasConfirmed = decision.dataset.keyConfirmed === "true";
     let hasFieldConflict = false;
+    let descriptionEdited = false;
     let labels = {};
     try {
       labels = JSON.parse(decision.dataset.fieldLabels || "{}");
@@ -98,6 +105,46 @@ document.addEventListener("DOMContentLoaded", () => {
         .filter(Boolean);
     const displayField = (name) =>
       labels[name] ? `${labels[name]} (${name})` : name;
+    const initialSelection = {
+      keyFields: values(combinedKey?.value),
+      scopeFields: values(combinedScope?.value),
+      description: description?.value || "",
+    };
+    const sameValues = (left, right) =>
+      left.length === right.length &&
+      left.every((value, index) => value === right[index]);
+    const updateDecisionStatus = () => {
+      if (!wasConfirmed) {
+        return;
+      }
+      const changed =
+        !sameValues(values(combinedKey?.value), initialSelection.keyFields) ||
+        !sameValues(values(combinedScope?.value), initialSelection.scopeFields) ||
+        (description?.value || "") !== initialSelection.description;
+      decision.classList.toggle("is-confirmed", !changed);
+      decision.classList.toggle("has-unconfirmed-changes", changed);
+      if (decisionStatus) {
+        decisionStatus.classList.toggle("complete", !changed);
+        decisionStatus.classList.toggle("attention", changed);
+        decisionStatus.textContent = changed ? "Unsaved change" : "Rule confirmed";
+      }
+      if (cardSubmit) {
+        cardSubmit.textContent = changed
+          ? "Save changes and continue"
+          : "Continue to Match data";
+      }
+    };
+    const clearDescriptionForChangedIdentity = () => {
+      if (!description || descriptionEdited) {
+        return;
+      }
+      const identityChanged =
+        !sameValues(values(combinedKey?.value), initialSelection.keyFields) ||
+        !sameValues(values(combinedScope?.value), initialSelection.scopeFields);
+      if (identityChanged) {
+        description.value = "";
+      }
+    };
     const showDraft = () => {
       const keyFields = values(combinedKey?.value);
       const scopeFields = values(combinedScope?.value);
@@ -156,26 +203,31 @@ document.addEventListener("DOMContentLoaded", () => {
     const refreshKeyDraft = () => {
       showDraft();
       updateKeyFieldConflicts();
+      updateDecisionStatus();
     };
     const syncSimpleChoice = (select, input) => {
       if (!select || !input) {
         return;
       }
       input.value = select.value;
-      refreshKeyDraft();
     };
 
     primaryKey?.addEventListener("change", () => {
       syncSimpleChoice(primaryKey, combinedKey);
+      clearDescriptionForChangedIdentity();
+      refreshKeyDraft();
     });
     primaryScope?.addEventListener("change", () => {
       syncSimpleChoice(primaryScope, combinedScope);
+      clearDescriptionForChangedIdentity();
+      refreshKeyDraft();
     });
     combinedKey?.addEventListener("input", () => {
       const keyFields = values(combinedKey.value);
       if (primaryKey) {
         primaryKey.value = keyFields.length === 1 ? keyFields[0] : "";
       }
+      clearDescriptionForChangedIdentity();
       refreshKeyDraft();
     });
     combinedScope?.addEventListener("input", () => {
@@ -183,6 +235,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (primaryScope) {
         primaryScope.value = scopeFields.length === 1 ? scopeFields[0] : "";
       }
+      clearDescriptionForChangedIdentity();
+      refreshKeyDraft();
+    });
+    description?.addEventListener("input", () => {
+      descriptionEdited = true;
       refreshKeyDraft();
     });
     keyForm?.addEventListener("submit", (event) => {

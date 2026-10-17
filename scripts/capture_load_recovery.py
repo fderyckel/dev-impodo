@@ -9,6 +9,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from scripts.capture_match_data_recovery_screenshots import _start_server, _stop_server
 from tests.integration.web.test_load_recovery import LoadRecoveryBrowserTests
+from impodo.web.target_credentials import target_write_credential_id
 
 
 def capture() -> None:
@@ -19,6 +20,9 @@ def capture() -> None:
     server = thread = None
     try:
         with fixture.recovery_context():
+            fixture.context.secret_store.delete(
+                target_write_credential_id(fixture.workspace)
+            )
             session = fixture.client.cookies.get("impodo_session")
             if not session:
                 raise RuntimeError("The isolated app did not establish its session")
@@ -39,7 +43,8 @@ def capture() -> None:
                     f"{base_url}/workspaces/{fixture.workspace.workspace_id}/load/outcome",
                     wait_until="networkidle",
                 )
-                expect(page.get_by_role("button", name="Assess and resume interrupted load")).to_be_visible()
+                expect(page.get_by_role("button", name="Check recovery")).to_be_visible()
+                expect(page.get_by_label("Odoo loading key")).to_be_visible()
                 page.screenshot(
                     path=str(REPOSITORY_ROOT / "docs/images/user/18b-load-recovery.png"),
                     full_page=False,

@@ -635,6 +635,7 @@ stages:
       - src/impodo/application/workspace/execution/service.py::ExecutionService
       - src/impodo/application/workspace/execution/service.py::ExecutionPreview
       - src/impodo/application/workspace/execution/service.py::ExecutionService.execute
+      - src/impodo/application/workspace/execution/service.py::ExecutionService.review_recovery
       - src/impodo/application/workspace/execution/service.py::ExecutionService.resume
       - src/impodo/application/workspace/execution/service.py::_targeted_recovery_row_ids
       - src/impodo/application/workspace/execution/service.py::ExecutionService.resume_transfer
@@ -664,6 +665,9 @@ stages:
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService.assess_recovery
       - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_batch_started
       - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_recovery
+      - src/impodo/web/target_credentials.py::prepare_target_credential
+      - src/impodo/web/target_credentials.py::commit_target_credential
+      - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.record_recovery_credential_event
       - src/impodo/application/destination_matching_service.py::DestinationMatchingService
       - src/impodo/application/destination_matching_service.py::destination_governed_key_choices
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_identity_counts
@@ -686,6 +690,7 @@ stages:
       - src/impodo/application/workspace/execution/service.py::ExecutionService.execute_transfer
       - src/impodo/application/workspace/execution/service.py::ExecutionService.current_transfer_run
       - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.save_transfer_preflight_report
+      - scripts/capture_load_recovery.py::capture
       - scripts/capture_odoo_transfer_screenshots.py::capture
     tests:
       - tests/application/workspace/execution/test_service.py
@@ -702,6 +707,7 @@ stages:
       - tests/integration/odoo/test_readback_retries.py
       - tests/integration/web/test_load_workflow.py
       - tests/integration/web/test_load_recovery.py
+      - tests/integration/protected_evidence/test_target_credentials.py
       - tests/integration/web/test_correction_workflow.py
       - tests/application/test_correction_jobs.py
       - tests/application/test_correction_orchestration.py

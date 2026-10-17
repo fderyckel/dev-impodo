@@ -829,6 +829,22 @@ class ColumnarOperationParityTests(unittest.TestCase):
             ),
             (
                 ScalarFieldMapping(
+                    target_field="ordered_on",
+                    source_column_key="product.ordered_on",
+                    value_type="date",
+                    transform=ScalarTransformPolicy(date_format="mdy_slash"),
+                ),
+                (
+                    None,
+                    "5/9/2007",
+                    "5/29/2003",
+                    "11/11/2008",
+                    "09/08/2022",
+                    "2/30/2026",
+                ),
+            ),
+            (
+                ScalarFieldMapping(
                     target_field="updated_at",
                     source_column_key="product.updated_at",
                     value_type="datetime",

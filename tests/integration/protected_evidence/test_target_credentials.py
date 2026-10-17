@@ -14,6 +14,7 @@ from impodo.application.shared.secrets import SecretStoreError
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     TargetCredentialRemovalReason,
+    commit_target_credential,
     delete_target_credential,
     delete_target_credentials,
     destination_read_credential_id,
@@ -21,6 +22,7 @@ from impodo.web.target_credentials import (
     get_target_credential,
     get_target_credential_status,
     local_read_credential_binding_hash,
+    prepare_target_credential,
     store_target_credential,
     target_read_credential_id,
     target_write_credential_id,
@@ -114,6 +116,78 @@ class TargetCredentialTests(unittest.TestCase):
         self.assertNotIn("same-secret", first.binding_hash)
         self.assertFalse(first.replaced)
         self.assertTrue(second.replaced)
+
+    def test_prepared_credential_does_not_replace_the_vault_until_committed(self) -> None:
+        original = store_target_credential(
+            self.store,
+            self.workspace_state,
+            TargetCredentialRole.WRITE,
+            "original-secret",
+            persistent=False,
+        )
+
+        prepared = prepare_target_credential(
+            self.store,
+            self.workspace_state,
+            TargetCredentialRole.WRITE,
+            "recovery-secret",
+            persistent=True,
+        )
+
+        self.assertEqual(
+            get_target_credential(
+                self.store,
+                self.workspace_state,
+                TargetCredentialRole.WRITE,
+            ),
+            original,
+        )
+        self.assertNotIn("recovery-secret", repr(prepared))
+        committed = commit_target_credential(self.store, prepared)
+        self.assertEqual(committed, prepared.credential)
+        self.assertEqual(
+            get_target_credential(
+                self.store,
+                self.workspace_state,
+                TargetCredentialRole.WRITE,
+            ),
+            committed,
+        )
+
+    def test_prepared_credential_does_not_overwrite_a_concurrent_rotation(self) -> None:
+        store_target_credential(
+            self.store,
+            self.workspace_state,
+            TargetCredentialRole.WRITE,
+            "original-secret",
+            persistent=False,
+        )
+        prepared = prepare_target_credential(
+            self.store,
+            self.workspace_state,
+            TargetCredentialRole.WRITE,
+            "recovery-secret",
+            persistent=False,
+        )
+        rotated = store_target_credential(
+            self.store,
+            self.workspace_state,
+            TargetCredentialRole.WRITE,
+            "concurrent-secret",
+            persistent=False,
+        )
+
+        with self.assertRaisesRegex(SecretStoreError, "changed while"):
+            commit_target_credential(self.store, prepared)
+
+        self.assertEqual(
+            get_target_credential(
+                self.store,
+                self.workspace_state,
+                TargetCredentialRole.WRITE,
+            ),
+            rotated,
+        )
 
     def test_safe_status_distinguishes_session_and_persistent_storage(self) -> None:
         self.assertEqual(

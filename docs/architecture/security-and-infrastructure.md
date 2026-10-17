@@ -177,6 +177,12 @@ without establishing a coherent confidentiality boundary.
 - Successful credential storage or replacement adds an actor-bound DuckDB
   audit event containing the random credential-generation binding and storage
   class. Secrets and raw Odoo identity values remain excluded.
+- Prepared-data recovery may stage a re-entered write key in memory, but it
+  commits that generation only after a read-only probe matches the interrupted
+  run's target, principal, observed permissions, and company context. The
+  reauthorization audit records only the old and new random binding hashes and
+  storage class. The commit fails if the vault entry changed during the remote
+  check. A failed check does not replace the vault entry.
 - Target change and project deletion remove both role-qualified vault entries.
   Each entry that existed produces an actor-bound, non-secret registry receipt
   containing its binding hash when recoverable, storage class, target hash, and
