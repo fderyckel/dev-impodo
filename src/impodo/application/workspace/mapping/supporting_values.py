@@ -8,8 +8,11 @@ destination references during Match data.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
+from typing import Protocol
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     RelationshipValueSource,
@@ -19,6 +22,24 @@ from impodo.domain.mapping.contracts import (
     relationship_target_fields,
 )
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
+from impodo.domain.workspace.reference_keys import (
+    reference_policy_hash,
+    standard_reference_key,
+)
+from impodo.domain.workspace.supporting_lookups import (
+    SupportingLookupSnapshot,
+    supporting_lookup_key,
+)
+
+
+class MappingSupportingLookupReader(Protocol):
+    """Read exact current lookup pointers without one connection per key."""
+
+    def list_current(
+        self,
+        workspace_id: str,
+        lookup_keys: Collection[str],
+    ) -> tuple[SupportingLookupSnapshot, ...]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,9 +232,69 @@ def plan_mapping_supporting_values(
     )
 
 
+def load_current_mapping_supporting_references(
+    repository: MappingSupportingLookupReader | None,
+    workspace_id: str,
+    datasets: tuple[DatasetMapping, ...],
+    schema: OdooSchemaCatalog,
+) -> tuple[SupportingLookupSnapshot, ...]:
+    """Load every current supporting contract in one bounded repository read."""
+
+    if repository is None:
+        return ()
+    version_decision = assess_odoo_operation(
+        schema.odoo_version,
+        OdooOperation.COMPARE,
+    )
+    odoo_major_version = (
+        version_decision.version.major if version_decision.allowed else -1
+    )
+    current_policy_hash = reference_policy_hash(odoo_major_version)
+    if current_policy_hash is None:
+        return ()
+    lookup_keys = set()
+    for requirement in plan_mapping_supporting_values(datasets, schema):
+        standard = standard_reference_key(
+            requirement.model_name,
+            odoo_major_version=odoo_major_version,
+        )
+        display_field = (
+            standard.display_field
+            if standard is not None
+            and standard.key_fields == requirement.key_fields
+            and standard.scope_fields == requirement.scope_fields
+            else requirement.key_fields[0]
+        )
+        lookup_keys.add(
+            supporting_lookup_key(
+                relation_model=requirement.model_name,
+                key_fields=requirement.key_fields,
+                scope_fields=requirement.scope_fields,
+                display_field=display_field,
+                reference_policy_hash=current_policy_hash,
+            )
+        )
+    if not lookup_keys:
+        return ()
+    return tuple(
+        snapshot
+        for snapshot in repository.list_current(workspace_id, lookup_keys)
+        if snapshot.workspace_id == workspace_id
+        and snapshot.lookup_key in lookup_keys
+        and snapshot.target_hash == schema.connection_target_hash
+        and snapshot.read_credential_binding_hash
+        == schema.read_credential_binding_hash
+        and snapshot.read_principal_hash == schema.read_principal_hash
+        and snapshot.read_context_hash == schema.read_context_hash
+        and snapshot.reference_policy_hash == current_policy_hash
+    )
+
+
 __all__ = [
+    "MappingSupportingLookupReader",
     "MappingSupportingRelationship",
     "MappingSupportingRequirement",
     "MappingSupportingSource",
+    "load_current_mapping_supporting_references",
     "plan_mapping_supporting_values",
 ]

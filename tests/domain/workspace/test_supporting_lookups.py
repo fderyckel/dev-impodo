@@ -15,6 +15,7 @@ from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepo
 from impodo.adapters.duckdb.supporting_lookup_repository import (
     SupportingLookupRepository,
 )
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.supporting_lookup_service import SupportingLookupService
 from impodo.domain.shared.models import target_identity_hash
 from impodo.domain.workspace.reference_keys import StandardReferenceFieldContract
@@ -157,6 +158,58 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
         )
 
         self.assertIsNone(current)
+
+    def test_bulk_current_read_uses_one_connection_for_multiple_keys(self) -> None:
+        first = self.service.capture(
+            self.workspace_state.workspace_id,
+            relation_model="res.company",
+            key_fields=("name",),
+            scope_fields=(),
+            display_field="name",
+            field_contracts=(
+                StandardReferenceFieldContract("name", "char", True, False),
+            ),
+            target_hash=self.target_hash,
+            read_credential_binding_hash="binding",
+            read_principal_hash="principal",
+            read_permission_hash="permission",
+            read_context_hash="context",
+            captured_at=self.now,
+            choices=(SupportingLookupChoice("United Caps Wiltz", "Wiltz"),),
+            ambiguous_values=(),
+            actor=LOCAL_ACTOR,
+        )
+        second = self.service.capture(
+            self.workspace_state.workspace_id,
+            relation_model="uom.uom",
+            key_fields=("name",),
+            scope_fields=(),
+            display_field="name",
+            field_contracts=(
+                StandardReferenceFieldContract("name", "char", True, False),
+            ),
+            target_hash=self.target_hash,
+            read_credential_binding_hash="binding",
+            read_principal_hash="principal",
+            read_permission_hash="permission",
+            read_context_hash="context",
+            captured_at=self.now,
+            choices=(SupportingLookupChoice("Units", "Units"),),
+            ambiguous_values=(),
+            actor=LOCAL_ACTOR,
+        )
+
+        with collect_duckdb_request_timings() as timings:
+            restored = self.repository.list_current(
+                self.workspace_state.workspace_id,
+                {first.lookup_key, second.lookup_key, "sha256:" + "f" * 64},
+            )
+
+        self.assertEqual(
+            {item.snapshot_id for item in restored},
+            {first.snapshot_id, second.snapshot_id},
+        )
+        self.assertEqual(timings.connection_count, 1)
 
     def test_preflight_resolves_exact_reference_independently_from_display(
         self,

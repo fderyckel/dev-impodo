@@ -91,7 +91,7 @@ from ...domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 )
-from ..composition.page_reads import run_page_read
+from ..composition.page_reads import run_local_operation, run_page_read
 from ..constants import (
     TRANSFORMATION_IMPACT_OUTCOMES,
     TRANSFORMATION_IMPACT_PAGE_SIZE,
@@ -1189,7 +1189,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
         require_session(request)
         try:
-            receipt = await run_in_threadpool(
+            receipt = await run_page_read(
                 context.mapping_workspace.get_mutation_receipt,
                 workspace_id,
                 operation_id,
@@ -1248,62 +1248,93 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
             _flash(request, message)
             return RedirectResponse(active_url, status_code=303)
-        selection = context.queries.get_mapping_source_selection(workspace_id)
-        if selection is None:
-            raise HTTPException(status_code=422, detail="Source selection missing")
         requested_dataset = _optional_nonnegative_query_int(
             request.query_params.get("mapping_dataset")
         )
-        active_dataset = min(
-            requested_dataset if requested_dataset is not None else 0,
-            max(len(selection.datasets) - 1, 0),
-        )
-        mapping_return_url = (
-            f"{_mapping_return_url(request, workspace_id)}"
-            f"#mapping-dataset-{active_dataset}"
-        )
-
-        schema = context.queries.get_odoo_schema_catalog(workspace_id)
-        governance = context.queries.get_schema_governance(workspace_id)
-        if schema is None:
-            raise HTTPException(status_code=422, detail="Odoo schema missing")
+        mapping_return_url = _mapping_return_url(request, workspace_id)
         operation_id = ""
         mutation_started = False
         row_review_check_started = False
         dependency_repairs = ()
+        completed_receipt = None
         try:
             form = await _mapping_request_form(request)
-            allowed = _mapping_allowed_fields(form, selection, schema)
-            _secure_form(request, form, allowed)
-            action = _text(form, "action")
-            if action not in {
-                "save_progress",
-                "draft",
-                "confirm_rows",
-                "submit",
-                "remove_readonly",
-                "confirm_defaults",
-                "refresh_defaults",
-            } and not action.startswith(
-                ("set_disposition:", "clear_disposition:")
-            ):
-                raise WorkspaceError("Choose a supported matching action")
-            expected_parent = _optional_int(
-                _text(form, "expected_parent_version")
+
+            def begin_mapping_command():
+                selection = context.queries.get_mapping_source_selection(
+                    workspace_id
+                )
+                if selection is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Source selection missing",
+                    )
+                schema = context.queries.get_odoo_schema_catalog(workspace_id)
+                governance = context.queries.get_schema_governance(workspace_id)
+                if schema is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Odoo schema missing",
+                    )
+                allowed = _mapping_allowed_fields(form, selection, schema)
+                _secure_form(request, form, allowed)
+                action = _text(form, "action")
+                if action not in {
+                    "save_progress",
+                    "draft",
+                    "confirm_rows",
+                    "submit",
+                    "remove_readonly",
+                    "confirm_defaults",
+                    "refresh_defaults",
+                } and not action.startswith(
+                    ("set_disposition:", "clear_disposition:")
+                ):
+                    raise WorkspaceError("Choose a supported matching action")
+                expected_parent = _optional_int(
+                    _text(form, "expected_parent_version")
+                )
+                expected_working_version = _optional_int(
+                    _text(form, "expected_working_draft_version")
+                )
+                operation_id = _text(form, "operation_id") or str(uuid4())
+                receipt = context.mapping_workspace.begin_mutation(
+                    workspace_id,
+                    operation_id=operation_id,
+                    action=_mapping_mutation_action(action),
+                    request_hash=_mapping_mutation_request_hash(form),
+                    submitted_working_draft_version=expected_working_version,
+                    submitted_mapping_revision_version=expected_parent,
+                    actor=context.actor,
+                )
+                return (
+                    selection,
+                    schema,
+                    governance,
+                    action,
+                    expected_parent,
+                    expected_working_version,
+                    operation_id,
+                    receipt,
+                )
+
+            (
+                selection,
+                schema,
+                governance,
+                action,
+                expected_parent,
+                expected_working_version,
+                operation_id,
+                receipt,
+            ) = await run_local_operation(begin_mapping_command)
+            active_dataset = min(
+                requested_dataset if requested_dataset is not None else 0,
+                max(len(selection.datasets) - 1, 0),
             )
-            expected_working_version = _optional_int(
-                _text(form, "expected_working_draft_version")
-            )
-            operation_id = _text(form, "operation_id") or str(uuid4())
-            receipt = await run_in_threadpool(
-                context.mapping_workspace.begin_mutation,
-                workspace_id,
-                operation_id=operation_id,
-                action=_mapping_mutation_action(action),
-                request_hash=_mapping_mutation_request_hash(form),
-                submitted_working_draft_version=expected_working_version,
-                submitted_mapping_revision_version=expected_parent,
-                actor=context.actor,
+            mapping_return_url = (
+                f"{_mapping_return_url(request, workspace_id)}"
+                f"#mapping-dataset-{active_dataset}"
             )
             mutation_started = True
             if receipt.replayed:
@@ -1348,7 +1379,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     if parts[0] == "set_disposition"
                     else None
                 )
-                draft = await run_in_threadpool(
+                draft = await run_local_operation(
                     context.mapping_workspace.set_target_field_disposition,
                     workspace_id,
                     dataset_id=selection.datasets[dataset_index].dataset_id,
@@ -1410,7 +1441,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 _flash(request, message)
                 return RedirectResponse(decision_return_url, status_code=303)
             if action == "remove_readonly":
-                working_draft, removed_count = await run_in_threadpool(
+                working_draft, removed_count = await run_local_operation(
                     context.mapping_workspace.remove_readonly_field_mappings,
                     workspace_id,
                     expected_version=expected_working_version,
@@ -1436,7 +1467,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 _flash(request, message)
                 return RedirectResponse(mapping_return_url, status_code=303)
             if action == "confirm_defaults":
-                working_draft, confirmed_count = await run_in_threadpool(
+                working_draft, confirmed_count = await run_local_operation(
                     context.mapping_workspace.confirm_available_odoo_defaults,
                     workspace_id,
                     expected_version=expected_working_version,
@@ -1475,7 +1506,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 _flash(request, message)
                 return RedirectResponse(decision_return_url, status_code=303)
             if action == "refresh_defaults":
-                requested_fields = await run_in_threadpool(
+                requested_fields = await run_local_operation(
                     context.mapping_workspace.default_recovery_fields,
                     workspace_id,
                     actor=context.actor,
@@ -1499,7 +1530,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     schema_review_url = (
                         f"/workspaces/{workspace_id}/schema#odoo-details"
                     )
-                    await run_in_threadpool(
+                    await run_local_operation(
                         context.mapping_workspace.complete_mutation,
                         workspace_id,
                         operation_id,
@@ -1519,7 +1550,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                             )
                         )
                     return RedirectResponse(schema_review_url, status_code=303)
-                working_draft, confirmed_count = await run_in_threadpool(
+                working_draft, confirmed_count = await run_local_operation(
                     context.mapping_workspace.confirm_available_odoo_defaults,
                     workspace_id,
                     expected_version=expected_working_version,
@@ -1558,20 +1589,20 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     )
                 _flash(request, message)
                 return RedirectResponse(decision_return_url, status_code=303)
-            active_definition = _active_mapping_definition(
-                context,
-                workspace_id,
-                selection,
-                schema,
-                governance,
-            )
-            if action == "confirm_rows":
-                if active_definition is None:
-                    raise WorkspaceError(
-                        "Check the current mapping before confirming rows"
-                    )
-                datasets = active_definition.datasets
-            else:
+            def prepare_mapping_datasets():
+                active_definition = _active_mapping_definition(
+                    context,
+                    workspace_id,
+                    selection,
+                    schema,
+                    governance,
+                )
+                if action == "confirm_rows":
+                    if active_definition is None:
+                        raise WorkspaceError(
+                            "Check the current mapping before confirming rows"
+                        )
+                    return active_definition, active_definition.datasets, ()
                 access = context.workspace_access.require(
                     context.actor,
                     Capability.PROJECT_VIEW,
@@ -1615,10 +1646,19 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     schema,
                     governance,
                 )
-                datasets = dependency_repair.datasets
-                dependency_repairs = dependency_repair.repairs
+                return (
+                    active_definition,
+                    dependency_repair.datasets,
+                    dependency_repair.repairs,
+                )
+
+            (
+                active_definition,
+                datasets,
+                dependency_repairs,
+            ) = await run_page_read(prepare_mapping_datasets)
             if action == "confirm_rows":
-                await run_in_threadpool(
+                await run_local_operation(
                     context.row_inclusion_reviews.confirm_current,
                     workspace_id,
                     datasets=datasets,
@@ -1634,21 +1674,97 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 _flash(request, message)
             elif action == "save_progress":
-                working_draft = await run_in_threadpool(
-                    context.mapping_workspace.save_working_draft,
-                    workspace_id,
-                    datasets=datasets,
-                    expected_version=expected_working_version,
-                    actor=context.actor,
-                    operation_id=operation_id,
-                )
+                def save_progress():
+                    working_draft = (
+                        context.mapping_workspace.save_working_draft(
+                            workspace_id,
+                            datasets=datasets,
+                            expected_version=expected_working_version,
+                            actor=context.actor,
+                            operation_id=operation_id,
+                        )
+                    )
+                    formula_issues = mapping_formula_authoring_issues(
+                        working_draft.definition.datasets,
+                        selection,
+                    )
+                    preparation_plan = (
+                        context.queries.get_derived_entity_plan(workspace_id)
+                    )
+                    preference = context.matching_order.current_preference(
+                        workspace_id,
+                        actor=context.actor,
+                    )
+                    preference_tie_break = (
+                        context.matching_order.effective_preference_order(
+                            preference,
+                            (item.dataset_id for item in selection.datasets),
+                        )
+                        if preference is not None
+                        else None
+                    )
+                    recommendation = context.matching_order.recommend(
+                        selection,
+                        schema,
+                        working_draft.definition,
+                        related_links=related_dataset_links(preparation_plan),
+                        derived_links=derived_dataset_links(preparation_plan),
+                        tie_break_order=preference_tie_break,
+                    )
+                    work_order = (
+                        context.matching_order.effective_preference_order(
+                            preference,
+                            recommendation.ordered_dataset_ids,
+                        )
+                    )
+                    next_dataset_id = (
+                        context.matching_order.next_incomplete_dataset_id(
+                            selection,
+                            recommendation,
+                            working_draft.definition,
+                            current_dataset_id=(
+                                selection.datasets[active_dataset].dataset_id
+                            ),
+                            work_order=work_order,
+                        )
+                    )
+                    next_dataset_index = next(
+                        (
+                            index
+                            for index, item in enumerate(selection.datasets)
+                            if item.dataset_id == next_dataset_id
+                        ),
+                        None,
+                    )
+                    receipt = context.mapping_workspace.get_mutation_receipt(
+                        workspace_id,
+                        operation_id,
+                        actor=context.actor,
+                    )
+                    if (
+                        receipt is None
+                        or receipt.state is not MappingMutationState.COMMITTED
+                    ):
+                        raise WorkspaceError(
+                            "Impodo could not verify the saved Match data "
+                            "operation receipt"
+                        )
+                    return (
+                        working_draft,
+                        formula_issues,
+                        next_dataset_index,
+                        receipt,
+                    )
+
+                (
+                    working_draft,
+                    formula_issues,
+                    next_dataset_index,
+                    receipt,
+                ) = await run_local_operation(save_progress)
                 set_diagnostic_working_draft_version(
                     request,
                     working_draft.version,
-                )
-                formula_issues = mapping_formula_authoring_issues(
-                    working_draft.definition.datasets,
-                    selection,
                 )
                 save_message = (
                     saved_with_formula_issues_message(len(formula_issues))
@@ -1658,52 +1774,6 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 save_message = _with_incoming_dependency_notice(
                     save_message,
                     dependency_repairs,
-                )
-                preparation_plan = context.queries.get_derived_entity_plan(
-                    workspace_id
-                )
-                preference = context.matching_order.current_preference(
-                    workspace_id,
-                    actor=context.actor,
-                )
-                preference_tie_break = (
-                    context.matching_order.effective_preference_order(
-                        preference,
-                        (item.dataset_id for item in selection.datasets),
-                    )
-                    if preference is not None
-                    else None
-                )
-                recommendation = context.matching_order.recommend(
-                    selection,
-                    schema,
-                    working_draft.definition,
-                    related_links=related_dataset_links(preparation_plan),
-                    derived_links=derived_dataset_links(preparation_plan),
-                    tie_break_order=preference_tie_break,
-                )
-                work_order = context.matching_order.effective_preference_order(
-                    preference,
-                    recommendation.ordered_dataset_ids,
-                )
-                next_dataset_id = (
-                    context.matching_order.next_incomplete_dataset_id(
-                        selection,
-                        recommendation,
-                        working_draft.definition,
-                        current_dataset_id=(
-                            selection.datasets[active_dataset].dataset_id
-                        ),
-                        work_order=work_order,
-                    )
-                )
-                next_dataset_index = next(
-                    (
-                        index
-                        for index, item in enumerate(selection.datasets)
-                        if item.dataset_id == next_dataset_id
-                    ),
-                    None,
                 )
                 next_recommended_url = (
                     _mapping_return_url(
@@ -1721,24 +1791,24 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     f"#mapping-dataset-{active_dataset}"
                 )
                 if json_request:
-                    return JSONResponse(
-                        await _mapping_mutation_result_payload(
-                            context,
-                            request,
-                            workspace_id,
-                            operation_id,
-                            message=save_message,
-                            redirect_url=progress_return_url,
-                            extra={
-                                "saved_at": working_draft.updated_at.isoformat(),
-                                "next_recommended_url": next_recommended_url,
-                                "authoring_issues": [
-                                    issue.portable_dict()
-                                    for issue in formula_issues
-                                ],
-                            },
-                        )
+                    payload = _mapping_mutation_receipt_payload(
+                        request,
+                        workspace_id,
+                        receipt,
                     )
+                    payload.update(
+                        {
+                            "message": save_message,
+                            "redirect_url": progress_return_url,
+                            "saved_at": working_draft.updated_at.isoformat(),
+                            "next_recommended_url": next_recommended_url,
+                            "authoring_issues": [
+                                issue.portable_dict()
+                                for issue in formula_issues
+                            ],
+                        }
+                    )
+                    return JSONResponse(payload)
                 _flash(
                     request,
                     save_message,
@@ -1748,7 +1818,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     status_code=303,
                 )
             elif action == "draft":
-                workspace_state = context.queries.get(workspace_id)
+                workspace_state = await run_page_read(
+                    context.queries.get,
+                    workspace_id,
+                )
                 await run_in_threadpool(
                     _capture_mapping_supporting_values,
                     context,
@@ -1756,36 +1829,62 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     schema,
                     datasets,
                 )
-                _revision, validation = await run_in_threadpool(
-                    context.mapping_workspace.check_definition,
-                    workspace_id,
-                    datasets=datasets,
-                    expected_parent_version=expected_parent,
-                    expected_working_draft_version=(
-                        expected_working_version
-                    ),
-                    actor=context.actor,
-                )
-                row_review = None
-                if validation.status.value != "INVALID" and any(
-                    item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
-                    for item in _revision.definition.datasets
-                ):
-                    row_review_check_started = True
-                    row_review = await run_in_threadpool(
-                        context.row_inclusion_reviews.check_current,
-                        workspace_id,
-                        actor=context.actor,
-                        operation_id=operation_id,
+
+                def check_mapping():
+                    nonlocal row_review_check_started
+                    _revision, validation = (
+                        context.mapping_workspace.check_definition(
+                            workspace_id,
+                            datasets=datasets,
+                            expected_parent_version=expected_parent,
+                            expected_working_draft_version=(
+                                expected_working_version
+                            ),
+                            actor=context.actor,
+                        )
                     )
-                else:
-                    await run_in_threadpool(
-                        context.mapping_workspace.complete_mutation,
+                    row_review = None
+                    if validation.status.value != "INVALID" and any(
+                        item.row_inclusion.mode
+                        is RowInclusionMode.MATCHING_ROWS
+                        for item in _revision.definition.datasets
+                    ):
+                        row_review_check_started = True
+                        row_review = context.row_inclusion_reviews.check_current(
+                            workspace_id,
+                            actor=context.actor,
+                            operation_id=operation_id,
+                        )
+                    else:
+                        context.mapping_workspace.complete_mutation(
+                            workspace_id,
+                            operation_id,
+                            actor=context.actor,
+                            content_identity=(
+                                _revision.definition.content_hash
+                            ),
+                        )
+                    receipt = context.mapping_workspace.get_mutation_receipt(
                         workspace_id,
                         operation_id,
                         actor=context.actor,
-                        content_identity=_revision.definition.content_hash,
                     )
+                    if (
+                        receipt is None
+                        or receipt.state is not MappingMutationState.COMMITTED
+                    ):
+                        raise WorkspaceError(
+                            "Impodo could not verify the saved Match data "
+                            "operation receipt"
+                        )
+                    return _revision, validation, row_review, receipt
+
+                (
+                    _revision,
+                    validation,
+                    row_review,
+                    completed_receipt,
+                ) = await run_local_operation(check_mapping)
                 if validation.status.value == "INVALID":
                     message = "Matches checked. Review the items that need attention."
                     mapping_return_url = (
@@ -1817,7 +1916,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 _flash(request, message)
             else:
-                await run_in_threadpool(
+                await run_local_operation(
                     context.mapping_workspace.submit_current,
                     workspace_id,
                     datasets=datasets,
@@ -1837,7 +1936,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     workspace_id=workspace_id,
                 )
                 if access.recipe_application_id is not None:
-                    confirmed_application = await run_in_threadpool(
+                    confirmed_application = await run_local_operation(
                         context.run_planning.confirm_application_mapping,
                         access.recipe_application_id,
                         actor=context.actor,
@@ -2032,6 +2131,19 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 status_code=303,
             )
         if json_request:
+            if completed_receipt is not None:
+                payload = _mapping_mutation_receipt_payload(
+                    request,
+                    workspace_id,
+                    completed_receipt,
+                )
+                payload.update(
+                    {
+                        "message": message,
+                        "redirect_url": mapping_return_url,
+                    }
+                )
+                return JSONResponse(payload)
             return JSONResponse(
                 await _mapping_mutation_result_payload(
                     context,
@@ -2397,7 +2509,7 @@ async def _mapping_mutation_result_payload(
     redirect_url: str,
     extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    receipt = await run_in_threadpool(
+    receipt = await run_local_operation(
         context.mapping_workspace.get_mutation_receipt,
         workspace_id,
         operation_id,
@@ -2435,7 +2547,7 @@ async def _reject_mapping_mutation(
     if not mutation_started or not operation_id:
         return None
     try:
-        return await run_in_threadpool(
+        return await run_local_operation(
             context.mapping_workspace.reject_mutation,
             workspace_id,
             operation_id,
@@ -2490,22 +2602,27 @@ async def _check_saved_default_decision(
 ) -> tuple[MappingWorkingDraft, MappingValidationResult]:
     """Validate saved Odoo-default decisions before returning to the page."""
 
-    _revision, validation = await run_in_threadpool(
-        context.mapping_workspace.check_definition,
-        workspace_id,
-        datasets=working_draft.definition.datasets,
-        expected_parent_version=expected_parent_version,
-        expected_working_draft_version=working_draft.version,
-        actor=context.actor,
-        operation_id=operation_id,
-    )
-    checked_draft = await run_in_threadpool(
-        context.mapping_workspace.mappings.get_mapping_working_draft,
-        workspace_id,
-    )
-    if checked_draft is None:
-        raise WorkspaceError("The checked matching draft is no longer available")
-    return checked_draft, validation
+    def check_saved_decision():
+        _revision, validation = context.mapping_workspace.check_definition(
+            workspace_id,
+            datasets=working_draft.definition.datasets,
+            expected_parent_version=expected_parent_version,
+            expected_working_draft_version=working_draft.version,
+            actor=context.actor,
+            operation_id=operation_id,
+        )
+        checked_draft = (
+            context.mapping_workspace.mappings.get_mapping_working_draft(
+                workspace_id
+            )
+        )
+        if checked_draft is None:
+            raise WorkspaceError(
+                "The checked matching draft is no longer available"
+            )
+        return checked_draft, validation
+
+    return await run_local_operation(check_saved_decision)
 
 
 def _checked_default_message(

@@ -47,6 +47,7 @@ from impodo.domain.workspace.reference_keys import (
     captured_reference_field_contracts,
     reference_policy_hash,
 )
+from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 from ..domain.recipe.models import (
     RecipeConflictError,
     RecipeDraftIssue,
@@ -54,6 +55,10 @@ from ..domain.recipe.models import (
     RecipeIntegrityError,
 )
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceDataset, SourceSelection
+from .workspace.mapping.supporting_values import (
+    MappingSupportingLookupReader,
+    load_current_mapping_supporting_references,
+)
 
 
 class RecipeAuthoringSourceRepository(Protocol):
@@ -171,6 +176,7 @@ class RecipeCompiler:
         preparation: RecipeAuthoringPreparationRepository,
         references: RecipeAuthoringReferenceRepository,
         parameters: RecipeAuthoringParameterRepository | None = None,
+        supporting_references: MappingSupportingLookupReader | None = None,
     ) -> None:
         self.sources = sources
         self.mappings = mappings
@@ -179,6 +185,7 @@ class RecipeCompiler:
         self.preparation = preparation
         self.references = references
         self.parameters = parameters
+        self.supporting_references = supporting_references
 
     def compile_workspace(
         self,
@@ -328,6 +335,14 @@ class RecipeCompiler:
                 preparation=self.preparation.get_derived_entity_plan(workspace_id),
                 references=self.references.get_reference_bundle(workspace_id),
                 parameter_definitions=parameter_definitions,
+                supporting_references=(
+                    load_current_mapping_supporting_references(
+                        self.supporting_references,
+                        workspace_id,
+                        revision.definition.datasets,
+                        schema,
+                    )
+                ),
             )
             self._validate_portability(compiled)
         except _RecipeDraftBlocked as error:
@@ -374,6 +389,7 @@ class RecipeCompiler:
         preparation: DerivedEntityPlan | None,
         references: ReferenceBundle | None,
         parameter_definitions: RecipeParameterDefinitions,
+        supporting_references: tuple[SupportingLookupSnapshot, ...],
     ) -> CompiledRecipeDefinition:
         """Translate verified authoring evidence into delivery-independent fields."""
 
@@ -446,6 +462,7 @@ class RecipeCompiler:
             schema,
             governance,
             dataset_ids,
+            supporting_references,
         )
         recipe: dict[str, object] = {
             "contract_versions": dict(CURRENT_RECIPE_CONTRACT_VERSIONS),
@@ -958,7 +975,14 @@ class RecipeCompiler:
             "rules": sorted(rules, key=lambda item: item["logical_rule_id"]),
         }
 
-    def _target(self, mappings, schema, governance, dataset_ids):
+    def _target(
+        self,
+        mappings,
+        schema,
+        governance,
+        dataset_ids,
+        supporting_references,
+    ):
         """Capture reusable Odoo requirements without target-instance facts."""
 
         del dataset_ids
@@ -981,11 +1005,17 @@ class RecipeCompiler:
         selection_codes: dict[tuple[str, str], set[str]] = {}
         reference_decisions: dict[str, list[GovernedReferenceDecision]] = {}
         reference_paths: dict[str, list[dict[str, object]]] = {}
+        supporting_by_signature = {
+            (item.relation_model, item.key_fields, item.scope_fields): item
+            for item in supporting_references
+        }
+        supporting_fields = {}
         governed_signatures = {
             (item.model, item.key_fields, item.scope_fields)
             for item in governance.business_keys
             if item.status is BusinessKeyStatus.CONFIRMED
         }
+        governed_signatures.update(supporting_by_signature)
 
         def register_resolver(
             parent_model: str,
@@ -1008,10 +1038,40 @@ class RecipeCompiler:
                 if target_scope_fields is not None
                 else tuple(item.target_field for item in resolver.scope_mappings)
             )
+            signature = (resolver.model, key_fields, scope_fields)
+            supporting = supporting_by_signature.get(signature)
             for target_field in (*key_fields, *scope_fields):
                 field_roles.setdefault(
                     (resolver.model, target_field), set()
                 ).add("relationship_key")
+                if supporting is not None:
+                    supporting_field = next(
+                        (
+                            item
+                            for item in supporting.field_contracts
+                            if item.name == target_field
+                        ),
+                        None,
+                    )
+                    if supporting_field is not None:
+                        existing = supporting_fields.get(
+                            (resolver.model, target_field)
+                        )
+                        if existing is not None and existing != supporting_field:
+                            raise _RecipeDraftBlocked(
+                                self._issue(
+                                    "ODOO_REFERENCE_POLICY_MISMATCH",
+                                    "Saved Odoo reference evidence is inconsistent.",
+                                    "Refresh the linked Odoo values and check matches again.",
+                                    RecipeDraftRecoveryStep.MATCH_DATA,
+                                    support_reference=(
+                                        f"{resolver.model}.{target_field}"
+                                    ),
+                                )
+                            )
+                        supporting_fields[(resolver.model, target_field)] = (
+                            supporting_field
+                        )
             parent = schema_models.get(parent_model)
             relationship = next(
                 (
@@ -1050,7 +1110,11 @@ class RecipeCompiler:
                 captured_fields=(
                     captured_reference_field_contracts(related.fields)
                     if related is not None
-                    else None
+                    else (
+                        supporting.field_contracts
+                        if supporting is not None
+                        else None
+                    )
                 ),
             )
             if not decision.accepted:
@@ -1158,19 +1222,25 @@ class RecipeCompiler:
                     target_key_fields=key_fields,
                     target_scope_fields=scope_fields,
                 )
+        business_key_shapes = {
+            (key.model, key.key_fields, key.scope_fields)
+            for key in governance.business_keys
+            if key.status is BusinessKeyStatus.CONFIRMED
+        }
+        business_key_shapes.update(supporting_by_signature)
         business_keys = []
-        for key in governance.business_keys:
-            if key.status is not BusinessKeyStatus.CONFIRMED:
-                continue
+        for model_name, key_fields, scope_fields in sorted(business_key_shapes):
             business_keys.append(
                 {
-                    "model": key.model,
-                    "ordered_fields": list(key.key_fields),
-                    "scope_fields": list(key.scope_fields),
+                    "model": model_name,
+                    "ordered_fields": list(key_fields),
+                    "scope_fields": list(scope_fields),
                 }
             )
-            for field in (*key.key_fields, *key.scope_fields):
-                field_roles.setdefault((key.model, field), set()).add("business_key")
+            for field in (*key_fields, *scope_fields):
+                field_roles.setdefault((model_name, field), set()).add(
+                    "business_key"
+                )
         model_payload = []
         dependencies = []
         for model_name in sorted({item[0] for item in field_roles}):
@@ -1181,17 +1251,29 @@ class RecipeCompiler:
                 if candidate_model == model_name
             }
             model_reference_decisions = reference_decisions.get(model_name, ())
-            reviewed_reference_only = bool(
+            reference_only = bool(
                 model_reference_decisions
                 and all(
                     decision.evidence_kind
-                    is ReferenceEvidenceKind.REVIEWED_STANDARD
+                    in {
+                        ReferenceEvidenceKind.REVIEWED_STANDARD,
+                        ReferenceEvidenceKind.CAPTURED_GOVERNED,
+                    }
                     for decision in model_reference_decisions
                 )
                 and not write_fields.get(model_name)
                 and all(
-                    roles == {"relationship_key"}
+                    "relationship_key" in roles
+                    and roles.issubset({"relationship_key", "business_key"})
                     for field_name, roles in required_fields.items()
+                )
+            )
+            reviewed_reference_only = bool(
+                reference_only
+                and all(
+                    decision.evidence_kind
+                    is ReferenceEvidenceKind.REVIEWED_STANDARD
+                    for decision in model_reference_decisions
                 )
             )
             standard = (
@@ -1199,7 +1281,7 @@ class RecipeCompiler:
                 if reviewed_reference_only
                 else None
             )
-            if model is None and not reviewed_reference_only:
+            if model is None and not reference_only:
                 raise _RecipeDraftBlocked(
                     self._issue(
                         "ODOO_MODEL_EVIDENCE_REQUIRED",
@@ -1218,13 +1300,17 @@ class RecipeCompiler:
                     if reviewed_reference_only and standard is not None
                     else None
                 )
-                if standard_field is not None:
+                supporting_field = supporting_fields.get(
+                    (model_name, field_name)
+                )
+                contract_field = standard_field or supporting_field
+                if contract_field is not None:
                     if model is not None and (
                         field is None
-                        or field.type != standard_field.field_type
-                        or field.required != standard_field.required
-                        or field.readonly != standard_field.readonly
-                        or field.relation != standard_field.relation_model
+                        or field.type != contract_field.field_type
+                        or field.required != contract_field.required
+                        or field.readonly != contract_field.readonly
+                        or field.relation != contract_field.relation_model
                     ):
                         raise _RecipeDraftBlocked(
                             self._issue(
@@ -1236,14 +1322,14 @@ class RecipeCompiler:
                             )
                         )
                     payload = {
-                        "field_type": standard_field.field_type,
-                        "name": standard_field.name,
-                        "readonly": standard_field.readonly,
-                        "required": standard_field.required,
+                        "field_type": contract_field.field_type,
+                        "name": contract_field.name,
+                        "readonly": contract_field.readonly,
+                        "required": contract_field.required,
                         "write_use": False,
                     }
-                    if standard_field.relation_model is not None:
-                        payload["relation_model"] = standard_field.relation_model
+                    if contract_field.relation_model is not None:
+                        payload["relation_model"] = contract_field.relation_model
                 elif field is None:
                     raise _RecipeDraftBlocked(
                         self._issue(

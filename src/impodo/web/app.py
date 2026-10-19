@@ -559,6 +559,7 @@ def create_local_app(
         derived_entity_repository,
         advanced_coverage_repository,
         recipe_compilation_repository,
+        supporting_references=supporting_lookup_repository,
     )
     recipes = RecipeService(
         recipe_repository,

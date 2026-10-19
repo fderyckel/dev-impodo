@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime
 from typing import Protocol
 
@@ -19,6 +20,12 @@ from impodo.domain.workspace.reference_keys import (
 
 class SupportingLookupRepositoryPort(Protocol):
     """Persistence required by the supporting-lookup use case."""
+
+    def list_current(
+        self,
+        workspace_id: str,
+        lookup_keys: Collection[str],
+    ) -> tuple[SupportingLookupSnapshot, ...]: ...
 
     def list_current_for_model(
         self,

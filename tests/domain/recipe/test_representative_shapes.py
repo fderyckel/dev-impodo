@@ -67,6 +67,14 @@ from impodo.domain.workspace.contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
+from impodo.domain.workspace.reference_keys import (
+    REFERENCE_POLICY_HASH,
+    StandardReferenceFieldContract,
+)
+from impodo.domain.workspace.supporting_lookups import (
+    SupportingLookupChoice,
+    SupportingLookupSnapshot,
+)
 
 from tests.support.recipe_compiler import Evidence, file_binding
 
@@ -119,6 +127,37 @@ def _key(model: str, *fields: str) -> BusinessKeyDefinition:
     )
 
 
+def _supporting_name_reference(
+    selection: SourceSelection,
+    *,
+    model: str,
+    value: str,
+) -> SupportingLookupSnapshot:
+    workspace_id = str(
+        uuid5(NAMESPACE_URL, f"workspace:{selection.data_version_id}")
+    )
+    return SupportingLookupSnapshot.capture(
+        workspace_id=workspace_id,
+        relation_model=model,
+        key_fields=("name",),
+        scope_fields=(),
+        display_field="name",
+        field_contracts=(
+            StandardReferenceFieldContract("name", "char", True, False),
+        ),
+        target_hash="sha256:" + "6" * 64,
+        read_credential_binding_hash="sha256:" + "2" * 64,
+        read_principal_hash="sha256:" + "3" * 64,
+        read_permission_hash="sha256:" + "4" * 64,
+        read_context_hash="sha256:" + "5" * 64,
+        captured_at=datetime.now(timezone.utc),
+        captured_by="Data manager",
+        choices=(SupportingLookupChoice(value, value),),
+        ambiguous_values=(),
+        reference_policy_hash=REFERENCE_POLICY_HASH,
+    )
+
+
 def _publish(
     *,
     base_selection: SourceSelection,
@@ -128,6 +167,7 @@ def _publish(
     business_keys: tuple[BusinessKeyDefinition, ...],
     preparation: DerivedEntityPlan | None = None,
     parameters: tuple[RecipeParameterDefinition, ...] = (),
+    supporting_references: tuple[SupportingLookupSnapshot, ...] = (),
     mapping_contract_version: int | None = None,
 ) -> dict[str, object]:
     now = datetime.now(timezone.utc)
@@ -207,6 +247,7 @@ def _publish(
         ruleset=ruleset,
         preparation=preparation,
         parameter_definitions=RecipeParameterDefinitions(parameters),
+        supporting_references=supporting_references,
     )
     service = RecipeCompiler(
         evidence,
@@ -216,6 +257,7 @@ def _publish(
         evidence,
         evidence,
         evidence,
+        supporting_references=evidence,
     )
 
     compiled, issues = service.compile_workspace(workspace_id)
@@ -974,6 +1016,202 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
         self.assertEqual(
             rebound.constant_reference,
             mapping.relationships[0].constant_reference,
+        )
+
+    def test_constant_existing_relationship_reuses_supporting_lookup_governance(
+        self,
+    ) -> None:
+        project_id = str(uuid4())
+        equipment = _dataset(
+            "Equipment",
+            (("equipment_code", "string"),),
+            "e",
+        )
+        selection = SourceSelection(
+            str(uuid4()),
+            1,
+            project_id,
+            datetime.now(timezone.utc),
+            "Data manager",
+            (equipment,),
+            "sha256:" + "e" * 64,
+        )
+        mapping = DatasetMapping(
+            dataset_id=equipment.dataset_id,
+            target_model="maintenance.equipment",
+            source_identity_column_keys=(
+                _column(equipment, "equipment_code"),
+            ),
+            target_identity=(
+                IdentityComponentMapping(
+                    (_column(equipment, "equipment_code"),),
+                    ("name",),
+                ),
+            ),
+            fields=(
+                ScalarFieldMapping(
+                    target_field="name",
+                    source_column_key=_column(equipment, "equipment_code"),
+                ),
+            ),
+            relationships=(
+                RelationshipMapping(
+                    target_field="company_id",
+                    kind="many2one",
+                    source_column_keys=(),
+                    resolver=RelationshipResolver(
+                        origin=ResolverOrigin.TARGET_CATALOG,
+                        model="res.company",
+                    ),
+                    value_source=RelationshipValueSource.CONSTANT_EXISTING,
+                    constant_reference=ConstantBusinessReference(
+                        key_values=(
+                            ConstantReferenceComponent(
+                                "name",
+                                "United Caps Wiltz",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        recipe = _publish(
+            base_selection=selection,
+            mapping_selection=selection,
+            mappings=(mapping,),
+            models=(
+                SchemaModel(
+                    "maintenance.equipment",
+                    "Equipment",
+                    (
+                        _field("name", required=True),
+                        _field(
+                            "company_id",
+                            "many2one",
+                            relation="res.company",
+                        ),
+                    ),
+                ),
+            ),
+            business_keys=(_key("maintenance.equipment", "name"),),
+            supporting_references=(
+                _supporting_name_reference(
+                    selection,
+                    model="res.company",
+                    value="United Caps Wiltz",
+                ),
+            ),
+        )
+
+        relationship = recipe["mapping"]["datasets"][0]["relationships"][0]
+        self.assertEqual(relationship["target_model"], "res.company")
+        self.assertEqual(
+            relationship["constant_reference"]["key_values"],
+            [{"target_field": "name", "value": "United Caps Wiltz"}],
+        )
+        contract = recipe["odoo_target_contract"]
+        self.assertIn(
+            {
+                "model": "res.company",
+                "ordered_fields": ["name"],
+                "scope_fields": [],
+            },
+            contract["business_keys"],
+        )
+        company = next(
+            item for item in contract["models"] if item["model"] == "res.company"
+        )
+        self.assertEqual(
+            company["reference_evidence_kind"],
+            "CAPTURED_GOVERNED",
+        )
+        self.assertEqual(
+            company["fields"],
+            [
+                {
+                    "field_type": "char",
+                    "name": "name",
+                    "readonly": False,
+                    "required": True,
+                    "write_use": False,
+                }
+            ],
+        )
+        self.assertEqual(
+            company["reference_paths"],
+            [
+                {
+                    "key_fields": ["name"],
+                    "parent_model": "maintenance.equipment",
+                    "relationship_field": "company_id",
+                    "relationship_type": "many2one",
+                    "scope_fields": [],
+                }
+            ],
+        )
+
+        rebound = RecipeApplicationCompiler()._relationship(
+            relationship,
+            {},
+        )
+        self.assertIs(
+            rebound.value_source,
+            RelationshipValueSource.CONSTANT_EXISTING,
+        )
+        self.assertEqual(
+            rebound.constant_reference,
+            mapping.relationships[0].constant_reference,
+        )
+
+        fresh_schema = OdooSchemaCatalog(
+            workspace_id=str(uuid4()),
+            policy_hash="sha256:" + "1" * 64,
+            captured_at=datetime.now(timezone.utc),
+            captured_by="Data manager",
+            connection_mode="REMOTE",
+            database="fresh_target",
+            odoo_version="19.0",
+            models=(
+                SchemaModel(
+                    "maintenance.equipment",
+                    "Equipment",
+                    (
+                        _field("name", required=True),
+                        _field(
+                            "company_id",
+                            "many2one",
+                            relation="res.company",
+                        ),
+                    ),
+                ),
+                SchemaModel(
+                    "res.company",
+                    "Company",
+                    (_field("name", required=True),),
+                ),
+            ),
+            content_hash="sha256:" + "c" * 64,
+            origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash="sha256:" + "7" * 64,
+            read_principal_hash="sha256:" + "8" * 64,
+            read_permission_hash="sha256:" + "9" * 64,
+            read_context_hash="sha256:" + "a" * 64,
+            connection_target_hash="sha256:" + "b" * 64,
+        )
+        _assessment_hash, issues, _defaults = (
+            RecipeApplicationCompiler()._target_assessment(
+                recipe,
+                fresh_schema,
+            )
+        )
+        self.assertEqual(
+            [
+                (issue.code, issue.logical_id)
+                for issue in issues
+                if issue.blocks
+            ],
+            [],
         )
 
     def test_product_bom_recipe_compiles_related_preparation_and_dependencies(self):

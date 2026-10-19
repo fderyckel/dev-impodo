@@ -27,11 +27,9 @@ from impodo.domain.mapping.contracts import (
     DatasetMapping,
     MappingDefinition,
     MappingTargetMode,
-    ResolverOrigin,
     RowInclusionMode,
     TargetFieldDisposition,
     TargetFieldHandling,
-    relationship_target_fields,
 )
 from impodo.domain.mapping.create_field_policy import (
     CreateFieldCoverage,
@@ -58,14 +56,14 @@ from impodo.domain.mapping.validation.validator import MappingSemanticValidator
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.workspace.reference_keys import (
     reference_policy_hash,
-    standard_reference_key,
 )
-from impodo.domain.workspace.supporting_lookups import (
-    SupportingLookupSnapshot,
-    supporting_lookup_key,
-)
+from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 from .categorical_coverage import CategoricalCoverageService
 from .numeric_precision_coverage import NumericPrecisionCoverageService
+from .supporting_values import (
+    MappingSupportingLookupReader,
+    load_current_mapping_supporting_references,
+)
 from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
@@ -241,18 +239,6 @@ class MappingWorkspaceRepository(Protocol):
         ...
 
 
-class MappingSupportingLookupRepository(Protocol):
-    """Return current bounded reference evidence used by Stage 3 validation."""
-
-    def get_current(
-        self,
-        workspace_id: str,
-        lookup_key: str,
-    ) -> SupportingLookupSnapshot | None:
-        """Return current supporting evidence for mapping validation callers."""
-        ...
-
-
 class MappingDownstreamInvalidator(Protocol):
     """Clear correction evidence before changed mapping intent is persisted."""
 
@@ -308,7 +294,7 @@ class MappingWorkspaceService:
         authorization: AuthorizationPolicy,
         categorical_coverage: CategoricalCoverageService,
         numeric_precision_coverage: NumericPrecisionCoverageService | None = None,
-        supporting_lookups: MappingSupportingLookupRepository | None = None,
+        supporting_lookups: MappingSupportingLookupReader | None = None,
         downstream_invalidator: MappingDownstreamInvalidator | None = None,
         recipe_applications: RecipeMappingPolicy | None = None,
         row_inclusion_confirmations: (
@@ -1329,95 +1315,9 @@ class MappingWorkspaceService:
     ) -> tuple[SupportingLookupSnapshot, ...]:
         """Load each distinct related-model lookup once for semantic checks."""
 
-        if self.supporting_lookups is None:
-            return ()
-        version_decision = assess_odoo_operation(
-            schema.odoo_version,
-            OdooOperation.COMPARE,
+        return load_current_mapping_supporting_references(
+            self.supporting_lookups,
+            workspace_id,
+            definition.datasets,
+            schema,
         )
-        odoo_major_version = (
-            version_decision.version.major if version_decision.allowed else -1
-        )
-        current_reference_policy_hash = reference_policy_hash(odoo_major_version)
-        if current_reference_policy_hash is None:
-            return ()
-        primary_models = {item.name for item in schema.models}
-        lookup_keys: set[str] = set()
-        resolver_requests = []
-        for dataset in definition.datasets:
-            resolver_requests.extend(
-                (
-                    component.resolver,
-                    tuple(
-                        item.target_field
-                        for item in component.resolver.key_mappings
-                    ),
-                    tuple(
-                        item.target_field
-                        for item in component.resolver.scope_mappings
-                    ),
-                )
-                for component in (
-                    *dataset.target_identity,
-                    *dataset.target_scope,
-                )
-                if component.resolver is not None
-            )
-            resolver_requests.extend(
-                (
-                    relationship.resolver,
-                    *relationship_target_fields(relationship),
-                )
-                for relationship in dataset.relationships
-            )
-        for resolver, key_fields, scope_fields in resolver_requests:
-            if (
-                resolver.origin
-                not in {
-                    ResolverOrigin.TARGET_CATALOG,
-                    ResolverOrigin.TARGET_THEN_DATASET,
-                }
-                or not resolver.model
-                or resolver.model in primary_models
-            ):
-                continue
-            if not key_fields:
-                continue
-            standard = standard_reference_key(
-                resolver.model,
-                odoo_major_version=odoo_major_version,
-            )
-            display_field = (
-                standard.display_field
-                if standard is not None
-                and standard.key_fields == key_fields
-                and standard.scope_fields == scope_fields
-                else key_fields[0]
-            )
-            lookup_key = supporting_lookup_key(
-                relation_model=resolver.model,
-                key_fields=key_fields,
-                scope_fields=scope_fields,
-                display_field=display_field,
-                reference_policy_hash=current_reference_policy_hash,
-            )
-            lookup_keys.add(lookup_key)
-
-        snapshots = []
-        for lookup_key in sorted(lookup_keys):
-            snapshot = self.supporting_lookups.get_current(
-                workspace_id,
-                lookup_key,
-            )
-            if (
-                snapshot is not None
-                and snapshot.target_hash == schema.connection_target_hash
-                and snapshot.read_credential_binding_hash
-                == schema.read_credential_binding_hash
-                and snapshot.read_principal_hash == schema.read_principal_hash
-                and snapshot.read_context_hash == schema.read_context_hash
-                and snapshot.reference_policy_hash
-                == current_reference_policy_hash
-            ):
-                snapshots.append(snapshot)
-        return tuple(snapshots)

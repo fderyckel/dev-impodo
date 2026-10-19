@@ -21,6 +21,7 @@ class Evidence:
         base_selection=None,
         preparation=None,
         reference_bundle=None,
+        supporting_references=(),
     ) -> None:
         self.selection = selection
         self.revision = revision
@@ -32,6 +33,7 @@ class Evidence:
         self.base_selection = base_selection or selection
         self.preparation = preparation
         self.reference_bundle = reference_bundle
+        self.supporting_references = tuple(supporting_references)
 
     def get_mapping_source_selection(self, workspace_id):
         del workspace_id
@@ -72,6 +74,15 @@ class Evidence:
     def get_parameter_definitions(self, workspace_id):
         del workspace_id
         return self.parameter_definitions
+
+    def list_current(self, workspace_id, lookup_keys):
+        del workspace_id
+        requested = set(lookup_keys)
+        return tuple(
+            item
+            for item in self.supporting_references
+            if item.lookup_key in requested
+        )
 
     def save_parameter_definitions(self, workspace_id, definitions, *, actor):
         del workspace_id, actor

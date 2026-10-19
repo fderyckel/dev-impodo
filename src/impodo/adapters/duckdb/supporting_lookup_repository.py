@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
@@ -11,6 +13,53 @@ from .repository import DuckDbRepository
 
 class SupportingLookupRepository(DuckDbRepository):
     """Own supporting-lookup revisions and their current pointers."""
+
+    def list_current(
+        self,
+        workspace_id: str,
+        lookup_keys: Collection[str],
+    ) -> tuple[SupportingLookupSnapshot, ...]:
+        """Return exact current lookups through one workspace connection."""
+
+        requested = tuple(sorted({str(item) for item in lookup_keys if str(item)}))
+        if not requested:
+            return ()
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        placeholders = ", ".join("?" for _item in requested)
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            rows = connection.execute(
+                f"""
+                SELECT current.lookup_key, revision.snapshot_json
+                  FROM supporting_lookup_current AS current
+                  JOIN supporting_lookup_revision AS revision
+                    ON revision.snapshot_id = current.snapshot_id
+                 WHERE current.lookup_key IN ({placeholders})
+                 ORDER BY current.lookup_key
+                """,
+                list(requested),
+            ).fetchall()
+        requested_set = set(requested)
+        snapshots = []
+        for lookup_key, snapshot_json in rows:
+            try:
+                snapshot = SupportingLookupSnapshot.from_json(str(snapshot_json))
+            except (KeyError, TypeError, ValueError) as error:
+                raise WorkspaceError(
+                    "The saved Odoo choices are invalid; refresh them"
+                ) from error
+            if (
+                snapshot.workspace_id != workspace_id
+                or snapshot.lookup_key != str(lookup_key)
+                or snapshot.lookup_key not in requested_set
+            ):
+                raise WorkspaceError(
+                    "The saved Odoo choices belong to another lookup; refresh them"
+                )
+            snapshots.append(snapshot)
+        return tuple(snapshots)
 
     def list_current_for_model(
         self,

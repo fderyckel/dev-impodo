@@ -369,6 +369,85 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
         self.assertLessEqual(timings.connection_count, 8)
         self.assertIn("queue_wait;dur=", page.headers["server-timing"])
 
+    def test_save_and_check_reuse_database_owners(self) -> None:
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=1
+        )
+        source_identity, source_value = dataset.columns
+        context = self.app.state.context
+        initial = context.mapping_workspace.save_working_draft(
+            workspace_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=("ref",),
+                        ),
+                    ),
+                    fields=(
+                        ScalarFieldMapping(
+                            target_field="field_0000",
+                            source_column_key=source_value.stable_key,
+                            value_source=ScalarValueSource.SOURCE,
+                        ),
+                    ),
+                ),
+            ),
+            expected_version=None,
+            actor=context.actor,
+        )
+        entries = [
+            ["csrf_token", self.csrf],
+            ["action", "save_progress"],
+            ["expected_parent_version", ""],
+            ["expected_working_draft_version", str(initial.version)],
+            ["editable_dataset_id", dataset.dataset_id],
+            ["target_model_0", "res.partner"],
+            ["mode_0", "upsert"],
+            ["on_existing_0", "block"],
+            ["source_identity_0", source_identity.stable_key],
+            ["business_key_0", business_key.key_id],
+            ["identity_source_0_0", source_identity.stable_key],
+            ["visible_scalar_target_0", "field_0000"],
+            ["scalar_value_source_0_0", "source"],
+            ["scalar_source_0_0", source_value.stable_key],
+            ["scalar_type_0_0", "string"],
+            ["scalar_case_0_0", "preserve"],
+            ["scalar_compare_0_0", "1"],
+            ["scalar_null_0_0", "distinct"],
+        ]
+
+        with collect_duckdb_request_timings() as save_timings:
+            saved = self.client.post(
+                f"/workspaces/{workspace_id}/mapping/save",
+                json={"entries": entries},
+                headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+            )
+
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(saved.json()["expected_working_draft_version"], 2)
+        check_entries = [list(entry) for entry in entries]
+        for entry in check_entries:
+            if entry[0] == "action":
+                entry[1] = "draft"
+            elif entry[0] == "expected_working_draft_version":
+                entry[1] = "2"
+        with collect_duckdb_request_timings() as check_timings:
+            checked = self.client.post(
+                f"/workspaces/{workspace_id}/mapping/save",
+                json={"entries": check_entries},
+                headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+            )
+
+        self.assertEqual(checked.status_code, 200, checked.text)
+        self.assertLessEqual(save_timings.connection_count, 14)
+        self.assertLessEqual(check_timings.connection_count, 18)
+
     def test_obsolete_editor_generation_is_rejected_before_projection_work(
         self,
     ) -> None:
