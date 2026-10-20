@@ -259,8 +259,8 @@ class RecipeApplicationCompiler:
             (str(dataset["target_model"]), str(target_field))
             for dataset in dict(definition["mapping"]).get("datasets", ())
             for component in (
-                *dataset.get("target_identity", ()),
-                *dataset.get("target_scope", ()),
+                *dataset.get("identity", ()),
+                *dataset.get("scope", ()),
             )
             for target_field in component.get("target_fields", ())
         )

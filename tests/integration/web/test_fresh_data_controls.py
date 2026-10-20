@@ -6,6 +6,7 @@ import re
 from unittest import TestCase
 from uuid import uuid4
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.data_version.models import DataVersionState
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.serialization import content_hash
@@ -91,18 +92,57 @@ class FreshDataControlBrowserTests(TestCase):
             label="September balances", export_as_of="2026-09-01", operation_id=str(uuid4()), actor=actor)
         self.setup, self.publication = setup, publication
         url = f"/projects/{project_id}/test-runs/{setup.run.migration_run_id}/fresh-data"
-        page = self.client.get(url)
-        uploaded = self.client.post(url + "/files", data={
-            "csrf_token": field(page, "csrf_token"), "revision": field(page, "revision"),
-        }, files={"source_file": ("balances.csv", source_csv, "text/csv")},
-            headers={"Origin": "http://testserver"}, follow_redirects=False)
+        with collect_duckdb_request_timings() as initial_page_timings:
+            page = self.client.get(url)
+        with collect_duckdb_request_timings() as upload_timings:
+            uploaded = self.client.post(url + "/files", data={
+                "csrf_token": field(page, "csrf_token"), "revision": field(page, "revision"),
+            }, files={"source_file": ("balances.csv", source_csv, "text/csv")},
+                headers={"Origin": "http://testserver"}, follow_redirects=False)
         self.assertEqual(uploaded.status_code, 303, uploaded.text)
-        page = self.client.get(url)
-        registered = self.client.post(url + "/register", data={
-            "csrf_token": field(page, "csrf_token"), "revision": field(page, "revision"),
-        }, headers={"Origin": "http://testserver"}, follow_redirects=False)
+        with collect_duckdb_request_timings() as uploaded_page_timings:
+            page = self.client.get(url)
+        with collect_duckdb_request_timings() as register_timings:
+            registered = self.client.post(url + "/register", data={
+                "csrf_token": field(page, "csrf_token"), "revision": field(page, "revision"),
+            }, headers={"Origin": "http://testserver"}, follow_redirects=False)
         self.assertEqual(registered.status_code, 303, registered.text)
+        self.fresh_data_request_timings = {
+            "initial_page": initial_page_timings,
+            "upload": upload_timings,
+            "uploaded_page": uploaded_page_timings,
+            "register": register_timings,
+        }
         return url
+
+    def test_fresh_data_page_and_commands_reuse_bounded_database_owners(self):
+        url = self.registered_delivery()
+
+        with collect_duckdb_request_timings() as registered_page_timings:
+            page = self.client.get(url)
+
+        self.assertEqual(page.status_code, 200)
+        timings = {
+            **self.fresh_data_request_timings,
+            "registered_page": registered_page_timings,
+        }
+        ceilings = {
+            "initial_page": (4, 3),
+            "upload": (8, 4),
+            "uploaded_page": (4, 3),
+            "register": (8, 7),
+            "registered_page": (4, 3),
+        }
+        for request_name, (connection_ceiling, schema_ceiling) in ceilings.items():
+            with self.subTest(request=request_name):
+                self.assertLessEqual(
+                    timings[request_name].connection_count,
+                    connection_ceiling,
+                )
+                self.assertLessEqual(
+                    timings[request_name].schema_check_count,
+                    schema_ceiling,
+                )
 
     def test_control_only_recipe_requires_totals_before_acceptance_and_compiles_them(self):
         url = self.registered_delivery()

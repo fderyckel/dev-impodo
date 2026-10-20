@@ -1,0 +1,4 @@
+interface:
+  display_name: "Impodo DuckDB Performance"
+  short_description: "Measure and bound Impodo database work"
+  default_prompt: "Use $impodo-duckdb-performance to diagnose and optimize this Impodo workflow with measured connection bounds."

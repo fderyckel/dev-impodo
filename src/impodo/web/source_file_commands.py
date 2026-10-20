@@ -8,11 +8,11 @@ event loop.
 
 from __future__ import annotations
 
-from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData, UploadFile
 
 from impodo.application.data_version.intake import SourceIntakeError
 from impodo.domain.workspace.workbench import SourceFile, WorkspaceStateError
+from .composition.page_reads import run_local_operation
 from .context import WebContext
 from .forms import _revision
 
@@ -37,18 +37,22 @@ async def accept_source_uploads(
         if not allow_multiple and len(uploads) != 1:
             raise SourceIntakeError("Choose one CSV or XLSX file")
         expected_revision = _revision(form)
-        for upload in uploads:
-            added.append(
-                await run_in_threadpool(
-                    context.intake.accept,
-                    workspace_id,
-                    actor=context.actor,
-                    expected_revision=expected_revision,
-                    display_name=upload.filename,
-                    stream=upload.file,
+
+        def accept_all() -> None:
+            current_revision = expected_revision
+            for upload in uploads:
+                added.append(
+                    context.intake.accept(
+                        workspace_id,
+                        actor=context.actor,
+                        expected_revision=current_revision,
+                        display_name=upload.filename,
+                        stream=upload.file,
+                    )
                 )
-            )
-            expected_revision += 1
+                current_revision += 1
+
+        await run_local_operation(accept_all)
     except WorkspaceStateError as error:
         if added:
             raise SourceIntakeError(
@@ -71,7 +75,7 @@ async def remove_source_file(
 ) -> SourceFile:
     """Remove one unfrozen source file through the canonical intake service."""
 
-    return await run_in_threadpool(
+    return await run_local_operation(
         context.intake.remove,
         workspace_id,
         file_id,

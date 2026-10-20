@@ -385,6 +385,96 @@ class RecipeApplicationServiceTests(unittest.TestCase):
         self.assertFalse(issues[2].blocks)
         self.assertFalse(issues[3].blocks)
 
+    def test_recipe_identity_and_scope_fields_supply_required_create_values(self):
+        definition = {
+            "contract_versions": {"odoo_target_contract": 2},
+            "odoo_target_contract": {
+                "odoo_major_version": 19,
+                "reference_policy_hash": REFERENCE_POLICY_HASH,
+                "approved_write_fields": {"maintenance.equipment": ()},
+                "models": (
+                    {"model": "maintenance.equipment", "fields": ()},
+                ),
+            },
+            "mapping": {
+                "datasets": (
+                    {
+                        "target_model": "maintenance.equipment",
+                        "fields": (),
+                        "relationships": (),
+                        "identity": ({"target_fields": ("name",)},),
+                        "scope": ({"target_fields": ("company_code",)},),
+                        "target_field_dispositions": (),
+                    },
+                )
+            },
+        }
+        schema = OdooSchemaCatalog(
+            workspace_id=str(uuid4()),
+            policy_hash=content_hash("schema policy"),
+            captured_at=datetime.now(UTC),
+            captured_by="Data manager",
+            connection_mode="REMOTE",
+            database="fictional_test",
+            odoo_version="19.0",
+            models=(
+                SchemaModel(
+                    name="maintenance.equipment",
+                    label="Equipment",
+                    fields=(
+                        SchemaField(
+                            name="name",
+                            label="Name",
+                            type="char",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                        ),
+                        SchemaField(
+                            name="company_code",
+                            label="Company code",
+                            type="char",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                        ),
+                    ),
+                ),
+            ),
+            content_hash=content_hash("schema evidence"),
+            origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash=content_hash("read credential"),
+            read_principal_hash=content_hash("principal"),
+            read_permission_hash=content_hash("permissions"),
+            read_context_hash=content_hash("context"),
+            connection_target_hash=content_hash("target"),
+        )
+        compiler = RecipeApplicationService(
+            sources=SimpleNamespace(),
+            schemas=SimpleNamespace(),
+            schema_workspace=SimpleNamespace(),
+            references=SimpleNamespace(),
+            preparation=SimpleNamespace(),
+            mappings=SimpleNamespace(),
+            categorical=SimpleNamespace(),
+            application_state=SimpleNamespace(),
+        )
+
+        _assessment_hash, issues, default_fields = compiler._target_assessment(
+            definition,
+            schema,
+        )
+
+        self.assertEqual(default_fields, ())
+        self.assertNotIn(
+            "RECIPE_TARGET_NEW_REQUIRED_FIELD",
+            {item.code for item in issues},
+        )
+
     def test_customer_recipe_assesses_current_sources_target_and_references(self):
         definition = json.loads(
             (

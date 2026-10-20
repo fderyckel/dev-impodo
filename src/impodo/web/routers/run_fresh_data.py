@@ -4,12 +4,17 @@ from dataclasses import replace
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from starlette.concurrency import run_in_threadpool
 
 from impodo.application.data_version.inspection import SourceInspectionError
 from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.workbench import SourceMode, WorkspaceRegistrationError, WorkspaceStateError, WorkspaceStatus
+from impodo.domain.workspace.workbench import (
+    SourceMode,
+    WorkspaceRegistrationError,
+    WorkspaceStateError,
+    WorkspaceStatus,
+)
+from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
@@ -34,8 +39,8 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
         """Show the exact Recipe-owned source needs for this delivery."""
 
         require_session(request)
-        return await run_in_threadpool(
-                _render_fresh_data,
+        return await run_page_read(
+            _render_fresh_data,
             request,
             context,
             project_id,
@@ -57,7 +62,13 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "source_file"})
         try:
-            view = await run_in_threadpool(_fresh_data_view, context, project_id, migration_run_id, run_kind=run_kind)
+            view = await run_page_read(
+                _fresh_data_view,
+                context,
+                project_id,
+                migration_run_id,
+                run_kind=run_kind,
+            )
             _require_editable_fresh_files(view)
             added_files = await accept_source_uploads(
                 context,
@@ -65,7 +76,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 form,
             )
         except WorkspaceStateError as error:
-            return await run_in_threadpool(
+            return await run_page_read(
                 _render_fresh_data,
                 request,
                 context,
@@ -101,7 +112,13 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision"})
         try:
-            view = await run_in_threadpool(_fresh_data_view, context, project_id, migration_run_id, run_kind=run_kind)
+            view = await run_page_read(
+                _fresh_data_view,
+                context,
+                project_id,
+                migration_run_id,
+                run_kind=run_kind,
+            )
             _require_editable_fresh_files(view)
             removed = await remove_source_file(
                 context,
@@ -110,7 +127,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 expected_revision=_revision(form),
             )
         except WorkspaceStateError as error:
-            return await run_in_threadpool(
+            return await run_page_read(
                 _render_fresh_data,
                 request,
                 context,
@@ -141,23 +158,31 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
         _secure_form(request, form, {"csrf_token", "revision"})
         try:
             expected_revision = _revision(form)
-            view = await run_in_threadpool(_fresh_data_view, context, project_id, migration_run_id, run_kind=run_kind)
-            _require_editable_fresh_files(view)
-            workspace = view["setup_state"]
-            if workspace.status is WorkspaceStatus.DRAFT:
-                workspace = await run_in_threadpool(
-                    context.workspace_states.register,
-                    view["setup_workspace"].workspace_id,
-                    actor=context.actor,
-                    expected_revision=expected_revision,
-                )
-            catalogs = await run_in_threadpool(
-                context.inspections.inspect_project,
-                workspace.workspace_id,
-                actor=context.actor,
+            view = await run_page_read(
+                _fresh_data_view,
+                context,
+                project_id,
+                migration_run_id,
+                run_kind=run_kind,
             )
+            _require_editable_fresh_files(view)
+
+            def register_and_inspect():
+                workspace = view["setup_state"]
+                if workspace.status is WorkspaceStatus.DRAFT:
+                    workspace = context.workspace_states.register(
+                        view["setup_workspace"].workspace_id,
+                        actor=context.actor,
+                        expected_revision=expected_revision,
+                    )
+                return context.inspections.inspect_project(
+                    workspace.workspace_id,
+                    actor=context.actor,
+                )
+
+            catalogs = await run_local_operation(register_and_inspect)
         except WorkspaceRegistrationError as error:
-            return await run_in_threadpool(
+            return await run_page_read(
                 _render_fresh_data,
                 request,
                 context,
@@ -169,7 +194,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 run_kind=run_kind,
             )
         except (SourceInspectionError, WorkspaceStateError) as error:
-            return await run_in_threadpool(
+            return await run_page_read(
                 _render_fresh_data,
                 request,
                 context,
@@ -202,7 +227,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
         """Accept the exact current logical-to-physical table matches."""
 
         form = await request.form()
-        initial_view = await run_in_threadpool(
+        initial_view = await run_page_read(
             _fresh_data_view,
             context,
             project_id,
@@ -251,10 +276,27 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
         try:
             expected_parameter_revision = _optional_parameter_revision(form)
             if _text(form, "intent") == "save":
-                await run_in_threadpool(context.run_setups.replace_values, initial_view["binding"], submitted_run_values,
-                    supplied_controls=submitted_controls, expected_revision=expected_parameter_revision, actor=context.actor)
-                _flash(request, "Saved the details for this run. Review its table matches before accepting the delivery.")
-                return RedirectResponse(_fresh_data_url(project_id, migration_run_id, run_kind=run_kind), status_code=303)
+                await run_local_operation(
+                    context.run_setups.replace_values,
+                    initial_view["binding"],
+                    submitted_run_values,
+                    supplied_controls=submitted_controls,
+                    expected_revision=expected_parameter_revision,
+                    actor=context.actor,
+                )
+                _flash(
+                    request,
+                    "Saved the details for this run. Review its table matches "
+                    "before accepting the delivery.",
+                )
+                return RedirectResponse(
+                    _fresh_data_url(
+                        project_id,
+                        migration_run_id,
+                        run_kind=run_kind,
+                    ),
+                    status_code=303,
+                )
             view = dict(initial_view)
             if initial_plan is not None and overrides:
                 view["match_plan"] = context.run_setups.match_plan(
@@ -299,7 +341,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                         input_match.dataset_name
                     )
             if run_value_plan.requires_confirmation:
-                await run_in_threadpool(
+                await run_local_operation(
                     context.run_setups.replace_values,
                     view["binding"],
                     submitted_run_values,
@@ -313,32 +355,35 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                     _fresh_data_url(project_id, migration_run_id, run_kind=run_kind),
                     status_code=303,
                 )
-            if selection is None:
-                for source_file in view["setup_state"].source_files:
-                    await run_in_threadpool(
-                        context.sources.confirm_source,
+
+            def accept_selection():
+                current_selection = selection
+                if current_selection is None:
+                    for source_file in view["setup_state"].source_files:
+                        context.sources.confirm_source(
+                            view["setup_workspace"].workspace_id,
+                            source_file.file_id,
+                            selected_table_keys=tuple(
+                                tables_by_file.get(source_file.file_id, ())
+                            ),
+                            warnings_acknowledged=warnings_acknowledged,
+                            actor=context.actor,
+                        )
+                    current_selection = context.sources.freeze_selection(
                         view["setup_workspace"].workspace_id,
-                        source_file.file_id,
-                        selected_table_keys=tuple(
-                            tables_by_file.get(source_file.file_id, ())
-                        ),
-                        warnings_acknowledged=warnings_acknowledged,
+                        dataset_names=dataset_names,
                         actor=context.actor,
                     )
-                selection = await run_in_threadpool(
-                    context.sources.freeze_selection,
+                context.data_version_source_projection.accept_file_selection(
                     view["setup_workspace"].workspace_id,
-                    dataset_names=dataset_names,
+                    current_selection,
                     actor=context.actor,
                 )
-            await run_in_threadpool(
-                context.data_version_source_projection.accept_file_selection,
-                view["setup_workspace"].workspace_id,
-                selection,
-                actor=context.actor,
-            )
+                return current_selection
+
+            selection = await run_local_operation(accept_selection)
         except (MigrationFoundationError, WorkspaceError, ValueError) as error:
-            return await run_in_threadpool(
+            return await run_page_read(
                 _render_fresh_data,
                 request,
                 context,
