@@ -7,15 +7,14 @@ current architecture. It has no database or web dependency.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
-import re
-from typing import Callable, Mapping
 from uuid import UUID
 
 from impodo.domain.shared.access import ActorIdentity
-
 
 _HASH = re.compile(r"sha256:[0-9a-f]{64}\Z")
 

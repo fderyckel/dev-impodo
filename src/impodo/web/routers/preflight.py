@@ -24,13 +24,29 @@ from fastapi.responses import (
 )
 from starlette.concurrency import run_in_threadpool
 
+from impodo.adapters.artifacts.reporting import (
+    WORKBOOK_NAME,
+    ReportGenerationError,
+    write_review_workbook,
+)
+from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.application.workspace.access import bind_workspace_access_context
+from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.shared.access import Capability
+from impodo.domain.workspace.errors import WorkspaceDatabaseBusyError, WorkspaceError
+from impodo.domain.workspace.workbench import OdooConnectionMode, WorkspaceStateError
+from impodo.web.composition.target_readers import (
+    LocalOdooRecoveryRequired,
+    _read_readiness_snapshots,
+)
+
 from ...application.odoo_read_failures import (
     OdooReadFailureCode,
     OdooReadWorkflowError,
     classify_odoo_read_failure,
 )
-from ...application.preflight_service import MANIFEST_NAME
 from ...application.preflight_jobs import (
     PreflightJob,
     PreflightJobManager,
@@ -39,27 +55,15 @@ from ...application.preflight_jobs import (
     PreflightJobStateError,
     PreflightPhase,
 )
-from impodo.application.shared.artifacts import ArtifactStoreError
-from impodo.domain.odoo.contracts import ConnectorError
+from ...application.preflight_service import MANIFEST_NAME
 from ...domain.errors import ReadinessError
 from ...domain.preflight.deferred_scope import DeferredScopeEvidenceError
-from impodo.domain.project.foundation import MigrationFoundationError
 from ...domain.run.models import MigrationRunPurpose
-from impodo.adapters.artifacts.reporting import (
-    WORKBOOK_NAME,
-    ReportGenerationError,
-    write_review_workbook,
-)
-from impodo.application.shared.secrets import SecretStoreError
-from impodo.application.workspace.access import bind_workspace_access_context
-from impodo.domain.workspace.errors import WorkspaceDatabaseBusyError, WorkspaceError
-from impodo.domain.workspace.workbench import OdooConnectionMode, WorkspaceStateError
 from ..context import WebContext
 from ..forms import _secure_form, _text
-from ..presenters.common import _flash
-from ..presenters.common import _render
-from ..presenters.navigation import build_preflight_workspace_navigation
+from ..presenters.common import _flash, _render
 from ..presenters.comparison_recovery import comparison_recovery_view
+from ..presenters.navigation import build_preflight_workspace_navigation
 from ..presenters.summary import _render_summary
 from ..run_commands import (
     publish_compared_application,
@@ -71,10 +75,6 @@ from ..target_credentials import (
     audit_stored_target_credential,
     get_target_credential,
     store_target_credential,
-)
-from impodo.web.composition.target_readers import (
-    LocalOdooRecoveryRequired,
-    _read_readiness_snapshots,
 )
 
 

@@ -1,6 +1,7 @@
 """Name the dependencies available to every local browser route.
 
-:func:`impodo.web.app.create_local_app` constructs ``WebContext`` once and
+:func:`impodo.web.composition.local_app.create_local_app` constructs
+``WebContext`` once and
 passes it to each router builder. Routes use the typed services and closed
 reader callables here rather than constructing repositories or connectors.
 The context contains no migration state of its own.
@@ -14,103 +15,115 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Callable, Protocol
+from typing import Protocol
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy
-from ..application.browser_queries import BrowserQueryService
-from ..application.correction_jobs import CorrectionJobManager
-from ..application.correction_workflow import CorrectionWorkflowService
-from ..application.workspace.mapping.categorical_coverage import (
-    CategoricalCoverageService,
+from impodo.adapters.odoo.local_reader import (
+    LocalOdooMetadataReader,
 )
-from ..application.workspace.mapping.service import MappingWorkspaceService
-from ..application.workspace.mapping.order_service import MatchingOrderService
-from ..application.workspace.preparation.normalization_service import NormalizationService
-from ..application.odoo_capture_publication_service import OdooCapturePublicationService
-from ..application.odoo_capture_job_service import OdooCaptureJobManager
-from ..application.odoo_source_restart_service import OdooSourceRestartService
-from ..application.odoo_provenance_service import OdooProvenanceService
-from ..application.odoo_source_capture_service import (
-    OdooSourceCapturePort,
-    OdooSourceCaptureService,
+from impodo.adapters.odoo.local_stack import LocalStackService
+from impodo.adapters.protected_destination_create_fields import (
+    ProtectedDestinationCreateFieldStore,
 )
-from ..application.preflight_service import PreflightService
-from ..application.transfer_execution_service import TransferExecutionService
-from ..application.workspace.execution.service import ExecutionService
-from ..application.workspace.execution.load_jobs import LoadJobManager
-from ..application.workspace.execution.reconciliation import ReconciliationService
-from ..application.migration_project_authoring_service import (
-    MigrationProjectAuthoringService,
-)
-from ..application.run.planning_service import (
-    MigrationRunPlanningService,
-)
-from ..application.cutover_plan_service import CutoverPlanService
-from ..application.production_cutover_service import ProductionCutoverService
-from ..application.run.test_setup_service import TestRunSetupService
-from ..application.run.setup_service import RunSetupService
-from ..application.recipe_publication_service import RecipePublicationService
-from ..application.workspace_data_version_source_service import (
-    WorkspaceDataVersionSourceService,
-)
-from ..application.workspace.preparation.preparation_service import PreparationService
-from ..application.preflight_jobs import PreflightJobManager
-from impodo.web.composition.preparation_job_manager import (
-    PreparationJobManager,
-)
-from ..application.workspace.preparation.quality_service import QualityService
-from ..application.workspace.preparation.resolution_service import ResolutionService
-from ..application.schema_workspace_service import SchemaWorkspaceService
-from ..application.source_workspace_service import SourceWorkspaceService
-from ..application.supporting_lookup_service import SupportingLookupService
-from ..application.run.target_matches import RecipeTargetMatchService
-from ..application.run.recipe_run_jobs import RecipeRunJobManager
-from ..application.workspace.preparation.recovery import PreparationRecoveryService
-from ..application.workspace.mapping.transformation_impact import (
-    TransformationImpactService,
-)
-from ..application.workspace.mapping.row_inclusion_review import (
-    RowInclusionReviewService,
-)
+from impodo.application.data_version.inspection import SourceInspectionService
+from impodo.application.data_version.intake import SourceIntakeService
+from impodo.application.project.ports import ScopedMigrationProjectQuery
 from impodo.application.shared.artifacts import WorkspaceArtifactStore
+from impodo.application.shared.jobs import JobDispatcher
+from impodo.application.shared.secrets import SecretStore
+from impodo.application.workspace.access import WorkspaceAccessService
+from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
+from impodo.application.workspace.navigation import WorkspaceNavigationQueryService
+from impodo.application.workspace.views import WorkspaceOwnerViewService
+from impodo.domain.execution.odoo_readback import OdooReadbackReader
+from impodo.domain.execution.odoo_scope import OdooApiScope
+from impodo.domain.execution.odoo_write import OdooWriteExecutor
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
     RecordRequest,
     RecordSnapshot,
 )
-from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
-from impodo.application.data_version.intake import SourceIntakeService
-from impodo.application.data_version.inspection import SourceInspectionService
-from impodo.web.composition.incompatible_project_storage import UnavailableProjectSummary
-from impodo.application.shared.jobs import JobDispatcher
-from impodo.adapters.odoo.local_reader import (
-    LocalOdooMetadataReader,
-)
-from impodo.adapters.protected_destination_create_fields import (
-    ProtectedDestinationCreateFieldStore,
-)
-from impodo.domain.run.setup import MigrationRunTargetSetupService
-from impodo.adapters.odoo.local_stack import LocalStackService
 from impodo.domain.project.foundation import MigrationIdentifierConfusionError
-from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity, TargetFingerprint
-from impodo.domain.execution.odoo_write import OdooWriteExecutor
-from impodo.domain.execution.odoo_readback import OdooReadbackReader
-from impodo.domain.execution.odoo_scope import OdooApiScope
+from impodo.domain.run.setup import MigrationRunTargetSetupService
+from impodo.domain.shared.access import Actor, AuthorizationPolicy
+from impodo.domain.shared.models import (
+    OdooReadIdentity,
+    OdooWriteIdentity,
+    TargetFingerprint,
+)
 from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateService
-from impodo.application.workspace.access import WorkspaceAccessService
-from impodo.application.workspace.views import WorkspaceOwnerViewService
-from impodo.application.workspace.navigation import WorkspaceNavigationQueryService
+from impodo.web.composition.incompatible_project_storage import (
+    UnavailableProjectSummary,
+)
+from impodo.web.composition.preparation_job_manager import (
+    PreparationJobManager,
+)
+
+from ..application.browser_queries import BrowserQueryService
+from ..application.correction_jobs import CorrectionJobManager
+from ..application.correction_workflow import CorrectionWorkflowService
+from ..application.cutover_plan_service import CutoverPlanService
 from ..application.data_version.service import DataVersionService
-from ..application.project.service import MigrationProjectService
-from ..application.run.service import MigrationRunService
-from ..application.workspace.service import MigrationWorkspaceService
-from ..application.recipe.service import RecipeService
-from ..application.odoo_connection_service import OdooConnectionTestService
 from ..application.fallout_workbook_service import FalloutWorkbookService
-from impodo.application.shared.secrets import SecretStore
+from ..application.migration_project_authoring_service import (
+    MigrationProjectAuthoringService,
+)
+from ..application.odoo_capture_job_service import OdooCaptureJobManager
+from ..application.odoo_capture_publication_service import OdooCapturePublicationService
+from ..application.odoo_connection_service import OdooConnectionTestService
+from ..application.odoo_provenance_service import OdooProvenanceService
+from ..application.odoo_source_capture_service import (
+    OdooSourceCapturePort,
+    OdooSourceCaptureService,
+)
+from ..application.odoo_source_restart_service import OdooSourceRestartService
+from ..application.preflight_jobs import PreflightJobManager
+from ..application.preflight_service import PreflightService
+from ..application.production_cutover_service import ProductionCutoverService
+from ..application.project.service import MigrationProjectService
+from ..application.recipe.service import RecipeService
+from ..application.recipe_publication_service import RecipePublicationService
+from ..application.run.planning_service import (
+    MigrationRunPlanningService,
+)
+from ..application.run.recipe_run_jobs import RecipeRunJobManager
+from ..application.run.service import MigrationRunService
+from ..application.run.setup_service import RunSetupService
+from ..application.run.target_matches import RecipeTargetMatchService
+from ..application.run.test_setup_service import TestRunSetupService
+from ..application.schema_workspace_service import SchemaWorkspaceService
+from ..application.source_workspace_service import SourceWorkspaceService
+from ..application.supporting_lookup_service import SupportingLookupService
+from ..application.transfer_execution_service import TransferExecutionService
+from ..application.workspace.execution.load_jobs import LoadJobManager
+from ..application.workspace.execution.reconciliation import ReconciliationService
+from ..application.workspace.execution.service import ExecutionService
+from ..application.workspace.mapping.categorical_coverage import (
+    CategoricalCoverageService,
+)
+from ..application.workspace.mapping.order_service import MatchingOrderService
+from ..application.workspace.mapping.row_inclusion_review import (
+    RowInclusionReviewService,
+)
+from ..application.workspace.mapping.service import MappingWorkspaceService
+from ..application.workspace.mapping.transformation_impact import (
+    TransformationImpactService,
+)
+from ..application.workspace.preparation.normalization_service import (
+    NormalizationService,
+)
+from ..application.workspace.preparation.preparation_service import PreparationService
+from ..application.workspace.preparation.quality_service import QualityService
+from ..application.workspace.preparation.recovery import PreparationRecoveryService
+from ..application.workspace.preparation.resolution_service import ResolutionService
+from ..application.workspace.service import MigrationWorkspaceService
+from ..application.workspace_data_version_source_service import (
+    WorkspaceDataVersionSourceService,
+)
 from .remote_connection import RemoteConnectionStatusService
+from .request_identity import RequestIdentityResolver
 
 ConnectionTester = Callable[[WorkspaceState, str], TargetFingerprint]
 
@@ -204,6 +217,8 @@ class WebContext:
     """
 
     queries: BrowserQueryService
+    project_queries: ScopedMigrationProjectQuery
+    identity_resolver: RequestIdentityResolver
     unavailable_projects: tuple[UnavailableProjectSummary, ...]
     workspace_access: WorkspaceAccessService
     workspace_views: WorkspaceOwnerViewService

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 
+from impodo.domain.workspace.errors import WorkspaceError
+
 from ...domain.prepared_snapshot import PreparedSnapshot
 from ...domain.staging.preparation_session import (
-    PreparedCanonicalProjection,
     PreparationSessionStatus,
+    PreparedCanonicalProjection,
 )
-from impodo.domain.workspace.errors import WorkspaceError
 from .serialization import _canonical_json
 
 

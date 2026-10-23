@@ -8,12 +8,13 @@ from impodo.domain.workspace.workbench import (
     WorkspaceStateError,
     WorkspaceStateNotFoundError,
 )
+
+from .database import DuckDbWorkspaceDatabase
+from .repository import DuckDbRepository
 from .schema.data_version_store import (
     DATA_VERSION_STORE_GENERATION,
     DATA_VERSION_STORE_VERSION,
 )
-from .database import DuckDbWorkspaceDatabase
-from .repository import DuckDbRepository
 from .serialization import _workspace_from_rows
 
 

@@ -7,16 +7,21 @@ application-encrypted before persistence.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import InitVar, dataclass
 from datetime import date, datetime, timezone
 from enum import StrEnum
-import json
-from typing import Any, Mapping
+from typing import Any
 from uuid import UUID
 
-from impodo.domain.shared.models import canonical_json_text, portable_value, restore_portable_value
-from .serialization import content_hash
+from impodo.domain.shared.models import (
+    canonical_json_text,
+    portable_value,
+    restore_portable_value,
+)
 
+from .serialization import content_hash
 
 ODOO_COMPARISON_CONTRACT_VERSION = 2
 

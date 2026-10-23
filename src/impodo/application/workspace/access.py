@@ -13,11 +13,11 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.project.foundation import (
     MigrationIdentifierConfusionError,
     require_uuid,
 )
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 
 
 @dataclass(frozen=True, slots=True)

@@ -19,12 +19,6 @@ from impodo.domain.preparation.quality import QualityRunStatus
 from impodo.domain.preparation.staging import StagingRunStatus
 
 
-
-
-
-
-
-
 class EvidenceInvalidationMixin:
     """Retire dependent evidence in dependency order within the caller's transaction."""
 

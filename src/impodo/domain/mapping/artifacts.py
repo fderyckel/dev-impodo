@@ -9,9 +9,9 @@ Odoo write.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
-import json
 
 from ..serialization import canonical_json as _canonical_json
 from ..serialization import portable as _portable

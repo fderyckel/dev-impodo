@@ -11,6 +11,7 @@ from fastapi import Request
 from starlette.datastructures import FormData
 
 from impodo.application.browser_queries import SourceReviewPage
+from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.run.setup_service import RunSetupPage
 from impodo.domain.workspace.business_keys import (
     BUSINESS_KEY_POLICY_VERSION,
@@ -18,11 +19,6 @@ from impodo.domain.workspace.business_keys import (
     describe_business_key,
     selectable_business_key_fields,
 )
-from impodo.domain.workspace.derived_entities import (
-    DerivedEntityRule,
-    HierarchicalLookupRule,
-)
-from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
     OdooModelSummary,
@@ -31,8 +27,13 @@ from impodo.domain.workspace.contracts import (
     SchemaOrigin,
     SourceConfiguration,
 )
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityRule,
+    HierarchicalLookupRule,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceState
+
 from ..constants import (
     _APPLICATION_MODULE_PREFIXES,
     _MANUAL_FIELD_NAME,

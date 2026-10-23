@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Protocol
+
 import duckdb
 
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.workbench import WorkspaceState
+
 from .database import DuckDbWorkspaceDatabase
 from .unit_of_work import DuckDbUnitOfWork
 

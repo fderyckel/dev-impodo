@@ -10,14 +10,13 @@ See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Mapping
 from uuid import UUID
 
 from impodo.domain.shared.models import canonical_json_bytes
-
 
 _CLASSIFICATIONS = ("CREATE", "UPDATE", "UNCHANGED", "BLOCKED", "AMBIGUOUS")
 

@@ -2,25 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import json
-from typing import Mapping
+from collections.abc import Mapping
+from datetime import datetime
 from uuid import UUID, uuid5
 
-from impodo.domain.shared.access import Actor, ActorIdentity
-from ...domain.serialization import canonical_json, content_hash
-from ...domain.cutover.models import (
-    ApplicationQualificationEvidence,
-    CutoverPlan,
-    CutoverPlanQualification,
-    CutoverPlanRevision,
-    CutoverWriteOwnership,
-    PROJECT_SHARED_CONTROL_IDS,
-    ProjectCutoverSelection,
-    QualifiedOutcomes,
-    RecipeApplicationQualification,
-    RunCutoverPlanBinding,
-)
 from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
@@ -39,8 +25,23 @@ from impodo.domain.run.contracts import (
     RecipeDependency,
     RecipeRevisionSelection,
 )
-from .migration_foundation_repository import MigrationFoundationRepository
+from impodo.domain.shared.access import Actor, ActorIdentity
+
+from ...domain.cutover.models import (
+    PROJECT_SHARED_CONTROL_IDS,
+    ApplicationQualificationEvidence,
+    CutoverPlan,
+    CutoverPlanQualification,
+    CutoverPlanRevision,
+    CutoverWriteOwnership,
+    ProjectCutoverSelection,
+    QualifiedOutcomes,
+    RecipeApplicationQualification,
+    RunCutoverPlanBinding,
+)
+from ...domain.serialization import canonical_json, content_hash
 from ..protected_project_evidence_store import ProtectedProjectEvidenceStore
+from .migration_foundation_repository import MigrationFoundationRepository
 
 
 class CutoverPlanRepository:

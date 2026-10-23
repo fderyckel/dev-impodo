@@ -13,38 +13,42 @@ Preview and mappings outside the columnar capability set use the bounded
 
 from __future__ import annotations
 
+import shutil
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-import shutil
-from typing import Iterator, Mapping, Sequence
 
 from impodo.application.shared.columnar_runtime import configure_columnar_runtime
-
 
 configure_columnar_runtime()
 
 import polars as pl
 
+from impodo.application.data_version.inspection import (
+    SourceFileCatalog,
+    SourceTableCatalog,
+)
+from impodo.application.data_version.source_files import (
+    SelectedSourceBatchStream,
+    open_selected_source_batches,
+)
 from impodo.application.shared.artifacts import DataVersionSourceArtifactStore
+from impodo.domain.preparation.source import SourceLoadError, SourceRow, SourceTable
+from impodo.domain.source_binding import require_file_source
 from impodo.domain.source_snapshot import (
-    EncodedSourceCell,
     SOURCE_KIND_PHYSICAL_TYPE,
     SOURCE_ROW_COLUMN,
     SOURCE_VALUE_PHYSICAL_TYPE,
+    EncodedSourceCell,
     SourceSnapshot,
     SourceSnapshotColumn,
     SourceSnapshotContractError,
     SourceSnapshotSchema,
 )
-from impodo.domain.source_binding import require_file_source
-from impodo.application.data_version.inspection import SourceFileCatalog, SourceTableCatalog
-from impodo.domain.workspace.workbench import WorkspaceState, SourceFile
-from impodo.application.data_version.source_files import SelectedSourceBatchStream, open_selected_source_batches
-from impodo.domain.preparation.source import SourceLoadError, SourceRow, SourceTable
 from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
-
+from impodo.domain.workspace.workbench import SourceFile, WorkspaceState
 
 SOURCE_SNAPSHOT_TARGET_BATCH_ROWS = 5_000
 SOURCE_SNAPSHOT_MAX_BATCH_CELLS = 100_000

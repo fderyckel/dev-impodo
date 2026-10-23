@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Callable
 
 from ..domain.odoo_capture import OdooCaptureRole
 from ..domain.odoo_provenance import OdooOriginBatch
 from ..domain.odoo_source_capture import (
     OdooSourceCaptureConsistencyError,
     OdooSourceCaptureLimitError,
-    OdooSourceCaptureRowLimitExceeded,
     OdooSourceCaptureRequest,
+    OdooSourceCaptureRowLimitExceeded,
 )
-
 
 MAX_DEPENDENCY_DEPTH = 4
 MAX_DEPENDENCY_TOTAL_ROWS = 50_000

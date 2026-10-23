@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from impodo.domain.workspace.workbench import (
-    WorkspaceState,
+    SourceMode,
     WorkspaceSetupRequirement,
     WorkspaceSetupStep,
-    SourceMode,
+    WorkspaceState,
     workspace_setup_requirements,
 )
 

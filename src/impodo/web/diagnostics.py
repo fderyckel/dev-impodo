@@ -9,18 +9,18 @@ accident.
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
-from datetime import datetime, timezone
-from io import BytesIO
 import json
 import logging
-from logging.handlers import RotatingFileHandler
 import math
 import os
-from pathlib import Path
 import platform
 import re
 import sys
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from io import BytesIO
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from threading import Lock
 from time import perf_counter, sleep
 from typing import Any
@@ -37,7 +37,6 @@ from impodo.adapters.odoo.connectors import (
     observe_json2_read_failures,
 )
 from impodo.application.shared.build_contract import ApplicationBuildContract
-
 
 DIAGNOSTIC_SCHEMA_VERSION = 1
 DIAGNOSTIC_DIRECTORY_NAME = "diagnostics"

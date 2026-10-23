@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.coverage import ReferenceBundle
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.project.foundation import require_uuid
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
 

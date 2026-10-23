@@ -2,26 +2,26 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Callable, Mapping
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
-import re
-from typing import Any, Callable, Mapping
+from typing import Any
 
 from impodo.domain.recipe.value_rules import (
-    CompiledArithmeticFormula,
     MAX_RULE_OUTPUT_LENGTH,
+    CompiledArithmeticFormula,
     ScalarRuleError,
     ScalarTransformPolicy,
     prepare_rule_text,
     round_decimal_value,
     validate_scalar_value,
 )
+
 from .contracts import (
     ConcatenationBlankHandling,
     ScalarFieldMapping,
     ScalarValueSource,
-)
-from .contracts import (
     SelectionCondition,
     SelectionRuleJoin,
 )
@@ -29,7 +29,6 @@ from .source_conditions import (
     SourceConditionValueError,
     source_condition_matches,
 )
-
 
 _DECIMAL_LOCALES = frozenset({"invariant", "en_US", "de_DE", "fr_FR"})
 _DATE_FORMATS = {

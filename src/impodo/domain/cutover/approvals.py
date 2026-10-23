@@ -11,12 +11,12 @@ module does not call Odoo or reconcile results.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
-import json
 from types import MappingProxyType
-from typing import Mapping
 
 from impodo.domain.shared.access import Actor, ActorIdentity, Capability
 

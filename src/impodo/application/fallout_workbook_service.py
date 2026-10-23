@@ -13,6 +13,7 @@ from impodo.application.fallout_workbook_port import (
     FalloutWorkbookRenderer,
 )
 from impodo.application.shared.artifacts import GovernedArtifactStores
+from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.application.workspace.execution.reconciliation import (
     ReconciliationService,
 )
@@ -23,7 +24,6 @@ from impodo.domain.shared.models import portable_value
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.workspace.contracts import SourceSelection
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.application.workspace.access import WorkspaceAccessService
 
 
 class FalloutPreflightReader(Protocol):

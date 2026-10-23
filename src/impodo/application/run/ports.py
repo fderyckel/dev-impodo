@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from impodo.domain.shared.access import Actor
-from ...domain.run.models import MigrationRun
 from impodo.domain.project.foundation import FaultInjector
+from impodo.domain.shared.access import Actor
+
+from ...domain.run.models import MigrationRun
 
 
 class MigrationRunRepository(Protocol):

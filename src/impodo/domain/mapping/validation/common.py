@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
 from impodo.domain.data_version.metadata import TYPE_COMPATIBILITY
+
 from ..contracts import DatasetMapping
 from .context import SourceColumnView
 from .evidence import MappingValidationIssue
-
 
 _RELATION_TYPES = frozenset({"many2one", "many2many", "one2many"})
 _VALUE_TYPES = frozenset(TYPE_COMPATIBILITY)

@@ -11,11 +11,12 @@ surface.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
 import socket
 import time
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
 from urllib.error import URLError
 from urllib.parse import quote
 
@@ -27,6 +28,7 @@ from impodo.adapters.odoo.connectors import (
 )
 from impodo.adapters.odoo.lookup_values import lookup_values_equal
 from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS
+from impodo.domain.execution.odoo_scope import OdooApiScope
 from impodo.domain.execution.odoo_write import (
     MAX_IDENTITY_LOOKUP_KEYS,
     MAX_PROJECTED_RECEIPT_IDS,
@@ -34,8 +36,6 @@ from impodo.domain.execution.odoo_write import (
     OdooWriteRejected,
 )
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
-from impodo.domain.execution.odoo_scope import OdooApiScope
-
 
 MAX_WRITE_BODY_BYTES = 1024 * 1024
 _EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")

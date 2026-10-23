@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Iterable, Protocol
+from collections.abc import Iterable
+from typing import Protocol
 
 from impodo.application.workspace.mapping.transformation_impact import (
     TransformationImpactService,
 )
 from impodo.application.workspace.preparation.preparation_service import (
     stage_browser_mapping,
-)
-from .bounded_direct_review import (
-    direct_row_inclusion_review,
-    uses_bounded_direct_review,
 )
 from impodo.domain.mapping.contracts import DatasetMapping, MappingDefinition
 from impodo.domain.mapping.mutations import MappingVersionConflict
@@ -26,6 +23,11 @@ from impodo.domain.mapping.row_inclusion_review import (
 )
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.workspace.errors import WorkspaceError
+
+from .bounded_direct_review import (
+    direct_row_inclusion_review,
+    uses_bounded_direct_review,
+)
 
 
 class RowInclusionReviewRepository(Protocol):

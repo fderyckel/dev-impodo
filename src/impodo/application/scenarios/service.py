@@ -11,10 +11,11 @@ See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from time import perf_counter
-from typing import Callable, Mapping, Protocol
+from typing import Protocol
 from uuid import uuid4
 
 from impodo.domain.scenarios import (

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Protocol, Sequence
-
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol
 
 MAX_IDENTITY_LOOKUP_KEYS = 100
 MAX_PROJECTED_RECEIPT_IDS = 500

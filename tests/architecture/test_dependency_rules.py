@@ -33,6 +33,18 @@ ADAPTER_CONSTRUCTION_MODULES = frozenset(
         "impodo.web.composition.target_writers",
     }
 )
+LOCAL_ACTOR_IMPORT_MODULES = frozenset(
+    {
+        "impodo.adapters.scenarios.profile_workflow",
+        "impodo.web.app",
+        "impodo.web.composition.local_identity",
+    }
+)
+SERVER_ADAPTER_IMPORT_PREFIXES = (
+    "asyncpg",
+    "psycopg",
+    "sqlalchemy",
+)
 
 
 def _edge_text(edge: ImportEdge) -> str:
@@ -88,6 +100,54 @@ def _adapter_construction_violations(
     return tuple(sorted(violations))
 
 
+def _local_actor_import_violations(
+    modules: tuple[ProductionModule, ...],
+) -> tuple[str, ...]:
+    """Return new imports of the fixed local actor outside legacy seams."""
+
+    violations: list[str] = []
+    for module in modules:
+        tree = ast.parse(
+            module.path.read_text(encoding="utf-8"), filename=str(module.path)
+        )
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.module != "impodo.domain.shared.access":
+                continue
+            if not any(alias.name == "LOCAL_ACTOR" for alias in node.names):
+                continue
+            if module.name not in LOCAL_ACTOR_IMPORT_MODULES:
+                violations.append(f"{module.name}:{node.lineno}")
+    return tuple(sorted(violations))
+
+
+def _server_adapter_import_violations(
+    modules: tuple[ProductionModule, ...],
+) -> tuple[str, ...]:
+    """Keep concrete PostgreSQL clients out of portable layers."""
+
+    violations: list[str] = []
+    for module in modules:
+        if module.location not in {"domain", "application"}:
+            continue
+        tree = ast.parse(
+            module.path.read_text(encoding="utf-8"), filename=str(module.path)
+        )
+        for node in ast.walk(tree):
+            imported: tuple[str, ...]
+            if isinstance(node, ast.Import):
+                imported = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported = (node.module or "",)
+            else:
+                continue
+            for name in imported:
+                if name.startswith(SERVER_ADAPTER_IMPORT_PREFIXES):
+                    violations.append(f"{module.name}:{node.lineno} imports {name}")
+    return tuple(sorted(violations))
+
+
 class ArchitectureDependencyRuleTests(unittest.TestCase):
     def test_production_dependencies_point_inward(self) -> None:
         """Keep direction, ownership, construction, and cycle rules true."""
@@ -136,6 +196,23 @@ class ArchitectureDependencyRuleTests(unittest.TestCase):
             (),
             "Concrete adapter construction outside composition or a worker:\n"
             + "\n".join(constructions),
+        )
+
+        local_actor_imports = _local_actor_import_violations(modules)
+        self.assertEqual(
+            local_actor_imports,
+            (),
+            "New shared code must receive request identity instead of importing "
+            "LOCAL_ACTOR:\n"
+            + "\n".join(local_actor_imports),
+        )
+
+        server_adapter_imports = _server_adapter_import_violations(modules)
+        self.assertEqual(
+            server_adapter_imports,
+            (),
+            "Portable layers must not import concrete PostgreSQL clients:\n"
+            + "\n".join(server_adapter_imports),
         )
 
 

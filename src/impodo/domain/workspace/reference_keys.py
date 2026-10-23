@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Iterable, Protocol
+from typing import Protocol
 
 from impodo.domain.serialization import content_hash
-
 
 REFERENCE_POLICY_VERSION = 4
 

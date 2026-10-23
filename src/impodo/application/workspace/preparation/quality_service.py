@@ -5,12 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Protocol
 
-from impodo.domain.shared.access import Actor
-from impodo.domain.mapping.artifacts import MappingRevision
-from impodo.domain.resolution import EffectiveDataset
-from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.coverage import ReferenceBundle
-from impodo.domain.workspace.workbench import WorkspaceState
+from impodo.domain.errors import ReadinessError
+from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.preparation.quality import (
     QualityError,
     QualityRule,
@@ -23,18 +20,22 @@ from impodo.domain.preparation.quality import (
 )
 from impodo.domain.preparation.staging import StagingRunSummary
 from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
+from impodo.domain.resolution import EffectiveDataset
+from impodo.domain.shared.access import Actor
+from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.workspace.contracts import SourceSelection
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.errors import ReadinessError
-from .readiness_ports import (
-    QualityMappingRepository,
-    QualityRepository,
-    QualitySourceRepository,
-)
+from impodo.domain.workspace.workbench import WorkspaceState
+
 from .bounded_quality import (
     BoundedQualityUnsupported,
     build_bounded_quality_run,
     materialize_staging_run,
+)
+from .readiness_ports import (
+    QualityMappingRepository,
+    QualityRepository,
+    QualitySourceRepository,
 )
 from .timing import PreparationTimingReporter, timed_preparation_stage
 

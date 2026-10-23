@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import StrEnum
-import json
-from typing import Any, Mapping
+from typing import Any
 
 from impodo.domain.mapping.contracts import (
     RowInclusionJoin,
@@ -14,7 +15,6 @@ from impodo.domain.mapping.contracts import (
     SelectionConditionOperator,
 )
 from impodo.domain.serialization import canonical_json, content_hash
-
 
 ROW_INCLUSION_REVIEW_CONTRACT_VERSION = 1
 ROW_INCLUSION_REVIEW_EVALUATOR_VERSION = 1

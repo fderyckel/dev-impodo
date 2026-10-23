@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
+from collections.abc import Mapping
+from datetime import datetime, timezone
 from threading import RLock
-from typing import Mapping, Protocol
+from typing import Protocol
 from uuid import UUID, uuid5
 
-from impodo.domain.shared.access import Actor
+from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     DataVersionSourcePackageService,
@@ -21,16 +22,17 @@ from impodo.application.data_version.source_packages import (
     WorkspaceSourceProjectionService,
     source_column_contract_hash,
 )
+from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.contracts import SourceConfiguration, SourceSelection
+from impodo.domain.workspace.workbench import WorkspaceStateService
+
 from ..domain.data_version.models import DataVersionState
-from .data_version.service import DataVersionService
 from ..domain.odoo_provenance import OdooCaptureManifest
 from ..domain.source_binding import require_file_source
 from ..domain.source_snapshot import SourceSnapshot
-from impodo.application.data_version.inspection import SourceFileCatalog
-from impodo.domain.project.foundation import MigrationFoundationError
+from .data_version.service import DataVersionService
 from .workspace.service import MigrationWorkspaceService
-from impodo.domain.workspace.workbench import WorkspaceStateService
-from impodo.domain.workspace.contracts import SourceConfiguration, SourceSelection
 
 
 class FileSelectionFreezer(Protocol):

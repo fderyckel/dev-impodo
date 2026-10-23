@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Protocol
 
-
 READ_SERVICE_NAME = "Impodo Odoo read-only"
 DESTINATION_TRANSFER_SERVICE_NAME = "Impodo destination Odoo transfer"
 DESTINATION_READ_SERVICE_NAME = DESTINATION_TRANSFER_SERVICE_NAME

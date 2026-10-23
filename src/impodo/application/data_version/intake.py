@@ -20,13 +20,19 @@ from pathlib import Path, PurePath
 from typing import BinaryIO
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor, Capability
-from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
-from impodo.application.workspace.access import WorkspaceAccessService
-from impodo.domain.workspace.workbench import WorkspaceStateError, WorkspaceStateService, SourceFile
-from impodo.domain.preparation.source import SourceLoadError
 from impodo.application.data_version.source_worker import validate_source_file_isolated
-
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    DataVersionSourceArtifactStore,
+)
+from impodo.application.workspace.access import WorkspaceAccessService
+from impodo.domain.preparation.source import SourceLoadError
+from impodo.domain.shared.access import Actor, Capability
+from impodo.domain.workspace.workbench import (
+    SourceFile,
+    WorkspaceStateError,
+    WorkspaceStateService,
+)
 
 MAX_SOURCE_BYTES = 100 * 1024 * 1024
 CHUNK_BYTES = 1024 * 1024

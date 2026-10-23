@@ -11,21 +11,21 @@ See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
-import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
-from pydantic import ValidationError
 import yaml
+from pydantic import ValidationError
 
 from impodo.domain.scenarios import (
     FileScenarioSource,
     ScenarioDefinition,
     TargetProjection,
 )
-
 
 MAX_SCENARIO_FILES = 200
 MAX_SCENARIO_BYTES = 512 * 1024 * 1024

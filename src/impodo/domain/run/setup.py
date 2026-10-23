@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol, Sequence
+from typing import Protocol
 from urllib.parse import urlsplit
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.project.foundation import (
     MigrationFoundationError,
     optional_text,
@@ -17,6 +17,7 @@ from impodo.domain.project.foundation import (
     require_uuid,
     utc_now,
 )
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 
 
 class OdooConnectionMode(StrEnum):

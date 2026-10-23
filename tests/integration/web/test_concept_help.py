@@ -141,14 +141,14 @@ class ConceptHelpBrowserTests(unittest.TestCase):
                 migration_purpose="Verify concept help uses one list query",
                 source_system_identity="Fictional ERP",
             )
-        migration_projects = MagicMock(wraps=context.migration_projects)
+        project_queries = MagicMock(wraps=context.project_queries)
 
-        with patch.object(context, "migration_projects", migration_projects):
+        with patch.object(context, "project_queries", project_queries):
             response = self.client.get("/projects")
 
         self.assertEqual(response.status_code, 200)
-        migration_projects.list.assert_called_once_with(actor=context.actor)
-        migration_projects.get.assert_not_called()
+        project_queries.list_visible_project_summaries.assert_called_once()
+        project_queries.get_visible_project.assert_not_called()
         self.assertIn('href="/concepts#data-project"', response.text)
         self.assertIn('aria-haspopup="dialog"', response.text)
         self.assertIn('aria-controls="concept-help-dialog-data-project"', response.text)

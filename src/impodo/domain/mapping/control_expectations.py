@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping
+from typing import Any
 from uuid import UUID
 
 from impodo.domain.shared.access import ActorIdentity
-from ..serialization import content_hash
 
+from ..serialization import content_hash
 
 EDITION_CONTROL_EXPECTATION_CONTRACT_VERSION = 2
 

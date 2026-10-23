@@ -9,7 +9,25 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from uuid import uuid4
 
+from impodo.domain.preparation.staging import StagingRunStatus
+from impodo.domain.preparation.staging_contracts import (
+    CanonicalControlTotal,
+    CanonicalIssue,
+    CanonicalRow,
+    StagingDatasetRole,
+    StagingDisposition,
+    validate_canonical_row_bindings,
+)
 from impodo.domain.shared.access import Actor
+from impodo.domain.shared.models import (
+    Issue,
+    LogicalReference,
+    canonical_json_bytes,
+    portable_value,
+)
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
 from ...domain.prepared_snapshot import PreparedSnapshot
 from ...domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
@@ -25,18 +43,6 @@ from ...domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
 )
-from impodo.domain.shared.models import Issue, LogicalReference, canonical_json_bytes, portable_value
-from impodo.domain.preparation.staging import StagingRunStatus
-from impodo.domain.preparation.staging_contracts import (
-    CanonicalControlTotal,
-    CanonicalIssue,
-    CanonicalRow,
-    StagingDatasetRole,
-    StagingDisposition,
-    validate_canonical_row_bindings,
-)
-from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from .constants import (
     DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES,
     DUCKDB_JSON_BATCH_MAX_BYTES,
@@ -61,7 +67,6 @@ from .serialization import (
     _canonical_json,
     iter_encoded_json_batches,
 )
-
 
 _CANONICAL_ROW_ISSUE_JSON_STRUCTURE = """[{
     "ordinal":"BIGINT",

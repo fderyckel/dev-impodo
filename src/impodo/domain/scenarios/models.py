@@ -12,9 +12,9 @@ See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from pathlib import PurePosixPath, PureWindowsPath
-import re
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -23,7 +23,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS
 from impodo.domain.recipe.value_rules import validate_formula
 from impodo.domain.serialization import content_hash
-
 
 SCENARIO_CONTRACT_VERSION = 1
 MAX_CAPTURE_MODELS = 10

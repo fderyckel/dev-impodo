@@ -8,16 +8,23 @@ its separate gates.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-from typing import Mapping, Protocol
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Protocol
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from ..domain.data_version.models import DataVersionPurpose, DataVersionState
 from impodo.domain.execution.models import ExecutionRunStatus
-from ..domain.errors import ReadinessError
-from ..domain.reconciliation import ReconciliationRunStatus
-from ..domain.serialization import content_hash
+from impodo.domain.project.foundation import (
+    FaultInjector,
+    MigrationConflictError,
+    MigrationNotFoundError,
+    require_hash,
+    require_revision,
+    require_uuid,
+)
+from impodo.domain.run.contracts import RunRecipeApplication
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+
 from ..domain.cutover.models import (
     ApplicationQualificationEvidence,
     CutoverPlanQualification,
@@ -28,16 +35,11 @@ from ..domain.cutover.models import (
     QualifiedOutcomes,
     integrated_evidence_payload,
 )
-from impodo.domain.project.foundation import (
-    FaultInjector,
-    MigrationConflictError,
-    MigrationNotFoundError,
-    require_hash,
-    require_revision,
-    require_uuid,
-)
+from ..domain.data_version.models import DataVersionPurpose, DataVersionState
+from ..domain.errors import ReadinessError
+from ..domain.reconciliation import ReconciliationRunStatus
 from ..domain.run.models import MigrationRunPurpose
-from impodo.domain.run.contracts import RunRecipeApplication
+from ..domain.serialization import content_hash
 
 
 class IntegratedQualificationEvidenceReader(Protocol):

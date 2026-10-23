@@ -6,9 +6,6 @@ import json
 from collections.abc import Mapping
 from datetime import datetime
 
-from impodo.domain.shared.access import Actor
-from ...domain.coverage import ReferenceBundle
-from ...domain.serialization import canonical_json, content_hash
 from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
@@ -19,7 +16,6 @@ from impodo.domain.project.foundation import (
     require_uuid,
     utc_now,
 )
-from impodo.domain.run.production import ProductionRunBinding
 from impodo.domain.run.contracts import (
     IntegratedRunBundle,
     IntegratedRunProgress,
@@ -37,9 +33,14 @@ from impodo.domain.run.contracts import (
     RunRecipeApplication,
     RunTargetBinding,
 )
-from ...domain.run.models import MigrationRun
+from impodo.domain.run.production import ProductionRunBinding
 from impodo.domain.run.test_setup import TestRunSetupBinding
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
+
+from ...domain.coverage import ReferenceBundle
+from ...domain.run.models import MigrationRun
+from ...domain.serialization import canonical_json, content_hash
 from .migration_foundation_repository import MigrationFoundationRepository
 from .run_planning_operation_payloads import RunPlanningOperationPayloads
 

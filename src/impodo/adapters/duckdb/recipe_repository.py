@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import json
-from typing import Mapping
+from collections.abc import Mapping
+from datetime import datetime
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor
-from ...adapters.protected_recipe_store import ProtectedRecipeStore
-from ...domain.serialization import canonical_json, content_hash
 from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
@@ -21,13 +18,17 @@ from impodo.domain.project.foundation import (
     required_text,
     utc_now,
 )
+from impodo.domain.shared.access import Actor
+
+from ...adapters.protected_recipe_store import ProtectedRecipeStore
 from ...domain.recipe.models import (
     Recipe,
     RecipeError,
+    RecipePublication,
     RecipeRevision,
     RecipeRevisionRead,
-    RecipePublication,
 )
+from ...domain.serialization import canonical_json, content_hash
 from .migration_foundation_repository import MigrationFoundationRepository
 
 

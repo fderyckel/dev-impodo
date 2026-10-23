@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import base64
+import os
+import tempfile
 from dataclasses import dataclass
 from hashlib import sha256
-import os
 from pathlib import Path, PurePosixPath
-import tempfile
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from ..domain.serialization import canonical_json
-from ..domain.cutover.models import MigrationCutoverError
-from impodo.domain.project.foundation import require_hash, require_uuid
 from impodo.application.shared.secrets import SecretStore, SecretStoreError
+from impodo.domain.project.foundation import require_hash, require_uuid
 
+from ..domain.cutover.models import MigrationCutoverError
+from ..domain.serialization import canonical_json
 
 _MAGIC = b"IPPRJ001"
 _NONCE_BYTES = 12

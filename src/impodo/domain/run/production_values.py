@@ -5,7 +5,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
 
-from impodo.domain.project.foundation import MigrationConflictError, require_aware, require_hash, require_revision, require_uuid
+from impodo.domain.project.foundation import (
+    MigrationConflictError,
+    require_aware,
+    require_hash,
+    require_revision,
+    require_uuid,
+)
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import ActorIdentity
 

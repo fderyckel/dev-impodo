@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 
-from impodo.domain.shared.access import Actor
 from impodo.domain.mapping.contracts import MappingDefinition
-from impodo.domain.recipe.mapping_adaptation import recipe_mapping_shape
-from ...domain.serialization import canonical_json, content_hash
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from impodo.domain.preparation.quality import QualityRule
+from impodo.domain.recipe.mapping_adaptation import recipe_mapping_shape
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
+from ...domain.serialization import canonical_json, content_hash
 from .repository import DuckDbRepository
 
 

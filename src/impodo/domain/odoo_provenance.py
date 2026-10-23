@@ -8,21 +8,20 @@ portable source contract.
 
 from __future__ import annotations
 
-from dataclasses import InitVar, dataclass
-from datetime import datetime, timezone
 import json
 import re
+from dataclasses import InitVar, dataclass
+from datetime import datetime, timezone
 from uuid import UUID
 
 from .odoo_capture import (
-    ODOO_CAPTURE_PAGE_SIZE,
     MAX_ODOO_CAPTURE_ROWS,
+    ODOO_CAPTURE_PAGE_SIZE,
     OdooCaptureConsistency,
     OdooCaptureSelection,
 )
 from .odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from .serialization import canonical_json, content_hash
-
 
 ODOO_CAPTURE_MANIFEST_VERSION = 2
 ODOO_EXECUTION_ORIGIN_MANIFEST_VERSION = 2

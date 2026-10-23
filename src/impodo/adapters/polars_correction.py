@@ -9,13 +9,19 @@ hashes individual rows or values.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
-import json
 from pathlib import Path
-from typing import Iterator, Mapping
 
+from impodo.application.shared.columnar_runtime import configure_columnar_runtime
+
+from ..domain.compiler.columnar_transformation import ColumnarTransformationProgram
+from ..domain.correction import CorrectionCandidate, CorrectionValueKind
+from ..domain.prepared_snapshot import PreparedSnapshot
+from ..domain.source_snapshot import SOURCE_ROW_COLUMN
 from .polars_transformation import (
     PREPARED_ISSUE_COLUMN,
     PREPARED_PARQUET_COMPRESSION,
@@ -24,17 +30,10 @@ from .polars_transformation import (
     prepared_intent_columns,
     validate_prepared_intent_path,
 )
-from ..domain.compiler.columnar_transformation import ColumnarTransformationProgram
-from ..domain.correction import CorrectionCandidate, CorrectionValueKind
-from ..domain.prepared_snapshot import PreparedSnapshot
-from ..domain.source_snapshot import SOURCE_ROW_COLUMN
-from impodo.application.shared.columnar_runtime import configure_columnar_runtime
-
 
 configure_columnar_runtime()
 
 import polars as pl  # noqa: E402
-
 
 CORRECTION_CANDIDATE_BATCH_ROWS = 1_000
 _FIELD_INDEX_COLUMN = "__impodo_correction_field_index"

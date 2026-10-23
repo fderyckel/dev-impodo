@@ -157,19 +157,23 @@ with two explicit deployment profiles:
 
 - the local profile uses a loopback launch session, DuckDB, contained local
   artifacts, Windows Credential Manager, and synchronous jobs;
-- the future hosted profile uses corporate identity, centrally governed
-  authorization, PostgreSQL, shared artifact storage, durable workers, and a
-  TLS reverse proxy.
+- the future hosted profile first uses Impodo-managed accounts, centrally
+  governed authorization, PostgreSQL control state, shared artifact storage,
+  durable workers, and a TLS reverse proxy; corporate identity providers are
+  a later adapter over the same account and authorization model.
 
 The local security middleware is not relaxed to create the hosted profile.
 Hosted HTTP, identity, persistence, secrets, and job adapters are composed
-separately.
+separately. The server uses PostgreSQL for multi-user control and coordination,
+while DuckDB, Parquet, and protected artifacts continue to own migration
+processing and detailed evidence.
 
 Application services receive verified actors and depend on ports for
 authorization, project persistence, artifacts, secrets, and jobs. Immutable
 approval evidence binds decisions to stable actor identities and exact input
-hashes. DuckDB may remain a worker-local analytical engine, but it is not the
-hosted multi-user system of record.
+hashes. PostgreSQL does not become a second copy of detailed customer migration
+data. DuckDB remains the authoritative analytical and migration-evidence store
+behind one fenced writer per Workspace.
 
 **Why:** Containerizing the current local process would preserve its
 single-user launch token, filesystem, keyring, and single-process DuckDB
@@ -188,8 +192,9 @@ assumptions.
   executes synchronously;
 - approval status is only a derived summary; immutable decision and approval
   records are authoritative;
-- PostgreSQL, SSO, hosted Docker deployment, and the restricted Odoo executor
-  remain separate delivery and security milestones;
+- PostgreSQL, built-in server accounts, hosted Docker deployment, corporate
+  identity, and the restricted Odoo executor remain separate delivery and
+  security milestones;
 - contract tests must run against each future repository, artifact, identity,
   authorization, and job adapter.
 
@@ -939,3 +944,123 @@ version. When an ordinary data manager must navigate backward, guess a hidden
 dependency, or request a new hard-coded model exception, record that case as
 evidence against this decision and either close the implementation gap or
 amend the architecture explicitly.
+
+## ADR-017 — Organization-scoped PostgreSQL control and DuckDB data planes
+
+**Status:** Accepted
+
+**Decision:** The shared-server tenancy boundary is an Impodo
+`Organization`, identified by `organization_id`. The browser may explain an
+Organization as the customer's Company, but the domain, APIs, database
+constraints, jobs, logs, artifacts, and audit evidence use Organization. An
+Odoo `res.company` remains migration data and never grants Impodo access.
+
+Each customer user belongs to exactly one Organization. The first release has
+no Organization switcher and no cross-Organization customer membership. A
+platform operator is not a customer member; each platform request must select
+an explicit Organization scope and produce support-access evidence before it
+can reach customer resources.
+
+On the server, PostgreSQL is authoritative for Organizations, accounts,
+sessions, role and Project grants, Project discovery, durable jobs, leases,
+idempotency reservations, bounded current status, retention selection, and
+receipt hashes. DuckDB is authoritative for source selections, mappings,
+preparation, quality, normalization, resolution, comparison, execution,
+reconciliation, and other detailed migration evidence. Parquet and protected
+artifact storage are authoritative for immutable bulk evidence and restricted
+identifiers. PostgreSQL stores storage keys and hashes, not copied source rows,
+target rows, mapping payloads, or reports.
+
+One cross-store command uses this order: authorize and reserve in PostgreSQL;
+acquire a Workspace lease and fencing token; commit DuckDB and artifact work;
+publish an immutable data-plane receipt; then project its bounded result into
+PostgreSQL. A retry reuses the semantic idempotency key. A worker with an old
+fencing token cannot publish. A missing PostgreSQL projection is rebuilt from
+the exact receipt and never by repeating a committed data-plane command.
+
+The complete proposed classification and recovery table is the
+[server fact-ownership inventory](../architecture/server-fact-ownership.md).
+Its review is required before a PostgreSQL schema is created.
+
+**Why:** Organizations need governed discovery, collaboration, authorization,
+and recovery that a process-local DuckDB registry cannot safely provide.
+Migration work remains columnar, evidence-rich, and portable when DuckDB and
+Parquet keep the detailed data instead of duplicating it into an operational
+database.
+
+**Consequences:**
+
+- every server query and command fixes one Organization scope before resource
+  lookup;
+- PostgreSQL can answer dashboards and schedule work without opening customer
+  DuckDB files;
+- DuckDB keeps its analytical strengths and the local product keeps its
+  current storage model;
+- cross-store atomicity is implemented with receipts, projection replay, and
+  repair queues rather than a distributed transaction;
+- backup, restore, deletion, and quota accounting must cover both planes as
+  one customer contract; and
+- a fact cannot be written to PostgreSQL merely because a dashboard needs it;
+  it must be a bounded control fact or rebuildable projection named in the
+  inventory.
+
+## ADR-018 — The first shared server is self-administered and policy-governed
+
+**Status:** Accepted
+
+**Decision:** The first shared-server identity phase uses Impodo-managed
+accounts and an Organization administration dashboard. Organization
+administrators create, disable, and recover users; assign understandable
+roles; and grant access to selected Projects. Microsoft Entra, Google, and
+other OpenID Connect providers are a later identity phase over the same stable
+user, role, grant, and audit contracts.
+
+Remote collaboration uses revision-based optimistic editing and a visible
+conflict workflow. This is a remote concern and does not add collaboration UI
+or conflict handling to the single-operator local installation. Durable work
+uses equal, work-conserving Organization scheduling: active Organizations
+share constrained capacity equally, while one active Organization may use
+otherwise idle capacity. Limits remain bounded by host health, per-job memory,
+disk headroom, and configured safety ceilings.
+
+Each server target uses an administrator-approved Odoo network profile:
+public HTTPS through fixed egress, customer VPN or private routing, an approved
+HTTP CONNECT proxy, or direct on-premises routing. The profile controls DNS,
+destination allowlists, TLS trust, proxy or tunnel attachment, and connection
+tests. Migration users cannot submit arbitrary network routes.
+
+Each Project offers three retention choices with a clear consequence warning:
+delete customer data after a verified Odoo load, delete after inactivity with
+90 days as the default, or keep it until manual deletion. Deletion removes the
+Project's data from PostgreSQL, DuckDB, Parquet, protected artifacts, caches,
+and the recoverable backup lifecycle; only a minimal non-customer deletion
+receipt remains. A Project that deletes its evidence cannot continue or prove
+its prior migration history.
+
+The reference deployment is one supported Debian or Ubuntu server using a
+pinned production `Dockerfile` and Docker Compose topology behind TLS. Cloud
+and on-premises installations use the same Impodo behavior; their certificate,
+secret, backup, and network providers may differ.
+
+**Why:** Built-in administration provides a complete usable server without
+making a customer's identity-provider project a prerequisite. Explicit
+collaboration, fair scheduling, egress, and retention rules give data managers
+agency while keeping one Organization from exposing data or exhausting a
+shared host.
+
+**Consequences:**
+
+- password storage, reset, session revocation, rate limiting, and bootstrap
+  administration are first-release security responsibilities;
+- Organization administrators cannot grant platform privileges, and Project
+  roles do not imply Organization administration;
+- optimistic conflicts preserve both edits and require a user-visible reload,
+  compare, or reapply choice;
+- fair scheduling may delay a large job when several Organizations are active,
+  but idle capacity is not artificially withheld;
+- private Odoo access requires explicit infrastructure integration and cannot
+  be solved by container networking alone;
+- early deletion improves customer control but intentionally removes Project
+  continuity; and
+- OpenID Connect later changes authentication, not Organization ownership,
+  authorization semantics, or audit identity.

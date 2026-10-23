@@ -8,12 +8,11 @@ complete snapshot at the confirm and write boundaries.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
 from impodo.domain.execution_snapshot import ExecutionSnapshot
 from impodo.domain.preflight.reports import ReadinessReport
-
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 

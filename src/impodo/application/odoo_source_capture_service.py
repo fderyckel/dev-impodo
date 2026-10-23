@@ -7,7 +7,9 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Protocol
 
+from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.odoo.contracts import MetadataSnapshot
 from impodo.domain.odoo_relationship_scope import (
     OdooRelationshipCaptureAction,
     OdooRelationshipScope,
@@ -16,44 +18,10 @@ from impodo.domain.odoo_relationship_scope import (
 )
 from impodo.domain.odoo_source_scope import propose_related_odoo_data
 from impodo.domain.shared.access import Actor, Capability
-from impodo.domain.odoo.contracts import MetadataSnapshot
-from ..domain.odoo_capture import (
-    OdooCaptureContractError,
-    OdooCaptureSelection,
-    OdooCaptureRole,
-    odoo_capture_selection_set_hash,
-    require_consistent_odoo_capture_selection_set,
-)
-from ..domain.odoo_source_policy import odoo_source_policy_from_hash
-from ..domain.odoo_source_capture import (
-    OdooSourceCaptureConfigurationError,
-    CancellationProbe,
-    OdooCaptureAssessment,
-    OdooCaptureAccounting,
-    OdooCapturePage,
-    OdooCaptureSample,
-    OdooSourceCaptureAccessRefreshRequired,
-    OdooSourceCaptureConsistencyError,
-    OdooSourceCaptureRowLimitExceeded,
-    OdooSourceCaptureRequest,
-    plan_odoo_source_capture,
-    require_not_cancelled,
-)
-from ..domain.odoo_provenance import OdooOriginBatch
-from .odoo_dependency_capture import (
-    ProtectedDependencyClosure,
-    discover_dependency_closure,
-    require_capture_matches_discovery,
-)
 from impodo.domain.shared.models import (
     FieldMetadata,
     OdooReadIdentity,
     ProtectedOdooReadContext,
-)
-from impodo.domain.workspace.workbench import (
-    SourceMode,
-    WorkspaceState,
-    WorkspaceStatus,
 )
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
@@ -61,8 +29,41 @@ from impodo.domain.workspace.contracts import (
     SchemaOrigin,
 )
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.application.workspace.access import WorkspaceAccessService
+from impodo.domain.workspace.workbench import (
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStatus,
+)
+
+from ..domain.odoo_capture import (
+    OdooCaptureContractError,
+    OdooCaptureRole,
+    OdooCaptureSelection,
+    odoo_capture_selection_set_hash,
+    require_consistent_odoo_capture_selection_set,
+)
+from ..domain.odoo_provenance import OdooOriginBatch
+from ..domain.odoo_source_capture import (
+    CancellationProbe,
+    OdooCaptureAccounting,
+    OdooCaptureAssessment,
+    OdooCapturePage,
+    OdooCaptureSample,
+    OdooSourceCaptureAccessRefreshRequired,
+    OdooSourceCaptureConfigurationError,
+    OdooSourceCaptureConsistencyError,
+    OdooSourceCaptureRequest,
+    OdooSourceCaptureRowLimitExceeded,
+    plan_odoo_source_capture,
+    require_not_cancelled,
+)
+from ..domain.odoo_source_policy import odoo_source_policy_from_hash
 from .odoo_capture_filters import OdooCaptureFilterStore
+from .odoo_dependency_capture import (
+    ProtectedDependencyClosure,
+    discover_dependency_closure,
+    require_capture_matches_discovery,
+)
 
 
 class OdooCaptureWorkspaceReader(Protocol):

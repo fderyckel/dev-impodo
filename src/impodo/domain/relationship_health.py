@@ -8,9 +8,9 @@ persist with the authoring workspace and present to a data manager.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-from typing import Iterable, Mapping
 
 from impodo.domain.mapping.contracts import ResolverOrigin
 from impodo.domain.workspace.errors import WorkspaceError

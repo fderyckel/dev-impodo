@@ -8,22 +8,31 @@ hashes; numeric Odoo identifiers are forbidden by construction.
 
 from __future__ import annotations
 
+import json
 from collections import deque
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
-import json
-from typing import AbstractSet, Any, Iterable, Mapping, Sequence
+from typing import AbstractSet, Any
 
-from impodo.domain.shared.models import LogicalReference, canonical_json_bytes, portable_value
-from impodo.domain.mapping.contracts import DatasetMapping, ResolverOrigin
-from impodo.domain.workspace.workbench import WorkspaceState
-from impodo.domain.resolution import EffectiveDataset
 from impodo.domain.coverage import ReferenceBundle
-from impodo.domain.preparation.staging_contracts import CanonicalIssue, CanonicalRow, CanonicalStagingRun, StagingDisposition
-
+from impodo.domain.mapping.contracts import DatasetMapping, ResolverOrigin
+from impodo.domain.preparation.staging_contracts import (
+    CanonicalIssue,
+    CanonicalRow,
+    CanonicalStagingRun,
+    StagingDisposition,
+)
+from impodo.domain.resolution import EffectiveDataset
+from impodo.domain.shared.models import (
+    LogicalReference,
+    canonical_json_bytes,
+    portable_value,
+)
+from impodo.domain.workspace.workbench import WorkspaceState
 
 QUALITY_CONTRACT_VERSION = 3
 QUALITY_EVALUATOR_VERSION = 4

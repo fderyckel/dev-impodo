@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import json
 
-from .protected_project_evidence_store import ProtectedProjectEvidenceStore
 from ..domain.odoo_capture import OdooCaptureFilterClause, OdooCaptureSelection
 from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ..domain.serialization import canonical_json, content_hash
 from ..domain.workspace.errors import WorkspaceError
-
+from .protected_project_evidence_store import ProtectedProjectEvidenceStore
 
 _KIND = "odoo-source-filters"
 

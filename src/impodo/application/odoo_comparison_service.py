@@ -8,20 +8,27 @@ facts; source values and numeric Odoo IDs remain in protected evidence.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Callable, Iterable
 
-from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
-from impodo.domain.shared.access import Actor
+from impodo.application.data_version.source_snapshots import (
+    load_source_snapshot_table,
+    validate_snapshot_for_dataset,
+)
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    DataVersionSourceArtifactStore,
+)
 from impodo.domain.correction import (
     CorrectionCandidate,
     CorrectionFieldOutcome,
     CorrectionValueKind,
     classify_correction_field,
 )
-from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
+from impodo.domain.execution.planner import PreflightRequirementPlan
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
@@ -29,6 +36,25 @@ from impodo.domain.odoo.contracts import (
     RecordSnapshot,
     bind_snapshot_hashes,
 )
+from impodo.domain.shared.access import Actor
+from impodo.domain.shared.models import (
+    FieldMetadata,
+    TargetRecord,
+    assert_no_numeric_odoo_ids,
+    canonical_json_bytes,
+)
+from impodo.domain.workspace.contracts import (
+    OdooSchemaCatalog,
+    SchemaField,
+    SourceSelection,
+)
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.reference_keys import (
+    REFERENCE_POLICY_HASH,
+    reference_policy_hash,
+)
+from impodo.domain.workspace.workbench import WorkspaceState
+
 from ..domain.errors import ReadinessError
 from ..domain.mapping.contracts import MappingTargetMode
 from ..domain.odoo_comparison import (
@@ -42,34 +68,18 @@ from ..domain.odoo_comparison import (
     canonical_write_date,
 )
 from ..domain.odoo_provenance import OdooCaptureManifest, OdooOriginBatch
-from ..domain.source_binding import OdooSourceBinding, SourceOriginKind
 from ..domain.preflight.frozen_input import FrozenPreflightInput
 from ..domain.preflight.reports import (
     ReadinessDataset,
     ReadinessReport,
     ReadinessRow,
 )
+from ..domain.source_binding import OdooSourceBinding, SourceOriginKind
 from ..domain.source_snapshot import SourceSnapshot
-from impodo.domain.shared.models import (
-    FieldMetadata,
-    TargetRecord,
-    assert_no_numeric_odoo_ids,
-    canonical_json_bytes,
-)
-from impodo.domain.execution.planner import PreflightRequirementPlan
-from impodo.domain.workspace.workbench import WorkspaceState
-from impodo.application.data_version.source_snapshots import load_source_snapshot_table, validate_snapshot_for_dataset
-from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField, SourceSelection
-from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.reference_keys import (
-    REFERENCE_POLICY_HASH,
-    reference_policy_hash,
-)
 from .odoo_provenance_service import (
     OdooProvenanceService,
     ProtectedOdooComparisonCandidate,
 )
-
 
 ODOO_COMPARISON_ARTIFACT_NAME = "impodo_odoo_comparison.protected.json"
 ODOO_COMPARISON_CHUNK_SIZE = 500

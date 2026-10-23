@@ -8,12 +8,20 @@ and ``fields_get`` discovery remain explicit later-stage operations.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Callable
 
-from impodo.domain.shared.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
-from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStateError
+from impodo.domain.shared.models import (
+    OdooReadIdentity,
+    TargetFingerprint,
+    target_identity_hash,
+)
+from impodo.domain.workspace.workbench import (
+    OdooConnectionMode,
+    WorkspaceState,
+    WorkspaceStateError,
+)
 
 
 class OdooConnectionPurpose(StrEnum):

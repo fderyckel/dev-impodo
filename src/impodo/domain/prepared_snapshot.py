@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
-import json
 from pathlib import PurePosixPath
-import re
 
 from .serialization import canonical_json, content_hash
-
 
 PREPARED_SNAPSHOT_CONTRACT_VERSION = 2
 PREPARED_SNAPSHOT_STORAGE_LAYOUT_VERSION = 3

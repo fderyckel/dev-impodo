@@ -9,15 +9,19 @@ every attempt, so historical runs need no storage migration or in-place repair.
 
 from __future__ import annotations
 
-from hashlib import sha256
 import json
+from hashlib import sha256
 
 from impodo.domain.preparation.quality import quality_dependency_reference_contexts
-from impodo.domain.shared.models import canonical_json_bytes, portable_value, restore_portable_value
-from .serialization import iter_encoded_json_batches
+from impodo.domain.shared.models import (
+    canonical_json_bytes,
+    portable_value,
+    restore_portable_value,
+)
+
 from .constants import DUCKDB_JSON_BATCH_MAX_BYTES, PREPARATION_SESSION_ROW_BATCH_SIZE
 from .native_prepared_projection import projected_hybrid_dependency_rows_sql
-
+from .serialization import iter_encoded_json_batches
 
 _EDGE_STRUCTURE = '[{"child":"BIGINT","parent_dataset":"VARCHAR","identity_hash":"VARCHAR","identity_group":"BOOLEAN","target_field":"VARCHAR"}]'
 

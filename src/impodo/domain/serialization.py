@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
-import json
-from typing import Any, Mapping
+from typing import Any
 
 
 def portable(value: Any) -> Any:

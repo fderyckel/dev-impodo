@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import re
 import shutil
+from dataclasses import dataclass
+from pathlib import Path
 from uuid import uuid4
 
-from impodo.domain.serialization import content_hash
 from impodo.domain.project.foundation import MigrationFoundationError
-
+from impodo.domain.serialization import content_hash
 
 _UUID_DIRECTORY = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"

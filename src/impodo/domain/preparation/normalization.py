@@ -7,13 +7,14 @@ the eligible dataset without contacting or authorizing Odoo.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
-import json
 from types import MappingProxyType
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from impodo.domain.cutover.governance import (
     ApprovalMode,
@@ -27,18 +28,18 @@ from impodo.domain.mapping.contracts import (
     ScalarFieldMapping,
     ScalarValueSource,
 )
-from impodo.domain.serialization import CanonicalJsonObjectHasher
-from impodo.domain.shared.models import canonical_json_bytes
-from impodo.domain.workspace.workbench import DataClassification, WorkspaceState
 from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
     QualityRun,
     StoredQualityRun,
     retention_context_hash,
 )
-from impodo.domain.resolution import EffectiveDataset
-from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
+from impodo.domain.resolution import EffectiveDataset
+from impodo.domain.serialization import CanonicalJsonObjectHasher
+from impodo.domain.shared.models import canonical_json_bytes
+from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.workspace.workbench import DataClassification, WorkspaceState
 
 NORMALIZATION_CONTRACT_VERSION = 3
 NORMALIZATION_EVALUATOR_VERSION = 3

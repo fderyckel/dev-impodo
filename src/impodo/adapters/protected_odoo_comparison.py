@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from hashlib import sha256
-import os
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from impodo.domain.workspace.errors import WorkspaceError
 
 from ..application.protected_evidence_codecs import (
     EncodedOdooComparison as PortEncodedOdooComparison,
 )
 from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
-from impodo.domain.workspace.errors import WorkspaceError
-
 
 _MAGIC = b"IPODOCMP1"
 _NONCE_BYTES = 12

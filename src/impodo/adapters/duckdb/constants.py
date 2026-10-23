@@ -2,7 +2,11 @@
 
 from impodo.domain.shared.schema import (
     WORKSPACE_SCHEMA_BASELINE_VERSION as SCHEMA_BASELINE_VERSION,
+)
+from impodo.domain.shared.schema import (
     WORKSPACE_SCHEMA_GENERATION as SCHEMA_GENERATION,
+)
+from impodo.domain.shared.schema import (
     WORKSPACE_SCHEMA_VERSION as SCHEMA_VERSION,
 )
 

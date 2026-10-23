@@ -13,22 +13,17 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
+import json
+import re
+import unicodedata
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from hashlib import sha256
-import json
-import re
-from typing import Iterable, Mapping, Protocol
-import unicodedata
+from typing import Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from impodo.domain.source_binding import DerivedSourceBinding, require_file_source
-from impodo.domain.workspace.contracts import (
-    SourceDataset,
-    SourceDatasetColumn,
-    SourceSelection,
-)
-from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.structural import (
     ExactJoinRule,
     GroupAggregateRule,
@@ -36,7 +31,12 @@ from impodo.domain.structural import (
     UnionAllRule,
     structural_mapping_selection,
 )
-
+from impodo.domain.workspace.contracts import (
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+)
+from impodo.domain.workspace.errors import WorkspaceError
 
 DERIVED_ENTITY_CONTRACT_VERSION = 5
 _SUPPORTED_DERIVED_ENTITY_CONTRACT_VERSIONS = frozenset({4, 5})

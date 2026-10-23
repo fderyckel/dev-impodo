@@ -12,24 +12,24 @@ from starlette.concurrency import run_in_threadpool
 
 from impodo.application.destination_matching_service import (
     DESTINATION_GOVERNED_IDENTITY_MODELS,
-    DestinationMatchKeyChoice,
     DestinationMatchingService,
+    DestinationMatchKeyChoice,
     destination_governed_key_choices,
     destination_match_key_candidates,
 )
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.mapping.create_field_policy import CREATE_FIXED_VALUE_TYPES
 from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
 from impodo.domain.odoo_source_scope import (
     RelatedDataHandling,
     propose_related_odoo_data,
 )
-from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
-from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.shared.access import Capability
+from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.workspace.destination_matching import (
-    DESTINATION_MATCH_CONTRACT_VERSION,
     DESTINATION_HANDLINGS,
+    DESTINATION_MATCH_CONTRACT_VERSION,
     carry_destination_create_field_reviews,
     choose_destination_create_field_provider,
     confirm_destination_create_field_defaults,

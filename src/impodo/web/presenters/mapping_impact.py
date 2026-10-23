@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from urllib.parse import urlencode
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from ...domain.mapping.contracts import ScalarValueSource
 from ...domain.staging.transformation_impact import (
     TransformationImpactFilter,
     TransformationImpactIdentity,
@@ -16,7 +17,6 @@ from ...domain.staging.transformation_impact import (
     selection_rule_impact_definitions,
     transformation_rule_impact_definitions,
 )
-from ...domain.mapping.contracts import ScalarValueSource
 from ..constants import (
     DEFAULT_MAPPING_FIELDS_PER_PAGE,
     MAPPING_FIELD_PAGE_SIZES,

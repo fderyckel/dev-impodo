@@ -3,13 +3,24 @@
 from __future__ import annotations
 
 import base64
+import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-import os
-from typing import Iterable, Protocol
+from typing import Protocol
 from uuid import uuid4
 
+from impodo.application.shared.secrets import SecretStore, SecretStoreError
+from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.domain.shared.access import Actor, Capability
+from impodo.domain.shared.models import canonical_json_bytes
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import (
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStateRepository,
+)
+
 from ..domain.odoo_capture import OdooCaptureSelection
 from ..domain.odoo_provenance import (
     OdooCaptureManifest,
@@ -17,11 +28,6 @@ from ..domain.odoo_provenance import (
     OdooOriginBatch,
     OdooProvenanceBinding,
 )
-from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateRepository, SourceMode
-from impodo.domain.shared.models import canonical_json_bytes
-from impodo.application.shared.secrets import SecretStore, SecretStoreError
-from impodo.domain.workspace.errors import WorkspaceError
-from impodo.application.workspace.access import WorkspaceAccessService
 from .protected_evidence_codecs import (
     OdooComparisonCodec,
     OdooProvenanceCodec,

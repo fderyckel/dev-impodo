@@ -9,9 +9,10 @@ from urllib.parse import parse_qsl
 from fastapi import HTTPException, Request
 from starlette.datastructures import FormData
 
-from ..domain.mapping.contracts import ValueMapping
-from impodo.domain.workspace.workbench import WorkspaceStateError
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateError
+
+from ..domain.mapping.contracts import ValueMapping
 from .constants import (
     MAPPING_MAX_FORM_FIELDS,
     MAPPING_MAX_FORM_NAME_LENGTH,

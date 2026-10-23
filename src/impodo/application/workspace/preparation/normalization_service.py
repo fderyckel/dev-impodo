@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from impodo.domain.staging.transformation_impact import TransformationImpactRow
-from impodo.domain.resolution import EffectiveDataset
-from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.cutover.governance import DryRun
+from impodo.domain.errors import NormalizationReviewPolicyError, ReadinessError
 from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.preparation.normalization import (
     NormalizationCandidate,
@@ -20,17 +17,25 @@ from impodo.domain.preparation.normalization import (
     StoredNormalizationEvaluation,
     evaluate_normalization,
 )
-from impodo.domain.workspace.workbench import WorkspaceState
-from impodo.domain.preparation.quality import QualityRun, QualityRunSummary, StoredQualityRun
+from impodo.domain.preparation.quality import (
+    QualityRun,
+    QualityRunSummary,
+    StoredQualityRun,
+)
 from impodo.domain.preparation.staging import StagingRunSummary
 from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
+from impodo.domain.resolution import EffectiveDataset
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.staging.transformation_impact import TransformationImpactRow
 from impodo.domain.workspace.contracts import SourceSelection
-from impodo.domain.errors import NormalizationReviewPolicyError, ReadinessError
-from .readiness_ports import NormalizationRepository
+from impodo.domain.workspace.workbench import WorkspaceState
+
 from .bounded_normalization import (
     BoundedNormalizationUnsupported,
     build_bounded_normalization_evaluation,
 )
+from .readiness_ports import NormalizationRepository
 from .timing import PreparationTimingReporter, timed_preparation_stage
 
 

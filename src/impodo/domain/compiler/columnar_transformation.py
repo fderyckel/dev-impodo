@@ -15,11 +15,13 @@ cannot silently mix native and Python field evaluation within a dataset.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-from typing import Mapping, Sequence, cast
+from typing import cast
 
 from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
+
 from ..mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
@@ -35,7 +37,6 @@ from ..mapping.contracts import (
 )
 from ..mapping.descriptions import transformation_rule_summary
 from ..serialization import content_hash, portable
-
 
 COLUMNAR_PROGRAM_CONTRACT_VERSION = 6
 COLUMNAR_COMPILER_VERSION = 9

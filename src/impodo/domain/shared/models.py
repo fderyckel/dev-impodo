@@ -9,8 +9,12 @@ converted before entering the portable manifest.
 
 from __future__ import annotations
 
+import json
 from collections.abc import (
     Iterable as IterableABC,
+)
+from collections.abc import Mapping
+from collections.abc import (
     Mapping as MappingABC,
 )
 from dataclasses import dataclass, field
@@ -18,9 +22,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
 from hashlib import sha256
-import json
-from typing import Any, Mapping
-
+from typing import Any
 
 ScalarValue = str | int | Decimal | bool | date | datetime | None
 

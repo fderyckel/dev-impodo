@@ -8,30 +8,28 @@ exposes the exact same evidence through lazy finalized-session sequences.
 
 from __future__ import annotations
 
-from collections import deque
-from collections.abc import Iterator, Mapping, Sequence, Set as AbstractSet
-from dataclasses import dataclass
 import json
+from collections import deque
+from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Set as AbstractSet
+from dataclasses import dataclass
 from typing import overload
 
-from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.mapping.contracts import MappingDefinition
-from impodo.domain.workspace.workbench import WorkspaceState
 from impodo.domain.preparation.quality import (
     MANDATORY_QUALITY_FAMILIES,
-    QualityError,
     QualityDisposition,
+    QualityError,
     QualityIssue,
     QualityOutcomePolicy,
+    QualityRowResult,
     QualityRuleFamily,
     QualityRuleSet,
     QualityRuleSource,
-    QualityRowResult,
     QuarantineEntry,
     SourceAccountingEntry,
     SourceAccountingState,
     StoredQualityRun,
-    clean_quality_row_result,
     _correction_route,
     _effective_disposition,
     _family_for_issue,
@@ -43,17 +41,20 @@ from impodo.domain.preparation.quality import (
     _record_label,
     _relationship_issue_details,
     _setup_issue,
+    clean_quality_row_result,
+    incoming_identity_group_fields,
     quality_identity_key,
     retention_context_hash,
-    incoming_identity_group_fields,
 )
-from impodo.domain.shared.models import canonical_json_bytes, portable_value
 from impodo.domain.preparation.staging_contracts import (
     CanonicalIssue,
     CanonicalRow,
     CanonicalStagingRun,
     StagingDisposition,
 )
+from impodo.domain.shared.models import canonical_json_bytes, portable_value
+from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.workspace.workbench import WorkspaceState
 
 
 class BoundedQualityUnsupported(ValueError):

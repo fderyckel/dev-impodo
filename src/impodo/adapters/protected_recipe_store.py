@@ -3,22 +3,22 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
-from hashlib import sha256
 import os
-from pathlib import Path, PurePosixPath
 import re
 import tempfile
+from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path, PurePosixPath
 from uuid import UUID
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from ..domain.serialization import canonical_json
-from ..domain.recipe.models import RecipeIntegrityError
-from impodo.domain.project.foundation import require_hash, require_uuid
 from impodo.application.shared.secrets import SecretStore, SecretStoreError
+from impodo.domain.project.foundation import require_hash, require_uuid
 
+from ..domain.recipe.models import RecipeIntegrityError
+from ..domain.serialization import canonical_json
 
 _MAGIC = b"IPRCP001"
 _NONCE_BYTES = 12

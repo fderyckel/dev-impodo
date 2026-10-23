@@ -14,13 +14,27 @@ from datetime import datetime, timezone
 
 from starlette.concurrency import run_in_threadpool
 
-from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.adapters.odoo.connectors import (
+    Json2Config,
+    Json2ReadConnector,
+    target_record_read_config,
+)
+from impodo.adapters.odoo.local_stack import LocalStackProfile
 from impodo.application.odoo_read_failures import (
     OdooReadCredentialMissingError,
     OdooReadFailureCode,
     OdooReadWorkflowError,
 )
-from impodo.adapters.odoo.connectors import Json2Config, Json2ReadConnector, target_record_read_config
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.application.workspace.mapping.supporting_values import (
+    plan_mapping_supporting_values,
+)
+from impodo.domain.execution.planner import (
+    MAX_KEYS_PER_RECORD_REQUEST,
+    PreflightRequirementPlan,
+    ReferenceReadRequirement,
+)
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
@@ -28,16 +42,20 @@ from impodo.domain.odoo.contracts import (
     RecordSnapshot,
     ReferenceEvidenceBinding,
 )
-from impodo.adapters.odoo.local_stack import LocalStackProfile
-from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
-from impodo.domain.shared.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from impodo.domain.odoo_source_policy import odoo_source_policy_hash
-from impodo.domain.execution.planner import (
-    MAX_KEYS_PER_RECORD_REQUEST,
-    PreflightRequirementPlan,
-    ReferenceReadRequirement,
+from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
+from impodo.domain.shared.models import (
+    OdooReadIdentity,
+    TargetFingerprint,
+    target_identity_hash,
 )
-from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStateError, SourceMode
+from impodo.domain.workspace.contracts import (
+    OdooModelCatalog,
+    OdooSchemaCatalog,
+    SchemaField,
+    SchemaOrigin,
+)
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import (
     GovernedReferenceRequest,
     ReferenceReadPurpose,
@@ -49,22 +67,17 @@ from impodo.domain.workspace.reference_keys import (
     standard_reference_key,
     supporting_reference_candidate,
 )
-from impodo.application.workspace.mapping.supporting_values import (
-    plan_mapping_supporting_values,
-)
-from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.supporting_lookups import (
     SupportingLookupChoice,
     SupportingLookupSnapshot,
     portable_supporting_value,
 )
-from impodo.domain.workspace.contracts import (
-    OdooModelCatalog,
-    OdooSchemaCatalog,
-    SchemaField,
-    SchemaOrigin,
+from impodo.domain.workspace.workbench import (
+    OdooConnectionMode,
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStateError,
 )
-from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.constants import (
     VALUE_MATCH_MAX_TARGET_CHOICES,
 )

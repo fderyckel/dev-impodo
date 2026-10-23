@@ -8,17 +8,16 @@ It is a manifest only; publication and route admission remain separate steps.
 
 from __future__ import annotations
 
+import json
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
-import json
 from pathlib import PurePosixPath
-import re
-from typing import Iterable
 
 from .serialization import canonical_json, content_hash
-
 
 DERIVED_VALUE_ARTIFACT_CONTRACT_VERSION = 2
 DERIVED_VALUE_ARTIFACT_STORAGE_LAYOUT_VERSION = 2

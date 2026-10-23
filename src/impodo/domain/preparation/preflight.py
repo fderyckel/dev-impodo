@@ -18,14 +18,31 @@ business references instead.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import replace
-from typing import Any, Iterable
+from typing import Any
 
-from impodo.domain.preparation.canonical import ValueParseError, parse_value, values_equal
-from impodo.domain.data_version.catalog import TargetCatalog, relation_ids
-from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
+from impodo.domain.data_version.catalog import TargetCatalog, relation_ids
 from impodo.domain.data_version.metadata import validate_plan_metadata
+from impodo.domain.data_version.selection_domains import (
+    apply_live_selection_domains,
+    live_selection_metadata_issues,
+    validate_selection_metadata_drift,
+)
+from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
+from impodo.domain.preparation.canonical import (
+    ValueParseError,
+    parse_value,
+    values_equal,
+)
+from impodo.domain.preparation.source import PreparedBundle
+from impodo.domain.recipe.profile import (
+    DatasetSpec,
+    IdentityComponent,
+    RelationSpec,
+    ResolveSpec,
+)
 from impodo.domain.shared.models import (
     BusinessReference,
     Classification,
@@ -33,27 +50,15 @@ from impodo.domain.shared.models import (
     FieldDifference,
     Issue,
     LogicalReference,
-    PreparedRecord,
     PreflightResult,
+    PreparedRecord,
     ReferenceResolution,
     Severity,
     TargetRecord,
-    target_record_binding_hash,
     canonical_json_text,
     portable_value,
+    target_record_binding_hash,
 )
-from impodo.domain.recipe.profile import (
-    DatasetSpec,
-    IdentityComponent,
-    RelationSpec,
-    ResolveSpec,
-)
-from impodo.domain.data_version.selection_domains import (
-    apply_live_selection_domains,
-    live_selection_metadata_issues,
-    validate_selection_metadata_drift,
-)
-from impodo.domain.preparation.source import PreparedBundle
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
 

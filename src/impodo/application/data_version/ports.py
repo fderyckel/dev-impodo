@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from impodo.domain.shared.access import Actor
-from ...domain.data_version.models import DataVersion
 from impodo.domain.project.foundation import FaultInjector
+from impodo.domain.shared.access import Actor
+
+from ...domain.data_version.models import DataVersion
 
 
 class DataVersionRepository(Protocol):

@@ -5,19 +5,20 @@ from __future__ import annotations
 from dataclasses import replace
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from ...domain.serialization import content_hash
-from ...domain.workspace.models import (
-    MigrationWorkspace,
-    MigrationWorkspaceSetupState,
-    MigrationWorkspaceState,
-)
 from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
     require_revision,
     require_uuid,
     utc_now,
+)
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+
+from ...domain.serialization import content_hash
+from ...domain.workspace.models import (
+    MigrationWorkspace,
+    MigrationWorkspaceSetupState,
+    MigrationWorkspaceState,
 )
 from .ports import MigrationWorkspaceRepository
 

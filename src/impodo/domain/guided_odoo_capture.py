@@ -9,10 +9,10 @@ needs a data-manager decision.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
-import re
-from typing import Iterable
 
 from impodo.domain.mapping.create_field_policy import required_create_hook_inputs
 from impodo.domain.odoo_capture import (
@@ -32,7 +32,6 @@ from impodo.domain.workspace.contracts import (
     SchemaField,
     SchemaModel,
 )
-
 
 _DATASET_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}")
 

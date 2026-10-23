@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from hashlib import sha256
-from typing import Mapping
 
-from ..mapping.contracts import BusinessControlTotal, MappingDefinition
-from impodo.domain.shared.models import PreparedRecord, canonical_json_bytes
 from impodo.domain.preparation.source import PreparedBundle
 from impodo.domain.preparation.staging_contracts import CanonicalControlTotal
+from impodo.domain.shared.models import PreparedRecord, canonical_json_bytes
 from impodo.domain.workspace.contracts import SourceSelection
+
 from ..errors import ReadinessError
+from ..mapping.contracts import BusinessControlTotal, MappingDefinition
 
 
 @dataclass(slots=True)

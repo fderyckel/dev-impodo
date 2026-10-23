@@ -12,7 +12,6 @@ from impodo.domain.workspace.errors import WorkspaceError
 
 from .protected_project_evidence_store import ProtectedProjectEvidenceStore
 
-
 _KIND = "destination-create-fields"
 
 

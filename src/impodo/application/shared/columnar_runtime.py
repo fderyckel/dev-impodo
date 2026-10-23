@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 
-
 POLARS_DEFAULT_MAX_THREADS = 1
 
 

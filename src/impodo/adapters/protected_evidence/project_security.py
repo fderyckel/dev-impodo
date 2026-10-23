@@ -8,14 +8,13 @@ data and is reported in ``ProjectRootSecurityStatus``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 import ctypes
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import re
 import stat
-
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
 
 DEVELOPMENT_MODE_ENV = "IMPODO_DEVELOPMENT_MODE"
 PROJECT_ROOT_ENV = "IMPODO_PROJECT_ROOT"

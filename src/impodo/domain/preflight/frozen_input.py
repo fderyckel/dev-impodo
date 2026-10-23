@@ -16,11 +16,22 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
-from typing import Mapping
 
 from impodo.domain.cutover.governance import DryRun, DryRunStatus
+from impodo.domain.preparation.normalization import (
+    NormalizationRunSummary,
+    canonical_eligible_dataset_hash,
+)
+from impodo.domain.preparation.quality import QualityRun, QualityRunSummary
+from impodo.domain.preparation.source import PreparedBundle
+from impodo.domain.preparation.staging import StagingRunSummary
+from impodo.domain.preparation.staging_contracts import (
+    CanonicalRow,
+    CanonicalStagingRun,
+)
 from impodo.domain.shared.models import (
     Issue,
     PreparedRecord,
@@ -28,20 +39,12 @@ from impodo.domain.shared.models import (
     assert_no_numeric_odoo_ids,
     canonical_json_bytes,
 )
-from impodo.domain.preparation.normalization import (
-    NormalizationRunSummary,
-    canonical_eligible_dataset_hash,
-)
-from impodo.domain.preparation.quality import QualityRun, QualityRunSummary
-from ..resolution import EffectiveDataset
-from impodo.domain.preparation.source import PreparedBundle
-from impodo.domain.preparation.staging import StagingRunSummary
-from impodo.domain.preparation.staging_contracts import CanonicalRow, CanonicalStagingRun
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
+
 from ..compiler.contracts import CompiledMigrationPlan
 from ..errors import ReadinessError
 from ..mapping.artifacts import MappingRevision
-
+from ..resolution import EffectiveDataset
 
 FROZEN_PREFLIGHT_INPUT_VERSION = 5
 

@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 import duckdb
 
-
 SCHEMA_MIGRATION_COLUMNS = (
     "from_version",
     "to_version",

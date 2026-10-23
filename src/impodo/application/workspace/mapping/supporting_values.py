@@ -12,7 +12,6 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Protocol
 
-from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     RelationshipValueSource,
@@ -21,6 +20,7 @@ from impodo.domain.mapping.contracts import (
     ValueMapping,
     relationship_target_fields,
 )
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 from impodo.domain.workspace.reference_keys import (
     reference_policy_hash,

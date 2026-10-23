@@ -9,34 +9,21 @@ missing, stale, or cannot safely be reused.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import re
-from typing import Mapping, Protocol
 import unicodedata
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from typing import Protocol
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
-from impodo.domain.shared.access import Actor
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan
-from ..domain.coverage import ReferenceBundle
-from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
-from ..domain.mapping.contracts import (
-    MAPPING_CONTRACT_VERSION,
-    DatasetMapping,
-    MappingTargetMode,
-    UnsupportedMappingContractError,
-    relationship_target_fields,
-)
-from ..domain.schema.governance import BusinessKeyStatus, SchemaGovernance
-from ..domain.recipe_parameters import (
-    RecipeParameterDefinitionError,
-    RecipeParameterDefinitions,
-)
-from ..domain.serialization import canonical_json, content_hash, portable
-from ..domain.recipe_envelope import (
-    CURRENT_RECIPE_CONTRACT_VERSIONS,
-    validate_recipe_envelope,
-)
 from impodo.domain.preparation.quality import QualityRuleSet, QualityRuleSource
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.contracts import (
+    OdooSchemaCatalog,
+    SourceDataset,
+    SourceSelection,
+)
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from impodo.domain.workspace.reference_keys import (
     GovernedReferenceDecision,
     GovernedReferenceRequest,
@@ -48,13 +35,32 @@ from impodo.domain.workspace.reference_keys import (
     reference_policy_hash,
 )
 from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
+
+from ..domain.coverage import ReferenceBundle
+from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
+from ..domain.mapping.contracts import (
+    MAPPING_CONTRACT_VERSION,
+    DatasetMapping,
+    MappingTargetMode,
+    UnsupportedMappingContractError,
+    relationship_target_fields,
+)
 from ..domain.recipe.models import (
     RecipeConflictError,
     RecipeDraftIssue,
     RecipeDraftRecoveryStep,
     RecipeIntegrityError,
 )
-from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceDataset, SourceSelection
+from ..domain.recipe_envelope import (
+    CURRENT_RECIPE_CONTRACT_VERSIONS,
+    validate_recipe_envelope,
+)
+from ..domain.recipe_parameters import (
+    RecipeParameterDefinitionError,
+    RecipeParameterDefinitions,
+)
+from ..domain.schema.governance import BusinessKeyStatus, SchemaGovernance
+from ..domain.serialization import canonical_json, content_hash, portable
 from .workspace.mapping.supporting_values import (
     MappingSupportingLookupReader,
     load_current_mapping_supporting_references,

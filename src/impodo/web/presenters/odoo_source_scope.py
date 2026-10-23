@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
-from impodo.domain.odoo_source_scope import (
-    RelatedDataHandling,
-    RelatedDataSuggestion,
-    related_model_can_be_selected,
-)
 from impodo.domain.odoo_relationship_scope import (
     OdooRelationshipCaptureAction,
     OdooRelationshipScope,
     propose_relationship_action_defaults,
     recommended_relationship_capture_action,
     review_relationship_scope,
+)
+from impodo.domain.odoo_source_scope import (
+    RelatedDataHandling,
+    RelatedDataSuggestion,
+    related_model_can_be_selected,
 )
 
 

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from enum import StrEnum
 from itertools import groupby
-from typing import Iterable
 
 from impodo.application.workspace.issues import (
     WorkflowIssueOrigin,

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Mapping, Sequence
+from typing import Any
 
-from ..compiler.columnar_transformation import ColumnarTransformationProgram
 from impodo.domain.preparation.staging_contracts import (
     CanonicalControlTotal,
     CanonicalIssue,
@@ -15,6 +15,8 @@ from impodo.domain.preparation.staging_contracts import (
     StagingDisposition,
     StagingReconciliation,
 )
+
+from ..compiler.columnar_transformation import ColumnarTransformationProgram
 from .transformation_impact import TransformationImpactReport, TransformationImpactRow
 
 

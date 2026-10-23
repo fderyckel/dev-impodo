@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections.abc import Collection
 
 from impodo.domain.shared.access import Actor
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
-from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
 from .repository import DuckDbRepository
 
 

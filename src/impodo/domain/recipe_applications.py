@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import StrEnum
-import re
-from typing import Mapping
 
-from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.project.foundation import require_uuid
-from .serialization import content_hash, portable
+from impodo.domain.shared.access import ActorIdentity
 
+from .serialization import content_hash, portable
 
 RECIPE_CONTROL_VALUES_CONTRACT_VERSION = 1
 _TECHNICAL_ID = re.compile(r"[a-z][a-z0-9_.:-]{0,299}\Z")

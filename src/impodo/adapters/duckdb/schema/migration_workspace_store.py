@@ -6,9 +6,10 @@ from pathlib import Path
 
 import duckdb
 
-from impodo.domain.project.foundation import MigrationStorageCompatibilityError
-from ....domain.workspace.models import MigrationWorkspace
 from impodo.application.workspace.access import WorkspaceAccessContext
+from impodo.domain.project.foundation import MigrationStorageCompatibilityError
+
+from ....domain.workspace.models import MigrationWorkspace
 from .forward_upgrades import (
     SCHEMA_MIGRATION_COLUMNS,
     ForwardSchemaUpgrade,
@@ -16,7 +17,6 @@ from .forward_upgrades import (
     ensure_current_schema,
 )
 from .structure import read_table_columns
-
 
 MIGRATION_WORKSPACE_GENERATION = "impodo-migration-workspace-2026-08-reference-only"
 MIGRATION_WORKSPACE_BASELINE_VERSION = 1

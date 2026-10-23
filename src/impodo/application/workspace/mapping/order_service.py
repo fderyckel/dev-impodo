@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from threading import RLock, Thread
-from typing import Callable, Iterable, Protocol
+from typing import Protocol
 from uuid import uuid4
 
+from impodo.domain.execution.planner import (
+    MAX_KEYS_PER_RECORD_REQUEST,
+    PreflightRequirementPlan,
+)
 from impodo.domain.mapping.contracts import (
     MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES,
     DatasetMapping,
@@ -41,6 +46,7 @@ from impodo.domain.matching_order import (
     matching_order_recommendation_hash,
     recommend_dataset_matching_order,
 )
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
@@ -50,20 +56,6 @@ from impodo.domain.odoo.contracts import (
     metadata_snapshot_payload,
     record_snapshot_payload,
 )
-from impodo.domain.execution.planner import (
-    MAX_KEYS_PER_RECORD_REQUEST,
-    PreflightRequirementPlan,
-)
-from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
-from impodo.domain.workspace.reference_keys import (
-    REFERENCE_POLICY_HASH,
-    reference_policy_hash,
-)
-from impodo.domain.schema.governance import (
-    BusinessKeyStatus,
-    SchemaGovernance,
-)
-from impodo.domain.serialization import canonical_json
 from impodo.domain.relationship_dependencies import (
     extract_dataset_dependency_edges,
 )
@@ -73,15 +65,20 @@ from impodo.domain.relationship_health import (
     RelationshipHealthStatus,
     classify_relationship_health,
 )
-from impodo.domain.source_binding import OdooSourceBinding
+from impodo.domain.schema.governance import (
+    BusinessKeyStatus,
+    SchemaGovernance,
+)
+from impodo.domain.serialization import canonical_json
 from impodo.domain.shared.access import (
     Actor,
     Capability,
     WorkspaceAuthorizationPolicy,
 )
+from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.workspace.contracts import (
-    OdooSchemaCatalog,
     MappingWorkingDraft,
+    OdooSchemaCatalog,
     SourceDataset,
     SourceSelection,
 )
@@ -90,6 +87,10 @@ from impodo.domain.workspace.derived_entities import (
     RelatedDatasetLink,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.reference_keys import (
+    REFERENCE_POLICY_HASH,
+    reference_policy_hash,
+)
 
 
 class MatchingOrderPreferenceRepository(Protocol):

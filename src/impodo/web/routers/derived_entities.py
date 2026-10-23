@@ -15,22 +15,26 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
+from impodo.adapters.odoo.local_stack import LocalStackError
+from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.workspace.derived_entities import (
     HierarchicalLookupRule,
     RelatedDatasetRule,
 )
-from impodo.adapters.odoo.local_stack import LocalStackError
-from impodo.domain.workspace.workbench import WorkspaceStateError
-from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateError
+from impodo.web.composition.target_readers import (
+    _existing_catalog_model,
+    _refresh_model_catalog,
+)
+
+from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _optional_int, _secure_form, _text
 from ..presenters.common import _flash
 from ..presenters.schema import _render_derived_entities
 from ..security import require_session
-from ..composition.page_reads import run_page_read
-from impodo.web.composition.target_readers import _existing_catalog_model, _refresh_model_catalog
 
 
 def build_derived_entities_router(context: WebContext) -> APIRouter:

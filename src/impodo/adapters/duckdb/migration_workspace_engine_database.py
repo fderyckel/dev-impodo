@@ -5,16 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
+from impodo.application.workspace.access import (
+    WorkspaceAccessContext,
+    current_workspace_access_context,
+)
 from impodo.domain.project.foundation import (
     MigrationIdentifierConfusionError,
     MigrationNotFoundError,
     require_uuid,
 )
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.application.workspace.access import (
-    WorkspaceAccessContext,
-    current_workspace_access_context,
-)
+
 from .database import DuckDbWorkspaceDatabase
 from .migration_foundation_database import MigrationFoundationDatabase
 from .schema.migration_workspace_store import ensure_workspace_linkage

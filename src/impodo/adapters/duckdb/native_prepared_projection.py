@@ -12,13 +12,13 @@ there is never a per-row fallback inside this plan.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import duckdb
 
-from ..polars_transformation import PREPARED_ORDINAL_COLUMN
+from impodo.domain.workspace.errors import WorkspaceError
 
 from ...domain.compiler.columnar_transformation import (
     ColumnarIdentityComponentProgram,
@@ -34,8 +34,7 @@ from ...domain.source_snapshot import (
 )
 from ...domain.staging.preparation_session import PreparedCanonicalProjection
 from ...domain.staging.transformation_impact import TransformationImpactCounts
-from impodo.domain.workspace.errors import WorkspaceError
-
+from ..polars_transformation import PREPARED_ORDINAL_COLUMN
 
 _ISSUE_COLUMN = "__impodo_columnar_issues"
 

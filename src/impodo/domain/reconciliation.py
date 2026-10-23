@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
-import json
-import re
 
 from impodo.domain.shared.models import canonical_json_bytes
-
 
 RECONCILIATION_CONTRACT_VERSION = 3
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")

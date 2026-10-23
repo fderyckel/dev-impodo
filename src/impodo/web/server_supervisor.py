@@ -3,23 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import logging.config
 import multiprocessing
 import os
-from pathlib import Path
 import socket
-from typing import Callable, Protocol
-from urllib.parse import quote
 import webbrowser
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol
+from urllib.parse import quote
 
 import h11
 import uvicorn
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
-from .app import create_local_app
+from .composition.local_app import create_local_app
 from .diagnostics import LocalDiagnosticRecorder
-
 
 MAX_AUTOMATIC_RESTARTS = 1
 SERVER_CHILD_GRACEFUL_SHUTDOWN_SECONDS = 20.0

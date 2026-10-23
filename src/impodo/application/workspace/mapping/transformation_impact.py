@@ -2,32 +2,34 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Protocol
+from typing import Protocol
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.shared.artifacts import WorkspaceArtifactStore
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan
+from impodo.application.workspace.preparation.preparation_service import (
+    stage_browser_mapping,
+)
+from impodo.domain.mapping.artifacts import MappingRevision
+from impodo.domain.mapping.validation.evidence import (
+    MappingValidationResult,
+    MappingValidationStatus,
+)
+from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.transformation_impact import (
     TransformationImpactIdentity,
     TransformationImpactReport,
     TransformationImpactRow,
     TransformationImpactSnapshot,
 )
-from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
-from impodo.domain.source_snapshot import SourceSnapshot
-from impodo.application.data_version.inspection import SourceFileCatalog
-from impodo.domain.mapping.artifacts import MappingRevision
-from impodo.domain.mapping.validation.evidence import (
-    MappingValidationResult,
-    MappingValidationStatus,
-)
-from impodo.domain.workspace.workbench import WorkspaceState
 from impodo.domain.workspace.contracts import MappingWorkingDraft, SourceSelection
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.application.workspace.preparation.preparation_service import (
-    stage_browser_mapping,
-)
+from impodo.domain.workspace.workbench import WorkspaceState
+
 from .bounded_direct_review import (
     direct_transformation_impact,
     uses_bounded_direct_review,

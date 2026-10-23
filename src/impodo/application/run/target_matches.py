@@ -8,10 +8,12 @@ are written only to the current Recipe application mapping.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from threading import RLock
-from typing import Mapping
 
+from impodo.application.supporting_lookup_service import SupportingLookupService
+from impodo.application.workspace.mapping.service import MappingWorkspaceService
 from impodo.domain.mapping.contracts import (
     CategoricalCoveragePolicy,
     DatasetMapping,
@@ -25,21 +27,19 @@ from impodo.domain.mapping.scalar_values import (
     ScalarValueError,
     evaluate_scalar_mapping_value,
 )
-from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.run.contracts import RecipeApplicationStatus, RunRecipeApplication
+from impodo.domain.serialization import content_hash
+from impodo.domain.shared.access import Actor, Capability
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import (
     reference_policy_hash,
     standard_reference_key,
 )
 from impodo.domain.workspace.supporting_lookups import (
-    SupportingLookupSnapshot, portable_supporting_value,
+    SupportingLookupSnapshot,
+    portable_supporting_value,
 )
-
-from impodo.domain.serialization import content_hash
-from impodo.domain.shared.access import Actor, Capability
-from impodo.domain.run.contracts import RunRecipeApplication, RecipeApplicationStatus
-from impodo.application.workspace.mapping.service import MappingWorkspaceService
-from impodo.application.supporting_lookup_service import SupportingLookupService
 
 from .planning_service import MigrationRunPlanningService
 

@@ -1,13 +1,14 @@
 """Preparation summary route spanning canonical, quality, and review status."""
 
 from __future__ import annotations
-from fastapi import Request
+
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from ..security import require_session
-from fastapi import APIRouter
-from ..context import WebContext
+
 from ..composition.page_reads import run_page_read
+from ..context import WebContext
 from ..presenters.summary import _render_summary
+from ..security import require_session
 
 
 def build_summary_router(context: WebContext) -> APIRouter:

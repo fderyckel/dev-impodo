@@ -7,12 +7,12 @@ from impodo.adapters.odoo.connectors import (
     Json2WriteIdentityConnector,
     target_record_read_config,
 )
-from impodo.domain.shared.models import OdooWriteIdentity
-from impodo.domain.execution.odoo_scope import OdooApiScope
-from impodo.adapters.odoo.writer import Json2WriteExecutor
-from impodo.domain.execution.odoo_write import OdooWriteExecutor
 from impodo.adapters.odoo.readback import Json2ReadbackReader
+from impodo.adapters.odoo.writer import Json2WriteExecutor
 from impodo.domain.execution.odoo_readback import OdooReadbackReader
+from impodo.domain.execution.odoo_scope import OdooApiScope
+from impodo.domain.execution.odoo_write import OdooWriteExecutor
+from impodo.domain.shared.models import OdooWriteIdentity
 from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateError
 
 

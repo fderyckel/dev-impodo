@@ -7,9 +7,9 @@ it does not traverse Odoo's model graph or change the saved model scope.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Iterable
 
 from .odoo_relationship_profiles import (
     DEFAULT_ODOO_RELATIONSHIP_PROFILES,

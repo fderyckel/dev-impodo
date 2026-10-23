@@ -8,12 +8,12 @@ I/O, persistence, encryption, and Polars execution remain outside this module.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+import json
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import StrEnum
-import json
-from typing import Any, Callable
+from typing import Any
 
 from impodo.domain.project.foundation import (
     require_aware,
@@ -29,7 +29,6 @@ from impodo.domain.shared.models import (
     portable_value,
     restore_portable_value,
 )
-
 
 CORRECTION_PLAN_CONTRACT = "correction-plan-v1"
 CORRECTION_CONFIRMATION_CONTRACT = "correction-confirmation-v1"

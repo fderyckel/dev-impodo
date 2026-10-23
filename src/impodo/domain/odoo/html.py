@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from html.parser import HTMLParser
 
-
 _VOID_TAGS = frozenset(
     {
         "area",

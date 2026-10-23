@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from impodo.domain.workspace.contracts import SourceSelection
-from ..errors import ReadinessError
 
+from ..errors import ReadinessError
 
 MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT = 25_000
 LOOKUP_DERIVED_BROWSER_EVALUATION_ROW_LIMIT = 50_000

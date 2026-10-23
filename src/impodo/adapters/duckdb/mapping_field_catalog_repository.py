@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import duckdb
 
-from ...application.workspace.mapping.field_catalog import (
-    MappingFieldCatalogSnapshot,
+from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.domain.workspace.contracts import (
+    MappingWorkingDraft,
+    OdooSchemaCatalog,
+    SourceSelection,
 )
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
@@ -13,16 +16,14 @@ from impodo.domain.workspace.derived_entities import (
     HierarchicalLookupRule,
     RelatedDatasetRule,
 )
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
+from ...application.workspace.mapping.field_catalog import (
+    MappingFieldCatalogSnapshot,
+)
 from ...domain.mapping.artifacts import MappingRevision
 from ...domain.schema.governance import SchemaGovernance
-from impodo.application.data_version.inspection import SourceFileCatalog
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
-from impodo.domain.workspace.contracts import (
-    MappingWorkingDraft,
-    OdooSchemaCatalog,
-    SourceSelection,
-)
-from impodo.domain.workspace.errors import WorkspaceError
 from .repository import DuckDbRepository
 
 

@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from collections import Counter
+from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from io import StringIO
-import logging
 from secrets import compare_digest
 from time import perf_counter
 from types import SimpleNamespace
-from typing import Sequence
 from urllib.parse import urlencode, urlsplit
 from uuid import uuid4
 
@@ -20,37 +20,38 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from impodo.domain.shared.access import AuthorizationError, Capability
-from ...application.workspace.execution.service import (
-    ExecutionPreview,
-    validated_create_batch_rows,
-)
-from ...application.workspace.execution.load_jobs import (
-    LoadJobNotFoundError,
-    LoadJobResult,
-    LoadJobStateError,
-)
-from impodo.domain.odoo.contracts import ConnectorError
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.application.workspace.access import WorkspaceAccessContext
+from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
+from impodo.domain.correction_origin import CorrectionOriginError
 from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS, ExecutionRunStatus
 from impodo.domain.execution.odoo_readback import OdooReadbackError
+from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.project.foundation import MigrationConflictError
+from impodo.domain.run.models import MigrationRunPurpose
+from impodo.domain.run.production import ProductionRunError
+from impodo.domain.shared.access import AuthorizationError, Capability
 from impodo.domain.shared.models import (
     OdooReadIdentity,
     OdooWriteIdentity,
     portable_value,
 )
-from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
-from impodo.domain.project.foundation import MigrationConflictError
-from impodo.domain.run.production import ProductionRunError
-from impodo.domain.run.models import MigrationRunPurpose
-from impodo.domain.correction_origin import CorrectionOriginError
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
-    WorkspaceState,
     OdooConnectionMode,
+    WorkspaceState,
     WorkspaceStateError,
 )
-from impodo.application.shared.secrets import SecretStoreError
-from impodo.domain.workspace.errors import WorkspaceError
-from impodo.application.workspace.access import WorkspaceAccessContext
+
+from ...application.workspace.execution.load_jobs import (
+    LoadJobNotFoundError,
+    LoadJobResult,
+    LoadJobStateError,
+)
+from ...application.workspace.execution.service import (
+    ExecutionPreview,
+    validated_create_batch_rows,
+)
 from ..composition.page_reads import run_local_operation, run_page_read
 from ..constants import DEFAULT_LOAD_ROWS_PER_PAGE, LOAD_ROW_PAGE_SIZES
 from ..context import WebContext
@@ -58,8 +59,8 @@ from ..diagnostics import LocalDiagnosticRecorder
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.navigation import build_load_workspace_navigation
-from ..security import require_session
 from ..run_commands import publish_reconciled_application
+from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRole,
     audit_reauthorized_target_credential,
@@ -69,7 +70,6 @@ from ..target_credentials import (
     prepare_target_credential,
     store_target_credential,
 )
-
 
 _LOAD_RECOVERY_CHECK_SESSION_KEY = "load_recovery_check"
 _LOAD_RECOVERY_CHECK_CONTRACT_VERSION = 1

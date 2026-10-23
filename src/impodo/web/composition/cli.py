@@ -16,19 +16,17 @@ See ``docs/developer/cli/preflight.md``, ``docs/developer/contracts/preflight.md
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import sys
 import time
-from typing import Sequence
+from collections.abc import Sequence
+from datetime import datetime, timezone
+from pathlib import Path
 
-from impodo.domain.odoo.contracts import ConnectorError
-from impodo.domain.scenarios import (
-    ScenarioDestinationMode,
-    ScenarioRunStatus,
-    ScenarioStopAfter,
-    ScenarioWritePolicy,
+from impodo.adapters.artifacts.profile_loader import ProfileLoadError, load_profile
+from impodo.adapters.artifacts.reporting import (
+    ReportGenerationError,
+    write_preflight_outputs,
 )
 from impodo.adapters.odoo.connectors import (
     Json2Config,
@@ -38,25 +36,30 @@ from impodo.adapters.odoo.connectors import (
     write_metadata_snapshot,
     write_record_snapshot,
 )
-from impodo.domain.compiler import compile_profile_document
-from impodo.domain.preparation.preflight import PreflightEngine
-from impodo.domain.shared.models import (
-    PreparedRecord,
-    canonical_json_bytes,
-    portable_issue,
-    portable_value,
-)
-from impodo.domain.execution.planner import plan_metadata_requests, plan_record_requests
-from impodo.adapters.artifacts.profile_loader import ProfileLoadError, load_profile
-from impodo.adapters.artifacts.reporting import ReportGenerationError, write_preflight_outputs
 from impodo.adapters.scenarios import (
     ProfileScenarioWorkflow,
     ScenarioLoadError,
     load_scenario,
     write_scenario_result,
 )
-from impodo.application.scenarios import ScenarioRunner
 from impodo.application.data_version.source_files import prepare_sources
+from impodo.application.scenarios import ScenarioRunner
+from impodo.domain.compiler import compile_profile_document
+from impodo.domain.execution.planner import plan_metadata_requests, plan_record_requests
+from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.preparation.preflight import PreflightEngine
+from impodo.domain.scenarios import (
+    ScenarioDestinationMode,
+    ScenarioRunStatus,
+    ScenarioStopAfter,
+    ScenarioWritePolicy,
+)
+from impodo.domain.shared.models import (
+    PreparedRecord,
+    canonical_json_bytes,
+    portable_issue,
+    portable_value,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:

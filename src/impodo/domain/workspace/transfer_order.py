@@ -7,14 +7,13 @@ business-key values, API credentials, or write receipts.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime
 import json
 import re
+from dataclasses import asdict, dataclass
+from datetime import datetime
 from typing import Any
 
 from impodo.domain.serialization import canonical_json, content_hash
-
 
 TRANSFER_ORDER_CONTRACT_VERSION = 1
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")

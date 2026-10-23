@@ -3,25 +3,26 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Mapping
 from uuid import uuid4
 
 import duckdb
 
-from impodo.domain.shared.access import Actor
 from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     SourcePackageState,
 )
+from impodo.domain.project.foundation import (
+    MigrationConflictError,
+)
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.contracts import SourceDatasetColumn
+
 from ...domain.data_version.models import (
     DataVersion,
 )
 from ...domain.serialization import canonical_json
-from impodo.domain.project.foundation import (
-    MigrationConflictError,
-)
-from impodo.domain.workspace.contracts import SourceDatasetColumn
 
 
 class FoundationSourcePackageRecords:

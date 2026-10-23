@@ -7,10 +7,10 @@ credentials, numeric Odoo identifiers, or complete target records.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
 import json
 import re
+from dataclasses import dataclass
+from datetime import datetime
 from uuid import uuid4
 
 from impodo.domain.serialization import canonical_json, content_hash
@@ -18,7 +18,6 @@ from impodo.domain.workspace.reference_keys import (
     REFERENCE_POLICY_HASH,
     StandardReferenceFieldContract,
 )
-
 
 _TECHNICAL_NAME = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 SUPPORTING_LOOKUP_CONTRACT_VERSION = 4

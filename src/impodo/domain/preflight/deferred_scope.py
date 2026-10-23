@@ -9,15 +9,15 @@ scope.
 
 from __future__ import annotations
 
+import json
+import re
 from collections import defaultdict, deque
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
-import json
-import re
-from typing import Mapping, Protocol
+from typing import Protocol
 
 from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.shared.models import (
@@ -32,7 +32,6 @@ from impodo.domain.shared.models import (
     restore_portable_value,
 )
 from impodo.domain.target_numeric_precision import unrepresentable_decimal
-
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 _WRITE_DISPOSITIONS = frozenset(

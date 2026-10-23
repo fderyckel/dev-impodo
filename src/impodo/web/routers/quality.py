@@ -1,17 +1,19 @@
 """Routes for editing guided manager-authored quality checks."""
 
 from __future__ import annotations
-from fastapi import Request
+
+from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
+
 from impodo.domain.preparation.quality import MAX_MANAGER_RULES_PER_DATASET
 from impodo.domain.workspace.errors import WorkspaceError
-from ..security import require_session
-from fastapi import APIRouter
+
 from ..context import QualityRouteContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash
 from ..presenters.mapping_impact import _mapping_return_url
 from ..presenters.mapping_view import _manager_quality_rules_from_form
+from ..security import require_session
 
 
 def build_quality_router(context: QualityRouteContext) -> APIRouter:

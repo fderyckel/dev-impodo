@@ -10,11 +10,10 @@ missing or incompatible field.
 
 from __future__ import annotations
 
-from impodo.domain.odoo.contracts import MetadataSnapshot
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
-from impodo.domain.shared.models import Issue
+from impodo.domain.odoo.contracts import MetadataSnapshot
 from impodo.domain.recipe.profile import DatasetSpec, FieldSpec, RelationSpec
-
+from impodo.domain.shared.models import Issue
 
 TYPE_COMPATIBILITY = {
     "string": {"char", "text", "html", "selection"},

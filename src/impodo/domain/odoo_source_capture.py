@@ -7,15 +7,16 @@ domain, method, arbitrary context, row JSON, or per-row digest.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from datetime import date, datetime, timezone
 import math
 import re
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from impodo.domain.workspace.business_keys import recommend_business_key
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField
+
 from .odoo_capture import (
     ODOO_CAPTURE_CONTRACT_VERSION,
     ODOO_CAPTURE_FIELD_TYPES,
@@ -35,7 +36,6 @@ from .odoo_source_policy import (
 )
 from .odoo_source_scope import is_writable_related_many2one
 from .serialization import canonical_json
-
 
 CaptureScalar = bool | int | float | str | date | datetime | None
 CancellationProbe = Callable[[], bool]

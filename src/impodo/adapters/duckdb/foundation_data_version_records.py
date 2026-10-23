@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from impodo.domain.shared.access import Actor
-from ...domain.data_version.models import DataVersion
 from impodo.domain.project.foundation import (
     MigrationConflictError,
     require_revision,
     require_uuid,
 )
+from impodo.domain.shared.access import Actor
+
+from ...domain.data_version.models import DataVersion
 
 
 class FoundationDataVersionRecords:

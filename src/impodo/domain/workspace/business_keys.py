@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
-import re
 
+from impodo.domain.workspace.contracts import SchemaField, SchemaModel
 from impodo.domain.workspace.reference_keys import (
     COUNTRY_REFERENCE_KEY,
     CURRENCY_REFERENCE_KEY,
     LANGUAGE_REFERENCE_KEY,
 )
-from impodo.domain.workspace.contracts import SchemaField, SchemaModel
-
 
 _UNIQUE_DEFINITION = re.compile(
     r"^\s*unique(?:\s+nulls\s+not\s+distinct)?\s*\(([^()]*)\)\s*$",

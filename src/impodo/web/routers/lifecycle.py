@@ -1,16 +1,18 @@
 """Lifecycle browser routes."""
 
 from __future__ import annotations
+
 import secrets
-from fastapi import HTTPException, Request
+
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
-from ..security import require_session
-from fastapi import APIRouter
+
 from ..context import LifecycleRouteContext
-from ..forms import _secure_form
 from ..diagnostics import create_diagnostic_bundle
+from ..forms import _secure_form
 from ..presenters.common import _render
+from ..security import require_session
 
 
 def build_lifecycle_router(context: LifecycleRouteContext) -> APIRouter:

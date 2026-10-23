@@ -6,24 +6,25 @@ import json
 from collections.abc import Iterable
 from dataclasses import replace
 
-from impodo.domain.shared.access import Actor
 from impodo.application.browser_queries import SourceReviewPage
+from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     SourcePackageCatalog,
     SourcePackageConfiguration,
     SourcePackageState,
 )
+from impodo.domain.project.foundation import MigrationFoundationError, utc_now
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.contracts import SourceConfiguration, SourceSelection
+from impodo.domain.workspace.workbench import WorkspaceState
+
 from ...domain.odoo_capture import OdooCaptureSelection
 from ...domain.source_snapshot import (
     SourceSnapshot,
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from impodo.application.data_version.inspection import SourceFileCatalog
-from impodo.domain.project.foundation import MigrationFoundationError, utc_now
-from impodo.domain.workspace.contracts import SourceConfiguration, SourceSelection
-from impodo.domain.workspace.workbench import WorkspaceState
 from .migration_foundation_repository import MigrationFoundationRepository
 from .source_repository import SourceRepository
 

@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import csv
+from collections.abc import Iterable
 from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO, TextIOWrapper
 from pathlib import Path
-from typing import Iterable
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from impodo.domain.reconciliation import ReconciliationRowStatus, ReconciliationRun
 from impodo.application.fallout_workbook_port import FalloutWorkbookCell
-
+from impodo.domain.reconciliation import ReconciliationRowStatus, ReconciliationRun
 
 FALLOUT_FILL = "FCE8E7"
 FALLOUT_TEXT = "9F2F2F"

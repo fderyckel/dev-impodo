@@ -12,15 +12,15 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 import csv
 import hashlib
 import json
+from collections.abc import Iterator
 from dataclasses import replace
 from io import StringIO
 from time import perf_counter
-from uuid import UUID, uuid4
 from urllib.parse import urlencode
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import (
@@ -80,17 +80,23 @@ from ...domain.mapping.contracts import (
     TargetFieldHandling,
     UnsupportedMappingContractError,
 )
-from ...domain.mapping.validation.evidence import MappingValidationResult
+from ...domain.mapping.mutations import (
+    MappingMutationAction,
+    MappingMutationReceipt,
+    MappingMutationState,
+    MappingVersionConflict,
+)
 from ...domain.mapping.row_inclusion_review import (
     RowInclusionReviewFilter,
     RowInclusionReviewOutcome,
 )
-from ...domain.workspace.supporting_lookups import portable_supporting_value
-from ...domain.staging.transformation_impact import TransformationImpactFilter
+from ...domain.mapping.validation.evidence import MappingValidationResult
 from ...domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 )
+from ...domain.staging.transformation_impact import TransformationImpactFilter
+from ...domain.workspace.supporting_lookups import portable_supporting_value
 from ..composition.page_reads import run_local_operation, run_page_read
 from ..constants import (
     TRANSFORMATION_IMPACT_OUTCOMES,
@@ -107,22 +113,16 @@ from ..forms import (
     _text,
     _texts,
 )
-from ...domain.mapping.mutations import (
-    MappingMutationAction,
-    MappingMutationReceipt,
-    MappingMutationState,
-    MappingVersionConflict,
+from ..mapping_catalog_runtime import (
+    MappingCatalogCapacityError,
+    MappingCatalogProjectionCache,
+    MappingCatalogSearchCoordinator,
 )
 from ..mapping_formula_authoring import (
     formula_allowed_names,
     mapping_formula_authoring_issues,
     saved_with_formula_issues_message,
     validate_formula_authoring,
-)
-from ..mapping_catalog_runtime import (
-    MappingCatalogCapacityError,
-    MappingCatalogProjectionCache,
-    MappingCatalogSearchCoordinator,
 )
 from ..presenters.common import _flash, _render
 from ..presenters.mapping_forms import (
@@ -150,7 +150,6 @@ from ..presenters.mapping_view import (
 )
 from ..security import require_csrf, require_session
 from ..source_stage_gate import source_stage_redirect
-
 
 _ROW_REVIEW_FAILURE_CODE = "MAPPING_ROW_REVIEW_FAILED"
 

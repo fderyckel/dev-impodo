@@ -14,7 +14,8 @@ objects.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Iterable, Mapping
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from impodo.domain.shared.models import BusinessReference, TargetRecord
 

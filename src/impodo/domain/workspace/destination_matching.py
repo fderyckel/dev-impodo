@@ -7,17 +7,17 @@ remain inside their protected read boundaries.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field as dataclass_field, replace
-from datetime import UTC, datetime
 import json
-from math import isfinite
 import re
+from dataclasses import asdict, dataclass, replace
+from dataclasses import field as dataclass_field
+from datetime import UTC, datetime
+from math import isfinite
 from typing import Any
 from uuid import UUID, uuid4
 
 from impodo.domain.mapping.contracts import ResolverOrigin
 from impodo.domain.serialization import canonical_json, content_hash
-
 
 DESTINATION_MATCH_CONTRACT_VERSION = 15
 _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset(

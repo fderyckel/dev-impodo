@@ -8,14 +8,13 @@ MigrationWorkspace; no mutable workspace state is shared.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
-import json
-from typing import Mapping
 
 from impodo.domain.coverage import ReferenceBundle, ReferenceDataSet
-from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.project.foundation import (
     MigrationFoundationError,
     require_aware,
@@ -25,9 +24,9 @@ from impodo.domain.project.foundation import (
     required_text,
 )
 from impodo.domain.run.models import MigrationRun
-from impodo.domain.workspace.models import MigrationWorkspace
+from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaModel
-
+from impodo.domain.workspace.models import MigrationWorkspace
 
 MIGRATION_RUN_REQUIREMENT_PLAN_VERSION = 1
 MIGRATION_RUN_EVIDENCE_CONTRACT_VERSION = 1

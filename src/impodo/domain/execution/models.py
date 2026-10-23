@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import StrEnum
-import json
-import re
 
 from impodo.domain.shared.models import canonical_json_bytes
-
 
 # This is a defensive process-level ceiling, not a recommended Odoo request
 # size.  The operator chooses the effective size for each load; constrained

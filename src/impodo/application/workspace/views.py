@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from impodo.domain.shared.access import Actor, Capability
+from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.domain.data_version.models import DataVersion
 from impodo.domain.project.foundation import (
     MigrationIdentifierConfusionError,
@@ -12,8 +12,8 @@ from impodo.domain.project.foundation import (
 from impodo.domain.project.models import MigrationProject
 from impodo.domain.run.models import MigrationRun
 from impodo.domain.run.setup import MigrationRunTargetSetup
+from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.models import MigrationWorkspace
-from impodo.application.workspace.access import WorkspaceAccessService
 
 
 @dataclass(frozen=True, slots=True)

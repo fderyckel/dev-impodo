@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from math import isfinite
-from typing import Mapping, Protocol, Sequence
+from typing import Protocol
 from uuid import uuid4
 
 from impodo.domain.execution.planner import MAX_KEYS_PER_RECORD_REQUEST
+from impodo.domain.mapping.contracts import ResolverOrigin
 from impodo.domain.mapping.create_field_policy import (
     CreateFieldCoverage,
     VerifiedCreateDefaultAction,
@@ -17,8 +19,6 @@ from impodo.domain.mapping.create_field_policy import (
     evaluate_create_field,
     required_create_hook_inputs,
 )
-from impodo.domain.mapping.contracts import ResolverOrigin
-from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
 from impodo.domain.odoo.compatibility import (
     OdooOperation,
     assess_odoo_operation,
@@ -33,6 +33,7 @@ from impodo.domain.odoo.contracts import (
     record_snapshot_payload,
 )
 from impodo.domain.odoo_provenance import OdooOriginBatch
+from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
 from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from impodo.domain.odoo_source_scope import is_writable_related_many2one
 from impodo.domain.serialization import content_hash
@@ -43,11 +44,6 @@ from impodo.domain.shared.models import (
 )
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.workspace.business_keys import recommend_business_key
-from impodo.domain.workspace.portable_identity import (
-    portable_components,
-    portable_identity,
-    record_identity,
-)
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -71,12 +67,16 @@ from impodo.domain.workspace.odoo_relationship_compilation import (
     OdooRelationshipCompilationError,
     compile_odoo_relationship_datasets,
 )
+from impodo.domain.workspace.portable_identity import (
+    portable_components,
+    portable_identity,
+    record_identity,
+)
 from impodo.domain.workspace.workbench import (
     WorkspaceState,
     transfer_destination_identity_hash,
     transfer_destination_workspace,
 )
-
 
 DESTINATION_MATCH_MAX_DISTINCT_KEYS = CURRENT_ODOO_SOURCE_POLICY.max_rows
 DESTINATION_MATCH_RECORD_LIMIT = MAX_KEYS_PER_RECORD_REQUEST + 1

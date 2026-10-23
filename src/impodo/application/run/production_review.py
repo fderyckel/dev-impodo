@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 
-from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
-from impodo.domain.shared.access import Actor
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.cutover.models import (
     PROJECT_SHARED_CONTROL_IDS,
@@ -14,9 +12,11 @@ from impodo.domain.cutover.models import (
     CutoverWriteOwnership,
 )
 from impodo.domain.data_version.models import DataVersionPurpose
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.run.planning import blocking_run_issue, run_requirement_hash
-from impodo.domain.serialization import content_hash
 from impodo.domain.run.production import ProductionRunBinding, ProductionRunError
+from impodo.domain.serialization import content_hash
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
 from .planning_models import IntegratedRunReview

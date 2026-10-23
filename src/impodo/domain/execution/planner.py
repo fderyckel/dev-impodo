@@ -14,23 +14,23 @@ The planner produces data-only request contracts and never contacts Odoo.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from hashlib import sha256
-from typing import Any, Iterable
+from typing import Any
 
-from impodo.domain.odoo.contracts import MetadataRequest, RecordRequest
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
 from impodo.domain.errors import ReadinessError
+from impodo.domain.odoo.contracts import MetadataRequest, RecordRequest
+from impodo.domain.recipe.profile import DatasetSpec, ResolveSpec
+from impodo.domain.relationship_dependencies import DatasetDependencyEdge
 from impodo.domain.shared.models import (
     LogicalReference,
     PreparedRecord,
     canonical_json_bytes,
     portable_value,
 )
-from impodo.domain.recipe.profile import DatasetSpec, ResolveSpec
-from impodo.domain.relationship_dependencies import DatasetDependencyEdge
 from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
-
 
 PREFLIGHT_REQUIREMENT_PLAN_VERSION = 4
 MAX_KEYS_PER_RECORD_REQUEST = 500

@@ -15,32 +15,60 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 from hashlib import sha256
-import re
 from threading import RLock
-from typing import Iterable, Mapping, Protocol
+from typing import Protocol
 from uuid import uuid4
 
+from impodo.application.data_version.inspection import (
+    SourceFileCatalog,
+    SourceInspectionError,
+    SourceTableCatalog,
+)
+from impodo.application.data_version.source_snapshots import (
+    SourceSnapshotPublisher,
+)
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    DataVersionSourceArtifactStore,
+)
+from impodo.application.workspace.access import WorkspaceAccessService
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.shared.access import Actor, Capability
-from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
-from ..domain.source_snapshot import (
-    SourceSnapshot,
+from impodo.domain.workspace.contracts import (
+    WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+    OdooSchemaCatalog,
+    SchemaOrigin,
+    SourceConfiguration,
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+)
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import (
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStatus,
+)
+
+from ..domain.guided_odoo_capture import (
+    GuidedOdooCaptureMode,
+    GuidedOdooCapturePlanDraft,
 )
 from ..domain.odoo_capture import (
     MAX_ODOO_CAPTURE_ROWS,
     ODOO_CAPTURE_PAGE_SIZES,
     OdooCaptureContractError,
-    OdooCaptureFilterPolicy,
     OdooCaptureFilterClause,
     OdooCaptureFilterOperator,
+    OdooCaptureFilterPolicy,
     OdooCaptureRole,
     OdooCaptureSelection,
     require_consistent_odoo_capture_selection_set,
-)
-from ..domain.guided_odoo_capture import (
-    GuidedOdooCaptureMode,
-    GuidedOdooCapturePlanDraft,
 )
 from ..domain.odoo_relationship_scope import (
     OdooRelationshipCaptureAction,
@@ -53,31 +81,12 @@ from ..domain.odoo_source_capture import (
     plan_odoo_source_capture,
 )
 from ..domain.odoo_source_policy import odoo_source_policy_hash
-from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
-from ..domain.source_binding import FileSourceBinding, require_file_source
-from impodo.application.data_version.inspection import (
-    SourceFileCatalog,
-    SourceInspectionError,
-    SourceTableCatalog,
-)
-from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus, SourceMode
-from impodo.domain.preparation.source import SourceLoadError
-from impodo.application.data_version.source_snapshots import (
-    SourceSnapshotPublisher,
-)
-from impodo.domain.workspace.contracts import (
-    SourceConfiguration,
-    SourceDataset,
-    SourceDatasetColumn,
-    SourceSelection,
-    WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
-    OdooSchemaCatalog,
-    SchemaOrigin,
-)
-from impodo.domain.workspace.errors import WorkspaceError
-from impodo.application.workspace.access import WorkspaceAccessService
-from .odoo_capture_filters import OdooCaptureFilterStore
 from ..domain.serialization import content_hash
+from ..domain.source_binding import FileSourceBinding, require_file_source
+from ..domain.source_snapshot import (
+    SourceSnapshot,
+)
+from .odoo_capture_filters import OdooCaptureFilterStore
 
 
 def _dataset_name_violations(name: str) -> tuple[str, ...]:

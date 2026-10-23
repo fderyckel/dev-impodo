@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Mapping, Protocol, Sequence
+from typing import Protocol
 
-from ...source_binding import SourceBinding, SourceOriginKind
+from impodo.domain.workspace.reference_keys import StandardReferenceFieldContract
+from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
+
 from ...schema.governance import (
     BusinessKeyStatus,
     SchemaGovernance,
 )
-from impodo.domain.workspace.reference_keys import StandardReferenceFieldContract
-from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
+from ...source_binding import SourceBinding, SourceOriginKind
 from ..contracts import DatasetMapping, MappingDefinition
 
 

@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from impodo.domain.shared.access import Actor
-from ...domain.run.models import (
-    MigrationRun,
-)
 from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationOperationKind,
     MigrationOperationState,
+)
+from impodo.domain.shared.access import Actor
+
+from ...domain.run.models import (
+    MigrationRun,
 )
 
 

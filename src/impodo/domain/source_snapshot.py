@@ -14,19 +14,19 @@ This module is the current domain contract shared by file and Odoo publication.
 
 from __future__ import annotations
 
+import json
+import math
+import re
+from collections.abc import Iterable
 from dataclasses import InitVar, dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import IntEnum
-import json
-import math
 from pathlib import PurePosixPath
-import re
-from typing import Any, Iterable
+from typing import Any
 
 from .serialization import canonical_json, content_hash
 from .source_binding import SourceBinding, source_binding_from_dict
-
 
 SOURCE_SNAPSHOT_CONTRACT_VERSION = 3
 SOURCE_SNAPSHOT_STORAGE_LAYOUT_VERSION = 4

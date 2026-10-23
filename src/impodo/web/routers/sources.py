@@ -37,16 +37,25 @@ from time import perf_counter
 from types import SimpleNamespace
 from uuid import uuid4
 
-from fastapi import HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
+
 from impodo.application.browser_queries import SourceReviewPage
+from impodo.application.data_version.inspection import (
+    SourceInspectionError,
+    SourceInspectionOptions,
+)
 from impodo.application.odoo_dependency_capture import MAX_DEPENDENCY_DEPTH
 from impodo.application.odoo_read_failures import OdooReadCredentialMissingError
-from impodo.domain.shared.access import Capability
-from ...application.odoo_capture_job_service import (
-    OdooCaptureJobNotFoundError,
-    OdooCaptureJobStateError,
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.application.workspace.odoo_capture_jobs import (
+    OdooCaptureJob,
+    OdooCaptureJobStatus,
+)
+from impodo.domain.guided_odoo_capture import (
+    GuidedOdooCapturePlanDraft,
+    propose_guided_odoo_capture_plans,
 )
 from impodo.domain.odoo.contracts import (
     ConnectorError,
@@ -54,29 +63,31 @@ from impodo.domain.odoo.contracts import (
     MetadataSnapshot,
     merge_disjoint_metadata_snapshots,
 )
-from impodo.domain.guided_odoo_capture import (
-    GuidedOdooCapturePlanDraft,
-    propose_guided_odoo_capture_plans,
+from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.shared.access import Capability
+from impodo.domain.workspace.contracts import (
+    OdooModelCatalog,
+    OdooSchemaCatalog,
+    SchemaModel,
 )
-from ...domain.odoo_source_capture import (
-    OdooSourceCaptureAccessRefreshRequired,
-    OdooSourceCaptureError,
-    OdooSourceCaptureConfigurationError,
-    is_odoo_capture_value_field,
-    is_odoo_capture_filter_field,
-    is_odoo_capture_relationship_field,
-    plan_odoo_source_capture,
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import (
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStateError,
+    WorkspaceStatus,
 )
-from impodo.application.workspace.odoo_capture_jobs import OdooCaptureJob, OdooCaptureJobStatus
-from ...domain.odoo_source_policy import (
-    CURRENT_ODOO_SOURCE_POLICY,
-    odoo_source_policy_from_hash,
+
+from ...application.odoo_capture_job_service import (
+    OdooCaptureJobNotFoundError,
+    OdooCaptureJobStateError,
 )
-from ...domain.odoo_source_scope import (
-    RelatedDataHandling,
-    RelatedDataSuggestion,
-    propose_related_odoo_data,
-    related_model_can_be_selected,
+from ...domain.data_version.models import DataVersionState
+from ...domain.odoo_capture import (
+    ODOO_CAPTURE_PAGE_SIZES,
+    OdooCaptureRole,
+    OdooCaptureSelection,
+    odoo_capture_selection_set_hash,
 )
 from ...domain.odoo_relationship_scope import (
     OdooRelationshipCaptureAction,
@@ -89,46 +100,42 @@ from ...domain.odoo_relationship_scope import (
     relationship_scope_decisions,
     review_relationship_scope,
 )
-from ...domain.odoo_capture import (
-    ODOO_CAPTURE_PAGE_SIZES,
-    OdooCaptureRole,
-    OdooCaptureSelection,
-    odoo_capture_selection_set_hash,
+from ...domain.odoo_source_capture import (
+    OdooSourceCaptureAccessRefreshRequired,
+    OdooSourceCaptureConfigurationError,
+    OdooSourceCaptureError,
+    is_odoo_capture_filter_field,
+    is_odoo_capture_relationship_field,
+    is_odoo_capture_value_field,
+    plan_odoo_source_capture,
 )
-from ...domain.data_version.models import DataVersionState
-from impodo.application.data_version.inspection import SourceInspectionError, SourceInspectionOptions
-from impodo.domain.project.foundation import MigrationFoundationError
-from impodo.domain.workspace.workbench import (
-    SourceMode,
-    WorkspaceState,
-    WorkspaceStateError,
-    WorkspaceStatus,
+from ...domain.odoo_source_policy import (
+    CURRENT_ODOO_SOURCE_POLICY,
+    odoo_source_policy_from_hash,
 )
-from impodo.domain.workspace.contracts import (
-    OdooModelCatalog,
-    OdooSchemaCatalog,
-    SchemaModel,
+from ...domain.odoo_source_scope import (
+    RelatedDataHandling,
+    RelatedDataSuggestion,
+    propose_related_odoo_data,
+    related_model_can_be_selected,
 )
-from impodo.application.shared.secrets import SecretStoreError
-from impodo.domain.workspace.errors import WorkspaceError
-from ..security import require_session
-from fastapi import APIRouter
 from ..composition.page_reads import run_local_operation, run_page_read
-from ..context import SchemaReadSession, WebContext
 from ..composition.target_readers import (
     _missing_schema_reader_message,
     _selected_local_profile,
 )
+from ..context import SchemaReadSession, WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
-from ..presenters.odoo_source_scope import build_related_data_scope_view
 from ..presenters.navigation import build_odoo_capture_workspace_navigation
+from ..presenters.odoo_source_scope import build_related_data_scope_view
 from ..presenters.schema import (
     _dataset_choices,
     _dataset_choices_from,
     _decode_delimiter,
 )
-from .schema import _read_selected_schema_sync
+from ..security import require_session
+from ..source_file_commands import accept_source_uploads, remove_source_file
 from ..target_credentials import (
     TargetCredentialRole,
     audit_stored_target_credential,
@@ -136,8 +143,7 @@ from ..target_credentials import (
     get_target_credential_status,
     store_target_credential,
 )
-from ..source_file_commands import accept_source_uploads, remove_source_file
-
+from .schema import _read_selected_schema_sync
 
 _ODOO_CAPTURE_ASSESSMENT_SESSION_KEY = "odoo_capture_assessment"
 _LINKED_DATA_CHECK_IN_PROGRESS = (

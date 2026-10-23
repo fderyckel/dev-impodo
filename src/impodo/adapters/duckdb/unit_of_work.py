@@ -8,19 +8,19 @@ always closes the short-lived connection.
 
 from __future__ import annotations
 
+import os
+import time
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from functools import lru_cache
-import os
 from pathlib import Path
 from threading import local
-import time
-from typing import Callable, Iterator
 
 import duckdb
 
 from impodo.domain.workspace.errors import WorkspaceDatabaseBusyError
-from .request_timing import record_duckdb_connection_timing
 
+from .request_timing import record_duckdb_connection_timing
 
 DUCKDB_CONFIG = {
     "allow_community_extensions": "false",

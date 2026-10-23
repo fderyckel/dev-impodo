@@ -18,11 +18,20 @@ from datetime import (
 )
 from typing import Protocol
 
-
-from impodo.domain.shared.access import Actor
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan, mapping_source_selection
 from impodo.application.data_version.inspection import SourceFileCatalog
-from ...domain.schema.governance import SchemaGovernance
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.contracts import (
+    MappingWorkingDraft,
+    OdooSchemaCatalog,
+    SourceSelection,
+)
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    mapping_source_selection,
+)
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
 from ...domain.mapping.artifacts import (
     MappingRevision,
     MappingSubmission,
@@ -38,19 +47,8 @@ from ...domain.mapping.validation.evidence import (
     MappingValidationStatus,
     mapping_issue_fingerprint,
 )
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
-from impodo.domain.workspace.contracts import (
-    MappingWorkingDraft,
-    OdooSchemaCatalog,
-    SourceSelection,
-)
-from impodo.domain.workspace.errors import WorkspaceError
+from ...domain.schema.governance import SchemaGovernance
 from .repository import DuckDbRepository
-
-
-
-
-
 
 
 class MappingSourceProjectionReader(Protocol):

@@ -12,10 +12,10 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any, Literal
 
-from impodo.domain.odoo.contracts import MetadataSnapshot
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
-from impodo.domain.shared.models import Issue, PreparedRecord, Severity
+from impodo.domain.odoo.contracts import MetadataSnapshot
 from impodo.domain.recipe.profile import DatasetSpec
+from impodo.domain.shared.models import Issue, PreparedRecord, Severity
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
 

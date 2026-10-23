@@ -8,11 +8,12 @@ record IDs, or runtime storage concerns.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-import re
-from typing import Any, Mapping
+from typing import Any
 from uuid import UUID
 
 from impodo.domain.shared.access import ActorIdentity
@@ -21,8 +22,8 @@ from impodo.domain.shared.models import (
     portable_value,
     restore_portable_value,
 )
-from .serialization import canonical_json, content_hash
 
+from .serialization import canonical_json, content_hash
 
 COVERAGE_SCOPE_CONTRACT_VERSION = 2
 REFERENCE_DATA_CONTRACT_VERSION = 2

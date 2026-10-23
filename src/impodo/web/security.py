@@ -18,15 +18,15 @@ from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import PlainTextResponse, Response
 
-from impodo.domain.shared.access import Actor, AuthorizationError, Capability
-from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.application.workspace.access import (
     WorkspaceAccessContext,
     WorkspaceAccessService,
     bind_workspace_access_context,
 )
-from .composition.page_reads import run_page_read
+from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.shared.access import Actor, AuthorizationError, Capability
 
+from .composition.page_reads import run_page_read
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 MAX_REQUEST_BYTES = 101 * 1024 * 1024

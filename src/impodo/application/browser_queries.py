@@ -13,24 +13,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
-from .data_version.source_packages import DataVersionSourcePackage
-
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan
-from ..domain.source_snapshot import SourceSnapshot
-from ..domain.odoo_capture import OdooCaptureSelection
-from ..domain.odoo_relationship_scope import OdooRelationshipScope
-from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
-from ..domain.mapping.validation.evidence import MappingValidationResult
-from ..domain.schema.governance import SchemaGovernance
-from ..domain.staging.transformation_impact import (
-    TransformationImpactFilter,
-    TransformationImpactIdentity,
-    TransformationImpactPage,
-    TransformationImpactRow,
-    TransformationImpactSnapshot,
-)
 from impodo.application.data_version.inspection import SourceFileCatalog
-from impodo.domain.workspace.workbench import WorkspaceState
 from impodo.domain.preparation.quality import (
     QualityCollisionGroup,
     QualityReviewPage,
@@ -43,6 +26,23 @@ from impodo.domain.workspace.contracts import (
     SourceConfiguration,
     SourceSelection,
 )
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
+from impodo.domain.workspace.workbench import WorkspaceState
+
+from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
+from ..domain.mapping.validation.evidence import MappingValidationResult
+from ..domain.odoo_capture import OdooCaptureSelection
+from ..domain.odoo_relationship_scope import OdooRelationshipScope
+from ..domain.schema.governance import SchemaGovernance
+from ..domain.source_snapshot import SourceSnapshot
+from ..domain.staging.transformation_impact import (
+    TransformationImpactFilter,
+    TransformationImpactIdentity,
+    TransformationImpactPage,
+    TransformationImpactRow,
+    TransformationImpactSnapshot,
+)
+from .data_version.source_packages import DataVersionSourcePackage
 from .workspace.mapping.field_catalog import (
     MappingFieldCatalogQueryRepository,
     MappingFieldCatalogSnapshot,

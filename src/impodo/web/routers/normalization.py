@@ -8,15 +8,15 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
-from ...domain.errors import ReadinessError
-from impodo.domain.workspace.workbench import WorkspaceStateError, SourceMode
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import SourceMode, WorkspaceStateError
+
+from ...domain.errors import ReadinessError
 from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash
 from ..presenters.summary import _render_normalization
 from ..security import require_session
-
 
 _REVIEW_STATUSES = frozenset(
     {"automatic", "pending", "reviewed", "set_aside"}

@@ -18,12 +18,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from impodo.domain.recipe.value_rules import MAX_FORMULA_LENGTH
 from impodo.domain.relationship_dependencies import (
     extract_dataset_dependency_edges,
     required_cross_dataset_cycle,
 )
-from impodo.domain.recipe.value_rules import MAX_FORMULA_LENGTH
-
 
 ScalarType = Literal[
     "string",

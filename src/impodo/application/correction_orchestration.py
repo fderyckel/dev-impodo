@@ -7,10 +7,11 @@ run-owned binding/current pointer and never introduces a correction lifecycle.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Protocol
+from typing import Protocol
 from uuid import UUID, uuid5
 
 from impodo.application.correction_service import (
@@ -19,13 +20,13 @@ from impodo.application.correction_service import (
     CorrectionReviewService,
     build_completed_load_target_index,
 )
+from impodo.domain.compiler.columnar_transformation import (
+    ColumnarTransformationProgram,
+)
 from impodo.domain.correction import (
     CorrectionCandidate,
     CorrectionConfirmation,
     CorrectionPlan,
-)
-from impodo.domain.compiler.columnar_transformation import (
-    ColumnarTransformationProgram,
 )
 from impodo.domain.correction_origin import (
     CorrectionOriginError,

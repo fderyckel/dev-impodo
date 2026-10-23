@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
-import json
 
 
 @dataclass(frozen=True, slots=True)

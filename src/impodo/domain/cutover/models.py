@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Mapping
 
-from impodo.domain.shared.access import ActorIdentity
-from ...domain.serialization import content_hash
 from impodo.domain.project.foundation import (
     require_aware,
     require_hash,
@@ -17,7 +15,9 @@ from impodo.domain.project.foundation import (
     required_text,
 )
 from impodo.domain.run.contracts import RecipeDependency, RecipeRevisionSelection
+from impodo.domain.shared.access import ActorIdentity
 
+from ...domain.serialization import content_hash
 
 PROJECT_SHARED_CONTROL_IDS = (
     "control:project.integrated_reconciliation",

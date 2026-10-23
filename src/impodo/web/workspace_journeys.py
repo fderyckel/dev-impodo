@@ -13,9 +13,10 @@ from fastapi import Request
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
-from impodo.domain.project.foundation import MigrationIdentifierConfusionError
-from ..domain.run.models import MigrationRunPurpose
 from impodo.application.workspace.access import WorkspaceAccessContext
+from impodo.domain.project.foundation import MigrationIdentifierConfusionError
+
+from ..domain.run.models import MigrationRunPurpose
 
 
 class WorkspaceJourney(StrEnum):

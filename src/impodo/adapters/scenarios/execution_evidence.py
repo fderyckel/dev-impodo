@@ -14,13 +14,13 @@ See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
 
 from __future__ import annotations
 
-from dataclasses import asdict, replace
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
 import tempfile
-from typing import Sequence
+from collections.abc import Sequence
+from dataclasses import asdict, replace
+from datetime import datetime, timezone
+from pathlib import Path
 
 from impodo.domain.execution.models import (
     ExecutionRowAttempt,

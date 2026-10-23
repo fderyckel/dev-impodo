@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import Mapping
+from collections.abc import Mapping
 
 from impodo.domain.data_version.metadata import TYPE_COMPATIBILITY
 from impodo.domain.recipe.value_rules import (
@@ -18,6 +18,7 @@ from impodo.domain.recipe.value_rules import (
     validate_formula,
     validate_pattern,
 )
+
 from ..contracts import (
     CategoricalCoveragePolicy,
     DatasetMapping,
@@ -30,9 +31,9 @@ from ..create_field_policy import (
     evaluate_create_field,
 )
 from ..scalar_values import (
-    ScalarValueError,
     _DATE_FORMATS,
     _DECIMAL_LOCALES,
+    ScalarValueError,
     canonicalize_scalar_value,
 )
 from ..source_conditions import source_condition_configuration_problems

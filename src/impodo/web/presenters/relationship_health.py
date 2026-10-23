@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from impodo.domain.mapping.contracts import ResolverOrigin
 from impodo.domain.matching_order import MatchingOrderCheck
@@ -10,7 +11,6 @@ from impodo.domain.relationship_health import (
     RelationshipHealthNotCheckableReason,
     RelationshipHealthResult,
 )
-
 
 _UNCHECKED_MESSAGES = {
     RelationshipHealthNotCheckableReason.MAPPING_INCOMPLETE: (

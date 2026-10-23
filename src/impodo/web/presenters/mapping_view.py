@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import json
+from dataclasses import dataclass, replace
 from time import perf_counter
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
@@ -21,6 +21,13 @@ from impodo.application.workspace.mapping.incoming_dependencies import (
 )
 from impodo.application.workspace.mapping.order_service import MatchingOrderService
 from impodo.domain.mapping.source_conditions import parse_source_text_list
+from impodo.domain.preparation.quality import (
+    MAX_MANAGER_RULES_PER_DATASET,
+    QualityOutcomePolicy,
+    QualityOwnerRole,
+    QualityRuleFamily,
+    manager_quality_rule,
+)
 from impodo.domain.shared.access import Capability
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityRule,
@@ -30,13 +37,8 @@ from impodo.domain.workspace.derived_entities import (
     preview_derived_entities,
     related_dataset_links,
 )
-from ...domain.schema.governance import BusinessKeyStatus
-from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
-from ...domain.source_binding import (
-    FileSourceBinding,
-    OdooSourceBinding,
-    SourceOriginKind,
-)
+from impodo.domain.workspace.errors import WorkspaceError
+
 from ...domain.mapping.contracts import (
     MAPPING_CONTRACT_VERSION,
     MAX_CONTROL_TOTALS_PER_DATASET,
@@ -47,10 +49,14 @@ from ...domain.mapping.contracts import (
     RowInclusionJoin,
     RowInclusionMode,
     RowInclusionPolicy,
-    SelectionConditionOperator,
     ScalarFieldMapping,
     ScalarValueSource,
+    SelectionConditionOperator,
     relationship_target_fields,
+)
+from ...domain.mapping.create_field_policy import (
+    is_odoo_managed_candidate,
+    supports_create_default_capture,
 )
 from ...domain.mapping.scalar_values import (
     ScalarValueError,
@@ -58,25 +64,20 @@ from ...domain.mapping.scalar_values import (
 )
 from ...domain.mapping.validation.evidence import mapping_issue_fingerprint
 from ...domain.matching_order import (
+    MatchingOrderCheckStatus,
     MatchingOrderConfidence,
     MatchingOrderPreference,
     MatchingOrderRecommendation,
     MatchingOrderSource,
-    MatchingOrderCheckStatus,
     live_matching_order_recommendation,
 )
-from ...domain.mapping.create_field_policy import (
-    is_odoo_managed_candidate,
-    supports_create_default_capture,
+from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ...domain.schema.governance import BusinessKeyStatus
+from ...domain.source_binding import (
+    FileSourceBinding,
+    OdooSourceBinding,
+    SourceOriginKind,
 )
-from impodo.domain.preparation.quality import (
-    MAX_MANAGER_RULES_PER_DATASET,
-    QualityOutcomePolicy,
-    QualityOwnerRole,
-    QualityRuleFamily,
-    manager_quality_rule,
-)
-from impodo.domain.workspace.errors import WorkspaceError
 from ..constants import DEFAULT_MAPPING_FIELDS_PER_PAGE, MAPPING_FIELD_PAGE_SIZES
 from ..context import WebContext
 from ..diagnostics import set_diagnostic_working_draft_version
@@ -84,14 +85,13 @@ from ..forms import (
     _positive_query_int,
     _text,
 )
+from ..mapping_catalog_runtime import MappingCatalogProjectionCache
 from ..mapping_formula_authoring import (
     formula_issues_by_dataset,
     mapping_formula_authoring_issues,
 )
-from ..mapping_catalog_runtime import MappingCatalogProjectionCache
 from .common import _render
 from .identity_health import identity_health_view
-from .relationship_health import relationship_health_view
 from .mapping_forms import (
     _canonical_mapping_type,
     _related_business_keys,
@@ -103,6 +103,7 @@ from .mapping_impact import (
     _mapping_return_url,
 )
 from .missing_parent_actions import missing_parent_source_key
+from .relationship_health import relationship_health_view
 
 
 @dataclass(frozen=True, slots=True)

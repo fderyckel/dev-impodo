@@ -9,11 +9,11 @@ from enum import StrEnum
 from threading import RLock
 from uuid import uuid4
 
+from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.shared.serial_job_runner import (
     SerialJobRunner,
     SerialJobRunnerStoppedError,
 )
-from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.correction import CorrectionPlanError
 from impodo.domain.correction_origin import CorrectionOriginError
 from impodo.domain.execution.odoo_readback import OdooReadbackError

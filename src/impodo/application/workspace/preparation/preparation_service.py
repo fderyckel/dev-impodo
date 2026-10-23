@@ -16,50 +16,59 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from contextlib import ExitStack
-from typing import AbstractSet, Callable, Iterable, Protocol
+from typing import AbstractSet, Protocol
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from impodo.application.shared.artifacts import GovernedArtifactStores, ArtifactStoreError
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan
-from impodo.domain.contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
-from impodo.domain.coverage import ReferenceBundle
-from impodo.domain.source_snapshot import SourceSnapshot
-from impodo.domain.odoo_provenance import (
-    OdooCaptureManifest,
-    OdooCaptureOriginHeader,
-    OdooOriginBatch,
-)
-from impodo.domain.source_binding import (
-    OdooSourceBinding,
-    SourceOriginKind,
-    require_file_source,
-)
-from impodo.domain.staging.evaluator import (
-    StagedBrowserMapping,
-    evaluate_browser_mapping,
-)
-from impodo.domain.staging.scale import (
-    require_supported_browser_scale,
-)
-from impodo.domain.staging.transformation_impact import TransformationImpactRow
-from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.application.data_version.inspection import SourceFileCatalog
-from impodo.domain.mapping.contracts import MappingDefinition, MappingTargetMode, ScalarValueSource
-from impodo.domain.preparation.normalization import NormalizationRunSummary
-from impodo.domain.preparation.staging_contracts import CanonicalRow
-from impodo.domain.target_numeric_precision import TargetNumericPrecisionLosses
-from impodo.application.workspace.preparation.job_models import PreparationPhase
-from impodo.domain.workspace.workbench import WorkspaceState
-from impodo.domain.preparation.source import SourceTable
 from impodo.application.data_version.source_files import load_selected_source_table
 from impodo.application.data_version.source_snapshots import (
     load_source_snapshot_table,
     validate_snapshot_for_dataset,
 )
-from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    GovernedArtifactStores,
+)
+from impodo.application.workspace.preparation.job_models import PreparationPhase
+from impodo.domain.contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
+from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.errors import ReadinessError
+from impodo.domain.mapping.contracts import (
+    MappingDefinition,
+    MappingTargetMode,
+    ScalarValueSource,
+)
+from impodo.domain.odoo_provenance import (
+    OdooCaptureManifest,
+    OdooCaptureOriginHeader,
+    OdooOriginBatch,
+)
+from impodo.domain.preparation.normalization import NormalizationRunSummary
+from impodo.domain.preparation.source import SourceTable
+from impodo.domain.preparation.staging_contracts import CanonicalRow
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.source_binding import (
+    OdooSourceBinding,
+    SourceOriginKind,
+    require_file_source,
+)
+from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.domain.staging.evaluator import (
+    StagedBrowserMapping,
+    evaluate_browser_mapping,
+)
+from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.staging.scale import (
+    require_supported_browser_scale,
+)
+from impodo.domain.staging.transformation_impact import TransformationImpactRow
+from impodo.domain.target_numeric_precision import TargetNumericPrecisionLosses
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceState
+
 from .bounded_preparation import (
     prepare_bounded_direct_session,
     supports_bounded_direct_preparation,
@@ -92,17 +101,17 @@ class PreparationOdooProvenance(Protocol):
 from .normalization_service import NormalizationService
 from .preparation_capability import compile_preparation_capability
 from .quality_service import QualityService
-from .resolution_service import ResolutionService
-from .timing import PreparationTimingReporter, timed_preparation_stage
 from .readiness_ports import (
+    PreflightSchemaRepository,
     PreparationDerivedRepository,
     PreparationMappingRepository,
-    PreparationWorkspaceRepository,
+    PreparationSessionRepository,
     PreparationSourceRepository,
     PreparationStagingRepository,
-    PreparationSessionRepository,
-    PreflightSchemaRepository,
+    PreparationWorkspaceRepository,
 )
+from .resolution_service import ResolutionService
+from .timing import PreparationTimingReporter, timed_preparation_stage
 
 
 class PreparationService:

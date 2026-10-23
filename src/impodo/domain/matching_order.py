@@ -6,13 +6,13 @@ created each edge and the meaning of the resulting order.
 
 from __future__ import annotations
 
+import json
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import StrEnum
 from heapq import heappop, heappush
-import json
-from typing import Iterable
 from uuid import UUID
 
 from impodo.domain.mapping.contracts import MappingTargetMode

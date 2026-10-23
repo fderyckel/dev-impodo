@@ -7,14 +7,14 @@ from datetime import datetime
 from typing import Protocol
 
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.workspace.reference_keys import (
+    REFERENCE_POLICY_HASH,
+    StandardReferenceFieldContract,
+)
 from impodo.domain.workspace.supporting_lookups import (
     SupportingLookupChoice,
     SupportingLookupSnapshot,
     supporting_lookup_key,
-)
-from impodo.domain.workspace.reference_keys import (
-    REFERENCE_POLICY_HASH,
-    StandardReferenceFieldContract,
 )
 
 

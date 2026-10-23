@@ -19,16 +19,17 @@ available for an eventual append-only audit trail.
 
 from __future__ import annotations
 
+import json
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
-import json
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any
 
-from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.cutover.approvals import ApprovalEvidence
+from impodo.domain.shared.access import Actor, Capability
 
 
 class ApprovalMode(StrEnum):

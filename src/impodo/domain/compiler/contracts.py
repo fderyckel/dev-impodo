@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from hashlib import sha256
-from typing import Any, Literal, Mapping
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from impodo.domain.shared.models import canonical_json_bytes
 from impodo.domain.recipe.profile import DatasetSpec, validate_dataset_graph
 from impodo.domain.relationship_dependencies import (
     DatasetDependencyEdge,
     extract_dataset_dependency_edges,
 )
-
+from impodo.domain.shared.models import canonical_json_bytes
 
 COMPILED_MIGRATION_PLAN_VERSION = 2
 MIGRATION_COMPILER_VERSION = 3

@@ -6,17 +6,18 @@ from collections.abc import Iterator, Mapping, Sequence
 from typing import Protocol, overload
 from uuid import UUID
 
+from impodo.domain.preparation.staging_contracts import (
+    CanonicalRow,
+    StagingDisposition,
+)
+from impodo.domain.workspace.errors import WorkspaceError
+
 from ...domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
 )
 from ...domain.staging.transformation_impact import (
     TransformationImpactRow,
 )
-from impodo.domain.preparation.staging_contracts import (
-    CanonicalRow,
-    StagingDisposition,
-)
-from impodo.domain.workspace.errors import WorkspaceError
 from .constants import (
     DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES,
 )

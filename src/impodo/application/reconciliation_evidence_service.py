@@ -15,7 +15,6 @@ from impodo.domain.reconciliation_detail import (
 from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.errors import WorkspaceError
 
-
 RECONCILIATION_DETAIL_STORAGE_NAME = "fallout-detail.json"
 
 

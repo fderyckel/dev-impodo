@@ -52,6 +52,18 @@ def _test_app():
 
 
 class BrowserDatabaseBusyRecoveryTests(unittest.TestCase):
+    def test_project_list_keeps_one_physical_registry_connection(self) -> None:
+        with _test_app() as (_app, client):
+            real_connect = duckdb.connect
+            with patch(
+                "impodo.adapters.duckdb.unit_of_work.duckdb.connect",
+                wraps=real_connect,
+            ) as connect:
+                response = client.get("/projects")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(connect.call_count, 1)
+
     def test_browser_retries_one_transient_database_handle_failure(self) -> None:
         with _test_app() as (_app, client):
             real_connect = duckdb.connect
@@ -77,8 +89,8 @@ class BrowserDatabaseBusyRecoveryTests(unittest.TestCase):
     def test_longer_database_contention_returns_a_retry_page(self) -> None:
         with _test_app() as (app, client):
             with patch.object(
-                type(app.state.context.migration_projects),
-                "list",
+                type(app.state.context.project_queries),
+                "list_visible_project_summaries",
                 side_effect=WorkspaceDatabaseBusyError("busy"),
             ):
                 response = client.get("/projects")

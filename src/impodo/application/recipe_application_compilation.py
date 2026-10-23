@@ -14,6 +14,23 @@ from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.preparation.quality import (
+    QualityOutcomePolicy,
+    QualityOwnerRole,
+    QualityRule,
+    QualityRuleFamily,
+    QualityRuleSource,
+)
+from impodo.domain.recipe.control_values import normalize_recipe_control_values
+from impodo.domain.recipe.source_binding import (
+    logical_dataset_storage_name,
+    normalize_recipe_source_name,
+)
+from impodo.domain.recipe.value_rules import (
+    ScalarTransformPolicy,
+    ScalarValidationPolicy,
+    TextTransformStep,
+)
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityRule,
@@ -21,6 +38,15 @@ from impodo.domain.workspace.derived_entities import (
     HierarchyValuePolicy,
     RelatedDatasetRule,
 )
+from impodo.domain.workspace.reference_keys import (
+    GovernedReferenceRequest,
+    ReferenceEvidenceKind,
+    ReferenceReadPurpose,
+    authorize_governed_reference,
+    captured_reference_field_contracts,
+    reference_policy_hash,
+)
+
 from ..domain.mapping.contracts import (
     BusinessControlDefinition,
     CategoricalCoveragePolicy,
@@ -41,8 +67,8 @@ from ..domain.mapping.contracts import (
     RowInclusionJoin,
     RowInclusionMode,
     RowInclusionPolicy,
-    ScalarFieldMapping,
     ScalarConcatenation,
+    ScalarFieldMapping,
     ScalarValueSource,
     SelectionCondition,
     SelectionConditionOperator,
@@ -65,7 +91,6 @@ from ..domain.recipe_applications import (
     RecipeApplicationIssue,
     RecipeApplicationIssueLevel,
 )
-from impodo.domain.recipe.control_values import normalize_recipe_control_values
 from ..domain.recipe_parameters import (
     RecipeParameterValueError,
     normalize_recipe_parameter_values,
@@ -86,30 +111,6 @@ from ..domain.structural import (
     StructuralProjection,
     UnionAllRule,
     UnionBranch,
-)
-from impodo.domain.preparation.quality import (
-    QualityOutcomePolicy,
-    QualityOwnerRole,
-    QualityRule,
-    QualityRuleFamily,
-    QualityRuleSource,
-)
-from impodo.domain.recipe.source_binding import (
-    logical_dataset_storage_name,
-    normalize_recipe_source_name,
-)
-from impodo.domain.workspace.reference_keys import (
-    GovernedReferenceRequest,
-    ReferenceEvidenceKind,
-    ReferenceReadPurpose,
-    authorize_governed_reference,
-    captured_reference_field_contracts,
-    reference_policy_hash,
-)
-from impodo.domain.recipe.value_rules import (
-    ScalarTransformPolicy,
-    ScalarValidationPolicy,
-    TextTransformStep,
 )
 
 

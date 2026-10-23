@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import tempfile
-from typing import Iterator, Protocol
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Protocol
 
 from impodo.adapters.polars_correction import (
     iter_polars_correction_candidate_batches,

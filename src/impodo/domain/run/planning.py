@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Protocol
 
-from ..serialization import content_hash
 from impodo.domain.run.contracts import (
     MigrationRunPlanIssue,
     MigrationRunPlanIssueLevel,
@@ -14,6 +13,8 @@ from impodo.domain.run.contracts import (
     RecipeRevisionSelection,
     ReferenceRequirement,
 )
+
+from ..serialization import content_hash
 
 
 class RunPlanningApplication(Protocol):

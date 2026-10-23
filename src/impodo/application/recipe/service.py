@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
+from impodo.domain.project.foundation import require_revision, require_uuid
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+
 from ...domain.recipe.models import (
     Recipe,
     RecipeError,
     RecipeRevision,
     RecipeRevisionRead,
 )
-from impodo.domain.project.foundation import require_revision, require_uuid
 from .ports import RecipeRepository
 
 

@@ -12,14 +12,19 @@ from datetime import datetime, timezone
 from enum import Enum
 from threading import RLock
 
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.shared.models import (
+    OdooReadIdentity,
+    TargetFingerprint,
+    target_identity_hash,
+)
+from impodo.domain.workspace.workbench import WorkspaceState
+
+from ..application.odoo_connection_service import OdooConnectionPurpose
 from ..application.odoo_read_failures import (
     OdooReadFailureCode,
     classify_odoo_read_failure,
 )
-from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
-from impodo.domain.shared.models import OdooReadIdentity, TargetFingerprint, target_identity_hash
-from ..application.odoo_connection_service import OdooConnectionPurpose
-from impodo.domain.workspace.workbench import WorkspaceState
 
 
 class RemoteConnectionLevel(str, Enum):

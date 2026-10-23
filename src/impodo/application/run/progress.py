@@ -9,10 +9,12 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from impodo.domain.run.contracts import (
-    IntegratedRunBundle, RecipeApplicationStatus, RunRecipeApplication,
-)
 from impodo.application.workspace.preparation.job_models import PreparationJob
+from impodo.domain.run.contracts import (
+    IntegratedRunBundle,
+    RecipeApplicationStatus,
+    RunRecipeApplication,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 
 if TYPE_CHECKING:

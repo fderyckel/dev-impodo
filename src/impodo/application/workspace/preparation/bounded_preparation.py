@@ -11,14 +11,21 @@ totals. Full-pipeline admission also checks downstream preparation capabilities.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Callable, Iterable, Mapping
 
-from impodo.domain.shared.access import Actor
-from impodo.application.shared.artifacts import GovernedArtifactStores, ArtifactStoreError
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan
+from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.application.data_version.source_files import open_selected_source_batches
+from impodo.application.data_version.source_snapshots import (
+    open_source_snapshot_batches,
+    validate_snapshot_for_dataset,
+)
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    GovernedArtifactStores,
+)
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarCompilationDecision,
@@ -27,31 +34,51 @@ from impodo.domain.compiler.columnar_transformation import (
     ColumnarTransformationProgram,
     compile_columnar_transformation_programs,
 )
+from impodo.domain.coverage import ReferenceBundle
+from impodo.domain.errors import ReadinessError
 from impodo.domain.mapping.contracts import MappingDefinition, RowInclusionMode
 from impodo.domain.mapping.source_conditions import SourceConditionValueError
+from impodo.domain.preparation.source import (
+    CompiledPreparedRowTransformer,
+    SourceLoadError,
+)
+from impodo.domain.preparation.staging_contracts import (
+    BROWSER_EVALUATOR_VERSION,
+    STAGING_CONTRACT_VERSION,
+    StagingDatasetRole,
+    StagingDisposition,
+    canonical_row_from_inclusion_decision,
+    canonical_row_from_prepared,
+)
 from impodo.domain.prepared_snapshot import (
     PREPARED_WRITER_CONTRACT_VERSION,
     PreparedSnapshot,
     prepared_snapshot_logical_hash,
 )
-from impodo.domain.staging.control_totals import CompiledControlTotalAccumulator
+from impodo.domain.shared.access import Actor
+from impodo.domain.shared.models import (
+    Issue,
+    PreparedRecord,
+    Severity,
+    canonical_json_bytes,
+)
+from impodo.domain.source_binding import SourceOriginKind, require_file_source
+from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.canonical_projection import (
     canonical_prepared_session_row,
     canonical_quality_identity_key,
     canonical_quality_record_label,
 )
+from impodo.domain.staging.control_totals import CompiledControlTotalAccumulator
 from impodo.domain.staging.evaluator import (
     canonical_field_sources,
     compile_browser_row_transformer,
     compile_reference_indexes,
 )
-from impodo.domain.coverage import ReferenceBundle
-from impodo.domain.source_snapshot import SourceSnapshot
-from impodo.domain.source_binding import SourceOriginKind, require_file_source
 from impodo.domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
-    PreparedCanonicalProjection,
     PreparationSessionBindings,
+    PreparedCanonicalProjection,
     StoredCanonicalStagingRun,
 )
 from impodo.domain.staging.scale import (
@@ -63,36 +90,15 @@ from impodo.domain.staging.transformation_impact import (
     _TransformationImpactCollector,
     reviewable_rule_impact_definitions,
 )
-from impodo.application.data_version.inspection import SourceFileCatalog
-from impodo.domain.shared.models import (
-    Issue,
-    PreparedRecord,
-    Severity,
-    canonical_json_bytes,
-)
-from impodo.domain.workspace.workbench import WorkspaceState, SourceFile
-from impodo.domain.preparation.source import CompiledPreparedRowTransformer, SourceLoadError
-from impodo.application.data_version.source_files import open_selected_source_batches
-from impodo.application.data_version.source_snapshots import (
-    open_source_snapshot_batches,
-    validate_snapshot_for_dataset,
-)
-from impodo.domain.preparation.staging_contracts import (
-    BROWSER_EVALUATOR_VERSION,
-    STAGING_CONTRACT_VERSION,
-    StagingDatasetRole,
-    StagingDisposition,
-    canonical_row_from_inclusion_decision,
-    canonical_row_from_prepared,
-)
 from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
-from impodo.domain.errors import ReadinessError
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
+from impodo.domain.workspace.workbench import SourceFile, WorkspaceState
+
 from .columnar_transformation_port import (
     DEFAULT_COLUMNAR_TRANSFORMATION_BATCH_ROWS,
     ColumnarTransformationPort,
 )
 from .readiness_ports import PreparationSessionRepository
-
 
 BOUNDED_SOURCE_BATCH_SIZE = 5_000
 

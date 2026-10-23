@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from threading import RLock
 from uuid import uuid4
 
-from impodo.domain.shared.access import ActorIdentity
 from impodo.application.shared.build_contract import ApplicationBuildContract
 from impodo.application.workspace.preparation.job_models import (
     PHASE_LABELS,
@@ -17,6 +16,7 @@ from impodo.application.workspace.preparation.job_models import (
     PreparationWorkspace,
     preparation_progress_percent,
 )
+from impodo.domain.shared.access import ActorIdentity
 
 
 class PreparationJobNotFoundError(LookupError):

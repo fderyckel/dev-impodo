@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
+from datetime import date, datetime, timezone
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from impodo.domain.recipe.profile import FieldSpec, NormalizationSpec, ScalarType
-
 
 TRUE_TOKENS = {"true", "1", "yes", "y"}
 FALSE_TOKENS = {"false", "0", "no", "n"}

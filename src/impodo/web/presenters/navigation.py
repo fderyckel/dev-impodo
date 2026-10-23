@@ -10,20 +10,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from ...domain.reconciliation import ReconciliationRunStatus
 from impodo.application.preflight_jobs import PreflightJob
+from impodo.application.workspace.execution.job_models import LoadJob
+from impodo.application.workspace.navigation import WorkspaceNavigationFacts
 from impodo.application.workspace.odoo_capture_jobs import (
     OdooCaptureJob,
     OdooCaptureJobStatus,
 )
-from impodo.application.workspace.execution.job_models import LoadJob
-from impodo.application.workspace.navigation import WorkspaceNavigationFacts
+from impodo.application.workspace.preparation.job_models import PreparationJob
 from impodo.application.workspace.source_readiness import (
     assess_source_stage_readiness,
 )
-from impodo.application.workspace.preparation.job_models import PreparationJob
-from impodo.domain.workspace.workbench import SourceMode, WorkspaceState, WorkspaceStatus
 from impodo.application.workspace.views import WorkspaceOwnerView
+from impodo.domain.workspace.workbench import (
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStatus,
+)
+
+from ...domain.reconciliation import ReconciliationRunStatus
 from ..workspace_journeys import (
     WorkspaceJourney,
     classify_workspace_journey,

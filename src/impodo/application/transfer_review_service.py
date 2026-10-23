@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Mapping
 from uuid import uuid4
 
 from impodo.domain.cutover.approvals import FrozenExportPlan

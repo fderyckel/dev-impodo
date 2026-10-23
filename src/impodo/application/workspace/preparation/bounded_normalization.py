@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator, Mapping
 from collections.abc import Set as AbstractSet
-from typing import Iterable, Iterator, Mapping
 
 from impodo.domain.mapping.contracts import DatasetMapping
-from impodo.domain.resolution import EffectiveDataset
-from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
-from impodo.domain.staging.transformation_impact import TransformationImpactRow
 from impodo.domain.preparation.normalization import (
     NORMALIZATION_POLICY_VERSION,
     NormalizationCandidate,
@@ -26,12 +23,15 @@ from impodo.domain.preparation.normalization import (
     compile_normalization_review_policy,
     normalization_change_language,
 )
-from impodo.domain.workspace.workbench import DataClassification, WorkspaceState
 from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
     StoredQualityRun,
     retention_context_hash,
 )
+from impodo.domain.resolution import EffectiveDataset
+from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.staging.transformation_impact import TransformationImpactRow
+from impodo.domain.workspace.workbench import DataClassification, WorkspaceState
 
 
 class BoundedNormalizationUnsupported(ValueError):

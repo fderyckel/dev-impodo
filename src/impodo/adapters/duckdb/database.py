@@ -8,17 +8,18 @@ over this shared boundary; they do not open differently configured databases.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
-from typing import Iterator
 from uuid import UUID
 
 import duckdb
 
 from impodo.domain.shared.access import Actor
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
 from .audit import AuditMixin
 from .invalidation import EvidenceInvalidationMixin
 from .schema.workspace_engine import WorkspaceEngineSchemaMixin

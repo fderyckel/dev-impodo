@@ -2,15 +2,35 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
 from threading import RLock
-from typing import Callable, Protocol
+from typing import Protocol
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor, Capability
+from impodo.application.data_version.source_snapshots import (
+    SourceSnapshotCandidate,
+    SourceSnapshotCandidateWriter,
+)
 from impodo.application.shared.artifacts import DataVersionSourceArtifactStore
+from impodo.application.workspace.access import WorkspaceAccessService
+from impodo.application.workspace.odoo_capture_jobs import (
+    OdooCapturePhase,
+    OdooCaptureProgress,
+)
+from impodo.domain.preparation.source import SourceLoadError
+from impodo.domain.shared.access import Actor, Capability
+from impodo.domain.workspace.contracts import (
+    WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+)
+from impodo.domain.workspace.errors import WorkspaceError
+
+from ..domain.odoo_capture import OdooCaptureSelection
 from ..domain.odoo_provenance import (
     OdooCaptureManifest,
     OdooCaptureOriginHeader,
@@ -24,29 +44,11 @@ from ..domain.odoo_source_capture import (
 )
 from ..domain.odoo_source_policy import odoo_source_policy_from_hash
 from ..domain.serialization import content_hash
-from impodo.application.workspace.odoo_capture_jobs import (
-    OdooCapturePhase,
-    OdooCaptureProgress,
-)
 from ..domain.source_snapshot import (
     SourceSnapshot,
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from impodo.domain.preparation.source import SourceLoadError
-from impodo.application.data_version.source_snapshots import (
-    SourceSnapshotCandidate,
-    SourceSnapshotCandidateWriter,
-)
-from ..domain.odoo_capture import OdooCaptureSelection
-from impodo.domain.workspace.contracts import (
-    SourceDataset,
-    SourceDatasetColumn,
-    SourceSelection,
-    WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION,
-)
-from impodo.domain.workspace.errors import WorkspaceError
-from impodo.application.workspace.access import WorkspaceAccessService
 from .odoo_provenance_service import OdooProvenanceService
 from .odoo_source_capture_service import (
     OdooSourceCapturePort,

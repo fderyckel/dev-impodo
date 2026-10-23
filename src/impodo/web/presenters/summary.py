@@ -8,19 +8,31 @@ from urllib.parse import urlencode
 from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
 
+from impodo.adapters.artifacts.reporting import WORKBOOK_NAME
+from impodo.adapters.odoo.local_stack import LocalStackError, LocalStackStatus
+from impodo.application.preflight_service import DEFERRED_SCOPE_DECISION_NAME
+from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.application.workspace.source_readiness import (
+    assess_source_stage_readiness,
+)
+from impodo.domain.compiler.browser_mapping_compiler import browser_mapping_labels
 from impodo.domain.errors import ReadinessError
 from impodo.domain.preflight.deferred_scope import DeferredScopeEvidenceError
-from impodo.application.shared.artifacts import ArtifactStoreError
-from impodo.domain.compiler.browser_mapping_compiler import browser_mapping_labels
 from impodo.domain.shared.access import AuthorizationError, Capability
-from ...application.workspace.preparation.bounded_preparation import (
-    supports_bounded_direct_preparation,
+from impodo.domain.workspace.workbench import (
+    OdooConnectionMode,
+    SourceMode,
+    WorkspaceState,
 )
+
 from ...application.odoo_connection_service import OdooConnectionPurpose
 from ...application.odoo_read_failures import (
     OdooReadCredentialMissingError,
     OdooReadFailure,
     classify_odoo_read_failure,
+)
+from ...application.workspace.preparation.bounded_preparation import (
+    supports_bounded_direct_preparation,
 )
 from ...application.workspace.preparation.preparation_capability import (
     compile_preparation_capability,
@@ -30,13 +42,6 @@ from ...domain.staging.scale import (
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
     browser_evaluation_scale,
 )
-from impodo.adapters.odoo.local_stack import LocalStackError, LocalStackStatus
-from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, SourceMode
-from impodo.adapters.artifacts.reporting import WORKBOOK_NAME
-from impodo.application.preflight_service import DEFERRED_SCOPE_DECISION_NAME
-from impodo.application.workspace.source_readiness import (
-    assess_source_stage_readiness,
-)
 from ..constants import (
     DEFAULT_SUMMARY_ROWS_PER_PAGE,
     NORMALIZATION_GROUPS_PER_PAGE,
@@ -45,6 +50,7 @@ from ..constants import (
 )
 from ..context import WebContext
 from ..forms import _positive_query_int
+from ..source_stage_gate import source_stage_message, source_stage_url
 from ..target_credentials import (
     TargetCredentialRole,
     get_target_credential_status,
@@ -52,7 +58,6 @@ from ..target_credentials import (
 from .common import _render
 from .comparison_recovery import comparison_recovery_view
 from .missing_parent_actions import missing_parent_source_key
-from ..source_stage_gate import source_stage_message, source_stage_url
 
 
 def _render_target(

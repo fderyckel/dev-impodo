@@ -7,10 +7,9 @@ semantics; this module owns the compact graph algorithms.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from heapq import heappop, heappush
-from typing import Iterable
-
 
 MAX_EXECUTION_COMPONENT_PAGE_ROWS = 500
 

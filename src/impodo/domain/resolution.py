@@ -7,24 +7,29 @@ or merges rows. Reviewed decisions and effective rows are separate contracts.
 
 from __future__ import annotations
 
+import re
+import unicodedata
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from enum import StrEnum
-import re
-from typing import Any, Iterable, Mapping
-import unicodedata
+from typing import Any
 from uuid import UUID
 
+from impodo.domain.preparation.staging_contracts import (
+    CanonicalLineage,
+    CanonicalRow,
+    StagingDisposition,
+)
 from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.shared.models import (
     assert_no_numeric_odoo_ids,
     portable_value,
     restore_portable_value,
 )
-from impodo.domain.preparation.staging_contracts import CanonicalLineage, CanonicalRow, StagingDisposition
-from .serialization import content_hash
 
+from .serialization import content_hash
 
 RESOLUTION_POLICY_CONTRACT_VERSION = 2
 RESOLUTION_EVALUATION_CONTRACT_VERSION = 2

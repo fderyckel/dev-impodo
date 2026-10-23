@@ -7,36 +7,29 @@ normalization/preflight evidence when quality semantics change.
 
 from __future__ import annotations
 
-from .constants import (
-    DUCKDB_JSON_BATCH_MAX_BYTES,
-    QUALITY_ROW_BATCH_SIZE,
-)
-
+import json
+from collections.abc import Sequence
 from datetime import (
     datetime,
     timezone,
 )
-import json
-from typing import Sequence
 from uuid import UUID, uuid4
 
 import duckdb
 
-from impodo.domain.shared.access import Actor
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from impodo.domain.preparation.quality import (
     QUALITY_CONTRACT_VERSION,
     QUALITY_EVALUATOR_VERSION,
     QUALITY_RULESET_CONTRACT_VERSION,
-    QualityDisposition,
     QualityCollisionGroup,
     QualityCollisionMember,
+    QualityDisposition,
     QualityIssue,
     QualityOutcomePolicy,
-    QualityRuleSet,
     QualityReviewItem,
     QualityReviewPage,
     QualityRowResult,
+    QualityRuleSet,
     QualityRun,
     QualityRunStatus,
     QualityRunSummary,
@@ -46,20 +39,21 @@ from impodo.domain.preparation.quality import (
     retention_context_hash,
 )
 from impodo.domain.preparation.staging_contracts import CanonicalRow
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
 from ...domain.serialization import CanonicalJsonObjectHasher
+from .constants import (
+    DUCKDB_JSON_BATCH_MAX_BYTES,
+    QUALITY_ROW_BATCH_SIZE,
+)
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository, WorkspaceAggregateReader
-
-
-
-
-
 from .serialization import (
     _canonical_json,
     iter_encoded_json_batches,
 )
-
 
 _QUALITY_ISSUE_JSON_STRUCTURE = """[{
     "ordinal":"BIGINT",

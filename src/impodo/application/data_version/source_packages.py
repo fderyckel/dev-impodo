@@ -9,22 +9,21 @@ change the accepted package.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import StrEnum
-import json
 from pathlib import Path, PurePath
-from typing import BinaryIO, Mapping, Protocol
+from typing import BinaryIO, Protocol
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
-from impodo.domain.serialization import canonical_json, content_hash
-from impodo.domain.source_binding import (
-    FileSourceBinding,
-    OdooSourceBinding,
-    SourceBinding,
+from impodo.application.data_version.source_worker import validate_source_file_isolated
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    DataVersionSourceArtifactStore,
 )
+from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationFoundationError,
@@ -34,8 +33,13 @@ from impodo.domain.project.foundation import (
     require_uuid,
     required_text,
 )
-from impodo.domain.preparation.source import SourceLoadError
-from impodo.application.data_version.source_worker import validate_source_file_isolated
+from impodo.domain.serialization import canonical_json, content_hash
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.source_binding import (
+    FileSourceBinding,
+    OdooSourceBinding,
+    SourceBinding,
+)
 from impodo.domain.workspace.contracts import SourceDataset, SourceDatasetColumn
 
 

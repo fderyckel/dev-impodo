@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Generic, TypeVar
 
-
 ResultT = TypeVar("ResultT")
 
 

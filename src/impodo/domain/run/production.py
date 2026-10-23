@@ -7,12 +7,12 @@ reconciliation independent from Integrated Test evidence.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Mapping
 
-from impodo.domain.serialization import content_hash
+from impodo.domain.data_version.models import DataVersion
 from impodo.domain.project.foundation import (
     MigrationFoundationError,
     require_aware,
@@ -22,9 +22,8 @@ from impodo.domain.project.foundation import (
     required_text,
 )
 from impodo.domain.run.models import MigrationRun
+from impodo.domain.serialization import content_hash
 from impodo.domain.workspace.models import MigrationWorkspace
-from impodo.domain.data_version.models import DataVersion
-
 
 PRODUCTION_RUN_BINDING_CONTRACT_VERSION = 1
 

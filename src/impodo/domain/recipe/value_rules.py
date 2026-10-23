@@ -8,22 +8,22 @@ code, access attributes, read files, use the network, or call Odoo.
 from __future__ import annotations
 
 import ast
+import operator
+import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import (
-    Decimal,
-    DivisionByZero,
     ROUND_CEILING,
     ROUND_DOWN,
     ROUND_FLOOR,
     ROUND_HALF_EVEN,
     ROUND_HALF_UP,
     ROUND_UP,
+    Decimal,
+    DivisionByZero,
 )
 from functools import lru_cache
-import operator
-import re
-from typing import Any, Callable, Mapping
-
+from typing import Any
 
 MAX_PATTERN_LENGTH = 500
 MAX_FORMULA_LENGTH = 1_000

@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
-import json
-from typing import (
-    Callable,
-    Mapping,
-)
 
+from impodo.domain.preparation.staging_contracts import BROWSER_EVALUATOR_VERSION
 from impodo.domain.shared.models import (
     canonical_json_bytes,
     portable_value,
 )
-from impodo.domain.preparation.staging_contracts import BROWSER_EVALUATOR_VERSION
+
 from ..contracts import (
     TRANSFORMATION_IMPACT_CONTRACT_VERSION,
     TRANSFORMATION_IMPACT_DETAIL_LIMIT,

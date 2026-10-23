@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Mapping
 from uuid import uuid4
 
+from impodo.domain.run.contracts import (
+    MigrationRunPlanIssue,
+    MigrationRunPlanIssueLevel,
+    OdooModelRequirement,
+    RecipeApplicationStatus,
+    ReferenceRequirement,
+)
 from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceDatasetSet
+from impodo.domain.workspace.errors import WorkspaceError
+
+from ..domain.coverage import ReferenceBundle
 from ..domain.mapping.contracts import (
     MappingDefinition,
     RowInclusionMode,
@@ -16,7 +27,6 @@ from ..domain.mapping.contracts import (
 from ..domain.mapping.create_field_policy import (
     CREATE_DEFAULT_DECISION_POLICY_VERSION,
 )
-from ..domain.coverage import ReferenceBundle
 from ..domain.recipe_applications import (
     RecipeApplicationError,
     RecipeApplicationIssue,
@@ -24,15 +34,6 @@ from ..domain.recipe_applications import (
     RecipeControlValues,
 )
 from ..domain.serialization import content_hash
-from impodo.domain.run.contracts import (
-    MigrationRunPlanIssue,
-    MigrationRunPlanIssueLevel,
-    OdooModelRequirement,
-    ReferenceRequirement,
-    RecipeApplicationStatus,
-)
-from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceDatasetSet
-from impodo.domain.workspace.errors import WorkspaceError
 from .recipe_application_compilation import RecipeApplicationCompiler
 
 

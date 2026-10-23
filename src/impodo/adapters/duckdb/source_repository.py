@@ -11,20 +11,33 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import (
     datetime,
     timezone,
 )
-from typing import Iterable, Protocol
+from typing import Protocol
 
-
-from impodo.domain.shared.access import Actor
-from impodo.domain.workspace.derived_entities import mapping_source_selection
-from ...domain.source_snapshot import (
-    SourceSnapshot,
-    SourceSnapshotColumn,
-    SourceSnapshotSchema,
+from impodo.application.data_version.inspection import (
+    SourceFileCatalog,
+    SourceInspectionError,
 )
+from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.contracts import (
+    OdooSchemaCatalog,
+    SourceConfiguration,
+    SourceDataset,
+    SourceSelection,
+    canonical_mapping_source_selection,
+)
+from impodo.domain.workspace.derived_entities import mapping_source_selection
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import (
+    SourceMode,
+    WorkspaceStateNotFoundError,
+    WorkspaceStatus,
+)
+
 from ...domain.odoo_capture import OdooCaptureSelection
 from ...domain.odoo_relationship_scope import (
     OdooRelationshipScope,
@@ -34,24 +47,14 @@ from ...domain.odoo_source_capture import (
     OdooSourceCaptureConfigurationError,
     validate_odoo_capture_selection_reference,
 )
-from impodo.application.data_version.inspection import SourceFileCatalog, SourceInspectionError
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError, WorkspaceStatus, SourceMode
-from impodo.domain.workspace.contracts import (
-    canonical_mapping_source_selection,
-    SourceConfiguration,
-    SourceDataset,
-    SourceSelection,
-    OdooSchemaCatalog,
+from ...domain.source_snapshot import (
+    SourceSnapshot,
+    SourceSnapshotColumn,
+    SourceSnapshotSchema,
 )
-from impodo.domain.workspace.errors import WorkspaceError
 from .database import DuckDbWorkspaceDatabase
 from .derived_entity_repository import DerivedEntityRepository
 from .repository import DuckDbRepository
-
-
-
-
-
 
 
 class WorkspaceSourceProjectionReader(Protocol):

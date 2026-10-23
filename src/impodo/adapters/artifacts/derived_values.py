@@ -8,15 +8,14 @@ projector are integrated with the pending preparation session.
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
-import shutil
 
 from impodo.application.shared.columnar_runtime import configure_columnar_runtime
-
 
 configure_columnar_runtime()
 
@@ -30,7 +29,6 @@ from impodo.domain.derived_value_artifact import (
     DerivedValueKind,
 )
 from impodo.domain.serialization import content_hash
-
 
 DERIVED_VALUE_TARGET_BATCH_ROWS = 5_000
 DERIVED_VALUE_MAX_COMPACTION_INPUTS = 128

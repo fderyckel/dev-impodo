@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from impodo.domain.shared.access import Actor
-from ...domain.serialization import canonical_json
 from impodo.domain.project.foundation import (
     MigrationConflictError,
     require_revision,
     require_uuid,
 )
-from ...domain.run.models import MigrationRun
 from impodo.domain.run.setup import MigrationRunTargetSetup
+from impodo.domain.shared.access import Actor
+
+from ...domain.run.models import MigrationRun
+from ...domain.serialization import canonical_json
 
 
 class FoundationMigrationRunRecords:

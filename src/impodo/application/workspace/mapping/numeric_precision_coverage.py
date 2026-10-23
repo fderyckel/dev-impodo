@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 
 from impodo.application.data_version.source_snapshots import (
     validate_snapshot_for_dataset,
@@ -43,7 +44,6 @@ from impodo.domain.workspace.contracts import (
     SourceSelection,
 )
 from impodo.domain.workspace.errors import WorkspaceError
-
 
 configure_columnar_runtime()
 

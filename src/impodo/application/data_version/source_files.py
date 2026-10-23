@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import csv
+import stat
+import zipfile
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
-import stat
-from typing import Any, Iterable, Iterator
-import zipfile
+from typing import Any
 
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
-from impodo.domain.recipe.profile import DatasetSpec
 from impodo.domain.preparation.source import (
     PreparedBundle,
     SourceLoadError,
@@ -20,6 +20,7 @@ from impodo.domain.preparation.source import (
     SourceTable,
     prepare_source_tables,
 )
+from impodo.domain.recipe.profile import DatasetSpec
 
 
 @dataclass(slots=True)

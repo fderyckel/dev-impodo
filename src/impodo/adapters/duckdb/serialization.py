@@ -8,28 +8,27 @@ ingestion without changing semantic row order.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-import json
 
-
-from impodo.domain.workspace.workbench import (
-    ApprovalStatus,
-    DataClassification,
-    WorkspaceState,
-    OdooConnectionMode,
-    WorkspaceStatus,
-    SourceMode,
-    SourceFile,
-)
 from impodo.domain.workspace.destination_matching import DestinationMatchPlan
 from impodo.domain.workspace.transfer_order import TransferOrderPlan
+from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
 from impodo.domain.workspace.transfer_review import (
     TransferReviewApproval,
     TransferReviewPackage,
 )
-from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
+from impodo.domain.workspace.workbench import (
+    ApprovalStatus,
+    DataClassification,
+    OdooConnectionMode,
+    SourceFile,
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStatus,
+)
 
 
 def _workspace_values(workspace: WorkspaceState) -> list[object]:

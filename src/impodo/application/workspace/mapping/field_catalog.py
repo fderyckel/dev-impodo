@@ -5,15 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan
+from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.schema.governance import SchemaGovernance
-from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
     SourceSelection,
 )
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 
 
 @dataclass(frozen=True, slots=True)

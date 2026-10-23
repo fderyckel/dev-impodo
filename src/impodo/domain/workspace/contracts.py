@@ -14,21 +14,20 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from enum import StrEnum
-import json
 from typing import Protocol
 
 from impodo.domain.mapping.contracts import MappingDefinition
+from impodo.domain.serialization import canonical_json, content_hash
+from impodo.domain.shared.models import UniqueConstraintMetadata
 from impodo.domain.source_binding import (
     SourceBinding,
     SourceOriginKind,
     source_binding_from_dict,
 )
-from impodo.domain.shared.models import UniqueConstraintMetadata
-from impodo.domain.serialization import canonical_json, content_hash
-
 
 WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION = 2
 

@@ -11,13 +11,20 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
-from ...odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from impodo.domain.workspace.reference_keys import (
+    REFERENCE_POLICY_HASH,
+    reference_policy_hash,
+)
+from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
+
 from ...odoo.compatibility import OdooOperation, assess_odoo_operation
+from ...odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ...relationship_dependencies import extract_dataset_dependency_edges
-from ...source_binding import OdooSourceBinding, SourceOriginKind
 from ...schema.governance import SchemaGovernance
+from ...source_binding import OdooSourceBinding, SourceOriginKind
 from ..canonicalization import canonicalize_mapping_definition
 from ..contracts import (
     DatasetMapping,
@@ -26,21 +33,16 @@ from ..contracts import (
     ScalarValueSource,
     TargetFieldHandling,
 )
-from .common import _issue
-from .context import (
-    SchemaCatalogView,
-    SourceSelectionView,
-    ValidationContext,
-)
 from ..create_field_policy import (
     CreateFieldCoverage,
     evaluate_create_field,
     required_create_hook_inputs,
 )
-from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
-from impodo.domain.workspace.reference_keys import (
-    REFERENCE_POLICY_HASH,
-    reference_policy_hash,
+from .common import _issue
+from .context import (
+    SchemaCatalogView,
+    SourceSelectionView,
+    ValidationContext,
 )
 from .control_totals import _validate_control_totals
 from .dependencies import _validate_dependencies

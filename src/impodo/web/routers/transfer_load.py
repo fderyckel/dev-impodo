@@ -10,8 +10,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from impodo.application.destination_matching_service import (
-    DestinationMatchKeyChoice,
     DestinationMatchingService,
+    DestinationMatchKeyChoice,
 )
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.transfer_preflight_service import TransferPreflightService
@@ -26,8 +26,8 @@ from impodo.application.workspace.execution.service import (
 )
 from impodo.domain.errors import ReadinessError
 from impodo.domain.execution.models import (
-    ExecutionRunStatus,
     MAX_CREATE_BATCH_ROWS,
+    ExecutionRunStatus,
 )
 from impodo.domain.execution.odoo_readback import OdooReadbackError
 from impodo.domain.odoo.contracts import ConnectorError

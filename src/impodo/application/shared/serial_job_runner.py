@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
-import logging
 from threading import Condition, RLock, Thread
-
 
 SerialJobTask = Callable[[], None]
 SerialJobDiscard = Callable[[], None]

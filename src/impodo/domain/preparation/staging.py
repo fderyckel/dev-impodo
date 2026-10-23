@@ -7,13 +7,13 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 
-from impodo.domain.shared.access import Actor
 from impodo.domain.preparation.staging_contracts import (
     CanonicalControlTotal,
     CanonicalStagingRun,
     StagingDatasetReconciliation,
     StagingReconciliation,
 )
+from impodo.domain.shared.access import Actor
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.workspace.contracts import SourceSelection
 

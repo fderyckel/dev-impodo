@@ -9,8 +9,10 @@ from datetime import datetime, timezone
 from threading import Condition, Event, RLock, Thread
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor
-from ..domain.odoo_source_capture import OdooSourceCaptureCancelled
+from impodo.application.workspace.access import (
+    WorkspaceAccessContext,
+    bind_workspace_access_context,
+)
 from impodo.application.workspace.odoo_capture_jobs import (
     CAPTURE_PHASE_LABELS,
     OdooCaptureJob,
@@ -20,10 +22,9 @@ from impodo.application.workspace.odoo_capture_jobs import (
     odoo_capture_progress_percent,
 )
 from impodo.domain.project.foundation import MigrationIdentifierConfusionError
-from impodo.application.workspace.access import (
-    WorkspaceAccessContext,
-    bind_workspace_access_context,
-)
+from impodo.domain.shared.access import Actor
+
+from ..domain.odoo_source_capture import OdooSourceCaptureCancelled
 from .odoo_capture_publication_service import (
     OdooCapturePublication,
     OdooCapturePublicationService,

@@ -10,16 +10,16 @@ See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable
 from uuid import uuid4
 
+from impodo.adapters.artifacts.profile_loader import ProfileLoadError, load_profile
 from impodo.adapters.odoo.connectors import Json2Config, Transport
 from impodo.adapters.odoo.readback import Json2ReadbackReader
 from impodo.adapters.odoo.writer import Json2WriteExecutor
-from impodo.adapters.artifacts.profile_loader import ProfileLoadError, load_profile
 from impodo.adapters.scenarios.execution_evidence import (
     ScenarioExecutionJournal,
     ScenarioReconciliationResults,
@@ -59,8 +59,8 @@ from impodo.domain.scenarios import (
     ScenarioFailureStage,
     ScenarioReasonCode,
 )
-from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
 from impodo.domain.serialization import content_hash
+from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import OdooConnectionMode, SourceMode
 

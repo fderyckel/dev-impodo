@@ -8,10 +8,10 @@ destination before it contacts Odoo.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import replace
 from hashlib import sha256
-import re
 from typing import Protocol
 
 from impodo.application.data_version.source_snapshots import (
@@ -20,8 +20,8 @@ from impodo.application.data_version.source_snapshots import (
 )
 from impodo.application.odoo_provenance_service import OdooProvenanceService
 from impodo.application.shared.artifacts import GovernedArtifactStores
-from impodo.domain.execution.models import ExecutionRun
 from impodo.domain.errors import ReadinessError
+from impodo.domain.execution.models import ExecutionRun
 from impodo.domain.execution.odoo_write import OdooWriteExecutor
 from impodo.domain.execution_snapshot import (
     ExecutionDataset,
@@ -54,14 +54,16 @@ from impodo.domain.workspace.destination_matching import (
     DestinationMatchPlan,
 )
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.portable_identity import portable_components, record_identity
+from impodo.domain.workspace.portable_identity import (
+    portable_components,
+    record_identity,
+)
 from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
 from impodo.domain.workspace.transfer_review import TransferReviewPackage
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceState
 
 from .preflight_service import EXECUTION_SNAPSHOT_NAME
 from .workspace.execution.service import ExecutionService
-
 
 _MODEL_TOKEN = re.compile(r"[^a-z0-9_]+")
 

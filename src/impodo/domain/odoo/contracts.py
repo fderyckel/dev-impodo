@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from io import StringIO
-import json
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Protocol
 
 from impodo.domain.shared.models import (
     FieldMetadata,

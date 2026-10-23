@@ -9,8 +9,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from impodo.application.destination_matching_service import (
-    DestinationMatchKeyChoice,
     DestinationMatchingService,
+    DestinationMatchKeyChoice,
 )
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.transfer_preflight_service import TransferPreflightService
@@ -37,7 +37,6 @@ from ..target_credentials import (
     get_target_credential,
     get_target_credential_status,
 )
-
 
 _BLOCKER_LABELS = {
     "DESTINATION_PERMISSION_DRIFT": "Destination permissions changed",

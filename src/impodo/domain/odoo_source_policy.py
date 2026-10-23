@@ -13,7 +13,6 @@ from enum import StrEnum
 
 from .serialization import content_hash
 
-
 ODOO_SOURCE_POLICY_CONTRACT_VERSION = 4
 
 

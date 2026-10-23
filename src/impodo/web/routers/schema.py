@@ -17,6 +17,32 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
+from impodo.adapters.odoo.local_stack import LocalStackError
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.workspace.business_keys import (
+    BUSINESS_KEY_POLICY_VERSION,
+    assess_business_key_recommendation,
+)
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaOrigin
+from impodo.domain.workspace.errors import (
+    OdooModelCatalogRefreshRequired,
+    WorkspaceError,
+)
+from impodo.domain.workspace.workbench import (
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStateError,
+)
+from impodo.web.composition.target_readers import (
+    _capture_recipe_supporting_values,
+    _missing_schema_reader_message,
+    _refresh_model_catalog,
+    _refresh_model_catalog_sync,
+    _selected_local_profile,
+)
+
 from ...application.odoo_read_failures import (
     OdooReadCredentialMissingError,
     classify_odoo_read_failure,
@@ -30,29 +56,13 @@ from ...application.run.recipe_run_jobs import (
     RecipeRunJobResult,
     RecipeRunJobStatus,
 )
-from impodo.domain.odoo.contracts import ConnectorError
+from ...domain.recipe.models import RecipeError
 from ...domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
 )
-from impodo.adapters.odoo.local_stack import LocalStackError
-from impodo.domain.project.foundation import MigrationFoundationError
-from ...domain.recipe.models import RecipeError
-from impodo.application.shared.secrets import SecretStoreError
-from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaOrigin
-from impodo.domain.workspace.business_keys import (
-    BUSINESS_KEY_POLICY_VERSION,
-    assess_business_key_recommendation,
-)
-from impodo.domain.workspace.errors import OdooModelCatalogRefreshRequired, WorkspaceError
-from impodo.domain.workspace.workbench import (
-    SourceMode,
-    WorkspaceState,
-    WorkspaceStateError,
-)
-from ..context import WebContext
 from ..composition.page_reads import run_page_read
-from ..run_urls import RunSetupKind
+from ..context import WebContext
 from ..forms import (
     _checked,
     _revision,
@@ -65,18 +75,12 @@ from ..presenters.mapping_forms import _business_key_id, _comma_values
 from ..presenters.schema import _manual_schema_models, _render_schema
 from ..presenters.summary import _require_local_stack_access
 from ..run_commands import start_next_preparation
+from ..run_urls import RunSetupKind
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRole,
     get_target_credential,
     local_read_credential_binding_hash,
-)
-from impodo.web.composition.target_readers import (
-    _capture_recipe_supporting_values,
-    _missing_schema_reader_message,
-    _refresh_model_catalog,
-    _refresh_model_catalog_sync,
-    _selected_local_profile,
 )
 
 

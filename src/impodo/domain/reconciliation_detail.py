@@ -7,18 +7,18 @@ only for authorized fallout review artifacts.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from hashlib import sha256
 import json
 import re
-from typing import Any, Mapping
+from collections.abc import Mapping
+from dataclasses import dataclass
+from hashlib import sha256
+from typing import Any
 
 from impodo.domain.shared.models import (
     canonical_json_bytes,
     portable_value,
     restore_portable_value,
 )
-
 
 RECONCILIATION_DETAIL_CONTRACT_VERSION = 1
 MAX_RECONCILIATION_FIELD_DIFFERENCES = 1_000_000

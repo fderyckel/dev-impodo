@@ -16,8 +16,8 @@ from impodo.domain.project.foundation import (
     MigrationNotFoundError,
 )
 from impodo.domain.shared.access import AuthorizationError
-from impodo.domain.workspace.workbench import SourceMode
 from impodo.domain.workspace.models import MigrationWorkspaceState
+from impodo.domain.workspace.workbench import SourceMode
 
 from ...domain.data_version.models import DataVersionPurpose
 from ...domain.recipe.models import RecipeError
@@ -26,6 +26,7 @@ from ..context import WebContext
 from ..forms import _form_values, _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.recipes import build_recipe_definition_view
+from ..request_identity import request_identity
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRemovalReason,
@@ -41,10 +42,16 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
     @router.get("/projects", response_class=HTMLResponse)
     async def project_list(request: Request):
         require_session(request)
+        identity = request_identity(request, context.identity_resolver)
+        projects = await run_page_read(
+            context.project_queries.list_visible_project_summaries,
+            scope=identity.organization_scope,
+            authorization=identity.authorization,
+        )
         return _render(
             request,
             "project_list.html",
-            projects=context.migration_projects.list(actor=context.actor),
+            projects=projects,
             unavailable_projects=context.unavailable_projects,
         )
 

@@ -11,15 +11,15 @@ started and retained in memory by the current Impodo process.
 from __future__ import annotations
 
 import configparser
-from dataclasses import dataclass, replace
-from enum import StrEnum
 import json
 import os
-from pathlib import Path
 import socket
 import subprocess
-from threading import Lock
 import time
+from dataclasses import dataclass, replace
+from enum import StrEnum
+from pathlib import Path
+from threading import Lock
 from typing import Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
@@ -29,7 +29,6 @@ from impodo.domain.odoo.compatibility import (
     assess_odoo_operation,
     recognize_odoo_version,
 )
-
 
 MAX_CONFIG_BYTES = 1024 * 1024
 MAX_VERSION_RESPONSE_BYTES = 64 * 1024

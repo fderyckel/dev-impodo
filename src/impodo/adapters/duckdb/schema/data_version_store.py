@@ -6,8 +6,9 @@ from pathlib import Path
 
 import duckdb
 
-from ....domain.data_version.models import DataVersion
 from impodo.domain.project.foundation import MigrationStorageCompatibilityError
+
+from ....domain.data_version.models import DataVersion
 from .forward_upgrades import (
     SCHEMA_MIGRATION_COLUMNS,
     ForwardSchemaUpgrade,
@@ -15,7 +16,6 @@ from .forward_upgrades import (
     ensure_current_schema,
 )
 from .structure import read_table_columns
-
 
 DATA_VERSION_STORE_GENERATION = "impodo-data-version-store-2026-08-project-owned"
 DATA_VERSION_STORE_BASELINE_VERSION = 1

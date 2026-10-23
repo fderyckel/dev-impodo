@@ -8,12 +8,11 @@ extension, and custom Odoo schema surfaces without code changes.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from hashlib import sha256
-import re
 
 from impodo.domain.shared.models import canonical_json_bytes
-
 
 _MODEL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 _FIELD_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")

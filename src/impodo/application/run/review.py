@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from impodo.domain.shared.access import Actor, Capability
-from impodo.domain.data_version.models import DataVersionPurpose, DataVersionState
 from impodo.domain.coverage import ReferenceBundle
+from impodo.domain.data_version.models import DataVersionPurpose, DataVersionState
+from impodo.domain.project.foundation import require_revision, require_uuid
+from impodo.domain.run.contracts import RecipeDependency, RecipeRevisionSelection
 from impodo.domain.run.planning import (
     blocking_run_issue,
     collect_write_collision_issues,
@@ -14,8 +15,7 @@ from impodo.domain.run.planning import (
     union_model_requirements,
     union_reference_requirements,
 )
-from impodo.domain.project.foundation import require_revision, require_uuid
-from impodo.domain.run.contracts import RecipeDependency, RecipeRevisionSelection
+from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
 

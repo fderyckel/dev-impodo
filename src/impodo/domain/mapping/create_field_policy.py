@@ -10,7 +10,6 @@ from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operatio
 
 from .contracts import TargetFieldHandling
 
-
 CREATE_DEFAULT_TYPES = frozenset(
     {
         "boolean",

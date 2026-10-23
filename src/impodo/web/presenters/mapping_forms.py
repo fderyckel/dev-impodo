@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import hashlib
 import json
-from typing import Iterable, Mapping
+from collections.abc import Iterable, Mapping
+from dataclasses import replace
 
 from fastapi.responses import RedirectResponse
 from starlette.datastructures import FormData
@@ -13,10 +13,20 @@ from starlette.datastructures import FormData
 from impodo.application.workspace.mapping.incoming_dependencies import (
     match_incoming_identity_columns,
 )
-from ...domain.schema.governance import (
-    BusinessKeyDefinition,
-    BusinessKeyStatus,
+from impodo.domain.recipe.value_rules import (
+    MAX_TEXT_TRANSFORM_STEPS,
+    ScalarTransformPolicy,
+    ScalarValidationPolicy,
+    TextTransformStep,
 )
+from impodo.domain.workspace.derived_entities import DerivedDatasetLink
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.reference_keys import (
+    standard_reference_key,
+    supporting_reference_candidate,
+)
+from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus
+
 from ...domain.mapping.contracts import (
     MAX_CONTROL_TOTALS_PER_DATASET,
     MAX_ROW_INCLUSION_CONDITIONS,
@@ -28,8 +38,8 @@ from ...domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
     IdentityNullPolicy,
-    MappingDefinition,
     MappingControlExpectation,
+    MappingDefinition,
     MappingTargetMode,
     ReferenceKeyMapping,
     RelationshipMapping,
@@ -51,20 +61,11 @@ from ...domain.mapping.contracts import (
     TargetFieldDisposition,
     TargetFieldHandling,
 )
-from impodo.domain.recipe.value_rules import (
-    MAX_TEXT_TRANSFORM_STEPS,
-    ScalarTransformPolicy,
-    ScalarValidationPolicy,
-    TextTransformStep,
+from ...domain.schema.governance import (
+    BusinessKeyDefinition,
+    BusinessKeyStatus,
 )
 from ...domain.source_binding import OdooSourceBinding, SourceOriginKind
-from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus
-from impodo.domain.workspace.derived_entities import DerivedDatasetLink
-from impodo.domain.workspace.reference_keys import (
-    standard_reference_key,
-    supporting_reference_candidate,
-)
-from impodo.domain.workspace.errors import WorkspaceError
 from ..context import WebContext
 from ..forms import (
     _checked,

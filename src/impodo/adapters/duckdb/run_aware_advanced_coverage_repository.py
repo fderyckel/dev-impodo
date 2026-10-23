@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from impodo.domain.run.contracts import MigrationRunPlanningError
+
 from .migration_run_planning_repository import MigrationRunPlanningRepository
 
 

@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Mapping, Protocol
+from collections.abc import Mapping
+from typing import Protocol
 
+from impodo.domain.project.foundation import FaultInjector
 from impodo.domain.shared.access import Actor
+
 from ...domain.recipe.models import (
     Recipe,
     RecipePublication,
     RecipeRevision,
     RecipeRevisionRead,
 )
-from impodo.domain.project.foundation import FaultInjector
 
 
 class RecipeRepository(Protocol):

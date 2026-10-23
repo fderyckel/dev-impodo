@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol, Sequence
-
+from typing import Any, Protocol
 
 # Exact record reads use the same conservative page size as ordinary Odoo
 # downloads.  External-ID resolution remains smaller because it queries

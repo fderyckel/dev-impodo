@@ -535,6 +535,7 @@ cancellation, lineage, and both navigation variants.
 ## Related documentation
 
 - [ADR-016: Generic Odoo relationship decisions and profiles](../../decisions/README.md#adr-016--odoo-relationship-scope-combines-generic-decisions-with-profiles)
+- [Planned source-table composition](../../plans/source-table-composition.md)
 - [Stage 1 and 2 page-loading optimization proposal](../../plans/stage-1-and-2-page-loading.md)
 - [Page-loading optimization evidence](../../testing/stage12-page-loading-2026-10-07.md)
 - [Shared page-read measurements](../../testing/stage12-shared-page-reads-2026-10-07.md)

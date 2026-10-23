@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import shutil
 from collections.abc import Sequence
 from datetime import datetime
-import json
 from pathlib import Path
-import shutil
 
 import duckdb
 
@@ -22,13 +22,14 @@ from impodo.domain.odoo_source_capture import (
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import OdooModelCatalog, OdooSchemaCatalog
 from impodo.domain.workspace.workbench import (
+    SourceFile,
     WorkspaceState,
     WorkspaceStateConflictError,
     WorkspaceStateError,
     WorkspaceStateNotFoundError,
     WorkspaceStatus,
-    SourceFile,
 )
+
 from .repository import DuckDbRepository
 from .serialization import _workspace_from_rows, _workspace_values
 

@@ -12,7 +12,6 @@ from impodo.domain.shared.schema import (
     WORKSPACE_SCHEMA_VERSION,
 )
 
-
 BUILD_CONTRACT_VERSION = 1
 _BUILD_FILE_SUFFIXES = frozenset({".css", ".html", ".js", ".py"})
 

@@ -8,12 +8,12 @@ values are deliberately absent.
 
 from __future__ import annotations
 
+import os
+import struct
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
-import os
-import struct
-from typing import Iterable
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -24,12 +24,11 @@ from ..application.protected_evidence_codecs import (
 from ..domain.odoo_provenance import (
     OdooCaptureOriginHeader,
     OdooOriginBatch,
-    OdooRelationshipOriginColumn,
     OdooProvenanceBinding,
     OdooProvenanceError,
+    OdooRelationshipOriginColumn,
 )
 from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
-
 
 _ENVELOPE_MAGIC = b"IPRVCP01"
 _PLAIN_MAGIC = b"IPODOO01"

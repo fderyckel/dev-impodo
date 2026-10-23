@@ -9,9 +9,9 @@ fields to stored fingerprints or policy hashes.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from enum import StrEnum
-import re
 
 
 class OdooReleaseStage(StrEnum):

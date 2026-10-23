@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
+from datetime import datetime, timezone
 
 import duckdb
 
@@ -27,7 +27,6 @@ from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from .constants import DUCKDB_JSON_BATCH_MAX_BYTES
 from .repository import DuckDbRepository
 from .serialization import iter_encoded_json_batches
-
 
 _ROW_JSON_STRUCTURE = canonical_json([{
     "ordinal": "BIGINT",

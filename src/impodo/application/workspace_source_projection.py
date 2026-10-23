@@ -12,15 +12,18 @@ from __future__ import annotations
 import json
 from typing import Protocol
 
+from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     WorkspaceSourceProjectionRepository,
 )
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan, mapping_source_selection
-from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.workspace.contracts import (
     SourceSelection,
     canonical_mapping_source_selection,
+)
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    mapping_source_selection,
 )
 
 

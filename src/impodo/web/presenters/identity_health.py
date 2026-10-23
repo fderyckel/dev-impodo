@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from impodo.domain.matching_order import (
     MatchingIdentityNotCheckableReason,
     MatchingIdentityResult,
     MatchingOrderCheck,
 )
-
 
 _UNCHECKED_MESSAGES = {
     MatchingIdentityNotCheckableReason.MAPPING_INCOMPLETE: (

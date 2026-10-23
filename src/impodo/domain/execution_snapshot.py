@@ -9,11 +9,31 @@ the deterministic row schedule and exact optional relationship completions.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field as dataclass_field, replace
-from hashlib import sha256
 import json
 import re
-from typing import Any, Mapping
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
+from hashlib import sha256
+from typing import Any
+
+from impodo.domain.recipe.profile import DatasetSpec, IdentityComponent, ResolveSpec
+from impodo.domain.relationship_dependencies import (
+    DependencyStrength,
+    dependency_sets_by_owner,
+)
+from impodo.domain.shared.models import (
+    BusinessReference,
+    Classification,
+    Decision,
+    LogicalReference,
+    PreflightResult,
+    PreparedRecord,
+    assert_no_numeric_odoo_ids,
+    canonical_json_bytes,
+    portable_value,
+    restore_portable_value,
+)
 
 from .compiler.contracts import CompiledMigrationPlan
 from .execution.dependency_scheduler import (
@@ -27,24 +47,6 @@ from .matching_order import (
     order_dataset_dependency_components,
 )
 from .preflight.frozen_input import FrozenPreflightInput
-from impodo.domain.shared.models import (
-    BusinessReference,
-    Classification,
-    Decision,
-    LogicalReference,
-    PreflightResult,
-    PreparedRecord,
-    assert_no_numeric_odoo_ids,
-    canonical_json_bytes,
-    portable_value,
-    restore_portable_value,
-)
-from impodo.domain.recipe.profile import DatasetSpec, IdentityComponent, ResolveSpec
-from impodo.domain.relationship_dependencies import (
-    DependencyStrength,
-    dependency_sets_by_owner,
-)
-
 
 EXECUTION_SNAPSHOT_VERSION = 9
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")

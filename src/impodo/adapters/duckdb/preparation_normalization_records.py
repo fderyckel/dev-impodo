@@ -6,6 +6,10 @@ import json
 from collections.abc import Iterator
 from hashlib import sha256
 
+from impodo.domain.preparation.normalization import NormalizationEffect
+from impodo.domain.preparation.quality import QualityIssue
+from impodo.domain.workspace.errors import WorkspaceError
+
 from ...domain.staging.preparation_session import (
     PreparationSessionStatus,
     transformation_impact_from_portable_dict,
@@ -13,9 +17,6 @@ from ...domain.staging.preparation_session import (
 from ...domain.staging.transformation_impact import (
     TransformationImpactRow,
 )
-from impodo.domain.preparation.normalization import NormalizationEffect
-from impodo.domain.preparation.quality import QualityIssue
-from impodo.domain.workspace.errors import WorkspaceError
 from .constants import (
     DUCKDB_JSON_BATCH_MAX_BYTES,
     PREPARATION_SESSION_ROW_BATCH_SIZE,
@@ -27,7 +28,6 @@ from .serialization import (
     _canonical_json,
     iter_encoded_json_batches,
 )
-
 
 _PENDING_NORMALIZATION_EFFECT_JSON_STRUCTURE = """[{
     "run_id":"VARCHAR",

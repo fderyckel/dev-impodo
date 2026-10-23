@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from multiprocessing import freeze_support
 import secrets
 import socket
 import sys
+from multiprocessing import freeze_support
+from pathlib import Path
 
 from impodo.adapters.protected_evidence.project_security import (
     DEVELOPMENT_MODE_ENV,
@@ -16,6 +16,7 @@ from impodo.adapters.protected_evidence.project_security import (
     development_mode_enabled,
     prepare_project_root,
 )
+
 from .diagnostics import diagnostic_directory
 from .server_supervisor import (
     ServerChildSettings,

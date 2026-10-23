@@ -12,15 +12,14 @@ See ``docs/architecture/security-and-infrastructure.md`` and
 
 from __future__ import annotations
 
+import os
+import re
+import shutil
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
-import os
-from pathlib import Path
-from pathlib import PurePosixPath
-import re
-import shutil
+from pathlib import Path, PurePosixPath
 from typing import BinaryIO, ContextManager, Protocol
 from uuid import UUID, uuid4
 
@@ -29,7 +28,6 @@ from impodo.domain.derived_value_artifact import (
 )
 from impodo.domain.prepared_snapshot import PREPARED_SNAPSHOT_STORAGE_LAYOUT_VERSION
 from impodo.domain.source_snapshot import SOURCE_SNAPSHOT_STORAGE_LAYOUT_VERSION
-
 
 _DATASET_SNAPSHOT_SEGMENT = re.compile(r"[0-9a-f]{24}")
 _SHA256_SEGMENT = re.compile(r"[0-9a-f]{64}")

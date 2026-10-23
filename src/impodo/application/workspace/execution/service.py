@@ -2,26 +2,34 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
-import re
-from typing import Any, Callable, Mapping, Protocol, Sequence
+from typing import Any, Protocol
 from uuid import uuid4
 
-from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
-from impodo.domain.target_numeric_precision import TargetNumericPrecisionLosses
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.application.preflight_service import PreflightService
+from impodo.application.workspace.execution.navigation import ExecutionNavigationState
+from impodo.domain.execution.dependency_scheduler import dependency_component_pages
 from impodo.domain.execution.models import (
+    MAX_CREATE_BATCH_ROWS,
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
-    MAX_CREATE_BATCH_ROWS,
     ProjectedOdooReceipt,
 )
-from impodo.domain.execution.dependency_scheduler import dependency_component_pages
+from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
+from impodo.domain.execution.odoo_write import (
+    MAX_IDENTITY_LOOKUP_KEYS,
+    MAX_PROJECTED_RECEIPT_IDS,
+    OdooWriteExecutor,
+    OdooWriteOutcomeUnknown,
+    OdooWriteRejected,
+)
 from impodo.domain.execution_snapshot import (
     ExecutionDataset,
     ExecutionRow,
@@ -29,6 +37,12 @@ from impodo.domain.execution_snapshot import (
     FieldIntent,
     dependency_ordered_execution_datasets,
 )
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.reconciliation import (
+    ReconciliationRowStatus,
+    ReconciliationRun,
+)
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.shared.models import (
     BusinessReference,
     LogicalReference,
@@ -39,28 +53,14 @@ from impodo.domain.shared.models import (
     target_identity_hash,
     target_record_binding_hash,
 )
-from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
-from impodo.domain.execution.odoo_write import (
-    MAX_IDENTITY_LOOKUP_KEYS,
-    MAX_PROJECTED_RECEIPT_IDS,
-    OdooWriteExecutor,
-    OdooWriteOutcomeUnknown,
-    OdooWriteRejected,
-)
-from impodo.domain.reconciliation import (
-    ReconciliationRowStatus,
-    ReconciliationRun,
-)
+from impodo.domain.target_numeric_precision import TargetNumericPrecisionLosses
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     SourceMode,
     WorkspaceState,
     transfer_destination_workspace,
 )
-from impodo.domain.workspace.errors import WorkspaceError
-from impodo.application.preflight_service import PreflightService
-from impodo.application.workspace.execution.navigation import ExecutionNavigationState
-
 
 DEFAULT_CREATE_BATCH_ROWS = 10
 NO_WRITE_ROWS_MESSAGE = "This preview has no rows to create or update"

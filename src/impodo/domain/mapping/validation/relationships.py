@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.workspace.reference_keys import (
@@ -12,6 +12,7 @@ from impodo.domain.workspace.reference_keys import (
     authorize_governed_reference,
     captured_reference_field_contracts,
 )
+
 from ..contracts import (
     CategoricalCoveragePolicy,
     DatasetMapping,

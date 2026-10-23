@@ -8,6 +8,7 @@ profile and browser authoring to share downstream preparation and preflight.
 from __future__ import annotations
 
 from impodo.domain.recipe.profile import ProfileDocument
+
 from .contracts import CompiledMigrationPlan, compiled_profile_origin_hash
 
 

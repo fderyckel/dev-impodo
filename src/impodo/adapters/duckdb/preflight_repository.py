@@ -13,14 +13,14 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from itertools import islice
-import json
 from uuid import UUID
 
-from impodo.domain.shared.access import Actor
+from impodo.application.workspace.execution.navigation import ExecutionPreviewSummary
 from impodo.domain.odoo.contracts import (
     MetadataSnapshot,
     RecordSnapshot,
@@ -28,19 +28,20 @@ from impodo.domain.odoo.contracts import (
     record_snapshot_from_json,
     record_snapshot_json,
 )
+from impodo.domain.shared.access import Actor
+from impodo.domain.shared.models import canonical_json_text, target_identity_hash
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
 from ...domain.preflight.reports import (
     ReadinessReport,
     ReadinessRow,
     ReadinessRowPage,
 )
-from impodo.domain.shared.models import canonical_json_text, target_identity_hash
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
-from impodo.domain.workspace.errors import WorkspaceError
-from impodo.application.workspace.execution.navigation import ExecutionPreviewSummary
 from .constants import PREFLIGHT_ROW_BATCH_SIZE
 from .database import DuckDbWorkspaceDatabase
-from .workspace_state_repository import WorkspaceStateRepository
 from .repository import DuckDbRepository
+from .workspace_state_repository import WorkspaceStateRepository
 
 
 class PreflightRepository(DuckDbRepository):

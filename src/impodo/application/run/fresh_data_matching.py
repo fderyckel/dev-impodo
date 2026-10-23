@@ -7,12 +7,12 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 
-from impodo.domain.serialization import content_hash
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.recipe.source_binding import (
     logical_dataset_storage_name,
     normalize_recipe_source_name,
 )
+from impodo.domain.serialization import content_hash
 
 
 @dataclass(frozen=True, slots=True)

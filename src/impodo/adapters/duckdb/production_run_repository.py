@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import json
-from typing import Mapping
+from collections.abc import Mapping
+from datetime import datetime
 
-from impodo.domain.shared.access import Actor
 from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
@@ -19,6 +18,8 @@ from impodo.domain.project.foundation import (
 from impodo.domain.run.production import ProductionRunBinding
 from impodo.domain.run.production_values import ProductionRunValues
 from impodo.domain.serialization import canonical_json
+from impodo.domain.shared.access import Actor
+
 from .migration_foundation_repository import MigrationFoundationRepository
 
 

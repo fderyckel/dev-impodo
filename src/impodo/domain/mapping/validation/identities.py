@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
 from impodo.domain.data_version.metadata import TYPE_COMPATIBILITY
+
 from ..contracts import (
     DatasetMapping,
     IdentityComponentMapping,
@@ -17,8 +18,8 @@ from .common import (
     _issue,
     _target_unknown,
 )
-from .evidence import MappingValidationIssue
 from .context import SourceColumnView, ValidationContext
+from .evidence import MappingValidationIssue
 from .relationships import _validate_resolver
 
 

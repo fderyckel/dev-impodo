@@ -9,9 +9,9 @@ incoming relationship.
 
 from __future__ import annotations
 
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Collection, Iterable, Mapping
 
 
 class DependencyStrength(StrEnum):

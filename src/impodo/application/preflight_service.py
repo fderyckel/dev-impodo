@@ -10,14 +10,12 @@ protected snapshots. It never reloads source files and exposes no Odoo write.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Iterable, Mapping
 from uuid import uuid4
 
-from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.application.shared.artifacts import (
     ArtifactStoreError,
     WorkspaceArtifactStore,
@@ -26,6 +24,7 @@ from impodo.domain.execution.planner import (
     PreflightRequirementPlan,
     plan_preflight_requirements,
 )
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
@@ -38,11 +37,11 @@ from impodo.domain.preparation.staging import StagingRunSummary
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.workbench import SourceMode
 from impodo.domain.workspace.reference_keys import (
     REFERENCE_POLICY_HASH,
     reference_policy_hash,
 )
+from impodo.domain.workspace.workbench import SourceMode
 
 from ..domain.compiler.browser_mapping_compiler import (
     browser_mapping_labels,
@@ -54,14 +53,6 @@ from ..domain.execution_snapshot import (
     build_execution_snapshot,
 )
 from ..domain.odoo_comparison import OdooComparisonArtifact
-from ..domain.preflight.frozen_input import (
-    FrozenPreflightInput,
-    build_frozen_preflight_input,
-)
-from ..domain.preflight.missing_parents import (
-    MissingParentGroup,
-    missing_parent_groups,
-)
 from ..domain.preflight.deferred_execution import reduce_execution_snapshot
 from ..domain.preflight.deferred_scope import (
     DeferredIssue,
@@ -73,6 +64,14 @@ from ..domain.preflight.deferred_scope import (
     portable_reference_resolutions,
     prepared_dependency_facts,
     preview_deferred_scope,
+)
+from ..domain.preflight.frozen_input import (
+    FrozenPreflightInput,
+    build_frozen_preflight_input,
+)
+from ..domain.preflight.missing_parents import (
+    MissingParentGroup,
+    missing_parent_groups,
 )
 from ..domain.preflight.reports import (
     ReadinessReport,
@@ -90,6 +89,7 @@ from .odoo_read_failures import (
     OdooReadFailureCode,
     OdooReadWorkflowError,
 )
+from .workspace.execution.navigation import build_execution_preview_summary
 from .workspace.preparation.readiness_ports import (
     PreflightEffectiveRepository,
     PreflightMappingRepository,
@@ -101,7 +101,6 @@ from .workspace.preparation.readiness_ports import (
     PreflightStagingRepository,
     PreflightWorkspaceRepository,
 )
-from .workspace.execution.navigation import build_execution_preview_summary
 
 MANIFEST_NAME = "impodo_preflight_manifest.json"
 EXECUTION_SNAPSHOT_NAME = "impodo_execution_snapshot.json"

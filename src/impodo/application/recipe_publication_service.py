@@ -6,15 +6,20 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import uuid4
 
+from impodo.domain.project.foundation import (
+    FaultInjector,
+    require_revision,
+    require_uuid,
+)
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from ..domain.serialization import content_hash
-from impodo.domain.project.foundation import FaultInjector, require_revision, require_uuid
+
 from ..domain.recipe.models import (
     Recipe,
     RecipeDraftIssue,
     RecipeError,
     RecipePublication,
 )
+from ..domain.serialization import content_hash
 from .recipe.ports import RecipeRepository
 from .recipe_compilation_service import CompiledRecipeDefinition
 

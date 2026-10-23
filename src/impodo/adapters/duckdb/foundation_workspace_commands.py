@@ -5,13 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor
 from impodo.application.data_version.source_packages import (
     SourcePackageState,
     WorkspaceSourceProjection,
-)
-from ...domain.workspace.models import (
-    MigrationWorkspace,
 )
 from impodo.domain.project.foundation import (
     FaultInjector,
@@ -20,6 +16,11 @@ from impodo.domain.project.foundation import (
     MigrationOperationKind,
     MigrationOperationState,
     utc_now,
+)
+from impodo.domain.shared.access import Actor
+
+from ...domain.workspace.models import (
+    MigrationWorkspace,
 )
 
 

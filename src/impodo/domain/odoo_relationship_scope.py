@@ -9,12 +9,12 @@ and must honor any saved no-write constraint.
 
 from __future__ import annotations
 
+import json
+import re
+from collections.abc import Iterable, Mapping
 from dataclasses import InitVar, dataclass
 from datetime import datetime
 from enum import StrEnum
-import json
-import re
-from typing import Iterable, Mapping
 from uuid import UUID
 
 from impodo.domain.serialization import canonical_json, content_hash
@@ -25,7 +25,6 @@ from .odoo_source_scope import (
     recommended_related_data_action,
     related_model_can_be_selected,
 )
-
 
 ODOO_RELATIONSHIP_SCOPE_CONTRACT_VERSION = 6
 _SUPPORTED_RELATIONSHIP_SCOPE_CONTRACT_VERSIONS = frozenset({1, 2, 3, 4, 5, 6})

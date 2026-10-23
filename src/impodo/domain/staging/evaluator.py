@@ -2,18 +2,37 @@
 
 from __future__ import annotations
 
+import unicodedata
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import (
     dataclass,
     replace,
 )
 from types import MappingProxyType
-from typing import (
-    Callable,
-    Iterable,
-    Mapping,
-)
-import unicodedata
 
+from impodo.domain.preparation.source import (
+    PreparedBundle,
+    SourceRow,
+    SourceTable,
+    prepare_source_tables,
+)
+from impodo.domain.preparation.staging_contracts import (
+    CanonicalRow,
+    CanonicalStagingRun,
+    StagingDatasetRole,
+    StagingDisposition,
+    canonical_row_from_inclusion_decision,
+)
+from impodo.domain.shared.models import (
+    InvalidPreparedValue,
+    Issue,
+    Severity,
+    portable_value,
+)
+from impodo.domain.workspace.contracts import (
+    SourceDataset,
+    SourceSelection,
+)
 from impodo.domain.workspace.derived_entities import (
     DerivedDatasetLink,
     DerivedEntityPlan,
@@ -27,24 +46,23 @@ from impodo.domain.workspace.derived_entities import (
     derived_dataset_links,
     evaluate_hierarchy_path,
 )
+
+from ..compiler.browser_mapping_compiler import compile_browser_mapping
+from ..compiler.contracts import CompiledMigrationPlan
+from ..contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
+from ..coverage import ReferenceBundle, ReferenceDataSet, ReferenceEntry
+from ..errors import ReadinessError
 from ..mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
+    ResolverOrigin,
     RowInclusionMode,
     RowInclusionPolicy,
     ScalarFieldMapping,
-    ResolverOrigin,
     ScalarValueSource,
 )
-from ..coverage import ReferenceBundle, ReferenceDataSet, ReferenceEntry
-from ..serialization import content_hash
-from impodo.domain.shared.models import portable_value
-from ..mapping.scalar_values import (
-    ScalarValueError,
-    ScalarValueRuleError,
-    evaluate_scalar_mapping_value,
-)
+from ..mapping.descriptions import transformation_rule_summary
 from ..mapping.row_inclusion import row_is_included
 from ..mapping.row_inclusion_review import (
     RowInclusionDatasetReview,
@@ -55,38 +73,18 @@ from ..mapping.row_inclusion_review import (
     RowInclusionSourceValue,
     describe_row_inclusion_policy,
 )
+from ..mapping.scalar_values import (
+    ScalarValueError,
+    ScalarValueRuleError,
+    evaluate_scalar_mapping_value,
+)
 from ..mapping.source_conditions import SourceConditionValueError
-from ..mapping.descriptions import transformation_rule_summary
 from ..recipe.value_rules import (
     CompiledArithmeticFormula,
     FormulaValidationError,
     compile_arithmetic_formula,
 )
-from impodo.domain.shared.models import (
-    InvalidPreparedValue,
-    Issue,
-    Severity,
-)
-from ..compiler.contracts import CompiledMigrationPlan
-from impodo.domain.preparation.source import (
-    PreparedBundle,
-    SourceRow,
-    SourceTable,
-    prepare_source_tables,
-)
-from impodo.domain.preparation.staging_contracts import (
-    CanonicalRow,
-    CanonicalStagingRun,
-    StagingDisposition,
-    StagingDatasetRole,
-    canonical_row_from_inclusion_decision,
-)
-from impodo.domain.workspace.contracts import (
-    SourceDataset,
-    SourceSelection,
-)
-from ..contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
-from ..errors import ReadinessError
+from ..serialization import content_hash
 from ..structural import (
     ExactJoinRule,
     GroupAggregateRule,
@@ -94,20 +92,15 @@ from ..structural import (
     UnionAllRule,
     execute_structural_rules,
 )
-
-
-
-
-from ..compiler.browser_mapping_compiler import compile_browser_mapping
 from .control_totals import _evaluate_control_totals
 from .fields import synthetic_field, synthetic_relationship_field
 from .scale import require_supported_browser_scale
 from .transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
-    _TransformationImpactCollector,
     _display_value,
     _display_values_equal,
+    _TransformationImpactCollector,
     reviewable_rule_impact_definitions,
     selection_rule_impact_definitions,
     transformation_rule_impact_definitions,

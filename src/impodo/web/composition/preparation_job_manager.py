@@ -2,40 +2,41 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from multiprocessing.context import BaseContext
 from pathlib import Path
 from queue import Empty
 from threading import RLock, Thread
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import duckdb
 
-from impodo.domain.shared.access import Actor
 from impodo.application.shared.build_contract import (
+    PROCESS_BUILD_CONTRACT,
     ApplicationBuildContract,
     ApplicationBuildMismatchError,
-    PROCESS_BUILD_CONTRACT,
     require_same_application_build,
 )
-from impodo.application.workspace.preparation.preparation_job_registry import (
-    PreparationJobRegistry,
-    PreparationJobStateError,
-)
-from impodo.application.workspace.preparation.recovery import RecoveredPreparation
-from impodo.domain.odoo.contracts import ConnectorError
-from impodo.domain.errors import ReadinessError
+from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.workspace.preparation.job_models import (
     PreparationJob,
     PreparationJobStatus,
     PreparationPhase,
     PreparationWorkspace,
 )
-from impodo.domain.workspace.workbench import WorkspaceStateError
-from impodo.application.shared.secrets import SecretStoreError
+from impodo.application.workspace.preparation.preparation_job_registry import (
+    PreparationJobRegistry,
+    PreparationJobStateError,
+)
+from impodo.application.workspace.preparation.recovery import RecoveredPreparation
+from impodo.domain.errors import ReadinessError
+from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateError
 
 if TYPE_CHECKING:
     from ..diagnostics import LocalDiagnosticRecorder

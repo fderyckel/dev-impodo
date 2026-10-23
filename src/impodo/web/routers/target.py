@@ -8,21 +8,23 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
-from impodo.domain.shared.access import Capability
-from impodo.domain.data_version.models import DataVersionState
+from impodo.adapters.odoo.local_stack import (
+    LocalStackError,
+    LocalStackStatus,
+    ReadinessLevel,
+)
 from impodo.application.odoo_source_restart_service import (
     odoo_source_restart_request_id,
 )
-from ...application.odoo_connection_service import OdooConnectionPurpose
-from ...application.odoo_read_failures import OdooReadCredentialMissingError
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.data_version.models import DataVersionState
 from impodo.domain.odoo.contracts import ConnectorError
-from impodo.adapters.odoo.local_stack import LocalStackError, LocalStackStatus, ReadinessLevel
 from impodo.domain.project.foundation import (
     MigrationFoundationError,
     MigrationIdentifierConfusionError,
     require_uuid,
 )
-from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.shared.access import Capability
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
@@ -32,6 +34,14 @@ from impodo.domain.workspace.workbench import (
     WorkspaceStatus,
     workspace_setup_requirements_for_step,
 )
+from impodo.web.composition.target_readers import (
+    _refresh_model_catalog,
+    _selected_local_profile,
+)
+
+from ...application.odoo_connection_service import OdooConnectionPurpose
+from ...application.odoo_read_failures import OdooReadCredentialMissingError
+from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash
@@ -43,10 +53,7 @@ from ..presenters.summary import (
     _require_local_stack_start,
     _require_local_stack_stop,
 )
-from impodo.web.composition.target_readers import _refresh_model_catalog
-from .schema import _capture_selected_schema
 from ..security import require_session
-from ..composition.page_reads import run_page_read
 from ..target_credentials import (
     TargetCredentialRemovalReason,
     TargetCredentialRole,
@@ -58,7 +65,7 @@ from ..target_credentials import (
     target_read_credential_id,
     target_write_credential_id,
 )
-from impodo.web.composition.target_readers import _selected_local_profile
+from .schema import _capture_selected_schema
 
 _LOCAL_STACK_RETURN_TARGET = "target"
 _LOCAL_STACK_RETURN_SUMMARY_COMPARE = "summary_compare"

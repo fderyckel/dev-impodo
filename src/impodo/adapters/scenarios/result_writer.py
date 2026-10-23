@@ -7,8 +7,8 @@ See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 from impodo.domain.scenarios import ScenarioRunResult
 

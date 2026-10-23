@@ -8,10 +8,10 @@ numeric Odoo identifiers, credentials, or write receipts.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime
 import json
 import re
+from dataclasses import asdict, dataclass
+from datetime import datetime
 from typing import Any
 
 from impodo.domain.cutover.approvals import (
@@ -21,7 +21,6 @@ from impodo.domain.cutover.approvals import (
 )
 from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor, ActorIdentity, Capability
-
 
 TRANSFER_REVIEW_CONTRACT_VERSION = 6
 TRANSFER_REVIEW_APPROVAL_CONTRACT_VERSION = 1

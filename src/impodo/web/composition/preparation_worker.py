@@ -4,41 +4,48 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from impodo.domain.shared.access import CapabilityAuthorizationPolicy
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.adapters.duckdb.advanced_coverage_repository import (
     AdvancedCoverageRepository,
 )
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.mapping_repository import MappingRepository
-from impodo.adapters.duckdb.schema_repository import SchemaRepository
+from impodo.adapters.duckdb.migration_workspace_engine_database import (
+    FixedMigrationWorkspaceEngineDatabase,
+)
 from impodo.adapters.duckdb.normalization_repository import NormalizationRepository
 from impodo.adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
 from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
-from impodo.adapters.duckdb.workspace_state_reader import WorkspaceStateReader
-from impodo.adapters.duckdb.quality_repository import QualityRepository
-from impodo.adapters.duckdb.recipe_quality_seed_repository import RecipeQualitySeedRepository
-from impodo.adapters.duckdb.migration_workspace_engine_database import (
-    FixedMigrationWorkspaceEngineDatabase,
-)
 from impodo.adapters.duckdb.projected_preparation_source_repository import (
     ProjectedPreparationSourceRepository,
 )
+from impodo.adapters.duckdb.quality_repository import QualityRepository
+from impodo.adapters.duckdb.recipe_quality_seed_repository import (
+    RecipeQualitySeedRepository,
+)
+from impodo.adapters.duckdb.schema_repository import SchemaRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
+from impodo.adapters.duckdb.workspace_state_reader import WorkspaceStateReader
 from impodo.adapters.polars_transformation import PolarsTransformationAdapter
+from impodo.adapters.protected_evidence.credential_vault import CredentialVault
 from impodo.adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
 from impodo.adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
-from impodo.application.workspace.preparation.normalization_service import NormalizationService
 from impodo.application.odoo_provenance_service import OdooProvenanceService
-from impodo.application.workspace.preparation.preparation_service import PreparationService
-from impodo.application.workspace.preparation.quality_service import QualityService
-from impodo.application.workspace.preparation.resolution_service import ResolutionService
-from impodo.adapters.artifacts.local_store import LocalArtifactStore
-from impodo.application.workspace.preparation.job_models import PreparationWorkspace
-from impodo.adapters.protected_evidence.credential_vault import CredentialVault
 from impodo.application.workspace.access import WorkspaceAccessService
-
+from impodo.application.workspace.preparation.job_models import PreparationWorkspace
+from impodo.application.workspace.preparation.normalization_service import (
+    NormalizationService,
+)
+from impodo.application.workspace.preparation.preparation_service import (
+    PreparationService,
+)
+from impodo.application.workspace.preparation.quality_service import QualityService
+from impodo.application.workspace.preparation.resolution_service import (
+    ResolutionService,
+)
+from impodo.domain.shared.access import CapabilityAuthorizationPolicy
 
 PREPARATION_DATABASE_HANDOFF_TIMEOUT_SECONDS = 5.0
 

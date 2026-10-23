@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Mapping
 from uuid import uuid4
 
 import duckdb
 
+from impodo.domain.project.foundation import (
+    FaultInjector,
+    MigrationOperationIntent,
+    MigrationOperationKind,
+    MigrationOperationState,
+)
+from impodo.domain.run.setup import MigrationRunTargetSetup, OdooConnectionMode
 from impodo.domain.shared.access import Actor, ActorIdentity
+
 from ...domain.data_version.models import (
     DataVersion,
     DataVersionPurpose,
@@ -25,18 +33,11 @@ from ...domain.run.models import (
     MigrationRunPurpose,
     MigrationRunState,
 )
-from impodo.domain.run.setup import MigrationRunTargetSetup, OdooConnectionMode
 from ...domain.serialization import canonical_json
 from ...domain.workspace.models import (
     MigrationWorkspace,
     MigrationWorkspaceSetupState,
     MigrationWorkspaceState,
-)
-from impodo.domain.project.foundation import (
-    FaultInjector,
-    MigrationOperationIntent,
-    MigrationOperationKind,
-    MigrationOperationState,
 )
 
 

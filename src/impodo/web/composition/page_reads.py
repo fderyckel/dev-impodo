@@ -1,8 +1,9 @@
 """Run bounded local database work away from the web event loop."""
 
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from inspect import isawaitable, iscoroutine
-from typing import Callable, ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar
 
 from starlette.concurrency import run_in_threadpool
 
@@ -11,14 +12,13 @@ from impodo.adapters.duckdb.unit_of_work import (
     retain_databases_for_read,
 )
 
-
 P = ParamSpec("P")
 T = TypeVar("T")
 DatabaseScope = Callable[[], AbstractContextManager[None]]
 
 
 async def _run_in_database_scope(
-    scope: DatabaseScope,
+    database_scope: DatabaseScope,
     function: Callable[P, T],
     *args: P.args,
     **kwargs: P.kwargs,
@@ -26,7 +26,7 @@ async def _run_in_database_scope(
     """Keep the database scope and synchronous callable on one worker."""
 
     def invoke() -> T:
-        with scope():
+        with database_scope():
             result = function(*args, **kwargs)
             if isawaitable(result):
                 if iscoroutine(result):

@@ -14,16 +14,24 @@ source row, and Odoo rolls its transaction back when the process exits.
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import subprocess
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
-import json
-import os
 from pathlib import Path
-import re
-import subprocess
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any
 
+from impodo.adapters.odoo.local_stack import LocalStackProfile
+from impodo.domain.mapping.create_field_policy import CREATE_DEFAULT_TYPES
+from impodo.domain.odoo.compatibility import (
+    OdooOperation,
+    assess_odoo_operation,
+    recognize_odoo_version,
+)
 from impodo.domain.odoo.contracts import (
     ConnectorError,
     MetadataRequest,
@@ -31,13 +39,6 @@ from impodo.domain.odoo.contracts import (
     RecordRequest,
     RecordSnapshot,
 )
-from impodo.domain.odoo.compatibility import (
-    OdooOperation,
-    assess_odoo_operation,
-    recognize_odoo_version,
-)
-from impodo.domain.mapping.create_field_policy import CREATE_DEFAULT_TYPES
-from impodo.adapters.odoo.local_stack import LocalStackProfile
 from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
@@ -46,8 +47,7 @@ from impodo.domain.shared.models import (
     UniqueConstraintMetadata,
     target_identity_hash,
 )
-from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode
-
+from impodo.domain.workspace.workbench import OdooConnectionMode, WorkspaceState
 
 _OUTPUT_MARKER = "__IMPODO_LOCAL_ODOO_JSON__"
 _MAX_OUTPUT_BYTES = 32 * 1024 * 1024

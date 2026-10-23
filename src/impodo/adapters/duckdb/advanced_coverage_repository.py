@@ -6,12 +6,15 @@ separate current pointers select the evidence used by workspace preparation.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
 from uuid import uuid4
 
 from impodo.domain.shared.access import Actor, AuthorizationError, Capability
+from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
+from impodo.domain.workspace.errors import WorkspaceError
+
 from ...domain.coverage import (
     CoverageScopeRevision,
     ReferenceBundle,
@@ -21,20 +24,18 @@ from ...domain.coverage import (
 from ...domain.mapping.artifacts import MappingRevision
 from ...domain.resolution import (
     EffectiveDataset,
+    EffectiveRow,
+    ResolutionCandidate,
     ResolutionDecision,
     ResolutionEvaluation,
     ResolutionFinding,
-    ResolutionCandidate,
     ResolutionPolicy,
     ResolutionReconciliation,
     ResolutionRowAccounting,
-    EffectiveRow,
     ResolutionState,
     pass_through_effective_row,
 )
 from ...domain.serialization import canonical_json
-from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
 from .constants import RESOLUTION_ROW_BATCH_SIZE
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository

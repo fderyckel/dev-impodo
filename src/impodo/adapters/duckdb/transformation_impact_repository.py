@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
-from .constants import TRANSFORMATION_IMPACT_ROW_BATCH_SIZE
-
+import json
+from collections.abc import Callable, Iterator, Sequence
 from datetime import (
     datetime,
     timezone,
 )
-import json
-from typing import (
-    Callable,
-    Iterator,
-    Sequence,
-)
-
 
 from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
 from ...domain.staging.transformation_impact import (
     TransformationImpactFilter,
     TransformationImpactIdentity,
@@ -27,9 +22,8 @@ from ...domain.staging.transformation_impact import (
     TransformationImpactSnapshot,
     TransformationRuleImpact,
 )
-from impodo.domain.workspace.errors import WorkspaceError
+from .constants import TRANSFORMATION_IMPACT_ROW_BATCH_SIZE
 from .repository import DuckDbRepository
-
 
 _IMPACT_JSON_BATCH_CHARACTER_LIMIT = 2_000_000
 

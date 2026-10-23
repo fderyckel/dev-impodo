@@ -7,23 +7,16 @@ approval freezes the exact eligible-dataset hash for final review.
 
 from __future__ import annotations
 
-from .constants import (
-    DUCKDB_JSON_BATCH_MAX_BYTES,
-    NORMALIZATION_ROW_BATCH_SIZE,
-)
-
+import json
+from collections.abc import Sequence
 from datetime import (
     datetime,
     timezone,
 )
-import json
-from typing import Sequence
 from uuid import UUID, uuid4
 
 import duckdb
 
-from impodo.domain.shared.access import Actor
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from impodo.domain.cutover.governance import DryRun
 from impodo.domain.preparation.normalization import (
     NORMALIZATION_CONTRACT_VERSION,
@@ -36,14 +29,18 @@ from impodo.domain.preparation.normalization import (
     start_dry_run,
 )
 from impodo.domain.preparation.quality import retention_context_hash
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
 from ...domain.serialization import CanonicalJsonObjectHasher
+from .constants import (
+    DUCKDB_JSON_BATCH_MAX_BYTES,
+    NORMALIZATION_ROW_BATCH_SIZE,
+)
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository, WorkspaceAggregateReader
-
-
 from .serialization import _canonical_json, iter_encoded_json_batches
-
 
 _NORMALIZATION_EFFECT_JSON_STRUCTURE = """[{
     "ordinal":"BIGINT",

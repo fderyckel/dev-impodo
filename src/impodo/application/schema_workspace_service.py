@@ -15,49 +15,57 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
-import re
-from typing import Iterable, Mapping, Protocol
+from typing import Protocol
 from uuid import uuid4
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
-from ..domain.schema.governance import (
-    BusinessKeyDefinition,
-    BusinessKeyStatus,
-    SchemaGovernance,
-)
-from ..domain.mapping.create_field_policy import supports_create_default_capture
-from impodo.domain.shared.models import FieldMetadata, OdooReadIdentity, target_identity_hash
-from ..domain.odoo_source_policy import (
-    ODOO_SOURCE_POLICY_HASH,
-    odoo_source_policy_hash,
-)
-from impodo.domain.workspace.workbench import (
-    WorkspaceState,
-    OdooConnectionMode,
-    WorkspaceStatus,
-    SourceMode,
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.models import (
+    FieldMetadata,
+    OdooReadIdentity,
+    target_identity_hash,
 )
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
     OdooModelSummary,
-    OdooSchemaChange,
     OdooSchemaCatalog,
+    OdooSchemaChange,
     OdooSchemaRefreshCandidate,
     SchemaField,
     SchemaModel,
     SchemaOrigin,
     SourceSelection,
 )
-from impodo.domain.workspace.errors import OdooModelCatalogRefreshRequired, WorkspaceError
+from impodo.domain.workspace.errors import (
+    OdooModelCatalogRefreshRequired,
+    WorkspaceError,
+)
 from impodo.domain.workspace.supporting_models import (
     unavailable_required_supporting_dependencies,
 )
-from ..domain.serialization import content_hash
+from impodo.domain.workspace.workbench import (
+    OdooConnectionMode,
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStatus,
+)
 
+from ..domain.mapping.create_field_policy import supports_create_default_capture
+from ..domain.odoo_source_policy import (
+    ODOO_SOURCE_POLICY_HASH,
+    odoo_source_policy_hash,
+)
+from ..domain.schema.governance import (
+    BusinessKeyDefinition,
+    BusinessKeyStatus,
+    SchemaGovernance,
+)
+from ..domain.serialization import content_hash
 
 _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 _CONTENT_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")

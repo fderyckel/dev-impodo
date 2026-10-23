@@ -7,10 +7,10 @@ whole artifact; individual rows and values deliberately receive no new hash.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-import json
 
 from impodo.domain.project.foundation import (
     require_aware,
@@ -20,7 +20,6 @@ from impodo.domain.project.foundation import (
 )
 from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import ActorIdentity
-
 
 CORRECTION_TARGET_INDEX_CONTRACT = "correction-target-index-v1"
 CORRECTION_ORIGIN_CONTRACT = "correction-origin-v1"

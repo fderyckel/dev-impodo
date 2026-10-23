@@ -16,24 +16,21 @@ See ``docs/architecture/python-code-map.md`` and
 from __future__ import annotations
 
 import csv
-from dataclasses import asdict, dataclass, fields as dataclass_fields, replace
+import json
+import posixpath
+import re
+import zipfile
+from collections.abc import Iterable
+from dataclasses import asdict, dataclass, replace
+from dataclasses import fields as dataclass_fields
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
-import json
 from pathlib import Path
-import posixpath
-import re
-from typing import Any, Iterable, Protocol
-import zipfile
+from typing import Any, Protocol
 
 from defusedxml import ElementTree as SafeElementTree
 
-from impodo.domain.shared.access import Actor, Capability
-from impodo.application.shared.artifacts import DataVersionSourceArtifactStore, ArtifactStoreError
-from impodo.application.workspace.access import WorkspaceAccessService
-from impodo.domain.workspace.workbench import WorkspaceStateError, WorkspaceStatus, SourceFile
-from impodo.domain.workspace.contracts import SourceSelection
 from impodo.application.data_version.source_files import (
     MAX_CELL_STRING_LENGTH,
     MAX_SOURCE_COLUMNS,
@@ -41,11 +38,22 @@ from impodo.application.data_version.source_files import (
     MAX_XLSX_METADATA_BYTES,
     MAX_XLSX_WORKSHEETS,
     last_non_empty_header_index,
-    validated_xlsx_table_bounds,
     validate_source_file,
+    validated_xlsx_table_bounds,
 )
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    DataVersionSourceArtifactStore,
+)
+from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.domain.preparation.source import SourceLoadError
-
+from impodo.domain.shared.access import Actor, Capability
+from impodo.domain.workspace.contracts import SourceSelection
+from impodo.domain.workspace.workbench import (
+    SourceFile,
+    WorkspaceStateError,
+    WorkspaceStatus,
+)
 
 CATALOG_CONTRACT_VERSION = 2
 PREVIEW_ROW_LIMIT = 20
@@ -312,7 +320,9 @@ class SourceInspectionService:
 
         # Import here to keep multiprocessing bootstrapping independent of the
         # domain module import path.
-        from impodo.application.data_version.source_worker import inspect_source_file_isolated
+        from impodo.application.data_version.source_worker import (
+            inspect_source_file_isolated,
+        )
 
         catalogs: list[SourceFileCatalog] = []
         for source_file in workspace_state.source_files:
@@ -368,7 +378,9 @@ class SourceInspectionService:
         except StopIteration as error:
             raise SourceInspectionError("Registered source file was not found") from error
 
-        from impodo.application.data_version.source_worker import inspect_source_file_isolated
+        from impodo.application.data_version.source_worker import (
+            inspect_source_file_isolated,
+        )
 
         try:
             with self.artifacts.materialize_source(

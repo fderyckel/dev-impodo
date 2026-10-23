@@ -2,27 +2,27 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-import re
 from threading import RLock
-from typing import Sequence
 from uuid import UUID
 
-from impodo.domain.shared.access import Actor
 from impodo.domain.execution.models import (
+    MAX_CREATE_BATCH_ROWS,
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
-    MAX_CREATE_BATCH_ROWS,
 )
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
-
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 

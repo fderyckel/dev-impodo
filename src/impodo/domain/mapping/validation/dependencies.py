@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Iterable, Mapping
+from collections.abc import Iterable, Mapping
 
 from impodo.domain.relationship_dependencies import (
     DatasetDependencyEdge,
     required_cross_dataset_cycle,
 )
+
 from ..contracts import DatasetMapping
 from .common import _issue
 from .evidence import MappingValidationIssue

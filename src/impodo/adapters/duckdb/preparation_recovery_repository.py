@@ -2,13 +2,29 @@
 
 import duckdb
 
-from impodo.application.workspace.preparation.recovery import PreparationRecoveryInputs, RecoveredPreparation
 from impodo.application.workspace.preparation.job_models import PreparationJobStatus
-from impodo.domain.preparation.staging_contracts import STAGING_CONTRACT_VERSION, BROWSER_EVALUATOR_VERSION
-from impodo.domain.preparation.quality import QUALITY_CONTRACT_VERSION, QUALITY_EVALUATOR_VERSION
-from impodo.domain.preparation.normalization import NORMALIZATION_CONTRACT_VERSION, NORMALIZATION_EVALUATOR_VERSION
-from impodo.domain.resolution import RESOLUTION_EVALUATION_CONTRACT_VERSION, RESOLUTION_SCORER_VERSION
+from impodo.application.workspace.preparation.recovery import (
+    PreparationRecoveryInputs,
+    RecoveredPreparation,
+)
+from impodo.domain.preparation.normalization import (
+    NORMALIZATION_CONTRACT_VERSION,
+    NORMALIZATION_EVALUATOR_VERSION,
+)
+from impodo.domain.preparation.quality import (
+    QUALITY_CONTRACT_VERSION,
+    QUALITY_EVALUATOR_VERSION,
+)
+from impodo.domain.preparation.staging_contracts import (
+    BROWSER_EVALUATOR_VERSION,
+    STAGING_CONTRACT_VERSION,
+)
+from impodo.domain.resolution import (
+    RESOLUTION_EVALUATION_CONTRACT_VERSION,
+    RESOLUTION_SCORER_VERSION,
+)
 from impodo.domain.workspace.errors import WorkspaceError
+
 from .repository import DuckDbRepository
 
 

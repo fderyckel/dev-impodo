@@ -8,11 +8,11 @@ hash to row data and a separately authorized protected origin sidecar.
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import InitVar, dataclass
 from datetime import datetime
 from enum import StrEnum
-import json
-import re
 from uuid import UUID
 
 from .odoo_source_policy import (
@@ -22,7 +22,6 @@ from .odoo_source_policy import (
 )
 from .serialization import canonical_json, content_hash
 from .source_binding import OdooSourceBinding, SourceOriginKind
-
 
 ODOO_CAPTURE_CONTRACT_VERSION = 4
 PROTECTED_FILTER_CONTRACT_VERSION = 5

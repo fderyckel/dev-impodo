@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
 from pathlib import Path
-import shutil
 from uuid import UUID, uuid4
 
 import duckdb
@@ -14,9 +14,11 @@ import duckdb
 from impodo.adapters.duckdb.schema.migration_registry import (
     MIGRATION_REGISTRY_GENERATION,
 )
-from impodo.web.composition.development_reset import DevelopmentResetPlan, plan_development_reset
 from impodo.domain.project.foundation import MigrationFoundationError
-
+from impodo.web.composition.development_reset import (
+    DevelopmentResetPlan,
+    plan_development_reset,
+)
 
 LEGACY_RECIPE_ROOT_MIGRATION_ID = "2026-08-19-recipe-clean-root-v2"
 LEGACY_RECIPE_ROOT_MIGRATION_CHECKSUM = (

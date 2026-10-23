@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
-from typing import Iterable
 
 from impodo.domain.mapping.contracts import DatasetMapping
 from impodo.domain.recipe.value_rules import (
@@ -11,7 +11,6 @@ from impodo.domain.recipe.value_rules import (
     validate_formula,
 )
 from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
-
 
 MAPPING_FORMULA_ISSUE_CODE = "MAPPING_FORMULA_INVALID"
 

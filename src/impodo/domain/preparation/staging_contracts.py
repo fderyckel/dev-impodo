@@ -8,14 +8,17 @@ from every portable payload.
 
 from __future__ import annotations
 
+import json
+import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
-import json
-import re
-from typing import Any, Iterable, Mapping
+from typing import Any
 
+from impodo.domain.compiler.contracts import CompiledMigrationPlan
+from impodo.domain.preparation.source import PreparedBundle
 from impodo.domain.shared.models import (
     Issue,
     PreparedRecord,
@@ -25,9 +28,6 @@ from impodo.domain.shared.models import (
     portable_value,
     restore_portable_value,
 )
-from impodo.domain.compiler.contracts import CompiledMigrationPlan
-from impodo.domain.preparation.source import PreparedBundle
-
 
 STAGING_CONTRACT_VERSION = 6
 BROWSER_EVALUATOR_VERSION = 7

@@ -14,12 +14,26 @@ by preparation before this adapter runs.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping
+from typing import Any
+
+from impodo.application.data_version.source_snapshots import (
+    validate_source_snapshot_path,
+)
+from impodo.application.shared.columnar_runtime import configure_columnar_runtime
+from impodo.domain.preparation.source import SourceLoadError
+from impodo.domain.shared.models import (
+    Issue,
+    LogicalReference,
+    PreparedRecord,
+    canonical_json_bytes,
+    portable_value,
+)
 
 from ..application.workspace.preparation.columnar_transformation_port import (
     ColumnarPreparedSnapshotCandidate,
@@ -37,17 +51,18 @@ from ..domain.compiler.columnar_transformation import (
     ColumnarTransformationProgram,
 )
 from ..domain.correction import CorrectionValueKind
+from ..domain.mapping.source_conditions import parse_source_text_list
 from ..domain.prepared_snapshot import PreparedSnapshot
 from ..domain.serialization import content_hash
-from ..domain.mapping.source_conditions import parse_source_text_list
 from ..domain.source_snapshot import (
-    EncodedSourceCell,
     SOURCE_ROW_COLUMN,
+    EncodedSourceCell,
     SourceCellKind,
     SourceSnapshot,
     source_kind_column,
     source_value_column,
 )
+from ..domain.staging.fields import synthetic_field
 from ..domain.staging.transformation_impact import (
     TransformationImpactCounts,
     TransformationImpactRow,
@@ -55,23 +70,10 @@ from ..domain.staging.transformation_impact import (
     _display_value,
     selection_rule_impact_definition,
 )
-from impodo.domain.shared.models import (
-    Issue,
-    LogicalReference,
-    PreparedRecord,
-    canonical_json_bytes,
-    portable_value,
-)
-from impodo.domain.preparation.source import SourceLoadError
-from impodo.application.data_version.source_snapshots import validate_source_snapshot_path
-from ..domain.staging.fields import synthetic_field
-from impodo.application.shared.columnar_runtime import configure_columnar_runtime
-
 
 configure_columnar_runtime()
 
 import polars as pl  # noqa: E402
-
 
 POLARS_TRANSFORMATION_BATCH_ROWS = 1_000
 PREPARED_PARQUET_ROW_GROUP_ROWS = 5_000

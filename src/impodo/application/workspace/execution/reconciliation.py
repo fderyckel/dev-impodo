@@ -8,20 +8,31 @@ outcome of the original load.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
-import re
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from impodo.domain.odoo.html import odoo_html_values_equal
+from impodo.application.preflight_service import PreflightService
+from impodo.application.reconciliation_evidence_service import (
+    ReconciliationEvidenceService,
+)
 from impodo.domain.execution.models import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
+)
+from impodo.domain.execution.odoo_readback import (
+    MAX_READBACK_EXTERNAL_IDS,
+    MAX_READBACK_LOOKUPS,
+    MAX_READBACK_RECORD_IDS,
+    OdooReadbackReader,
+    ReadbackLookup,
+    ReadbackRecord,
 )
 from impodo.domain.execution_snapshot import (
     ExecutionDataset,
@@ -29,6 +40,7 @@ from impodo.domain.execution_snapshot import (
     ExecutionSnapshot,
     FieldIntent,
 )
+from impodo.domain.odoo.html import odoo_html_values_equal
 from impodo.domain.reconciliation import (
     ReconciliationRow,
     ReconciliationRowStatus,
@@ -40,27 +52,20 @@ from impodo.domain.reconciliation_detail import (
     ReconciliationDetailManifest,
     ReconciliationFieldDifference,
 )
-from impodo.application.reconciliation_evidence_service import (
-    ReconciliationEvidenceService,
-)
-from impodo.domain.shared.models import BusinessReference, LogicalReference, OdooWriteIdentity
-from impodo.domain.execution.odoo_readback import (
-    MAX_READBACK_EXTERNAL_IDS,
-    MAX_READBACK_LOOKUPS,
-    MAX_READBACK_RECORD_IDS,
-    OdooReadbackReader,
-    ReadbackLookup,
-    ReadbackRecord,
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.models import (
+    BusinessReference,
+    LogicalReference,
+    OdooWriteIdentity,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+
 from .service import (
     _identity_domain,
     _portable_key,
     _targeted_recovery_row_ids,
     execution_api_scope,
 )
-from impodo.application.preflight_service import PreflightService
-
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 

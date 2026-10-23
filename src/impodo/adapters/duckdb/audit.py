@@ -19,12 +19,6 @@ from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.workbench import WorkspaceState
 
 
-
-
-
-
-
-
 class AuditMixin:
     """Write audit rows in the caller's transaction so state and audit agree."""
 

@@ -7,21 +7,29 @@ required preparation step and by using the smallest capacity for admission.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable
 
-from impodo.domain.workspace.derived_entities import (
-    DerivedEntityPlan,
-    DerivedEntityRule,
+from impodo.application.data_version.source_snapshots import (
+    validate_snapshot_for_dataset,
 )
-from impodo.domain.coverage import ReferenceBundle
-from impodo.domain.mapping.contracts import MappingDefinition
 from impodo.domain.compiler.columnar_transformation import (
-    ColumnarCompilationDecision, ColumnarCompilationError, ColumnarSupport,
+    ColumnarCompilationDecision,
+    ColumnarCompilationError,
+    ColumnarSupport,
     compile_columnar_transformation_programs,
 )
-from impodo.application.data_version.source_snapshots import validate_snapshot_for_dataset
+from impodo.domain.coverage import ReferenceBundle
+from impodo.domain.errors import ReadinessError
+from impodo.domain.mapping.contracts import MappingDefinition
+from impodo.domain.preparation.quality import (
+    MANDATORY_QUALITY_FAMILIES,
+    QualityRuleFamily,
+    QualityRuleSet,
+    QualityRuleSource,
+    incoming_identity_group_fields,
+)
 from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.source_binding import SourceOriginKind
 from impodo.domain.source_snapshot import SourceSnapshot
@@ -32,15 +40,12 @@ from impodo.domain.staging.scale import (
     LOOKUP_DERIVED_OUTPUT_ROW_LIMIT,
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 )
-from impodo.domain.preparation.quality import (
-    MANDATORY_QUALITY_FAMILIES,
-    QualityRuleFamily,
-    QualityRuleSet,
-    QualityRuleSource,
-    incoming_identity_group_fields,
-)
 from impodo.domain.workspace.contracts import SourceSelection
-from impodo.domain.errors import ReadinessError
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    DerivedEntityRule,
+)
+
 from .bounded_preparation import (
     direct_preparation_row_limit,
     supports_bounded_direct_preparation,

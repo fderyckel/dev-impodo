@@ -5,13 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from ...domain.data_version.models import (
-    DataVersion,
-    DataVersionPurpose,
-    DataVersionState,
-)
-from ...domain.serialization import content_hash
 from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationFoundationError,
@@ -19,6 +12,14 @@ from impodo.domain.project.foundation import (
     require_uuid,
     utc_now,
 )
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+
+from ...domain.data_version.models import (
+    DataVersion,
+    DataVersionPurpose,
+    DataVersionState,
+)
+from ...domain.serialization import content_hash
 from .ports import DataVersionRepository
 
 

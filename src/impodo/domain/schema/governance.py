@@ -11,10 +11,10 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-import json
 from typing import Any
 
 from ..serialization import canonical_json as _canonical_json

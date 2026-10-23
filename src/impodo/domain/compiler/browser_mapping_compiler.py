@@ -8,17 +8,9 @@ Compilation reads metadata only; it does not evaluate rows or contact Odoo.
 """
 
 from __future__ import annotations
-from typing import Collection, Mapping
 
-from ..mapping.contracts import (
-    MappingDefinition,
-    RelationshipValueSource,
-    RelationshipResolver,
-    ResolverOrigin,
-    ScalarValueSource,
-    relationship_target_fields,
-)
-from ..mapping.create_field_policy import required_create_hook_inputs
+from collections.abc import Collection, Mapping
+
 from impodo.domain.recipe.profile import (
     DatasetSpec,
     FieldSpec,
@@ -32,9 +24,20 @@ from impodo.domain.recipe.profile import (
     TargetSpec,
 )
 from impodo.domain.workspace.contracts import SourceSelection
+
 from ..errors import ReadinessError
+from ..mapping.contracts import (
+    MappingDefinition,
+    RelationshipResolver,
+    RelationshipValueSource,
+    ResolverOrigin,
+    ScalarValueSource,
+    relationship_target_fields,
+)
+from ..mapping.create_field_policy import required_create_hook_inputs
 from ..staging.fields import synthetic_field, synthetic_relationship_field
 from .contracts import CompiledMigrationPlan
+
 
 def compile_browser_mapping(
     definition: MappingDefinition,

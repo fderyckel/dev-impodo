@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
 import socket
 import time
-from typing import Any, Mapping, Protocol, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Protocol
 from urllib.error import URLError
 from urllib.parse import quote
 
@@ -17,9 +18,8 @@ from impodo.adapters.odoo.connectors import (
     target_record_read_context,
 )
 from impodo.adapters.odoo.lookup_values import lookup_values_equal
-from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 from impodo.domain.execution.odoo_scope import OdooApiScope
-
+from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 
 MAX_READBACK_BODY_BYTES = 1024 * 1024
 _EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")

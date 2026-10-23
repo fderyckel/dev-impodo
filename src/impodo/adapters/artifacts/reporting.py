@@ -31,6 +31,10 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from impodo.domain.preflight.deferred_scope import (
+    DeferredIssue,
+    DeferredScopePreview,
+)
 from impodo.domain.preflight.reports import (
     ReviewWorkbookActionPriority,
     ReviewWorkbookCellEffect,
@@ -40,10 +44,6 @@ from impodo.domain.preflight.reports import (
     plain_readiness_guidance,
     review_workbook_action_priority,
     review_workbook_cell_feedback,
-)
-from impodo.domain.preflight.deferred_scope import (
-    DeferredIssue,
-    DeferredScopePreview,
 )
 from impodo.domain.shared.models import (
     BusinessReference,

@@ -9,20 +9,20 @@ and publishes the candidate returned by the adapter.
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Mapping, Protocol
+from typing import Any, Protocol
 
 from impodo.domain.compiler.columnar_transformation import ColumnarTransformationProgram
 from impodo.domain.prepared_snapshot import PreparedSnapshot
+from impodo.domain.shared.models import Issue, PreparedRecord
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.transformation_impact import (
     TransformationImpactCounts,
     TransformationImpactRow,
     TransformationRuleImpact,
 )
-from impodo.domain.shared.models import Issue, PreparedRecord
-
 
 DEFAULT_COLUMNAR_TRANSFORMATION_BATCH_ROWS = 1_000
 

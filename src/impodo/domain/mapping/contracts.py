@@ -13,11 +13,13 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, fields as dataclass_fields, replace
+import json
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, field, replace
+from dataclasses import fields as dataclass_fields
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
-import json
-from typing import Any, Mapping
+from typing import Any
 from uuid import UUID
 
 from impodo.domain.recipe.value_rules import (
@@ -25,10 +27,10 @@ from impodo.domain.recipe.value_rules import (
     ScalarValidationPolicy,
     TextTransformStep,
 )
+
 from ..serialization import canonical_json as _canonical_json
 from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
-
 
 MAPPING_CONTRACT_VERSION = 17
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(

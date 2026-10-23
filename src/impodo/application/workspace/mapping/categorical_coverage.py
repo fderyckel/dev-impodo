@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Mapping, Protocol, Sequence
+from typing import Protocol
 
 from impodo.application.data_version.source_snapshots import (
     validate_snapshot_for_dataset,
@@ -41,8 +42,8 @@ from impodo.domain.mapping.validation.evidence import (
     CategoricalValueCount,
     MappingValidationIssue,
 )
-from impodo.domain.serialization import content_hash
 from impodo.domain.preparation.source import SourceLoadError
+from impodo.domain.serialization import content_hash
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
@@ -51,11 +52,9 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 
-
 configure_columnar_runtime()
 
 import polars as pl  # noqa: E402
-
 
 CATEGORICAL_SCAN_CONTRACT_HASH = content_hash(
     {

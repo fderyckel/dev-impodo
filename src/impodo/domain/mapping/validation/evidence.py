@@ -8,21 +8,22 @@ transient display position.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-import json
-from typing import Any, Mapping
+from typing import Any
 
-from ..contracts import (
-    CategoricalCoveragePolicy,
-    MAX_CATEGORICAL_EVIDENCE_VALUES,
-    MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES,
-)
+from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
+
 from ...serialization import canonical_json as _canonical_json
 from ...serialization import content_hash as _content_hash
 from ...serialization import portable as _portable
-from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
-
+from ..contracts import (
+    MAX_CATEGORICAL_EVIDENCE_VALUES,
+    MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES,
+    CategoricalCoveragePolicy,
+)
 
 MAPPING_VALIDATOR_VERSION = "10.0.0"
 MAPPING_VALIDATION_CONTRACT_VERSION = 3

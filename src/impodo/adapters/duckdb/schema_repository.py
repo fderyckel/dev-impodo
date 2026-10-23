@@ -15,19 +15,15 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from impodo.domain.shared.access import Actor
-from ...domain.schema.governance import SchemaGovernance
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
     OdooSchemaCatalog,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
+from ...domain.schema.governance import SchemaGovernance
 from .repository import DuckDbRepository
-
-
-
-
-
 
 
 class SchemaRepository(DuckDbRepository):

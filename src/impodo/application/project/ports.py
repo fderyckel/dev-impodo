@@ -6,6 +6,10 @@ from typing import Protocol
 
 from impodo.domain.project.foundation import FaultInjector
 from impodo.domain.shared.access import Actor
+from impodo.domain.shared.tenancy import (
+    AuthorizationReceipt,
+    RequestOrganizationScope,
+)
 
 from ...domain.project.models import MigrationProject, MigrationProjectSummary
 
@@ -42,3 +46,26 @@ class MigrationProjectRepository(Protocol):
         *,
         expected_revision: int,
     ) -> MigrationProject: ...
+
+
+class ScopedMigrationProjectQuery(Protocol):
+    """Return only Projects visible in one fixed Organization request scope."""
+
+    def list_visible_project_summaries(
+        self,
+        *,
+        scope: RequestOrganizationScope,
+        authorization: AuthorizationReceipt,
+    ) -> tuple[MigrationProjectSummary, ...]:
+        """Filter in the control store before opening customer data stores."""
+        ...
+
+    def get_visible_project(
+        self,
+        project_id: str,
+        *,
+        scope: RequestOrganizationScope,
+        authorization: AuthorizationReceipt,
+    ) -> MigrationProject:
+        """Return a visible Project or one non-disclosing not-found result."""
+        ...

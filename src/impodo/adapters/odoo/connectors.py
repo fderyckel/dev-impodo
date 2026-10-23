@@ -18,21 +18,21 @@ added to ``OdooReadConnector``. Post-write checks use the separate closed
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import socket
+import time
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from io import StringIO
-import json
-import os
 from pathlib import Path
-import re
-import socket
-import time
-from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from impodo.domain.mapping.create_field_policy import supports_create_default_capture
@@ -41,8 +41,8 @@ from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
     OdooReadIdentity,
-    ProtectedOdooReadContext,
     OdooWriteIdentity,
+    ProtectedOdooReadContext,
     TargetFingerprint,
     TargetRecord,
     UniqueConstraintMetadata,
@@ -51,7 +51,6 @@ from impodo.domain.shared.models import (
     portable_value,
     target_identity_hash,
 )
-
 
 _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 _MAX_IDENTITY_MODELS = 100

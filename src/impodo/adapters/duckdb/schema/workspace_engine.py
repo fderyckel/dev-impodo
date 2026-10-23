@@ -7,12 +7,13 @@ from time import perf_counter
 import duckdb
 
 from impodo.domain.workspace.workbench import WorkspaceStateCompatibilityError
-from ..request_timing import record_duckdb_schema_timing
+
 from ..constants import (
     SCHEMA_BASELINE_VERSION,
     SCHEMA_GENERATION,
     SCHEMA_VERSION,
 )
+from ..request_timing import record_duckdb_schema_timing
 from .advanced_coverage import create_advanced_coverage_schema
 from .derived_value_artifact import create_derived_value_artifact_schema
 from .execution import create_execution_schema
@@ -25,14 +26,13 @@ from .forward_upgrades import (
 from .preflight import create_preflight_schema
 from .preparation_session import create_preparation_session_schema
 from .prepared_snapshot import create_prepared_snapshot_schema
-from .reconciliation import create_reconciliation_schema
 from .recipe_compilation import (
     create_recipe_compilation_schema,
 )
-from .supporting_lookup import create_supporting_lookup_schema
+from .reconciliation import create_reconciliation_schema
 from .source_snapshot import create_source_snapshot_schema
 from .structure import read_table_columns
-
+from .supporting_lookup import create_supporting_lookup_schema
 
 _WORKSPACE_PROJECTION_COLUMNS = (
     "singleton_id",

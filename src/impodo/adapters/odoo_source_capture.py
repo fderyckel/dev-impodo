@@ -2,31 +2,41 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
-from datetime import date, datetime, timezone
 import json
 import math
 import socket
 import time
-from typing import Any, Callable, Protocol
+from collections.abc import Callable, Iterator, Mapping
+from datetime import date, datetime, timezone
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from impodo.domain.odoo.contracts import ConnectorError, MetadataRequest, MetadataSnapshot
 from impodo.adapters.odoo.connectors import (
+    STABLE_ODOO_LANGUAGE,
+    STABLE_ODOO_TIMEZONE,
     Json2CaptureIdentityProbe,
     Json2Config,
     Json2ReadConnector,
-    STABLE_ODOO_LANGUAGE,
-    STABLE_ODOO_TIMEZONE,
     Transport,
 )
+from impodo.domain.odoo.contracts import (
+    ConnectorError,
+    MetadataRequest,
+    MetadataSnapshot,
+)
+from impodo.domain.odoo_source_policy import (
+    odoo_source_policy_from_hash,
+)
+from impodo.domain.shared.models import OdooReadIdentity, ProtectedOdooReadContext
+
 from ..domain.odoo_capture import (
     OdooCaptureFilterOperator,
     OdooCaptureFilterPolicy,
     OdooCaptureRole,
 )
+from ..domain.odoo_provenance import OdooOriginBatch, OdooRelationshipOriginColumn
 from ..domain.odoo_source_capture import (
     CancellationProbe,
     CaptureScalar,
@@ -38,18 +48,12 @@ from ..domain.odoo_source_capture import (
     OdooSourceCaptureConfigurationError,
     OdooSourceCaptureConsistencyError,
     OdooSourceCaptureLimitError,
-    OdooSourceCaptureRowLimitExceeded,
     OdooSourceCaptureRequest,
+    OdooSourceCaptureRowLimitExceeded,
     normalize_odoo_datetime,
     require_not_cancelled,
 )
-from impodo.domain.shared.models import OdooReadIdentity, ProtectedOdooReadContext
-from impodo.domain.odoo_source_policy import (
-    odoo_source_policy_from_hash,
-)
 from ..domain.serialization import canonical_json
-from ..domain.odoo_provenance import OdooOriginBatch, OdooRelationshipOriginColumn
-
 
 RawCaptureTransport = Callable[
     [str, Mapping[str, str], bytes | None, float, str, int],

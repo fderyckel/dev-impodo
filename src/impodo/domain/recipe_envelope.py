@@ -6,9 +6,9 @@ import json
 import re
 
 from impodo.domain.shared.models import assert_no_numeric_odoo_ids
+
 from .recipe.models import RecipeIntegrityError
 from .serialization import content_hash
-
 
 SEMANTIC_FORBIDDEN_KEYS = frozenset(
     {

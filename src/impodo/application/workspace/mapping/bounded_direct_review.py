@@ -10,7 +10,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator
 
 from impodo.application.data_version.inspection import SourceFileCatalog
-from impodo.application.shared.artifacts import ArtifactStoreError, GovernedArtifactStores
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    GovernedArtifactStores,
+)
 from impodo.application.workspace.preparation.bounded_preparation import (
     open_bounded_source,
     supports_bounded_direct_preparation,

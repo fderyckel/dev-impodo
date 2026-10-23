@@ -9,12 +9,13 @@ artifact.
 
 from __future__ import annotations
 
-from collections import defaultdict
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import re
-from typing import Any, Iterable
+from collections import defaultdict
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.comments import Comment
@@ -54,7 +55,6 @@ from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceSelection,
 )
-
 
 MAPPING_REVIEW_WORKBOOK_PREFIX = "impodo_mapping_review"
 

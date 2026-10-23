@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
 import re
+from datetime import datetime, timezone
+
+from impodo.domain.preparation.staging import StagingRunStatus
+from impodo.domain.workspace.errors import WorkspaceError
 
 from ...domain.staging.preparation_session import (
     PreparationSessionBindings,
     PreparationSessionStatus,
     PreparationSessionSummary,
 )
-from impodo.domain.preparation.staging import StagingRunStatus
-from impodo.domain.workspace.errors import WorkspaceError
-
 
 _FAILURE_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 

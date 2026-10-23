@@ -16,10 +16,10 @@ See ``docs/architecture/python-code-map.md`` and
 from __future__ import annotations
 
 import asyncio
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-import secrets
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -28,11 +28,143 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import ClientDisconnect
 
+from impodo.adapters.duckdb.scoped_project_query import (
+    LocalScopedMigrationProjectQuery,
+)
+from impodo.adapters.jobs.inline import InlineJobDispatcher
+from impodo.adapters.odoo.connectors import Json2Config
+from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
+from impodo.adapters.odoo.local_stack import LocalStackService
+from impodo.application.data_version.inspection import SourceInspectionService
+from impodo.application.data_version.intake import SourceIntakeService
+from impodo.application.data_version.source_packages import (
+    DataVersionSourcePackageService,
+    WorkspaceSourceProjectionService,
+)
+from impodo.application.shared.artifacts import GovernedArtifactStores
+from impodo.application.shared.build_contract import (
+    PROCESS_BUILD_CONTRACT,
+    ApplicationBuildContract,
+)
+from impodo.application.shared.jobs import JobDispatcher
+from impodo.application.shared.secrets import SecretStore, SecretStoreError
+from impodo.application.workspace.access import (
+    WorkspaceAccessContext,
+    WorkspaceAccessService,
+)
+from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
+from impodo.application.workspace.navigation import WorkspaceNavigationQueryService
+from impodo.application.workspace.views import WorkspaceOwnerViewService
+from impodo.domain.correction_origin import CorrectionOriginError
+from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
+from impodo.domain.project.foundation import (
+    MigrationIdentifierConfusionError,
+    MigrationNotFoundError,
+)
+from impodo.domain.run.setup import MigrationRunTargetSetupService
+from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import (
+    LOCAL_ACTOR,
     Actor,
     AuthorizationError,
     AuthorizationPolicy,
-    LOCAL_ACTOR,
+)
+from impodo.domain.workspace.errors import WorkspaceDatabaseBusyError
+from impodo.domain.workspace.models import MigrationWorkspaceState
+from impodo.domain.workspace.workbench import (
+    OdooConnectionMode,
+    WorkspaceState,
+    WorkspaceStateCompatibilityError,
+    WorkspaceStateError,
+    WorkspaceStateNotFoundError,
+    WorkspaceStateService,
+)
+from impodo.web.composition.incompatible_project_storage import (
+    prepare_incompatible_project_storage,
+)
+from impodo.web.composition.preparation_job_manager import (
+    PreparationJobManager,
+)
+from impodo.web.composition.target_readers import (
+    _open_schema_read_session,
+    _probe_read_identity,
+    _read_destination_match,
+    _read_model_catalog,
+    _read_schema,
+    _test_connection,
+)
+from impodo.web.composition.target_writers import (
+    _probe_write_identity,
+    _readback_reader,
+    _write_executor,
+)
+
+from ..adapters.artifacts.fallout_workbook import build_fallout_workbook
+from ..adapters.correction_review_pipeline import NativeCorrectionReviewPipeline
+from ..adapters.duckdb.advanced_coverage_repository import AdvancedCoverageRepository
+from ..adapters.duckdb.correction_repository import CorrectionRepository
+from ..adapters.duckdb.data_version_source_repository import (
+    DataVersionOwnedSourceRepository,
+)
+from ..adapters.duckdb.derived_entity_repository import DerivedEntityRepository
+from ..adapters.duckdb.execution_repository import ExecutionRepository
+from ..adapters.duckdb.mapping_field_catalog_repository import (
+    MappingFieldCatalogRepository,
+)
+from ..adapters.duckdb.mapping_repository import MappingRepository
+from ..adapters.duckdb.matching_order_repository import MatchingOrderRepository
+from ..adapters.duckdb.migration_run_planning_repository import (
+    MigrationRunPlanningRepository,
+)
+from ..adapters.duckdb.migration_workspace_state_repository import (
+    MigrationWorkspaceStateRepository,
+)
+from ..adapters.duckdb.navigation_repository import WorkspaceNavigationRepository
+from ..adapters.duckdb.normalization_repository import NormalizationRepository
+from ..adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
+from ..adapters.duckdb.preflight_repository import PreflightRepository
+from ..adapters.duckdb.preparation_recovery_repository import (
+    PreparationRecoveryRepository,
+)
+from ..adapters.duckdb.preparation_session_repository import (
+    PreparationSessionRepository,
+)
+from ..adapters.duckdb.quality_repository import QualityRepository
+from ..adapters.duckdb.recipe_compilation_repository import (
+    RecipeCompilationRepository,
+)
+from ..adapters.duckdb.recipe_quality_seed_repository import (
+    RecipeQualitySeedRepository,
+)
+from ..adapters.duckdb.reconciliation_repository import ReconciliationRepository
+from ..adapters.duckdb.row_inclusion_review_repository import (
+    RowInclusionReviewRepository,
+)
+from ..adapters.duckdb.run_aware_advanced_coverage_repository import (
+    RunAwareAdvancedCoverageRepository,
+)
+from ..adapters.duckdb.run_aware_schema_repository import (
+    RunAwareSchemaRepository,
+)
+from ..adapters.duckdb.schema_repository import SchemaRepository
+from ..adapters.duckdb.staging_repository import StagingRepository
+from ..adapters.duckdb.supporting_lookup_repository import (
+    SupportingLookupRepository,
+)
+from ..adapters.duckdb.transformation_impact_repository import (
+    TransformationImpactRepository,
+)
+from ..adapters.odoo_source_capture import Json2OdooSourceCapture
+from ..adapters.polars_transformation import PolarsTransformationAdapter
+from ..adapters.protected_correction_store import ProtectedCorrectionStore
+from ..adapters.protected_destination_create_fields import (
+    ProtectedDestinationCreateFieldStore,
+)
+from ..adapters.protected_odoo_capture_filters import ProtectedOdooCaptureFilterStore
+from ..adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
+from ..adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
+from ..adapters.protected_project_evidence_store import (
+    ProtectedProjectEvidenceStore,
 )
 from ..application.browser_queries import BrowserQueryService
 from ..application.correction_execution import CorrectionExecutionService
@@ -52,247 +184,98 @@ from ..application.correction_stages import (
     CurrentCorrectionQualityReviewStage,
 )
 from ..application.correction_workflow import CorrectionWorkflowService
+from ..application.cutover_plan_service import (
+    CutoverPlanService,
+    WorkspaceIntegratedQualificationEvidenceReader,
+)
+from ..application.data_version.service import DataVersionService
+from ..application.fallout_workbook_service import FalloutWorkbookService
+from ..application.migration_project_authoring_service import (
+    MigrationProjectAuthoringService,
+)
+from ..application.odoo_capture_job_service import OdooCaptureJobManager
+from ..application.odoo_capture_publication_service import OdooCapturePublicationService
+from ..application.odoo_connection_service import OdooConnectionTestService
+from ..application.odoo_provenance_service import OdooProvenanceService
+from ..application.odoo_source_capture_service import OdooSourceCaptureService
+from ..application.odoo_source_restart_service import OdooSourceRestartService
+from ..application.preflight_jobs import PreflightJobManager
+from ..application.preflight_service import PreflightService
+from ..application.production_cutover_service import ProductionCutoverService
+from ..application.project.service import MigrationProjectService
+from ..application.recipe.service import RecipeService
+from ..application.recipe_application_service import RecipeApplicationService
+from ..application.recipe_compilation_service import RecipeCompiler
+from ..application.recipe_publication_service import RecipePublicationService
+from ..application.reconciliation_evidence_service import (
+    ReconciliationEvidenceService,
+)
+from ..application.run.planning_service import (
+    MigrationRunPlanningService,
+)
+from ..application.run.recipe_run_jobs import RecipeRunJobManager
+from ..application.run.service import MigrationRunService
+from ..application.run.setup_service import RunSetupService
+from ..application.run.target_matches import RecipeTargetMatchService
+from ..application.run.test_setup_service import TestRunSetupService
+from ..application.schema_workspace_service import SchemaWorkspaceService
+from ..application.source_workspace_service import SourceWorkspaceService
+from ..application.supporting_lookup_service import SupportingLookupService
+from ..application.transfer_execution_service import TransferExecutionService
+from ..application.workspace.execution.load_jobs import LoadJobManager
+from ..application.workspace.execution.reconciliation import ReconciliationService
+from ..application.workspace.execution.service import ExecutionService
 from ..application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
 )
 from ..application.workspace.mapping.numeric_precision_coverage import (
     NumericPrecisionCoverageService,
 )
-from ..application.workspace.mapping.service import MappingWorkspaceService
-from ..application.workspace.preparation.normalization_service import NormalizationService
-from ..application.odoo_capture_publication_service import OdooCapturePublicationService
-from ..application.odoo_capture_job_service import OdooCaptureJobManager
-from ..application.odoo_provenance_service import OdooProvenanceService
-from ..application.odoo_source_capture_service import OdooSourceCaptureService
-from ..application.odoo_source_restart_service import OdooSourceRestartService
-from ..application.preflight_service import PreflightService
-from ..application.preflight_jobs import PreflightJobManager
-from ..application.transfer_execution_service import TransferExecutionService
-from ..application.workspace.execution.service import ExecutionService
-from ..application.workspace.execution.load_jobs import LoadJobManager
-from ..application.workspace.execution.reconciliation import ReconciliationService
-from ..application.reconciliation_evidence_service import (
-    ReconciliationEvidenceService,
-)
-from ..application.fallout_workbook_service import FalloutWorkbookService
-from ..adapters.artifacts.fallout_workbook import build_fallout_workbook
-from ..application.recipe_compilation_service import RecipeCompiler
-from ..application.migration_project_authoring_service import (
-    MigrationProjectAuthoringService,
-)
-from impodo.application.shared.build_contract import ApplicationBuildContract, PROCESS_BUILD_CONTRACT
-from ..application.run.planning_service import (
-    MigrationRunPlanningService,
-)
-from ..application.cutover_plan_service import (
-    CutoverPlanService,
-    WorkspaceIntegratedQualificationEvidenceReader,
-)
-from ..application.production_cutover_service import ProductionCutoverService
-from ..application.run.test_setup_service import TestRunSetupService
-from ..application.run.setup_service import RunSetupService
-from ..application.recipe_application_service import RecipeApplicationService
-from ..application.recipe_publication_service import RecipePublicationService
-from ..application.workspace_source_projection import (
-    WorkspaceMappingSourceProjection,
-)
-from ..application.workspace_data_version_source_service import (
-    WorkspaceDataVersionSourceService,
-)
-from ..application.workspace.preparation.preparation_service import PreparationService
-from impodo.web.composition.preparation_job_manager import (
-    PreparationJobManager,
-)
-from ..application.workspace.preparation.quality_service import QualityService
-from ..application.workspace.preparation.resolution_service import ResolutionService
-from ..application.schema_workspace_service import SchemaWorkspaceService
-from ..application.source_workspace_service import SourceWorkspaceService
-from ..application.supporting_lookup_service import SupportingLookupService
-from ..application.run.target_matches import RecipeTargetMatchService
-from ..application.run.recipe_run_jobs import RecipeRunJobManager
-from ..application.workspace.preparation.recovery import PreparationRecoveryService
-from ..adapters.duckdb.preparation_recovery_repository import PreparationRecoveryRepository
-from ..application.workspace.mapping.transformation_impact import (
-    TransformationImpactService,
-)
+from ..application.workspace.mapping.order_service import MatchingOrderService
 from ..application.workspace.mapping.row_inclusion_review import (
     RowInclusionReviewService,
 )
-from ..application.workspace.mapping.order_service import MatchingOrderService
-from impodo.application.shared.artifacts import GovernedArtifactStores
-from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
-from impodo.application.data_version.intake import SourceIntakeService
-from impodo.application.data_version.inspection import SourceInspectionService
-from impodo.web.composition.incompatible_project_storage import prepare_incompatible_project_storage
-from impodo.adapters.jobs.inline import InlineJobDispatcher
-from impodo.application.shared.jobs import JobDispatcher
-from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
-from impodo.adapters.odoo.local_stack import LocalStackService
-from ..adapters.duckdb.migration_workspace_state_repository import (
-    MigrationWorkspaceStateRepository,
+from ..application.workspace.mapping.service import MappingWorkspaceService
+from ..application.workspace.mapping.transformation_impact import (
+    TransformationImpactService,
 )
-from ..adapters.duckdb.migration_run_planning_repository import (
-    MigrationRunPlanningRepository,
+from ..application.workspace.preparation.normalization_service import (
+    NormalizationService,
 )
-from ..adapters.duckdb.run_aware_schema_repository import (
-    RunAwareSchemaRepository,
-)
-from ..adapters.duckdb.run_aware_advanced_coverage_repository import (
-    RunAwareAdvancedCoverageRepository,
-)
-from ..adapters.duckdb.derived_entity_repository import DerivedEntityRepository
-from ..adapters.duckdb.mapping_repository import MappingRepository
-from ..adapters.duckdb.matching_order_repository import MatchingOrderRepository
-from ..adapters.duckdb.correction_repository import CorrectionRepository
-from ..adapters.duckdb.mapping_field_catalog_repository import (
-    MappingFieldCatalogRepository,
-)
-from ..adapters.duckdb.normalization_repository import NormalizationRepository
-from ..adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
-from ..adapters.duckdb.preflight_repository import PreflightRepository
-from ..adapters.duckdb.execution_repository import ExecutionRepository
-from ..adapters.duckdb.navigation_repository import WorkspaceNavigationRepository
-from ..adapters.duckdb.reconciliation_repository import ReconciliationRepository
-from ..adapters.duckdb.recipe_compilation_repository import (
-    RecipeCompilationRepository,
-)
-from ..adapters.duckdb.recipe_quality_seed_repository import (
-    RecipeQualitySeedRepository,
-)
-from ..adapters.duckdb.quality_repository import QualityRepository
-from ..adapters.duckdb.schema_repository import SchemaRepository
-from ..adapters.duckdb.data_version_source_repository import (
-    DataVersionOwnedSourceRepository,
-)
-from ..adapters.duckdb.supporting_lookup_repository import (
-    SupportingLookupRepository,
-)
-from ..adapters.duckdb.staging_repository import StagingRepository
-from ..adapters.duckdb.preparation_session_repository import (
-    PreparationSessionRepository,
-)
-from ..adapters.duckdb.advanced_coverage_repository import AdvancedCoverageRepository
-from ..adapters.duckdb.transformation_impact_repository import (
-    TransformationImpactRepository,
-)
-from ..adapters.duckdb.row_inclusion_review_repository import (
-    RowInclusionReviewRepository,
-)
-from ..adapters.polars_transformation import PolarsTransformationAdapter
-from ..adapters.correction_review_pipeline import NativeCorrectionReviewPipeline
-from ..adapters.odoo_source_capture import Json2OdooSourceCapture
-from ..adapters.protected_odoo_capture_filters import ProtectedOdooCaptureFilterStore
-from ..adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
-from ..adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
-from ..adapters.protected_correction_store import ProtectedCorrectionStore
-from ..adapters.protected_destination_create_fields import (
-    ProtectedDestinationCreateFieldStore,
-)
-from ..adapters.protected_project_evidence_store import (
-    ProtectedProjectEvidenceStore,
-)
-from impodo.domain.workspace.workbench import (
-    WorkspaceState,
-    OdooConnectionMode,
-    WorkspaceStateCompatibilityError,
-    WorkspaceStateError,
-    WorkspaceStateNotFoundError,
-    WorkspaceStateService,
-)
-from impodo.domain.workspace.errors import WorkspaceDatabaseBusyError
-from impodo.domain.workspace.models import MigrationWorkspaceState
-from impodo.adapters.odoo.connectors import Json2Config
-from impodo.application.data_version.source_packages import (
-    DataVersionSourcePackageService,
-    WorkspaceSourceProjectionService,
-)
-from ..application.data_version.service import DataVersionService
-from ..application.project.service import MigrationProjectService
-from ..application.run.service import MigrationRunService
-from impodo.domain.run.setup import MigrationRunTargetSetupService
+from ..application.workspace.preparation.preparation_service import PreparationService
+from ..application.workspace.preparation.quality_service import QualityService
+from ..application.workspace.preparation.recovery import PreparationRecoveryService
+from ..application.workspace.preparation.resolution_service import ResolutionService
 from ..application.workspace.service import MigrationWorkspaceService
+from ..application.workspace_data_version_source_service import (
+    WorkspaceDataVersionSourceService,
+)
+from ..application.workspace_source_projection import (
+    WorkspaceMappingSourceProjection,
+)
 from ..domain.recipe.models import RecipeError
-from ..application.recipe.service import RecipeService
-from ..application.odoo_connection_service import OdooConnectionTestService
-from impodo.domain.project.foundation import (
-    MigrationIdentifierConfusionError,
-    MigrationNotFoundError,
+from .capability_builders import (
+    build_foundation_capability,
+    build_protected_run_capability,
 )
-from impodo.domain.correction_origin import CorrectionOriginError
-from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
-from impodo.domain.serialization import content_hash
-from impodo.application.workspace.access import (
-    WorkspaceAccessContext,
-    WorkspaceAccessService,
+from .composition.local_identity import (
+    LOCAL_ORGANIZATION_ID,
+    LocalRequestIdentityResolver,
 )
-from impodo.application.workspace.views import WorkspaceOwnerViewService
-from impodo.application.workspace.navigation import WorkspaceNavigationQueryService
-from impodo.application.shared.secrets import SecretStore, SecretStoreError
+from .composition.page_reads import run_page_read
 from .context import (
     BrowserReadinessReader,
     ConnectionTester,
     DestinationMatchingReader,
     ModelCatalogReader,
-    OdooWriteExecutorFactory,
     OdooReadbackReaderFactory,
     OdooSourceCaptureFactory,
+    OdooWriteExecutorFactory,
     ReadIdentityProbe,
     SchemaReader,
     SchemaReadSessionFactory,
-    WriteIdentityProbe,
     WebContext,
-)
-from .capability_builders import (
-    build_foundation_capability,
-    build_protected_run_capability,
-)
-from .presenters.common import _render
-from impodo.web.composition.target_readers import (
-    _read_destination_match,
-    _read_model_catalog,
-    _read_schema,
-    _open_schema_read_session,
-    _probe_read_identity,
-    _test_connection,
-)
-from .target_credentials import (
-    TargetCredentialRole,
-    get_target_credential,
-    local_read_credential_binding_hash,
-)
-from impodo.web.composition.target_writers import _probe_write_identity, _readback_reader, _write_executor
-from .routers.derived_entities import build_derived_entities_router
-from .routers.destination_matching import build_destination_matching_router
-from .routers.concepts import build_concepts_router
-from .routers.lifecycle import build_lifecycle_router
-from .routers.mapping import build_mapping_router
-from .routers.normalization import build_normalization_router
-from .routers.preflight import build_preflight_router
-from .routers.execution import build_execution_router
-from .routers.corrections import build_corrections_router
-from .routers.preparation import build_preparation_router
-from .routers.integrated_runs import build_integrated_runs_router
-from .routers.run_fresh_data import build_run_fresh_data_router
-from .routers.cutover_plans import build_cutover_plans_router
-from .routers.production_runs import build_production_runs_router
-from .routers.migration_projects import build_migration_projects_router
-from .routers.workspace_setup import build_workspace_setup_router
-from .routers.quality import build_quality_router
-from .routers.resolution import build_resolution_router
-from .routers.schema import build_schema_router
-from .routers.sources import build_sources_router
-from .routers.summary import build_summary_router
-from .routers.target import build_target_router
-from .routers.transfer_destination import build_transfer_destination_router
-from .routers.transfer_order import build_transfer_order_router
-from .routers.transfer_review import build_transfer_review_router
-from .routers.transfer_preflight import build_transfer_preflight_router
-from .routers.transfer_load import build_transfer_load_router
-from .remote_connection import RemoteConnectionStatusService
-from .run_commands import publish_load_progress, publish_preparation_progress
-from .security import (
-    LoopbackSecurityMiddleware,
-    WorkspaceAccessMiddleware,
+    WriteIdentityProbe,
 )
 from .diagnostics import (
     LocalDiagnosticRecorder,
@@ -300,12 +283,51 @@ from .diagnostics import (
     install_asyncio_exception_diagnostics,
     monitor_event_loop,
 )
+from .presenters.common import _render
+from .remote_connection import RemoteConnectionStatusService
+from .request_identity import RequestIdentityResolver, request_identity
+from .routers.concepts import build_concepts_router
+from .routers.corrections import build_corrections_router
+from .routers.cutover_plans import build_cutover_plans_router
+from .routers.derived_entities import build_derived_entities_router
+from .routers.destination_matching import build_destination_matching_router
+from .routers.execution import build_execution_router
+from .routers.integrated_runs import build_integrated_runs_router
+from .routers.lifecycle import build_lifecycle_router
+from .routers.mapping import build_mapping_router
+from .routers.migration_projects import build_migration_projects_router
+from .routers.normalization import build_normalization_router
+from .routers.preflight import build_preflight_router
+from .routers.preparation import build_preparation_router
+from .routers.production_runs import build_production_runs_router
+from .routers.quality import build_quality_router
+from .routers.resolution import build_resolution_router
+from .routers.run_fresh_data import build_run_fresh_data_router
+from .routers.schema import build_schema_router
+from .routers.sources import build_sources_router
+from .routers.summary import build_summary_router
+from .routers.target import build_target_router
+from .routers.transfer_destination import build_transfer_destination_router
+from .routers.transfer_load import build_transfer_load_router
+from .routers.transfer_order import build_transfer_order_router
+from .routers.transfer_preflight import build_transfer_preflight_router
+from .routers.transfer_review import build_transfer_review_router
+from .routers.workspace_setup import build_workspace_setup_router
+from .run_commands import publish_load_progress, publish_preparation_progress
+from .security import (
+    LoopbackSecurityMiddleware,
+    WorkspaceAccessMiddleware,
+)
+from .target_credentials import (
+    TargetCredentialRole,
+    get_target_credential,
+    local_read_credential_binding_hash,
+)
 from .workspace_journeys import (
     WorkspaceJourney,
     enforce_workspace_journey,
     workspace_route_is_allowed,
 )
-
 
 DEFAULT_BROWSER_DATABASE_LOCK_WAIT_SECONDS = 2.0
 CLIENT_CLOSED_REQUEST_STATUS_CODE = 499
@@ -331,6 +353,7 @@ def create_local_app(
     readback_reader_factory: OdooReadbackReaderFactory | None = None,
     actor: Actor = LOCAL_ACTOR,
     authorization: AuthorizationPolicy | None = None,
+    request_identity_resolver: RequestIdentityResolver | None = None,
     artifact_store: GovernedArtifactStores | None = None,
     job_dispatcher: JobDispatcher | None = None,
     local_stack_service: LocalStackService | None = None,
@@ -1042,6 +1065,9 @@ def create_local_app(
         resolved_destination_match_reader = injected_destination_match_reader
 
     supporting_lookups = SupportingLookupService(supporting_lookup_repository, workspace_access)
+    resolved_identity_resolver = (
+        request_identity_resolver or LocalRequestIdentityResolver(actor)
+    )
     context = WebContext(
         queries=BrowserQueryService(
             workspace_state_repository,
@@ -1054,6 +1080,11 @@ def create_local_app(
             transformation_impact_repository,
             workspace_mapping_sources,
         ),
+        project_queries=LocalScopedMigrationProjectQuery(
+            foundation_repository,
+            organization_id=LOCAL_ORGANIZATION_ID,
+        ),
+        identity_resolver=resolved_identity_resolver,
         unavailable_projects=unavailable_projects,
         workspace_access=workspace_access,
         workspace_views=WorkspaceOwnerViewService(
@@ -1445,10 +1476,16 @@ def create_local_app(
         request: Request,
         error: WorkspaceStateCompatibilityError,
     ):
+        identity = request_identity(request, context.identity_resolver)
+        projects = await run_page_read(
+            context.project_queries.list_visible_project_summaries,
+            scope=identity.organization_scope,
+            authorization=identity.authorization,
+        )
         return _render(
             request,
             "project_list.html",
-            projects=context.migration_projects.list(actor=context.actor),
+            projects=projects,
             unavailable_projects=context.unavailable_projects,
             error=str(error),
             status_code=409,

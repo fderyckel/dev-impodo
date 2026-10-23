@@ -8,9 +8,12 @@ from decimal import Decimal, InvalidOperation
 from typing import Protocol
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor
-from impodo.domain.errors import ReadinessError
 from impodo.domain.coverage import ReferenceBundle
+from impodo.domain.errors import ReadinessError
+from impodo.domain.preparation.staging_contracts import (
+    CanonicalRow,
+    CanonicalStagingRun,
+)
 from impodo.domain.resolution import (
     EffectiveDataset,
     ResolutionDecision,
@@ -22,8 +25,8 @@ from impodo.domain.resolution import (
     resolution_group_id,
 )
 from impodo.domain.serialization import content_hash
+from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import portable_value
-from impodo.domain.preparation.staging_contracts import CanonicalRow, CanonicalStagingRun
 
 
 class ResolutionRepository(Protocol):

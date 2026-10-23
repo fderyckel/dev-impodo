@@ -7,25 +7,26 @@ not accept SQL or code and never contact Odoo.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, replace
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import PurePosixPath
-from typing import Any, Iterable, Mapping
+from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from impodo.domain.preparation.canonical import ValueParseError, parse_value
-from ..domain.serialization import content_hash
-from ..domain.source_binding import DerivedSourceBinding
-from impodo.domain.shared.models import portable_value
-from impodo.domain.recipe.profile import NormalizationSpec
 from impodo.domain.preparation.source import SourceRow, SourceTable
+from impodo.domain.recipe.profile import NormalizationSpec
+from impodo.domain.shared.models import portable_value
 from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
 )
 
+from ..domain.serialization import content_hash
+from ..domain.source_binding import DerivedSourceBinding
 
 STRUCTURAL_CONTRACT_VERSION = 1
 MAX_STRUCTURAL_COLUMNS = 200

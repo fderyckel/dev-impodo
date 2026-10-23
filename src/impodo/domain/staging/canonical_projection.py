@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from hashlib import sha256
-from typing import Any, Mapping
+from typing import Any
 
+from impodo.domain.preparation.staging_contracts import (
+    CanonicalIssue,
+    StagingDisposition,
+)
 from impodo.domain.shared.models import (
     BusinessReference,
     Issue,
@@ -13,7 +18,7 @@ from impodo.domain.shared.models import (
     portable_issue,
     portable_value,
 )
-from impodo.domain.preparation.staging_contracts import CanonicalIssue, StagingDisposition
+
 from .preparation_session import CanonicalPreparedSessionRow
 
 

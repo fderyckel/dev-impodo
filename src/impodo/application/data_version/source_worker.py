@@ -3,24 +3,24 @@
 from __future__ import annotations
 
 import ctypes
-from ctypes import wintypes
 import multiprocessing
 import os
-from pathlib import Path
 import sys
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from ctypes import wintypes
+from pathlib import Path
+from typing import Any
 
 import psutil
 
+from impodo.application.data_version.source_files import validate_source_file
 from impodo.application.shared.build_contract import (
-    ApplicationBuildContract,
     PROCESS_BUILD_CONTRACT,
+    ApplicationBuildContract,
     require_same_application_build,
 )
 from impodo.domain.preparation.source import SourceLoadError
-from impodo.application.data_version.source_files import validate_source_file
-
 
 VALIDATION_TIMEOUT_SECONDS = 30
 INSPECTION_TIMEOUT_SECONDS = 60

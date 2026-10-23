@@ -8,17 +8,25 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
+from impodo.application.workspace.preparation.job_models import (
+    PreparationJob,
+    PreparationJobStatus,
+)
+from impodo.domain.workspace.errors import WorkspaceError
+
 from ...application.workspace.preparation.preparation_job_registry import (
     PreparationJobNotFoundError,
     PreparationJobStateError,
 )
-from impodo.application.workspace.preparation.job_models import PreparationJob, PreparationJobStatus
-from impodo.domain.workspace.errors import WorkspaceError
 from ..context import WebContext
-from ..run_commands import enqueue_preparation, _preparation_workspace, _assert_recipe_application_can_prepare
 from ..forms import _secure_form
 from ..presenters.common import _flash, _render
 from ..presenters.navigation import build_preparation_workspace_navigation
+from ..run_commands import (
+    _assert_recipe_application_can_prepare,
+    _preparation_workspace,
+    enqueue_preparation,
+)
 from ..security import require_session
 from ..source_stage_gate import source_stage_redirect
 

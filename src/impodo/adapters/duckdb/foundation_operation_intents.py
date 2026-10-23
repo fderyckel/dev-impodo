@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
 import duckdb
 
-from impodo.domain.shared.access import Actor
-from ...domain.serialization import canonical_json
 from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationNotFoundError,
@@ -20,6 +18,9 @@ from impodo.domain.project.foundation import (
     require_uuid,
     utc_now,
 )
+from impodo.domain.shared.access import Actor
+
+from ...domain.serialization import canonical_json
 
 
 class FoundationOperationIntents:

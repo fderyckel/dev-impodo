@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 import json
+from collections.abc import Mapping, Sequence
 
-from ...domain.staging.preparation_session import (
-    PreparationSessionStatus, PreparedCanonicalProjection,
-)
-from ...domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.workspace.errors import WorkspaceError
+
+from ...domain.prepared_snapshot import PreparedSnapshot
+from ...domain.staging.preparation_session import (
+    PreparationSessionStatus,
+    PreparedCanonicalProjection,
+)
 from .constants import (
     PREPARATION_SESSION_ROW_BATCH_SIZE,
 )

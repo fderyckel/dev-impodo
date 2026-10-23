@@ -9,16 +9,6 @@ from dataclasses import replace
 import duckdb
 
 from impodo.application.shared.artifacts import ArtifactStoreError
-from ...domain.derived_value_artifact import DerivedValueArtifact
-from ...domain.prepared_snapshot import PreparedSnapshot
-from ...domain.serialization import CanonicalJsonObjectHasher
-from ...domain.staging.canonical_projection import canonical_prepared_session_row
-from ...domain.staging.preparation_session import (
-    PreparationSessionBindings,
-    PreparationSessionStatus,
-    PreparedCanonicalProjection,
-    StoredCanonicalStagingRun,
-)
 from impodo.domain.preparation.staging_contracts import (
     CanonicalControlTotal,
     CanonicalIssue,
@@ -29,6 +19,17 @@ from impodo.domain.preparation.staging_contracts import (
     StagingReconciliation,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+
+from ...domain.derived_value_artifact import DerivedValueArtifact
+from ...domain.prepared_snapshot import PreparedSnapshot
+from ...domain.serialization import CanonicalJsonObjectHasher
+from ...domain.staging.canonical_projection import canonical_prepared_session_row
+from ...domain.staging.preparation_session import (
+    PreparationSessionBindings,
+    PreparationSessionStatus,
+    PreparedCanonicalProjection,
+    StoredCanonicalStagingRun,
+)
 from ..polars_transformation import iter_polars_prepared_batches
 from .constants import (
     PREPARATION_SESSION_ROW_BATCH_SIZE,

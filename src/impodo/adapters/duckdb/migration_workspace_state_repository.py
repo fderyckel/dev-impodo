@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-import shutil
 
-from impodo.domain.shared.access import Actor
 from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     SourcePackageFile,
@@ -16,10 +15,7 @@ from impodo.application.data_version.source_packages import (
 )
 from impodo.domain.project.foundation import MigrationConflictError, utc_now
 from impodo.domain.run.setup import MigrationRunTargetSetup
-from ...domain.workspace.models import (
-    MigrationWorkspaceSetupState,
-    MigrationWorkspaceState,
-)
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.workbench import (
     DataClassification,
     OdooConnectionMode,
@@ -30,10 +26,15 @@ from impodo.domain.workspace.workbench import (
     WorkspaceStateNotFoundError,
     WorkspaceStatus,
 )
+
+from ...domain.workspace.models import (
+    MigrationWorkspaceSetupState,
+    MigrationWorkspaceState,
+)
 from .migration_foundation_repository import MigrationFoundationRepository
 from .migration_workspace_engine_database import MigrationWorkspaceEngineDatabase
-from .workspace_state_repository import WorkspaceStateRepository
 from .repository import DuckDbRepository
+from .workspace_state_repository import WorkspaceStateRepository
 
 
 class MigrationWorkspaceStateRepository(WorkspaceStateRepository):

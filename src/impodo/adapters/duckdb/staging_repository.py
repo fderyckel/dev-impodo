@@ -7,25 +7,18 @@ and invalidates quality and every later artifact; identical content is reused.
 
 from __future__ import annotations
 
-from .constants import (
-    DUCKDB_JSON_BATCH_MAX_BYTES,
-    STAGING_ROW_BATCH_SIZE,
-)
-
+import json
+from collections.abc import Sequence
 from datetime import (
     datetime,
     timezone,
 )
-import json
-from typing import Sequence
 from uuid import UUID, uuid4
 
 import duckdb
 
-from impodo.domain.shared.access import Actor
-from impodo.application.shared.artifacts import WorkspaceArtifactStore
 from impodo.adapters.artifacts.local_store import LocalArtifactStore
-from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+from impodo.application.shared.artifacts import WorkspaceArtifactStore
 from impodo.domain.preparation.staging import (
     CanonicalStagingSourceReader,
     StagingRunStatus,
@@ -41,16 +34,20 @@ from impodo.domain.preparation.staging_contracts import (
     StagingDatasetReconciliation,
     StagingReconciliation,
 )
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import SourceSelection
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
 from ...domain.serialization import CanonicalJsonObjectHasher
 from ...domain.staging.preparation_session import StoredCanonicalStagingRun
+from .constants import (
+    DUCKDB_JSON_BATCH_MAX_BYTES,
+    STAGING_ROW_BATCH_SIZE,
+)
 from .preparation_session_repository import PreparationSessionRepository
 from .repository import DuckDbRepository
-
-
 from .serialization import _canonical_json, iter_encoded_json_batches
-
 
 _STAGING_ROW_JSON_STRUCTURE = """[{
     "ordinal":"BIGINT",

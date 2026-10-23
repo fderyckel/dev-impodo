@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
+import shutil
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-import shutil
-from typing import Iterator
 from uuid import UUID
 
 import duckdb
 
-from ...domain.data_version.models import DataVersion
 from impodo.domain.project.foundation import (
     MigrationFoundationError,
     MigrationNotFoundError,
     MigrationStorageCompatibilityError,
 )
+
+from ...domain.data_version.models import DataVersion
 from ...domain.workspace.models import MigrationWorkspace
 from .schema.data_version_store import (
     ensure_data_version_store,

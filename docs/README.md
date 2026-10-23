@@ -58,6 +58,9 @@ applies those rules when documentation is created or rewritten.
 - [Security and infrastructure](architecture/security-and-infrastructure.md) — factual
   overview of the local architecture, implemented controls, infrastructure
   requirements, data handling, verification evidence, and current limitations.
+- [Server fact ownership](architecture/server-fact-ownership.md) — proposed
+  PostgreSQL, DuckDB, artifact, local-only, and derived-projection authority
+  for the shared-server profile, including cross-store recovery rules.
 - [End-to-end migration product vision](product-vision.md) — complete product
   workflow, mapping architecture, staging, relation handling, executor
   boundary, edge cases, and roadmap.
@@ -90,9 +93,19 @@ records remain in Git history.
   records the staged work to capture related records, match them in a second
   same-major Odoo 19 or final Odoo 20 instance, and verify one approved load
   across supported models.
-- [VM deployment with DuckDB and managed workers](plans/vm-deployment-duckdb-worker-management.md)
-  proposes internal VM deployment, Entra sign-in, durable worker coordination,
-  resource controls, recovery, and pilot acceptance.
+- [Linux server deployment with PostgreSQL control and DuckDB workers](plans/vm-deployment-duckdb-worker-management.md)
+  defines the proposed local and shared-server profiles, Organization model,
+  PostgreSQL control plane, DuckDB and Parquet data plane, built-in account
+  phase, remote roles, Linux containers, workers, networking, and retention.
+- [Shared server detailed phased implementation](plans/linux-server-postgresql-duckdb-implementation.md)
+  turns that architecture into ordered work packages, code and persistence
+  boundaries, tests, operational qualification, and phase exit gates.
+- [Shared-server Phase 0 baseline](reports/2026-10-22-shared-server-phase-0-baseline.md)
+  records the base commit, local storage and job boundaries, focused tests,
+  representative store sizes, and omitted live performance evidence.
+- [Source table composition](plans/source-table-composition.md) defines the
+  generic exact-join, dataset-use, lineage, Recipe, browser, and qualification
+  work for several physical tables that describe one logical Odoo dataset.
 - [Match data ordering qualification](plans/smart-match-data-ordering.md)
   retains documentation, visual, and performance checks for the implemented
   queue, custom ordering, and explicit live Odoo refinement.

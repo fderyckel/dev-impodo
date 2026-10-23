@@ -6,21 +6,30 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from impodo.application.run.progress import (
-    assert_application_is_current, current_preparation, next_unverified_application,
+    assert_application_is_current,
+    current_preparation,
+    next_unverified_application,
 )
 from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
 from impodo.application.workspace.preparation.job_models import (
-    PreparationJob, PreparationJobStatus, PreparationWorkspace,
+    PreparationJob,
+    PreparationJobStatus,
+    PreparationWorkspace,
 )
 from impodo.application.workspace.source_readiness import SourceStageIssue
-from impodo.domain.project.foundation import MigrationConflictError, MigrationFoundationError
+from impodo.domain.project.foundation import (
+    MigrationConflictError,
+    MigrationFoundationError,
+)
 from impodo.domain.run.contracts import (
-    MigrationRunPlanIssueLevel, RecipeApplicationStatus, RunRecipeApplication,
+    MigrationRunPlanIssueLevel,
+    RecipeApplicationStatus,
+    RunRecipeApplication,
 )
 from impodo.domain.run.models import MigrationRunPurpose
-from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.schema.governance import SchemaGovernance
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
+from impodo.domain.workspace.errors import WorkspaceError
 
 if TYPE_CHECKING:
     from .context import WebContext

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Mapping
-
+from collections.abc import Mapping
 
 _PROVIDER_LABELS = {
     "CONCATENATE": "Combine source columns",

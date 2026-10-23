@@ -16,13 +16,17 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Iterable, Protocol
+from typing import Protocol
 from uuid import uuid4
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from impodo.domain.schema.governance import SchemaGovernance
+from impodo.domain.mapping.artifacts import (
+    MappingRevision,
+    MappingSubmission,
+)
+from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     MappingDefinition,
@@ -37,11 +41,6 @@ from impodo.domain.mapping.create_field_policy import (
     is_odoo_managed_candidate,
     supports_create_default_capture,
 )
-from impodo.domain.mapping.artifacts import (
-    MappingRevision,
-    MappingSubmission,
-)
-from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
 from impodo.domain.mapping.mutations import (
     MappingMutationAction,
     MappingMutationReceipt,
@@ -54,16 +53,8 @@ from impodo.domain.mapping.validation.evidence import (
 )
 from impodo.domain.mapping.validation.validator import MappingSemanticValidator
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
-from impodo.domain.workspace.reference_keys import (
-    reference_policy_hash,
-)
-from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
-from .categorical_coverage import CategoricalCoverageService
-from .numeric_precision_coverage import NumericPrecisionCoverageService
-from .supporting_values import (
-    MappingSupportingLookupReader,
-    load_current_mapping_supporting_references,
-)
+from impodo.domain.schema.governance import SchemaGovernance
+from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
@@ -71,6 +62,17 @@ from impodo.domain.workspace.contracts import (
     SourceSelection,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.reference_keys import (
+    reference_policy_hash,
+)
+from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
+
+from .categorical_coverage import CategoricalCoverageService
+from .numeric_precision_coverage import NumericPrecisionCoverageService
+from .supporting_values import (
+    MappingSupportingLookupReader,
+    load_current_mapping_supporting_references,
+)
 
 
 class MappingSourceRepository(Protocol):

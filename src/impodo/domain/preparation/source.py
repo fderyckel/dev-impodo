@@ -7,22 +7,18 @@ references without opening source artifacts or contacting Odoo.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from decimal import DivisionByZero
 from hashlib import sha256
 from pathlib import PurePath
-from typing import Any, Iterable
+from typing import Any
 
-from impodo.domain.preparation.canonical import ValueParseError, parse_field, parse_value
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
-from impodo.domain.shared.models import (
-    InvalidPreparedValue,
-    Issue,
-    LogicalReference,
-    PreparedRecord,
-    ScalarValue,
-    canonical_json_bytes,
-    portable_value,
+from impodo.domain.preparation.canonical import (
+    ValueParseError,
+    parse_field,
+    parse_value,
 )
 from impodo.domain.recipe.profile import (
     DatasetSpec,
@@ -32,6 +28,15 @@ from impodo.domain.recipe.profile import (
     ResolveSpec,
 )
 from impodo.domain.recipe.value_rules import evaluate_formula
+from impodo.domain.shared.models import (
+    InvalidPreparedValue,
+    Issue,
+    LogicalReference,
+    PreparedRecord,
+    ScalarValue,
+    canonical_json_bytes,
+    portable_value,
+)
 
 
 @dataclass(frozen=True, slots=True)

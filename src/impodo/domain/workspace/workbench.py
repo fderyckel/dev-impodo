@@ -17,11 +17,12 @@ This module has no web-framework or database dependency. See
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import StrEnum
-import re
-from typing import Protocol, Sequence
+from typing import Protocol
 from uuid import UUID, uuid4
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
@@ -41,17 +42,18 @@ from impodo.domain.odoo_source_capture import (
     OdooSourceCaptureConfigurationError,
     validate_odoo_capture_selection_reference,
 )
-from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.run.setup import OdooConnectionMode, validate_odoo_base_url
+from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.shared.models import target_identity_hash
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaOrigin
 from impodo.domain.workspace.destination_matching import DestinationMatchPlan
 from impodo.domain.workspace.transfer_order import TransferOrderPlan
+from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
 from impodo.domain.workspace.transfer_review import (
     TransferReviewApproval,
     TransferReviewPackage,
 )
-from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
+
 
 class WorkspaceStateError(ValueError):
     """Base error for invalid mutable workspace operations."""

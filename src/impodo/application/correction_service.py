@@ -8,11 +8,11 @@ meaning to the pure correction domain.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from itertools import islice
-from typing import Iterable, Mapping
 
 from impodo.domain.correction import (
     CorrectionCandidate,
