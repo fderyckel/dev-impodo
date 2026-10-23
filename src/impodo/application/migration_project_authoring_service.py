@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from uuid import UUID, uuid5
 
 from impodo.application.data_version.source_packages import (
@@ -130,7 +130,7 @@ class MigrationProjectAuthoringService:
                 catalogs=(),
                 configurations=(),
                 datasets=(),
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             )
             self.source_packages.replace_draft(
                 package,

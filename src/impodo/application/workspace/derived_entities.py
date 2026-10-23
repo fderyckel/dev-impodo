@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Protocol
 from uuid import uuid4
 
@@ -163,7 +163,7 @@ class DerivedEntityWorkspaceService:
         )
         self._validate_lookup_rule_availability(rule, selection, current)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         plan = DerivedEntityPlan(
             plan_id=current.plan_id if current else str(uuid4()),
             version=(current.version + 1 if current else 1),
@@ -420,7 +420,7 @@ class DerivedEntityWorkspaceService:
             workspace_id=workspace_id,
             source_selection_hash=selection.content_hash,
             rules=(*(current.rules if current else ()), rule),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
         )
         self.derived_entities.save_derived_entity_plan(
@@ -562,7 +562,7 @@ class DerivedEntityWorkspaceService:
             workspace_id=workspace_id,
             source_selection_hash=selection.content_hash,
             rules=(*(current.rules if current else ()), rule),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
         )
         self.derived_entities.save_derived_entity_plan(
@@ -652,7 +652,7 @@ class DerivedEntityWorkspaceService:
             workspace_id=current.workspace_id,
             source_selection_hash=current.source_selection_hash,
             rules=remaining,
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
         )
         self.derived_entities.save_derived_entity_plan(

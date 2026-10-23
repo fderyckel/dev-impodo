@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from enum import StrEnum
 from pathlib import Path, PurePath
 from typing import BinaryIO, Protocol
@@ -586,7 +586,7 @@ class DataVersionSourceIntakeService:
                 chunk_bytes=DATA_VERSION_SOURCE_CHUNK_BYTES,
                 validator=validate_source_file_isolated,
             )
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             source_file = SourcePackageFile(
                 file_id=file_id,
                 display_name=safe_name,
@@ -648,7 +648,7 @@ class DataVersionSourceIntakeService:
             removed = next(item for item in current.files if item.file_id == file_id)
         except StopIteration as error:
             raise DataVersionSourceIntakeError("Source file not found") from error
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         candidate = replace(
             current,
             revision=current.revision + 1,
@@ -764,7 +764,7 @@ class DataVersionSourcePackageService:
                 for item in current.datasets
                 if catalog.file_id not in item.source_file_ids
             ),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
         return self.replace_draft(
             candidate,
@@ -796,7 +796,7 @@ class DataVersionSourcePackageService:
                 for item in current.datasets
                 if configuration.file_id not in item.source_file_ids
             ),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
         return self.replace_draft(
             candidate,
@@ -819,7 +819,7 @@ class DataVersionSourcePackageService:
             current,
             revision=current.revision + 1,
             datasets=datasets,
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
         return self.replace_draft(
             candidate,

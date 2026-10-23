@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 from dataclasses import asdict, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from itertools import islice
 from uuid import UUID
 
@@ -476,7 +476,7 @@ class PreflightRepository(DuckDbRepository):
                         [
                             str(previous[0]),
                             "SUPERSEDED",
-                            datetime.now(timezone.utc).isoformat(),
+                            datetime.now(UTC).isoformat(),
                             actor.identity.display_name,
                             canonical_run_id,
                         ],
@@ -494,7 +494,7 @@ class PreflightRepository(DuckDbRepository):
                     [
                         canonical_run_id,
                         "COMPLETED",
-                        datetime.now(timezone.utc).isoformat(),
+                        datetime.now(UTC).isoformat(),
                         actor.identity.display_name,
                         report.result_hash,
                     ],
@@ -619,7 +619,7 @@ class PreflightRepository(DuckDbRepository):
                     """,
                     [
                         canonical_run_id,
-                        datetime.now(timezone.utc).isoformat(),
+                        datetime.now(UTC).isoformat(),
                         actor.identity.display_name,
                         decision_hash,
                     ],

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from impodo.application.correction_orchestration import (
     CorrectionBinding,
@@ -117,7 +117,7 @@ class CorrectionRepository:
             current = self._binding(dict(zip(columns, row, strict=True)))
             if current.current_mapping_hash == mapping_hash:
                 return
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             revision = current.optimistic_revision
             connection.execute(
                 """
@@ -214,7 +214,7 @@ class CorrectionRepository:
                 raise MigrationConflictError(
                     "Completed load changed before correction origin publication"
                 )
-            now = binding.created_at.astimezone(timezone.utc)
+            now = binding.created_at.astimezone(UTC)
             connection.execute(
                 """
                 INSERT INTO correction_run_binding VALUES (
@@ -364,7 +364,7 @@ class CorrectionRepository:
                 raise MigrationConflictError(
                     "Correction successor does not preserve origin lineage"
                 )
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             connection.execute(
                 """
                 UPDATE correction_run_binding
@@ -424,7 +424,7 @@ class CorrectionRepository:
                 or current.successor_workspace_id != successor_workspace_id
             ):
                 raise MigrationConflictError("Correction review is stale")
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             connection.execute(
                 """
                 UPDATE correction_run_binding
@@ -492,7 +492,7 @@ class CorrectionRepository:
                 return current
             if current.optimistic_revision != require_revision(expected_revision):
                 raise MigrationConflictError("Correction invalidation is stale")
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             connection.execute(
                 """
                 UPDATE correction_run_binding
@@ -559,7 +559,7 @@ class CorrectionRepository:
                 or current.current_plan.logical_hash != plan_hash
             ):
                 raise MigrationConflictError("Correction confirmation is stale")
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             connection.execute(
                 """
                 UPDATE correction_run_binding
@@ -653,7 +653,7 @@ class CorrectionRepository:
                 or str(lineage[2]) != "OPEN"
             ):
                 raise MigrationConflictError("Correction completion is stale")
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             run_revision = int(lineage[1])
             workspace_revision = int(lineage[3])
             connection.execute(

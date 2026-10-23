@@ -16,9 +16,9 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Set
 from contextlib import ExitStack
-from typing import AbstractSet, Protocol
+from typing import Protocol
 
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.data_version.source_files import load_selected_source_table
@@ -487,7 +487,7 @@ class PreparationService:
 
 def prepared_target_precision_error(
     rows: Iterable[CanonicalRow],
-    eligible_row_ids: AbstractSet[str],
+    eligible_row_ids: Set[str],
     definition: MappingDefinition,
     selection: SourceSelection,
     schema: OdooSchemaCatalog | None,

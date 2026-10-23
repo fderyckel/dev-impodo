@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from threading import Condition, Event, RLock, Thread
 from uuid import uuid4
 
@@ -344,7 +344,7 @@ class OdooCaptureJobManager:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _safe_failure_message(error: Exception) -> str:

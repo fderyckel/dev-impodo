@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from datetime import (
     datetime,
     timezone,
+UTC,
 )
 from uuid import UUID, uuid4
 
@@ -180,7 +181,7 @@ class QualityRepository(DuckDbRepository):
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
-        created_at = datetime.now(timezone.utc)
+        created_at = datetime.now(UTC)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -303,7 +304,7 @@ class QualityRepository(DuckDbRepository):
                 "Quality evidence no longer matches project ownership and retention"
             )
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
-        published_at = datetime.now(timezone.utc)
+        published_at = datetime.now(UTC)
         run_id = str(uuid4())
         summary_counts = _quality_summary_counts(run)
         with self._connect(database_path) as connection:

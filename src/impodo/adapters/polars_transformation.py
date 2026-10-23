@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
@@ -1036,8 +1036,8 @@ def _selection_condition_expression(
         left = stripped.str.to_datetime(strict=False, time_zone="UTC")
         right = datetime.fromisoformat(comparison.replace("Z", "+00:00"))
         if right.tzinfo is None:
-            right = right.replace(tzinfo=timezone.utc)
-        right = right.astimezone(timezone.utc)
+            right = right.replace(tzinfo=UTC)
+        right = right.astimezone(UTC)
     else:
         left = stripped
         right = comparison
@@ -2482,8 +2482,8 @@ def _source_display(text: object, kind_value: int) -> str:
     if kind is SourceCellKind.DATETIME:
         parsed = datetime.fromisoformat(rendered)
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC).isoformat().replace("+00:00", "Z")
     return rendered
 
 
@@ -2497,12 +2497,12 @@ def _source_repr(text: object, kind_value: int) -> str:
 
 __all__ = [
     "POLARS_TRANSFORMATION_BATCH_ROWS",
-    "PREPARED_PARQUET_ROW_GROUP_ROWS",
-    "PREPARED_ORDINAL_COLUMN",
     "PREPARED_ISSUE_COLUMN",
-    "PreparedIntentColumn",
+    "PREPARED_ORDINAL_COLUMN",
+    "PREPARED_PARQUET_ROW_GROUP_ROWS",
     "ColumnarPreparedSnapshotCandidate",
     "ColumnarTransformationBatch",
+    "PreparedIntentColumn",
     "iter_polars_prepared_batches",
     "prepared_intent_columns",
     "summarize_polars_rule_impacts",

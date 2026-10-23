@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from threading import Lock
 from time import perf_counter
 from types import SimpleNamespace
@@ -1155,7 +1155,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 decisions=tuple(final_decisions),
                 root_models=tuple(sorted(root_models)),
                 explicit_actions_by_model=tuple(sorted(explicit_actions.items())),
-                recorded_at=datetime.now(timezone.utc),
+                recorded_at=datetime.now(UTC),
                 recorded_by=context.actor.identity.display_name,
             )
             final_suggestions = relationship_expansion_suggestions_for_decisions(

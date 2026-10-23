@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -244,8 +244,8 @@ def canonicalize_scalar_value(
                 else datetime.strptime(prepared, date_format)
             )
             if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            result = parsed.astimezone(timezone.utc)
+                parsed = parsed.replace(tzinfo=UTC)
+            result = parsed.astimezone(UTC)
         else:
             raise ScalarValueError(
                 f"Unsupported canonical value type {mapping.value_type!r}."

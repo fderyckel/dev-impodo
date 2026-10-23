@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from uuid import uuid4
 
 from impodo.domain.run.contracts import (
@@ -261,7 +261,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                     data_version_id=data_version_id,
                     values=assessment.control_values,
                     actor=actor.identity,
-                    confirmed_at=datetime.now(timezone.utc),
+                    confirmed_at=datetime.now(UTC),
                 )
                 datasets = self._mapping_datasets(
                     application_definition,

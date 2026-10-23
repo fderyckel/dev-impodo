@@ -591,8 +591,8 @@ def _field_provider(
             display = " · ".join(
                 f"{item.target_field}={item.value}"
                 for item in (
-                    *((reference.key_values if reference is not None else ())),
-                    *((reference.scope_values if reference is not None else ())),
+                    *(reference.key_values if reference is not None else ()),
+                    *(reference.scope_values if reference is not None else ()),
                 )
             )
             return "Same existing Odoo record for every row", display

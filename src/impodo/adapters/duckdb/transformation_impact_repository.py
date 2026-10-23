@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator, Sequence
 from datetime import (
     datetime,
     timezone,
+UTC,
 )
 
 from impodo.domain.shared.access import Actor
@@ -108,7 +109,7 @@ class TransformationImpactRepository(DuckDbRepository):
             database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
             if not database_path.is_file():
                 raise WorkspaceStateNotFoundError("Workspace engine state not found")
-            created_at = datetime.now(timezone.utc)
+            created_at = datetime.now(UTC)
             with self._connect(database_path) as connection:
                 self._ensure_workspace_database_schema(connection)
                 connection.begin()
@@ -326,7 +327,7 @@ class TransformationImpactRepository(DuckDbRepository):
                 [
                     identity.content_hash,
                     rule_fingerprint,
-                    datetime.now(timezone.utc).isoformat(),
+                    datetime.now(UTC).isoformat(),
                     actor.identity.display_name,
                 ],
             )

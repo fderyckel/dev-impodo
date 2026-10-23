@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import json
 from collections import deque
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence, Set
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
-from typing import AbstractSet, Any
+from typing import Any
 
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.mapping.contracts import DatasetMapping, ResolverOrigin
@@ -829,7 +829,7 @@ class StoredQualityRun:
     issues: Sequence[QualityIssue]
     quarantine: Sequence[QuarantineEntry]
     effective_dataset_hash: str
-    eligible_row_ids: AbstractSet[str]
+    eligible_row_ids: Set[str]
     summary_counts: Mapping[str, int]
     published_content_hash: str | None = None
     evaluator_version: int = QUALITY_EVALUATOR_VERSION

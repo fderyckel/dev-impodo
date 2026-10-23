@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from time import perf_counter
 from typing import Protocol
 from uuid import uuid4
@@ -160,7 +160,7 @@ class ScenarioRunner:
         timer: Callable[[], float] | None = None,
         run_id_factory: Callable[[], object] | None = None,
     ) -> None:
-        self._now = now or (lambda: datetime.now(timezone.utc))
+        self._now = now or (lambda: datetime.now(UTC))
         self._timer = timer or perf_counter
         self._run_id_factory = run_id_factory or uuid4
 

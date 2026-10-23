@@ -10,7 +10,7 @@ boundary and are never passed into the preflight domain or report.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from starlette.concurrency import run_in_threadpool
 
@@ -1030,7 +1030,7 @@ def _refresh_mapping_odoo_defaults(
                 permission_hash=schema.read_permission_hash,
                 context_hash=schema.read_context_hash,
                 readable_models=tuple(sorted(model.name for model in schema.models)),
-                observed_at=datetime.now(timezone.utc).isoformat(),
+                observed_at=datetime.now(UTC).isoformat(),
             )
             if workspace_state.odoo_connection_mode is not OdooConnectionMode.LOCAL
             else None
@@ -2063,7 +2063,7 @@ def _snapshot_datetime(value: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)

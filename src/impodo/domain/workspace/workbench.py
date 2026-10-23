@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from enum import StrEnum
 from typing import Protocol
 from uuid import UUID, uuid4
@@ -1866,7 +1866,7 @@ def workspace_registration_problems(workspace: WorkspaceState) -> tuple[str, ...
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _required_text(value: str, label: str) -> str:

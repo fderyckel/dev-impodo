@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from decimal import Decimal, InvalidOperation
 from typing import Protocol
 from uuid import uuid4
@@ -341,7 +341,7 @@ class ResolutionService:
             row_ids=(candidate.left_row_id, candidate.right_row_id),
             reason=reason,
             actor=actor.identity,
-            decided_at=datetime.now(timezone.utc),
+            decided_at=datetime.now(UTC),
             lifecycle_version=expected_lifecycle_version + 1,
         )
         return self.repository.append_resolution_decision(
@@ -383,7 +383,7 @@ class ResolutionService:
             selected_row_id=selected_row_id,
             reason=reason,
             actor=actor.identity,
-            decided_at=datetime.now(timezone.utc),
+            decided_at=datetime.now(UTC),
             lifecycle_version=expected_lifecycle_version + 1,
         )
         return self.repository.append_resolution_decision(
@@ -439,7 +439,7 @@ class ResolutionService:
             replacement_value=replacement,
             reason=reason,
             actor=actor.identity,
-            decided_at=datetime.now(timezone.utc),
+            decided_at=datetime.now(UTC),
             lifecycle_version=expected_lifecycle_version + 1,
         )
         return self.repository.append_resolution_decision(

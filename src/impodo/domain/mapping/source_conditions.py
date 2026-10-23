@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -245,8 +245,8 @@ def parse_source_condition_value(value: Any, value_type: str) -> Any:
     if value_type == "datetime":
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
     if value_type == "string":
         return str(value)
     raise ValueError("Unsupported source comparison type")

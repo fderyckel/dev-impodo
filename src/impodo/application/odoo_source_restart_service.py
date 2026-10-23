@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from uuid import UUID, uuid5
 
 from impodo.application.data_version.service import DataVersionService
@@ -143,7 +143,7 @@ class OdooSourceRestartService:
                     catalogs=(),
                     configurations=(),
                     datasets=(),
-                    updated_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(UTC),
                 ),
                 actor=actor,
                 expected_package_revision=None,

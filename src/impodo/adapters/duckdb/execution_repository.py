@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 from threading import RLock
 from uuid import UUID
@@ -396,7 +396,7 @@ class ExecutionRepository(DuckDbRepository):
                             item.odoo_id,
                             item.safe_error[:500],
                             item.to_json(),
-                            datetime.now(timezone.utc).isoformat(),
+                            datetime.now(UTC).isoformat(),
                             canonical_run_id,
                             item.row_id,
                         ],
@@ -517,7 +517,7 @@ class ExecutionRepository(DuckDbRepository):
                             item.odoo_id,
                             item.safe_error[:500],
                             item.to_json(),
-                            datetime.now(timezone.utc).isoformat(),
+                            datetime.now(UTC).isoformat(),
                             canonical_run_id,
                             item.row_id,
                         ],
@@ -647,7 +647,7 @@ class ExecutionRepository(DuckDbRepository):
                             item.odoo_id,
                             item.safe_error[:500],
                             item.to_json(),
-                            datetime.now(timezone.utc).isoformat(),
+                            datetime.now(UTC).isoformat(),
                             canonical_run_id,
                             item.row_id,
                         ],
@@ -707,7 +707,7 @@ class ExecutionRepository(DuckDbRepository):
                     raise WorkspaceError("The interrupted load or fresh comparison changed before it could be closed")
                 connection.execute("""
                     UPDATE execution_run SET status = 'OUTCOME_UNKNOWN', completed_at = ? WHERE run_id = ?
-                """, [datetime.now(timezone.utc).isoformat(), run_id])
+                """, [datetime.now(UTC).isoformat(), run_id])
                 self._insert_workspace_audit(
                     connection, revision=self._workspace_revision(connection),
                     event_type="ODOO_LOAD_CLOSED_FOR_RECOMPARISON",
@@ -756,7 +756,7 @@ class ExecutionRepository(DuckDbRepository):
                 ).fetchone()
                 if planned is not None and int(planned[0]) != 0:
                     raise WorkspaceError("Execution run still has unattempted rows")
-                completed_at = datetime.now(timezone.utc)
+                completed_at = datetime.now(UTC)
                 connection.execute(
                     """
                     UPDATE execution_run SET status = ?, completed_at = ?

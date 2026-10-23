@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from threading import RLock, Thread
 from typing import Protocol
 from uuid import uuid4
@@ -471,7 +471,7 @@ class MatchingOrderService:
             version=(expected_version or 0) + 1,
             source_selection_hash=selection.content_hash,
             ordered_dataset_ids=ordered,
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
             actor_issuer=actor.identity.issuer,
             actor_subject=actor.identity.subject_id,
             actor_display_name=actor.identity.display_name,
@@ -710,7 +710,7 @@ class MatchingOrderService:
         """Reserve one durable attempt and start its bounded read worker."""
 
         preferences, _authorization = self._preference_dependencies()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         attempt = MatchingOrderCheckAttempt(
             check_id=prepared.check_id,
             workspace_id=prepared.workspace_id,
@@ -768,7 +768,7 @@ class MatchingOrderService:
 
         # A persisted active row with no worker in this process is an
         # interrupted prior attempt. Retire it instead of polling forever.
-        finished = datetime.now(timezone.utc)
+        finished = datetime.now(UTC)
         failed = replace(
             attempt,
             status=MatchingOrderCheckStatus.FAILED,
@@ -845,8 +845,8 @@ class MatchingOrderService:
                 "the saved matching draft"
             ),
             progress_percent=20,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         try:
             preferences.update_check_attempt(prepared.workspace_id, attempt)
@@ -861,7 +861,7 @@ class MatchingOrderService:
                 phase=MatchingOrderCheckPhase.CLASSIFYING,
                 message="Classifying record identities and relationship keys",
                 progress_percent=70,
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             )
             preferences.update_check_attempt(prepared.workspace_id, attempt)
             schema_changed = _matching_schema_changed(prepared.schema, metadata)
@@ -964,7 +964,7 @@ class MatchingOrderService:
                     recommendation
                 ),
                 schema_changed=schema_changed,
-                captured_at=datetime.now(timezone.utc),
+                captured_at=datetime.now(UTC),
                 actor_issuer=prepared.actor.identity.issuer,
                 actor_subject=prepared.actor.identity.subject_id,
                 actor_display_name=prepared.actor.identity.display_name,
@@ -1011,7 +1011,7 @@ class MatchingOrderService:
                 phase=MatchingOrderCheckPhase.PUBLISHING,
                 message="Publishing the advisory recommendation",
                 progress_percent=90,
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             )
             preferences.update_check_attempt(prepared.workspace_id, attempt)
             published_status = preferences.publish_check(
@@ -1023,7 +1023,7 @@ class MatchingOrderService:
             if published_status is MatchingOrderCheckStatus.STALE:
                 return
         except Exception as error:
-            finished = datetime.now(timezone.utc)
+            finished = datetime.now(UTC)
             failed = replace(
                 attempt,
                 status=MatchingOrderCheckStatus.FAILED,

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from impodo.domain.project.foundation import (
     require_aware,
@@ -129,7 +129,7 @@ class CorrectionTargetIndex:
             _uuid(value, name)
         _hash(self.index_hash, "index_hash")
         require_aware(self.created_at, "created_at")
-        object.__setattr__(self, "created_at", self.created_at.astimezone(timezone.utc))
+        object.__setattr__(self, "created_at", self.created_at.astimezone(UTC))
         ordered = tuple(sorted(self.entries, key=lambda item: item.lineage_key))
         if not ordered or ordered != self.entries:
             raise CorrectionOriginError("Correction target index order is invalid")
@@ -367,7 +367,7 @@ class CorrectionOriginManifest:
                 "Correction target observation is invalid"
             ) from error
         require_aware(self.created_at, "created_at")
-        object.__setattr__(self, "created_at", self.created_at.astimezone(timezone.utc))
+        object.__setattr__(self, "created_at", self.created_at.astimezone(UTC))
 
     @classmethod
     def create(cls, **values: object) -> "CorrectionOriginManifest":

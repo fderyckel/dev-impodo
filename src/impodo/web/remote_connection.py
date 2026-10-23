@@ -8,7 +8,7 @@ process and are accepted only while they match the project's exact target.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from enum import Enum
 from threading import RLock
 
@@ -481,4 +481,4 @@ def _support_http_status(support_code: str) -> int | None:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 import duckdb
 
@@ -83,7 +83,7 @@ class RowInclusionReviewRepository(DuckDbRepository):
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
-        checked_at = datetime.now(timezone.utc)
+        checked_at = datetime.now(UTC)
         snapshot = RowInclusionReviewSnapshot(
             identity=report.identity,
             datasets=report.datasets,
@@ -302,7 +302,7 @@ class RowInclusionReviewRepository(DuckDbRepository):
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
-        confirmed_at = datetime.now(timezone.utc)
+        confirmed_at = datetime.now(UTC)
         confirmation = RowInclusionReviewConfirmation(
             snapshot_hash=snapshot.snapshot_hash,
             mapping_content_hash=snapshot.identity.mapping_content_hash,
@@ -599,7 +599,7 @@ class RowInclusionReviewRepository(DuckDbRepository):
                 working_draft_version,
                 mapping_revision_version,
                 content_identity,
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 operation_id,
             ],
         ).fetchone()

@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.data_version.source_files import open_selected_source_batches
@@ -945,7 +945,7 @@ def _prepared_snapshot_for_program(
                     row_count=candidate.row_count,
                     physical_schema_hash=candidate.physical_schema_hash,
                     parquet_sha256=candidate.parquet_sha256,
-                    created_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
                 )
                 artifacts.publish_prepared_snapshot(
                     workspace_state.workspace_id,

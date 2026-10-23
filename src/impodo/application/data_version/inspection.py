@@ -23,7 +23,7 @@ import zipfile
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, replace
 from dataclasses import fields as dataclass_fields
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import Path
@@ -460,7 +460,7 @@ def inspect_source_file(
         source_sha256=source_file.sha256,
         source_size_bytes=source_file.size_bytes,
         format=format_name,
-        inspected_at=datetime.now(timezone.utc),
+        inspected_at=datetime.now(UTC),
         encoding=encoding,
         delimiter=delimiter,
         tables=tables,
@@ -1351,8 +1351,8 @@ def _value_kind(value: Any) -> tuple[str, Any]:
     if isinstance(value, bool):
         return "boolean", value
     if isinstance(value, datetime):
-        normalized = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-        return "datetime", normalized.astimezone(timezone.utc)
+        normalized = value if value.tzinfo else value.replace(tzinfo=UTC)
+        return "datetime", normalized.astimezone(UTC)
     if isinstance(value, date):
         return "date", value
     if isinstance(value, int):
@@ -1381,8 +1381,8 @@ def _value_kind(value: Any) -> tuple[str, Any]:
         if "T" in cleaned or " " in cleaned:
             parsed_datetime = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
             if parsed_datetime.tzinfo is None:
-                parsed_datetime = parsed_datetime.replace(tzinfo=timezone.utc)
-            return "datetime", parsed_datetime.astimezone(timezone.utc)
+                parsed_datetime = parsed_datetime.replace(tzinfo=UTC)
+            return "datetime", parsed_datetime.astimezone(UTC)
         return "date", date.fromisoformat(cleaned)
     except ValueError:
         return "string", cleaned.casefold()

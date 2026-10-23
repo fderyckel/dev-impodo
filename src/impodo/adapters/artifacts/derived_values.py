@@ -11,7 +11,7 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from hashlib import sha256
 from pathlib import Path
 
@@ -268,7 +268,7 @@ class DerivedValueArtifactPublisher:
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.artifacts = artifacts
-        self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.clock = clock or (lambda: datetime.now(UTC))
 
     def publish(
         self,

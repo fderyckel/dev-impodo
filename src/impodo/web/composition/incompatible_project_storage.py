@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -352,7 +352,7 @@ def _manifest_text(
 ) -> str:
     payload = {
         "archive_id": archive_id,
-        "archived_at": datetime.now(timezone.utc).isoformat(),
+        "archived_at": datetime.now(UTC).isoformat(),
         "format_version": _MANIFEST_VERSION,
         "reason": "OLDER_PROJECT_DATA_CONTRACT",
         "projects": [

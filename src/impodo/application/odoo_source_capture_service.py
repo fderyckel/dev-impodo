@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Protocol
 
 from impodo.application.workspace.access import WorkspaceAccessService
@@ -475,7 +475,7 @@ class OdooSourceCaptureService:
             require_capture_matches_discovery(
                 request, tuple(captured_batches), closure
             )
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             accounting = OdooCaptureAccounting(
                 high_water_id=max(
                     (item.high_water_id for item in accounting_segments), default=0
@@ -578,7 +578,7 @@ class OdooSourceCaptureService:
             matching_rows=matching_rows,
             maximum_rows=request.maximum_rows,
             page_size=request.page_size,
-            observed_at=datetime.now(timezone.utc),
+            observed_at=datetime.now(UTC),
         )
 
     def assess_all(
@@ -653,7 +653,7 @@ class OdooSourceCaptureService:
                 ):
                     raise
                 request, _, selection = overflow_context
-                observed_at = datetime.now(timezone.utc)
+                observed_at = datetime.now(UTC)
                 self._verify_end(
                     gateway, first_request, schema, protected_context,
                     cancellation=cancellation,
@@ -677,7 +677,7 @@ class OdooSourceCaptureService:
                         ),
                     ),),
                 )
-            observed_at = datetime.now(timezone.utc)
+            observed_at = datetime.now(UTC)
             items = tuple((
                 selection,
                 OdooCaptureAssessment(
@@ -702,7 +702,7 @@ class OdooSourceCaptureService:
                 ),
                 items=items,
             )
-        observed_at = datetime.now(timezone.utc)
+        observed_at = datetime.now(UTC)
         items = []
         for request, _, selection in contexts:
             require_not_cancelled(cancellation)

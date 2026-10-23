@@ -20,7 +20,7 @@ import re
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -529,7 +529,7 @@ class LocalOdooMetadataReader:
             connection_mode=workspace_state.odoo_connection_mode.value,
             database=database,
             odoo_version=version,
-            snapshot_timestamp=datetime.now(timezone.utc)
+            snapshot_timestamp=datetime.now(UTC)
             .isoformat()
             .replace("+00:00", "Z"),
             module_versions={},

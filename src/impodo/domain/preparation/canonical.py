@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
@@ -89,8 +89,8 @@ def parse_value(
                     raise ValueParseError(
                         "naive datetime requires a UTC normalization timezone"
                     )
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            return parsed.astimezone(timezone.utc)
+                parsed = parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC)
     except (ValueError, TypeError, InvalidOperation) as exc:
         raise ValueParseError(
             f"cannot parse {raw!r} as {value_type}"

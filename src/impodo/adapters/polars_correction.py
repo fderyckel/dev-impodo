@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from decimal import Decimal
 from pathlib import Path
 
@@ -445,7 +445,7 @@ def _restore_typed_value(value: object, value_type: str):
             return (
                 parsed
                 if parsed.tzinfo is not None
-                else parsed.replace(tzinfo=timezone.utc)
+                else parsed.replace(tzinfo=UTC)
             )
     except (TypeError, ValueError, ArithmeticError) as error:
         raise CorrectionComparisonError(

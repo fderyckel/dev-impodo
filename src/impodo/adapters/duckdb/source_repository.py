@@ -15,6 +15,7 @@ from collections.abc import Iterable
 from datetime import (
     datetime,
     timezone,
+UTC,
 )
 from typing import Protocol
 
@@ -180,7 +181,7 @@ class SourceRepository(DuckDbRepository):
                     [
                         "SOURCE_FILES_INSPECTED",
                         int(revision_row[0]),
-                        datetime.now(timezone.utc).isoformat(),
+                        datetime.now(UTC).isoformat(),
                         f"{len(catalog_set)} source file(s)",
                         actor.identity.issuer,
                         actor.identity.subject_id,

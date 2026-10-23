@@ -27,7 +27,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from io import StringIO
 from pathlib import Path
 from typing import Any, Protocol
@@ -472,7 +472,7 @@ class Json2ReadConnector:
                 maximum_bytes=config.max_response_bytes,
             )
         )
-        self._now = now or (lambda: datetime.now(timezone.utc))
+        self._now = now or (lambda: datetime.now(UTC))
         self._fingerprint: TargetFingerprint | None = None
         self._fingerprint_limitations: tuple[str, ...] = ()
 
@@ -541,7 +541,7 @@ class Json2ReadConnector:
             database=self._config.database,
             odoo_version=version,
             snapshot_timestamp=self._now()
-            .astimezone(timezone.utc)
+            .astimezone(UTC)
             .isoformat()
             .replace("+00:00", "Z"),
             module_versions=module_versions,

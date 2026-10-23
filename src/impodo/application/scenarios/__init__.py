@@ -20,6 +20,6 @@ __all__ = [
     "ScenarioReadOnlyWorkflow",
     "ScenarioReconciliationEvidence",
     "ScenarioRunner",
-    "ScenarioWriteWorkflow",
     "ScenarioWorkflowFailure",
+    "ScenarioWriteWorkflow",
 ]

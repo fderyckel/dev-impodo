@@ -18,7 +18,7 @@ from collections.abc import (
     Mapping as MappingABC,
 )
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from decimal import Decimal
 from enum import StrEnum
 from hashlib import sha256
@@ -501,8 +501,8 @@ def portable_value(value: Any) -> Any:
     if isinstance(value, datetime):
         normalized = value
         if normalized.tzinfo is None:
-            normalized = normalized.replace(tzinfo=timezone.utc)
-        normalized = normalized.astimezone(timezone.utc)
+            normalized = normalized.replace(tzinfo=UTC)
+        normalized = normalized.astimezone(UTC)
         return {
             "type": "datetime",
             "value": normalized.isoformat().replace("+00:00", "Z"),
@@ -573,7 +573,7 @@ def restore_portable_value(value: Any) -> Any:
             parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
             if parsed.tzinfo is None:
                 raise ValueError("portable datetime must include a timezone")
-            return parsed.astimezone(timezone.utc)
+            return parsed.astimezone(UTC)
         raise ValueError(f"unsupported portable value type: {value_type}")
 
     logical_keys = {"origin", "key", "scope"}

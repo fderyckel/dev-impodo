@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from threading import RLock
 
 from impodo.application.shared.jobs import JobWork
@@ -37,7 +37,7 @@ class InlineJobDispatcher:
                 return existing
             if request.job_id in self._by_job_id:
                 raise ValueError("job_id is already registered")
-            running = JobRecord(request).start(at=datetime.now(timezone.utc))
+            running = JobRecord(request).start(at=datetime.now(UTC))
             self._by_job_id[request.job_id] = running
             self._by_idempotency[request.idempotency_key] = request.job_id
 
@@ -45,7 +45,7 @@ class InlineJobDispatcher:
             artifact_ids = work()
         except Exception as error:
             failed = running.fail(
-                at=datetime.now(timezone.utc),
+                at=datetime.now(UTC),
                 failure_code=type(error).__name__,
             )
             with self._lock:
@@ -53,7 +53,7 @@ class InlineJobDispatcher:
             raise
 
         succeeded = running.succeed(
-            at=datetime.now(timezone.utc),
+            at=datetime.now(UTC),
             result_artifact_ids=artifact_ids,
         )
         with self._lock:

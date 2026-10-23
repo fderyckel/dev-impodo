@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import (
     datetime,
     timezone,
+UTC,
 )
 
 import duckdb
@@ -42,7 +43,7 @@ class AuditMixin:
             [
                 event_type,
                 revision,
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 detail,
                 actor.identity.issuer,
                 actor.identity.subject_id,

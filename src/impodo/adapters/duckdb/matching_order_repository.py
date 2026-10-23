@@ -8,7 +8,7 @@ invalidates mapping, Recipe, preparation, preflight, or execution evidence.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Protocol
 
 from impodo.domain.matching_order import (
@@ -437,7 +437,7 @@ class MatchingOrderRepository(DuckDbRepository):
                         "INSERT OR REPLACE INTO matching_order_check_current VALUES (1, ?)",
                         [check.check_id],
                     )
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 connection.execute(
                     """
                     UPDATE matching_order_check_attempt

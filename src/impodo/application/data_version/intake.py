@@ -15,7 +15,7 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path, PurePath
 from typing import BinaryIO
 from uuid import uuid4
@@ -111,7 +111,7 @@ class SourceIntakeService:
                 stored_name=stored.storage_key,
                 size_bytes=stored.size_bytes,
                 sha256=stored.sha256,
-                received_at=datetime.now(timezone.utc),
+                received_at=datetime.now(UTC),
             )
             try:
                 self.workspaces.add_source_file(

@@ -6,7 +6,7 @@ import base64
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from typing import Protocol
 from uuid import uuid4
 
@@ -190,7 +190,7 @@ class OdooProvenanceService:
         )
         if encoded.row_count != row_count:
             raise WorkspaceError("Odoo origin and values row counts differ")
-        retention_until = capture_finished_at.astimezone(timezone.utc) + timedelta(
+        retention_until = capture_finished_at.astimezone(UTC) + timedelta(
             days=workspace.retention_days
         )
         storage_key = f"captures/{encoded.artifact_hash.removeprefix('sha256:')}.iprv"
@@ -290,7 +290,7 @@ class OdooProvenanceService:
         )
         if manifest is None:
             return None
-        current_time = now or datetime.now(timezone.utc)
+        current_time = now or datetime.now(UTC)
         if current_time.tzinfo is None:
             raise WorkspaceError("Odoo retention time must be timezone-aware")
         if manifest.retention_until <= current_time:
@@ -424,7 +424,7 @@ class OdooProvenanceService:
             Capability.PROTECTED_EVIDENCE_MANAGE,
             workspace_id=workspace_id,
         )
-        current_time = now or datetime.now(timezone.utc)
+        current_time = now or datetime.now(UTC)
         if current_time.tzinfo is None:
             raise WorkspaceError("Odoo retention time must be timezone-aware")
         current = self._provenance.get_current(workspace_id)

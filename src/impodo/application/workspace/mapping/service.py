@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Protocol
 from uuid import uuid4
 
@@ -481,7 +481,7 @@ class MappingWorkspaceService:
             workspace_id=workspace_id,
             base_mapping_version=current.version if current else None,
             definition=definition,
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
         )
         if self.downstream_invalidator is not None:
@@ -995,7 +995,7 @@ class MappingWorkspaceService:
             ),
             parent_version=actual_parent,
             definition=definition,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             created_by=actor.identity.display_name,
         )
         checked_draft = MappingWorkingDraft(
@@ -1194,7 +1194,7 @@ class MappingWorkspaceService:
             mapping_content_hash=revision.definition.content_hash,
             validation_hash=validation.validation_hash,
             warning_acknowledgements=warning_fingerprints,
-            submitted_at=datetime.now(timezone.utc),
+            submitted_at=datetime.now(UTC),
             submitted_by=actor.identity.display_name,
         )
         submission_options: dict[str, object] = {"actor": actor}

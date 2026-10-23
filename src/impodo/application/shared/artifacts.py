@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, ContextManager, Protocol
+from typing import BinaryIO, Protocol
 
 from impodo.domain.shared.coordination import ArtifactIdentity
 from impodo.domain.shared.tenancy import OrganizationId
@@ -56,7 +57,7 @@ class DataVersionSourceArtifactStore(Protocol):
         self,
         data_version_id: str,
         storage_key: str,
-    ) -> ContextManager[Path]:
+    ) -> AbstractContextManager[Path]:
         """Temporarily expose one validated immutable source path for reading."""
         ...
 
@@ -67,7 +68,7 @@ class DataVersionSourceArtifactStore(Protocol):
     def prepare_source_snapshot(
         self,
         data_version_id: str,
-    ) -> ContextManager[Path]:
+    ) -> AbstractContextManager[Path]:
         """Yield one contained temporary workspace for a Parquet snapshot."""
         ...
 
@@ -97,7 +98,7 @@ class DataVersionSourceArtifactStore(Protocol):
         storage_key: str,
         *,
         expected_sha256: str,
-    ) -> ContextManager[Path]:
+    ) -> AbstractContextManager[Path]:
         """Expose one hash-verified immutable source snapshot for reading."""
         ...
 
@@ -120,7 +121,7 @@ class WorkspaceArtifactStore(Protocol):
     def prepare_prepared_snapshot(
         self,
         workspace_id: str,
-    ) -> ContextManager[Path]:
+    ) -> AbstractContextManager[Path]:
         """Yield one contained workspace for a prepared Parquet snapshot."""
         ...
 
@@ -141,7 +142,7 @@ class WorkspaceArtifactStore(Protocol):
         storage_key: str,
         *,
         expected_sha256: str,
-    ) -> ContextManager[Path]:
+    ) -> AbstractContextManager[Path]:
         """Expose one hash-verified prepared snapshot for reading."""
         ...
 
@@ -156,7 +157,7 @@ class WorkspaceArtifactStore(Protocol):
     def prepare_derived_value_artifact(
         self,
         workspace_id: str,
-    ) -> ContextManager[Path]:
+    ) -> AbstractContextManager[Path]:
         """Yield one contained workspace for a derived-value artifact."""
         ...
 
@@ -177,7 +178,7 @@ class WorkspaceArtifactStore(Protocol):
         storage_key: str,
         *,
         expected_sha256: str,
-    ) -> ContextManager[Path]:
+    ) -> AbstractContextManager[Path]:
         """Expose one hash-verified derived-value artifact for reading."""
         ...
 
@@ -212,7 +213,7 @@ class WorkspaceArtifactStore(Protocol):
         workspace_id: str,
         run_id: str,
         filename: str,
-    ) -> ContextManager[Path]:
+    ) -> AbstractContextManager[Path]:
         """Yield a partial path and atomically publish it on successful exit."""
         ...
 
@@ -239,7 +240,7 @@ class WorkspaceArtifactStore(Protocol):
         workspace_id: str,
         run_id: str,
         filename: str,
-    ) -> ContextManager[Path]:
+    ) -> AbstractContextManager[Path]:
         """Temporarily expose one validated report projection for reading."""
         ...
 
@@ -261,6 +262,6 @@ class GovernedArtifactMaterializer(Protocol):
         *,
         organization_id: OrganizationId,
         project_id: str,
-    ) -> ContextManager[Path]:
+    ) -> AbstractContextManager[Path]:
         """Yield a temporary local path after scope and hash verification."""
         ...

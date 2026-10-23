@@ -6,7 +6,7 @@ import re
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from decimal import Decimal
 from typing import Any, Protocol
 from uuid import uuid4
@@ -728,7 +728,7 @@ class ExecutionService:
             )
             for row in write_rows
         )
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         run = ExecutionRun(
             run_id=str(uuid4()),
             workspace_id=workspace_id,
@@ -896,7 +896,7 @@ class ExecutionService:
             target_database=snapshot.target_database,
             batch_rows=create_batch_rows,
             status=ExecutionRunStatus.RUNNING,
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
             started_by=actor.identity.display_name,
             completed_at=None,
             rows=attempts,
@@ -1414,10 +1414,10 @@ class ExecutionService:
         )
         row_by_id = {row.row_id: row for row in snapshot.rows}
         component_pages = dependency_component_pages(
-            (
+            
                 (component.sequence, component.row_ids)
                 for component in snapshot.relationship_plan.components
-            )
+            
         )
         scheduled_groups = (
             (page, dataset, dataset_rows)
@@ -2099,7 +2099,7 @@ class ExecutionService:
             raise WorkspaceError(
                 "Only a complete comparison with no proposed Odoo changes can finish here"
             )
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         run = ExecutionRun(
             run_id=str(uuid4()),
             workspace_id=workspace_id,
@@ -3914,7 +3914,7 @@ def _odoo_scalar(value: Any) -> Any:
     if isinstance(value, datetime):
         normalized = value
         if normalized.tzinfo is not None:
-            normalized = normalized.astimezone(timezone.utc).replace(tzinfo=None)
+            normalized = normalized.astimezone(UTC).replace(tzinfo=None)
         return normalized.isoformat(sep=" ")
     if isinstance(value, date):
         return value.isoformat()
@@ -3933,7 +3933,7 @@ def _odoo_import_scalar(value: Any) -> str:
     if isinstance(value, datetime):
         normalized = value
         if normalized.tzinfo is not None:
-            normalized = normalized.astimezone(timezone.utc).replace(tzinfo=None)
+            normalized = normalized.astimezone(UTC).replace(tzinfo=None)
         return normalized.isoformat(sep=" ")
     if isinstance(value, date):
         return value.isoformat()

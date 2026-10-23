@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from hashlib import sha256
 from threading import RLock
 from typing import Protocol
@@ -360,7 +360,7 @@ class SourceWorkspaceService:
                 OdooRelationshipCaptureAction.MATCH_EXISTING,
             }
         )
-        created_at = datetime.now(timezone.utc)
+        created_at = datetime.now(UTC)
         selections: list[OdooCaptureSelection] = list(retained)
         for selection in retained:
             expected_role = (
@@ -710,7 +710,7 @@ class SourceWorkspaceService:
                 read_principal_hash=schema.read_principal_hash,
                 read_permission_hash=schema.read_permission_hash,
                 context_hash=schema.read_context_hash,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
                 created_by=actor.identity.display_name,
             )
         except OdooCaptureContractError as error:
@@ -881,7 +881,7 @@ class SourceWorkspaceService:
             delimiter=catalog.delimiter,
             selected_table_keys=selected,
             warnings_acknowledged=warnings_acknowledged,
-            confirmed_at=datetime.now(timezone.utc),
+            confirmed_at=datetime.now(UTC),
             confirmed_by=actor.identity.display_name,
         )
         self.sources.save_source_configuration(
@@ -1026,7 +1026,7 @@ class SourceWorkspaceService:
             selection_id=str(uuid4()),
             version=version,
             data_version_id=context.data_version_id,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             created_by=actor.identity.display_name,
             datasets=dataset_set,
             content_hash=content_hash(content),

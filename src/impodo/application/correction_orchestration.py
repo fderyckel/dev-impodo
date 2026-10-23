@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID, uuid5
@@ -401,7 +401,7 @@ class CorrectionOriginPublisher:
         completed_at = request.execution.completed_at
         if completed_at is None:
             raise CorrectionOriginError("Completed execution has no completion time")
-        created_at = completed_at.astimezone(timezone.utc)
+        created_at = completed_at.astimezone(UTC)
         index = CorrectionTargetIndex.create(
             index_id=_child_id(run.migration_run_id, "correction-target-index"),
             project_id=run.project_id,
@@ -1108,16 +1108,16 @@ def _child_id(parent_id: str, name: str) -> str:
 
 
 __all__ = [
-    "CorrectionBinding",
-    "CorrectionBindingRepository",
     "CorrectionAuthoringReviewResult",
     "CorrectionAuthoringStageCoordinator",
+    "CorrectionBinding",
+    "CorrectionBindingRepository",
     "CorrectionDatasetReviewInput",
+    "CorrectionMappingSeedService",
+    "CorrectionNoChangedIntent",
     "CorrectionOriginPublication",
     "CorrectionOriginPublisher",
     "CorrectionOriginRequest",
-    "CorrectionMappingSeedService",
-    "CorrectionNoChangedIntent",
     "CorrectionReviewEvidence",
     "CorrectionReviewOrchestrator",
     "CorrectionReviewPipeline",

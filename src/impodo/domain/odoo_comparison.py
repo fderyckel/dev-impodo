@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import InitVar, dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -319,8 +319,8 @@ def canonical_odoo_scalar(field_type: str, value: object) -> object:
         if isinstance(value, datetime):
             normalized = value
             if normalized.tzinfo is None:
-                normalized = normalized.replace(tzinfo=timezone.utc)
-            return normalized.astimezone(timezone.utc)
+                normalized = normalized.replace(tzinfo=UTC)
+            return normalized.astimezone(UTC)
         if not isinstance(value, str):
             raise OdooComparisonError("Odoo returned an invalid datetime value")
         normalized = value.replace("Z", "+00:00")
@@ -329,8 +329,8 @@ def canonical_odoo_scalar(field_type: str, value: object) -> object:
         except ValueError as error:
             raise OdooComparisonError("Odoo returned an invalid datetime value") from error
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
     raise OdooComparisonError("Odoo comparison field type is unsupported")
 
 
@@ -347,7 +347,7 @@ def canonical_write_date(value: object) -> datetime | None:
 def _datetime_text(value: datetime | None) -> str | None:
     if value is None:
         return None
-    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _parse_datetime(value: object) -> datetime | None:

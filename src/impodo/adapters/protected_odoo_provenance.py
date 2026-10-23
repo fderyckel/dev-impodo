@@ -12,7 +12,7 @@ import os
 import struct
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from hashlib import sha256
 
 from cryptography.exceptions import InvalidTag
@@ -37,7 +37,7 @@ _NONCE_BYTES = 12
 _BATCH_MARKER = 1
 _END_MARKER = 0
 _MISSING_TIMESTAMP = -(2**63)
-_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _RELATION_KIND_TO_CODE = {"many2one": 1, "one2many": 2, "many2many": 3}
 _RELATION_CODE_TO_KIND = {value: key for key, value in _RELATION_KIND_TO_CODE.items()}
 
@@ -307,7 +307,7 @@ def _decode_plaintext(
 def _timestamp_micros(value: datetime | None) -> int:
     if value is None:
         return _MISSING_TIMESTAMP
-    delta = value.astimezone(timezone.utc) - _EPOCH
+    delta = value.astimezone(UTC) - _EPOCH
     return (
         delta.days * 86_400_000_000
         + delta.seconds * 1_000_000

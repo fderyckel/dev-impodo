@@ -7,7 +7,7 @@ import math
 import socket
 import time
 from collections.abc import Callable, Iterator, Mapping
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -98,7 +98,7 @@ class Json2OdooSourceCapture:
             )
         self._config = config
         self._transport = transport or _bounded_urllib_transport
-        self._now = now or (lambda: datetime.now(timezone.utc))
+        self._now = now or (lambda: datetime.now(UTC))
         self._sleep = sleep or time.sleep
 
     def probe_identity(
@@ -160,7 +160,7 @@ class Json2OdooSourceCapture:
         """Freeze the matching high-water ID and return a single-use page stream."""
 
         require_not_cancelled(cancellation)
-        started_at = self._now().astimezone(timezone.utc)
+        started_at = self._now().astimezone(UTC)
         domain = _base_domain(request)
         raw, response_bytes = self._search_read(
             request,
@@ -757,7 +757,7 @@ class _Json2CaptureSession:
             response_bytes=self._response_bytes,
             normalized_bytes=self._normalized_bytes,
             capture_started_at=self._started_at,
-            capture_finished_at=self._adapter._now().astimezone(timezone.utc),
+            capture_finished_at=self._adapter._now().astimezone(UTC),
             consistency=self._request.consistency,
             target_instance_assurance=self._request.target_instance_assurance,
             consistency_limitation=_CONSISTENCY_LIMITATION,

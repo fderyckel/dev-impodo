@@ -150,14 +150,14 @@ class ValidationContext:
                 for item in definition.datasets
             },
             governed_key_signatures=frozenset(
-                (
+                
                     (
                         item.model,
                         item.key_fields,
                         item.scope_fields,
                     )
                     for item in governed_keys
-                )
+                
             ).union(
                 supporting_contracts
             ),

@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from hashlib import sha256
 from uuid import uuid4
 
@@ -551,7 +551,7 @@ class PreflightService:
             preview=review.preview,
             reduced_execution_snapshot_hash=reduced.semantic_hash,
             accepted_by=actor.identity,
-            accepted_at=datetime.now(timezone.utc),
+            accepted_at=datetime.now(UTC),
         )
         report = self.current_report(workspace_id)
         if report is None or report.run_id != review.comparison_id:

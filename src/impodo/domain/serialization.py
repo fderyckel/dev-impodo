@@ -47,12 +47,12 @@ class CanonicalJsonObjectHasher:
     """
 
     __slots__ = (
+        "_array_first_item",
         "_digest",
         "_finished",
         "_first_item",
         "_in_array",
         "_last_key",
-        "_array_first_item",
     )
 
     def __init__(self) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from hashlib import sha256
 from pathlib import Path
 
@@ -99,7 +99,7 @@ class OdooProvenanceRepository(DuckDbRepository):
         )
         if len(encrypted) != len(manifests):
             raise WorkspaceError("Odoo provenance candidates are duplicated")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for manifest in manifests:
             value = encrypted[manifest.manifest_id]
             if len(value) != manifest.provenance_size_bytes:
@@ -395,7 +395,7 @@ class OdooProvenanceRepository(DuckDbRepository):
         candidate_hash = "sha256:" + sha256(encrypted_candidate).hexdigest()
         if candidate_hash != manifest.provenance_sha256:
             raise WorkspaceError("Odoo provenance candidate hash is inconsistent")
-        if manifest.retention_until <= datetime.now(timezone.utc):
+        if manifest.retention_until <= datetime.now(UTC):
             raise WorkspaceError("Odoo provenance candidate is already expired")
         if (
             self._artifacts.source_snapshot_size(
@@ -818,7 +818,7 @@ class OdooProvenanceRepository(DuckDbRepository):
                    )
                  ORDER BY manifest_id
                 """,
-                [now.astimezone(timezone.utc).isoformat()],
+                [now.astimezone(UTC).isoformat()],
             ).fetchall()
             if not rows:
                 return 0

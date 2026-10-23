@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from hashlib import sha256
 from uuid import uuid4
 
@@ -98,7 +98,7 @@ class PreparationDirectWriter:
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         session_id = str(uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -561,7 +561,7 @@ class PreparationDirectWriter:
                     """,
                     [
                         canonical_row_count,
-                        datetime.now(timezone.utc).isoformat(),
+                        datetime.now(UTC).isoformat(),
                         canonical_session_id,
                     ],
                 )
@@ -724,7 +724,7 @@ class PreparationDirectWriter:
                     """,
                     [
                         impact_count,
-                        datetime.now(timezone.utc).isoformat(),
+                        datetime.now(UTC).isoformat(),
                         session_id,
                     ],
                 )
@@ -904,7 +904,7 @@ class PreparationDirectWriter:
                 ).fetchone()
                 if pending is None or int(pending[0]) != row_count:
                     raise WorkspaceError("Direct preparation rows are incomplete")
-                now = datetime.now(timezone.utc).isoformat()
+                now = datetime.now(UTC).isoformat()
                 connection.execute(
                     """
                     UPDATE preparation_session
@@ -1057,7 +1057,7 @@ class PreparationDirectWriter:
                     """,
                     [
                         PreparationSessionStatus.FINALIZING.value,
-                        datetime.now(timezone.utc).isoformat(),
+                        datetime.now(UTC).isoformat(),
                         session_id,
                     ],
                 )

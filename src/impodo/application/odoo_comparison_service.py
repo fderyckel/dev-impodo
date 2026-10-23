@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from hashlib import sha256
 
 from impodo.application.data_version.source_snapshots import (
@@ -812,5 +812,5 @@ def _snapshot_time(value: str) -> datetime:
     except ValueError as error:
         raise ReadinessError("Odoo comparison timestamp is invalid") from error
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)

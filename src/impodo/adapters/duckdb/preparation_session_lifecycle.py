@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from impodo.domain.preparation.staging import StagingRunStatus
 from impodo.domain.workspace.errors import WorkspaceError
@@ -167,7 +167,7 @@ class PreparationSessionLifecycle:
                     """,
                     [
                         PreparationSessionStatus.PUBLISHED.value,
-                        datetime.now(timezone.utc).isoformat(),
+                        datetime.now(UTC).isoformat(),
                         session_id,
                     ],
                 )
@@ -213,7 +213,7 @@ class PreparationSessionLifecycle:
                     [
                         PreparationSessionStatus.FAILED.value,
                         failure_code,
-                        datetime.now(timezone.utc).isoformat(),
+                        datetime.now(UTC).isoformat(),
                         session_id,
                     ],
                 )

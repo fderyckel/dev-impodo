@@ -1120,8 +1120,8 @@ __all__ = [
     "OdooRelationshipScopeReview",
     "propose_relationship_action_defaults",
     "recommended_relationship_capture_action",
-    "relationship_scope_decisions",
     "relationship_expansion_suggestions",
     "relationship_expansion_suggestions_for_decisions",
+    "relationship_scope_decisions",
     "review_relationship_scope",
 ]

@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import (
     datetime,
     timezone,
+UTC,
 )
 
 import duckdb
@@ -47,7 +48,7 @@ class EvidenceInvalidationMixin:
             """,
             [
                 "INVALIDATED",
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 reason,
                 str(current[0]),
             ],
@@ -67,7 +68,7 @@ class EvidenceInvalidationMixin:
         ).fetchone()
         if current is None:
             return
-        occurred_at = datetime.now(timezone.utc).isoformat()
+        occurred_at = datetime.now(UTC).isoformat()
         connection.execute(
             """
             INSERT OR REPLACE INTO preflight_transition
@@ -108,7 +109,7 @@ class EvidenceInvalidationMixin:
             """,
             [
                 QualityRunStatus.INVALIDATED.value,
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 reason,
                 str(current[0]),
             ],
@@ -147,7 +148,7 @@ class EvidenceInvalidationMixin:
              WHERE run_id = ?
             """,
             [
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 reason,
                 str(current[0]),
             ],
@@ -185,7 +186,7 @@ class EvidenceInvalidationMixin:
             """,
             [
                 StagingRunStatus.INVALIDATED.value,
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 reason,
                 str(current[0]),
             ],

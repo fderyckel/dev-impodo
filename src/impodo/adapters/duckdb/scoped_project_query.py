@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from impodo.application.project.ports import MigrationProjectRepository
 from impodo.domain.project.foundation import (
@@ -32,7 +32,7 @@ class LocalScopedMigrationProjectQuery:
     ) -> None:
         self._repository = repository
         self._organization_id = organization_id
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     def list_visible_project_summaries(
         self,

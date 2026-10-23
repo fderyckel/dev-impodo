@@ -19,7 +19,7 @@ import os
 import tempfile
 from collections.abc import Sequence
 from dataclasses import asdict, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 
 from impodo.domain.execution.models import (
@@ -140,7 +140,7 @@ class ScenarioExecutionJournal:
         completed = replace(
             run,
             status=status,
-            completed_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(UTC),
         )
         self._replace(completed)
         return completed

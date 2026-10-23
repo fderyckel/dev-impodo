@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 from uuid import uuid4
@@ -553,7 +553,7 @@ class ReconciliationService:
             target_hash=run.target_hash,
             target_database=run.target_database,
             status=status,
-            verified_at=datetime.now(timezone.utc),
+            verified_at=datetime.now(UTC),
             verified_by=actor.identity.display_name,
             unchanged_count=int(snapshot.counts.get("UNCHANGED", 0)),
             rows=outcome_rows,
@@ -1406,4 +1406,4 @@ def _difference_reason(
 def _utc_naive(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value
-    return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value.astimezone(UTC).replace(tzinfo=None)

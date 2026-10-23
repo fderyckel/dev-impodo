@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from datetime import (
     datetime,
     timezone,
+UTC,
 )
 from uuid import UUID, uuid4
 
@@ -108,7 +109,7 @@ class StagingRepository(DuckDbRepository):
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
-        published_at = datetime.now(timezone.utc)
+        published_at = datetime.now(UTC)
         pending_run_id = getattr(run.rows, "canonical_run_id", None)
         if pending_run_id is None:
             run_id = str(uuid4())

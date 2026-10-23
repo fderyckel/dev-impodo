@@ -11,7 +11,7 @@ import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from uuid import UUID
 
 from impodo.domain.workspace.business_keys import recommend_business_key
@@ -919,7 +919,7 @@ def normalize_odoo_datetime(value: str) -> datetime:
         raise OdooSourceCaptureConsistencyError(
             "Odoo returned an invalid datetime value"
         ) from error
-    return parsed.replace(tzinfo=timezone.utc)
+    return parsed.replace(tzinfo=UTC)
 
 
 def _capture_value_matches_type(field_type: str, value: CaptureScalar) -> bool:

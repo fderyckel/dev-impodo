@@ -17,7 +17,7 @@ import platform
 import re
 import sys
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from io import BytesIO
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -512,7 +512,7 @@ class LocalDiagnosticRecorder:
     def _write(self, payload: dict[str, Any]) -> None:
         envelope = {
             "schema_version": DIAGNOSTIC_SCHEMA_VERSION,
-            "recorded_at": datetime.now(timezone.utc)
+            "recorded_at": datetime.now(UTC)
             .isoformat()
             .replace("+00:00", "Z"),
             **payload,
@@ -1021,4 +1021,4 @@ def _diagnostic_route_class(value: str) -> str:
 
 
 def _utc_timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")

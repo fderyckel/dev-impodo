@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from uuid import uuid4
 
 from impodo.domain.shared.access import Actor, AuthorizationError, Capability
@@ -402,7 +402,7 @@ class AdvancedCoverageRepository(DuckDbRepository):
                     reason="NEW_RESOLUTION_EVALUATION",
                 )
                 run_id = str(uuid4())
-                now = datetime.now(timezone.utc).isoformat()
+                now = datetime.now(UTC).isoformat()
                 status = "BLOCKED" if evaluation.blocked else "REVIEW_REQUIRED"
                 connection.execute(
                     """
@@ -610,7 +610,7 @@ class AdvancedCoverageRepository(DuckDbRepository):
                     "INSERT INTO effective_dataset_reconciliation VALUES (?, ?)",
                     [run_id, canonical_json(effective.reconciliation.to_portable_dict())],
                 )
-                frozen_at = datetime.now(timezone.utc).isoformat()
+                frozen_at = datetime.now(UTC).isoformat()
                 connection.execute(
                     """
                     UPDATE resolution_run

@@ -13,7 +13,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from dataclasses import fields as dataclass_fields
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from enum import StrEnum
 
 from impodo.domain.preparation.normalization import NormalizationRunSummary
@@ -536,7 +536,7 @@ def _readiness_report(
         target_odoo_version=result.fingerprint.odoo_version,
         target_snapshot_at=result.fingerprint.snapshot_timestamp,
         target_module_versions=dict(sorted(result.fingerprint.module_versions.items())),
-        checked_at=datetime.now(timezone.utc),
+        checked_at=datetime.now(UTC),
         checked_by=actor.identity.display_name,
         datasets=tuple(datasets),
         rows=rows,

@@ -20,7 +20,7 @@ import json
 import sys
 import time
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 
 from impodo.adapters.artifacts.profile_loader import ProfileLoadError, load_profile
@@ -494,7 +494,7 @@ def _benchmark_command(arguments: argparse.Namespace) -> int:
                 "elapsed_seconds": round(elapsed, 6),
                 "checksum": checksum,
                 "strategy": "indexed-dictionary",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
             sort_keys=True,
         )

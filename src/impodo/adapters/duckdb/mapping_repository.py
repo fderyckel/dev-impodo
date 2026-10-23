@@ -15,6 +15,7 @@ from dataclasses import replace
 from datetime import (
     datetime,
     timezone,
+UTC,
 )
 from typing import Protocol
 
@@ -102,7 +103,7 @@ class MappingRepository(DuckDbRepository):
     ) -> MappingMutationReceipt:
         """Reserve one durable browser command identity before it runs."""
 
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         proposed = MappingMutationReceipt(
             operation_id=operation_id,
             workspace_id=workspace_id,
@@ -225,7 +226,7 @@ class MappingRepository(DuckDbRepository):
                     mapping_revision_version,
                     failure_code,
                     failure_detail,
-                    datetime.now(timezone.utc).isoformat(),
+                    datetime.now(UTC).isoformat(),
                     operation_id,
                 ],
             )
@@ -739,7 +740,7 @@ class MappingRepository(DuckDbRepository):
                         version,
                         validation.validator_version,
                         validation.validation_hash,
-                        datetime.now(timezone.utc).isoformat(),
+                        datetime.now(UTC).isoformat(),
                         validation.to_json(),
                     ],
                 )
@@ -919,7 +920,7 @@ class MappingRepository(DuckDbRepository):
                 working_draft_version,
                 mapping_revision_version,
                 content_identity,
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 operation_id,
             ],
         )

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 from decimal import Decimal
 from hashlib import sha256
 
@@ -594,8 +594,8 @@ def _display_value(value: object) -> str:
     if isinstance(value, datetime):
         normalized = value
         if normalized.tzinfo is None:
-            normalized = normalized.replace(tzinfo=timezone.utc)
-        return normalized.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            normalized = normalized.replace(tzinfo=UTC)
+        return normalized.astimezone(UTC).isoformat().replace("+00:00", "Z")
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, tuple | list):

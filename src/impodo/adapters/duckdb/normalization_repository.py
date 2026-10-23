@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from datetime import (
     datetime,
     timezone,
+UTC,
 )
 from uuid import UUID, uuid4
 
@@ -103,7 +104,7 @@ class NormalizationRepository(DuckDbRepository):
                 "Prepared review no longer matches project ownership and retention"
             )
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
-        published_at = datetime.now(timezone.utc)
+        published_at = datetime.now(UTC)
         prepared_run_id = getattr(evaluation.effects, "prepared_run_id", None)
         run_id = (
             self._normalization_run_id(str(prepared_run_id))
@@ -462,7 +463,7 @@ class NormalizationRepository(DuckDbRepository):
 
         canonical_run_id = self._normalization_run_id(run_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
-        decided_at = datetime.now(timezone.utc)
+        decided_at = datetime.now(UTC)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -550,7 +551,7 @@ class NormalizationRepository(DuckDbRepository):
 
         canonical_run_id = self._normalization_run_id(run_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
-        approved_at = datetime.now(timezone.utc)
+        approved_at = datetime.now(UTC)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -624,7 +625,7 @@ class NormalizationRepository(DuckDbRepository):
 
         canonical_run_id = self._normalization_run_id(run_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
-        reopened_at = datetime.now(timezone.utc)
+        reopened_at = datetime.now(UTC)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()

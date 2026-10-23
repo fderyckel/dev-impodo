@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
-from typing import BinaryIO, ContextManager, Protocol
+from typing import BinaryIO, Protocol
 from uuid import UUID, uuid4
 
 from impodo.domain.derived_value_artifact import (

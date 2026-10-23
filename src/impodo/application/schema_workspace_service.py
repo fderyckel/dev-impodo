@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Protocol
 from uuid import uuid4
 
@@ -319,7 +319,7 @@ class SchemaWorkspaceService:
             workspace_id=workspace_id,
             connection_target_hash=connection_target_hash,
             policy_hash=policy_hash,
-            captured_at=datetime.now(timezone.utc),
+            captured_at=datetime.now(UTC),
             captured_by=actor.identity.display_name,
             connection_mode=snapshot.fingerprint.connection_mode,
             database=snapshot.fingerprint.database,
@@ -554,7 +554,7 @@ class SchemaWorkspaceService:
             "read_permission_hash": no_access,
             "read_principal_hash": no_access,
         }
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         seed = OdooSchemaCatalog(
             workspace_id=successor_workspace_id,
             policy_hash=previous.policy_hash,
@@ -779,7 +779,7 @@ class SchemaWorkspaceService:
                 recovered_count += 1
             replacements[model_name] = recovered_fields
 
-        checked_at = datetime.now(timezone.utc)
+        checked_at = datetime.now(UTC)
         updated = replace(
             current,
             models=tuple(
@@ -1067,7 +1067,7 @@ class SchemaWorkspaceService:
             )
         rebound = replace(
             current,
-            captured_at=datetime.now(timezone.utc),
+            captured_at=datetime.now(UTC),
             captured_by=actor.identity.display_name,
             read_credential_binding_hash=read_credential_binding_hash,
             read_principal_hash=identity_hashes["read_principal_hash"],
@@ -1306,7 +1306,7 @@ class SchemaWorkspaceService:
             "origin": origin.value,
             "models": [asdict(model) for model in models],
         }
-        observed_at = datetime.now(timezone.utc)
+        observed_at = datetime.now(UTC)
         return OdooSchemaCatalog(
             workspace_id=workspace_state.workspace_id,
             policy_hash=policy_hash,
@@ -1417,7 +1417,7 @@ class SchemaWorkspaceService:
             catalog_hash=schema.content_hash,
             permitted_models=tuple(sorted(models)),
             business_keys=normalized,
-            recorded_at=datetime.now(timezone.utc),
+            recorded_at=datetime.now(UTC),
             recorded_by=actor.identity.display_name,
         )
         self.schemas.save_schema_governance(

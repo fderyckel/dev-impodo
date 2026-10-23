@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from impodo.application.shared.identity import ResolvedRequestIdentity
 from impodo.domain.shared.access import LOCAL_ACTOR, Actor
@@ -30,7 +30,7 @@ class LocalRequestIdentityResolver:
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._actor = actor
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     def resolve(
         self,

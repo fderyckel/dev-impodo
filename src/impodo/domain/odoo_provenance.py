@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import InitVar, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from uuid import UUID
 
 from .odoo_capture import (
@@ -130,7 +130,7 @@ class OdooOriginBatch:
                 raise OdooProvenanceError(
                     "Odoo origin write timestamps must be timezone-aware"
                 )
-            normalized_dates.append(value.astimezone(timezone.utc))
+            normalized_dates.append(value.astimezone(UTC))
         object.__setattr__(self, "odoo_ids", ids)
         object.__setattr__(self, "write_dates", tuple(normalized_dates))
         object.__setattr__(self, "relationships", relationships)

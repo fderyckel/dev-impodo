@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from enum import StrEnum
 from typing import Any
 
@@ -324,7 +324,7 @@ class CorrectionPlan:
         object.__setattr__(
             self,
             "created_at",
-            self.created_at.astimezone(timezone.utc),
+            self.created_at.astimezone(UTC),
         )
         fields = tuple(self.fields)
         if not fields:
@@ -535,7 +535,7 @@ class CorrectionConfirmation:
         object.__setattr__(
             self,
             "confirmed_at",
-            self.confirmed_at.astimezone(timezone.utc),
+            self.confirmed_at.astimezone(UTC),
         )
 
     @classmethod
@@ -716,13 +716,13 @@ def _actor_from_dict(value: object) -> ActorIdentity:
 
 
 def _timestamp_text(value: datetime) -> str:
-    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _timestamp_from_text(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     require_aware(parsed, "timestamp")
-    return parsed.astimezone(timezone.utc)
+    return parsed.astimezone(UTC)
 
 
 def _plan_text(value: str, name: str) -> str:

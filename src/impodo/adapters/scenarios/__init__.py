@@ -16,6 +16,6 @@ __all__ = [
     "ScenarioLoadError",
     "ScenarioReconciliationResults",
     "load_scenario",
-    "write_scenario_result",
     "write_scenario_execution_snapshot",
+    "write_scenario_result",
 ]

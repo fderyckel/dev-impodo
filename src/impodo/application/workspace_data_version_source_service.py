@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from threading import RLock
 from typing import Protocol
 from uuid import UUID, uuid5
@@ -324,7 +324,7 @@ class WorkspaceDataVersionSourceService:
                     for snapshot in (snapshot_by_dataset[dataset.dataset_id],)
                     for manifest in (manifest_by_dataset[dataset.dataset_id],)
                 ),
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             )
             current = self.packages.replace_draft(
                 package,
