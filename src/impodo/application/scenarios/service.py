@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Protocol
 from uuid import uuid4

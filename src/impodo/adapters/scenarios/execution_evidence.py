@@ -19,7 +19,7 @@ import os
 import tempfile
 from collections.abc import Sequence
 from dataclasses import asdict, replace
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 
 from impodo.domain.execution.models import (

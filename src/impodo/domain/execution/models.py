@@ -113,7 +113,7 @@ class ExecutionRowAttempt:
         return canonical_json_bytes(payload).decode("utf-8")
 
     @classmethod
-    def from_json(cls, value: str) -> "ExecutionRowAttempt":
+    def from_json(cls, value: str) -> ExecutionRowAttempt:
         payload = json.loads(value)
         return cls(
             row_id=str(payload["row_id"]),

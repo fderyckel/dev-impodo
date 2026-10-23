@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from uuid import UUID, uuid5
 
 from impodo.application.data_version.source_packages import (

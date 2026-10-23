@@ -286,7 +286,7 @@ class TransferPreflightReport:
         return canonical_json(self.to_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "TransferPreflightReport":
+    def from_json(cls, value: str) -> TransferPreflightReport:
         try:
             payload = json.loads(value)
             actor = dict(payload["recorded_by"])

@@ -39,7 +39,7 @@ class RelatedDataGroupView:
     title: str
     description: str
     attention: bool
-    models: tuple["RelatedDataModelView", ...]
+    models: tuple[RelatedDataModelView, ...]
 
 
 @dataclass(frozen=True, slots=True)

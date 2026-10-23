@@ -8,7 +8,7 @@ process and are accepted only while they match the project's exact target.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from enum import Enum
 from threading import RLock
 

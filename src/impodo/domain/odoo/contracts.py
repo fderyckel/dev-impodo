@@ -10,7 +10,6 @@ from io import StringIO
 from typing import Any, Protocol
 
 from impodo.domain.shared.models import (
-    FieldMetadata,
     ModelMetadata,
     OdooReadIdentity,
     OdooWriteIdentity,

@@ -20,7 +20,7 @@ from impodo.domain.cutover.approvals import (
     FrozenExportPlan,
 )
 from impodo.domain.serialization import canonical_json, content_hash
-from impodo.domain.shared.access import Actor, ActorIdentity, Capability
+from impodo.domain.shared.access import Actor, ActorIdentity
 
 TRANSFER_REVIEW_CONTRACT_VERSION = 6
 TRANSFER_REVIEW_APPROVAL_CONTRACT_VERSION = 1
@@ -406,7 +406,7 @@ class TransferReviewPackage:
         return canonical_json(self.to_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "TransferReviewPackage":
+    def from_json(cls, value: str) -> TransferReviewPackage:
         try:
             payload = json.loads(value)
             result = cls(
@@ -524,7 +524,7 @@ class TransferReviewApproval:
         actor: Actor,
         approved_at: datetime,
         reason: str = "",
-    ) -> "TransferReviewApproval":
+    ) -> TransferReviewApproval:
         return cls(
             workspace_id=package.workspace_id,
             review_package_hash=package.content_hash,
@@ -591,7 +591,7 @@ class TransferReviewApproval:
         return canonical_json(self.to_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "TransferReviewApproval":
+    def from_json(cls, value: str) -> TransferReviewApproval:
         try:
             payload = json.loads(value)
             approval_payload = dict(payload["export_approval"])

@@ -45,7 +45,7 @@ class NativePreparedProjectionResult:
 
     row_count: int
     impact_counts: TransformationImpactCounts
-    control_totals: tuple["NativeControlTotalValue", ...]
+    control_totals: tuple[NativeControlTotalValue, ...]
     scan_count: int
     statement_count: int
     optimized_plan_verified: bool

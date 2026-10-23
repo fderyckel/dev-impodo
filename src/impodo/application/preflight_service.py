@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import uuid4
 
@@ -122,7 +122,7 @@ class DeferredScopeReview:
     comparison_id: str
     comparison_hash: str
     issues: tuple[DeferredIssue, ...]
-    candidates: tuple["DeferredIssueCandidate", ...]
+    candidates: tuple[DeferredIssueCandidate, ...]
     preview: DeferredScopePreview | None
     decision: DeferredScopeDecision | None = None
 

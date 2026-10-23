@@ -152,12 +152,12 @@ def _selection_rules_from_form(form, field_name: str) -> SelectionRuleSet:
                 raise ValueError("Conditional choice conditions are invalid")
             if not all(
                 isinstance(condition_payload[name], str)
-                for name in {
+                for name in (
                     "condition_id",
                     "source_column_key",
                     "operator",
                     "value_type",
-                }
+                )
             ) or not (
                 condition_payload["comparison_value"] is None
                 or isinstance(condition_payload["comparison_value"], str)

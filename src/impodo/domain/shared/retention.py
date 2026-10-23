@@ -76,7 +76,7 @@ class ProjectRetentionSelection:
         selected_by: ActorIdentity,
         selected_at: datetime,
         warning_revision: str,
-    ) -> "ProjectRetentionSelection":
+    ) -> ProjectRetentionSelection:
         """Create the server default of deletion after 90 inactive days."""
 
         return cls(

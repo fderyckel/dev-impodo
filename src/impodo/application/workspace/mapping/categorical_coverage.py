@@ -54,7 +54,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 
 configure_columnar_runtime()
 
-import polars as pl  # noqa: E402
+import polars as pl
 
 CATEGORICAL_SCAN_CONTRACT_HASH = content_hash(
     {

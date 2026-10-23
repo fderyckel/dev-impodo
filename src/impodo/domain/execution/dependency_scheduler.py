@@ -172,7 +172,7 @@ def schedule_dependencies(
             ScheduleBlocker(row_id=row_id, code="HARD_DEPENDENCY_CYCLE"),
         )
 
-    queue = list(sorted(blocker_by_row, key=rank.__getitem__))
+    queue = sorted(blocker_by_row, key=rank.__getitem__)
     cursor = 0
     while cursor < len(queue):
         blocked_dependency = queue[cursor]

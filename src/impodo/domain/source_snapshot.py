@@ -82,7 +82,7 @@ class EncodedSourceCell:
             )
 
     @classmethod
-    def from_python(cls, value: Any) -> "EncodedSourceCell":
+    def from_python(cls, value: Any) -> EncodedSourceCell:
         """Encode one strict-reader scalar without losing type or text semantics."""
 
         if value is None:
@@ -191,7 +191,7 @@ class EncodedSourceCell:
         return {"kind": int(self.kind), "text": self.text}
 
     @classmethod
-    def from_portable_dict(cls, payload: dict[str, object]) -> "EncodedSourceCell":
+    def from_portable_dict(cls, payload: dict[str, object]) -> EncodedSourceCell:
         """Restore and validate one physical kind/text pair."""
 
         try:
@@ -251,7 +251,7 @@ class SourceSnapshotColumn:
         stable_key: str,
         source_name: str,
         candidate_type: str,
-    ) -> "SourceSnapshotColumn":
+    ) -> SourceSnapshotColumn:
         """Create safe physical identifiers from a governed source ordinal."""
 
         return cls(
@@ -310,7 +310,7 @@ class SourceSnapshotSchema:
     def create(
         cls,
         columns: Iterable[SourceSnapshotColumn],
-    ) -> "SourceSnapshotSchema":
+    ) -> SourceSnapshotSchema:
         return cls(
             contract_version=SOURCE_SNAPSHOT_CONTRACT_VERSION,
             source_row_column=SOURCE_ROW_COLUMN,
@@ -333,7 +333,7 @@ class SourceSnapshotSchema:
     def from_portable_dict(
         cls,
         payload: dict[str, object],
-    ) -> "SourceSnapshotSchema":
+    ) -> SourceSnapshotSchema:
         raw_columns = payload.get("columns")
         if not isinstance(raw_columns, list):
             raise SourceSnapshotContractError("Source snapshot columns are missing")
@@ -466,7 +466,7 @@ class SourceSnapshot:
         parquet_sha256: str,
         created_at: datetime,
         reader_contract_version: int = SOURCE_READER_CONTRACT_VERSION,
-    ) -> "SourceSnapshot":
+    ) -> SourceSnapshot:
         return cls(
             data_version_id=data_version_id,
             dataset_id=dataset_id,
@@ -532,7 +532,7 @@ class SourceSnapshot:
         return canonical_json(self.to_portable_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "SourceSnapshot":
+    def from_json(cls, value: str) -> SourceSnapshot:
         try:
             payload = json.loads(value)
             schema_payload = payload["schema"]

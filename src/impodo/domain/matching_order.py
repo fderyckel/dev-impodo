@@ -161,7 +161,7 @@ class MatchingOrderPreference:
         return canonical_json(self.portable_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "MatchingOrderPreference":
+    def from_json(cls, value: str) -> MatchingOrderPreference:
         """Restore one exact supported preference payload."""
 
         payload = json.loads(value)
@@ -375,7 +375,7 @@ class MatchingIdentityResult:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, object]) -> "MatchingIdentityResult":
+    def from_dict(cls, payload: dict[str, object]) -> MatchingIdentityResult:
         """Restore the bounded portable identity-health shape."""
 
         return cls(
@@ -561,7 +561,7 @@ class MatchingOrderCheck:
         return canonical_json(self.portable_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "MatchingOrderCheck":
+    def from_json(cls, value: str) -> MatchingOrderCheck:
         payload = json.loads(value)
         return cls(
             check_id=str(payload["check_id"]),

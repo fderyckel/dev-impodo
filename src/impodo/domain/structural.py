@@ -7,6 +7,7 @@ not accept SQL or code and never contact Odoo.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, replace
 from decimal import Decimal, InvalidOperation
@@ -128,7 +129,7 @@ class ExactJoinRule:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "ExactJoinRule":
+    def from_dict(cls, payload: Mapping[str, Any]) -> ExactJoinRule:
         return cls(
             rule_id=str(payload["rule_id"]),
             output_dataset_name=str(payload["output_dataset_name"]),
@@ -194,7 +195,7 @@ class UnionAllRule:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "UnionAllRule":
+    def from_dict(cls, payload: Mapping[str, Any]) -> UnionAllRule:
         return cls(
             rule_id=str(payload["rule_id"]),
             output_dataset_name=str(payload["output_dataset_name"]),
@@ -287,7 +288,7 @@ class GroupAggregateRule:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "GroupAggregateRule":
+    def from_dict(cls, payload: Mapping[str, Any]) -> GroupAggregateRule:
         return cls(
             rule_id=str(payload["rule_id"]),
             output_dataset_name=str(payload["output_dataset_name"]),
@@ -333,6 +334,203 @@ class StructuralReconciliation:
             raise ValueError("Structural reconciliation counts cannot be negative")
         if self.output_rows and self.lineage_links < self.output_rows:
             raise ValueError("Every structural output requires lineage")
+
+
+@dataclass(frozen=True, slots=True)
+class ExactJoinLineageReference:
+    """Identify protected physical rows behind one reviewed join example."""
+
+    dataset_id: str
+    row_numbers: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if not self.dataset_id.strip() or len(self.dataset_id.strip()) > 200:
+            raise ValueError("Join example lineage dataset is invalid")
+        if not self.row_numbers or any(item < 1 for item in self.row_numbers):
+            raise ValueError("Join example lineage rows must be positive")
+        object.__setattr__(self, "dataset_id", self.dataset_id.strip())
+        object.__setattr__(self, "row_numbers", tuple(sorted(set(self.row_numbers))))
+
+
+@dataclass(frozen=True, slots=True)
+class ExactJoinExample:
+    """Identify one reviewed match without copying source values into evidence."""
+
+    left_row_number: int
+    right_row_number: int | None
+    physical_lineage: tuple[ExactJoinLineageReference, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.left_row_number < 1:
+            raise ValueError("Join example left row number must be positive")
+        if self.right_row_number is not None and self.right_row_number < 1:
+            raise ValueError("Join example right row number must be positive")
+        lineage = tuple(sorted(self.physical_lineage, key=lambda item: item.dataset_id))
+        if len({item.dataset_id for item in lineage}) != len(lineage):
+            raise ValueError("Join example lineage datasets must be unique")
+        object.__setattr__(self, "physical_lineage", lineage)
+
+
+@dataclass(frozen=True, slots=True)
+class ExactJoinReview:
+    """Complete-data assessment used by both exact-join preview and execution."""
+
+    left_rows: int
+    right_rows: int
+    matched_left_rows: int
+    unmatched_left_rows: int
+    matched_right_rows: int
+    unmatched_right_rows: int
+    blank_left_key_rows: int
+    invalid_left_key_rows: int
+    blank_right_key_rows: int
+    invalid_right_key_rows: int
+    duplicate_left_key_groups: int
+    duplicate_left_key_rows: int
+    duplicate_right_key_groups: int
+    duplicate_right_key_rows: int
+    expected_output_rows: int
+    actual_output_rows: int | None
+    lineage_links: int = 0
+    output_table_hash: str | None = None
+    lineage_hash: str | None = None
+    findings: tuple[str, ...] = ()
+    examples: tuple[ExactJoinExample, ...] = ()
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.left_rows,
+            self.right_rows,
+            self.matched_left_rows,
+            self.unmatched_left_rows,
+            self.matched_right_rows,
+            self.unmatched_right_rows,
+            self.blank_left_key_rows,
+            self.invalid_left_key_rows,
+            self.blank_right_key_rows,
+            self.invalid_right_key_rows,
+            self.duplicate_left_key_groups,
+            self.duplicate_left_key_rows,
+            self.duplicate_right_key_groups,
+            self.duplicate_right_key_rows,
+            self.expected_output_rows,
+            self.lineage_links,
+        )
+        if any(item < 0 for item in counts):
+            raise ValueError("Exact-join review counts cannot be negative")
+        if self.actual_output_rows is not None and self.actual_output_rows < 0:
+            raise ValueError("Exact-join actual output rows cannot be negative")
+        if (
+            self.matched_left_rows
+            + self.unmatched_left_rows
+            + self.blank_left_key_rows
+            + self.invalid_left_key_rows
+            != self.left_rows
+        ):
+            raise ValueError("Exact-join left reconciliation is incomplete")
+        if (
+            self.matched_right_rows
+            + self.unmatched_right_rows
+            + self.blank_right_key_rows
+            + self.invalid_right_key_rows
+            != self.right_rows
+        ):
+            raise ValueError("Exact-join right reconciliation is incomplete")
+        if self.expected_output_rows != self.left_rows:
+            raise ValueError("Exact-join expected output must preserve the base grain")
+
+    @property
+    def can_save(self) -> bool:
+        """Return whether execution can preserve the declared exact-join contract."""
+
+        return not self.findings and self.actual_output_rows == self.expected_output_rows
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return stable review evidence without raw source values."""
+
+        return {
+            "left_rows": self.left_rows,
+            "right_rows": self.right_rows,
+            "matched_left_rows": self.matched_left_rows,
+            "unmatched_left_rows": self.unmatched_left_rows,
+            "matched_right_rows": self.matched_right_rows,
+            "unmatched_right_rows": self.unmatched_right_rows,
+            "blank_left_key_rows": self.blank_left_key_rows,
+            "invalid_left_key_rows": self.invalid_left_key_rows,
+            "blank_right_key_rows": self.blank_right_key_rows,
+            "invalid_right_key_rows": self.invalid_right_key_rows,
+            "duplicate_left_key_groups": self.duplicate_left_key_groups,
+            "duplicate_left_key_rows": self.duplicate_left_key_rows,
+            "duplicate_right_key_groups": self.duplicate_right_key_groups,
+            "duplicate_right_key_rows": self.duplicate_right_key_rows,
+            "expected_output_rows": self.expected_output_rows,
+            "actual_output_rows": self.actual_output_rows,
+            "lineage_links": self.lineage_links,
+            "output_table_hash": self.output_table_hash,
+            "lineage_hash": self.lineage_hash,
+            "findings": list(self.findings),
+            "examples": [asdict(item) for item in self.examples],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> ExactJoinReview:
+        """Restore persisted review evidence without recomputing source rows."""
+
+        return cls(
+            left_rows=int(payload["left_rows"]),
+            right_rows=int(payload["right_rows"]),
+            matched_left_rows=int(payload["matched_left_rows"]),
+            unmatched_left_rows=int(payload["unmatched_left_rows"]),
+            matched_right_rows=int(payload["matched_right_rows"]),
+            unmatched_right_rows=int(payload["unmatched_right_rows"]),
+            blank_left_key_rows=int(payload["blank_left_key_rows"]),
+            invalid_left_key_rows=int(payload["invalid_left_key_rows"]),
+            blank_right_key_rows=int(payload["blank_right_key_rows"]),
+            invalid_right_key_rows=int(payload["invalid_right_key_rows"]),
+            duplicate_left_key_groups=int(payload["duplicate_left_key_groups"]),
+            duplicate_left_key_rows=int(payload["duplicate_left_key_rows"]),
+            duplicate_right_key_groups=int(payload["duplicate_right_key_groups"]),
+            duplicate_right_key_rows=int(payload["duplicate_right_key_rows"]),
+            expected_output_rows=int(payload["expected_output_rows"]),
+            actual_output_rows=(
+                int(payload["actual_output_rows"])
+                if payload.get("actual_output_rows") is not None
+                else None
+            ),
+            lineage_links=int(payload.get("lineage_links", 0)),
+            output_table_hash=(
+                str(payload["output_table_hash"])
+                if payload.get("output_table_hash") is not None
+                else None
+            ),
+            lineage_hash=(
+                str(payload["lineage_hash"])
+                if payload.get("lineage_hash") is not None
+                else None
+            ),
+            findings=tuple(str(item) for item in payload.get("findings", ())),
+            examples=tuple(
+                ExactJoinExample(
+                    left_row_number=int(item["left_row_number"]),
+                    right_row_number=(
+                        int(item["right_row_number"])
+                        if item.get("right_row_number") is not None
+                        else None
+                    ),
+                    physical_lineage=tuple(
+                        ExactJoinLineageReference(
+                            dataset_id=str(reference["dataset_id"]),
+                            row_numbers=tuple(
+                                int(row_number)
+                                for row_number in reference.get("row_numbers", ())
+                            ),
+                        )
+                        for reference in item.get("physical_lineage", ())
+                    ),
+                )
+                for item in payload.get("examples", ())
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -471,16 +669,124 @@ def execute_structural_rules(
     return StructuralExecution(tuple(outputs))
 
 
+def review_exact_join(
+    rule: ExactJoinRule,
+    *,
+    specs: Mapping[str, SourceDataset],
+    tables: Mapping[str, SourceTable],
+    example_limit: int = 10,
+) -> ExactJoinReview:
+    """Assess every input row before an exact join is allowed to execute."""
+
+    if example_limit < 0:
+        raise ValueError("Join example limit cannot be negative")
+    try:
+        left_spec = specs[rule.left_dataset_id]
+        right_spec = specs[rule.right_dataset_id]
+        left_table = tables[rule.left_dataset_id]
+        right_table = tables[rule.right_dataset_id]
+    except KeyError as error:
+        raise StructuralError("Structural join input is unavailable") from error
+
+    left_keys, blank_left, invalid_left = _review_join_keys(
+        left_table,
+        left_spec,
+        rule.keys,
+        side="left",
+    )
+    right_keys, blank_right, invalid_right = _review_join_keys(
+        right_table,
+        right_spec,
+        rule.keys,
+        side="right",
+    )
+    left_counts = Counter(left_keys.values())
+    right_counts = Counter(right_keys.values())
+    duplicate_left = {key: count for key, count in left_counts.items() if count > 1}
+    duplicate_right = {key: count for key, count in right_counts.items() if count > 1}
+    right_rows_by_key: dict[tuple[Any, ...], list[int]] = {}
+    for row_number, key in right_keys.items():
+        right_rows_by_key.setdefault(key, []).append(row_number)
+
+    matched_left = 0
+    matched_right_numbers: set[int] = set()
+    matched_examples: list[ExactJoinExample] = []
+    unmatched_examples: list[ExactJoinExample] = []
+    matched_example_limit = (example_limit + 1) // 2
+    unmatched_example_limit = example_limit // 2
+    for row in left_table.rows:
+        key = left_keys.get(row.number)
+        right_numbers = right_rows_by_key.get(key, ()) if key is not None else ()
+        if right_numbers:
+            matched_left += 1
+            matched_right_numbers.update(right_numbers)
+            if len(matched_examples) < matched_example_limit:
+                matched_examples.append(
+                    ExactJoinExample(row.number, right_numbers[0])
+                )
+        elif key is not None and len(unmatched_examples) < unmatched_example_limit:
+            unmatched_examples.append(ExactJoinExample(row.number, None))
+
+    valid_left_rows = len(left_keys)
+    valid_right_rows = len(right_keys)
+    unmatched_left = valid_left_rows - matched_left
+    unmatched_right = valid_right_rows - len(matched_right_numbers)
+    findings: list[str] = []
+    if blank_left:
+        findings.append("Join key is blank on left-side rows")
+    if invalid_left:
+        findings.append("Join key is invalid on left-side rows")
+    if blank_right:
+        findings.append("Join key is blank on right-side rows")
+    if invalid_right:
+        findings.append("Join key is invalid on right-side rows")
+    if duplicate_right:
+        findings.append("Join right-side keys are not unique")
+    if rule.kind is JoinKind.INNER and unmatched_left:
+        findings.append("Inner join has unmatched left rows")
+    if rule.require_all_right_rows and unmatched_right:
+        findings.append("Join has unrepresented right-side rows")
+
+    return ExactJoinReview(
+        left_rows=len(left_table.rows),
+        right_rows=len(right_table.rows),
+        matched_left_rows=matched_left,
+        unmatched_left_rows=(
+            len(left_table.rows) - matched_left - blank_left - invalid_left
+        ),
+        matched_right_rows=len(matched_right_numbers),
+        unmatched_right_rows=(
+            len(right_table.rows)
+            - len(matched_right_numbers)
+            - blank_right
+            - invalid_right
+        ),
+        blank_left_key_rows=blank_left,
+        invalid_left_key_rows=invalid_left,
+        blank_right_key_rows=blank_right,
+        invalid_right_key_rows=invalid_right,
+        duplicate_left_key_groups=len(duplicate_left),
+        duplicate_left_key_rows=sum(duplicate_left.values()),
+        duplicate_right_key_groups=len(duplicate_right),
+        duplicate_right_key_rows=sum(duplicate_right.values()),
+        expected_output_rows=len(left_table.rows),
+        actual_output_rows=(len(left_table.rows) if not findings else None),
+        findings=tuple(findings),
+        examples=(*matched_examples, *unmatched_examples),
+    )
+
+
 def _execute_join(rule, specs, tables, lineage):
     left_spec = specs[rule.left_dataset_id]
     right_spec = specs[rule.right_dataset_id]
     left_table = tables[rule.left_dataset_id]
     right_table = tables[rule.right_dataset_id]
+    review = review_exact_join(rule, specs=specs, tables=tables)
+    if not review.can_save:
+        raise StructuralError(review.findings[0])
     right_index: dict[tuple[Any, ...], SourceRow] = {}
     for row in right_table.rows:
         key = _join_key(row, right_spec, rule.keys, side="right")
-        if key in right_index:
-            raise StructuralError("Join right-side keys are not unique")
         right_index[key] = row
     projections = {item.output_column_key: item for item in rule.projections}
     rows: list[SourceRow] = []
@@ -492,8 +798,6 @@ def _execute_join(rule, specs, tables, lineage):
         right = right_index.get(key)
         if right is None:
             unmatched_left += 1
-            if rule.kind is JoinKind.INNER:
-                raise StructuralError("Inner join has unmatched left rows")
         else:
             matched_right.add(right.number)
         values: dict[str, Any] = {}
@@ -514,8 +818,6 @@ def _execute_join(rule, specs, tables, lineage):
             sources.append(lineage[rule.right_dataset_id][right.number])
         output_lineage[number] = _merge_lineage(sources)
     unmatched_right = len(right_table.rows) - len(matched_right)
-    if rule.require_all_right_rows and unmatched_right:
-        raise StructuralError("Join has unrepresented right-side rows")
     table = _table(rule, rows, _headers(rule.output_columns), tables)
     return table, output_lineage, StructuralReconciliation(
         input_rows=len(left_table.rows) + len(right_table.rows),
@@ -594,7 +896,7 @@ def _execute_group(rule, specs, tables, lineage):
             if aggregate.operation is AggregateOperation.COUNT:
                 values[output_name] = len(source_rows)
             else:
-                total = Decimal("0")
+                total = Decimal(0)
                 for source_row in source_rows:
                     raw = _value(source_row, source_spec, aggregate.source_column_key or "")
                     try:
@@ -637,6 +939,41 @@ def _join_key(row, dataset, keys, *, side):
         except ValueParseError as error:
             raise StructuralError("Join key is blank or invalid") from error
     return tuple(result)
+
+
+def _review_join_keys(table, dataset, keys, *, side):
+    parsed: dict[int, tuple[Any, ...]] = {}
+    blank_rows = 0
+    invalid_rows = 0
+    for row in table.rows:
+        raw_values = tuple(
+            _value(
+                row,
+                dataset,
+                key.left_column_key if side == "left" else key.right_column_key,
+            )
+            for key in keys
+        )
+        if any(_is_blank_join_value(value) for value in raw_values):
+            blank_rows += 1
+            continue
+        try:
+            parsed[row.number] = tuple(
+                parse_value(
+                    raw,
+                    key.value_type,
+                    NormalizationSpec(),
+                    required=True,
+                )
+                for raw, key in zip(raw_values, keys, strict=True)
+            )
+        except ValueParseError:
+            invalid_rows += 1
+    return parsed, blank_rows, invalid_rows
+
+
+def _is_blank_join_value(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
 
 
 def _value(row: SourceRow | None, dataset: SourceDataset, column_key: str) -> Any:
@@ -737,6 +1074,9 @@ def _validate_output(columns, projections):
         raise ValueError("Every structural output requires one projection")
     if len(set(projection_keys)) != len(projection_keys):
         raise ValueError("Structural output projections must be unique")
+    names = [item.source_name for item in columns]
+    if len(set(names)) != len(names):
+        raise ValueError("Structural output column names must be unique")
 
 
 def _column_key(value):

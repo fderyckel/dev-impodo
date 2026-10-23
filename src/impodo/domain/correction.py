@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -234,7 +234,7 @@ class CorrectionPlanField:
         }
 
     @classmethod
-    def from_protected_dict(cls, payload: Mapping[str, object]) -> "CorrectionPlanField":
+    def from_protected_dict(cls, payload: Mapping[str, object]) -> CorrectionPlanField:
         return cls(
             dataset=str(payload["dataset"]),
             source_row=int(payload["source_row"]),
@@ -364,7 +364,7 @@ class CorrectionPlan:
         fields: Iterable[CorrectionPlanField],
         created_by: ActorIdentity,
         created_at: datetime,
-    ) -> "CorrectionPlan":
+    ) -> CorrectionPlan:
         ordered = tuple(sorted(fields, key=lambda item: item.key))
         unhashed = cls(
             plan_id=plan_id,
@@ -423,7 +423,7 @@ class CorrectionPlan:
         return canonical_json(self.protected_dict()).encode("utf-8")
 
     @classmethod
-    def from_protected_json(cls, payload: bytes) -> "CorrectionPlan":
+    def from_protected_json(cls, payload: bytes) -> CorrectionPlan:
         try:
             raw = json.loads(payload)
             if not isinstance(raw, dict) or raw.get("contract") != CORRECTION_PLAN_CONTRACT:
@@ -548,7 +548,7 @@ class CorrectionConfirmation:
         write_identity: OdooWriteIdentity,
         confirmed_by: ActorIdentity,
         confirmed_at: datetime,
-    ) -> "CorrectionConfirmation":
+    ) -> CorrectionConfirmation:
         summary = plan.public_summary()
         affected_models = {item.target_model for item in plan.fields}
         writable_models = tuple(sorted(set(write_identity.writable_models)))
@@ -631,7 +631,7 @@ class CorrectionConfirmation:
         return canonical_json(self.protected_dict()).encode("utf-8")
 
     @classmethod
-    def from_protected_json(cls, payload: bytes) -> "CorrectionConfirmation":
+    def from_protected_json(cls, payload: bytes) -> CorrectionConfirmation:
         try:
             raw = json.loads(payload)
             if (

@@ -235,7 +235,7 @@ class QualityRule:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "QualityRule":
+    def from_dict(cls, payload: Mapping[str, Any]) -> QualityRule:
         """Reconstruct and validate a rule from persisted evidence."""
 
         return cls(
@@ -361,7 +361,7 @@ class QualityRuleSet:
         return canonical_json_bytes(self.to_portable_dict()).decode("utf-8")
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "QualityRuleSet":
+    def from_dict(cls, payload: Mapping[str, Any]) -> QualityRuleSet:
         """Load a ruleset and verify its persisted content hash."""
 
         ruleset = cls(
@@ -389,7 +389,7 @@ class QualityRuleSet:
         return ruleset
 
     @classmethod
-    def from_json(cls, value: str) -> "QualityRuleSet":
+    def from_json(cls, value: str) -> QualityRuleSet:
         """Load and validate a ruleset from canonical JSON."""
 
         return cls.from_dict(json.loads(value))
@@ -445,7 +445,7 @@ class QualityIssue:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "QualityIssue":
+    def from_dict(cls, payload: Mapping[str, Any]) -> QualityIssue:
         """Reconstruct a validated issue from persisted evidence."""
 
         return cls(
@@ -500,7 +500,7 @@ class QualityRowResult:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "QualityRowResult":
+    def from_dict(cls, payload: Mapping[str, Any]) -> QualityRowResult:
         """Reconstruct a row decision from persisted evidence."""
 
         return cls(
@@ -549,7 +549,7 @@ class SourceAccountingEntry:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "SourceAccountingEntry":
+    def from_dict(cls, payload: Mapping[str, Any]) -> SourceAccountingEntry:
         """Reconstruct and validate one accounting entry."""
 
         return cls(
@@ -608,7 +608,7 @@ class QuarantineEntry:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "QuarantineEntry":
+    def from_dict(cls, payload: Mapping[str, Any]) -> QuarantineEntry:
         """Reconstruct quarantine evidence from durable storage."""
 
         return cls(
@@ -775,7 +775,7 @@ class QualityRun:
         return canonical_json_bytes(self.to_portable_dict()).decode("utf-8")
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "QualityRun":
+    def from_dict(cls, payload: Mapping[str, Any]) -> QualityRun:
         """Load a run, enforcing reconciliation and its content hash."""
 
         run = cls(
@@ -802,7 +802,7 @@ class QualityRun:
         return run
 
     @classmethod
-    def from_json(cls, value: str) -> "QualityRun":
+    def from_json(cls, value: str) -> QualityRun:
         """Load and validate a quality run from canonical JSON."""
 
         return cls.from_dict(json.loads(value))
@@ -875,7 +875,7 @@ class StoredQualityRun:
             raise ValueError("Stored quality evidence has not been published")
         return self.published_content_hash
 
-    def with_content_hash(self, content_hash: str) -> "StoredQualityRun":
+    def with_content_hash(self, content_hash: str) -> StoredQualityRun:
         """Bind the exact repository-calculated hash after publication."""
 
         return replace(self, published_content_hash=content_hash)

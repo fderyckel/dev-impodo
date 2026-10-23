@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import InitVar, dataclass
-from datetime import date, datetime, timezone, UTC
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -81,7 +81,7 @@ class OdooFieldComparison:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "OdooFieldComparison":
+    def from_dict(cls, payload: Mapping[str, Any]) -> OdooFieldComparison:
         _require_keys(
             payload,
             {"baseline", "current", "field", "field_type", "outcome", "proposed"},
@@ -138,7 +138,7 @@ class OdooComparisonRow:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "OdooComparisonRow":
+    def from_dict(cls, payload: Mapping[str, Any]) -> OdooComparisonRow:
         _require_keys(
             payload,
             {
@@ -216,7 +216,7 @@ class OdooComparisonArtifact:
             raise OdooComparisonError("Odoo comparison content hash is invalid")
 
     @classmethod
-    def create(cls, **values: Any) -> "OdooComparisonArtifact":
+    def create(cls, **values: Any) -> OdooComparisonArtifact:
         return cls(content_hash="", _calculate_content_hash=True, **values)
 
     @property
@@ -248,7 +248,7 @@ class OdooComparisonArtifact:
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "OdooComparisonArtifact":
+    def from_json(cls, value: str) -> OdooComparisonArtifact:
         try:
             payload = json.loads(value)
             _require_keys(

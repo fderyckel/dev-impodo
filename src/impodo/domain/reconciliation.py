@@ -62,7 +62,7 @@ class ReconciliationRow:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, object]) -> "ReconciliationRow":
+    def from_dict(cls, payload: dict[str, object]) -> ReconciliationRow:
         return cls(
             row_id=str(payload["row_id"]),
             dataset=str(payload["dataset"]),
@@ -175,7 +175,7 @@ class ReconciliationRun:
         return canonical_json_bytes(self.portable_dict()).decode("utf-8")
 
     @classmethod
-    def from_json(cls, value: str) -> "ReconciliationRun":
+    def from_json(cls, value: str) -> ReconciliationRun:
         payload = json.loads(value)
         if int(payload["contract_version"]) != RECONCILIATION_CONTRACT_VERSION:
             raise ValueError("Reconciliation contract version is unsupported")

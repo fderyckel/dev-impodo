@@ -64,7 +64,7 @@ class CompiledMigrationPlan(BaseModel):
         return f"sha256:{digest}"
 
     @model_validator(mode="after")
-    def validate_datasets(self) -> "CompiledMigrationPlan":
+    def validate_datasets(self) -> CompiledMigrationPlan:
         """Apply the same graph validation as the authoring profile."""
 
         if self.origin == "browser_mapping":
@@ -129,13 +129,13 @@ class CompiledMigrationPlan(BaseModel):
         return canonical_json_bytes(self.to_portable_dict()).decode("utf-8")
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "CompiledMigrationPlan":
+    def from_dict(cls, payload: Mapping[str, Any]) -> CompiledMigrationPlan:
         """Restore and validate one portable compiled contract."""
 
         return cls.model_validate(payload)
 
     @classmethod
-    def from_json(cls, value: str) -> "CompiledMigrationPlan":
+    def from_json(cls, value: str) -> CompiledMigrationPlan:
         """Restore one compiled contract from its canonical JSON form."""
 
         return cls.from_dict(json.loads(value))

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 from impodo.domain.project.foundation import (
     require_aware,
@@ -95,7 +95,7 @@ class CorrectionTargetIndexEntry:
     def from_protected_dict(
         cls,
         payload: Mapping[str, object],
-    ) -> "CorrectionTargetIndexEntry":
+    ) -> CorrectionTargetIndexEntry:
         return cls(
             dataset=str(payload["dataset"]),
             source_row=int(payload["source_row"]),
@@ -148,7 +148,7 @@ class CorrectionTargetIndex:
         completed_workspace_id: str,
         entries: Iterable[CorrectionTargetIndexEntry],
         created_at: datetime,
-    ) -> "CorrectionTargetIndex":
+    ) -> CorrectionTargetIndex:
         ordered = tuple(sorted(entries, key=lambda item: item.lineage_key))
         unhashed = cls(
             index_id=index_id,
@@ -175,7 +175,7 @@ class CorrectionTargetIndex:
         ).encode("utf-8")
 
     @classmethod
-    def from_protected_json(cls, payload: bytes) -> "CorrectionTargetIndex":
+    def from_protected_json(cls, payload: bytes) -> CorrectionTargetIndex:
         try:
             raw = json.loads(payload)
             if (
@@ -370,7 +370,7 @@ class CorrectionOriginManifest:
         object.__setattr__(self, "created_at", self.created_at.astimezone(UTC))
 
     @classmethod
-    def create(cls, **values: object) -> "CorrectionOriginManifest":
+    def create(cls, **values: object) -> CorrectionOriginManifest:
         prepared = tuple(
             sorted(
                 values.pop("prepared_artifacts"),  # type: ignore[arg-type]
@@ -403,7 +403,7 @@ class CorrectionOriginManifest:
         ).encode("utf-8")
 
     @classmethod
-    def from_protected_json(cls, payload: bytes) -> "CorrectionOriginManifest":
+    def from_protected_json(cls, payload: bytes) -> CorrectionOriginManifest:
         try:
             raw = json.loads(payload)
             if (

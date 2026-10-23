@@ -18,7 +18,7 @@ from collections.abc import (
     Mapping as MappingABC,
 )
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone, UTC
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from hashlib import sha256
@@ -148,7 +148,7 @@ class PreparedRecord:
         ],
         source_trace_id: str,
         issues: tuple[Issue, ...],
-    ) -> "PreparedRecord":
+    ) -> PreparedRecord:
         """Build trusted typed output without invoking the generic parser again.
 
         Only a parity-proven transformation backend may call this constructor.

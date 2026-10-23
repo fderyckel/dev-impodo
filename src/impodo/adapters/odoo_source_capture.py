@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import json
 import math
-import socket
 import time
 from collections.abc import Callable, Iterator, Mapping
-from datetime import date, datetime, timezone, UTC
+from datetime import UTC, date, datetime
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -624,7 +623,7 @@ class Json2OdooSourceCapture:
                 )
             except OdooSourceCaptureLimitError:
                 raise
-            except (TimeoutError, socket.timeout, URLError) as error:
+            except (TimeoutError, URLError) as error:
                 if attempt >= self._config.retries:
                     raise OdooSourceCaptureConsistencyError(
                         "Odoo capture timed out or was unreachable"

@@ -1443,6 +1443,11 @@ class RecipeCompiler:
 
         if plan is None:
             return {"rules": []}
+        if plan.dataset_uses:
+            raise RecipeConflictError(
+                "Source dataset-use policies need the portable Recipe contract "
+                "planned for the source-composition Recipe slice."
+            )
         by_name = {item.name: item.dataset_id for item in datasets}
         rules = []
         for raw in plan.to_dict(include_hash=False)["rules"]:
@@ -1528,9 +1533,10 @@ class RecipeCompiler:
                 and local_dataset is not None
             ):
                 value[key] = self._column(local_dataset, raw, columns)
-            elif key == "output_column_key" and output_dataset_id is not None:
-                value[key] = self._column(output_dataset_id, raw, columns)
-            elif key == "column_key" and output_dataset_id is not None:
+            elif (
+                key in {"output_column_key", "column_key"}
+                and output_dataset_id is not None
+            ):
                 value[key] = self._column(output_dataset_id, raw, columns)
             elif key == "left_column_key" and isinstance(raw_left_dataset, str):
                 value[key] = self._column(raw_left_dataset, raw, columns)

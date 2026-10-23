@@ -130,7 +130,7 @@ class SchemaGovernance:
         return _canonical_json(self.to_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "SchemaGovernance":
+    def from_json(cls, value: str) -> SchemaGovernance:
         """Restore governance and reject a mismatched content hash."""
 
         payload = json.loads(value)

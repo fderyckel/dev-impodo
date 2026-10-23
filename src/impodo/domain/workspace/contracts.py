@@ -35,7 +35,7 @@ WORKSPACE_EVIDENCE_IDENTITY_CONTRACT_VERSION = 2
 class SourceDatasetSet(Protocol):
     """Expose dataset shape without inventing an owning workspace identity."""
 
-    datasets: tuple["SourceDataset", ...]
+    datasets: tuple[SourceDataset, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +58,7 @@ class SourceConfiguration:
         return canonical_json(asdict(self))
 
     @classmethod
-    def from_json(cls, value: str) -> "SourceConfiguration":
+    def from_json(cls, value: str) -> SourceConfiguration:
         """Restore one stored confirmation without reinterpreting its catalog."""
 
         payload = json.loads(value)
@@ -156,7 +156,7 @@ class SourceSelection:
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "SourceSelection":
+    def from_json(cls, value: str) -> SourceSelection:
         """Restore a frozen selection without reopening source artifacts."""
 
         payload = json.loads(value)
@@ -330,7 +330,7 @@ class OdooModelCatalog:
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "OdooModelCatalog":
+    def from_json(cls, value: str) -> OdooModelCatalog:
         """Restore model choices without contacting the target again."""
 
         payload = json.loads(value)
@@ -451,7 +451,7 @@ class OdooSchemaCatalog:
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "OdooSchemaCatalog":
+    def from_json(cls, value: str) -> OdooSchemaCatalog:
         """Restore captured metadata without making another Odoo request."""
 
         payload = json.loads(value)
@@ -658,7 +658,7 @@ class MappingWorkingDraft:
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "MappingWorkingDraft":
+    def from_json(cls, value: str) -> MappingWorkingDraft:
         """Restore editor state and reject a tampered definition hash."""
 
         payload = json.loads(value)

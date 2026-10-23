@@ -8,7 +8,7 @@ invalidates mapping, Recipe, preparation, preflight, or execution evidence.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from typing import Protocol
 
 from impodo.domain.matching_order import (

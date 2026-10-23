@@ -122,7 +122,7 @@ class SupportingLookupSnapshot:
         choices: tuple[SupportingLookupChoice, ...],
         ambiguous_values: tuple[str, ...],
         reference_policy_hash: str = REFERENCE_POLICY_HASH,
-    ) -> "SupportingLookupSnapshot":
+    ) -> SupportingLookupSnapshot:
         """Build and hash one normalized snapshot."""
 
         normalized_workspace_id = workspace_id.strip()
@@ -256,7 +256,7 @@ class SupportingLookupSnapshot:
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "SupportingLookupSnapshot":
+    def from_json(cls, value: str) -> SupportingLookupSnapshot:
         """Restore stored evidence and reject semantic tampering."""
 
         payload = json.loads(value)

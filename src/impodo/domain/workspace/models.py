@@ -11,7 +11,6 @@ from impodo.domain.project.foundation import (
     require_revision,
     require_uuid,
     required_text,
-    utc_now,
 )
 
 

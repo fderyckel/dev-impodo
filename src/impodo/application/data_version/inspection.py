@@ -23,7 +23,7 @@ import zipfile
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, replace
 from dataclasses import fields as dataclass_fields
-from datetime import date, datetime, timezone, UTC
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import Path
@@ -199,7 +199,7 @@ class SourceFileCatalog:
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "SourceFileCatalog":
+    def from_json(cls, value: str) -> SourceFileCatalog:
         """Rehydrate a catalog stored by :meth:`to_json`."""
 
         try:

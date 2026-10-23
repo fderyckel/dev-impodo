@@ -18,9 +18,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-from typing import cast
+from typing import Protocol, cast
 
-from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
+from impodo.domain.workspace.contracts import (
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+)
 
 from ..mapping.contracts import (
     DatasetMapping,
@@ -40,6 +44,13 @@ from ..serialization import content_hash, portable
 
 COLUMNAR_PROGRAM_CONTRACT_VERSION = 6
 COLUMNAR_COMPILER_VERSION = 9
+
+
+class _DatasetIdentified(Protocol):
+    """Dataset-like value indexed by its stable identifier."""
+
+    @property
+    def dataset_id(self) -> str: ...
 
 
 def _optional_string(value: object) -> str | None:
@@ -604,7 +615,7 @@ class ColumnarTransformationProgram:
     def from_portable_dict(
         cls,
         payload: Mapping[str, object],
-    ) -> "ColumnarTransformationProgram":
+    ) -> ColumnarTransformationProgram:
         """Restore one exact persisted native program for value projection."""
 
         def input_column(value: object) -> ColumnarInputColumn:
@@ -1034,10 +1045,13 @@ def compile_columnar_transformation_program(
     raise ColumnarCompilationError("The requested dataset is not mapped")
 
 
-def _unique_by_id(items: tuple[object, ...], label: str) -> dict[str, object]:
-    result: dict[str, object] = {}
+def _unique_by_id[DatasetValue: _DatasetIdentified](
+    items: tuple[DatasetValue, ...],
+    label: str,
+) -> dict[str, DatasetValue]:
+    result: dict[str, DatasetValue] = {}
     for item in items:
-        dataset_id = str(getattr(item, "dataset_id"))
+        dataset_id = str(item.dataset_id)
         if dataset_id in result:
             raise ColumnarCompilationError(f"The {label} contains duplicate datasets")
         result[dataset_id] = item
@@ -1046,13 +1060,13 @@ def _unique_by_id(items: tuple[object, ...], label: str) -> dict[str, object]:
 
 def _compile_dataset(
     definition: MappingDefinition,
-    dataset: object,
-    mapping: object,
+    dataset: SourceDataset,
+    mapping: DatasetMapping,
     dataset_kind: ColumnarDatasetKind,
-    datasets: Mapping[str, object],
+    datasets: Mapping[str, SourceDataset],
 ) -> ColumnarCompilationDecision:
-    source = cast(SourceDataset, dataset)
-    authored = cast(DatasetMapping, mapping)
+    source = dataset
+    authored = mapping
     columns = {item.stable_key: item for item in source.columns}
     draft = _CompilationDraft(uses=[], required_keys=set())
     if dataset_kind is not ColumnarDatasetKind.DIRECT:
@@ -1204,7 +1218,7 @@ def _compile_dataset(
                     target_field=relationship.target_field,
                     parent_dataset_id=parent_id or "",
                     parent_dataset_name=(
-                        str(getattr(parent_source, "name"))
+                        str(parent_source.name)
                         if parent_source is not None
                         else ""
                     ),
@@ -1379,7 +1393,7 @@ def _compile_dataset(
 
 def _source_identity_component(
     key: str,
-    columns: Mapping[str, object],
+    columns: Mapping[str, SourceDatasetColumn],
     draft: _CompilationDraft,
     index: int,
 ) -> ColumnarIdentityComponentProgram:
@@ -1402,12 +1416,12 @@ def _source_identity_component(
 def _identity_component(
     component: IdentityComponentMapping,
     role: str,
-    columns: Mapping[str, object],
+    columns: Mapping[str, SourceDatasetColumn],
     draft: _CompilationDraft,
     index: int,
     *,
     definition: MappingDefinition,
-    datasets: Mapping[str, object],
+    datasets: Mapping[str, SourceDataset],
 ) -> tuple[
     ColumnarIdentityComponentProgram,
     ColumnarIdentityResolverProgram | None,
@@ -1492,7 +1506,7 @@ def _identity_component(
                 target_field=component.target_fields[0],
                 parent_dataset_id=parent_id or "",
                 parent_dataset_name=(
-                    str(getattr(parent_source, "name"))
+                    str(parent_source.name)
                     if parent_source is not None
                     else ""
                 ),
@@ -1548,7 +1562,7 @@ def _scalar_field_program(
     field: ScalarFieldMapping,
     output_ordinal: int,
     path: str,
-    columns: Mapping[str, object],
+    columns: Mapping[str, SourceDatasetColumn],
     draft: _CompilationDraft,
 ) -> ColumnarScalarFieldProgram:
     concatenation_sources = (
@@ -1980,7 +1994,7 @@ def _conversion_operation(
 
 def _require_column(
     key: str | None,
-    columns: Mapping[str, object],
+    columns: Mapping[str, SourceDatasetColumn],
     draft: _CompilationDraft,
 ) -> ColumnarInputColumn:
     if key is None or key not in columns:
@@ -1991,12 +2005,12 @@ def _require_column(
     return _input_column(columns[key])
 
 
-def _input_column(column: object) -> ColumnarInputColumn:
+def _input_column(column: SourceDatasetColumn) -> ColumnarInputColumn:
     return ColumnarInputColumn(
-        stable_key=str(getattr(column, "stable_key")),
-        ordinal=int(getattr(column, "ordinal")),
-        source_name=str(getattr(column, "source_name")),
-        candidate_type=str(getattr(column, "candidate_type")),
+        stable_key=str(column.stable_key),
+        ordinal=int(column.ordinal),
+        source_name=str(column.source_name),
+        candidate_type=str(column.candidate_type),
     )
 
 

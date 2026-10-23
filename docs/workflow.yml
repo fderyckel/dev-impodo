@@ -123,6 +123,8 @@ stages:
       - src/impodo/application/browser_queries.py::BrowserQueryService.get_source_page
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_rules
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_lookup
+      - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_join
+      - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.save_join
       - src/impodo/application/odoo_source_capture_service.py::OdooSourceCaptureService.review_current_plans
       - docs/testing/evidence/stage12-shared-page-reads-2026-10-07/audit.py::main
       - src/impodo/adapters/duckdb/schema/structure.py::read_table_columns
@@ -145,6 +147,7 @@ stages:
       - src/impodo/domain/workspace/derived_entities.py::evaluate_hierarchy_path
       - src/impodo/domain/workspace/derived_entities.py::review_derived_entities
       - src/impodo/domain/workspace/derived_entities.py::_group_lookup_values
+      - src/impodo/domain/structural.py::review_exact_join
       - scripts/capture_hierarchy_tutorial_screenshots.py::capture
       - src/impodo/application/data_version/source_worker.py::validate_source_file_isolated
       - src/impodo/web/source_file_commands.py::accept_source_uploads
@@ -165,6 +168,7 @@ stages:
       - tests/architecture/test_workspace_schema_contract.py
       - tests/integration/duckdb/test_forward_upgrades.py
       - tests/application/workspace/test_derived_entities.py
+      - tests/application/workspace/test_exact_join_authoring.py
       - tests/integration/web/test_source_workflow.py
       - tests/integration/web/test_stage12_page_loading.py
       - tests/integration/duckdb/test_schema_structure.py

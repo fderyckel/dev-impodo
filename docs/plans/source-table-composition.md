@@ -1,14 +1,25 @@
 ---
 audience: developer
 kind: plan
-status: planned
+status: in-progress
 ---
 
 # Compose source tables into one logical Odoo dataset
 
 ## Status, reader, and outcome
 
-**Status:** Approved direction, 2026-10-23. Implementation has not started.
+**Status:** In progress, 2026-10-23. Slices 0 and 1 are implemented and
+verified. Browser authoring, Recipe reuse of dataset-use decisions, and
+business-scenario qualification remain open.
+
+| Slice | Status |
+| --- | --- |
+| 0: Contract and compatibility | Complete. Source-preparation contract v6 stores complete dataset-use decisions. Version 4 and 5 plans keep their prior mapping inputs. |
+| 1: Application preview and save | Complete. Contract v7 retains the accepted complete-data review and its source, output, and lineage identities. |
+| 2: Guided browser workflow | Not started. |
+| 3: Recipe round trip | Not started. Recipe publication currently blocks a v6 plan that contains dataset-use decisions instead of dropping them. |
+| 4: Related-grain qualification | Not started. |
+| 5: Measured scale follow-up | Not started. |
 
 This plan is for product, domain, application, browser, and test maintainers.
 It defines a model-neutral way to combine several accepted physical source
@@ -34,12 +45,14 @@ logical datasets with complete lineage
 Match data and the existing preparation, review, and load workflow
 ```
 
-Impodo already has a portable exact-join rule, dependency-ordered structural
-evaluation, reconciliation counts, physical lineage, and Recipe compilation
-and application support. The browser does not yet let a data manager author
-such a join. The current mapping selection also exposes the original physical
-inputs as datasets to map, even when they exist only to build a logical
-output. Those product and ownership gaps are the work of this plan.
+Impodo has an exact-join rule, dependency-ordered structural evaluation,
+reconciliation counts, and physical lineage. Source-preparation contract v6
+can now keep physical inputs available to preparation without requiring them
+in **Match data**. Contract v7 and the workspace application service can now
+preview and save an exact join over the complete frozen snapshots. The browser
+does not yet let a data manager author such a join or choose dataset uses.
+Recipe publication of the new decisions also remains open. Those product gaps
+are the remaining work of this plan.
 
 ## Decisions
 
@@ -89,7 +102,8 @@ Source snapshots remain immutable evidence. A saved composition does not
 replace, rewrite, or hide their lineage. It does control which resulting
 datasets require an Odoo mapping.
 
-Add a plan-level dataset-use policy with these meanings:
+Source-preparation contract v6 adds a plan-level dataset-use policy with these
+meanings:
 
 - **Map directly:** expose the physical dataset in **Match data**.
 - **Preparation only:** use the physical dataset to build logical outputs but
@@ -101,10 +115,12 @@ This policy belongs to the versioned derived-entity plan, not to an individual
 join. One physical input can feed several outputs, and the same rule can be
 reused while the plan decides how each dataset participates in the workspace.
 
-The first implementation should advance the derived-entity contract version
-and make old plans default to **Map directly**. A fresh Recipe application must
-bind preparation-only datasets by portable logical identity even though they
-do not enter target-field mapping.
+Version 4 and 5 plans, and version 6 plans without an explicit complete policy,
+retain the previous mapping exposure. The application service accepts an
+explicit policy only when it covers every physical dataset and agrees with the
+saved preparation rules. A fresh Recipe application must eventually bind
+preparation-only datasets by portable logical identity even though they do not
+enter target-field mapping; that work remains in Slice 3.
 
 ### Several inputs use ordered binary rules
 
@@ -303,28 +319,52 @@ shared-server Phase 0 review.
 
 ## Delivery slices and exit gates
 
-### Slice 0: contract and compatibility
+### Slice 0: contract and compatibility — complete, 2026-10-23
 
-- Add the dataset-use policy and its default for existing plans.
-- Separate preparation dependencies from map-eligible datasets.
-- Advance and test the portable plan or compiler version as required.
-- Specify invalidation for policy and join changes.
+- Source-preparation contract v6 stores ordered `SourceDatasetUsePolicy`
+  evidence for **Map directly**, **Preparation only**, and **Map and prepare**.
+- Mapping selection filters only map-ineligible physical datasets. Preparation
+  still receives the complete frozen physical selection and preserves lineage.
+- Version 4 and 5 plan JSON retains its prior hash shape and mapping inputs. A
+  compatibility reader also restores the earlier exact-join payload whose
+  join mode occupied the rule-discriminator field.
+- `DerivedEntityWorkspaceService.save_dataset_uses` checks complete physical
+  coverage, rule participation, optimistic version, and source-selection hash.
+- The existing atomic plan repository invalidates mapping and prepared
+  evidence when it saves a policy revision.
+- Recipe compilation blocks plans with dataset-use decisions until Slice 3
+  defines their portable logical identity. It does not omit the decisions.
 
-Exit gate: old workspaces retain their current mapping inputs, and a fictional
-preparation-only input can build a logical dataset without requiring its own
-target-field mapping.
+The exit gate passed. Focused tests prove that old workspaces retain their
+mapping inputs and that two preparation-only join inputs build one mapped
+logical dataset with complete two-source lineage. The combined workspace,
+preparation, Recipe, and DuckDB regression selection passed 127 tests. No
+browser route changed, so route timing and connection-count qualification does
+not apply to this slice.
 
-### Slice 1: application preview and save
+### Slice 1: application preview and save — complete, 2026-10-23
 
-- Add exact-join request values and `preview_join` and `save_join` operations
-  to the derived-entity workspace capability.
-- Reuse the existing structural evaluator and complete reconciliation.
-- Enforce optimistic plan versions and atomic saves.
-- Persist enough evidence to reproduce the saved review.
+- `ExactJoinRequest`, `preview_join`, and `save_join` now provide a
+  model-neutral application boundary for one-to-zero-or-one enrichment.
+- `review_exact_join` scans every frozen row and reports complete match,
+  unmatched, unused, blank, invalid, and duplicate-key counts before the
+  existing structural evaluator can produce output.
+- The preview supports composite keys, optional and required enrichment, and
+  dependency-ordered joins whose base is a prior structural output.
+- Save repeats the review, enforces the optimistic parent version, and uses
+  the existing atomic repository transaction.
+- Contract v7 saves the rule hash, physical snapshot identities, complete
+  review, protected examples, output hash, and lineage hash. Versions 4, 5,
+  and 6 retain their prior JSON hash shape.
 
-Exit gate: application tests cover composite keys, optional and required
-matches, duplicate added keys, blank keys, column collisions, chained rules,
-stale versions, and retry after an interrupted save.
+The exit gate passed. Focused application tests cover composite keys, optional
+and required matches, duplicate added keys, blank and invalid keys, output
+column collisions, chained rules, stale versions, and retry after an
+interrupted save. A DuckDB repository regression proves rollback and retry of
+the atomic plan save. No browser route changed, so route timing,
+connection-count qualification, live timing, and screenshot work do not apply
+to this slice. The combined Slice 1, derived-entity, structural, preparation,
+Recipe, and DuckDB regression selection passed 137 tests.
 
 ### Slice 2: guided browser workflow
 
@@ -409,9 +449,8 @@ one-to-many relationships. It does not change Odoo write ownership, bypass
 final review, increase a row limit without qualification, or add shared-server
 PostgreSQL persistence.
 
-## Next approved implementation slice
+## Next implementation slice requiring approval
 
-Begin with **Slice 0: contract and compatibility**. It resolves the current
-mapping-selection blocker and establishes the migration path before adding a
-browser control. Stop after its focused tests and documentation update for a
-separate review before starting application preview and save behavior.
+Slice 2 adds the guided **Source data** browser controls and connects them to
+the reviewed Slice 1 application operations. It requires a separate green
+light before changing routes, templates, presenters, or screenshots.

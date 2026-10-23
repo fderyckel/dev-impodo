@@ -13,9 +13,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import (
+    UTC,
     datetime,
-    timezone,
-UTC,
 )
 from typing import Protocol
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import dataclass
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -59,7 +59,7 @@ _KNOWN_PROJECT_STATUSES = frozenset(
 @dataclass(frozen=True, slots=True)
 class _KnownIncompatibleStorage:
     layout: str
-    projects: tuple["UnavailableProjectSummary", ...]
+    projects: tuple[UnavailableProjectSummary, ...]
 
 
 @dataclass(frozen=True, slots=True)

@@ -89,7 +89,7 @@ class MigrationRunReferenceBundle:
         migration_run_id: str,
         source: ReferenceBundle,
         datasets: tuple[ReferenceDataSet, ...],
-    ) -> "MigrationRunReferenceBundle":
+    ) -> MigrationRunReferenceBundle:
         available = {
             (item.reference_id, item.version, item.content_hash)
             for item in source.datasets
@@ -115,7 +115,7 @@ class MigrationRunReferenceBundle:
         return ReferenceBundle(workspace_id=workspace_id, datasets=self.datasets)
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> "MigrationRunReferenceBundle":
+    def from_dict(cls, payload: Mapping[str, object]) -> MigrationRunReferenceBundle:
         expected_keys = {
             "content_hash",
             "contract_version",
@@ -206,7 +206,7 @@ class MigrationRunTargetSchema:
         migration_run_id: str,
         source_schema: OdooSchemaCatalog,
         model_names: set[str],
-    ) -> "MigrationRunTargetSchema":
+    ) -> MigrationRunTargetSchema:
         return cls(
             migration_run_id=migration_run_id,
             source_schema=source_schema,
@@ -257,7 +257,7 @@ class MigrationRunTargetSchema:
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "MigrationRunTargetSchema":
+    def from_json(cls, value: str) -> MigrationRunTargetSchema:
         payload = json.loads(value)
         expected_keys = {
             "content_hash",

@@ -790,8 +790,8 @@ class DatasetMapping:
     relationships: tuple[RelationshipMapping, ...] = ()
     target_field_dispositions: tuple[TargetFieldDisposition, ...] = ()
     approved_write_fields: tuple[str, ...] = ()
-    control_definitions: tuple["BusinessControlDefinition", ...] = ()
-    control_expectations: tuple["MappingControlExpectation", ...] = ()
+    control_definitions: tuple[BusinessControlDefinition, ...] = ()
+    control_expectations: tuple[MappingControlExpectation, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", MappingTargetMode(self.mode))
@@ -815,7 +815,7 @@ class DatasetMapping:
             )
 
     @property
-    def effective_control_totals(self) -> tuple["BusinessControlTotal", ...]:
+    def effective_control_totals(self) -> tuple[BusinessControlTotal, ...]:
         """Project reusable definitions and edition expectations for runtime."""
 
         expected_by_id = {
@@ -1064,7 +1064,7 @@ class MappingDefinition:
         return _canonical_json(self.to_dict())
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "MappingDefinition":
+    def from_dict(cls, payload: Mapping[str, Any]) -> MappingDefinition:
         """Restore the exact current mapping contract and verify its hash."""
 
         if set(payload) != {
@@ -1100,7 +1100,7 @@ class MappingDefinition:
         return definition
 
     @classmethod
-    def from_json(cls, value: str) -> "MappingDefinition":
+    def from_json(cls, value: str) -> MappingDefinition:
         """Restore a mapping definition from its portable JSON envelope."""
 
         return cls.from_dict(json.loads(value))

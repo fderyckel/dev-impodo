@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from threading import RLock
 from uuid import uuid4
 

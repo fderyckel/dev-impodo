@@ -21,7 +21,7 @@ class _ControlFieldState:
     """Mutable constant-size accumulator shared by controls on one field."""
 
     first_control: BusinessControlTotal
-    actual: Decimal = Decimal("0")
+    actual: Decimal = Decimal(0)
     included: int = 0
     empty: int = 0
 
@@ -39,7 +39,7 @@ class CompiledControlTotalAccumulator:
         cls,
         definition: MappingDefinition,
         selection: SourceSelection,
-    ) -> "CompiledControlTotalAccumulator":
+    ) -> CompiledControlTotalAccumulator:
         dataset_name_by_id = {item.dataset_id: item.name for item in selection.datasets}
         states: dict[str, dict[str, _ControlFieldState]] = {}
         for dataset in definition.datasets:

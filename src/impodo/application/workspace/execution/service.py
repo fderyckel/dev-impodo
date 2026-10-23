@@ -6,7 +6,7 @@ import re
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timezone, UTC
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 from uuid import uuid4
@@ -2252,9 +2252,7 @@ class ExecutionService:
                         if referenced.disposition != "CREATE":
                             add_row(referenced)
                         continue
-                    if isinstance(value, BusinessReference):
-                        key, scope = value.key, value.scope
-                    elif isinstance(value, LogicalReference):
+                    if isinstance(value, BusinessReference | LogicalReference):
                         key, scope = value.key, value.scope
                     else:
                         raise WorkspaceError(
@@ -3026,9 +3024,7 @@ class ExecutionService:
                 )
             ] = related_id
             return related_id
-        if isinstance(value, BusinessReference):
-            key, scope = value.key, value.scope
-        elif isinstance(value, LogicalReference):
+        if isinstance(value, BusinessReference | LogicalReference):
             key, scope = value.key, value.scope
         else:
             raise WorkspaceError("A relationship is not expressed by a business key")

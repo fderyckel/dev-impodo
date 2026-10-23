@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
 from uuid import UUID
@@ -301,24 +301,24 @@ class ExecutionRepository(DuckDbRepository):
                     if stored is None:
                         raise WorkspaceError("Execution outcome row is missing")
                     previous = ExecutionRowAttempt.from_json(str(stored[0]))
-                    if (
+                    transition_allowed = (
                         previous.status
                         in {
                             ExecutionRowStatus.PLANNED,
                             ExecutionRowStatus.RETRY_READY,
                         }
                         and item.status is ExecutionRowStatus.BLOCKED
-                    ):
-                        pass
-                    elif previous.status is ExecutionRowStatus.IN_FLIGHT:
-                        pass
-                    elif previous.status is ExecutionRowStatus.PARTIALLY_APPLIED and item.status in {
-                        ExecutionRowStatus.PARTIALLY_APPLIED,
-                        ExecutionRowStatus.COMMITTED,
-                        ExecutionRowStatus.OUTCOME_UNKNOWN,
-                    }:
-                        pass
-                    else:
+                    ) or previous.status is ExecutionRowStatus.IN_FLIGHT
+                    transition_allowed = transition_allowed or (
+                        previous.status is ExecutionRowStatus.PARTIALLY_APPLIED
+                        and item.status
+                        in {
+                            ExecutionRowStatus.PARTIALLY_APPLIED,
+                            ExecutionRowStatus.COMMITTED,
+                            ExecutionRowStatus.OUTCOME_UNKNOWN,
+                        }
+                    )
+                    if not transition_allowed:
                         raise WorkspaceError("Execution row was already attempted")
                     stable_before = (
                         previous.row_id,

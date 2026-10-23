@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, timezone, UTC
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from hashlib import sha256
 

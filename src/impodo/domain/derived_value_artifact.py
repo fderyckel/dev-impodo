@@ -169,7 +169,7 @@ class DerivedValueArtifact:
         parquet_sha256: str,
         created_at: datetime,
         writer_contract_version: int = DERIVED_VALUE_WRITER_CONTRACT_VERSION,
-    ) -> "DerivedValueArtifact":
+    ) -> DerivedValueArtifact:
         ordered_inputs = tuple(sorted(input_evidence, key=lambda item: item.dataset_id))
         logical_hash = derived_value_artifact_logical_hash(
             workspace_id=workspace_id,
@@ -280,7 +280,7 @@ class DerivedValueArtifact:
         return canonical_json(self.to_portable_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "DerivedValueArtifact":
+    def from_json(cls, value: str) -> DerivedValueArtifact:
         try:
             payload = json.loads(value)
             if not isinstance(payload, dict):

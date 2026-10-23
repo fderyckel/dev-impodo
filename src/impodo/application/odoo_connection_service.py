@@ -45,7 +45,7 @@ class OdooConnectionIdentity:
     def from_workspace(
         cls,
         workspace_state: WorkspaceState,
-    ) -> "OdooConnectionIdentity":
+    ) -> OdooConnectionIdentity:
         if workspace_state.odoo_connection_mode is None:
             raise WorkspaceStateError("Choose Local Odoo or Remote Odoo")
         return cls(

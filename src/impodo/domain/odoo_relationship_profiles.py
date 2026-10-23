@@ -117,14 +117,14 @@ STANDARD_ODOO_RELATIONSHIP_PROFILE = OdooRelationshipProfile(
     ),
     optional_relationships=frozenset(
         ("product.template", relation)
-        for relation in {
+        for relation in (
             "ir.attachment",
             "product.combo",
             "product.packaging",
             "product.supplierinfo",
             "product.tag",
             "product.template.attribute.line",
-        }
+        )
     ),
     generated_relationships=frozenset(
         {

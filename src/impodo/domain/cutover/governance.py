@@ -111,7 +111,7 @@ class CorrectionGroupKey:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "CorrectionGroupKey":
+    def from_dict(cls, payload: Mapping[str, Any]) -> CorrectionGroupKey:
         """Reconstruct a group key from persisted decision evidence."""
 
         return cls(
@@ -168,7 +168,7 @@ class CorrectionImpact:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "CorrectionImpact":
+    def from_dict(cls, payload: Mapping[str, Any]) -> CorrectionImpact:
         """Reconstruct and validate an aggregated correction impact."""
 
         return cls(
@@ -203,7 +203,7 @@ class CorrectionDecision:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "CorrectionDecision":
+    def from_dict(cls, payload: Mapping[str, Any]) -> CorrectionDecision:
         """Reconstruct and authorize-check a stored group decision."""
 
         return cls(
@@ -298,7 +298,7 @@ class DryRunSummary:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "DryRunSummary":
+    def from_dict(cls, payload: Mapping[str, Any]) -> DryRunSummary:
         return cls(
             corrections=tuple(
                 CorrectionImpact.from_dict(item)
@@ -418,7 +418,7 @@ class DryRun:
             if item.decision is CorrectionDecisionKind.REJECTED
         )
 
-    def complete(self, summary: DryRunSummary) -> "DryRun":
+    def complete(self, summary: DryRunSummary) -> DryRun:
         """Attach execution results and return the next review state.
 
         Args:
@@ -447,7 +447,7 @@ class DryRun:
         actor: Actor,
         decided_at: datetime,
         reason: str = "",
-    ) -> "DryRun":
+    ) -> DryRun:
         """Approve one correction group whose approval mode is ``required``.
 
         Automatic groups cannot receive group approval because their rule
@@ -482,7 +482,7 @@ class DryRun:
         actor: Actor,
         decided_at: datetime,
         reason: str = "",
-    ) -> "DryRun":
+    ) -> DryRun:
         """Approve every still-pending required group in one domain action."""
 
         self._require_status(DryRunStatus.REVIEW_REQUIRED)
@@ -510,7 +510,7 @@ class DryRun:
         actor: Actor,
         decided_at: datetime,
         reason: str = "",
-    ) -> "DryRun":
+    ) -> DryRun:
         """Reject one required correction group and block this dry run.
 
         Rejection is fail-closed. The same dry run cannot later be approved;
@@ -539,7 +539,7 @@ class DryRun:
             group_decisions=self._append_decision(decision),
         )
 
-    def reopen_review(self) -> "DryRun":
+    def reopen_review(self) -> DryRun:
         """Reopen a review blocked by a manager rejection.
 
         Accepted group decisions remain valid. Rejected decisions return to
@@ -568,7 +568,7 @@ class DryRun:
         actor: Actor,
         approved_at: datetime,
         reason: str = "",
-    ) -> "DryRun":
+    ) -> DryRun:
         """Approve the complete reviewed dry run.
 
         Whole-run approval is required even when every correction is
@@ -601,7 +601,7 @@ class DryRun:
             ),
         )
 
-    def freeze(self, *, canonical_dataset_hash: str) -> "DryRun":
+    def freeze(self, *, canonical_dataset_hash: str) -> DryRun:
         """Bind an approved run to the exact canonical dataset.
 
         Freezing does not write to Odoo. It only records the SHA-256 hash of the
@@ -667,7 +667,7 @@ class DryRun:
         )
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "DryRun":
+    def from_dict(cls, payload: Mapping[str, Any]) -> DryRun:
         summary_payload = payload.get("summary")
         approval_payload = payload.get("approval")
         return cls(
@@ -700,7 +700,7 @@ class DryRun:
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "DryRun":
+    def from_json(cls, value: str) -> DryRun:
         return cls.from_dict(json.loads(value))
 
 

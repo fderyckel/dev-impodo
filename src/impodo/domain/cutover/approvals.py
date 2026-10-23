@@ -51,7 +51,7 @@ class ApprovalEvidence:
         capability: Capability,
         approved_at: datetime,
         reason: str = "",
-    ) -> "ApprovalEvidence":
+    ) -> ApprovalEvidence:
         """Create evidence only when ``actor`` owns the claimed capability."""
 
         if not actor.has(capability):
@@ -80,7 +80,7 @@ class ApprovalEvidence:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> "ApprovalEvidence":
+    def from_dict(cls, payload: Mapping[str, object]) -> ApprovalEvidence:
         """Reconstruct validated evidence from a portable decision payload."""
 
         actor_payload = dict(payload["approved_by"])
@@ -223,7 +223,7 @@ class ExportPlanApproval:
         policy_version: str,
         expires_at: datetime | None = None,
         reason: str = "",
-    ) -> "ExportPlanApproval":
+    ) -> ExportPlanApproval:
         """Approve exactly ``plan`` using a verified key-user capability."""
 
         return cls(

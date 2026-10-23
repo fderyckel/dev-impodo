@@ -152,7 +152,7 @@ class RelationshipHealthResult:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> "RelationshipHealthResult":
+    def from_dict(cls, payload: Mapping[str, object]) -> RelationshipHealthResult:
         """Restore the bounded portable relationship-health shape."""
 
         return cls(

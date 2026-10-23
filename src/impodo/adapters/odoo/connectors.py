@@ -27,10 +27,9 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone, UTC
-from io import StringIO
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -47,7 +46,6 @@ from impodo.domain.shared.models import (
     TargetRecord,
     UniqueConstraintMetadata,
     canonical_json_bytes,
-    canonical_json_text,
     portable_value,
     target_identity_hash,
 )
@@ -78,14 +76,8 @@ from impodo.domain.odoo.contracts import (
     ConnectorTransportError,
     MetadataRequest,
     MetadataSnapshot,
-    OdooReadConnector,
-    OdooReadIdentityProbe,
-    OdooWriteIdentityProbe,
     RecordRequest,
     RecordSnapshot,
-    bind_snapshot_hashes,
-    metadata_snapshot_payload,
-    record_snapshot_json,
 )
 
 
@@ -380,7 +372,7 @@ class Json2Config:
             )
 
     @classmethod
-    def from_environment(cls) -> "Json2Config":
+    def from_environment(cls) -> Json2Config:
         """Build configuration from the governed ``IMPODO_ODOO_*`` variables.
 
         Required variables identify the base URL, database, and API key.
@@ -1132,7 +1124,7 @@ class Json2ReadConnector:
                     raise ConnectorIncompleteResultError(
                         "JSON-2 response exceeds the safe limit"
                     )
-            except (TimeoutError, socket.timeout, URLError) as exc:
+            except (TimeoutError, URLError) as exc:
                 if attempt >= self._config.retries:
                     raise _Json2TransportFailure(
                         category=_json2_transport_failure_category(exc),
@@ -1551,4 +1543,4 @@ class _NoRedirectHandler(HTTPRedirectHandler):
     ):
         """Reject redirects so bearer credentials never reach another URL."""
 
-        return None
+        return

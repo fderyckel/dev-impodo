@@ -11,7 +11,7 @@ import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timezone, UTC
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from impodo.domain.workspace.business_keys import recommend_business_key

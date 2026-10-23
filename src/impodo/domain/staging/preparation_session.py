@@ -135,7 +135,7 @@ class PreparedCanonicalProjection:
     def from_portable_dict(
         cls,
         payload: Mapping[str, Any],
-    ) -> "PreparedCanonicalProjection":
+    ) -> PreparedCanonicalProjection:
         program_payload = payload.get("program")
         if not isinstance(program_payload, Mapping):
             raise ValueError("Prepared canonical projection program is invalid")

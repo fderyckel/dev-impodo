@@ -20,7 +20,7 @@ import json
 import sys
 import time
 from collections.abc import Sequence
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 
 from impodo.adapters.artifacts.profile_loader import ProfileLoadError, load_profile

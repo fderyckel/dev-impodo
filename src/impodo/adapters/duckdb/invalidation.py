@@ -9,9 +9,8 @@ normalization, then preflight—retiring lifecycle status and deleting only
 from __future__ import annotations
 
 from datetime import (
+    UTC,
     datetime,
-    timezone,
-UTC,
 )
 
 import duckdb

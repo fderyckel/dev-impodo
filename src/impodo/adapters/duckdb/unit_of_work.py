@@ -222,7 +222,7 @@ class DuckDbUnitOfWork(AbstractContextManager["DuckDbUnitOfWork"]):
         self._connection_context = None
         self.connection: duckdb.DuckDBPyConnection | None = None
 
-    def __enter__(self) -> "DuckDbUnitOfWork":
+    def __enter__(self) -> DuckDbUnitOfWork:
         self._connection_context = self._factory.connect(self._path)
         self.connection = self._connection_context.__enter__()
         if self._prepare is not None:

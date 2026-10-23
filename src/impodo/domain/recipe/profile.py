@@ -57,7 +57,7 @@ class SourceSpec(StrictModel):
     header_row: int = Field(default=1, ge=1, le=1_048_576)
 
     @model_validator(mode="after")
-    def validate_source(self) -> "SourceSpec":
+    def validate_source(self) -> SourceSpec:
         """Reject escaping paths and format-specific option contradictions."""
 
         posix_path = PurePosixPath(self.file)
@@ -101,7 +101,7 @@ class TargetSpec(StrictModel):
     on_existing: Literal["block", "unchanged"] | None = None
 
     @model_validator(mode="after")
-    def validate_create_policy(self) -> "TargetSpec":
+    def validate_create_policy(self) -> TargetSpec:
         """Require an explicit collision policy only for create-only data."""
 
         if self.mode == "create" and self.on_existing is None:
@@ -141,7 +141,7 @@ class FieldSpec(StrictModel):
     null_policy: Literal["distinct", "equivalent", "ignore_source_null"] = "distinct"
 
     @model_validator(mode="after")
-    def validate_semantics(self) -> "FieldSpec":
+    def validate_semantics(self) -> FieldSpec:
         """Reject comparison and decimal settings that cannot coexist."""
 
         if self.validate_only and self.compare:
@@ -169,7 +169,7 @@ class ResolveSpec(StrictModel):
     incoming_projection_field: str | None = None
 
     @model_validator(mode="after")
-    def validate_origin(self) -> "ResolveSpec":
+    def validate_origin(self) -> ResolveSpec:
         """Require one complete incoming, target, or hybrid resolution shape."""
 
         incoming = self.dataset is not None
@@ -242,7 +242,7 @@ class RelationSpec(StrictModel):
     null_policy: Literal["distinct", "equivalent", "ignore_source_null"] = "distinct"
 
     @model_validator(mode="after")
-    def validate_semantics(self) -> "RelationSpec":
+    def validate_semantics(self) -> RelationSpec:
         """Reject unsafe relation operations and non-blocking compare policies."""
 
         if self.value_source == "source":
@@ -300,7 +300,7 @@ class IdentityComponent(StrictModel):
     null_policy: Literal["reject", "explicit_scope_null"] = "reject"
 
     @model_validator(mode="after")
-    def validate_arity(self) -> "IdentityComponent":
+    def validate_arity(self) -> IdentityComponent:
         """Keep flattened source and target identity shapes reconstructable."""
 
         if self.resolve is None and len(self.source_fields) != len(self.target_fields):
@@ -323,7 +323,7 @@ class TargetIdentitySpec(StrictModel):
     scope: tuple[IdentityComponent, ...] = ()
 
     @model_validator(mode="after")
-    def validate_null_policies(self) -> "TargetIdentitySpec":
+    def validate_null_policies(self) -> TargetIdentitySpec:
         """Keep nullable hierarchy semantics out of the identity key itself."""
 
         if any(
@@ -355,7 +355,7 @@ class DatasetSpec(StrictModel):
     target_domain: tuple[Any, ...] = ()
 
     @model_validator(mode="after")
-    def validate_target_fields(self) -> "DatasetSpec":
+    def validate_target_fields(self) -> DatasetSpec:
         """Prevent one target field from having scalar and relation semantics."""
 
         overlap = set(self.fields).intersection(self.relations)
@@ -390,7 +390,7 @@ class ProfileDocument(StrictModel):
     datasets: tuple[DatasetSpec, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_datasets(self) -> "ProfileDocument":
+    def validate_datasets(self) -> ProfileDocument:
         """Validate unique names, incoming references, identity keys, and cycles."""
 
         validate_dataset_graph(self.datasets)

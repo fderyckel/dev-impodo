@@ -13,7 +13,11 @@ from __future__ import annotations
 
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import SourceSelection
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    validate_saved_exact_join_reviews,
+    validate_source_dataset_uses,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
@@ -72,6 +76,8 @@ class DerivedEntityRepository(DuckDbRepository):
                 raise WorkspaceError(
                     "Derived-entity plan does not match the frozen source selection"
                 )
+            validate_source_dataset_uses(selection, plan)
+            validate_saved_exact_join_reviews(selection, plan)
             current = connection.execute(
                 """
                 SELECT plan_id, version

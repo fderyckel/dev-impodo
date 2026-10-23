@@ -124,7 +124,7 @@ class CombinedDistinctInput(StrictScenarioModel):
     header_row: int = Field(default=1, ge=1, le=1_048_576)
 
     @model_validator(mode="after")
-    def validate_input(self) -> "CombinedDistinctInput":
+    def validate_input(self) -> CombinedDistinctInput:
         """Keep every combined input inside the pinned fixture directory."""
 
         clean = _contained_relative_path(self.file, "combined input file")
@@ -155,7 +155,7 @@ class CombinedDistinctTable(StrictScenarioModel):
     formula: str = Field(default="value", min_length=1, max_length=1_000)
 
     @model_validator(mode="after")
-    def validate_table(self) -> "CombinedDistinctTable":
+    def validate_table(self) -> CombinedDistinctTable:
         if _SCENARIO_ID.fullmatch(self.output_dataset) is None:
             raise ValueError("combined output_dataset is invalid")
         validate_formula(self.formula, allowed_names={"value"})
@@ -176,7 +176,7 @@ class FileScenarioSource(StrictScenarioModel):
     combined_distinct_tables: tuple[CombinedDistinctTable, ...] = ()
 
     @model_validator(mode="after")
-    def validate_fixture_set(self) -> "FileScenarioSource":
+    def validate_fixture_set(self) -> FileScenarioSource:
         object.__setattr__(
             self,
             "fixture_set",
@@ -202,7 +202,7 @@ class OdooCaptureRelationship(StrictScenarioModel):
     required_for_migration: bool = False
 
     @model_validator(mode="after")
-    def validate_relationship(self) -> "OdooCaptureRelationship":
+    def validate_relationship(self) -> OdooCaptureRelationship:
         if _TECHNICAL_NAME.fullmatch(self.field) is None:
             raise ValueError("capture relationship field is invalid")
         if _TECHNICAL_NAME.fullmatch(self.target_model) is None:
@@ -227,7 +227,7 @@ class OdooCaptureModel(StrictScenarioModel):
     relationships: tuple[OdooCaptureRelationship, ...] = ()
 
     @model_validator(mode="after")
-    def validate_model(self) -> "OdooCaptureModel":
+    def validate_model(self) -> OdooCaptureModel:
         if _TECHNICAL_NAME.fullmatch(self.model) is None:
             raise ValueError("capture model is invalid")
         fields = _unique(self.fields, "capture fields")
@@ -255,7 +255,7 @@ class OdooScenarioSource(StrictScenarioModel):
     allowed_company_keys: tuple[str, ...] = Field(min_length=1, max_length=50)
 
     @model_validator(mode="after")
-    def validate_capture(self) -> "OdooScenarioSource":
+    def validate_capture(self) -> OdooScenarioSource:
         if _REFERENCE.fullmatch(self.source_profile) is None:
             raise ValueError("source.source_profile is invalid")
         roots = _unique(self.root_models, "source.root_models")
@@ -300,7 +300,7 @@ class ScenarioRules(StrictScenarioModel):
     recipe_revisions: tuple[RecipeRevisionReference, ...] = ()
 
     @model_validator(mode="after")
-    def validate_rule_source(self) -> "ScenarioRules":
+    def validate_rule_source(self) -> ScenarioRules:
         if (self.profile is None) == (not self.recipe_revisions):
             raise ValueError(
                 "rules must select either one profile or Recipe revisions"
@@ -332,7 +332,7 @@ class ScenarioDestination(StrictScenarioModel):
     relevant_modules: tuple[str, ...] = Field(default=("base",), max_length=50)
 
     @model_validator(mode="after")
-    def validate_destination(self) -> "ScenarioDestination":
+    def validate_destination(self) -> ScenarioDestination:
         if _REFERENCE.fullmatch(self.target_profile) is None:
             raise ValueError("destination.target_profile is invalid")
         if _REFERENCE.fullmatch(self.expected_seed) is None:
@@ -362,7 +362,7 @@ class ScenarioExecution(StrictScenarioModel):
     create_batch_rows: int = Field(default=10, ge=1, le=MAX_CREATE_BATCH_ROWS)
 
     @model_validator(mode="after")
-    def validate_write_boundary(self) -> "ScenarioExecution":
+    def validate_write_boundary(self) -> ScenarioExecution:
         write_stages = {
             ScenarioStopAfter.RECONCILIATION,
             ScenarioStopAfter.REPEAT_COMPARISON,
@@ -434,7 +434,7 @@ class ScenarioExpectations(StrictScenarioModel):
     repeat_comparison: ComparisonExpectation | None = None
 
     @model_validator(mode="after")
-    def validate_projection(self) -> "ScenarioExpectations":
+    def validate_projection(self) -> ScenarioExpectations:
         if self.target_projection is not None:
             clean = _contained_relative_path(
                 self.target_projection,
@@ -484,7 +484,7 @@ class ScenarioDefinition(StrictScenarioModel):
     expectations: ScenarioExpectations
 
     @model_validator(mode="after")
-    def validate_scenario(self) -> "ScenarioDefinition":
+    def validate_scenario(self) -> ScenarioDefinition:
         if _SCENARIO_ID.fullmatch(self.scenario_id) is None:
             raise ValueError("scenario_id is invalid")
         if self.source.mode is ScenarioSourceMode.ODOO and self.rules.profile is None:
@@ -572,7 +572,7 @@ class TargetProjectionReference(StrictScenarioModel):
     identity: dict[str, ScenarioScalar] = Field(min_length=1, max_length=20)
 
     @model_validator(mode="after")
-    def validate_reference(self) -> "TargetProjectionReference":
+    def validate_reference(self) -> TargetProjectionReference:
         if (
             _TECHNICAL_NAME.fullmatch(self.model) is None
             or any(
@@ -602,7 +602,7 @@ class TargetProjectionRecord(StrictScenarioModel):
     )
 
     @model_validator(mode="after")
-    def validate_record(self) -> "TargetProjectionRecord":
+    def validate_record(self) -> TargetProjectionRecord:
         fields = {*self.identity, *self.values, *self.relationships}
         if (
             _TECHNICAL_NAME.fullmatch(self.model) is None
@@ -634,7 +634,7 @@ class TargetProjection(StrictScenarioModel):
     records: tuple[TargetProjectionRecord, ...] = Field(min_length=1, max_length=10_000)
 
     @model_validator(mode="after")
-    def validate_unique_records(self) -> "TargetProjection":
+    def validate_unique_records(self) -> TargetProjection:
         keys = [
             content_hash(
                 {

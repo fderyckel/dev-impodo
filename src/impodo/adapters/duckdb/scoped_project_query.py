@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 from impodo.application.project.ports import MigrationProjectRepository
 from impodo.domain.project.foundation import (

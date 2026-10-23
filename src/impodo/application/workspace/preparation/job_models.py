@@ -156,7 +156,7 @@ class PreparationWorkspace:
         workspace: MigrationWorkspace,
         data_version: DataVersion,
         run: MigrationRun,
-    ) -> "PreparationWorkspace":
+    ) -> PreparationWorkspace:
         """Capture one open workspace over one accepted DataVersion."""
 
         if workspace.state is not MigrationWorkspaceState.OPEN:

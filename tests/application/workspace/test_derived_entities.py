@@ -21,6 +21,8 @@ from impodo.domain.workspace.derived_entities import (
     HierarchicalLookupRule,
     HierarchyValuePolicy,
     RelatedDatasetRule,
+    SourceDatasetUse,
+    SourceDatasetUsePolicy,
     derived_dataset_links,
     derived_mapping_samples,
     evaluate_hierarchy_path,
@@ -343,6 +345,12 @@ class DerivedEntityPreviewTests(unittest.TestCase):
             rules=(rule,),
             updated_at=datetime.now(timezone.utc),
             updated_by="Test operator",
+            dataset_uses=(
+                SourceDatasetUsePolicy(
+                    dataset.dataset_id,
+                    SourceDatasetUse.MAP_AND_PREPARE,
+                ),
+            ),
         )
         effective = mapping_source_selection(selection, plan, (catalog,))
         link = derived_dataset_links(plan)[0]
@@ -531,6 +539,7 @@ class DerivedEntityPreviewTests(unittest.TestCase):
             rule.source_level_column_keys,
         )
         self.assertEqual(restored_rule.missing_parent.value, "Default")
+        self.assertEqual(restored.dataset_uses, plan.dataset_uses)
 
     def test_hierarchy_requires_explicit_valid_missing_value_policies(self) -> None:
         with self.assertRaisesRegex(ValueError, "requires a value"):
@@ -1110,6 +1119,101 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
             self.derived_entities.get_derived_entity_plan(self.workspace_state.workspace_id)
         )
 
+    def test_dataset_use_is_versioned_and_hides_a_preparation_only_input(self) -> None:
+        dataset = self.selection.datasets[0]
+        first, rule = self.service.save_rule(
+            self.workspace_state.workspace_id,
+            output_dataset_name="product_categories",
+            source_dataset_id=dataset.dataset_id,
+            source_column_key=dataset.columns[1].stable_key,
+            target_model="product.category",
+            target_name_field="name",
+            external_id_namespace="legacy_erp",
+            parent_separator="/",
+            blank_policy="block",
+            expected_parent_version=None,
+            actor=LOCAL_ACTOR,
+        )
+
+        with self.assertRaisesRegex(WorkspaceError, "cover every frozen"):
+            self.service.save_dataset_uses(
+                self.workspace_state.workspace_id,
+                dataset_uses={},
+                expected_parent_version=first.version,
+                actor=LOCAL_ACTOR,
+            )
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "do not match the saved preparation rules",
+        ):
+            self.service.save_dataset_uses(
+                self.workspace_state.workspace_id,
+                dataset_uses={dataset.dataset_id: SourceDatasetUse.MAP_DIRECTLY},
+                expected_parent_version=first.version,
+                actor=LOCAL_ACTOR,
+            )
+
+        plan = self.service.save_dataset_uses(
+            self.workspace_state.workspace_id,
+            dataset_uses={
+                dataset.dataset_id: SourceDatasetUse.PREPARATION_ONLY,
+            },
+            expected_parent_version=first.version,
+            actor=LOCAL_ACTOR,
+        )
+        persisted = self.derived_entities.get_derived_entity_plan(
+            self.workspace_state.workspace_id
+        )
+        effective = mapping_source_selection(
+            self.selection,
+            plan,
+            (self.catalog,),
+        )
+
+        self.assertEqual(plan.version, 2)
+        self.assertEqual(plan.contract_version, 7)
+        self.assertEqual(
+            plan.dataset_uses,
+            (
+                SourceDatasetUsePolicy(
+                    dataset.dataset_id,
+                    SourceDatasetUse.PREPARATION_ONLY,
+                ),
+            ),
+        )
+        self.assertEqual(persisted, plan)
+        self.assertEqual(
+            tuple(item.name for item in effective.datasets),
+            ("product_categories",),
+        )
+
+        without_rule = self.service.delete_rule(
+            self.workspace_state.workspace_id,
+            rule.rule_id,
+            expected_parent_version=plan.version,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(
+            without_rule.dataset_uses,
+            (
+                SourceDatasetUsePolicy(
+                    dataset.dataset_id,
+                    SourceDatasetUse.MAP_DIRECTLY,
+                ),
+            ),
+        )
+        self.assertEqual(
+            tuple(
+                item.name
+                for item in mapping_source_selection(
+                    self.selection,
+                    without_rule,
+                    (self.catalog,),
+                ).datasets
+            ),
+            (dataset.name,),
+        )
+
     def test_multi_column_hierarchy_is_saved_as_one_versioned_rule(self) -> None:
         dataset = self.selection.datasets[0]
 
@@ -1173,6 +1277,49 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
             (dataset.columns[1].stable_key, dataset.columns[0].stable_key),
         )
         self.assertEqual(rule.parent_dataset_name, "product_categories")
+
+    def test_interrupted_plan_save_rolls_back_and_can_be_retried(self) -> None:
+        plan = DerivedEntityPlan(
+            plan_id=str(uuid4()),
+            version=1,
+            workspace_id=self.workspace_state.workspace_id,
+            source_selection_hash=self.selection.content_hash,
+            rules=(),
+            updated_at=datetime.now(timezone.utc),
+            updated_by=LOCAL_ACTOR.identity.display_name,
+        )
+        with (
+            patch.object(
+                self.derived_entities,
+                "_insert_workspace_audit",
+                side_effect=RuntimeError("simulated interrupted save"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "interrupted"),
+        ):
+            self.derived_entities.save_derived_entity_plan(
+                self.workspace_state.workspace_id,
+                plan,
+                expected_parent_version=None,
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertIsNone(
+            self.derived_entities.get_derived_entity_plan(
+                self.workspace_state.workspace_id
+            )
+        )
+        self.derived_entities.save_derived_entity_plan(
+            self.workspace_state.workspace_id,
+            plan,
+            expected_parent_version=None,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(
+            self.derived_entities.get_derived_entity_plan(
+                self.workspace_state.workspace_id
+            ),
+            plan,
+        )
 
 
 def _rule(selection: SourceSelection) -> DerivedEntityRule:

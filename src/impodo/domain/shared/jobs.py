@@ -66,7 +66,7 @@ class JobRecord:
     result_artifact_ids: tuple[str, ...] = ()
     failure_code: str = ""
 
-    def start(self, *, at: datetime) -> "JobRecord":
+    def start(self, *, at: datetime) -> JobRecord:
         """Move a queued job to running at a timezone-aware timestamp."""
 
         self._require(JobStatus.QUEUED)
@@ -83,7 +83,7 @@ class JobRecord:
         *,
         at: datetime,
         result_artifact_ids: tuple[str, ...] = (),
-    ) -> "JobRecord":
+    ) -> JobRecord:
         """Complete a running job and retain its result artifact identities."""
 
         self._require(JobStatus.RUNNING)
@@ -96,7 +96,7 @@ class JobRecord:
             result_artifact_ids=tuple(result_artifact_ids),
         )
 
-    def fail(self, *, at: datetime, failure_code: str) -> "JobRecord":
+    def fail(self, *, at: datetime, failure_code: str) -> JobRecord:
         """Complete a running job with a bounded non-sensitive failure code."""
 
         self._require(JobStatus.RUNNING)

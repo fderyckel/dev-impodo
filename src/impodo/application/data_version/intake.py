@@ -15,7 +15,7 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from pathlib import Path, PurePath
 from typing import BinaryIO
 from uuid import uuid4

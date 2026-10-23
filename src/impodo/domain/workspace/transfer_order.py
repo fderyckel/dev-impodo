@@ -271,7 +271,7 @@ class TransferOrderPlan:
         return canonical_json(self.to_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "TransferOrderPlan":
+    def from_json(cls, value: str) -> TransferOrderPlan:
         try:
             payload = json.loads(value)
             result = cls(

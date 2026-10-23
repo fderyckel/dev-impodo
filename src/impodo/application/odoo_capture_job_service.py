@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from threading import Condition, Event, RLock, Thread
 from uuid import uuid4
 

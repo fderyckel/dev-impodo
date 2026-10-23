@@ -10,6 +10,12 @@ from impodo.domain.shared.schema import (
     WORKSPACE_SCHEMA_VERSION as SCHEMA_VERSION,
 )
 
+__all__ = (
+    "SCHEMA_BASELINE_VERSION",
+    "SCHEMA_GENERATION",
+    "SCHEMA_VERSION",
+)
+
 # This build upgrades older versions within this generation before repository
 # access. A different generation remains an incompatible semantic contract.
 PREFLIGHT_ROW_BATCH_SIZE = 1_000

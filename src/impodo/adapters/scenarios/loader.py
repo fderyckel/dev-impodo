@@ -16,7 +16,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
 
 import yaml
 from pydantic import ValidationError

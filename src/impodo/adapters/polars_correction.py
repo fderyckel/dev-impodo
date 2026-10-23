@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, timezone, UTC
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -33,7 +33,7 @@ from .polars_transformation import (
 
 configure_columnar_runtime()
 
-import polars as pl  # noqa: E402
+import polars as pl
 
 CORRECTION_CANDIDATE_BATCH_ROWS = 1_000
 _FIELD_INDEX_COLUMN = "__impodo_correction_field_index"

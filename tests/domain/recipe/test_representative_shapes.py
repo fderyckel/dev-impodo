@@ -15,9 +15,13 @@ from impodo.application.recipe_application_compilation import (
 from impodo.application.recipe_application_service import RecipeApplicationService
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
+    DerivedEntityRule,
     HierarchicalLookupRule,
     RelatedDatasetRule,
+    SourceDatasetUse,
+    SourceDatasetUsePolicy,
 )
+from impodo.domain.recipe.models import RecipeConflictError
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
 from impodo.domain.mapping.contracts import (
     BusinessControlDefinition,
@@ -267,6 +271,41 @@ def _publish(
 
 
 class RepresentativeRecipeShapeTests(unittest.TestCase):
+    def test_dataset_use_is_not_silently_omitted_from_recipe_meaning(self) -> None:
+        products = _dataset(
+            "Products",
+            (("category", "string"),),
+            "c",
+        )
+        rule = DerivedEntityRule(
+            rule_id=str(uuid4()),
+            output_dataset_name="categories",
+            source_dataset_id=products.dataset_id,
+            source_column_key=_column(products, "category"),
+            target_model="product.category",
+            target_name_field="name",
+            external_id_namespace="legacy",
+        )
+        plan = DerivedEntityPlan(
+            plan_id=str(uuid4()),
+            version=1,
+            workspace_id=str(uuid4()),
+            source_selection_hash="sha256:" + "c" * 64,
+            rules=(rule,),
+            updated_at=datetime.now(timezone.utc),
+            updated_by="Data manager",
+            dataset_uses=(
+                SourceDatasetUsePolicy(
+                    products.dataset_id,
+                    SourceDatasetUse.PREPARATION_ONLY,
+                ),
+            ),
+        )
+
+        compiler = object.__new__(RecipeCompiler)
+        with self.assertRaisesRegex(RecipeConflictError, "portable Recipe contract"):
+            compiler._preparation(plan, {}, {}, ())
+
     def test_selection_rules_publish_without_authoring_ids_and_rebind_fresh_ids(
         self,
     ) -> None:

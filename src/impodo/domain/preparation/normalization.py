@@ -138,7 +138,7 @@ class CompiledNormalizationReviewPolicy:
     def __post_init__(self) -> None:
         object.__setattr__(self, "fields", MappingProxyType(dict(self.fields)))
 
-    def resolve(self, candidate: "NormalizationCandidate") -> NormalizationFieldPolicy:
+    def resolve(self, candidate: NormalizationCandidate) -> NormalizationFieldPolicy:
         """Resolve one effect without interpreting display-oriented wording."""
 
         policy = self.fields.get((candidate.dataset, candidate.target_field))
@@ -362,7 +362,7 @@ class NormalizationExample:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "NormalizationExample":
+    def from_dict(cls, payload: Mapping[str, Any]) -> NormalizationExample:
         """Reconstruct a display example from persisted evidence."""
 
         return cls(
@@ -412,7 +412,7 @@ class NormalizationEffect:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "NormalizationEffect":
+    def from_dict(cls, payload: Mapping[str, Any]) -> NormalizationEffect:
         """Reconstruct a validated effect from persisted evidence."""
 
         return cls(
@@ -519,7 +519,7 @@ class NormalizationReviewGroup:
     def from_dict(
         cls,
         payload: Mapping[str, Any],
-    ) -> "NormalizationReviewGroup":
+    ) -> NormalizationReviewGroup:
         """Reconstruct and validate a review group from storage."""
 
         return cls(
@@ -660,7 +660,7 @@ class NormalizationEvaluation:
         return canonical_json_bytes(self.to_portable_dict()).decode("utf-8")
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "NormalizationEvaluation":
+    def from_dict(cls, payload: Mapping[str, Any]) -> NormalizationEvaluation:
         """Load exact current evidence and verify its persisted content hash."""
 
         if set(payload) != {
@@ -711,7 +711,7 @@ class NormalizationEvaluation:
         return evaluation
 
     @classmethod
-    def from_json(cls, value: str) -> "NormalizationEvaluation":
+    def from_json(cls, value: str) -> NormalizationEvaluation:
         """Load and validate an evaluation from canonical JSON."""
 
         return cls.from_dict(json.loads(value))

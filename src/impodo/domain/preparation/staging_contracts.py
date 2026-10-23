@@ -134,7 +134,7 @@ class CanonicalControlTotal:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalControlTotal":
+    def from_dict(cls, payload: Mapping[str, Any]) -> CanonicalControlTotal:
         """Load a control total and verify any persisted derived fields."""
 
         result = cls(
@@ -198,7 +198,7 @@ class CanonicalIssue:
         }
 
     @classmethod
-    def from_issue(cls, issue: Issue) -> "CanonicalIssue":
+    def from_issue(cls, issue: Issue) -> CanonicalIssue:
         """Adapt the preparation model's ``Issue`` into portable evidence."""
 
         payload = portable_issue(issue)
@@ -213,7 +213,7 @@ class CanonicalIssue:
         )
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalIssue":
+    def from_dict(cls, payload: Mapping[str, Any]) -> CanonicalIssue:
         """Reconstruct and validate an issue from persisted evidence."""
 
         return cls(
@@ -310,7 +310,7 @@ class CanonicalLineage:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalLineage":
+    def from_dict(cls, payload: Mapping[str, Any]) -> CanonicalLineage:
         """Reconstruct lineage used by accounting, review, and audit."""
 
         return cls(
@@ -384,7 +384,7 @@ class CanonicalRow:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalRow":
+    def from_dict(cls, payload: Mapping[str, Any]) -> CanonicalRow:
         """Restore portable values and reconstruct one canonical row."""
 
         source_identity = restore_portable_value(payload.get("source_identity", ()))
@@ -452,7 +452,7 @@ class StagingReconciliation:
         }
 
     @classmethod
-    def from_rows(cls, rows: Iterable[CanonicalRow]) -> "StagingReconciliation":
+    def from_rows(cls, rows: Iterable[CanonicalRow]) -> StagingReconciliation:
         """Count each disposition and prove every canonical row is represented."""
 
         items = tuple(rows)
@@ -467,7 +467,7 @@ class StagingReconciliation:
         )
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "StagingReconciliation":
+    def from_dict(cls, payload: Mapping[str, Any]) -> StagingReconciliation:
         """Reconstruct and validate the run-wide reconciliation equation."""
 
         return cls(
@@ -575,7 +575,7 @@ class StagingDatasetReconciliation:
         source_rows: Iterable[int],
         lineage_links: int,
         rows: Iterable[CanonicalRow],
-    ) -> "StagingDatasetReconciliation":
+    ) -> StagingDatasetReconciliation:
         """Build one dataset equation from canonical rows and lineage links."""
 
         items = tuple(rows)
@@ -604,7 +604,7 @@ class StagingDatasetReconciliation:
     def from_dict(
         cls,
         payload: Mapping[str, Any],
-    ) -> "StagingDatasetReconciliation":
+    ) -> StagingDatasetReconciliation:
         """Reconstruct and validate one dataset reconciliation equation."""
 
         return cls(
@@ -766,7 +766,7 @@ class CanonicalStagingRun:
         return canonical_json_bytes(self.to_portable_dict()).decode("utf-8")
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalStagingRun":
+    def from_dict(cls, payload: Mapping[str, Any]) -> CanonicalStagingRun:
         """Load a run and enforce versions, reconciliation, and content hash."""
 
         if set(payload) != {
@@ -831,7 +831,7 @@ class CanonicalStagingRun:
         return run
 
     @classmethod
-    def from_json(cls, value: str) -> "CanonicalStagingRun":
+    def from_json(cls, value: str) -> CanonicalStagingRun:
         """Load and validate a canonical staging run from JSON."""
 
         return cls.from_dict(json.loads(value))
@@ -859,7 +859,7 @@ class CanonicalStagingRun:
         ],
         control_totals: tuple[CanonicalControlTotal, ...] = (),
         additional_rows: Iterable[CanonicalRow] = (),
-    ) -> "CanonicalStagingRun":
+    ) -> CanonicalStagingRun:
         """Convert compiler and preparation output into durable staging evidence.
 
         Each prepared record becomes a canonical row with logical references

@@ -106,7 +106,7 @@ class ValidationContext:
         schema_catalog: SchemaCatalogView,
         schema_governance: SchemaGovernance | None,
         supporting_references: Sequence[SupportingLookupSnapshot] = (),
-    ) -> "ValidationContext":
+    ) -> ValidationContext:
         """Index every source, schema, mapping, and confirmed-key lookup once."""
 
         source_datasets = {

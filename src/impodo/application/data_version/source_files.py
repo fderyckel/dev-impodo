@@ -7,7 +7,7 @@ import stat
 import zipfile
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -20,7 +20,6 @@ from impodo.domain.preparation.source import (
     SourceTable,
     prepare_source_tables,
 )
-from impodo.domain.recipe.profile import DatasetSpec
 
 
 @dataclass(slots=True)

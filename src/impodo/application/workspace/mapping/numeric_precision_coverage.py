@@ -47,7 +47,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 
 configure_columnar_runtime()
 
-import polars as pl  # noqa: E402
+import polars as pl
 
 
 class NumericPrecisionSourceRepository(Protocol):

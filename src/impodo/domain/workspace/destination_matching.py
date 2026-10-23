@@ -33,6 +33,11 @@ DESTINATION_CREATE_ONLY_HANDLINGS = frozenset({"reuse_or_create"})
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 
+# Integer and floating-point values have different destination validation rules,
+# so the domain contract keeps both explicit even though static typing subsumes
+# ``int`` under ``float``.
+type _FixedCreateValue = bool | int | float | str | None
+
 
 def resolver_origin_for_destination_handling(
     destination_handling: str,
@@ -234,7 +239,7 @@ class DestinationCreateFieldEvidenceValue:
     model: str
     field_name: str
     field_type: str
-    value: bool | int | float | str | None
+    value: _FixedCreateValue
     display_value: str
     field_contract_hash: str
     value_hash: str
@@ -414,7 +419,7 @@ class DestinationCreateFieldEvidence:
         return canonical_json(self.to_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "DestinationCreateFieldEvidence":
+    def from_json(cls, value: str) -> DestinationCreateFieldEvidence:
         try:
             payload = json.loads(value)
             result = cls(
@@ -1169,7 +1174,7 @@ class DestinationMatchPlan:
         return canonical_json(self.to_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "DestinationMatchPlan":
+    def from_json(cls, value: str) -> DestinationMatchPlan:
         try:
             payload = json.loads(value)
             contract_version = int(payload.get("contract_version"))
@@ -1520,7 +1525,7 @@ def choose_destination_create_field_provider(
     model: str,
     field_name: str,
     provider_kind: str,
-    fixed_value: bool | int | float | str | None = None,
+    fixed_value: _FixedCreateValue = None,
     source_field_name: str | None = None,
     reference_choice_hash: str | None = None,
     incoming_reference_choice_hash: str | None = None,
@@ -1724,7 +1729,7 @@ def _require_create_field_evidence(
 
 def _valid_fixed_create_value(
     evidence: DestinationCreateFieldEvidenceValue,
-    value: bool | int | float | str | None,
+    value: _FixedCreateValue,
 ) -> bool:
     field_type = evidence.field_type
     if field_type == "boolean":
@@ -1748,7 +1753,7 @@ def _valid_fixed_create_value(
 
 def _fixed_display_value(
     evidence: DestinationCreateFieldEvidenceValue,
-    value: bool | int | float | str | None,
+    value: _FixedCreateValue,
 ) -> str:
     if evidence.field_type == "boolean":
         return "Yes" if value else "No"

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
@@ -73,7 +73,7 @@ from ..domain.staging.transformation_impact import (
 
 configure_columnar_runtime()
 
-import polars as pl  # noqa: E402
+import polars as pl
 
 POLARS_TRANSFORMATION_BATCH_ROWS = 1_000
 PREPARED_PARQUET_ROW_GROUP_ROWS = 5_000
@@ -1131,11 +1131,11 @@ def _text_expression(
             result = result.str.strip_chars()
         elif operation is ColumnarOperationKind.COLLAPSE_WHITESPACE:
             result = result.str.replace_all(r"\s+", " ")
-        elif operation is ColumnarOperationKind.REPLACE_LITERAL:
-            result = _native_replacement_expression(result, step)
-        elif operation is ColumnarOperationKind.REPLACE_PREFIX:
-            result = _native_replacement_expression(result, step)
-        elif operation is ColumnarOperationKind.REPLACE_SUFFIX:
+        elif operation in {
+            ColumnarOperationKind.REPLACE_LITERAL,
+            ColumnarOperationKind.REPLACE_PREFIX,
+            ColumnarOperationKind.REPLACE_SUFFIX,
+        }:
             result = _native_replacement_expression(result, step)
         elif operation is ColumnarOperationKind.CASE_UPPER:
             result = result.str.to_uppercase()

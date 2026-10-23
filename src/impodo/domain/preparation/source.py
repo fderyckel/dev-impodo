@@ -51,7 +51,7 @@ class SourceTable:
     dataset: str
     path: PurePath
     headers: tuple[str, ...]
-    rows: tuple["SourceRow", ...]
+    rows: tuple[SourceRow, ...]
     content_hash: str
 
 
@@ -99,7 +99,7 @@ class CompiledPreparedRowTransformer:
         cls,
         dataset: DatasetSpec,
         headers: Iterable[str],
-    ) -> "CompiledPreparedRowTransformer":
+    ) -> CompiledPreparedRowTransformer:
         """Bind one dataset specification to the available staged headers."""
 
         return cls(

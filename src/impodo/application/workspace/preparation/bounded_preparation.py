@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.data_version.source_files import open_selected_source_batches
@@ -921,38 +921,42 @@ def _prepared_snapshot_for_program(
             return existing
 
     try:
-        with artifacts.materialize_source_snapshot(
-            source_snapshot.data_version_id,
-            source_snapshot.parquet_storage_key,
-            expected_sha256=source_snapshot.parquet_sha256,
-        ) as source_path:
-            with artifacts.prepare_prepared_snapshot(workspace_state.workspace_id) as workspace:
-                candidate_path = workspace / "prepared.parquet"
-                candidate = columnar_transformations.write_prepared_snapshot(
-                    source_path,
-                    source_snapshot,
-                    program,
-                    candidate_path,
-                )
-                prepared = PreparedSnapshot.create(
-                    workspace_id=workspace_state.workspace_id,
-                    dataset_id=program.dataset_id,
-                    dataset_name=program.dataset_name,
-                    source_snapshot_hash=source_snapshot.content_hash,
-                    mapping_hash=program.mapping_content_hash,
-                    schema_hash=program.schema_hash,
-                    transformation_program_hash=program.content_hash,
-                    row_count=candidate.row_count,
-                    physical_schema_hash=candidate.physical_schema_hash,
-                    parquet_sha256=candidate.parquet_sha256,
-                    created_at=datetime.now(UTC),
-                )
-                artifacts.publish_prepared_snapshot(
-                    workspace_state.workspace_id,
-                    candidate_path,
-                    prepared.parquet_storage_key,
-                    expected_sha256=prepared.parquet_sha256,
-                )
+        with (
+            artifacts.materialize_source_snapshot(
+                source_snapshot.data_version_id,
+                source_snapshot.parquet_storage_key,
+                expected_sha256=source_snapshot.parquet_sha256,
+            ) as source_path,
+            artifacts.prepare_prepared_snapshot(
+                workspace_state.workspace_id
+            ) as workspace,
+        ):
+            candidate_path = workspace / "prepared.parquet"
+            candidate = columnar_transformations.write_prepared_snapshot(
+                source_path,
+                source_snapshot,
+                program,
+                candidate_path,
+            )
+            prepared = PreparedSnapshot.create(
+                workspace_id=workspace_state.workspace_id,
+                dataset_id=program.dataset_id,
+                dataset_name=program.dataset_name,
+                source_snapshot_hash=source_snapshot.content_hash,
+                mapping_hash=program.mapping_content_hash,
+                schema_hash=program.schema_hash,
+                transformation_program_hash=program.content_hash,
+                row_count=candidate.row_count,
+                physical_schema_hash=candidate.physical_schema_hash,
+                parquet_sha256=candidate.parquet_sha256,
+                created_at=datetime.now(UTC),
+            )
+            artifacts.publish_prepared_snapshot(
+                workspace_state.workspace_id,
+                candidate_path,
+                prepared.parquet_storage_key,
+                expected_sha256=prepared.parquet_sha256,
+            )
         sessions.bind_prepared_snapshot(
             workspace_state.workspace_id,
             session_id,
@@ -1002,13 +1006,12 @@ def open_bounded_source(
                 selection.data_version_id,
                 snapshot.parquet_storage_key,
                 expected_sha256=snapshot.parquet_sha256,
-            ) as path:
-                with open_source_snapshot_batches(
-                    path,
-                    snapshot,
-                    batch_size=BOUNDED_SOURCE_BATCH_SIZE,
-                ) as source:
-                    yield source
+            ) as path, open_source_snapshot_batches(
+                path,
+                snapshot,
+                batch_size=BOUNDED_SOURCE_BATCH_SIZE,
+            ) as source:
+                yield source
             return
         except (ArtifactStoreError, SourceLoadError) as error:
             raise ReadinessError(

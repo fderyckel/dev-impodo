@@ -3,8 +3,10 @@
 Layer: domain contracts plus application workspace service. The browser can
 author bounded previews for lookup extraction, multi-column hierarchies, and
 parent/child dataset splits. Every rule type participates in the effective
-mapping selection and is repeated over every source row by readiness staging
-without changing the frozen source.
+mapping selection. Contract-v6 dataset-use evidence may keep a physical input
+available only to preparation. Contract v7 can retain the complete accepted
+review for an exact join. Readiness staging repeats the accepted rules over
+the immutable frozen source.
 
 See ``docs/architecture/python-code-map.md``,
 ``docs/user/guides/related-tables.md``, and
@@ -18,13 +20,15 @@ import re
 import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime
+from enum import StrEnum
 from hashlib import sha256
 from typing import Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from impodo.domain.source_binding import DerivedSourceBinding, require_file_source
 from impodo.domain.structural import (
+    ExactJoinReview,
     ExactJoinRule,
     GroupAggregateRule,
     StructuralRule,
@@ -38,8 +42,8 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 
-DERIVED_ENTITY_CONTRACT_VERSION = 5
-_SUPPORTED_DERIVED_ENTITY_CONTRACT_VERSIONS = frozenset({4, 5})
+DERIVED_ENTITY_CONTRACT_VERSION = 7
+_SUPPORTED_DERIVED_ENTITY_CONTRACT_VERSIONS = frozenset({4, 5, 6, 7})
 _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _EXTERNAL_ID_NAMESPACE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _TECHNICAL_NAME = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
@@ -308,6 +312,123 @@ LookupRule = DerivedEntityRule | HierarchicalLookupRule
 SourcePreparationRule = LookupRule | RelatedDatasetRule | StructuralRule
 
 
+class SourceDatasetUse(StrEnum):
+    """State whether one physical dataset maps directly or prepares outputs."""
+
+    MAP_DIRECTLY = "map_directly"
+    PREPARATION_ONLY = "preparation_only"
+    MAP_AND_PREPARE = "map_and_prepare"
+
+    @property
+    def is_map_eligible(self) -> bool:
+        """Return whether Match data should expose the physical dataset."""
+
+        return self is not SourceDatasetUse.PREPARATION_ONLY
+
+    @property
+    def is_preparation_input(self) -> bool:
+        """Return whether a saved source-preparation rule must use the dataset."""
+
+        return self is not SourceDatasetUse.MAP_DIRECTLY
+
+
+@dataclass(frozen=True, slots=True)
+class SourceDatasetUsePolicy:
+    """Assign one explicit use to one immutable physical source dataset."""
+
+    dataset_id: str
+    use: SourceDatasetUse
+
+    def __post_init__(self) -> None:
+        dataset_id = self.dataset_id.strip()
+        if not dataset_id or len(dataset_id) > 200:
+            raise ValueError("Source dataset-use identifier is invalid")
+        object.__setattr__(self, "dataset_id", dataset_id)
+        object.__setattr__(self, "use", SourceDatasetUse(self.use))
+
+    def to_dict(self) -> dict[str, str]:
+        """Return stable plan evidence for this dataset-use decision."""
+
+        return {"dataset_id": self.dataset_id, "use": self.use.value}
+
+
+@dataclass(frozen=True, slots=True)
+class ExactJoinInputSnapshotEvidence:
+    """Identify one immutable physical snapshot used by a complete join review."""
+
+    dataset_id: str
+    logical_hash: str
+    parquet_sha256: str
+
+    def __post_init__(self) -> None:
+        for field_name, label in (
+            ("dataset_id", "Join-review dataset identity"),
+            ("logical_hash", "Join-review logical hash"),
+            ("parquet_sha256", "Join-review Parquet hash"),
+        ):
+            clean = str(getattr(self, field_name)).strip()
+            if not clean or len(clean) > 200:
+                raise ValueError(f"{label} is invalid")
+            object.__setattr__(self, field_name, clean)
+
+    def to_dict(self) -> dict[str, str]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class SavedExactJoinReview:
+    """Persist the complete accepted review beside its exact join rule."""
+
+    rule_id: str
+    rule_hash: str
+    source_selection_hash: str
+    input_snapshots: tuple[ExactJoinInputSnapshotEvidence, ...]
+    review: ExactJoinReview
+
+    def __post_init__(self) -> None:
+        try:
+            canonical_rule_id = str(UUID(self.rule_id))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise ValueError("Saved join-review rule identifier is invalid") from error
+        object.__setattr__(self, "rule_id", canonical_rule_id)
+        snapshots = tuple(sorted(self.input_snapshots, key=lambda item: item.dataset_id))
+        if len({item.dataset_id for item in snapshots}) != len(snapshots):
+            raise ValueError("Saved join-review snapshots must be unique")
+        object.__setattr__(self, "input_snapshots", snapshots)
+        if not self.review.can_save:
+            raise ValueError("Only a successful exact-join review can be saved")
+        if not self.review.output_table_hash or not self.review.lineage_hash:
+            raise ValueError("Saved exact-join review requires output and lineage hashes")
+        if self.review.lineage_links < (self.review.actual_output_rows or 0):
+            raise ValueError("Saved exact-join review requires complete output lineage")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "rule_id": self.rule_id,
+            "rule_hash": self.rule_hash,
+            "source_selection_hash": self.source_selection_hash,
+            "input_snapshots": [item.to_dict() for item in self.input_snapshots],
+            "review": self.review.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> SavedExactJoinReview:
+        return cls(
+            rule_id=str(payload["rule_id"]),
+            rule_hash=str(payload["rule_hash"]),
+            source_selection_hash=str(payload["source_selection_hash"]),
+            input_snapshots=tuple(
+                ExactJoinInputSnapshotEvidence(
+                    dataset_id=str(item["dataset_id"]),
+                    logical_hash=str(item["logical_hash"]),
+                    parquet_sha256=str(item["parquet_sha256"]),
+                )
+                for item in payload.get("input_snapshots", ())
+            ),
+            review=ExactJoinReview.from_dict(dict(payload["review"])),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class DerivedEntityPlan:
     """Immutable revision of all derived-entity authoring rules in a workspace."""
@@ -320,10 +441,37 @@ class DerivedEntityPlan:
     updated_at: datetime
     updated_by: str
     contract_version: int = DERIVED_ENTITY_CONTRACT_VERSION
+    dataset_uses: tuple[SourceDatasetUsePolicy, ...] = ()
+    join_reviews: tuple[SavedExactJoinReview, ...] = ()
 
     def __post_init__(self) -> None:
         if self.contract_version not in _SUPPORTED_DERIVED_ENTITY_CONTRACT_VERSIONS:
             raise ValueError("Source-preparation plan contract version is unsupported")
+        if self.contract_version < 6 and self.dataset_uses:
+            raise ValueError(
+                "Source dataset-use policies require source-preparation contract v6"
+            )
+        if self.contract_version < 7 and self.join_reviews:
+            raise ValueError(
+                "Saved exact-join reviews require source-preparation contract v7"
+            )
+        ordered = tuple(sorted(self.dataset_uses, key=lambda item: item.dataset_id))
+        if len({item.dataset_id for item in ordered}) != len(ordered):
+            raise ValueError("Source dataset-use policies must be unique")
+        object.__setattr__(self, "dataset_uses", ordered)
+        reviews = tuple(sorted(self.join_reviews, key=lambda item: item.rule_id))
+        if len({item.rule_id for item in reviews}) != len(reviews):
+            raise ValueError("Saved exact-join reviews must be unique")
+        rules = {item.rule_id: item for item in self.rules}
+        for evidence in reviews:
+            rule = rules.get(evidence.rule_id)
+            if not isinstance(rule, ExactJoinRule):
+                raise ValueError("Saved exact-join review does not match a plan rule")
+            if evidence.rule_hash != _content_hash(rule.to_dict()):
+                raise ValueError("Saved exact-join review rule hash is invalid")
+            if evidence.source_selection_hash != self.source_selection_hash:
+                raise ValueError("Saved exact-join review source selection is invalid")
+        object.__setattr__(self, "join_reviews", reviews)
 
     @property
     def content_hash(self) -> str:
@@ -340,13 +488,17 @@ class DerivedEntityPlan:
             "workspace_id": self.workspace_id,
             "source_selection_hash": self.source_selection_hash,
             "rules": [
-                _rule_payload(item)
+                _rule_payload(item, contract_version=self.contract_version)
                 for item in sorted(self.rules, key=lambda rule: rule.rule_id)
             ],
             "updated_at": self.updated_at.isoformat(),
             "updated_by": self.updated_by,
             "contract_version": self.contract_version,
         }
+        if self.contract_version >= 6:
+            payload["dataset_uses"] = [item.to_dict() for item in self.dataset_uses]
+        if self.contract_version >= 7:
+            payload["join_reviews"] = [item.to_dict() for item in self.join_reviews]
         if include_hash:
             payload["content_hash"] = self.content_hash
         return payload
@@ -357,7 +509,7 @@ class DerivedEntityPlan:
         return _canonical_json(self.to_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "DerivedEntityPlan":
+    def from_json(cls, value: str) -> DerivedEntityPlan:
         """Restore a supported plan revision and reject hash tampering."""
 
         payload = json.loads(value)
@@ -376,6 +528,17 @@ class DerivedEntityPlan:
             updated_at=datetime.fromisoformat(str(payload["updated_at"])),
             updated_by=str(payload["updated_by"]),
             contract_version=contract_version,
+            dataset_uses=tuple(
+                SourceDatasetUsePolicy(
+                    dataset_id=str(item["dataset_id"]),
+                    use=SourceDatasetUse(str(item["use"])),
+                )
+                for item in payload.get("dataset_uses", ())
+            ),
+            join_reviews=tuple(
+                SavedExactJoinReview.from_dict(dict(item))
+                for item in payload.get("join_reviews", ())
+            ),
         )
         return result
 
@@ -945,12 +1108,104 @@ def preview_related_datasets(
     )
 
 
+def preparation_input_dataset_ids(
+    rules: Iterable[SourcePreparationRule],
+) -> frozenset[str]:
+    """Return every dataset identity consumed by source-preparation rules."""
+
+    dataset_ids: set[str] = set()
+    for rule in rules:
+        if isinstance(rule, ExactJoinRule):
+            dataset_ids.update((rule.left_dataset_id, rule.right_dataset_id))
+        elif isinstance(rule, UnionAllRule):
+            dataset_ids.update(item.source_dataset_id for item in rule.branches)
+        else:
+            dataset_ids.add(rule.source_dataset_id)
+    return frozenset(dataset_ids)
+
+
+def validate_source_dataset_uses(
+    selection: SourceSelection,
+    plan: DerivedEntityPlan | None,
+) -> dict[str, SourceDatasetUse]:
+    """Return complete physical-dataset uses or reject inconsistent evidence."""
+
+    dataset_ids = {item.dataset_id for item in selection.datasets}
+    if plan is None or not plan.dataset_uses:
+        return {
+            dataset_id: SourceDatasetUse.MAP_DIRECTLY
+            for dataset_id in dataset_ids
+        }
+    uses = {item.dataset_id: item.use for item in plan.dataset_uses}
+    if set(uses) != dataset_ids:
+        raise WorkspaceError(
+            "Source dataset-use policies must cover every frozen physical dataset"
+        )
+    preparation_inputs = preparation_input_dataset_ids(plan.rules).intersection(
+        dataset_ids
+    )
+    for dataset_id, use in uses.items():
+        if use.is_preparation_input != (dataset_id in preparation_inputs):
+            raise WorkspaceError(
+                "Source dataset-use policies do not match the saved preparation rules"
+            )
+    return uses
+
+
+def validate_saved_exact_join_reviews(
+    selection: SourceSelection,
+    plan: DerivedEntityPlan | None,
+) -> None:
+    """Require each saved join review to identify every frozen physical snapshot."""
+
+    if plan is None:
+        return
+    physical_ids = {item.dataset_id for item in selection.datasets}
+    for evidence in plan.join_reviews:
+        if {item.dataset_id for item in evidence.input_snapshots} != physical_ids:
+            raise WorkspaceError(
+                "Saved exact-join review snapshots do not match the frozen selection"
+            )
+
+
+def reconcile_source_dataset_uses(
+    policies: Iterable[SourceDatasetUsePolicy],
+    rules: Iterable[SourcePreparationRule],
+) -> tuple[SourceDatasetUsePolicy, ...]:
+    """Keep explicit uses truthful after a preparation-rule change."""
+
+    policy_set = tuple(policies)
+    if not policy_set:
+        return ()
+    preparation_inputs = preparation_input_dataset_ids(rules)
+    return tuple(
+        SourceDatasetUsePolicy(
+            dataset_id=item.dataset_id,
+            use=(
+                item.use
+                if item.dataset_id in preparation_inputs
+                and item.use.is_preparation_input
+                else (
+                    SourceDatasetUse.MAP_AND_PREPARE
+                    if item.dataset_id in preparation_inputs
+                    else SourceDatasetUse.MAP_DIRECTLY
+                )
+            ),
+        )
+        for item in policy_set
+    )
+
+
 def mapping_source_selection(
     selection: SourceSelection,
     plan: DerivedEntityPlan | None,
     catalogs: Iterable[SourceFileCatalogView] = (),
 ) -> SourceSelection:
-    """Expose every prepared logical dataset to the mapping workflow."""
+    """Expose map-eligible physical inputs and every prepared logical dataset."""
+
+    dataset_uses = validate_source_dataset_uses(selection, plan)
+    explicit_dataset_uses = bool(plan and plan.dataset_uses)
+    physical_dataset_ids = {item.dataset_id for item in selection.datasets}
 
     structural_rules = tuple(
         item
@@ -967,9 +1222,8 @@ def mapping_source_selection(
     for item in plan.rules if plan else ():
         if isinstance(item, (DerivedEntityRule, HierarchicalLookupRule)):
             lookup_rules.setdefault(item.source_dataset_id, []).append(item)
-    if not split_rules and not lookup_rules:
+    if not split_rules and not lookup_rules and not explicit_dataset_uses:
         return prepared_selection
-
     catalog_set = tuple(catalogs)
     effective: list[SourceDataset] = []
     # WorkspaceSourceProjection canonicalizes Data-version datasets by identity.
@@ -1035,6 +1289,12 @@ def mapping_source_selection(
         if rule is None:
             effective.append(dataset)
             continue
+        if (
+            explicit_dataset_uses
+            and dataset_uses[dataset.dataset_id]
+            is SourceDatasetUse.MAP_AND_PREPARE
+        ):
+            effective.append(dataset)
         parent_rows = preview_related_datasets(
             rule,
             selection,
@@ -1078,6 +1338,12 @@ def mapping_source_selection(
             )
         )
 
+    effective = [
+        item
+        for item in effective
+        if item.dataset_id not in physical_dataset_ids
+        or dataset_uses[item.dataset_id].is_map_eligible
+    ]
     hierarchy_links = tuple(
         _derived_dataset_link(rule, plan)
         for rule in (plan.rules if plan else ())
@@ -1529,6 +1795,8 @@ def _rule_dataset_names(rules: Iterable[SourcePreparationRule]) -> set[str]:
 
 def _rule_payload(
     rule: SourcePreparationRule,
+    *,
+    contract_version: int = DERIVED_ENTITY_CONTRACT_VERSION,
 ) -> dict[str, object]:
     payload = (
         rule.to_dict()
@@ -1543,6 +1811,8 @@ def _rule_payload(
         kind = "parent_child"
     elif isinstance(rule, ExactJoinRule):
         kind = "exact_join"
+        if contract_version >= 6:
+            payload["join_kind"] = payload.pop("kind")
     elif isinstance(rule, UnionAllRule):
         kind = "union_all"
     else:
@@ -1572,6 +1842,13 @@ def _rule_from_payload(payload: dict[str, object]) -> SourcePreparationRule:
     if kind == "parent_child":
         return RelatedDatasetRule(**values)
     if kind == "exact_join":
+        values["kind"] = values.pop("join_kind", "LEFT")
+        return ExactJoinRule.from_dict(values)
+    if kind in {"LEFT", "INNER"} and {
+        "left_dataset_id",
+        "right_dataset_id",
+    }.issubset(values):
+        values["kind"] = kind
         return ExactJoinRule.from_dict(values)
     if kind == "union_all":
         return UnionAllRule.from_dict(values)

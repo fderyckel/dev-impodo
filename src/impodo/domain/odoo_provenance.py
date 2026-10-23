@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import InitVar, dataclass
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from uuid import UUID
 
 from .odoo_capture import (

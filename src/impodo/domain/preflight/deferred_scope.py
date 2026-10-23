@@ -255,7 +255,7 @@ class DeferredScopePreview:
         return canonical_json_bytes(self.portable_dict()).decode("utf-8")
 
     @classmethod
-    def from_json(cls, value: str) -> "DeferredScopePreview":
+    def from_json(cls, value: str) -> DeferredScopePreview:
         """Restore a preview and reject changed counts, rows, or bindings."""
 
         try:
@@ -385,7 +385,7 @@ class DeferredScopeDecision:
         reduced_execution_snapshot_hash: str,
         accepted_by: ActorIdentity,
         accepted_at: datetime,
-    ) -> "DeferredScopeDecision":
+    ) -> DeferredScopeDecision:
         """Create a decision only for a safe, non-empty reduced write set."""
 
         _validate_preview_shape(preview)
@@ -441,7 +441,7 @@ class DeferredScopeDecision:
         return canonical_json_bytes(self.portable_dict()).decode("utf-8")
 
     @classmethod
-    def from_json(cls, value: str) -> "DeferredScopeDecision":
+    def from_json(cls, value: str) -> DeferredScopeDecision:
         """Restore one accepted decision and verify its semantic hash."""
 
         try:

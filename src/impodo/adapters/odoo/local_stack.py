@@ -177,7 +177,7 @@ class LocalStackStatus:
         )
 
     @classmethod
-    def unconfigured(cls) -> "LocalStackStatus":
+    def unconfigured(cls) -> LocalStackStatus:
         """Build the initial waiting state before an ``odoo.conf`` is chosen."""
 
         return cls(
@@ -206,7 +206,7 @@ class LocalStackStatus:
         )
 
     @classmethod
-    def invalid(cls, config_path: Path, message: str) -> "LocalStackStatus":
+    def invalid(cls, config_path: Path, message: str) -> LocalStackStatus:
         """Build a safe error state for a selected but invalid configuration."""
 
         return cls(
@@ -264,7 +264,7 @@ class ProcessHandle(Protocol):
         """Request graceful termination of the exact owned process."""
         ...
 
-    def wait(self, timeout: int | float | None = None) -> int:
+    def wait(self, timeout: float | None = None) -> int:
         """Wait for the owned process to exit within ``timeout``."""
         ...
 

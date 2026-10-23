@@ -98,7 +98,7 @@ class PreparedSnapshot:
         parquet_sha256: str,
         created_at: datetime,
         writer_contract_version: int = PREPARED_WRITER_CONTRACT_VERSION,
-    ) -> "PreparedSnapshot":
+    ) -> PreparedSnapshot:
         logical_hash = prepared_snapshot_logical_hash(
             workspace_id=workspace_id,
             dataset_id=dataset_id,
@@ -182,7 +182,7 @@ class PreparedSnapshot:
         return canonical_json(self.to_portable_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "PreparedSnapshot":
+    def from_json(cls, value: str) -> PreparedSnapshot:
         try:
             payload = json.loads(value)
             if not isinstance(payload, dict):

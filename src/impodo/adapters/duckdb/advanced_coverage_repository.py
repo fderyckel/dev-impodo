@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from impodo.domain.shared.access import Actor, AuthorizationError, Capability

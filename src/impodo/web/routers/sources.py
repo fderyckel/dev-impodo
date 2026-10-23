@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from threading import Lock
 from time import perf_counter
 from types import SimpleNamespace
@@ -114,7 +114,6 @@ from ...domain.odoo_source_policy import (
     odoo_source_policy_from_hash,
 )
 from ...domain.odoo_source_scope import (
-    RelatedDataHandling,
     RelatedDataSuggestion,
     propose_related_odoo_data,
     related_model_can_be_selected,
@@ -718,7 +717,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             selection, next_issue, missing_models, generated_count = (
                 await run_local_operation(save_selection)
             )
-        except (WorkspaceError, WorkspaceStateError) as error:
+        except (WorkspaceError, WorkspaceStateError):
             def render_error():
                 return _render_odoo_capture_selection(
                     request,
@@ -1246,7 +1245,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             OdooRelationshipScopeError,
             SecretStoreError,
             WorkspaceError,
-        ) as error:
+        ):
             def render_error():
                 current = context.queries.get(workspace_id)
                 return _render_odoo_capture_selection(
@@ -1472,7 +1471,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
-        ) as error:
+        ):
             def render_error():
                 return _render_odoo_capture_selection(
                     request,
@@ -1752,7 +1751,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
-        ) as error:
+        ):
             def render_error():
                 return _render_odoo_capture_selection(
                     request,

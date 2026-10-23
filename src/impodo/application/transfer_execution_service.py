@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import replace
 from hashlib import sha256
 from typing import Protocol
 

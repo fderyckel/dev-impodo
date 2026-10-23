@@ -91,7 +91,7 @@ class OperationRequest:
 
         return (self.organization_id, self.idempotency_key)
 
-    def require_same_idempotent_request(self, other: "OperationRequest") -> None:
+    def require_same_idempotent_request(self, other: OperationRequest) -> None:
         """Reject reuse of one key for different semantic work."""
 
         if self.idempotency_scope != other.idempotency_scope:
@@ -169,7 +169,7 @@ class WorkspaceLease:
         fencing_token: int,
         at: datetime,
         expires_at: datetime,
-    ) -> "WorkspaceLease":
+    ) -> WorkspaceLease:
         """Extend a current lease without changing its fencing token."""
 
         self.require_fencing_token(fencing_token, at=at)
@@ -185,7 +185,7 @@ class WorkspaceLease:
             version=self.version + 1,
         )
 
-    def release(self, *, fencing_token: int, at: datetime) -> "WorkspaceLease":
+    def release(self, *, fencing_token: int, at: datetime) -> WorkspaceLease:
         """Release a current lease explicitly."""
 
         self.require_fencing_token(fencing_token, at=at)
@@ -193,7 +193,7 @@ class WorkspaceLease:
             raise ValueError("release cannot precede the last heartbeat")
         return replace(self, released_at=at, version=self.version + 1)
 
-    def supersedes(self, other: "WorkspaceLease") -> bool:
+    def supersedes(self, other: WorkspaceLease) -> bool:
         """Return whether this lease fences an older lease for the same Workspace."""
 
         return (
@@ -317,7 +317,7 @@ class ControlPlaneProjectionReceipt:
         projection_hash: str,
         projection_revision: int,
         projected_at: datetime,
-    ) -> "ControlPlaneProjectionReceipt":
+    ) -> ControlPlaneProjectionReceipt:
         """Bind a control-plane projection to the exact committed receipt."""
 
         return cls(

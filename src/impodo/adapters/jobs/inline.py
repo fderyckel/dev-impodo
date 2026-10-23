@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from threading import RLock
 
 from impodo.application.shared.jobs import JobWork

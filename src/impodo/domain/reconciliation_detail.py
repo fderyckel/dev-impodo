@@ -66,7 +66,7 @@ class ReconciliationFieldDifference:
     def from_dict(
         cls,
         payload: Mapping[str, object],
-    ) -> "ReconciliationFieldDifference":
+    ) -> ReconciliationFieldDifference:
         raw_digits = payload.get("target_digits")
         digits = None
         if raw_digits is not None:
@@ -127,7 +127,7 @@ class ReconciliationDetailArtifact:
         return canonical_json_bytes(self.portable_dict()).decode("utf-8")
 
     @classmethod
-    def from_json(cls, value: str) -> "ReconciliationDetailArtifact":
+    def from_json(cls, value: str) -> ReconciliationDetailArtifact:
         payload = json.loads(value)
         if (
             int(payload["contract_version"])

@@ -8,9 +8,9 @@ meaning to the pure correction domain.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime, timezone, UTC
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from itertools import islice
 

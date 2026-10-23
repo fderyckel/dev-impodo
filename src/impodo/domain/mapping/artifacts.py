@@ -44,7 +44,7 @@ class MappingRevision:
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "MappingRevision":
+    def from_json(cls, value: str) -> MappingRevision:
         """Restore one stored revision and its hash-validating definition."""
 
         payload = json.loads(value)
@@ -82,7 +82,7 @@ class MappingSubmission:
         return _canonical_json(_portable(asdict(self)))
 
     @classmethod
-    def from_json(cls, value: str) -> "MappingSubmission":
+    def from_json(cls, value: str) -> MappingSubmission:
         """Restore one submission without implying its evidence is still current."""
 
         payload = json.loads(value)

@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator, Sequence
 from datetime import (
+    UTC,
     datetime,
-    timezone,
-UTC,
 )
 
 from impodo.domain.shared.access import Actor

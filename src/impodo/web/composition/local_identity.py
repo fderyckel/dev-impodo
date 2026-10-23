@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 from impodo.application.shared.identity import ResolvedRequestIdentity
 from impodo.domain.shared.access import LOCAL_ACTOR, Actor

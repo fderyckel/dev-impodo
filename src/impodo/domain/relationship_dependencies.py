@@ -12,6 +12,21 @@ from __future__ import annotations
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Protocol, cast
+
+
+class _DatasetIdentityView(Protocol):
+    """Shared required surface of authored and compiled datasets."""
+
+    @property
+    def target_identity(self) -> object: ...
+
+
+class _RelationshipTargetView(Protocol):
+    """Shared required surface of authored and compiled relationships."""
+
+    @property
+    def target_field(self) -> str: ...
 
 
 class DependencyStrength(StrEnum):
@@ -194,7 +209,7 @@ def _target_model(dataset: object) -> str:
 
 
 def _identity_groups(dataset: object) -> tuple[tuple[object, ...], tuple[object, ...]]:
-    target_identity = getattr(dataset, "target_identity")
+    target_identity = cast(_DatasetIdentityView, dataset).target_identity
     components = getattr(target_identity, "components", target_identity)
     scope = getattr(target_identity, "scope", None)
     if scope is None:
@@ -207,7 +222,7 @@ def _relationships(dataset: object) -> tuple[tuple[str, object], ...]:
     if values is not None:
         return tuple((str(field), relation) for field, relation in values.items())
     return tuple(
-        (str(getattr(relation, "target_field")), relation)
+        (str(cast(_RelationshipTargetView, relation).target_field), relation)
         for relation in getattr(dataset, "relationships", ())
     )
 

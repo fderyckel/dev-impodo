@@ -35,8 +35,6 @@ from ...domain.cutover.models import (
     CutoverPlanRevision,
     CutoverWriteOwnership,
     ProjectCutoverSelection,
-    QualifiedOutcomes,
-    RecipeApplicationQualification,
     RunCutoverPlanBinding,
 )
 from ...domain.serialization import canonical_json, content_hash

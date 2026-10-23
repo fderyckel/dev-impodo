@@ -275,58 +275,57 @@ class SourceSnapshotPublisher:
         with self.artifacts.materialize_source(
             selection.data_version_id,
             source_file.stored_name,
-        ) as source_path:
-            with open_selected_source_batches(
-                source_path,
-                dataset=dataset.name,
-                table_key=binding.table_key,
-                encoding=binding.encoding,
-                delimiter=binding.delimiter,
-                header_row=binding.header_row,
-                named_table_range=named_range,
-                source_display_name=source_file.display_name,
-                batch_size=batch_rows,
-            ) as source:
-                if source.content_hash != expected_source_hash:
+        ) as source_path, open_selected_source_batches(
+            source_path,
+            dataset=dataset.name,
+            table_key=binding.table_key,
+            encoding=binding.encoding,
+            delimiter=binding.delimiter,
+            header_row=binding.header_row,
+            named_table_range=named_range,
+            source_display_name=source_file.display_name,
+            batch_size=batch_rows,
+        ) as source:
+            if source.content_hash != expected_source_hash:
+                raise SourceLoadError(
+                    "Stored source content changed after dataset freezing"
+                )
+            if source.headers != expected_headers:
+                raise SourceLoadError(
+                    "Stored source columns changed after dataset freezing"
+                )
+            with self.artifacts.prepare_source_snapshot(
+                selection.data_version_id
+            ) as workspace:
+                candidate = workspace / "snapshot.parquet"
+                publication = _write_snapshot_candidate(
+                    source,
+                    schema,
+                    workspace,
+                    candidate,
+                )
+                if publication.row_count != dataset.row_count:
                     raise SourceLoadError(
-                        "Stored source content changed after dataset freezing"
+                        "Stored source row count changed after dataset freezing"
                     )
-                if source.headers != expected_headers:
-                    raise SourceLoadError(
-                        "Stored source columns changed after dataset freezing"
-                    )
-                with self.artifacts.prepare_source_snapshot(
-                    selection.data_version_id
-                ) as workspace:
-                    candidate = workspace / "snapshot.parquet"
-                    publication = _write_snapshot_candidate(
-                        source,
-                        schema,
-                        workspace,
-                        candidate,
-                    )
-                    if publication.row_count != dataset.row_count:
-                        raise SourceLoadError(
-                            "Stored source row count changed after dataset freezing"
-                        )
-                    snapshot = SourceSnapshot.create(
-                        data_version_id=selection.data_version_id,
-                        dataset_id=dataset.dataset_id,
-                        dataset_name=dataset.name,
-                        source=dataset.source,
-                        physical_selection_hash=selection.content_hash,
-                        schema=schema,
-                        row_count=publication.row_count,
-                        data_logical_hash=publication.data_logical_hash,
-                        parquet_sha256=publication.parquet_sha256,
-                        created_at=selection.created_at,
-                    )
-                    self.artifacts.publish_source_snapshot(
-                        selection.data_version_id,
-                        candidate,
-                        snapshot.parquet_storage_key,
-                        expected_sha256=publication.parquet_sha256,
-                    )
+                snapshot = SourceSnapshot.create(
+                    data_version_id=selection.data_version_id,
+                    dataset_id=dataset.dataset_id,
+                    dataset_name=dataset.name,
+                    source=dataset.source,
+                    physical_selection_hash=selection.content_hash,
+                    schema=schema,
+                    row_count=publication.row_count,
+                    data_logical_hash=publication.data_logical_hash,
+                    parquet_sha256=publication.parquet_sha256,
+                    created_at=selection.created_at,
+                )
+                self.artifacts.publish_source_snapshot(
+                    selection.data_version_id,
+                    candidate,
+                    snapshot.parquet_storage_key,
+                    expected_sha256=publication.parquet_sha256,
+                )
         return SourceSnapshotPublication(
             snapshot=snapshot,
             input_batch_rows=batch_rows,
@@ -521,7 +520,7 @@ def _physical_columnar_batch(
     row_numbers: tuple[int, ...],
     values_by_name: Mapping[str, Sequence[object]],
     schema: SourceSnapshotSchema,
-    data_hasher: "_SnapshotDataHasher",
+    data_hasher: _SnapshotDataHasher,
 ) -> pl.DataFrame:
     data: dict[str, list[object]] = {SOURCE_ROW_COLUMN: list(row_numbers)}
     encoded_by_column: list[tuple[list[str | None], list[int]]] = []

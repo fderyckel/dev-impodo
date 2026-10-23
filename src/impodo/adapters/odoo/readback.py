@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import re
-import socket
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 from urllib.error import URLError
 from urllib.parse import quote
 
@@ -31,7 +30,6 @@ from impodo.domain.execution.odoo_readback import (
     MAX_READBACK_RECORD_IDS,
     ExternalIdBinding,
     OdooReadbackError,
-    OdooReadbackReader,
     ReadbackLookup,
     ReadbackRecord,
 )
@@ -281,7 +279,7 @@ class Json2ReadbackReader:
                     self.config.timeout_seconds,
                     "POST",
                 )
-            except (TimeoutError, socket.timeout, URLError, ValueError) as error:
+            except (TimeoutError, URLError, ValueError) as error:
                 if attempt >= self.config.retries:
                     raise OdooReadbackError(
                         "Odoo could not be reached for verification"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from collections.abc import Set as AbstractSet
+from typing import Protocol, cast
 
 from impodo.domain.mapping.contracts import DatasetMapping
 from impodo.domain.preparation.normalization import (
@@ -36,6 +37,32 @@ from impodo.domain.workspace.workbench import DataClassification, WorkspaceState
 
 class BoundedNormalizationUnsupported(ValueError):
     """Signal that the complete normalization evaluator is required."""
+
+
+class _NormalizationImpactRows(Protocol):
+    """Session-row capabilities required by the bounded normalizer."""
+
+    @property
+    def normalization_run_id(self) -> str: ...
+
+    def prepare_normalization_facts(
+        self,
+        **builders: object,
+    ) -> dict[str, object]: ...
+
+    def iter_normalization_effects(self) -> Iterator[NormalizationEffect]: ...
+
+    def copy_normalization_effects(
+        self,
+        connection: object,
+        run_id: str,
+    ) -> int: ...
+
+    def iter_normalization_effect_json_batches(
+        self,
+        connection: object,
+        batch_size: int,
+    ) -> Iterator[object]: ...
 
 
 class _BoundedNormalizationEffects:
@@ -154,7 +181,7 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
     def __init__(
         self,
         factory: _BoundedNormalizationEffects,
-        impact_rows: object,
+        impact_rows: _NormalizationImpactRows,
     ) -> None:
         self._factory = factory
         self._impact_rows = impact_rows
@@ -166,8 +193,7 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
         owns indexing and persistence; this adapter only supplies factories for
         domain-shaped effects and findings.
         """
-        preparer = getattr(self._impact_rows, "prepare_normalization_facts")
-        return preparer(
+        return self._impact_rows.prepare_normalization_facts(
             effect_builder=self._build_effects,
             finding_builder=self._build_findings,
         )
@@ -175,7 +201,7 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
     @property
     def prepared_run_id(self) -> str:
         """Expose the source run identifier required by the durable publisher."""
-        return str(getattr(self._impact_rows, "normalization_run_id"))
+        return str(self._impact_rows.normalization_run_id)
 
     def _build_effects(self, rows):
         for impact, row_id, eligible in rows:
@@ -222,15 +248,12 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
             )
 
     def __iter__(self) -> Iterator[NormalizationEffect]:
-        yield from getattr(
-            self._impact_rows,
-            "iter_normalization_effects",
-        )()
+        yield from self._impact_rows.iter_normalization_effects()
 
     def copy_to_run(self, connection, run_id: str) -> int:
         """Copy indexed effects into the published run without materializing them."""
         return int(
-            getattr(self._impact_rows, "copy_normalization_effects")(
+            self._impact_rows.copy_normalization_effects(
                 connection,
                 run_id,
             )
@@ -238,10 +261,10 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
 
     def iter_encoded_batches(self, connection, batch_size: int):
         """Stream encoded durable effects for consumers that need batch access."""
-        yield from getattr(
-            self._impact_rows,
-            "iter_normalization_effect_json_batches",
-        )(connection, batch_size)
+        yield from self._impact_rows.iter_normalization_effect_json_batches(
+            connection,
+            batch_size,
+        )
 
 
 def build_bounded_normalization_evaluation(
@@ -289,7 +312,7 @@ def build_bounded_normalization_evaluation(
     )
     durable_effects = _DurableNormalizationEffects(
         effect_factory,
-        impact_rows,
+        cast(_NormalizationImpactRows, impact_rows),
     )
     effects: Iterable[NormalizationEffect] = durable_effects
     summary = durable_effects.prepare()

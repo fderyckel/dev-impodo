@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from threading import RLock
 from typing import Protocol
 from uuid import UUID, uuid5

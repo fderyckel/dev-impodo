@@ -93,7 +93,7 @@ class FuzzyComparisonField:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "FuzzyComparisonField":
+    def from_dict(cls, payload: Mapping[str, Any]) -> FuzzyComparisonField:
         return cls(
             field=str(payload["field"]),
             algorithm=SimilarityAlgorithm(str(payload["algorithm"])),
@@ -173,7 +173,7 @@ class ResolutionRule:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "ResolutionRule":
+    def from_dict(cls, payload: Mapping[str, Any]) -> ResolutionRule:
         return cls(
             rule_id=str(payload["rule_id"]),
             dataset=str(payload["dataset"]),
@@ -255,7 +255,7 @@ class ResolutionPolicy:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "ResolutionPolicy":
+    def from_dict(cls, payload: Mapping[str, Any]) -> ResolutionPolicy:
         result = cls(
             contract_version=int(payload["contract_version"]),
             policy_id=str(payload["policy_id"]),
@@ -330,7 +330,7 @@ class ResolutionCandidate:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "ResolutionCandidate":
+    def from_dict(cls, payload: Mapping[str, Any]) -> ResolutionCandidate:
         return cls(
             candidate_id=str(payload["candidate_id"]),
             rule_id=str(payload["rule_id"]),
@@ -377,7 +377,7 @@ class ResolutionFinding:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "ResolutionFinding":
+    def from_dict(cls, payload: Mapping[str, Any]) -> ResolutionFinding:
         return cls(
             finding_id=str(payload["finding_id"]),
             rule_id=str(payload["rule_id"]),
@@ -450,7 +450,7 @@ class ResolutionEvaluation:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "ResolutionEvaluation":
+    def from_dict(cls, payload: Mapping[str, Any]) -> ResolutionEvaluation:
         result = cls(
             contract_version=int(payload["contract_version"]),
             scorer_version=int(payload.get("scorer_version", 0)),
@@ -555,7 +555,7 @@ class ResolutionDecision:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "ResolutionDecision":
+    def from_dict(cls, payload: Mapping[str, Any]) -> ResolutionDecision:
         actor = dict(payload["actor"])
         result = cls(
             contract_version=int(payload["contract_version"]),
@@ -628,7 +628,7 @@ class FieldProvenance:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "FieldProvenance":
+    def from_dict(cls, payload: Mapping[str, Any]) -> FieldProvenance:
         return cls(
             field=str(payload["field"]),
             kind=FieldProvenanceKind(str(payload["kind"])),
@@ -691,7 +691,7 @@ class EffectiveRow:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "EffectiveRow":
+    def from_dict(cls, payload: Mapping[str, Any]) -> EffectiveRow:
         return cls(
             canonical_row=CanonicalRow.from_dict(dict(payload["canonical_row"])),
             contributing_row_ids=tuple(
@@ -724,7 +724,7 @@ class ResolutionRowAccounting:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "ResolutionRowAccounting":
+    def from_dict(cls, payload: Mapping[str, Any]) -> ResolutionRowAccounting:
         return cls(
             source_row_id=str(payload["source_row_id"]),
             state=ResolutionState(str(payload["state"])),
@@ -781,7 +781,7 @@ class ResolutionReconciliation:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "ResolutionReconciliation":
+    def from_dict(cls, payload: Mapping[str, Any]) -> ResolutionReconciliation:
         return cls(**{field: int(payload[field]) for field in (
             "staged_rows",
             "passed_through_rows",
@@ -858,7 +858,7 @@ class EffectiveDataset:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "EffectiveDataset":
+    def from_dict(cls, payload: Mapping[str, Any]) -> EffectiveDataset:
         result = cls(
             contract_version=int(payload["contract_version"]),
             workspace_id=str(payload["workspace_id"]),
@@ -1464,8 +1464,8 @@ def _candidate(
     right: CanonicalRow,
 ) -> ResolutionCandidate:
     components: dict[str, str] = {}
-    weighted = Decimal("0")
-    total_weight = Decimal("0")
+    weighted = Decimal(0)
+    total_weight = Decimal(0)
     for comparison in rule.comparison_fields:
         left_value = _normalized_text(
             left.proposed_values.get(comparison.field),
@@ -1564,9 +1564,9 @@ def _normalized_text(value: Any, punctuation: str) -> str:
 
 def _levenshtein_score(left: str, right: str) -> Decimal:
     if not left or not right:
-        return Decimal("0")
+        return Decimal(0)
     if left == right:
-        return Decimal("1")
+        return Decimal(1)
     previous = list(range(len(right) + 1))
     for left_index, left_character in enumerate(left, 1):
         current = [left_index]
@@ -1589,7 +1589,7 @@ def _jaccard_score(left: str, right: str) -> Decimal:
     left_tokens = frozenset(left.split())
     right_tokens = frozenset(right.split())
     if not left_tokens or not right_tokens:
-        return Decimal("0")
+        return Decimal(0)
     return (
         Decimal(len(left_tokens & right_tokens))
         / Decimal(len(left_tokens | right_tokens))

@@ -13,7 +13,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from dataclasses import fields as dataclass_fields
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from impodo.domain.preparation.normalization import NormalizationRunSummary
@@ -391,7 +391,7 @@ class ReadinessReport:
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "ReadinessReport":
+    def from_json(cls, value: str) -> ReadinessReport:
         """Load the exact current report contract."""
 
         payload = json.loads(value)

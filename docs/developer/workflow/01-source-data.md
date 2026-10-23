@@ -88,6 +88,47 @@ to the requesting Stage 1 form. The access check does not save a separation
 rule or choose Stage 2 record types. A changed target still invalidates
 dependent evidence through the existing target setup rules.
 
+Source-preparation contract v6 can assign every frozen physical dataset one
+of three uses: map it directly, use it only to prepare logical outputs, or do
+both. `DerivedEntityWorkspaceService.save_dataset_uses` accepts the decision
+only when it covers the complete physical selection and agrees with the saved
+preparation rules. `mapping_source_selection` then omits preparation-only
+physical inputs from **Match data** while staging still receives the complete
+physical selection. The saved plan remains hash-bound and the existing atomic
+repository save invalidates current mapping and prepared evidence. Version 4
+and 5 plans retain their previous mapping inputs.
+
+`DerivedEntityWorkspaceService.preview_join` now accepts one model-neutral
+`ExactJoinRequest`. It loads every verified physical snapshot once, evaluates
+the existing dependency-ordered structural chain, and uses
+[`review_exact_join`](../../../src/impodo/domain/structural.py) to assess the
+proposed join over the complete frozen rows within the 25,000-row materialized
+limit.
+The review reports base, added, matched, unmatched, unused, blank, invalid,
+and duplicate-key counts. It also returns protected row-number examples and
+the expected output count. An optional join preserves every valid base row. A
+required join treats any unmatched base row as a blocking finding.
+
+`DerivedEntityWorkspaceService.save_join` repeats the complete review instead
+of trusting browser-supplied counts. It checks the expected parent version and
+then asks `DerivedEntityRepository.save_derived_entity_plan` to append the
+revision in one transaction. Contract v7 stores the rule hash, physical
+snapshot identities, complete counts, protected examples, output-table hash,
+and lineage hash. A failed repository transaction leaves the prior current
+pointer unchanged, so the same semantic request can be reviewed and retried.
+Removing a structural rule clears saved join reviews that may depend on that
+chain.
+
+This is an implemented application capability, not a current browser control.
+The browser still offers only lookup extraction, multi-column hierarchy, and
+parent/child separation. Exact-join authoring, dataset-use controls, and
+portable Recipe reuse of those decisions remain in the
+[source-table composition plan](../../plans/source-table-composition.md).
+Slice 1 adds no route, so a `run_local_operation` scope, route connection
+ceiling, live timing, and screenshot refresh do not apply yet.
+[Focused application tests](../../../tests/application/workspace/test_exact_join_authoring.py)
+cover the complete review, version, chain, persistence, and retry contract.
+
 `HierarchicalLookupRule` is model-neutral. It binds two to five ordered stable
 column keys from one accepted dataset, an arbitrary captured target model and
 name field, and explicit missing-parent, missing-leaf, and all-blank policies.

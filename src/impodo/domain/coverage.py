@@ -112,7 +112,7 @@ class CoverageDeclaration:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "CoverageDeclaration":
+    def from_dict(cls, payload: Mapping[str, Any]) -> CoverageDeclaration:
         return cls(
             family=CoverageFamily(str(payload["family"])),
             applicability=CoverageApplicability(str(payload["applicability"])),
@@ -198,7 +198,7 @@ class CoverageScopeRevision:
         return canonical_json(self.to_portable_dict())
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "CoverageScopeRevision":
+    def from_dict(cls, payload: Mapping[str, Any]) -> CoverageScopeRevision:
         actor = dict(payload["approved_by"])
         result = cls(
             contract_version=int(payload["contract_version"]),
@@ -258,7 +258,7 @@ class ReferenceEntry:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "ReferenceEntry":
+    def from_dict(cls, payload: Mapping[str, Any]) -> ReferenceEntry:
         key = restore_portable_value(payload["key"])
         values = restore_portable_value(payload["values"])
         if not isinstance(key, tuple) or not isinstance(values, dict):
@@ -348,7 +348,7 @@ class ReferenceDataSet:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "ReferenceDataSet":
+    def from_dict(cls, payload: Mapping[str, Any]) -> ReferenceDataSet:
         result = cls(
             contract_version=int(payload["contract_version"]),
             reference_id=str(payload["reference_id"]),
@@ -409,7 +409,7 @@ class ReferenceBundle:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "ReferenceBundle":
+    def from_dict(cls, payload: Mapping[str, Any]) -> ReferenceBundle:
         result = cls(
             contract_version=int(payload["contract_version"]),
             workspace_id=str(payload["workspace_id"]),

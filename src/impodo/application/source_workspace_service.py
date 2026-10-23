@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from hashlib import sha256
 from threading import RLock
 from typing import Protocol
@@ -1256,5 +1256,5 @@ def _column_key(ordinal: int, name: str) -> str:
 def _dataset_key(file_id: str, table_key: str) -> str:
     """Derive a stable dataset identity from registered file and table keys."""
 
-    digest = sha256(f"{file_id}\0{table_key}".encode("utf-8")).hexdigest()
+    digest = sha256(f"{file_id}\0{table_key}".encode()).hexdigest()
     return f"dataset:{digest[:24]}"

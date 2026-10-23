@@ -195,7 +195,7 @@ class CategoricalCoverageEvidence:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "CategoricalCoverageEvidence":
+    def from_dict(cls, payload: Mapping[str, Any]) -> CategoricalCoverageEvidence:
         if set(payload) != {
             "contract_version",
             "mapping_content_hash",
@@ -332,7 +332,7 @@ class MappingValidationResult:
         return _canonical_json(self.to_dict())
 
     @classmethod
-    def from_json(cls, value: str) -> "MappingValidationResult":
+    def from_json(cls, value: str) -> MappingValidationResult:
         """Restore validation evidence and reject hash tampering."""
 
         payload = json.loads(value)

@@ -12,7 +12,6 @@ surface.
 from __future__ import annotations
 
 import re
-import socket
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -454,7 +453,7 @@ class Json2WriteExecutor:
                     self.config.timeout_seconds,
                     "POST",
                 )
-            except (TimeoutError, socket.timeout, URLError, ValueError) as error:
+            except (TimeoutError, URLError, ValueError) as error:
                 if write:
                     raise OdooWriteOutcomeUnknown(
                         "The Odoo response was lost; the outcome is unknown"

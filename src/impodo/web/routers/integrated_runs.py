@@ -40,7 +40,6 @@ from ..presenters.navigation import build_recipe_run_navigation
 from ..presenters.schema import _render_schema
 from ..run_commands import recover_run_preparation, start_next_preparation
 from ..run_review import build_integrated_run_review
-from ..run_urls import fresh_data_url as _fresh_data_url
 from ..security import require_session
 
 

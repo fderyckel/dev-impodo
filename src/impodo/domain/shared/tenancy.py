@@ -110,7 +110,7 @@ class RequestOrganizationScope:
         principal: AuthenticatedPrincipal,
         *,
         organization_id: OrganizationId | None = None,
-    ) -> "RequestOrganizationScope":
+    ) -> RequestOrganizationScope:
         """Bind customer/local membership or an explicit platform scope."""
 
         selected = organization_id or principal.organization_id

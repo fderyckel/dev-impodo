@@ -397,7 +397,7 @@ class ExecutionSnapshot:
         return canonical_json_bytes(self.portable_dict()).decode("utf-8")
 
     @classmethod
-    def from_json(cls, value: str) -> "ExecutionSnapshot":
+    def from_json(cls, value: str) -> ExecutionSnapshot:
         payload = json.loads(value)
         if int(payload["contract_version"]) != EXECUTION_SNAPSHOT_VERSION:
             raise ValueError("Execution snapshot contract version is unsupported")
@@ -726,8 +726,8 @@ def _execution_field_digits(
         (
             str(field.name),
             (
-                int(getattr(field, "digits")[0]),
-                int(getattr(field, "digits")[1]),
+                int(field.digits[0]),
+                int(field.digits[1]),
             ),
         )
         for field in sorted(getattr(model, "fields", ()), key=lambda item: item.name)

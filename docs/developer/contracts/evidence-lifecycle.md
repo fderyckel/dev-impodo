@@ -98,6 +98,26 @@ timestamp. Source freeze then binds stable dataset and column identities, row
 counts, lineage, reader version, logical content hash, and immutable snapshot
 location.
 
+Source-preparation plan contract v6 may bind one complete dataset-use policy
+to the frozen physical selection. **Map directly** exposes a physical dataset
+to mapping. **Preparation only** keeps it available to preparation but omits
+it from mapping. **Map and prepare** does both. Every explicit policy must
+cover the complete physical selection and agree with the saved preparation
+rules. Version 4 and 5 plans keep their prior mapping exposure. The physical
+selection and immutable snapshots remain unchanged in every case.
+
+Source-preparation plan contract v7 may also retain an accepted exact-join
+review. The saved evidence binds the exact rule hash and physical source
+selection to each input snapshot's logical and Parquet hashes. It records the
+complete cardinality and key-quality counts, protected row-number examples,
+the output-table hash, and the physical-lineage hash. The application repeats
+the complete review during save; it never treats counts returned by a client
+as evidence. The current pointer advances with the immutable plan revision in
+the repository's existing mapping-and-staging invalidation transaction. A
+rollback leaves neither the revision nor its pointer current, so a retry does
+not append a duplicate accepted revision. Version 4, 5, and 6 plan hashes keep
+their earlier JSON shape.
+
 Live target schema evidence binds the target identity to the permitted models,
 effective fields, relationship and selection metadata, and read-credential
 provenance. A local manual draft remains unverified and cannot authorize
@@ -285,7 +305,7 @@ portable source or relationship identities.
 | Change target identity or model scope | Target schema, governance, mapping, comparison, and execution evidence |
 | Change governed business keys | Mapping, target comparison, and execution evidence |
 | Change the governed-reference policy | Mapping validation and submission, supporting lookups, preparation, comparison, and new Recipe target contracts |
-| Save or remove a related-dataset plan | Mapping and downstream prepared evidence |
+| Save or remove a source-preparation rule or dataset-use policy | Mapping and downstream prepared evidence |
 | Rearrange or reset the Stage 3 matching-order preference | No semantic evidence; only workspace-local presentation state changes |
 | Complete a Stage 3 matching-order check | No semantic evidence; publish target-bound advisory evidence only |
 | Change a binding used by the current Stage 3 order check | Mark that advisory check stale; preserve mapping and downstream evidence |

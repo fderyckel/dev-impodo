@@ -82,7 +82,7 @@ class EditionControlExpectation:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "EditionControlExpectation":
+    def from_dict(cls, payload: Mapping[str, Any]) -> EditionControlExpectation:
         if set(payload) != {
             "contract_version",
             "workspace_id",

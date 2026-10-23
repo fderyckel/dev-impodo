@@ -6,7 +6,7 @@ import base64
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import uuid4
 

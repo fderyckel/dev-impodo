@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from datetime import datetime, timezone, UTC
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from typing import Protocol
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from impodo.application.data_version.source_snapshots import (
     load_source_snapshot_table,
@@ -15,12 +16,30 @@ from impodo.application.shared.artifacts import (
     ArtifactStoreError,
     DataVersionSourceArtifactStore,
 )
-from impodo.domain.preparation.source import SourceLoadError
+from impodo.domain.preparation.source import SourceLoadError, SourceTable
+from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.scale import (
     LOOKUP_DERIVED_BROWSER_EVALUATION_ROW_LIMIT,
     LOOKUP_DERIVED_OUTPUT_ROW_LIMIT,
+    MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
+)
+from impodo.domain.structural import (
+    ExactJoinLineageReference,
+    ExactJoinReview,
+    ExactJoinRule,
+    GroupAggregateRule,
+    JoinKey,
+    JoinKind,
+    StructuralError,
+    StructuralOutputColumn,
+    StructuralProjection,
+    UnionAllRule,
+    execute_structural_rules,
+    review_exact_join,
+    structural_dataset_id,
+    structural_mapping_selection,
 )
 from impodo.domain.workspace.contracts import SourceSelection
 from impodo.domain.workspace.derived_entities import (
@@ -28,11 +47,15 @@ from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityPreview,
     DerivedEntityRule,
+    ExactJoinInputSnapshotEvidence,
     HierarchicalLookupRule,
     HierarchyValuePolicy,
     LookupRule,
     RelatedDatasetPreview,
     RelatedDatasetRule,
+    SavedExactJoinReview,
+    SourceDatasetUse,
+    SourceDatasetUsePolicy,
     SourceFileCatalogView,
     _hierarchy_source_dataset,
     _related_source_dataset,
@@ -40,7 +63,9 @@ from impodo.domain.workspace.derived_entities import (
     _source_dataset,
     preview_derived_entities,
     preview_related_datasets,
+    reconcile_source_dataset_uses,
     review_derived_entities,
+    validate_source_dataset_uses,
 )
 from impodo.domain.workspace.errors import WorkspaceError
 
@@ -93,13 +118,40 @@ class DerivedRulePreview:
     error: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ExactJoinRequest:
+    """Application input for one bounded, model-neutral exact enrichment."""
+
+    output_dataset_name: str
+    left_dataset_id: str
+    right_dataset_id: str
+    keys: tuple[JoinKey, ...]
+    output_columns: tuple[StructuralOutputColumn, ...]
+    projections: tuple[StructuralProjection, ...]
+    kind: JoinKind = JoinKind.LEFT
+    require_all_right_rows: bool = True
+    rule_id: str = field(default_factory=lambda: str(uuid4()))
+
+    def __post_init__(self) -> None:
+        try:
+            rule_id = str(UUID(self.rule_id))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise ValueError("Exact-join request identifier is invalid") from error
+        object.__setattr__(self, "keys", tuple(self.keys))
+        object.__setattr__(self, "output_columns", tuple(self.output_columns))
+        object.__setattr__(self, "projections", tuple(self.projections))
+        object.__setattr__(self, "kind", JoinKind(self.kind))
+        object.__setattr__(self, "rule_id", rule_id)
+
+
 class DerivedEntityWorkspaceService:
     """Author and review deterministic derived-entity rules.
 
     Saved rules are bound to the current frozen physical selection and use an
     optimistic plan version. A one-field lookup review reads every row in the
-    chosen frozen source table. Preparation later repeats the accepted rule
-    without changing the source.
+    chosen frozen source table. An exact-join review reads the complete bounded
+    physical selection and retains reproducible reconciliation evidence.
+    Preparation later repeats each accepted rule without changing the source.
     """
 
     def __init__(
@@ -113,6 +165,311 @@ class DerivedEntityWorkspaceService:
         self.derived_entities = derived_entities
         self.authorization = authorization
         self.artifacts = artifacts
+
+    def preview_join(
+        self,
+        workspace_id: str,
+        request: ExactJoinRequest,
+    ) -> tuple[ExactJoinRule, ExactJoinReview]:
+        """Review one exact join over every row in the frozen source snapshots."""
+
+        selection, current = self._join_context(workspace_id)
+        rule = self._join_rule(request)
+        tables, _snapshots = self._load_join_tables(workspace_id, selection)
+        review = self._review_join(rule, selection, current, tables)
+        return rule, review
+
+    def save_join(
+        self,
+        workspace_id: str,
+        request: ExactJoinRequest,
+        *,
+        dataset_uses: Mapping[str, SourceDatasetUse | str] | None = None,
+        expected_parent_version: int | None,
+        actor: Actor,
+    ) -> tuple[DerivedEntityPlan, ExactJoinRule, ExactJoinReview]:
+        """Recheck and atomically append one accepted exact-join review."""
+
+        self.authorization.require(
+            actor,
+            Capability.NORMALIZATION_DECIDE,
+            workspace_id=workspace_id,
+        )
+        selection, current = self._join_context(workspace_id)
+        actual_parent = current.version if current else None
+        if expected_parent_version != actual_parent:
+            raise WorkspaceError(
+                "The source-preparation plan was modified by another request; reload it"
+            )
+        rule = self._join_rule(request)
+        tables, snapshots = self._load_join_tables(workspace_id, selection)
+        review = self._review_join(rule, selection, current, tables)
+        if not review.can_save:
+            raise WorkspaceError(
+                "The exact join cannot be saved: " + "; ".join(review.findings)
+            )
+
+        rules = (*(current.rules if current else ()), rule)
+        if dataset_uses is None:
+            policies = reconcile_source_dataset_uses(
+                current.dataset_uses if current else (),
+                rules,
+            )
+        else:
+            if set(dataset_uses) != {
+                item.dataset_id for item in selection.datasets
+            }:
+                raise WorkspaceError(
+                    "Source dataset-use policies must cover every frozen physical dataset"
+                )
+            policies = tuple(
+                SourceDatasetUsePolicy(dataset_id, SourceDatasetUse(use))
+                for dataset_id, use in dataset_uses.items()
+            )
+        saved_review = SavedExactJoinReview(
+            rule_id=rule.rule_id,
+            rule_hash=content_hash(rule.to_dict()),
+            source_selection_hash=selection.content_hash,
+            input_snapshots=tuple(
+                ExactJoinInputSnapshotEvidence(
+                    dataset_id=item.dataset_id,
+                    logical_hash=item.logical_hash,
+                    parquet_sha256=item.parquet_sha256,
+                )
+                for item in snapshots
+            ),
+            review=review,
+        )
+        plan = DerivedEntityPlan(
+            plan_id=current.plan_id if current else str(uuid4()),
+            version=(current.version + 1 if current else 1),
+            workspace_id=workspace_id,
+            source_selection_hash=selection.content_hash,
+            rules=rules,
+            updated_at=datetime.now(UTC),
+            updated_by=actor.identity.display_name,
+            dataset_uses=policies,
+            join_reviews=(*(current.join_reviews if current else ()), saved_review),
+        )
+        validate_source_dataset_uses(selection, plan)
+        self.derived_entities.save_derived_entity_plan(
+            workspace_id,
+            plan,
+            expected_parent_version=actual_parent,
+            actor=actor,
+        )
+        return plan, rule, review
+
+    def _join_context(
+        self,
+        workspace_id: str,
+    ) -> tuple[SourceSelection, DerivedEntityPlan | None]:
+        selection = self.sources.get_source_selection(workspace_id)
+        if selection is None:
+            raise WorkspaceError("Freeze source datasets before combining tables")
+        current = self.derived_entities.get_derived_entity_plan(workspace_id)
+        if current and current.source_selection_hash != selection.content_hash:
+            raise WorkspaceError(
+                "The source-preparation plan is stale; rebuild it from the frozen datasets"
+            )
+        if (
+            sum(item.row_count for item in selection.datasets)
+            > MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
+        ):
+            raise WorkspaceError(
+                "This workspace selection contains more source rows than the "
+                f"{MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT:,}-row exact-join "
+                "review limit"
+            )
+        return selection, current
+
+    @staticmethod
+    def _join_rule(request: ExactJoinRequest) -> ExactJoinRule:
+        return ExactJoinRule(
+            rule_id=request.rule_id,
+            output_dataset_name=request.output_dataset_name,
+            left_dataset_id=request.left_dataset_id,
+            right_dataset_id=request.right_dataset_id,
+            keys=request.keys,
+            output_columns=request.output_columns,
+            projections=request.projections,
+            kind=request.kind,
+            require_all_right_rows=request.require_all_right_rows,
+        )
+
+    def _load_join_tables(
+        self,
+        workspace_id: str,
+        selection: SourceSelection,
+    ) -> tuple[dict[str, SourceTable], tuple[SourceSnapshot, ...]]:
+        if self.artifacts is None:
+            raise WorkspaceError(
+                "Impodo cannot open the accepted source data for this review"
+            )
+        snapshots = self.sources.get_current_source_snapshots(workspace_id)
+        by_dataset = {item.dataset_id: item for item in snapshots}
+        physical_ids = {item.dataset_id for item in selection.datasets}
+        if len(by_dataset) != len(snapshots) or set(by_dataset) != physical_ids:
+            raise WorkspaceError(
+                "Accept this Data version again before reviewing the exact join"
+            )
+        loaded: dict[str, SourceTable] = {}
+        try:
+            for dataset in selection.datasets:
+                snapshot = by_dataset[dataset.dataset_id]
+                validate_snapshot_for_dataset(selection, dataset, snapshot)
+                with self.artifacts.materialize_source_snapshot(
+                    selection.data_version_id,
+                    snapshot.parquet_storage_key,
+                    expected_sha256=snapshot.parquet_sha256,
+                ) as path:
+                    loaded[dataset.dataset_id] = load_source_snapshot_table(
+                        path,
+                        snapshot,
+                    )
+        except (ArtifactStoreError, OSError, SourceLoadError, ValueError) as error:
+            raise WorkspaceError(
+                "Impodo could not verify the accepted source data for this review"
+            ) from error
+        return loaded, tuple(by_dataset[item.dataset_id] for item in selection.datasets)
+
+    @staticmethod
+    def _review_join(
+        rule: ExactJoinRule,
+        selection: SourceSelection,
+        current: DerivedEntityPlan | None,
+        loaded_tables: Mapping[str, SourceTable],
+    ) -> ExactJoinReview:
+        current_rules = tuple(
+            item
+            for item in (current.rules if current else ())
+            if isinstance(item, (ExactJoinRule, UnionAllRule, GroupAggregateRule))
+        )
+        try:
+            structural_mapping_selection(selection, (*current_rules, rule))
+            existing = execute_structural_rules(
+                selection=selection,
+                loaded_tables=loaded_tables,
+                rules=current_rules,
+            )
+            available_selection = structural_mapping_selection(
+                selection,
+                current_rules,
+            )
+            specs = {item.dataset_id: item for item in available_selection.datasets}
+            tables = dict(loaded_tables)
+            tables.update(
+                {item.dataset.dataset_id: item.table for item in existing.outputs}
+            )
+            review = review_exact_join(rule, specs=specs, tables=tables)
+            if not review.can_save:
+                return review
+            execution = execute_structural_rules(
+                selection=selection,
+                loaded_tables=loaded_tables,
+                rules=(*current_rules, rule),
+            )
+            output = execution.by_dataset_id()[structural_dataset_id(rule)]
+        except (StructuralError, ValueError) as error:
+            raise WorkspaceError(str(error)) from error
+        lineage_by_left_row = {
+            left_row.number: output.lineage[output_row.number]
+            for left_row, output_row in zip(
+                tables[rule.left_dataset_id].rows,
+                output.table.rows,
+                strict=True,
+            )
+        }
+        return replace(
+            review,
+            actual_output_rows=output.reconciliation.output_rows,
+            lineage_links=output.reconciliation.lineage_links,
+            output_table_hash=output.table.content_hash,
+            lineage_hash=content_hash(
+                {
+                    str(row_number): {
+                        dataset_id: list(source_rows)
+                        for dataset_id, source_rows in sources.items()
+                    }
+                    for row_number, sources in output.lineage.items()
+                }
+            ),
+            examples=tuple(
+                replace(
+                    example,
+                    physical_lineage=tuple(
+                        ExactJoinLineageReference(dataset_id, source_rows)
+                        for dataset_id, source_rows in lineage_by_left_row[
+                            example.left_row_number
+                        ].items()
+                    ),
+                )
+                for example in review.examples
+            ),
+        )
+
+    def save_dataset_uses(
+        self,
+        workspace_id: str,
+        *,
+        dataset_uses: Mapping[str, SourceDatasetUse | str],
+        expected_parent_version: int,
+        actor: Actor,
+    ) -> DerivedEntityPlan:
+        """Save how every physical dataset participates in mapping and preparation."""
+
+        self.authorization.require(
+            actor,
+            Capability.NORMALIZATION_DECIDE,
+            workspace_id=workspace_id,
+        )
+        selection = self.sources.get_source_selection(workspace_id)
+        if selection is None:
+            raise WorkspaceError("Freeze source datasets before choosing their use")
+        current = self.derived_entities.get_derived_entity_plan(workspace_id)
+        if current is None:
+            raise WorkspaceError(
+                "Add a source-preparation rule before choosing dataset use"
+            )
+        if expected_parent_version != current.version:
+            raise WorkspaceError(
+                "The source-preparation plan was modified by another request; reload it"
+            )
+        if current.source_selection_hash != selection.content_hash:
+            raise WorkspaceError(
+                "The source-preparation plan is stale; rebuild it from the frozen datasets"
+            )
+        if set(dataset_uses) != {
+            item.dataset_id for item in selection.datasets
+        }:
+            raise WorkspaceError(
+                "Source dataset-use policies must cover every frozen physical dataset"
+            )
+        plan = DerivedEntityPlan(
+            plan_id=current.plan_id,
+            version=current.version + 1,
+            workspace_id=current.workspace_id,
+            source_selection_hash=current.source_selection_hash,
+            rules=current.rules,
+            updated_at=datetime.now(UTC),
+            updated_by=actor.identity.display_name,
+            dataset_uses=tuple(
+                SourceDatasetUsePolicy(
+                    dataset_id=dataset_id,
+                    use=SourceDatasetUse(use),
+                )
+                for dataset_id, use in dataset_uses.items()
+            ),
+            join_reviews=current.join_reviews,
+        )
+        validate_source_dataset_uses(selection, plan)
+        self.derived_entities.save_derived_entity_plan(
+            workspace_id,
+            plan,
+            expected_parent_version=current.version,
+            actor=actor,
+        )
+        return plan
 
     def save_rule(
         self,
@@ -164,14 +521,20 @@ class DerivedEntityWorkspaceService:
         self._validate_lookup_rule_availability(rule, selection, current)
 
         now = datetime.now(UTC)
+        rules = (*(current.rules if current else ()), rule)
         plan = DerivedEntityPlan(
             plan_id=current.plan_id if current else str(uuid4()),
             version=(current.version + 1 if current else 1),
             workspace_id=workspace_id,
             source_selection_hash=selection.content_hash,
-            rules=(*(current.rules if current else ()), rule),
+            rules=rules,
             updated_at=now,
             updated_by=actor.identity.display_name,
+            dataset_uses=reconcile_source_dataset_uses(
+                current.dataset_uses if current else (),
+                rules,
+            ),
+            join_reviews=current.join_reviews if current else (),
         )
         self.derived_entities.save_derived_entity_plan(
             workspace_id,
@@ -414,14 +777,20 @@ class DerivedEntityWorkspaceService:
             all_blank_value=all_blank_value,
         )
         self._validate_lookup_rule_availability(rule, selection, current)
+        rules = (*(current.rules if current else ()), rule)
         plan = DerivedEntityPlan(
             plan_id=current.plan_id if current else str(uuid4()),
             version=(current.version + 1 if current else 1),
             workspace_id=workspace_id,
             source_selection_hash=selection.content_hash,
-            rules=(*(current.rules if current else ()), rule),
+            rules=rules,
             updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
+            dataset_uses=reconcile_source_dataset_uses(
+                current.dataset_uses if current else (),
+                rules,
+            ),
+            join_reviews=current.join_reviews if current else (),
         )
         self.derived_entities.save_derived_entity_plan(
             workspace_id,
@@ -556,14 +925,20 @@ class DerivedEntityWorkspaceService:
         )
         self._validate_related_rule_availability(rule, selection, current)
 
+        rules = (*(current.rules if current else ()), rule)
         plan = DerivedEntityPlan(
             plan_id=current.plan_id if current else str(uuid4()),
             version=(current.version + 1 if current else 1),
             workspace_id=workspace_id,
             source_selection_hash=selection.content_hash,
-            rules=(*(current.rules if current else ()), rule),
+            rules=rules,
             updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
+            dataset_uses=reconcile_source_dataset_uses(
+                current.dataset_uses if current else (),
+                rules,
+            ),
+            join_reviews=current.join_reviews if current else (),
         )
         self.derived_entities.save_derived_entity_plan(
             workspace_id,
@@ -646,6 +1021,7 @@ class DerivedEntityWorkspaceService:
         remaining = tuple(item for item in current.rules if item.rule_id != rule_id)
         if len(remaining) == len(current.rules):
             raise WorkspaceError("Derived-entity rule not found")
+        removed = next(item for item in current.rules if item.rule_id == rule_id)
         plan = DerivedEntityPlan(
             plan_id=current.plan_id,
             version=current.version + 1,
@@ -654,6 +1030,18 @@ class DerivedEntityWorkspaceService:
             rules=remaining,
             updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
+            dataset_uses=reconcile_source_dataset_uses(
+                current.dataset_uses,
+                remaining,
+            ),
+            join_reviews=(
+                ()
+                if isinstance(
+                    removed,
+                    (ExactJoinRule, UnionAllRule, GroupAggregateRule),
+                )
+                else current.join_reviews
+            ),
         )
         self.derived_entities.save_derived_entity_plan(
             workspace_id,

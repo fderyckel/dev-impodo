@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from threading import RLock, Thread
 from typing import Protocol
 from uuid import uuid4
@@ -17,7 +17,6 @@ from impodo.domain.execution.planner import (
 from impodo.domain.mapping.contracts import (
     MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES,
     DatasetMapping,
-    IdentityComponentMapping,
     MappingDefinition,
     MappingTargetMode,
     RelationshipMapping,

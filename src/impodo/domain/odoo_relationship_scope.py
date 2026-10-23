@@ -209,7 +209,7 @@ class OdooRelationshipScopeDecision:
         value: object,
         *,
         contract_version: int = ODOO_RELATIONSHIP_SCOPE_CONTRACT_VERSION,
-    ) -> "OdooRelationshipScopeDecision":
+    ) -> OdooRelationshipScopeDecision:
         """Restore one decision while rejecting changed or incomplete shapes."""
 
         expected_keys = {
@@ -268,7 +268,7 @@ def relationship_scope_decisions(
         str, OdooRelationshipCaptureAction | str
     ] | None = None,
     available_models: Iterable[str] | None = None,
-    current_scope: "OdooRelationshipScope | None" = None,
+    current_scope: OdooRelationshipScope | None = None,
     unresolved_models: Iterable[str] = (),
 ) -> tuple[OdooRelationshipScopeDecision, ...]:
     """Expand grouped model choices into deterministic field-level decisions.
@@ -433,7 +433,7 @@ def propose_relationship_action_defaults(
     suggestions: Iterable[RelatedDataSuggestion],
     *,
     root_models: Iterable[str] = (),
-    current_scope: "OdooRelationshipScope | None" = None,
+    current_scope: OdooRelationshipScope | None = None,
     explicit_actions_by_model: Mapping[
         str, OdooRelationshipCaptureAction | str
     ] | None = None,
@@ -578,7 +578,7 @@ class OdooRelationshipScopeReview:
 
 def review_relationship_scope(
     suggestions: Iterable[RelatedDataSuggestion],
-    scope: "OdooRelationshipScope | None",
+    scope: OdooRelationshipScope | None,
     *,
     available_models: Iterable[str] | None = None,
 ) -> OdooRelationshipScopeReview:
@@ -645,7 +645,7 @@ def review_relationship_scope(
 
 def relationship_expansion_suggestions(
     suggestions: Iterable[RelatedDataSuggestion],
-    scope: "OdooRelationshipScope | None",
+    scope: OdooRelationshipScope | None,
 ) -> tuple[RelatedDataSuggestion, ...]:
     """Close optional leaf expansion while retaining required create inputs."""
 
@@ -906,7 +906,7 @@ class OdooRelationshipScope:
         ] = (),
         recorded_at: datetime,
         recorded_by: str,
-    ) -> "OdooRelationshipScope":
+    ) -> OdooRelationshipScope:
         """Create one validated scope revision and calculate its content hash."""
 
         return cls(
@@ -1023,7 +1023,7 @@ class OdooRelationshipScope:
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "OdooRelationshipScope":
+    def from_json(cls, value: str) -> OdooRelationshipScope:
         """Restore a scope revision while verifying its exact shape and hash."""
 
         try:

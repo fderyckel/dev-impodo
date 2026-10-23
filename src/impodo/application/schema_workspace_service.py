@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, replace
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from typing import Protocol
 from uuid import uuid4
 

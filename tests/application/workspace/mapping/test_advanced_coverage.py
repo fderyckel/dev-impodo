@@ -51,7 +51,12 @@ from impodo.domain.resolution import (
 )
 from impodo.domain.serialization import content_hash
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan, mapping_source_selection
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    SourceDatasetUse,
+    SourceDatasetUsePolicy,
+    mapping_source_selection,
+)
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
@@ -777,7 +782,42 @@ class StructuralPreparationTests(unittest.TestCase):
         self.assertEqual(output.reconciliation.input_rows, 3)
         self.assertEqual(output.reconciliation.output_rows, 2)
 
-    def test_structural_join_is_part_of_the_existing_plan_and_canonical_lineage(self) -> None:
+    def test_version_five_plan_keeps_every_physical_mapping_input(self) -> None:
+        physical, _tables = _structural_selection()
+        rule = _join_rule()
+        legacy = DerivedEntityPlan(
+            plan_id=str(uuid4()),
+            version=1,
+            workspace_id="workspace-1",
+            source_selection_hash=physical.content_hash,
+            rules=(rule,),
+            updated_at=NOW,
+            updated_by=LOCAL_ACTOR.identity.display_name,
+            contract_version=5,
+        )
+
+        restored = DerivedEntityPlan.from_json(legacy.to_json())
+        effective = mapping_source_selection(physical, restored)
+
+        self.assertNotIn(
+            "dataset_uses",
+            legacy.to_dict(include_hash=False),
+        )
+        self.assertEqual(restored.contract_version, 5)
+        self.assertEqual(
+            effective.content_hash,
+            structural_mapping_selection(physical, (rule,)).content_hash,
+        )
+        self.assertEqual(
+            {item.dataset_id for item in effective.datasets},
+            {
+                "customers",
+                "details",
+                structural_dataset_id(rule),
+            },
+        )
+
+    def test_preparation_only_join_inputs_keep_canonical_lineage_without_mapping(self) -> None:
         physical, tables = _structural_selection()
         rule = _join_rule()
         plan = DerivedEntityPlan(
@@ -788,10 +828,22 @@ class StructuralPreparationTests(unittest.TestCase):
             rules=(rule,),
             updated_at=NOW,
             updated_by=LOCAL_ACTOR.identity.display_name,
+            dataset_uses=(
+                SourceDatasetUsePolicy(
+                    "customers",
+                    SourceDatasetUse.PREPARATION_ONLY,
+                ),
+                SourceDatasetUsePolicy(
+                    "details",
+                    SourceDatasetUse.PREPARATION_ONLY,
+                ),
+            ),
         )
         effective = mapping_source_selection(physical, plan)
         by_id = {item.dataset_id: item for item in effective.datasets}
         output = by_id[structural_dataset_id(rule)]
+
+        self.assertEqual(tuple(by_id), (structural_dataset_id(rule),))
 
         def mapping(dataset_id: str, identity_key: str, model: str, fields=()):
             return DatasetMapping(
@@ -812,8 +864,6 @@ class StructuralPreparationTests(unittest.TestCase):
             source_selection_hash=effective.content_hash,
             schema_hash=HASH_D,
             datasets=(
-                mapping("customers", "customer_key", "x.customer"),
-                mapping("details", "detail_customer_key", "x.detail"),
                 mapping(
                     output.dataset_id,
                     "customer_key",

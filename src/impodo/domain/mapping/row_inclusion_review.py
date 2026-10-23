@@ -229,7 +229,7 @@ class RowInclusionReviewSnapshot:
         return canonical_json(payload)
 
     @classmethod
-    def from_json(cls, value: str) -> "RowInclusionReviewSnapshot":
+    def from_json(cls, value: str) -> RowInclusionReviewSnapshot:
         payload = json.loads(value)
         expected = {
             "contract_version",

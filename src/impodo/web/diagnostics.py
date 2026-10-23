@@ -17,7 +17,7 @@ import platform
 import re
 import sys
 from contextlib import contextmanager
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from io import BytesIO
 from logging.handlers import RotatingFileHandler
 from pathlib import Path

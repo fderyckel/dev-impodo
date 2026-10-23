@@ -13,7 +13,7 @@ from collections import deque
 from collections.abc import Iterator, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
-from typing import overload
+from typing import Protocol, cast, overload
 
 from impodo.domain.mapping.contracts import MappingDefinition
 from impodo.domain.preparation.quality import (
@@ -59,6 +59,24 @@ from impodo.domain.workspace.workbench import WorkspaceState
 
 class BoundedQualityUnsupported(ValueError):
     """Signal that the complete quality evaluator must handle this run."""
+
+
+class _IndexedPreparationRows(Protocol):
+    """Narrow durable-row index used by bounded quality projections."""
+
+    def iter_quality_index_batches(
+        self,
+        connection: object,
+        batch_size: int,
+    ) -> Iterator[tuple[object, ...]]: ...
+
+    def iter_accounting_index_batches(
+        self,
+        connection: object,
+        batch_size: int,
+    ) -> Iterator[tuple[object, ...]]: ...
+
+    def contains_row_id(self, row_id: str) -> bool: ...
 
 
 class _CleanQualityRows(Sequence[QualityRowResult]):
@@ -238,7 +256,7 @@ class _IndexedQualityRows(Sequence[QualityRowResult]):
 
     def __init__(
         self,
-        rows: object,
+        rows: _IndexedPreparationRows,
         row_count: int,
         issues: Mapping[str, QualityIssue],
         row_issue_ids: Mapping[str, set[str]],
@@ -276,14 +294,14 @@ class _IndexedQualityRows(Sequence[QualityRowResult]):
         raise IndexError(index)
 
     def __iter__(self) -> Iterator[QualityRowResult]:
-        reader = getattr(self._rows, "iter_quality_index_batches")
+        reader = self._rows.iter_quality_index_batches
         for batch in reader(None, 5_000):
             for fact in batch:
                 yield self._result(fact)
 
     def iter_batches(self, connection, batch_size: int):
         """Stream indexed quality facts through the publisher's open connection."""
-        reader = getattr(self._rows, "iter_quality_index_batches")
+        reader = self._rows.iter_quality_index_batches
         for batch in reader(connection, batch_size):
             yield tuple(self._result(fact) for fact in batch)
 
@@ -316,7 +334,7 @@ class _IndexedSourceAccounting(Sequence[SourceAccountingEntry]):
 
     sparse_projection_contract = "direct-represented-v1"
 
-    def __init__(self, rows: object, row_count: int) -> None:
+    def __init__(self, rows: _IndexedPreparationRows, row_count: int) -> None:
         self._rows = rows
         self._row_count = row_count
 
@@ -348,13 +366,13 @@ class _IndexedSourceAccounting(Sequence[SourceAccountingEntry]):
         raise IndexError(index)
 
     def __iter__(self) -> Iterator[SourceAccountingEntry]:
-        reader = getattr(self._rows, "iter_accounting_index_batches")
+        reader = self._rows.iter_accounting_index_batches
         for batch in reader(None, 5_000):
             yield from (self._entry(fact) for fact in batch)
 
     def iter_batches(self, connection, batch_size: int):
         """Stream indexed source-accounting entries without rebuilding the index."""
-        reader = getattr(self._rows, "iter_accounting_index_batches")
+        reader = self._rows.iter_accounting_index_batches
         for batch in reader(connection, batch_size):
             yield tuple(self._entry(fact) for fact in batch)
 
@@ -374,7 +392,7 @@ class _DirectEligibleRowIds(AbstractSet[str]):
 
     def __init__(
         self,
-        rows: object,
+        rows: _IndexedPreparationRows,
         eligible_count: int,
         excluded: set[str],
     ) -> None:
@@ -386,7 +404,7 @@ class _DirectEligibleRowIds(AbstractSet[str]):
         return self._eligible_count
 
     def __iter__(self) -> Iterator[str]:
-        reader = getattr(self._rows, "iter_quality_index_batches")
+        reader = self._rows.iter_quality_index_batches
         for batch in reader(None, 5_000):
             for _ordinal, row_id, *_rest in batch:
                 if str(row_id) not in self._excluded:
@@ -395,7 +413,7 @@ class _DirectEligibleRowIds(AbstractSet[str]):
     def __contains__(self, value: object) -> bool:
         if not isinstance(value, str) or value in self._excluded:
             return False
-        return bool(getattr(self._rows, "contains_row_id")(value))
+        return bool(self._rows.contains_row_id(value))
 
     def contains_canonical(self, row_id: str) -> bool:
         """Fast membership when the caller already proved the row is canonical."""
@@ -1178,8 +1196,9 @@ def _build_indexed_quality_run(
         issue.row_id is None and issue.policy is QualityOutcomePolicy.WARNING
         for issue in issue_map.values()
     )
+    indexed_rows = cast(_IndexedPreparationRows, staging.rows)
     rows = _IndexedQualityRows(
-        staging.rows,
+        indexed_rows,
         row_count,
         issue_map,
         row_issue_ids,
@@ -1192,12 +1211,12 @@ def _build_indexed_quality_run(
         schema_hash=staging.schema_hash,
         retention_context_hash=retention_context_hash(workspace_state),
         row_results=rows,
-        source_accounting=_IndexedSourceAccounting(staging.rows, row_count),
+        source_accounting=_IndexedSourceAccounting(indexed_rows, row_count),
         issues=tuple(sorted(issue_map.values(), key=lambda item: item.issue_id)),
         quarantine=tuple(sorted(quarantine, key=lambda item: item.entry_id)),
         effective_dataset_hash=published_staging_content_hash,
         eligible_row_ids=_DirectEligibleRowIds(
-            staging.rows,
+            indexed_rows,
             eligible_count,
             excluded_ids,
         ),

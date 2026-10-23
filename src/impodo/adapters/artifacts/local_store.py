@@ -15,12 +15,11 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
-from typing import BinaryIO, Protocol
+from typing import BinaryIO
 from uuid import UUID, uuid4
 
 from impodo.domain.derived_value_artifact import (
