@@ -31,6 +31,9 @@ from starlette.requests import ClientDisconnect
 from impodo.adapters.duckdb.scoped_project_query import (
     LocalScopedMigrationProjectQuery,
 )
+from impodo.adapters.duckdb.scoped_workspace_access import (
+    LocalScopedWorkspaceAccessQuery,
+)
 from impodo.adapters.jobs.inline import InlineJobDispatcher
 from impodo.adapters.odoo.connectors import Json2Config
 from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
@@ -480,6 +483,10 @@ def create_local_app(
     workspace_access = WorkspaceAccessService(
         foundation_repository,
         resolved_authorization,
+    )
+    request_workspace_access = LocalScopedWorkspaceAccessQuery(
+        workspace_access,
+        organization_id=LOCAL_ORGANIZATION_ID,
     )
     resolved_secret_store = protected_runs.secret_store
     cutover_plan_repository = protected_runs.cutover_plan_repository
@@ -1349,9 +1356,10 @@ def create_local_app(
             workspace.state is MigrationWorkspaceState.CLOSED
             and area not in {"correction", "load"}
         ):
+            identity = request_identity(request, context.identity_resolver)
             binding = context.corrections.get(
                 access_context.workspace_id,
-                actor=context.actor,
+                actor=identity.actor,
             )
             request.session["flash"] = (
                 "This completed workspace is historical evidence. Continue in "
@@ -1389,8 +1397,8 @@ def create_local_app(
 
     app.add_middleware(
         WorkspaceAccessMiddleware,
-        access=context.workspace_access,
-        actor=lambda: context.actor,
+        access=request_workspace_access,
+        identity_resolver=resolved_identity_resolver,
         trusted_context_resolver=trusted_job_context,
         route_policy=workspace_route_policy,
     )

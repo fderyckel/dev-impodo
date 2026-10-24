@@ -190,6 +190,13 @@ Impodo asks only when more than one table could fill the same Recipe input.
 Missing inputs, unsafe formula or error tables, and files the Recipe does not
 use remain on this page with a clear correction.
 
+If a Recipe combines partial source tables, **Fresh data** asks for every
+physical input even when that input was hidden from **Match data** during
+Authoring. After the tables are accepted, Impodo rebuilds the saved join chain
+inside the Recipe work area. Preparation checks the fresh rows rather than
+reusing the earlier counts. Repeated added-side keys or missing required
+matches keep the Recipe blocked.
+
 The page also asks for details that belong only to this run, such as a stock
 date, warehouse, location, or batch reference. The questions and labels come
 from the selected Recipe versions, so the same page works for customers,

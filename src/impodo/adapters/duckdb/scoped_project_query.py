@@ -52,6 +52,7 @@ class LocalScopedMigrationProjectQuery:
         *,
         scope: RequestOrganizationScope,
         authorization: AuthorizationReceipt,
+        capability: Capability = Capability.PROJECT_VIEW,
     ) -> MigrationProject:
         """Return a local Project without disclosing denied Project metadata."""
 
@@ -59,7 +60,12 @@ class LocalScopedMigrationProjectQuery:
             project_id = require_uuid(project_id, "project_id")
         except MigrationFoundationError as error:
             raise MigrationNotFoundError("Project not found") from error
-        if not self._allows(scope, authorization, project_id=project_id):
+        if not self._allows(
+            scope,
+            authorization,
+            capability=capability,
+            project_id=project_id,
+        ):
             raise MigrationNotFoundError("Project not found")
         return self._repository.get_project(project_id)
 
@@ -68,6 +74,7 @@ class LocalScopedMigrationProjectQuery:
         scope: RequestOrganizationScope,
         authorization: AuthorizationReceipt,
         *,
+        capability: Capability = Capability.PROJECT_VIEW,
         project_id: str | None = None,
     ) -> bool:
         return (
@@ -75,7 +82,7 @@ class LocalScopedMigrationProjectQuery:
             and authorization.organization_id == self._organization_id
             and scope.principal_id == authorization.principal_id
             and authorization.authorizes(
-                Capability.PROJECT_VIEW,
+                capability,
                 at=self._clock(),
                 project_id=project_id,
             )

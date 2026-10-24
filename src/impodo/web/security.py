@@ -19,14 +19,15 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import PlainTextResponse, Response
 
 from impodo.application.workspace.access import (
+    ScopedWorkspaceAccessQuery,
     WorkspaceAccessContext,
-    WorkspaceAccessService,
     bind_workspace_access_context,
 )
 from impodo.domain.project.foundation import MigrationFoundationError
-from impodo.domain.shared.access import Actor, AuthorizationError, Capability
+from impodo.domain.shared.access import AuthorizationError, Capability
 
 from .composition.page_reads import run_page_read
+from .request_identity import RequestIdentityResolver, request_identity
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 MAX_REQUEST_BYTES = 101 * 1024 * 1024
@@ -120,8 +121,8 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
         self,
         app,
         *,
-        access: WorkspaceAccessService,
-        actor: Actor | Callable[[], Actor],
+        access: ScopedWorkspaceAccessQuery,
+        identity_resolver: RequestIdentityResolver,
         trusted_context_resolver: (
             Callable[[str, str], WorkspaceAccessContext | None] | None
         ) = None,
@@ -131,7 +132,7 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
     ) -> None:
         super().__init__(app)
         self.access = access
-        self.actor = actor if callable(actor) else lambda: actor
+        self.identity_resolver = identity_resolver
         self.trusted_context_resolver = trusted_context_resolver
         self.route_policy = route_policy
 
@@ -145,6 +146,7 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
         access_started = perf_counter()
+        identity = request_identity(request, self.identity_resolver)
 
         def resolve_access() -> tuple[WorkspaceAccessContext, Response | None]:
             trusted_context = (
@@ -153,16 +155,20 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
                 else None
             )
             if trusted_context is None:
-                context = self.access.resolve(
+                context = self.access.resolve_visible_workspace_access(
                     workspace_id,
-                    actor=self.actor(),
+                    actor=identity.actor,
+                    scope=identity.organization_scope,
+                    authorization=identity.authorization,
                     capability=Capability.PROJECT_VIEW,
                 )
             else:
                 with bind_workspace_access_context(trusted_context):
-                    context = self.access.resolve(
+                    context = self.access.resolve_visible_workspace_access(
                         workspace_id,
-                        actor=self.actor(),
+                        actor=identity.actor,
+                        scope=identity.organization_scope,
+                        authorization=identity.authorization,
                         capability=Capability.PROJECT_VIEW,
                     )
             with bind_workspace_access_context(context):

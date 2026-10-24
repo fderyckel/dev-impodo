@@ -13,6 +13,7 @@ from starlette.datastructures import FormData
 from impodo.application.browser_queries import SourceReviewPage
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.run.setup_service import RunSetupPage
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.business_keys import (
     BUSINESS_KEY_POLICY_VERSION,
     assess_business_key_recommendation,
@@ -30,6 +31,7 @@ from impodo.domain.workspace.contracts import (
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityRule,
     HierarchicalLookupRule,
+    RelatedDatasetRule,
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceState
@@ -40,7 +42,16 @@ from ..constants import (
     _MANUAL_FIELD_TYPE,
 )
 from ..context import WebContext
+from ..exact_join_forms import (
+    ExactJoinFormSubmission,
+    available_exact_join_selection,
+    default_exact_join_form,
+    exact_join_projection_candidates,
+    saved_exact_join_views,
+    source_use_label,
+)
 from ..forms import _text
+from ..request_identity import request_identity
 from ..target_credentials import (
     TargetCredentialRole,
     get_target_credential_status,
@@ -213,6 +224,8 @@ def _render_derived_entities(
     pending_related: dict[str, object] | None = None,
     pending_lookup: dict[str, object] | None = None,
     pending_hierarchy: dict[str, object] | None = None,
+    pending_join: dict[str, object] | None = None,
+    join_form: ExactJoinFormSubmission | None = None,
 ):
     source_page = context.queries.get_source_page(workspace_id)
     workspace_state = source_page.workspace_state
@@ -243,8 +256,16 @@ def _render_derived_entities(
     )
     rule_views: list[dict[str, object]] = []
     related_rule_views: list[dict[str, object]] = []
+    previewable_rules = tuple(
+        rule
+        for rule in (plan.rules if plan else ())
+        if isinstance(
+            rule,
+            (DerivedEntityRule, HierarchicalLookupRule, RelatedDatasetRule),
+        )
+    )
     for result in context.derived_entities.preview_rules(
-        plan.rules if plan else (),
+        previewable_rules,
         selection=selection,
         catalogs=source_page.catalogs,
     ):
@@ -280,6 +301,55 @@ def _render_derived_entities(
         }
         for dataset in (selection.datasets if selection else ())
     )
+    join_dataset_views: tuple[dict[str, object], ...] = ()
+    join_rule_views: tuple[dict[str, object], ...] = ()
+    if selection is not None:
+        available_join_selection = available_exact_join_selection(selection, plan)
+        active_join_form = join_form or default_exact_join_form(selection, plan)
+        selected_projection_indexes = set(active_join_form.projection_indexes)
+        projection_candidates = exact_join_projection_candidates(
+            available_join_selection
+        )
+        projection_names = tuple(active_join_form.projection_names)
+        physical_ids = {dataset.dataset_id for dataset in selection.datasets}
+        candidate_index = 0
+        dataset_views: list[dict[str, object]] = []
+        for dataset in available_join_selection.datasets:
+            columns = []
+            for column in dataset.columns:
+                output_name = (
+                    projection_names[candidate_index]
+                    if candidate_index < len(projection_names)
+                    else column.source_name
+                )
+                columns.append(
+                    {
+                        "column": column,
+                        "projection_index": candidate_index,
+                        "selected": candidate_index in selected_projection_indexes,
+                        "output_name": output_name,
+                    }
+                )
+                candidate_index += 1
+            dataset_views.append(
+                {
+                    "dataset": dataset,
+                    "columns": tuple(columns),
+                    "physical": dataset.dataset_id in physical_ids,
+                }
+            )
+        if candidate_index != len(projection_candidates):
+            raise RuntimeError("Exact-join browser candidate ordering changed")
+        join_dataset_views = tuple(dataset_views)
+        join_form = active_join_form
+        join_rule_views = tuple(
+            {
+                **view,
+                "left_use_label": source_use_label(view["left_use"]),
+                "right_use_label": source_use_label(view["right_use"]),
+            }
+            for view in saved_exact_join_views(selection, plan)
+        )
     namespace = re.sub(
         r"[^a-z0-9]+",
         "_",
@@ -302,6 +372,10 @@ def _render_derived_entities(
         pending_related=pending_related,
         pending_lookup=pending_lookup,
         pending_hierarchy=pending_hierarchy,
+        pending_join=pending_join,
+        join_form=join_form,
+        join_dataset_views=join_dataset_views,
+        join_rule_views=join_rule_views,
         namespace_default=namespace,
         error=error,
         status_code=status_code,
@@ -453,6 +527,7 @@ def _render_schema(
     | None = None,
     key_errors: Mapping[str, str] | None = None,
 ):
+    actor = request_identity(request, context.identity_resolver).actor
     source_page = source_page or context.queries.get_source_page(workspace_id)
     workspace_state = source_page.workspace_state
     selection = source_page.selection
@@ -476,11 +551,12 @@ def _render_schema(
         item.model for item in current_capture_plans
     } == {item.name for item in schema.models}
     run_setup_page = run_setup_page or context.run_setups.page_for_workspace(
-        workspace_id, actor=context.actor,
+        workspace_id,
+        actor=actor,
     )
     odoo_check_plan = context.run_setups.odoo_check_requirements_for_page(
         run_setup_page,
-        actor=context.actor,
+        actor=actor,
     )
     model_labels = {
         item.name: item.label
@@ -625,6 +701,7 @@ def _render_schema(
             context,
             workspace_id,
             run_setup_page=run_setup_page,
+            actor=actor,
         ),
         operation_id=operation_id or str(uuid4()),
         focus_model_count=sum(
@@ -672,16 +749,19 @@ def _recipe_run_recovery_view(
     workspace_id: str,
     *,
     run_setup_page: RunSetupPage | None = None,
+    actor: Actor,
 ) -> dict[str, object]:
     """Explain the one active-run recovery action from one bounded issue read."""
 
     page = run_setup_page or context.run_setups.page_for_workspace(
-        workspace_id, actor=context.actor,
+        workspace_id,
+        actor=actor,
     )
     if page.selection is None or not page.selection.active_test_setup:
         return {"active": False, "required_default_count": 0}
     count = context.run_setups.required_default_count_for_page(
-        page, actor=context.actor,
+        page,
+        actor=actor,
     )
     return {
         "active": True,

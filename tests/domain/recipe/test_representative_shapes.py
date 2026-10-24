@@ -2,28 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from types import SimpleNamespace
 import unittest
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from impodo.domain.shared.access import LOCAL_ACTOR
-from impodo.application.recipe_compilation_service import RecipeCompiler
 from impodo.application.recipe_application_compilation import (
     RecipeApplicationCompiler,
 )
 from impodo.application.recipe_application_service import RecipeApplicationService
-from impodo.domain.workspace.derived_entities import (
-    DerivedEntityPlan,
-    DerivedEntityRule,
-    HierarchicalLookupRule,
-    RelatedDatasetRule,
-    SourceDatasetUse,
-    SourceDatasetUsePolicy,
-)
-from impodo.domain.recipe.models import RecipeConflictError
+from impodo.application.recipe_compilation_service import RecipeCompiler
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
 from impodo.domain.mapping.contracts import (
+    MAPPING_CONTRACT_VERSION,
     BusinessControlDefinition,
     ConcatenationBlankHandling,
     ConstantBusinessReference,
@@ -32,7 +23,6 @@ from impodo.domain.mapping.contracts import (
     IdentityComponentMapping,
     IdentityNullPolicy,
     MappingDefinition,
-    MAPPING_CONTRACT_VERSION,
     ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
@@ -50,18 +40,25 @@ from impodo.domain.mapping.contracts import (
     SelectionRuleSet,
     ValueMapping,
 )
+from impodo.domain.preparation.quality import default_quality_ruleset
+from impodo.domain.recipe_applications import RecipeControlValues
 from impodo.domain.recipe_parameters import (
     RecipeParameterDefinition,
     RecipeParameterDefinitions,
 )
-from impodo.domain.recipe_applications import RecipeControlValues
 from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
     SchemaGovernance,
 )
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.source_binding import DerivedSourceBinding
-from impodo.domain.preparation.quality import default_quality_ruleset
+from impodo.domain.structural import (
+    ExactJoinRule,
+    JoinKey,
+    StructuralOutputColumn,
+    StructuralProjection,
+)
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -71,6 +68,15 @@ from impodo.domain.workspace.contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    DerivedEntityRule,
+    HierarchicalLookupRule,
+    RelatedDatasetRule,
+    SourceDatasetUse,
+    SourceDatasetUsePolicy,
+    mapping_source_selection,
+)
 from impodo.domain.workspace.reference_keys import (
     REFERENCE_POLICY_HASH,
     StandardReferenceFieldContract,
@@ -79,7 +85,6 @@ from impodo.domain.workspace.supporting_lookups import (
     SupportingLookupChoice,
     SupportingLookupSnapshot,
 )
-
 from tests.support.recipe_compiler import Evidence, file_binding
 
 
@@ -154,7 +159,7 @@ def _supporting_name_reference(
         read_principal_hash="sha256:" + "3" * 64,
         read_permission_hash="sha256:" + "4" * 64,
         read_context_hash="sha256:" + "5" * 64,
-        captured_at=datetime.now(timezone.utc),
+        captured_at=datetime.now(UTC),
         captured_by="Data manager",
         choices=(SupportingLookupChoice(value, value),),
         ambiguous_values=(),
@@ -174,7 +179,7 @@ def _publish(
     supporting_references: tuple[SupportingLookupSnapshot, ...] = (),
     mapping_contract_version: int | None = None,
 ) -> dict[str, object]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     workspace_id = str(
         uuid5(NAMESPACE_URL, f"workspace:{base_selection.data_version_id}")
     )
@@ -271,7 +276,7 @@ def _publish(
 
 
 class RepresentativeRecipeShapeTests(unittest.TestCase):
-    def test_dataset_use_is_not_silently_omitted_from_recipe_meaning(self) -> None:
+    def test_dataset_use_is_published_by_logical_source_identity(self) -> None:
         products = _dataset(
             "Products",
             (("category", "string"),),
@@ -292,7 +297,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             workspace_id=str(uuid4()),
             source_selection_hash="sha256:" + "c" * 64,
             rules=(rule,),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
             updated_by="Data manager",
             dataset_uses=(
                 SourceDatasetUsePolicy(
@@ -303,8 +308,154 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
         )
 
         compiler = object.__new__(RecipeCompiler)
-        with self.assertRaisesRegex(RecipeConflictError, "portable Recipe contract"):
-            compiler._preparation(plan, {}, {}, ())
+        portable_preparation = compiler._preparation(
+            plan,
+            {products.dataset_id: "dataset:products"},
+            {
+                (products.dataset_id, _column(products, "category")): (
+                    "column:products.category"
+                )
+            },
+            (products,),
+        )
+
+        self.assertEqual(
+            portable_preparation["dataset_uses"],
+            [
+                {
+                    "logical_dataset_id": "dataset:products",
+                    "use": "preparation_only",
+                }
+            ],
+        )
+        self.assertNotIn(products.dataset_id, str(portable_preparation))
+
+    def test_exact_join_recipe_requires_only_portable_physical_inputs(self) -> None:
+        project_id = str(uuid4())
+        accounts = _dataset(
+            "Customer accounts",
+            (
+                ("company", "string"),
+                ("party", "integer"),
+                ("account", "string"),
+                ("unused account note", "string"),
+            ),
+            "4",
+        )
+        parties = _dataset(
+            "Party details",
+            (
+                ("company", "string"),
+                ("party", "integer"),
+                ("name", "string"),
+                ("unused party note", "string"),
+            ),
+            "5",
+        )
+        base = SourceSelection(
+            str(uuid4()),
+            1,
+            project_id,
+            datetime.now(UTC),
+            "Data manager",
+            (accounts, parties),
+            "sha256:" + "4" * 64,
+        )
+        rule = ExactJoinRule(
+            rule_id=str(uuid4()),
+            output_dataset_name="customer_contacts",
+            left_dataset_id=accounts.dataset_id,
+            right_dataset_id=parties.dataset_id,
+            keys=(
+                JoinKey(_column(accounts, "company"), _column(parties, "company")),
+                JoinKey(
+                    _column(accounts, "party"),
+                    _column(parties, "party"),
+                    "integer",
+                ),
+            ),
+            output_columns=(
+                StructuralOutputColumn("joined:account", "account", "string"),
+                StructuralOutputColumn("joined:name", "name", "string"),
+            ),
+            projections=(
+                StructuralProjection(
+                    "joined:account",
+                    accounts.dataset_id,
+                    _column(accounts, "account"),
+                ),
+                StructuralProjection(
+                    "joined:name",
+                    parties.dataset_id,
+                    _column(parties, "name"),
+                ),
+            ),
+        )
+        preparation = DerivedEntityPlan(
+            plan_id=str(uuid4()),
+            version=1,
+            workspace_id=str(uuid5(NAMESPACE_URL, f"workspace:{project_id}")),
+            source_selection_hash=base.content_hash,
+            rules=(rule,),
+            updated_at=datetime.now(UTC),
+            updated_by="Data manager",
+            dataset_uses=(
+                SourceDatasetUsePolicy(
+                    accounts.dataset_id,
+                    SourceDatasetUse.PREPARATION_ONLY,
+                ),
+                SourceDatasetUsePolicy(
+                    parties.dataset_id,
+                    SourceDatasetUse.PREPARATION_ONLY,
+                ),
+            ),
+        )
+        effective = mapping_source_selection(base, preparation)
+        output = effective.datasets[0]
+        recipe = _publish(
+            base_selection=base,
+            mapping_selection=effective,
+            mappings=(
+                DatasetMapping(
+                    dataset_id=output.dataset_id,
+                    target_model="res.partner",
+                    source_identity_column_keys=("joined:account",),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            ("joined:account",),
+                            ("ref",),
+                        ),
+                    ),
+                    fields=(ScalarFieldMapping("name", "joined:name"),),
+                    approved_write_fields=("name", "ref"),
+                ),
+            ),
+            models=(
+                SchemaModel(
+                    "res.partner",
+                    "Contact",
+                    (_field("ref"), _field("name")),
+                ),
+            ),
+            business_keys=(_key("res.partner", "ref"),),
+            preparation=preparation,
+        )
+
+        source_shape = recipe["source_shape"]["datasets"]
+        self.assertEqual(
+            {item["logical_name"] for item in source_shape},
+            {"Customer accounts", "Party details"},
+        )
+        self.assertNotIn("customer_contacts", str(source_shape))
+        self.assertNotIn("unused account note", str(source_shape))
+        self.assertNotIn("unused party note", str(source_shape))
+        self.assertEqual(
+            {item["use"] for item in recipe["source_preparation"]["dataset_uses"]},
+            {"preparation_only"},
+        )
+        self.assertNotIn(accounts.dataset_id, str(recipe))
+        self.assertNotIn(parties.dataset_id, str(recipe))
+        self.assertNotIn(rule.rule_id, str(recipe))
 
     def test_selection_rules_publish_without_authoring_ids_and_rebind_fresh_ids(
         self,
@@ -319,7 +470,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             str(uuid4()),
             1,
             project_id,
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             "Data manager",
             (products,),
             "sha256:" + "c" * 64,
@@ -477,7 +628,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             str(uuid4()),
             1,
             project_id,
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             "Data manager",
             (products,),
             "sha256:" + "8" * 64,
@@ -682,7 +833,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             str(uuid4()),
             1,
             project_id,
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             "Data manager",
             (customers,),
             "sha256:" + "6" * 64,
@@ -770,7 +921,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             str(uuid4()),
             1,
             project_id,
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             "Data manager",
             (customers,),
             "sha256:" + "7" * 64,
@@ -892,7 +1043,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             str(uuid4()),
             1,
             project_id,
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             "Data manager",
             (products,),
             "sha256:" + "8" * 64,
@@ -978,7 +1129,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             str(uuid4()),
             1,
             project_id,
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             "Data manager",
             (products,),
             "sha256:" + "f" * 64,
@@ -1070,7 +1221,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             str(uuid4()),
             1,
             project_id,
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             "Data manager",
             (equipment,),
             "sha256:" + "e" * 64,
@@ -1206,7 +1357,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
         fresh_schema = OdooSchemaCatalog(
             workspace_id=str(uuid4()),
             policy_hash="sha256:" + "1" * 64,
-            captured_at=datetime.now(timezone.utc),
+            captured_at=datetime.now(UTC),
             captured_by="Data manager",
             connection_mode="REMOTE",
             database="fresh_target",
@@ -1274,7 +1425,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             str(uuid4()),
             1,
             project_id,
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             "Data manager",
             (products, bom_rows),
             "sha256:" + "9" * 64,
@@ -1295,7 +1446,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             ),
             source_selection_hash=base.content_hash,
             rules=(split,),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
             updated_by="Data manager",
         )
         derived_binding = DerivedSourceBinding(
@@ -1321,7 +1472,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             str(uuid4()),
             1,
             project_id,
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             "Data manager",
             (products, boms, components),
             "sha256:" + "a" * 64,
@@ -1500,7 +1651,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             str(uuid4()),
             1,
             project_id,
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             "Data manager",
             (stock,),
             "sha256:" + "c" * 64,
@@ -1614,13 +1765,13 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             data_version_id=str(uuid4()),
             values=first_values,
             actor=LOCAL_ACTOR.identity,
-            confirmed_at=datetime.now(timezone.utc),
+            confirmed_at=datetime.now(UTC),
         )
         second = RecipeControlValues(
             data_version_id=str(uuid4()),
             values=second_values,
             actor=LOCAL_ACTOR.identity,
-            confirmed_at=datetime.now(timezone.utc),
+            confirmed_at=datetime.now(UTC),
         )
         self.assertEqual(first_values[control["logical_control_id"]], "1250.50")
         self.assertEqual(second_values[control["logical_control_id"]], "900")

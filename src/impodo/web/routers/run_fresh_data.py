@@ -19,6 +19,7 @@ from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..request_identity import request_identity
 from ..run_urls import RunSetupKind
 from ..run_urls import fresh_data_url as _fresh_data_url
 from ..security import require_session
@@ -76,6 +77,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 context,
                 view["setup_workspace"].workspace_id,
                 form,
+                actor=request_identity(request, context.identity_resolver).actor,
             )
         except WorkspaceStateError as error:
             return await run_page_read(
@@ -126,6 +128,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 context,
                 view["setup_workspace"].workspace_id,
                 file_id,
+                actor=request_identity(request, context.identity_resolver).actor,
                 expected_revision=_revision(form),
             )
         except WorkspaceStateError as error:

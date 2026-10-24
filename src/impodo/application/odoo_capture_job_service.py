@@ -6,6 +6,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
+from functools import partial
 from threading import Condition, Event, RLock, Thread
 from uuid import uuid4
 
@@ -199,7 +200,7 @@ class OdooCaptureJobManager:
                         gateway,
                         actor=actor,
                         cancellation=cancellation.is_set,
-                        progress=lambda value: self._update_progress(job_id, value),
+                        progress=partial(self._update_progress, job_id),
                     )
                     if self._accept_publication is not None:
                         self._accept_publication(

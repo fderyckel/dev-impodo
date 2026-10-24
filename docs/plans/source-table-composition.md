@@ -8,17 +8,16 @@ status: in-progress
 
 ## Status, reader, and outcome
 
-**Status:** In progress, 2026-10-23. Slices 0 and 1 are implemented and
-verified. Browser authoring, Recipe reuse of dataset-use decisions, and
-business-scenario qualification remain open.
+**Status:** In progress, 2026-10-23. Slices 0 through 4 are implemented and
+verified. Only the separately approved measured scale follow-up remains open.
 
 | Slice | Status |
 | --- | --- |
 | 0: Contract and compatibility | Complete. Source-preparation contract v6 stores complete dataset-use decisions. Version 4 and 5 plans keep their prior mapping inputs. |
 | 1: Application preview and save | Complete. Contract v7 retains the accepted complete-data review and its source, output, and lineage identities. |
-| 2: Guided browser workflow | Not started. |
-| 3: Recipe round trip | Not started. Recipe publication currently blocks a v6 plan that contains dataset-use decisions instead of dropping them. |
-| 4: Related-grain qualification | Not started. |
+| 2: Guided browser workflow | Complete. Source data owns the guided exact-join review and save workflow. |
+| 3: Recipe round trip | Complete. Publication and fresh application retain the join chain and dataset-use decisions by logical identity. |
+| 4: Related-grain qualification | Complete. BoM headers, lines, and operations retain separate grains; header and partial-line joins use the same generic contract as customer enrichment. |
 | 5: Measured scale follow-up | Not started. |
 
 This plan is for product, domain, application, browser, and test maintainers.
@@ -50,9 +49,9 @@ reconciliation counts, and physical lineage. Source-preparation contract v6
 can now keep physical inputs available to preparation without requiring them
 in **Match data**. Contract v7 and the workspace application service can now
 preview and save an exact join over the complete frozen snapshots. The browser
-does not yet let a data manager author such a join or choose dataset uses.
-Recipe publication of the new decisions also remains open. Those product gaps
-are the remaining work of this plan.
+can author the join and choose dataset uses. Recipe publication and fresh
+application now preserve those decisions by portable logical identity. The
+remaining work qualifies related BoM grains and measures representative scale.
 
 ## Decisions
 
@@ -366,35 +365,84 @@ connection-count qualification, live timing, and screenshot work do not apply
 to this slice. The combined Slice 1, derived-entity, structural, preparation,
 Recipe, and DuckDB regression selection passed 137 tests.
 
-### Slice 2: guided browser workflow
+### Slice 2: guided browser workflow — complete, 2026-10-23
 
-- Add the fourth preparation choice, guided form, preview, findings, and saved
-  summary to **Source data**.
-- Show preparation-only inputs and the logical output distinctly.
-- Keep route orchestration inside one local-operation scope per command.
+- **Source data** now offers **Combine columns from multiple tables** with one
+  to five typed key pairs, required or optional enrichment, explicit output
+  selection and renaming, and physical-input use choices.
+- The complete-data review shows reconciliation counts, blocking findings,
+  protected row references, the declared base grain, and the logical output.
+- Saved summaries distinguish immutable physical inputs from the mapped logical
+  dataset and show which physical inputs are hidden from **Match data**.
+- Preview, save, validation-error rendering, and structural-rule removal each
+  use one bounded local-operation scope. The normal page retains one page-read
+  scope.
 
-Exit gate: an authenticated fictional customer scenario produces one logical
-dataset for `res.partner`, and only that dataset is required in **Match data**.
-Keyboard, validation, recovery, and narrow-screen behavior are verified.
+The exit gate passed. An authenticated fictional AX customer scenario combines
+two preparation-only physical tables into `customer_contacts`; the effective
+mapping selection contains only that two-row logical dataset for `res.partner`.
+Focused HTTP tests cover complete preview, persisted evidence, optimistic-save
+recovery, and command connection/schema ceilings. Edge tests cover keyboard
+activation, distinct-input validation, and the stacked narrow-screen summary.
+The current 1440 by 1024 authenticated review screenshot uses only the same
+fictional customer evidence. No live latency claim was made because the running
+Impodo build was not restarted and timed for this slice. The combined
+application, structural mapping, preparation, Recipe, DuckDB, and browser
+regression selection passed 140 tests; five focused Edge checks passed
+separately.
 
-### Slice 3: Recipe round trip
+### Slice 3: Recipe round trip — complete, 2026-10-23
 
-- Publish the join chain and dataset-use policies by logical identity.
-- Apply them to renamed fresh files with compatible schemas.
-- Block missing, ambiguous, and cardinality-drifted inputs.
+- Recipe publication stores the join chain, typed keys, join policy,
+  projections, structural outputs, and dataset-use policies by logical dataset
+  and column identity.
+- The reusable source shape contains only mapping fields plus physical key and
+  projected columns required by preparation. It excludes source rows, physical
+  dataset IDs, authoring rule IDs, paths, snapshots, accepted counts, output
+  hashes, and lineage hashes.
+- Fresh-data matching continues to accept a uniquely compatible renamed file
+  and blocks missing or ambiguous inputs before application.
+- Fresh application creates deterministic application-owned rule identities,
+  resolves dependency-ordered structural outputs, restores the complete
+  physical dataset-use policy, and supports safe retry from a serialized plan.
+- The current preparation evaluator reruns complete reconciliation. Duplicate
+  added-side keys and unmatched rows in a required join block the fresh data
+  rather than changing Recipe meaning.
 
-Exit gate: the customer composition produces identical rule meaning and
-lineage structure on fresh files without storing source values in the Recipe.
+The exit gate passed. A fictional customer composition publishes two
+preparation-only physical inputs and reapplies them to fresh physical IDs and
+renamed file bindings. The rebuilt output retains both physical lineages and
+the base row count. A duplicate fresh added-side key blocks. A deliberately
+out-of-order two-join Recipe rebuilds its intermediate logical output before
+the dependent rule, and the persisted application plan replays idempotently.
+Focused Recipe shape and round-trip tests pass without storing source values
+or authoring identities in the semantic Recipe. The final cross-stage source,
+mapping, preparation, Recipe, fresh-data, and DuckDB selection passed 159
+tests. The separate publication and Project lifecycle selection passed 18
+tests.
 
-### Slice 4: related-grain qualification
+### Slice 4: related-grain qualification — complete, 2026-10-23
 
-- Qualify BoM header enrichment, a separate repeating line dataset, a separate
-  repeating operation dataset, and a partial-line exact join.
-- Explain rather than flatten every one-to-many case.
-- Verify existing relationship and load-order behavior is unchanged.
+- An authenticated fictional BoM workspace now accepts five physical tables.
+  It joins two header views at the company-and-BoM grain and two partial-line
+  views at the company, BoM, and line-number grain. The four join inputs are
+  preparation-only.
+- The effective mapping selection contains two header rows, three line rows,
+  and the four untouched operation rows. Repeating lines and operations remain
+  separate datasets instead of multiplying or widening header rows.
+- Domain qualification proves that each exact output retains both physical
+  lineages. It also maps the line and operation datasets back to the incoming
+  header and verifies that the existing dependency contracts order the header
+  first.
+- The exact-join payload remains target-model-neutral. Odoo model names appear
+  only in mapping definitions, so customer and BoM families require no
+  model-name branch in source composition.
 
-Exit gate: the same generic contracts handle customer and BoM families without
-model-name branches.
+The exit gate passed. Three focused domain checks and one authenticated browser
+scenario cover separate grains, composite exact keys, physical lineage,
+dataset-use policy, relationship dependency extraction, header-first order,
+and zero Odoo calls. The browser scenario uses the unchanged preview and save
+routes, so this slice adds no new route or database-lifetime boundary.
 
 ### Slice 5: measured scale follow-up
 
@@ -451,6 +499,7 @@ PostgreSQL persistence.
 
 ## Next implementation slice requiring approval
 
-Slice 2 adds the guided **Source data** browser controls and connects them to
-the reviewed Slice 1 application operations. It requires a separate green
-light before changing routes, templates, presenters, or screenshots.
+Slice 5 records representative preview and save timings, DuckDB connection and
+schema-check counts, memory, row widths, and fixture hashes. It requires a
+separate green light before changing evaluator implementation or supported
+limits.

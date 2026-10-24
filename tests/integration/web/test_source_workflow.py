@@ -14,16 +14,10 @@ from impodo.domain.guided_odoo_capture import (
     GuidedOdooCapturePlanIssue,
     GuidedOdooCapturePlanProposal,
 )
-from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.odoo.contracts import (
     ConnectorAuthorizationError,
     ConnectorTransportError,
     MetadataSnapshot,
-)
-from impodo.domain.shared.models import (
-    FieldMetadata,
-    ModelMetadata,
-    OdooReadIdentity,
 )
 from impodo.domain.odoo_relationship_scope import (
     OdooRelationshipCaptureAction,
@@ -31,23 +25,30 @@ from impodo.domain.odoo_relationship_scope import (
     relationship_scope_decisions,
 )
 from impodo.domain.odoo_source_scope import propose_related_odoo_data
+from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.shared.models import (
+    FieldMetadata,
+    ModelMetadata,
+    OdooReadIdentity,
+)
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
     OdooModelSummary,
     SchemaField,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     audit_stored_target_credential,
     store_target_credential,
 )
 from tests.support.browser_scenarios import (
-    BytesIO,
     POST_HEADERS,
+    BytesIO,
     ProjectSetupBrowserTestCase,
     SourceSelection,
-    _BrowserOdooCaptureGateway,
     _browser_schema,
+    _BrowserOdooCaptureGateway,
     _created_workspace_id,
     _workspace_data_version_id,
     datetime,
@@ -492,6 +493,12 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             predecessor_state.workspace_id,
             actor=context.actor,
         )
+        invalid_restart = self._post(
+            f"/projects/{predecessor_workspace.project_id}/odoo-source-restarts/"
+            f"{predecessor_state.workspace_id}?resume=invalid",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(invalid_restart.status_code, 404)
         predecessor_data = context.data_versions.get(
             predecessor_workspace.data_version_id,
             actor=context.actor,
@@ -674,6 +681,29 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Your source choices changed", source_page.text)
         self.assertIn("still need a capture plan", source_page.text)
         self.assertIn("previous frozen version remains in history", source_page.text)
+
+    def test_odoo_selection_failure_renders_the_workspace_error(self) -> None:
+        workspace_state, _schema = self._registered_remote_schema_workspace()
+        context = self.app.state.context
+        with patch.object(
+            context.sources,
+            "define_odoo_capture_selection",
+            side_effect=WorkspaceError("The capture plan could not be saved"),
+        ):
+            response = self._post(
+                f"/workspaces/{workspace_state.workspace_id}/sources/odoo-selection",
+                {
+                    "csrf_token": self.csrf,
+                    "dataset_name": "odoo_contacts",
+                    "model": "res.partner",
+                    "field_names": "name",
+                    "include_archived": "",
+                    "page_size": "100",
+                },
+            )
+
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("The capture plan could not be saved", response.text)
 
     def test_source_files_can_change_only_before_table_choices_are_saved(
         self,

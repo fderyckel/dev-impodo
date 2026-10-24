@@ -18,6 +18,10 @@ from impodo.domain.project.foundation import (
     require_uuid,
 )
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.tenancy import (
+    AuthorizationReceipt,
+    RequestOrganizationScope,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +92,22 @@ class WorkspaceAccessRepository(Protocol):
         must use the canonical registry and must not open data-version,
         evidence, credential, or Odoo stores as a side effect.
         """
+        ...
+
+
+class ScopedWorkspaceAccessQuery(Protocol):
+    """Resolve one visible Workspace within a fixed Organization request."""
+
+    def resolve_visible_workspace_access(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        scope: RequestOrganizationScope,
+        authorization: AuthorizationReceipt,
+        capability: Capability,
+    ) -> WorkspaceAccessContext:
+        """Authorize parent lineage before any child store can open."""
         ...
 
 

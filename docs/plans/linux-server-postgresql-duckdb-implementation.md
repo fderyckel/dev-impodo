@@ -324,13 +324,53 @@ or target values out of jobs, logs, and PostgreSQL projections.
 **Implementation status on 2026-10-23:** In progress. The first increment adds
 an explicit local entry module, a fail-closed server entry point, immutable
 request-identity resolution for the implicit local Organization, and an
-Organization-scoped Project query used by the local Project-list route. The
-route retains one physical registry connection inside one `run_page_read`
-scope, protected by a focused connection-ceiling test. The
-legacy `WebContext.actor` remains in routes not yet migrated, and the main
-service graph still resides in `web/app.py`; therefore none of work packages
-1.1 through 1.4 is declared complete. No PostgreSQL adapter, server session,
-Organization administration page, or Linux runtime has been added.
+Organization-scoped Project query used by the local Project-list route.
+
+The second increment migrates the Project overview, its Recipe detail and
+mutation routes, and Workspace access middleware to the cached request
+identity. A Project is now resolved through the scoped query before related
+DataVersion, run, Workspace, Recipe, or protected evidence reads. Workspace
+middleware checks the request Organization and authorization receipt before
+resolving canonical parent lineage, checks Project visibility before the route
+can open a child store, and returns the same opaque `Workspace not found`
+response for missing and unauthorized identities. Focused tests prove that a
+foreign Organization does not open the local Project registry, a denied
+Workspace does not enter the route or open its Workspace store, and middleware
+plus route resolve identity only once. Project mutations require their exact
+delete or Recipe-publication capability during that parent lookup, before any
+cleanup or contained-resource work starts.
+
+The third increment migrates the Workspace setup, source-file, source review,
+related-table, target-connection, Odoo-data, and Match-data request paths. Each
+route obtains the cached request identity and passes its actor explicitly to
+commands and request-launched background Odoo checks. Shared source-file,
+target-reader, schema, mapping, and presenter helpers receive that actor rather
+than reaching back to the local process actor. Architecture checks now reject
+new `WebContext.actor` reads in every migrated module.
+
+The local Project-list route retains one physical registry connection inside
+one `run_page_read` scope. A controlled fresh-Project overview measured two
+physical connections, zero schema checks, and zero retries both before and
+after the second increment, and its focused ceiling is now two connections.
+For a controlled mapping-ready Workspace, the third increment preserved the
+same before-and-after route counts:
+
+| Route | Physical connections | Schema checks | Lock retries |
+| --- | ---: | ---: | ---: |
+| Source data | 6 | 3 | 0 |
+| Datasets | 6 | 3 | 0 |
+| Odoo data | 6 | 8 | 0 |
+| Related tables | 6 | 5 | 0 |
+| Target connection | 6 | 2 | 0 |
+
+These figures are controlled fixture evidence, not a live deployment latency
+result.
+
+The legacy `WebContext.actor` remains for routes not yet migrated, including
+Prepare data, review, load, correction, and run-orchestration paths, and the
+main service graph still resides in `web/app.py`; therefore none of work
+packages 1.1 through 1.4 is declared complete. No PostgreSQL adapter, server
+session, Organization administration page, or Linux runtime has been added.
 
 ### Objective and entry conditions
 

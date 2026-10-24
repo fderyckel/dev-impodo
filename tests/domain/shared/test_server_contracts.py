@@ -109,8 +109,9 @@ class InMemoryScopedProjectQuery(ScopedMigrationProjectQuery):
         *,
         scope: RequestOrganizationScope,
         authorization: AuthorizationReceipt,
+        capability: Capability = Capability.PROJECT_VIEW,
     ) -> MigrationProject:
-        del project_id, scope, authorization
+        del project_id, scope, authorization, capability
         raise LookupError("Project not found")
 
 

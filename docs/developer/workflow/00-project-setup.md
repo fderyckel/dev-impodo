@@ -25,7 +25,11 @@ development reset.
 ## Implementation flow
 
 `web/routers/migration_projects.py` owns `/projects`, `/projects/new`, and the
-Project overview. `MigrationProjectService` owns Project commands, while
+Project overview. It resolves the immutable request identity once and uses the
+Organization-scoped Project query before reading any contained DataVersion,
+run, Workspace, Recipe, or protected evidence. Mutation preflights require the
+exact delete or Recipe-publication capability before cleanup or contained work
+starts. `MigrationProjectService` owns Project commands, while
 `workspace_setup.py` opens the contained authoring engine under
 `/workspaces/{workspace_id}` and directs file or Odoo-source setup to the
 existing bounded services. For a file project, **Use these files and continue**
@@ -45,13 +49,18 @@ MigrationRun, and run-target objects. Its foundation adapter reads those
 owners and the optional target setup through one registry connection. The
 source package remains in the separate DataVersion store and is read only by
 pages that own source detail.
-`WorkspaceAccessMiddleware` now resolves and binds that lineage before every
-authenticated workspace route. The bounded registry resolution runs in the
-thread pool, then workspace application services reuse the same context for
-exact capability checks. Background Odoo jobs receive it as an immutable
-worker packet. Preparation, Odoo-capture, and load progress requests reuse
-that verified packet, so a progress page does not reopen a worker-held
-registry or add another Project lookup.
+`WorkspaceAccessMiddleware` now resolves the cached request identity, verifies
+its Organization scope and authorization receipt, and resolves and binds the
+canonical lineage before every authenticated workspace route. Project
+visibility is checked before the route can open a Workspace store; missing and
+unauthorized Workspace identities therefore share one opaque response. The
+bounded registry resolution runs in the thread pool, then workspace
+application services reuse the same context for exact capability checks.
+Background Odoo jobs receive it as an immutable worker packet. Preparation,
+Odoo-capture, and load progress requests reuse that verified packet, so a
+progress page does not reopen a worker-held registry or add another Project
+lookup. Workspace route bodies still use the legacy local actor until their
+Phase 1 request-identity migration is complete.
 
 The New project form records Project name, migration purpose, source mode, and
 source-system identity. `MigrationProjectAuthoringService` uses one browser
@@ -134,9 +143,11 @@ than editing the accepted package.
 ## Odoo compatibility and performance
 
 Project list and overview use bounded registry projections. Do not add a
-workspace-store or protected-payload read inside a list loop. Connection checks
-remain purpose-specific and do not perform model discovery. Mapping,
-preparation, comparison, and Odoo access remain batched rather than per row.
+workspace-store or protected-payload read inside a list loop. The fresh-Project
+overview's controlled regression fixture allows at most two physical registry
+connections and performs no schema check or retry. Connection checks remain
+purpose-specific and do not perform model discovery. Mapping, preparation,
+comparison, and Odoo access remain batched rather than per row.
 
 ## Data-manager concept help
 
@@ -162,6 +173,8 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | Role | Code |
 | --- | --- |
 | Project-native routes | [`migration_projects.py`](../../../src/impodo/web/routers/migration_projects.py) |
+| Request identity boundary | [`request_identity.py`](../../../src/impodo/web/request_identity.py) and [`LocalRequestIdentityResolver`](../../../src/impodo/web/composition/local_identity.py) |
+| Organization-scoped Project lookup | [`LocalScopedMigrationProjectQuery`](../../../src/impodo/adapters/duckdb/scoped_project_query.py) |
 | Workspace setup routes | [`workspace_setup.py`](../../../src/impodo/web/routers/workspace_setup.py) |
 | Shared source-file browser commands | [`source_file_commands.py`](../../../src/impodo/web/source_file_commands.py) |
 | Creation coordinator | [`MigrationProjectAuthoringService`](../../../src/impodo/application/migration_project_authoring_service.py) |
@@ -169,6 +182,7 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | Verified workspace lineage | [`WorkspaceAccessService`](../../../src/impodo/application/workspace/access.py) and [`FoundationWorkspaceRecords.resolve_workspace_access_context`](../../../src/impodo/adapters/duckdb/foundation_workspace_records.py) |
 | Forward-only storage upgrades | [`ensure_current_schema`](../../../src/impodo/adapters/duckdb/schema/forward_upgrades.py) |
 | Workspace authorization middleware | [`WorkspaceAccessMiddleware`](../../../src/impodo/web/security.py) |
+| Organization-scoped Workspace lineage | [`LocalScopedWorkspaceAccessQuery`](../../../src/impodo/adapters/duckdb/scoped_workspace_access.py) |
 | Workspace setup root | [`MigrationWorkspaceService`](../../../src/impodo/application/workspace/service.py) and `MigrationWorkspaceService.complete_setup` |
 | Contained workbench | [`WorkspaceStateService`](../../../src/impodo/domain/workspace/workbench.py) |
 | Canonical workspace page | [`WorkspaceOwnerViewService`](../../../src/impodo/application/workspace/views.py) |

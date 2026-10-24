@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import unittest
 from unittest.mock import MagicMock
@@ -80,6 +81,25 @@ class LocalScopedProjectQueryTests(unittest.TestCase):
                 project_id,
                 scope=scope,
                 authorization=receipt,
+            )
+
+        self.repository.get_project.assert_not_called()
+
+    def test_required_capability_is_denied_before_the_repository_opens(
+        self,
+    ) -> None:
+        project_id = str(uuid4())
+        view_only = replace(
+            self.identity.authorization,
+            capabilities=frozenset({Capability.PROJECT_VIEW}),
+        )
+
+        with self.assertRaisesRegex(MigrationNotFoundError, "Project not found"):
+            self.query.get_visible_project(
+                project_id,
+                scope=self.identity.organization_scope,
+                authorization=view_only,
+                capability=Capability.PROJECT_DELETE,
             )
 
         self.repository.get_project.assert_not_called()

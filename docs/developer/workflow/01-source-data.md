@@ -116,18 +116,75 @@ revision in one transaction. Contract v7 stores the rule hash, physical
 snapshot identities, complete counts, protected examples, output-table hash,
 and lineage hash. A failed repository transaction leaves the prior current
 pointer unchanged, so the same semantic request can be reviewed and retried.
-Removing a structural rule clears saved join reviews that may depend on that
-chain.
+Removing one structural rule removes only its saved join review. The service
+blocks removal when a later structural rule consumes its output, so the data
+manager must remove the dependent step first.
 
-This is an implemented application capability, not a current browser control.
-The browser still offers only lookup extraction, multi-column hierarchy, and
-parent/child separation. Exact-join authoring, dataset-use controls, and
-portable Recipe reuse of those decisions remain in the
-[source-table composition plan](../../plans/source-table-composition.md).
-Slice 1 adds no route, so a `run_local_operation` scope, route connection
-ceiling, live timing, and screenshot refresh do not apply yet.
-[Focused application tests](../../../tests/application/workspace/test_exact_join_authoring.py)
-cover the complete review, version, chain, persistence, and retry contract.
+The current browser adds **Combine columns from multiple tables** to the same
+Source data page. `exact_join_forms.py` parses the bounded repeated form fields,
+then resolves every dataset, key, projected field, and dataset-use choice
+against the current selection and dependency-ordered structural outputs. It
+never trusts a posted source identity or review count. The browser supports one
+to five typed key pairs, required or optional enrichment, an explicit unused
+added-row policy, explicit output selection and renaming, and **Preparation
+only** or **Map and prepare** for each physical input.
+
+`POST /workspaces/{workspace_id}/derived-entities/join/preview` performs the
+complete review and renders the counts and protected examples. `POST
+/workspaces/{workspace_id}/derived-entities/join/save` repeats the review and
+uses the preview's stable rule identifier and optimistic parent version. Each
+command, including its validation-error render, runs inside one
+`run_local_operation` callback. It performs zero Odoo calls. The normal page
+continues to use one `run_page_read` projection.
+
+Saved cards distinguish physical inputs from the mapped logical output and
+show whether each input remains visible in **Match data**. The fictional
+customer browser scenario saves both physical inputs as preparation-only and
+asserts that the effective mapping selection contains only the logical
+customer dataset. The preview and save command paths are bounded at 12 DuckDB
+connections and 10 schema checks in that fixture. These are controlled test
+ceilings, not live latency evidence.
+
+The authenticated fictional BoM scenario exercises the same routes and domain
+types without another production branch. It exact-joins two header views into
+two header rows and two partial-line views into three line rows. It retains
+four repeating operation rows as a separate direct-mapping dataset. All four
+join inputs become preparation-only, while the effective mapping selection
+contains only the header, line, and operation grains. The scenario performs
+zero Odoo calls.
+
+The related-grain domain fixture gives the two BoM outputs complete physical
+lineage and maps both repeating datasets back to the incoming header with
+`RelationshipResolver(origin=DATASET)`. The existing
+`extract_dataset_dependency_edges` and
+`order_dataset_dependency_components` contracts put the header before both
+consumers. Source composition itself contains no `mrp.bom`,
+`mrp.bom.line`, `mrp.routing.workcenter`, or `res.partner` decision; those
+model names belong only to the later mapping definitions.
+
+Recipe publication now converts each physical preparation input, join key,
+projected column, structural output, and dataset-use decision to a logical
+identity. It requires only the physical columns that define the saved
+preparation and mapping meaning. Authoring rule UUIDs, physical dataset IDs,
+rows, paths, snapshot identities, accepted counts, output hashes, and lineage
+hashes remain outside the semantic Recipe.
+
+Fresh application binds every physical input, including preparation-only
+tables, from the accepted Test data version. It creates deterministic
+application-owned rule identities and registers each rebuilt structural output
+before resolving a dependent rule. It restores the complete dataset-use
+policy, then lets the existing preparation evaluator run the exact join over
+the current rows. Missing or ambiguous source shapes block binding. Duplicate
+added keys and unmatched rows in a required join block current preparation.
+The focused
+[`Recipe source-composition round-trip test`](../../../tests/domain/recipe/test_source_composition_round_trip.py)
+also proves that a serialized application plan can be retried without changing
+its rule meaning.
+
+The additive `dataset_uses` field remains optional in
+`source_preparation_recipe` contract v1. Recipes published before this slice
+continue through the prior application path. Current policies are never
+inferred for an older revision or silently dropped from a new one.
 
 `HierarchicalLookupRule` is model-neutral. It binds two to five ordered stable
 column keys from one accepted dataset, an arbitrary captured target model and
@@ -424,10 +481,13 @@ form token.
 | Derived downstream source gate | [`assess_source_stage_readiness`](../../../src/impodo/application/workspace/source_readiness.py) |
 | Odoo capture jobs | [`OdooCaptureJobManager`](../../../src/impodo/application/odoo_capture_job_service.py) |
 | Related-dataset plans | [`DerivedEntityWorkspaceService`](../../../src/impodo/application/workspace/derived_entities.py) |
+| Exact-join form resolution | [`exact_join_forms.py`](../../../src/impodo/web/exact_join_forms.py) |
+| Complete exact-join review | [`review_exact_join`](../../../src/impodo/domain/structural.py) |
 | Complete one-field result review | [`review_derived_entities`](../../../src/impodo/domain/workspace/derived_entities.py) |
 | Shared one-field grouping semantics | [`_group_lookup_values`](../../../src/impodo/domain/workspace/derived_entities.py) |
 | Multi-column hierarchy contract and path oracle | [`HierarchicalLookupRule`](../../../src/impodo/domain/workspace/derived_entities.py) |
 | Authenticated hierarchy-tutorial screenshot capture | [`capture_hierarchy_tutorial_screenshots.py`](../../../scripts/capture_hierarchy_tutorial_screenshots.py) |
+| Authenticated exact-join screenshot capture | [`capture_exact_join_screenshot.py`](../../../scripts/capture_exact_join_screenshot.py) |
 | Source routes | [`sources.py`](../../../src/impodo/web/routers/sources.py) |
 | Related-dataset routes | [`derived_entities.py`](../../../src/impodo/web/routers/derived_entities.py) |
 
@@ -443,8 +503,9 @@ values. The model-keyed selection pointers and dataset-keyed manifest pointers
 identify the exact current set. The `SourceSelection` binds all datasets as
 one atomic source version.
 
-Related-dataset rules are versioned workspace-owned evidence and must retain
-complete source lineage when materialized later.
+Related-dataset and exact-join rules are versioned workspace-owned evidence.
+An accepted exact join stores its complete reconciliation and the hashes of
+every physical snapshot, output table, and lineage projection beside the rule.
 
 ## Completion and navigation
 
@@ -535,6 +596,9 @@ The next request reads status again, and capture commands retrieve and validate
 current credentials independently. Capture history remains complete; the page
 still offers every saved capture rather than hiding older evidence.
 
+The exact-join preview and save routes materialize the complete frozen
+selection within the 25,000-row browser limit. Their local command scopes reuse
+repository owners, but they do not cache DuckDB connections across requests.
 The current derived or materialized preparation path has a lower row limit
 than exact direct mappings; keep that limit visible rather than silently
 falling back to unbounded Python work.
@@ -546,6 +610,11 @@ fictional Product workspace and captures the current authenticated Stage 1
 one-field result review, hierarchy form, and hierarchy preview in Edge. It
 exercises complete, missing-parent, missing-leaf, and all-blank paths without
 reading or changing an operator workspace.
+
+`capture_exact_join_screenshot.py::capture` creates an isolated fictional AX
+customer workspace, drives the authenticated exact-join form in Edge, and
+captures the current complete-data review at 1440 by 1024. It does not read or
+change an operator workspace.
 
 - [`tests/integration/duckdb/test_workspace.py`](../../../tests/integration/duckdb/test_workspace.py)
 - [`tests/application/data_version/test_source_worker.py`](../../../tests/application/data_version/test_source_worker.py)
@@ -563,6 +632,10 @@ reading or changing an operator workspace.
 - [`tests/architecture/test_workspace_schema_contract.py`](../../../tests/architecture/test_workspace_schema_contract.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/application/workspace/test_derived_entities.py`](../../../tests/application/workspace/test_derived_entities.py)
+- [`tests/application/workspace/test_exact_join_authoring.py`](../../../tests/application/workspace/test_exact_join_authoring.py)
+- [`tests/integration/web/test_exact_join_workflow.py`](../../../tests/integration/web/test_exact_join_workflow.py)
+- [`tests/integration/web/test_bom_source_composition.py`](../../../tests/integration/web/test_bom_source_composition.py)
+- [`tests/domain/recipe/test_bom_source_composition.py`](../../../tests/domain/recipe/test_bom_source_composition.py)
 - [`tests/integration/web/test_source_workflow.py`](../../../tests/integration/web/test_source_workflow.py)
 - [`tests/integration/web/test_stage12_page_loading.py`](../../../tests/integration/web/test_stage12_page_loading.py)
 - [`tests/integration/duckdb/test_schema_structure.py`](../../../tests/integration/duckdb/test_schema_structure.py)

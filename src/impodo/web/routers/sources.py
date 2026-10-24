@@ -64,7 +64,7 @@ from impodo.domain.odoo.contracts import (
     merge_disjoint_metadata_snapshots,
 )
 from impodo.domain.project.foundation import MigrationFoundationError
-from impodo.domain.shared.access import Capability
+from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
     OdooSchemaCatalog,
@@ -133,6 +133,7 @@ from ..presenters.schema import (
     _dataset_choices_from,
     _decode_delimiter,
 )
+from ..request_identity import request_identity
 from ..security import require_session
 from ..source_file_commands import accept_source_uploads, remove_source_file
 from ..target_credentials import (
@@ -178,6 +179,8 @@ async def _prepare_related_schema_candidate(
     context: WebContext,
     staged_state: WorkspaceState,
     model_catalog: OdooModelCatalog,
+    *,
+    actor: Actor,
 ) -> OdooSchemaCatalog:
     """Read and validate one candidate relationship graph without publishing it."""
 
@@ -191,7 +194,7 @@ async def _prepare_related_schema_candidate(
             read_credential_binding_hash=binding_hash,
             read_identity=read_identity,
             discovered_model_catalog=model_catalog,
-            actor=context.actor,
+            actor=actor,
         )
 
     return await run_in_threadpool(prepare)
@@ -206,6 +209,7 @@ class _IncrementalRelatedSchemaSession:
     model_catalog: OdooModelCatalog
     reader: SchemaReadSession
     credential_binding_hash: str
+    actor: Actor
     snapshot: MetadataSnapshot | None = None
 
     @property
@@ -276,7 +280,7 @@ class _IncrementalRelatedSchemaSession:
             staged_state,
             candidate_snapshot,
             discovered_model_catalog=self.model_catalog,
-            actor=self.context.actor,
+            actor=self.actor,
         )
 
     async def finalize(
@@ -313,7 +317,7 @@ class _IncrementalRelatedSchemaSession:
                 read_credential_binding_hash=self.credential_binding_hash,
                 read_identity=read_identity,
                 discovered_model_catalog=self.model_catalog,
-                actor=self.context.actor,
+                actor=self.actor,
             )
 
         return await run_in_threadpool(prepare_final)
@@ -323,6 +327,8 @@ def _open_incremental_related_schema_session(
     context: WebContext,
     workspace_state: WorkspaceState,
     model_catalog: OdooModelCatalog,
+    *,
+    actor: Actor,
 ) -> _IncrementalRelatedSchemaSession | None:
     """Open a remote request-local session; keep local shell reads unchanged."""
 
@@ -349,6 +355,7 @@ def _open_incremental_related_schema_session(
             credential.secret,
         ),
         credential_binding_hash=credential.binding_hash,
+        actor=actor,
     )
 
 
@@ -427,6 +434,7 @@ def _publish_guided_capture_plans(
     relationship_scope: OdooRelationshipScope,
     drafts: tuple[GuidedOdooCapturePlanDraft, ...],
     *,
+    actor: Actor,
     current_selections: tuple[OdooCaptureSelection, ...] = (),
 ) -> tuple[WorkspaceState, tuple[OdooCaptureSelection, ...]]:
     """Atomically publish reviewed manual plans plus safe guided plans."""
@@ -437,11 +445,11 @@ def _publish_guided_capture_plans(
         current_selections=current_selections,
         schema=schema,
         relationship_scope=relationship_scope,
-        actor=context.actor,
+        actor=actor,
     )
     saved = context.workspace_states.update_schema_scope(
         workspace_state.workspace_id,
-        actor=context.actor,
+        actor=actor,
         expected_revision=workspace_state.revision,
         permitted_models=tuple(
             sorted(relationship_scope.required_capture_models)
@@ -550,6 +558,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 context,
                 workspace_id,
                 file_id,
+                actor=request_identity(request, context.identity_resolver).actor,
                 expected_revision=_revision(form),
             )
         except WorkspaceStateError as error:
@@ -592,6 +601,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 context,
                 workspace_id,
                 form,
+                actor=request_identity(request, context.identity_resolver).actor,
                 allow_multiple=False,
             )
         except WorkspaceStateError as error:
@@ -638,6 +648,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 "linked_only",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
 
         def save_selection():
             selection = context.sources.define_odoo_capture_selection(
@@ -651,7 +662,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 filter_value=_text(form, "filter_value"),
                 remove_filter=bool(_text(form, "remove_filter")),
                 linked_only=bool(_text(form, "linked_only")),
-                actor=context.actor,
+                actor=actor,
             )
             request.session.pop(_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY, None)
             schema = context.queries.get_odoo_schema_catalog(workspace_id)
@@ -697,6 +708,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     schema,
                     relationship_scope,
                     proposal.drafts,
+                    actor=actor,
                     current_selections=current_selections,
                 )
                 return (
@@ -717,13 +729,15 @@ def build_sources_router(context: WebContext) -> APIRouter:
             selection, next_issue, missing_models, generated_count = (
                 await run_local_operation(save_selection)
             )
-        except (WorkspaceError, WorkspaceStateError):
+        except (WorkspaceError, WorkspaceStateError) as error:
+            error_message = str(error)
+
             def render_error():
                 return _render_odoo_capture_selection(
                     request,
                     context,
                     context.queries.get(workspace_id),
-                    error=str(error),
+                    error=error_message,
                     status_code=422,
                 )
 
@@ -797,6 +811,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     async def _save_odoo_related_data(request, workspace_id, form):
         """Stage the complete linked-data plan, then publish it once."""
+
+        actor = request_identity(request, context.identity_resolver).actor
 
         def submitted_actions() -> dict[
             str, OdooRelationshipCaptureAction
@@ -1066,6 +1082,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 context,
                 workspace_state,
                 model_catalog,
+                actor=actor,
             )
             for pass_index in range(MAX_DEPENDENCY_DEPTH + 1):
                 staged_state = replace(
@@ -1093,6 +1110,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                                 context,
                                 staged_state,
                                 model_catalog,
+                                actor=actor,
                             )
                         )
                         staged_models = prepared_schema.models
@@ -1155,7 +1173,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 root_models=tuple(sorted(root_models)),
                 explicit_actions_by_model=tuple(sorted(explicit_actions.items())),
                 recorded_at=datetime.now(UTC),
-                recorded_by=context.actor.identity.display_name,
+                recorded_by=actor.identity.display_name,
             )
             final_suggestions = relationship_expansion_suggestions_for_decisions(
                 propose_related_odoo_data(
@@ -1211,7 +1229,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     await run_local_operation(
                         context.workspace_states.update_schema_scope,
                         workspace_id,
-                        actor=context.actor,
+                        actor=actor,
                         expected_revision=expected_revision,
                         permitted_models=tuple(sorted(candidate_models)),
                         relationship_decisions=tuple(final_decisions),
@@ -1233,6 +1251,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                         prepared_schema,
                         staged_scope,
                         guided_proposal.drafts,
+                        actor=actor,
                     )
 
                 _saved_workspace_state, capture_selections = (
@@ -1245,14 +1264,16 @@ def build_sources_router(context: WebContext) -> APIRouter:
             OdooRelationshipScopeError,
             SecretStoreError,
             WorkspaceError,
-        ):
+        ) as error:
+            error_message = str(error)
+
             def render_error():
                 current = context.queries.get(workspace_id)
                 return _render_odoo_capture_selection(
                     request,
                     context,
                     current,
-                    error=str(error),
+                    error=error_message,
                     status_code=422,
                 )
 
@@ -1343,22 +1364,23 @@ def build_sources_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "selection_id", "selection_hash", "confirm_linked_relationships"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             def prepare_assessment():
                 workspace_state = context.queries.get(workspace_id)
                 workspace = context.migration_workspaces.get(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 data_version = context.data_versions.get(
                     workspace.data_version_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 if data_version.state is not DataVersionState.DRAFT:
                     return workspace_state, workspace.project_id, None, None
                 prepared = context.odoo_source_capture.prepare_assessment(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 selections = prepared.selections
                 schema = prepared.schema
@@ -1471,17 +1493,20 @@ def build_sources_router(context: WebContext) -> APIRouter:
             WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
-        ):
+        ) as error:
+            error_message = str(error)
+            access_refresh_required = isinstance(
+                error,
+                OdooSourceCaptureAccessRefreshRequired,
+            )
+
             def render_error():
                 return _render_odoo_capture_selection(
                     request,
                     context,
                     context.queries.get(workspace_id),
-                    error=str(error),
-                    access_refresh_required=isinstance(
-                        error,
-                        OdooSourceCaptureAccessRefreshRequired,
-                    ),
+                    error=error_message,
+                    access_refresh_required=access_refresh_required,
                     status_code=422,
                 )
 
@@ -1504,6 +1529,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "read_api_key", "remember_read_api_key"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         if workspace_state.source_mode is not SourceMode.ODOO:
             raise HTTPException(status_code=404, detail="Odoo source not found")
@@ -1520,7 +1546,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 workspace_state,
                 TargetCredentialRole.READ,
                 credential,
-                actor=context.actor,
+                actor=actor,
             )
         except (WorkspaceStateError, SecretStoreError, WorkspaceError) as error:
             return _render_odoo_capture_selection(
@@ -1556,6 +1582,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "selection_id", "selection_hash", "confirm_capture"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         assessment_evidence = request.session.get(
             _ODOO_CAPTURE_ASSESSMENT_SESSION_KEY
         )
@@ -1566,16 +1593,16 @@ def build_sources_router(context: WebContext) -> APIRouter:
             workspace_state = context.queries.get(workspace_id)
             access_context = context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.SOURCE_CAPTURE,
             )
             workspace = context.migration_workspaces.get(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
             )
             data_version = context.data_versions.get(
                 workspace.data_version_id,
-                actor=context.actor,
+                actor=actor,
             )
             if data_version.state is not DataVersionState.DRAFT:
                 return workspace.project_id
@@ -1610,7 +1637,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 )
             context.odoo_source_capture.require_complete_relationship_scope(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
             )
             selection_set_hash = odoo_capture_selection_set_hash(selections)
             submitted_hash = _text(form, "selection_hash")
@@ -1652,7 +1679,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 for selection in selections
             ):
                 context.odoo_source_capture.validate_current_plans(
-                    workspace_id, actor=context.actor
+                    workspace_id, actor=actor
                 )
             else:
                 for selection in selections:
@@ -1707,7 +1734,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 )
             migration_project = context.migration_projects.get(
                 workspace.project_id,
-                actor=context.actor,
+                actor=actor,
             )
             return (
                 workspace_state,
@@ -1739,7 +1766,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 matching_rows,
                 gateway,
                 access_context=access_context,
-                actor=context.actor,
+                actor=actor,
             )
             request.session.pop(_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY, None)
         except (
@@ -1751,13 +1778,15 @@ def build_sources_router(context: WebContext) -> APIRouter:
             WorkspaceStateError,
             SecretStoreError,
             WorkspaceError,
-        ):
+        ) as error:
+            error_message = str(error)
+
             def render_error():
                 return _render_odoo_capture_selection(
                     request,
                     context,
                     context.queries.get(workspace_id),
-                    error=str(error),
+                    error=error_message,
                     status_code=422,
                 )
 
@@ -1831,12 +1860,13 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         try:
             catalogs = await run_in_threadpool(
                 context.inspections.inspect_project,
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
             )
         except (SourceInspectionError, MigrationFoundationError) as error:
             return _render_file_sources(
@@ -1888,6 +1918,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         for index, _table in enumerate(catalog.tables):
             allowed.update({f"selected_{index}", f"header_row_{index}"})
         _secure_form(request, form, allowed)
+        actor = request_identity(request, context.identity_resolver).actor
         worksheet_rows: list[tuple[str, int]] = []
         selected: list[str] = []
         try:
@@ -1909,7 +1940,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 file_id,
                 options=options,
-                actor=context.actor,
+                actor=actor,
             )
             if _text(form, "action") == "confirm":
                 refreshed_keys = {table.table_key for table in refreshed.tables}
@@ -1921,7 +1952,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     warnings_acknowledged=bool(
                         _text(form, "warnings_acknowledged")
                     ),
-                    actor=context.actor,
+                    actor=actor,
                 )
                 _flash(request, f"Confirmed {refreshed.display_name}.")
             else:
@@ -1980,6 +2011,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             f"dataset_name_{index}" for index, _choice in enumerate(choices)
         }
         _secure_form(request, form, allowed)
+        actor = request_identity(request, context.identity_resolver).actor
         names = {
             (choice["file_id"], choice["table_key"]): _text(
                 form, f"dataset_name_{index}"
@@ -1991,7 +2023,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 context.data_version_source_projection.finalize_file_selection,
                 workspace_id,
                 dataset_names=names,
-                actor=context.actor,
+                actor=actor,
             )
         except (MigrationFoundationError, WorkspaceError) as error:
             return _render(
@@ -2151,6 +2183,7 @@ def _render_odoo_capture_selection(
     exposing the secret. Provenance reads are workspace-level, not per record.
     """
 
+    actor = request_identity(request, context.identity_resolver).actor
     schema = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
     current_selections = context.queries.get_current_odoo_capture_selections(
         workspace_state.workspace_id
@@ -2398,7 +2431,7 @@ def _render_odoo_capture_selection(
         )
         protected_plan_errors = (
             context.odoo_source_capture.review_current_plans(
-                workspace_state.workspace_id, actor=context.actor,
+                workspace_state.workspace_id, actor=actor,
                 workspace_state=workspace_state, schema=schema,
                 selections=current_selections,
             )
@@ -2521,14 +2554,14 @@ def _render_odoo_capture_selection(
     )
     current_manifests = context.odoo_provenance.current_manifests(
         workspace_state.workspace_id,
-        actor=context.actor,
+        actor=actor,
     )
     current_manifest = current_manifests[0] if current_manifests else None
     capture_history = tuple(
         reversed(
             context.odoo_provenance.history(
                 workspace_state.workspace_id,
-                actor=context.actor,
+                actor=actor,
             )
         )
     )

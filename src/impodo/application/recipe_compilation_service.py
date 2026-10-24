@@ -18,12 +18,22 @@ from typing import Protocol
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.preparation.quality import QualityRuleSet, QualityRuleSource
 from impodo.domain.shared.access import Actor
+from impodo.domain.structural import (
+    ExactJoinRule,
+    GroupAggregateRule,
+    UnionAllRule,
+)
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SourceDataset,
     SourceSelection,
 )
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    DerivedEntityRule,
+    HierarchicalLookupRule,
+    RelatedDatasetRule,
+)
 from impodo.domain.workspace.reference_keys import (
     GovernedReferenceDecision,
     GovernedReferenceRequest,
@@ -420,12 +430,28 @@ class RecipeCompiler:
             columns,
         )
         if preparation is not None:
-            for dataset in base_selection.datasets:
-                for column in dataset.columns:
-                    used_columns.setdefault(
-                        (dataset.dataset_id, column.stable_key),
-                        set(),
-                    ).add("preparation")
+            preparation_columns = self._preparation_columns(preparation)
+            implicit_dataset_ids = {
+                rule.source_dataset_id
+                for rule in preparation.rules
+                if isinstance(rule, RelatedDatasetRule)
+            }
+            preparation_columns.update(
+                (dataset.dataset_id, column.stable_key)
+                for dataset in base_selection.datasets
+                if dataset.dataset_id in implicit_dataset_ids
+                for column in dataset.columns
+            )
+            for dataset_id, column_key in preparation_columns:
+                if (dataset_id, column_key) not in columns:
+                    raise RecipeConflictError(
+                        "Source preparation references a column outside the reusable "
+                        "source shape."
+                    )
+                used_columns.setdefault(
+                    (dataset_id, column_key),
+                    set(),
+                ).add("preparation")
         source_shape = {
             "datasets": [
                 {
@@ -1442,12 +1468,7 @@ class RecipeCompiler:
         """Translate reusable derived-source rules into logical input identities."""
 
         if plan is None:
-            return {"rules": []}
-        if plan.dataset_uses:
-            raise RecipeConflictError(
-                "Source dataset-use policies need the portable Recipe contract "
-                "planned for the source-composition Recipe slice."
-            )
+            return {"rules": [], "dataset_uses": []}
         by_name = {item.name: item.dataset_id for item in datasets}
         rules = []
         for raw in plan.to_dict(include_hash=False)["rules"]:
@@ -1458,6 +1479,12 @@ class RecipeCompiler:
                 f"preparation:{_token(str(value.get('kind', 'rule')))}."
                 f"{_token(output_name)}"
             )
+            output_dataset_id = by_name.get(output_name)
+            if output_dataset_id is not None:
+                value["logical_output_dataset_id"] = self._dataset(
+                    output_dataset_id,
+                    dataset_ids,
+                )
             self._replace_preparation_ids(
                 value,
                 dataset_ids,
@@ -1465,7 +1492,75 @@ class RecipeCompiler:
                 output_dataset_id=by_name.get(output_name),
             )
             rules.append(portable(value))
-        return {"rules": sorted(rules, key=lambda item: item["logical_rule_id"])}
+        dataset_uses = [
+            {
+                "logical_dataset_id": self._dataset(item.dataset_id, dataset_ids),
+                "use": item.use.value,
+            }
+            for item in plan.dataset_uses
+        ]
+        return {
+            "rules": sorted(rules, key=lambda item: item["logical_rule_id"]),
+            "dataset_uses": sorted(
+                dataset_uses,
+                key=lambda item: item["logical_dataset_id"],
+            ),
+        }
+
+    @staticmethod
+    def _preparation_columns(
+        plan: DerivedEntityPlan,
+    ) -> set[tuple[str, str]]:
+        """Return only source columns that define reusable preparation meaning."""
+
+        result: set[tuple[str, str]] = set()
+        for rule in plan.rules:
+            if isinstance(rule, DerivedEntityRule):
+                result.add((rule.source_dataset_id, rule.source_column_key))
+            elif isinstance(rule, HierarchicalLookupRule):
+                result.update(
+                    (rule.source_dataset_id, key)
+                    for key in rule.source_level_column_keys
+                )
+            elif isinstance(rule, RelatedDatasetRule):
+                result.update(
+                    {
+                        (rule.source_dataset_id, rule.parent_key_column_key),
+                        (rule.source_dataset_id, rule.child_key_column_key),
+                    }
+                )
+                if rule.scope_column_key is not None:
+                    result.add((rule.source_dataset_id, rule.scope_column_key))
+            elif isinstance(rule, ExactJoinRule):
+                result.update(
+                    (rule.left_dataset_id, key.left_column_key)
+                    for key in rule.keys
+                )
+                result.update(
+                    (rule.right_dataset_id, key.right_column_key)
+                    for key in rule.keys
+                )
+                result.update(
+                    (projection.source_dataset_id, projection.source_column_key)
+                    for projection in rule.projections
+                )
+            elif isinstance(rule, UnionAllRule):
+                result.update(
+                    (projection.source_dataset_id, projection.source_column_key)
+                    for branch in rule.branches
+                    for projection in branch.projections
+                )
+            elif isinstance(rule, GroupAggregateRule):
+                result.update(
+                    (rule.source_dataset_id, key.source_column_key)
+                    for key in rule.group_keys
+                )
+                result.update(
+                    (rule.source_dataset_id, aggregate.source_column_key)
+                    for aggregate in rule.aggregates
+                    if aggregate.source_column_key is not None
+                )
+        return result
 
     def _replace_preparation_ids(
         self,

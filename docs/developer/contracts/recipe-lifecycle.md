@@ -52,6 +52,23 @@ columns, but not the authoring rule or condition UUIDs. Application generates
 fresh deterministic IDs inside the new workspace after rebinding those
 columns. The IDs support workspace editing and are not reusable meaning.
 
+Exact source compositions store their dependency-ordered rules, typed key
+pairs, join policy, projections, output names, and physical-input use policies
+by logical dataset and column identity. Only key and projected physical
+columns enter the reusable source shape. Preparation-only inputs remain
+required Recipe inputs even though they do not enter target-field mapping.
+Application gives each rebuilt rule a deterministic workspace-owned identity,
+binds each logical output before rebuilding a dependent rule, and restores the
+complete physical-input use policy. Current preparation then evaluates the
+fresh rows and blocks cardinality or required-match drift. The Recipe does not
+store authoring rule UUIDs, source values, paths, snapshot identities, review
+counts, output hashes, or lineage hashes.
+
+`source_preparation_recipe` contract v1 treats `dataset_uses` as an optional
+additive field. An older Recipe without that field retains its existing
+application behavior. The compiler does not invent a policy for the older
+revision, and a current Recipe with explicit policies must restore all of them.
+
 It must exclude source rows, file and snapshot identities, current source
 hashes, Project and workspace UUIDs, target endpoint or database, credentials,
 numeric Odoo IDs, actors, approvals, execution journals, read-back, and

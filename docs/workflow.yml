@@ -70,7 +70,9 @@ stages:
       - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.register
       - src/impodo/web/source_file_commands.py::accept_source_uploads
       - src/impodo/application/recipe_compilation_service.py::RecipeCompiler.compile_workspace
+      - src/impodo/application/recipe_compilation_service.py::RecipeCompiler._preparation
       - src/impodo/application/recipe_application_compilation.py::RecipeApplicationCompiler._field
+      - src/impodo/application/recipe_application_compilation.py::RecipeApplicationCompiler._materialize_preparation
       - src/impodo/application/odoo_connection_service.py::OdooConnectionTestService
       - src/impodo/web/presenters/navigation.py::build_workspace_navigation
       - src/impodo/web/presenters/concepts.py::ConceptHelp
@@ -125,6 +127,8 @@ stages:
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_lookup
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_join
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.save_join
+      - src/impodo/web/exact_join_forms.py::resolve_exact_join_request
+      - src/impodo/web/exact_join_forms.py::exact_join_dataset_uses
       - src/impodo/application/odoo_source_capture_service.py::OdooSourceCaptureService.review_current_plans
       - docs/testing/evidence/stage12-shared-page-reads-2026-10-07/audit.py::main
       - src/impodo/adapters/duckdb/schema/structure.py::read_table_columns
@@ -149,6 +153,7 @@ stages:
       - src/impodo/domain/workspace/derived_entities.py::_group_lookup_values
       - src/impodo/domain/structural.py::review_exact_join
       - scripts/capture_hierarchy_tutorial_screenshots.py::capture
+      - scripts/capture_exact_join_screenshot.py::capture
       - src/impodo/application/data_version/source_worker.py::validate_source_file_isolated
       - src/impodo/web/source_file_commands.py::accept_source_uploads
       - src/impodo/web/source_file_commands.py::remove_source_file
@@ -169,6 +174,10 @@ stages:
       - tests/integration/duckdb/test_forward_upgrades.py
       - tests/application/workspace/test_derived_entities.py
       - tests/application/workspace/test_exact_join_authoring.py
+      - tests/integration/web/test_exact_join_workflow.py
+      - tests/integration/web/test_bom_source_composition.py
+      - tests/domain/recipe/test_bom_source_composition.py
+      - tests/domain/recipe/test_source_composition_round_trip.py
       - tests/integration/web/test_source_workflow.py
       - tests/integration/web/test_stage12_page_loading.py
       - tests/integration/duckdb/test_schema_structure.py
@@ -235,6 +244,7 @@ stages:
       - src/impodo/adapters/duckdb/test_run_repository.py::TestRunRepository
       - src/impodo/adapters/duckdb/schema/migration_registry.py::ensure_migration_registry_schema
       - src/impodo/application/recipe_application_service.py::RecipeApplicationService
+      - src/impodo/application/recipe_application_compilation.py::RecipeApplicationCompiler._materialize_preparation
       - src/impodo/web/composition/preparation_job_manager.py::PreparationJobManager
       - src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager
       - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository
@@ -247,6 +257,7 @@ stages:
     tests:
       - tests/application/run/test_odoo_requirements.py
       - tests/application/run/test_integrated_recipe_runs.py
+      - tests/domain/recipe/test_source_composition_round_trip.py
       - tests/application/run/test_recipe_target_matches.py
       - tests/application/run/test_target_match_service.py
       - tests/integration/web/test_recipe_target_matches.py

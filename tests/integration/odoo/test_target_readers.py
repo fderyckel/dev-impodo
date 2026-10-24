@@ -869,6 +869,7 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
             workspace,
             schema,
             requirements,
+            actor=context.actor,
         )
 
         self.assertEqual(len(calls), 1)
@@ -1109,6 +1110,7 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
             workspace,
             schema,
             datasets,
+            actor=context.actor,
         )
 
         self.assertEqual(len(calls), 1)
@@ -1227,6 +1229,7 @@ class ScopedRelationshipChoiceTests(unittest.TestCase):
                     key_id="calendar-within-company", model="resource.calendar",
                     key_fields=("name",), scope_fields=("company_id",),
                 ),
+                actor=context.actor,
             )
         self.assertFalse(reused)
         self.assertEqual(ambiguous, ())

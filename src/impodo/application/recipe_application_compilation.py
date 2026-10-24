@@ -37,6 +37,9 @@ from impodo.domain.workspace.derived_entities import (
     HierarchicalLookupRule,
     HierarchyValuePolicy,
     RelatedDatasetRule,
+    SourceDatasetUse,
+    SourceDatasetUsePolicy,
+    validate_source_dataset_uses,
 )
 from impodo.domain.workspace.reference_keys import (
     GovernedReferenceRequest,
@@ -111,6 +114,7 @@ from ..domain.structural import (
     StructuralProjection,
     UnionAllRule,
     UnionBranch,
+    structural_dataset_id,
 )
 
 
@@ -693,33 +697,105 @@ class RecipeApplicationCompiler:
         semantic_rules = tuple(
             dict(definition["source_preparation"]).get("rules", ())
         )
-        if not semantic_rules:
+        semantic_uses = tuple(
+            dict(definition["source_preparation"]).get("dataset_uses", ())
+        )
+        if not semantic_rules and not semantic_uses:
             return None
         source = self.sources.get_source_selection(project_id)
         if source is None:
             raise RecipeApplicationError(
                 "Freeze source data before materializing Recipe preparation"
             )
+        resolved_bindings = dict(bindings)
+        rules = []
+        pending = list(semantic_rules)
+        while pending:
+            progressed = False
+            for raw in tuple(
+                sorted(
+                    pending,
+                    key=lambda item: str(item.get("logical_rule_id", "")),
+                )
+            ):
+                logical_rule_id = str(raw.get("logical_rule_id", ""))
+                rule_id = (
+                    str(
+                        uuid5(
+                            NAMESPACE_URL,
+                            (
+                                f"impodo:{project_id}:{source.data_version_id}:"
+                                f"source-preparation:{logical_rule_id}"
+                            ),
+                        )
+                    )
+                    if semantic_uses
+                    else str(uuid4())
+                )
+                try:
+                    rule = self._preparation_rule(
+                        raw,
+                        resolved_bindings,
+                        rule_id=rule_id,
+                    )
+                except KeyError:
+                    continue
+                rules.append(rule)
+                self._bind_preparation_output(
+                    raw,
+                    rule,
+                    resolved_bindings,
+                )
+                pending.remove(raw)
+                progressed = True
+            if not progressed:
+                raise RecipeApplicationError(
+                    "Recipe source preparation contains a missing input or "
+                    "dependency cycle"
+                )
+        dataset_uses = tuple(
+            sorted(
+                (
+                    SourceDatasetUsePolicy(
+                        dataset_id=resolved_bindings[
+                            str(item["logical_dataset_id"])
+                        ],
+                        use=SourceDatasetUse(str(item["use"])),
+                    )
+                    for item in semantic_uses
+                ),
+                key=lambda item: item.dataset_id,
+            )
+        )
         current = self.preparation.get_derived_entity_plan(project_id)
         if current is not None:
             if current.source_selection_hash != source.content_hash:
                 raise RecipeApplicationError(
                     "Current source preparation is stale for this data version"
                 )
+            if not semantic_uses:
+                # Older portable preparation did not carry dataset-use policy.
+                # Preserve its established retry behavior and existing random
+                # application-owned rule identifiers.
+                return current
+            current_rules = tuple(sorted(current.rules, key=lambda item: item.rule_id))
+            expected_rules = tuple(sorted(rules, key=lambda item: item.rule_id))
+            if current_rules != expected_rules or current.dataset_uses != dataset_uses:
+                raise RecipeApplicationError(
+                    "Current source preparation does not match this Recipe"
+                )
             return current
-        rules = tuple(
-            self._preparation_rule(item, bindings)
-            for item in semantic_rules
-        )
         plan = DerivedEntityPlan(
             plan_id=str(uuid4()),
             version=1,
             workspace_id=project_id,
             source_selection_hash=source.content_hash,
-            rules=rules,
+            rules=tuple(rules),
             updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
+            dataset_uses=dataset_uses,
         )
+        validate_source_dataset_uses(source, plan)
         self.preparation.save_derived_entity_plan(
             project_id,
             plan,
@@ -728,11 +804,12 @@ class RecipeApplicationCompiler:
         )
         return plan
 
-    def _preparation_rule(self, raw, bindings):
+    def _preparation_rule(self, raw, bindings, *, rule_id=None):
         value = dict(raw)
         value.pop("logical_rule_id", None)
+        value.pop("logical_output_dataset_id", None)
         kind = str(value.pop("kind", ""))
-        rule_id = str(uuid4())
+        rule_id = str(rule_id or uuid4())
         if kind == "lookup":
             return DerivedEntityRule(
                 rule_id=rule_id,
@@ -941,6 +1018,37 @@ class RecipeApplicationCompiler:
         raise RecipeApplicationError(
             "Recipe source preparation contains an unsupported rule"
         )
+
+    @staticmethod
+    def _bind_preparation_output(raw, rule, bindings):
+        """Make one rebuilt structural output available to dependent rules."""
+
+        if not isinstance(rule, (ExactJoinRule, UnionAllRule, GroupAggregateRule)):
+            return
+        logical_dataset = str(
+            raw.get("logical_output_dataset_id")
+            or f"dataset:{_recipe_token(rule.output_dataset_name)}"
+        )
+        physical_dataset = structural_dataset_id(rule)
+        existing_dataset = bindings.get(logical_dataset)
+        if existing_dataset is not None and existing_dataset != physical_dataset:
+            raise RecipeApplicationError(
+                "Prepared datasets have ambiguous reusable identities"
+            )
+        bindings[logical_dataset] = physical_dataset
+        raw_columns = tuple(raw.get("output_columns", ()))
+        if len(raw_columns) != len(rule.output_columns):
+            raise RecipeApplicationError(
+                "Recipe source preparation output columns are incomplete"
+            )
+        for semantic, physical in zip(raw_columns, rule.output_columns, strict=True):
+            logical_column = str(semantic["column_key"])
+            existing_column = bindings.get(logical_column)
+            if existing_column is not None and existing_column != physical.column_key:
+                raise RecipeApplicationError(
+                    "Prepared columns have ambiguous reusable identities"
+                )
+            bindings[logical_column] = physical.column_key
 
     @staticmethod
     def _application_column_key(logical_id: str) -> str:

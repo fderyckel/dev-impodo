@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from impodo.domain.project.foundation import FaultInjector
-from impodo.domain.shared.access import Actor
+from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.shared.tenancy import (
     AuthorizationReceipt,
     RequestOrganizationScope,
@@ -66,6 +66,7 @@ class ScopedMigrationProjectQuery(Protocol):
         *,
         scope: RequestOrganizationScope,
         authorization: AuthorizationReceipt,
+        capability: Capability = Capability.PROJECT_VIEW,
     ) -> MigrationProject:
-        """Return a visible Project or one non-disclosing not-found result."""
+        """Return a visible and authorized Project or one opaque not-found."""
         ...

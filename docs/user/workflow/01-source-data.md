@@ -31,8 +31,31 @@ first complete the eligible-field capture described in
 4. Add a corrected file and remove the wrong file if necessary.
 5. After every file is confirmed, give each table a **Name shown in Impodo**
    and select **Save tables for this data version**.
-6. Optionally open **Separate combined information** when combined information
-   must become separate related tables.
+6. Optionally open **Separate combined information** when one table contains
+   several business realities or several tables contain partial views of the
+   same reality.
+
+Choose **Combine columns from multiple tables** when two frozen tables describe
+the same business record. Name the logical output, choose the base and added
+datasets, pair one to five exact typed keys, and select the output fields. The
+base dataset defines what one output row represents. Include company,
+partition, or another scope field when an identifier is not globally unique.
+
+Select **Review complete join**. Impodo checks every accepted row and reports
+matched and unmatched base rows, unused added rows, blank or invalid keys,
+repeated keys, and expected versus actual output rows. Select **Save combined
+table** only when the base grain is preserved. You can keep both physical
+inputs as **Preparation only** so their immutable evidence and lineage remain
+available while only the logical output enters **Match data**.
+
+![A complete review combines two fictional customer tables while preserving one output row per customer account.](../../images/user/06d-customer-combination.png)
+
+For a BoM delivery, combine partial header tables only at the header grain and
+partial line tables only at the complete line grain. Keep repeating operations
+as their own dataset. In **Match data**, link the line and operation datasets
+to the incoming header instead of flattening them onto it. The
+[related-table guide](../guides/related-tables.md#combine-partial-views-of-the-same-records)
+shows the qualified three-dataset result.
 
 For **Create a related table from one field**, select **Review resulting
 table** after choosing the source field and Odoo record type. Impodo checks
@@ -226,6 +249,13 @@ The exact files, rows, hashes, and frozen snapshots belong only to this data
 version. A saved Recipe retains the reusable source shape and logical
 table and column bindings, not the source records.
 
+When a Recipe contains a combined table, it also retains the ordered exact
+join rules and whether each physical input was used only for preparation or
+also mapped directly. A later Test delivery may use different file names, but
+it must supply one unambiguous compatible table for every physical input. The
+fresh preparation checks the current rows again and stops if the added side is
+no longer unique or a required match is missing.
+
 Every later data version must therefore start clean and accept its complete
 replacement delivery again. An integrated Test run can select different
 logical datasets from one already accepted Test data version for several
@@ -250,8 +280,8 @@ Every selected dataset is bound to protected evidence for this data version.
 
 Freezing creates a governed snapshot for preparation. It does not modify the
 original file or Odoo records, save a Recipe version, or copy evidence
-from another data version. Optional related-table rules create a plan; they do
-not rewrite the frozen source.
+from another data version. Optional related-table and combined-table rules
+create a plan; they do not rewrite the frozen source.
 
 ## Needs attention
 
@@ -261,7 +291,7 @@ incorrect file. Never replace frozen evidence in place. If the migration scope
 is wrong, create a correctly scoped data project.
 
 For combined source information, use the
-[related-table authoring guide](../guides/related-tables.md)
+[related-table and combined-table authoring guide](../guides/related-tables.md)
 instead of manually altering the project database.
 
 ## What makes this work stale

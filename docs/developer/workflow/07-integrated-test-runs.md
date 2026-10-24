@@ -277,6 +277,17 @@ Recipe-owned DataVersion or application-creation paths. It rebuilds governance
 and structural preparation, rebinds logical source columns, creates a normal
 mapping working draft, and stores a mapping-bound quality seed.
 
+For an exact source composition, the source contract includes every physical
+input even when its saved use is **Preparation only**. Fresh-data table
+matching can bind a uniquely compatible renamed file. The application compiler
+then rebuilds the dependency-ordered join chain, assigns deterministic
+workspace-owned rule identities, binds structural outputs for later rules,
+and restores the physical dataset-use policy. The normal preparation evaluator
+owns complete fresh-row reconciliation, so duplicate added-side keys or
+unmatched rows in a required join fail before prepared mapping rows are
+published. Recipe application does not reuse Authoring review counts or
+lineage hashes.
+
 The seed also retains the compiled mapping baseline. The domain projection
 `recipe_mapping_shape` preserves the Recipe's providers, transformations,
 identities, relationships, write ownership, and invariant controls. It excludes
@@ -485,7 +496,7 @@ source projection. Initial schema capture retains its registration checks.
 | Test activation | [`TestRunActivationUseCase`](../../../src/impodo/application/run/test_activation.py) |
 | Production review and activation | [`ProductionRunReviewUseCase`](../../../src/impodo/application/run/production_review.py) and [`ProductionRunActivationUseCase`](../../../src/impodo/application/run/production_activation.py) |
 | Application materialization and recovery | [`RunApplicationMaterializer`](../../../src/impodo/application/run/application_materialization.py) and [`RunApplicationRecoveryUseCase`](../../../src/impodo/application/run/application_recovery.py) |
-| Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
+| Fresh Recipe application service | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) and [`RecipeApplicationCompiler._materialize_preparation`](../../../src/impodo/application/recipe_application_compilation.py) |
 | Run-owned Review and load projection | [`run_review.py`](../../../src/impodo/web/run_review.py) |
 | Preparation commands and guarded run milestones | [`run_commands.py`](../../../src/impodo/web/run_commands.py) |
 | Current publication recovery | [`PreparationRecoveryService`](../../../src/impodo/application/workspace/preparation/recovery.py) and [`PreparationRecoveryRepository`](../../../src/impodo/adapters/duckdb/preparation_recovery_repository.py) |
@@ -535,6 +546,7 @@ is visible in the initial viewport and the step bar has three styled columns.
 - [`tests/integration/duckdb/test_recipe_application_evidence.py`](../../../tests/integration/duckdb/test_recipe_application_evidence.py)
 - [`tests/application/run/test_odoo_requirements.py`](../../../tests/application/run/test_odoo_requirements.py)
 - [`tests/application/run/test_integrated_recipe_runs.py`](../../../tests/application/run/test_integrated_recipe_runs.py)
+- [Recipe source-composition round trip](../../../tests/domain/recipe/test_source_composition_round_trip.py)
 - [`tests/application/run/test_recipe_target_matches.py`](../../../tests/application/run/test_recipe_target_matches.py)
 - [`tests/application/run/test_target_match_service.py`](../../../tests/application/run/test_target_match_service.py)
 - [`tests/integration/web/test_recipe_target_matches.py`](../../../tests/integration/web/test_recipe_target_matches.py)

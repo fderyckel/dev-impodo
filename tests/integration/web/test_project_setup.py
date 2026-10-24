@@ -47,7 +47,7 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
             overview = self.client.get(created.headers["location"])
         self.assertEqual(overview.status_code, 200)
         self.assertGreater(overview_timings.connection_count, 0)
-        self.assertLessEqual(overview_timings.connection_count, 4)
+        self.assertLessEqual(overview_timings.connection_count, 2)
         workspace_state = self.app.state.context.queries.get(workspace_id)
         self.assertEqual(workspace_state.source_system, "Uploaded files")
         self.assertEqual(workspace_state.odoo_base_url, "")

@@ -28,6 +28,7 @@ from impodo.domain.run.contracts import (
 )
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.domain.schema.governance import SchemaGovernance
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 from impodo.domain.workspace.errors import WorkspaceError
 
@@ -36,10 +37,15 @@ if TYPE_CHECKING:
 
 
 def enqueue_preparation(
-    context: WebContext, workspace_id: str, *, retry_job_id: str | None = None,
+    context: WebContext,
+    workspace_id: str,
+    *,
+    actor: Actor | None = None,
+    retry_job_id: str | None = None,
 ) -> PreparationJob:
     """Resume current published work or start one mapping-bound attempt."""
 
+    resolved_actor = actor or context.actor
     manager = context.preparation_jobs
     if manager is None:
         raise WorkspaceError("Background preparation is unavailable")
@@ -55,24 +61,44 @@ def enqueue_preparation(
         raise WorkspaceError(
             "Freeze the current source version before preparing data"
         )
-    workspace = _preparation_workspace(context, workspace_id)
+    workspace = _preparation_workspace(context, workspace_id, actor=resolved_actor)
     if workspace.recipe_application_id is not None:
-        restored = recover_run_preparation(context, workspace.migration_run_id)
+        restored = recover_run_preparation(
+            context,
+            workspace.migration_run_id,
+            actor=resolved_actor,
+        )
         if restored is not None and restored.workspace_id == workspace_id:
             return restored
-    workspace = _assert_recipe_application_can_prepare(context, workspace)
+    workspace = _assert_recipe_application_can_prepare(
+        context,
+        workspace,
+        actor=resolved_actor,
+    )
     workspace = _with_target_float_precision(context, workspace)
     total_rows = _preparation_row_count(context, workspace_id)
     if retry_job_id is not None:
         return manager.retry(
-            workspace_id, retry_job_id, _migration_project_name(context, workspace.project_id),
-            total_rows, actor=context.actor, workspace=workspace,
+            workspace_id,
+            retry_job_id,
+            _migration_project_name(
+                context,
+                workspace.project_id,
+                actor=resolved_actor,
+            ),
+            total_rows,
+            actor=resolved_actor,
+            workspace=workspace,
         )
     return manager.enqueue(
         workspace_id,
-        _migration_project_name(context, workspace.project_id),
+        _migration_project_name(
+            context,
+            workspace.project_id,
+            actor=resolved_actor,
+        ),
         total_rows,
-        actor=context.actor,
+        actor=resolved_actor,
         workspace=workspace,
     )
 
@@ -115,9 +141,12 @@ def _with_target_float_precision(
 def _assert_recipe_application_can_prepare(
     context: WebContext,
     workspace: PreparationWorkspace,
+    *,
+    actor: Actor | None = None,
 ) -> PreparationWorkspace:
     """Keep preparation behind the run's remaining Recipe reviews."""
 
+    resolved_actor = actor or context.actor
     application_id = workspace.recipe_application_id
     if application_id is None:
         return workspace
@@ -126,7 +155,10 @@ def _assert_recipe_application_can_prepare(
         raise WorkspaceError("This Recipe work area no longer matches its run")
     bundle = context.run_planning.repository.get_bundle(workspace.migration_run_id)
     if bundle.run.purpose is MigrationRunPurpose.PRODUCTION:
-        operation = context.production_runs.activation_operation(workspace.migration_run_id, actor=context.actor)
+        operation = context.production_runs.activation_operation(
+            workspace.migration_run_id,
+            actor=resolved_actor,
+        )
         if operation is None or operation.state.value != "COMMITTED":
             raise WorkspaceError("Finish Production setup before preparing its work areas")
     assert_application_is_current(bundle, application)
@@ -158,33 +190,41 @@ def _assert_recipe_application_can_prepare(
     return replace(workspace, mapping_content_hash=application.mapping_content_hash)
 
 
-def _migration_project_name(context: WebContext, migration_project_id: str) -> str:
+def _migration_project_name(
+    context: WebContext,
+    migration_project_id: str,
+    *,
+    actor: Actor,
+) -> str:
     """Return the business Project name without opening a workspace database."""
 
     return context.migration_projects.get(
         migration_project_id,
-        actor=context.actor,
+        actor=actor,
     ).display_name
 
 
 def _preparation_workspace(
     context: WebContext,
     workspace_id: str,
+    *,
+    actor: Actor | None = None,
 ) -> PreparationWorkspace:
     """Resolve one open workspace and its Project-owned DataVersion."""
 
+    resolved_actor = actor or context.actor
     try:
         workspace = context.migration_workspaces.get(
             workspace_id,
-            actor=context.actor,
+            actor=resolved_actor,
         )
         data_version = context.data_versions.get(
             workspace.data_version_id,
-            actor=context.actor,
+            actor=resolved_actor,
         )
         run = context.migration_runs.get(
             workspace.migration_run_id,
-            actor=context.actor,
+            actor=resolved_actor,
         )
         prepared_workspace = PreparationWorkspace.from_context(
             workspace,
@@ -226,9 +266,12 @@ def _preparation_row_count(context: WebContext, workspace_id: str) -> int:
 def start_next_preparation(
     context: WebContext,
     migration_run_id: str,
+    *,
+    actor: Actor | None = None,
 ) -> PreparationJob:
     """Start only the first unresolved Test application in saved order."""
 
+    resolved_actor = actor or context.actor
     if context.preparation_jobs is None:
         raise WorkspaceError("Background preparation is unavailable")
     bundle = context.run_planning.repository.get_bundle(migration_run_id)
@@ -271,12 +314,22 @@ def start_next_preparation(
             raise WorkspaceError(
                 "Restart Impodo before preparing this saved work again"
             )
-    return enqueue_preparation(context, next_application.workspace_id)
+    return enqueue_preparation(
+        context,
+        next_application.workspace_id,
+        actor=resolved_actor,
+    )
 
 
-def recover_run_preparation(context: WebContext, migration_run_id: str) -> PreparationJob | None:
+def recover_run_preparation(
+    context: WebContext,
+    migration_run_id: str,
+    *,
+    actor: Actor | None = None,
+) -> PreparationJob | None:
     """Inspect only the current Recipe when entering or resuming a run."""
 
+    resolved_actor = actor or context.actor
     manager = context.preparation_jobs
     if manager is None:
         return None
@@ -303,17 +356,29 @@ def recover_run_preparation(context: WebContext, migration_run_id: str) -> Prepa
     ):
         return None
     result = context.preparation_recovery.current(
-        application.workspace_id, application.mapping_content_hash, actor=context.actor,
+        application.workspace_id,
+        application.mapping_content_hash,
+        actor=resolved_actor,
     )
     if result is None:
         return None
     workspace = replace(
-        _preparation_workspace(context, application.workspace_id),
+        _preparation_workspace(
+            context,
+            application.workspace_id,
+            actor=resolved_actor,
+        ),
         mapping_content_hash=application.mapping_content_hash,
     )
     restored = manager.restore_result(
-        workspace, result, actor=context.actor,
-        migration_project_name=_migration_project_name(context, application.project_id),
+        workspace,
+        result,
+        actor=resolved_actor,
+        migration_project_name=_migration_project_name(
+            context,
+            application.project_id,
+            actor=resolved_actor,
+        ),
         expected_job_id=observed.job_id if observed else None,
     )
     if restored is not None:

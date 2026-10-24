@@ -11,6 +11,7 @@ from __future__ import annotations
 from starlette.datastructures import FormData, UploadFile
 
 from impodo.application.data_version.intake import SourceIntakeError
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.workbench import SourceFile, WorkspaceStateError
 
 from .composition.page_reads import run_local_operation
@@ -23,6 +24,7 @@ async def accept_source_uploads(
     workspace_id: str,
     form: FormData,
     *,
+    actor: Actor,
     allow_multiple: bool = True,
 ) -> tuple[SourceFile, ...]:
     """Accept all selected files through the canonical intake service."""
@@ -45,7 +47,7 @@ async def accept_source_uploads(
                 added.append(
                     context.intake.accept(
                         workspace_id,
-                        actor=context.actor,
+                        actor=actor,
                         expected_revision=current_revision,
                         display_name=upload.filename,
                         stream=upload.file,
@@ -72,6 +74,7 @@ async def remove_source_file(
     workspace_id: str,
     file_id: str,
     *,
+    actor: Actor,
     expected_revision: int,
 ) -> SourceFile:
     """Remove one unfrozen source file through the canonical intake service."""
@@ -80,6 +83,6 @@ async def remove_source_file(
         context.intake.remove,
         workspace_id,
         file_id,
-        actor=context.actor,
+        actor=actor,
         expected_revision=expected_revision,
     )

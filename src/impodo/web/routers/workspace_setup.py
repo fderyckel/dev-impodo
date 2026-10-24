@@ -22,6 +22,7 @@ from ..context import WebContext
 from ..forms import _revision, _secure_form
 from ..presenters.common import _flash, _render, _workspace_error
 from ..presenters.mapping_forms import _draft_or_redirect
+from ..request_identity import request_identity
 from ..security import require_session
 from ..source_file_commands import accept_source_uploads
 
@@ -111,7 +112,12 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 status_code=303,
             )
         try:
-            await accept_source_uploads(context, workspace_id, form)
+            await accept_source_uploads(
+                context,
+                workspace_id,
+                form,
+                actor=request_identity(request, context.identity_resolver).actor,
+            )
         except WorkspaceStateError as error:
             return _workspace_error(
                 request,
@@ -129,10 +135,11 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
     async def register_workspace(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision"})
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             workspace = context.workspace_states.register(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=_revision(form),
             )
         except WorkspaceRegistrationError as error:
@@ -169,7 +176,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 catalogs = await run_in_threadpool(
                     context.inspections.inspect_project,
                     workspace.workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
             except SourceInspectionError as error:
                 request.session["source_inspection_error"] = {

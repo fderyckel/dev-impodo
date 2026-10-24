@@ -61,6 +61,7 @@ from impodo.domain.workspace.derived_entities import (
     _related_source_dataset,
     _rule_dataset_names,
     _source_dataset,
+    preparation_input_dataset_ids,
     preview_derived_entities,
     preview_related_datasets,
     reconcile_source_dataset_uses,
@@ -1022,6 +1023,22 @@ class DerivedEntityWorkspaceService:
         if len(remaining) == len(current.rules):
             raise WorkspaceError("Derived-entity rule not found")
         removed = next(item for item in current.rules if item.rule_id == rule_id)
+        if isinstance(removed, (ExactJoinRule, UnionAllRule, GroupAggregateRule)):
+            removed_output_id = structural_dataset_id(removed)
+            dependent = next(
+                (
+                    rule
+                    for rule in remaining
+                    if removed_output_id
+                    in preparation_input_dataset_ids((rule,))
+                ),
+                None,
+            )
+            if dependent is not None:
+                raise WorkspaceError(
+                    "Remove the later source-preparation step that uses this "
+                    "combined table first"
+                )
         plan = DerivedEntityPlan(
             plan_id=current.plan_id,
             version=current.version + 1,
@@ -1034,13 +1051,10 @@ class DerivedEntityWorkspaceService:
                 current.dataset_uses,
                 remaining,
             ),
-            join_reviews=(
-                ()
-                if isinstance(
-                    removed,
-                    (ExactJoinRule, UnionAllRule, GroupAggregateRule),
-                )
-                else current.join_reviews
+            join_reviews=tuple(
+                review
+                for review in current.join_reviews
+                if review.rule_id != rule_id
             ),
         )
         self.derived_entities.save_derived_entity_plan(

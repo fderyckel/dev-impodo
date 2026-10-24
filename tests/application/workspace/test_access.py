@@ -5,11 +5,12 @@ from __future__ import annotations
 from tests.support.paths import REPOSITORY_ROOT
 
 import asyncio
+from dataclasses import replace
 import shutil
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from uuid import uuid4
 
 from starlette.requests import Request
@@ -30,6 +31,10 @@ from impodo.adapters.duckdb.migration_foundation_repository import (
     MigrationFoundationRepository,
 )
 from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.adapters.duckdb.scoped_workspace_access import (
+    LocalScopedWorkspaceAccessQuery,
+)
+from impodo.domain.shared.tenancy import OrganizationId, ProjectVisibilityScope
 from impodo.application.data_version.service import DataVersionService
 from impodo.domain.project.foundation import (
     MigrationFoundationError,
@@ -40,6 +45,11 @@ from impodo.application.project.service import MigrationProjectService
 from impodo.application.run.service import MigrationRunService
 from impodo.application.workspace.service import MigrationWorkspaceService
 from impodo.web.routers.preflight import _report_chunks
+from impodo.web.composition.local_identity import (
+    LOCAL_ORGANIZATION_ID,
+    LocalRequestIdentityResolver,
+)
+from impodo.web.request_identity import request_identity
 from impodo.web.security import WorkspaceAccessMiddleware
 from impodo.application.workspace.access import (
     WorkspaceAccessContext,
@@ -318,11 +328,7 @@ class WorkspaceAccessTests(unittest.TestCase):
                 {Capability.PROJECT_VIEW, Capability.PROJECT_EDIT}
             ),
         )
-        middleware = WorkspaceAccessMiddleware(
-            _unused_asgi_app,
-            access=access,
-            actor=actor,
-        )
+        middleware = _workspace_middleware(access, actor)
 
         denial_responses = []
         for workspace_id in (
@@ -387,6 +393,128 @@ class WorkspaceAccessTests(unittest.TestCase):
         )
         registry_resolver.assert_called_once_with(alpha.workspace_id)
 
+    def test_request_identity_is_resolved_once_across_middleware_and_route(
+        self,
+    ) -> None:
+        alpha = self._create_workspace("Request identity")
+        access = WorkspaceAccessService(
+            self.repository,
+            ProjectMembershipPolicy({alpha.project_id}),
+        )
+        resolver = MagicMock(wraps=LocalRequestIdentityResolver())
+        middleware = WorkspaceAccessMiddleware(
+            _unused_asgi_app,
+            access=LocalScopedWorkspaceAccessQuery(
+                access,
+                organization_id=LOCAL_ORGANIZATION_ID,
+            ),
+            identity_resolver=resolver,
+        )
+
+        async def route_boundary(request):
+            self.assertEqual(
+                request_identity(request, resolver).actor,
+                LOCAL_ACTOR,
+            )
+            return PlainTextResponse("ok")
+
+        response = asyncio.run(
+            middleware.dispatch(
+                _workspace_request(alpha.workspace_id),
+                route_boundary,
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        resolver.resolve.assert_called_once_with({"authenticated": True})
+
+    def test_foreign_organization_is_denied_before_registry_access(self) -> None:
+        local_identity = LocalRequestIdentityResolver().resolve(
+            {"authenticated": True}
+        )
+        foreign_organization = OrganizationId("foreign-organization")
+        local_access = MagicMock()
+        scoped_access = LocalScopedWorkspaceAccessQuery(
+            local_access,
+            organization_id=LOCAL_ORGANIZATION_ID,
+        )
+        foreign_scope = replace(
+            local_identity.organization_scope,
+            organization_id=foreign_organization,
+        )
+        foreign_authorization = replace(
+            local_identity.authorization,
+            organization_id=foreign_organization,
+            project_visibility=ProjectVisibilityScope(
+                organization_id=foreign_organization,
+                organization_wide=True,
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            MigrationIdentifierConfusionError,
+            "Workspace not found",
+        ):
+            scoped_access.resolve_visible_workspace_access(
+                str(uuid4()),
+                actor=local_identity.actor,
+                scope=foreign_scope,
+                authorization=foreign_authorization,
+                capability=Capability.PROJECT_VIEW,
+            )
+
+        local_access.resolve.assert_not_called()
+
+    def test_receipt_visibility_denial_precedes_the_workspace_route(self) -> None:
+        alpha = self._create_workspace("Receipt denial")
+        access = WorkspaceAccessService(
+            self.repository,
+            CapabilityAuthorizationPolicy(),
+        )
+        local_identity = LocalRequestIdentityResolver().resolve(
+            {"authenticated": True}
+        )
+        denied_identity = replace(
+            local_identity,
+            authorization=replace(
+                local_identity.authorization,
+                project_visibility=ProjectVisibilityScope(
+                    organization_id=LOCAL_ORGANIZATION_ID,
+                ),
+            ),
+        )
+        resolver = Mock()
+        resolver.resolve.return_value = denied_identity
+        middleware = WorkspaceAccessMiddleware(
+            _unused_asgi_app,
+            access=LocalScopedWorkspaceAccessQuery(
+                access,
+                organization_id=LOCAL_ORGANIZATION_ID,
+            ),
+            identity_resolver=resolver,
+        )
+        route_boundary = AsyncMock(
+            side_effect=AssertionError("Workspace route must not run")
+        )
+
+        with patch.object(
+            self.database,
+            "ensure_workspace_store",
+            side_effect=AssertionError("Workspace store must stay closed"),
+        ):
+            response = asyncio.run(
+                middleware.dispatch(
+                    _workspace_request(alpha.workspace_id),
+                    route_boundary,
+                )
+            )
+
+        self.assertEqual(
+            (response.status_code, response.body),
+            (404, b"Workspace not found"),
+        )
+        route_boundary.assert_not_awaited()
+
     def test_streaming_body_reuses_the_verified_request_context(self) -> None:
         alpha = self._create_workspace("Streaming")
         policy = ProjectMembershipPolicy({alpha.project_id})
@@ -404,11 +532,7 @@ class WorkspaceAccessTests(unittest.TestCase):
                 }
             ),
         )
-        middleware = WorkspaceAccessMiddleware(
-            _unused_asgi_app,
-            access=access,
-            actor=actor,
-        )
+        middleware = _workspace_middleware(access, actor)
 
         async def stream_boundary(_request):
             async def body():
@@ -460,11 +584,7 @@ class WorkspaceAccessTests(unittest.TestCase):
                 }
             ),
         )
-        middleware = WorkspaceAccessMiddleware(
-            _unused_asgi_app,
-            access=access,
-            actor=actor,
-        )
+        middleware = _workspace_middleware(access, actor)
         artifacts = LocalArtifactStore(self.root / "artifacts")
         report_content = b"protected evidence" * 5_000
         artifacts.write_report(
@@ -529,10 +649,9 @@ class WorkspaceAccessTests(unittest.TestCase):
         async def route_boundary(_request):
             return PlainTextResponse("ok")
 
-        middleware = WorkspaceAccessMiddleware(
-            _unused_asgi_app,
-            access=access,
-            actor=actor,
+        middleware = _workspace_middleware(
+            access,
+            actor,
             trusted_context_resolver=lambda _path, _workspace_id: alpha,
         )
         with patch.object(
@@ -548,10 +667,9 @@ class WorkspaceAccessTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
 
-        confused = WorkspaceAccessMiddleware(
-            _unused_asgi_app,
-            access=access,
-            actor=actor,
+        confused = _workspace_middleware(
+            access,
+            actor,
             trusted_context_resolver=lambda _path, _workspace_id: beta,
         )
         with patch.object(
@@ -571,6 +689,22 @@ class WorkspaceAccessTests(unittest.TestCase):
 
 async def _unused_asgi_app(scope, receive, send) -> None:
     raise AssertionError("Base middleware app must not be called directly")
+
+
+def _workspace_middleware(
+    access: WorkspaceAccessService,
+    actor: Actor,
+    **kwargs,
+) -> WorkspaceAccessMiddleware:
+    return WorkspaceAccessMiddleware(
+        _unused_asgi_app,
+        access=LocalScopedWorkspaceAccessQuery(
+            access,
+            organization_id=LOCAL_ORGANIZATION_ID,
+        ),
+        identity_resolver=LocalRequestIdentityResolver(actor),
+        **kwargs,
+    )
 
 
 def _workspace_request(workspace_id: str) -> Request:

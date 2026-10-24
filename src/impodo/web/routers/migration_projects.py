@@ -9,13 +9,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from impodo.adapters.odoo.local_stack import LocalStackError
+from impodo.application.shared.identity import ResolvedRequestIdentity
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
     MigrationNotFoundError,
 )
-from impodo.domain.shared.access import AuthorizationError
+from impodo.domain.shared.access import AuthorizationError, Capability
 from impodo.domain.workspace.models import MigrationWorkspaceState
 from impodo.domain.workspace.workbench import SourceMode
 
@@ -79,11 +80,12 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
                 "source_system_identity",
             },
         )
+        identity = request_identity(request, context.identity_resolver)
         values = _form_values(form)
         try:
             bundle = await run_local_operation(
                 context.project_authoring.create,
-                actor=context.actor,
+                actor=identity.actor,
                 display_name=values.get("display_name", ""),
                 migration_purpose=values.get("migration_purpose", ""),
                 source_mode=values.get("source_mode", SourceMode.FILE.value),
@@ -106,11 +108,13 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
     @router.get("/projects/{project_id}", response_class=HTMLResponse)
     async def project_overview(request: Request, project_id: str):
         require_session(request)
+        identity = request_identity(request, context.identity_resolver)
         return await run_page_read(
             _render_project_overview,
             request,
             context,
             project_id,
+            identity=identity,
         )
 
     @router.get(
@@ -124,69 +128,33 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
         version: int | None = None,
     ):
         require_session(request)
-        project = context.migration_projects.get(project_id, actor=context.actor)
-        recipe = context.recipes.get(recipe_id, actor=context.actor)
-        if recipe.project_id != project.project_id:
-            raise MigrationNotFoundError("Recipe not found")
-        revisions = context.recipes.revisions(recipe_id, actor=context.actor)
-        selected_version = (
-            version if version is not None else recipe.current_recipe_revision
-        )
-        revision = next(
-            (item for item in revisions if item.version == selected_version),
-            None,
-        )
-        if revision is None:
-            raise MigrationNotFoundError("Recipe revision not found")
-        envelope = context.recipes.read_revision(
-            recipe_id,
-            selected_version,
-            actor=context.actor,
-        )
-        workspaces = context.migration_workspaces.list_for_project(
-            project_id,
-            actor=context.actor,
-        )
-        authoring_data_version_ids = {
-            item.data_version_id
-            for item in context.data_versions.list(project_id, actor=context.actor)
-            if item.purpose is DataVersionPurpose.AUTHORING
-        }
-        authoring_workspace = next(
-            (
-                item
-                for item in sorted(
-                    workspaces,
-                    key=lambda item: item.created_at,
-                    reverse=True,
-                )
-                if item.recipe_application_id is None
-                and item.state is MigrationWorkspaceState.OPEN
-                and item.data_version_id in authoring_data_version_ids
-            ),
-            None,
-        )
-        return _render(
+        identity = request_identity(request, context.identity_resolver)
+        return await run_page_read(
+            _render_recipe_detail,
             request,
-            "project_recipe_detail.html",
-            project=project,
-            recipe=recipe,
-            revision=revision,
-            revisions=tuple(
-                sorted(revisions, key=lambda item: item.version, reverse=True)
-            ),
-            recipe_view=build_recipe_definition_view(envelope),
-            authoring_workspace=authoring_workspace,
+            context,
+            project_id,
+            recipe_id,
+            version,
+            identity=identity,
         )
 
     @router.post("/projects/{project_id}/delete")
     async def delete_project(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision"})
+        identity = request_identity(request, context.identity_resolver)
+        await run_page_read(
+            context.project_queries.get_visible_project,
+            project_id,
+            scope=identity.organization_scope,
+            authorization=identity.authorization,
+            capability=Capability.PROJECT_DELETE,
+        )
         expected_revision = _revision(form)
         workspaces = context.migration_workspaces.list_for_project(
             project_id,
-            actor=context.actor,
+            actor=identity.actor,
         )
         workspace_states = tuple(
             context.queries.get(item.workspace_id) for item in workspaces
@@ -197,12 +165,16 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
                 context.target_credential_workspace(
                     item.workspace_id,
                     workspace_state=item,
+                    actor=identity.actor,
                 )
                 for item in workspace_states
             )
         }
-        recipes = context.recipes.list(project_id, actor=context.actor)
-        data_versions = context.data_versions.list(project_id, actor=context.actor)
+        recipes = context.recipes.list(project_id, actor=identity.actor)
+        data_versions = context.data_versions.list(
+            project_id,
+            actor=identity.actor,
+        )
         try:
             for item in workspaces:
                 workspace_id = item.workspace_id
@@ -234,22 +206,26 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
             deleted = await run_in_threadpool(
                 context.migration_projects.delete,
                 project_id,
-                actor=context.actor,
+                actor=identity.actor,
                 expected_revision=expected_revision,
             )
         except AuthorizationError:
-            return _render_project_overview(
+            return await run_page_read(
+                _render_project_overview,
                 request,
                 context,
                 project_id,
+                identity=identity,
                 error="You are not authorized to delete this project.",
                 status_code=403,
             )
         except (LocalStackError, MigrationFoundationError) as error:
-            return _render_project_overview(
+            return await run_page_read(
+                _render_project_overview,
                 request,
                 context,
                 project_id,
+                identity=identity,
                 error=str(error),
                 status_code=422,
             )
@@ -311,10 +287,19 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
                 "business_purpose",
             },
         )
+        identity = request_identity(request, context.identity_resolver)
+        await run_page_read(
+            context.project_queries.get_visible_project,
+            project_id,
+            scope=identity.organization_scope,
+            authorization=identity.authorization,
+            capability=Capability.RECIPE_PUBLISH,
+        )
         recipe_id = _text(form, "recipe_id") or None
         expected = _text(form, "expected_recipe_revision")
         try:
-            published = context.recipe_publication.publish(
+            published = await run_local_operation(
+                context.recipe_publication.publish,
                 project_id=project_id,
                 data_version_id=_text(form, "data_version_id"),
                 workspace_id=_text(form, "workspace_id"),
@@ -323,13 +308,15 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
                 display_name=_text(form, "display_name"),
                 business_purpose=_text(form, "business_purpose"),
                 operation_id=_text(form, "operation_id"),
-                actor=context.actor,
+                actor=identity.actor,
             )
         except (MigrationFoundationError, RecipeError, ValueError) as error:
-            return _render_project_overview(
+            return await run_page_read(
+                _render_project_overview,
                 request,
                 context,
                 project_id,
+                identity=identity,
                 error=str(error),
                 status_code=422,
             )
@@ -352,31 +339,107 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
     return router
 
 
+def _render_recipe_detail(
+    request: Request,
+    context: WebContext,
+    project_id: str,
+    recipe_id: str,
+    version: int | None,
+    *,
+    identity: ResolvedRequestIdentity,
+):
+    """Render one Recipe only after its parent Project is visible."""
+
+    project = context.project_queries.get_visible_project(
+        project_id,
+        scope=identity.organization_scope,
+        authorization=identity.authorization,
+    )
+    recipe = context.recipes.get(recipe_id, actor=identity.actor)
+    if recipe.project_id != project.project_id:
+        raise MigrationNotFoundError("Recipe not found")
+    revisions = context.recipes.revisions(recipe_id, actor=identity.actor)
+    selected_version = (
+        version if version is not None else recipe.current_recipe_revision
+    )
+    revision = next(
+        (item for item in revisions if item.version == selected_version),
+        None,
+    )
+    if revision is None:
+        raise MigrationNotFoundError("Recipe revision not found")
+    envelope = context.recipes.read_revision(
+        recipe_id,
+        selected_version,
+        actor=identity.actor,
+    )
+    workspaces = context.migration_workspaces.list_for_project(
+        project_id,
+        actor=identity.actor,
+    )
+    authoring_data_version_ids = {
+        item.data_version_id
+        for item in context.data_versions.list(project_id, actor=identity.actor)
+        if item.purpose is DataVersionPurpose.AUTHORING
+    }
+    authoring_workspace = next(
+        (
+            item
+            for item in sorted(
+                workspaces,
+                key=lambda item: item.created_at,
+                reverse=True,
+            )
+            if item.recipe_application_id is None
+            and item.state is MigrationWorkspaceState.OPEN
+            and item.data_version_id in authoring_data_version_ids
+        ),
+        None,
+    )
+    return _render(
+        request,
+        "project_recipe_detail.html",
+        project=project,
+        recipe=recipe,
+        revision=revision,
+        revisions=tuple(
+            sorted(revisions, key=lambda item: item.version, reverse=True)
+        ),
+        recipe_view=build_recipe_definition_view(envelope),
+        authoring_workspace=authoring_workspace,
+    )
+
+
 def _render_project_overview(
     request: Request,
     context: WebContext,
     project_id: str,
     *,
+    identity: ResolvedRequestIdentity,
     error: str | None = None,
     status_code: int = 200,
 ):
     """Load bounded registry projections; never open one database per row."""
 
-    project = context.migration_projects.get(project_id, actor=context.actor)
-    data_versions = context.data_versions.list(project_id, actor=context.actor)
-    runs = context.migration_runs.list(project_id, actor=context.actor)
+    project = context.project_queries.get_visible_project(
+        project_id,
+        scope=identity.organization_scope,
+        authorization=identity.authorization,
+    )
+    data_versions = context.data_versions.list(project_id, actor=identity.actor)
+    runs = context.migration_runs.list(project_id, actor=identity.actor)
     workspaces = context.migration_workspaces.list_for_project(
         project_id,
-        actor=context.actor,
+        actor=identity.actor,
     )
-    recipes = context.recipes.list(project_id, actor=context.actor)
+    recipes = context.recipes.list(project_id, actor=identity.actor)
     cutover_selection = context.cutover_plans.repository.current_selection(project_id)
     production_bindings = context.production_runs.production_runs.list_for_project(
         project_id
     )
     test_bindings = {
         item.migration_run_id: item
-        for item in context.test_runs.list(project_id, actor=context.actor)
+        for item in context.test_runs.list(project_id, actor=identity.actor)
     }
     data_version_by_id = {
         item.data_version_id: item for item in data_versions
@@ -401,7 +464,7 @@ def _render_project_overview(
     )
     correction_journeys = context.corrections.list_for_project(
         project_id,
-        actor=context.actor,
+        actor=identity.actor,
     )
     authoring_data_version = (
         next(
@@ -422,7 +485,7 @@ def _render_project_overview(
             project_id=project_id,
             data_version_id=authoring_data_version.data_version_id,
             workspace_id=authoring_workspace.workspace_id,
-            actor=context.actor,
+            actor=identity.actor,
         )
         if recipe_draft.issues:
             recipe_recovery = _recipe_recovery_view(
@@ -440,8 +503,14 @@ def _render_project_overview(
         cutover_selection=cutover_selection,
         test_bindings=test_bindings,
         production_bindings=production_bindings,
-        completed_production_setups=(context.production_runs.completed_activations(project_id, actor=context.actor)
-                                    if production_bindings else frozenset()),
+        completed_production_setups=(
+            context.production_runs.completed_activations(
+                project_id,
+                actor=identity.actor,
+            )
+            if production_bindings
+            else frozenset()
+        ),
         production_data_versions=data_version_by_id,
         production_runs=run_by_id,
         authoring_workspace=authoring_workspace,

@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
+from functools import partial
 from threading import Condition, RLock, Thread
 from uuid import uuid4
 
@@ -231,7 +232,7 @@ class PreflightJobManager:
                 access_context = self._jobs[job_id].access_context
             try:
                 with bind_workspace_access_context(access_context):
-                    result = work(lambda phase: self._update_phase(job_id, phase))
+                    result = work(partial(self._update_phase, job_id))
             except Exception as error:
                 with self._lock:
                     self._finish_failed(job_id, error)

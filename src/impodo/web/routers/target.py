@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from urllib.parse import unquote, urlsplit
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -53,6 +53,7 @@ from ..presenters.summary import (
     _require_local_stack_start,
     _require_local_stack_stop,
 )
+from ..request_identity import request_identity
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRemovalReason,
@@ -255,13 +256,14 @@ def build_target_router(context: WebContext) -> APIRouter:
                 "return_to",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         return_to = f"/workspaces/{workspace_id}/target"
         json_request = _accepts_json(request)
         try:
             return_to = _quick_credential_return_to(form, workspace_id)
             access = context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.PROJECT_EDIT,
             )
             if access.project_id != require_uuid(project_id, "project_id"):
@@ -276,6 +278,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             credential_owner = context.target_credential_workspace(
                 workspace_id,
                 workspace_state=workspace_state,
+                actor=actor,
             )
             credential = store_target_credential(
                 context.secret_store,
@@ -289,7 +292,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 credential_owner,
                 TargetCredentialRole.READ,
                 credential,
-                actor=context.actor,
+                actor=actor,
             )
             context.remote_connections.clear(credential_owner.workspace_id)
             if credential_owner.workspace_id != workspace_id:
@@ -537,19 +540,20 @@ def build_target_router(context: WebContext) -> APIRouter:
                 "confirm_capture",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         resume = request.query_params.get("resume", "")
         if resume not in {"target", "source"}:
             raise HTTPException(status_code=404, detail="Source restart not found")
         predecessor_state = context.queries.get(workspace_id)
         predecessor_workspace = context.migration_workspaces.get(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
         )
         if predecessor_workspace.project_id != require_uuid(project_id, "project_id"):
             raise HTTPException(status_code=404, detail="Source restart not found")
         predecessor_data = context.data_versions.get(
             predecessor_workspace.data_version_id,
-            actor=context.actor,
+            actor=actor,
         )
         if (
             predecessor_state.source_mode is not SourceMode.ODOO
@@ -567,7 +571,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             intended_models = (
                 context.run_setups.required_models_for_workspace(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 or None
             )
@@ -583,7 +587,7 @@ def build_target_router(context: WebContext) -> APIRouter:
         try:
             successor = context.odoo_source_restarts.start(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 request_id=odoo_source_restart_request_id(
                     workspace_id,
                     workspace_revision=expected_revision,
@@ -632,7 +636,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                     successor_state,
                     TargetCredentialRole.READ,
                     credential,
-                    actor=context.actor,
+                    actor=actor,
                 )
             elif credential is None and same_target and predecessor_credential is not None:
                 credential = store_target_credential(
@@ -647,7 +651,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                     successor_state,
                     TargetCredentialRole.READ,
                     credential,
-                    actor=context.actor,
+                    actor=actor,
                 )
 
             if credential is None:
@@ -693,7 +697,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             if successor_state.status is WorkspaceStatus.DRAFT:
                 successor_state = context.workspace_states.register(
                     successor_state.workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     expected_revision=successor_state.revision,
                 )
             if resume == "target":
@@ -710,7 +714,11 @@ def build_target_router(context: WebContext) -> APIRouter:
 
             request.session.pop("odoo_capture_assessment", None)
             if intended_models:
-                await _capture_selected_schema(context, successor_state)
+                await _capture_selected_schema(
+                    context,
+                    successor_state,
+                    actor=actor,
+                )
                 _flash(
                     request,
                     f"Started Data version {successor.data_version.version_number} "
@@ -767,6 +775,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 "action",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         source_return_token = _source_organization_return_token(request)
         current = context.queries.get(workspace_id)
         if current.status is WorkspaceStatus.CLOSED:
@@ -803,7 +812,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             intended_models = (
                 context.run_setups.required_models_for_workspace(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 or None
             )
@@ -811,7 +820,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 previous_workspace_state.source_mode is SourceMode.ODOO
                 and context.workspace_states.target_update_changes(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     expected_revision=expected_revision,
                     odoo_connection_mode=connection_mode,
                     odoo_base_url=base_url,
@@ -822,11 +831,11 @@ def build_target_router(context: WebContext) -> APIRouter:
             ):
                 migration_workspace = context.migration_workspaces.get(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 data_version = context.data_versions.get(
                     migration_workspace.data_version_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 if data_version.state is DataVersionState.FROZEN:
                     return RedirectResponse(
@@ -837,7 +846,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 else:
                     workspace_state = context.workspace_states.update_target(
                         workspace_id,
-                        actor=context.actor,
+                        actor=actor,
                         expected_revision=expected_revision,
                         odoo_connection_mode=connection_mode,
                         odoo_base_url=base_url,
@@ -848,7 +857,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             else:
                 workspace_state = context.workspace_states.update_target(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     expected_revision=expected_revision,
                     odoo_connection_mode=connection_mode,
                     odoo_base_url=base_url,
@@ -883,7 +892,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                     context.workspace_states,
                     previous_workspace_state,
                     removal_receipts,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 context.remote_connections.clear(workspace_id)
             action = _text(form, "action")
@@ -906,12 +915,12 @@ def build_target_router(context: WebContext) -> APIRouter:
             if keep_key_for_loading:
                 access_context = context.workspace_access.resolve(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     capability=Capability.EXPORT_PLAN_EXECUTE,
                 )
                 data_version = context.data_versions.get(
                     access_context.data_version_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 if data_version.purpose.value == "PRODUCTION":
                     raise SecretStoreError(
@@ -931,7 +940,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                     workspace_state,
                     TargetCredentialRole.READ,
                     read_credential,
-                    actor=context.actor,
+                    actor=actor,
                 )
             else:
                 read_credential = get_target_credential(
@@ -956,7 +965,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                     workspace_state,
                     TargetCredentialRole.WRITE,
                     write_credential,
-                    actor=context.actor,
+                    actor=actor,
                 )
             if action == "test":
                 local_profile = _selected_local_profile(context, workspace_state)
@@ -1106,7 +1115,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             try:
                 workspace_state = context.workspace_states.register(
                     workspace_state.workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     expected_revision=workspace_state.revision,
                 )
             except WorkspaceStateError as error:
@@ -1119,7 +1128,11 @@ def build_target_router(context: WebContext) -> APIRouter:
                 )
         if source_return_token:
             try:
-                catalog = await _refresh_model_catalog(context, workspace_state)
+                catalog = await _refresh_model_catalog(
+                    context,
+                    workspace_state,
+                    actor=actor,
+                )
             except (
                 ConnectorError,
                 LocalStackError,
@@ -1155,6 +1168,7 @@ def build_target_router(context: WebContext) -> APIRouter:
     async def forget_target_read_credential(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         if workspace_state.status is WorkspaceStatus.CLOSED:
             return RedirectResponse(
@@ -1164,7 +1178,7 @@ def build_target_router(context: WebContext) -> APIRouter:
         try:
             context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.PROJECT_EDIT,
             )
             receipt = delete_target_credential(
@@ -1178,7 +1192,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                     context.workspace_states,
                     workspace_state,
                     (receipt,),
-                    actor=context.actor,
+                    actor=actor,
                 )
             context.remote_connections.clear(workspace_id)
         except SecretStoreError as error:
@@ -1202,6 +1216,7 @@ def build_target_router(context: WebContext) -> APIRouter:
     async def forget_target_write_credential(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         if workspace_state.status is WorkspaceStatus.CLOSED:
             return RedirectResponse(
@@ -1211,7 +1226,7 @@ def build_target_router(context: WebContext) -> APIRouter:
         try:
             context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.EXPORT_PLAN_EXECUTE,
             )
             receipt = delete_target_credential(
@@ -1225,7 +1240,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                     context.workspace_states,
                     workspace_state,
                     (receipt,),
-                    actor=context.actor,
+                    actor=actor,
                 )
         except SecretStoreError as error:
             return _render_target(

@@ -1913,6 +1913,68 @@ a.impact-card:focus-visible,
   padding-top: 1.2rem;
 }
 
+.join-summary-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: .75rem;
+  margin: 1rem 0;
+}
+
+.join-summary-flow > div:not(.relationship-connector) {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: .55rem;
+  background: var(--surface);
+  padding: 1rem;
+}
+
+.join-summary-flow span,
+.join-summary-flow small {
+  display: block;
+}
+
+.join-summary-flow span {
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.join-summary-flow strong {
+  display: block;
+  margin: .28rem 0;
+  overflow-wrap: anywhere;
+}
+
+.join-summary-flow .logical-output-card {
+  border-color: var(--impodo-teal);
+  background: var(--success-bg);
+}
+
+.join-projection-group {
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: .55rem;
+  padding: 0 1rem 1rem;
+}
+
+.join-projection-group legend {
+  padding: 0 .4rem;
+  color: var(--impodo-charcoal-dark);
+  font-weight: 700;
+}
+
+.join-projection-group input[type="text"],
+.join-projection-group input:not([type]) {
+  min-width: 12rem;
+}
+
+.exact-join-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 @media (max-width: 920px) {
   .steps {
     display: flex;
@@ -1929,6 +1991,14 @@ a.impact-card:focus-visible,
 
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .join-summary-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .join-summary-flow .relationship-connector {
+    justify-self: start;
   }
 
   .definition-list > div:nth-child(3) {
@@ -2270,6 +2340,7 @@ a.impact-card:focus-visible,
   }
 
   .metric-grid,
+  .exact-join-metrics,
   .relationship-summary {
     grid-template-columns: 1fr;
   }

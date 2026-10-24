@@ -21,6 +21,7 @@ from impodo.adapters.odoo.local_stack import LocalStackError
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.business_keys import (
     BUSINESS_KEY_POLICY_VERSION,
     assess_business_key_recommendation,
@@ -74,6 +75,7 @@ from ..presenters.common import _flash, _render
 from ..presenters.mapping_forms import _business_key_id, _comma_values
 from ..presenters.schema import _manual_schema_models, _render_schema
 from ..presenters.summary import _require_local_stack_access
+from ..request_identity import request_identity
 from ..run_commands import start_next_preparation
 from ..run_urls import RunSetupKind
 from ..security import require_session
@@ -87,6 +89,8 @@ from ..target_credentials import (
 async def _capture_selected_schema(
     context: WebContext,
     workspace_state: WorkspaceState,
+    *,
+    actor: Actor,
 ) -> OdooSchemaCatalog:
     """Load and persist field details for the saved Odoo model choices."""
 
@@ -94,23 +98,31 @@ async def _capture_selected_schema(
         _capture_selected_schema_sync,
         context,
         workspace_state,
+        actor=actor,
     )
 
 
 def _capture_selected_schema_sync(
     context: WebContext,
     workspace_state: WorkspaceState,
+    *,
+    actor: Actor,
 ) -> OdooSchemaCatalog:
     """Synchronous core used by both request and background-job boundaries."""
 
     return _load_selected_schema_sync(
-        context, workspace_state, check_for_changes=False
+        context,
+        workspace_state,
+        actor=actor,
+        check_for_changes=False,
     )
 
 
 async def _check_selected_schema(
     context: WebContext,
     workspace_state: WorkspaceState,
+    *,
+    actor: Actor,
 ) -> OdooSchemaCatalog:
     """Check saved field details without replacing current schema meaning."""
 
@@ -118,17 +130,23 @@ async def _check_selected_schema(
         _check_selected_schema_sync,
         context,
         workspace_state,
+        actor=actor,
     )
 
 
 def _check_selected_schema_sync(
     context: WebContext,
     workspace_state: WorkspaceState,
+    *,
+    actor: Actor,
 ) -> OdooSchemaCatalog:
     """Synchronous core used by both request and background-job boundaries."""
 
     return _load_selected_schema_sync(
-        context, workspace_state, check_for_changes=True
+        context,
+        workspace_state,
+        actor=actor,
+        check_for_changes=True,
     )
 
 
@@ -136,6 +154,7 @@ def _load_selected_schema_sync(
     context: WebContext,
     workspace_state: WorkspaceState,
     *,
+    actor: Actor,
     check_for_changes: bool,
 ) -> OdooSchemaCatalog:
     """Refresh stale discovery once, then recheck fields under fresh access.
@@ -160,7 +179,7 @@ def _load_selected_schema_sync(
                 snapshot,
                 read_credential_binding_hash=credential_binding,
                 read_identity=read_identity,
-                actor=context.actor,
+                actor=actor,
             )
         except OdooModelCatalogRefreshRequired as error:
             if attempt:
@@ -168,7 +187,11 @@ def _load_selected_schema_sync(
                     "Odoo access changed again while loading the details. "
                     "Check the read user and company access, then try loading again."
                 ) from error
-            _refresh_model_catalog_sync(context, workspace_state)
+            _refresh_model_catalog_sync(
+                context,
+                workspace_state,
+                actor=actor,
+            )
         else:
             _mark_local_metadata_ready(context, workspace_state, schema, local_profile)
             return schema
@@ -270,16 +293,17 @@ def build_schema_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/schema", response_class=HTMLResponse)
     async def workspace_schema(request: Request, workspace_id: str):
         require_session(request)
-        return await run_page_read(render_schema, request, workspace_id)
+        actor = request_identity(request, context.identity_resolver).actor
+        return await run_page_read(render_schema, request, workspace_id, actor)
 
-    def render_schema(request: Request, workspace_id: str):
+    def render_schema(request: Request, workspace_id: str, actor: Actor):
         """Render saved Odoo details within one database-scoped worker."""
 
         source_page = context.queries.get_source_page(workspace_id)
         workspace_state = source_page.workspace_state
         run_setup_page = context.run_setups.page_for_workspace(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
         )
         test_setup = run_setup_page.selection
         if (
@@ -319,6 +343,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "expected_workspace_revision", "operation_id"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         if context.recipe_run_jobs is not None:
             binding = None
             try:
@@ -327,12 +352,13 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     project_id,
                     migration_run_id,
                     run_kind,
+                    actor=actor,
                 )
                 if (
                     run_kind is RunSetupKind.PRODUCTION
                     and context.production_runs.activation_operation(
                         migration_run_id,
-                        actor=context.actor,
+                        actor=actor,
                     )
                     is not None
                 ):
@@ -360,6 +386,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                         expected_workspace_revision=expected_workspace_revision,
                         operation_id=operation_id,
                         report=report,
+                        actor=actor,
                     ),
                 )
             except (
@@ -403,9 +430,9 @@ def build_schema_router(context: WebContext) -> APIRouter:
         try:
             binding = context.run_setups.get(
                 migration_run_id,
-                actor=context.actor,
+                actor=actor,
             )
-            run = context.migration_runs.get(migration_run_id, actor=context.actor)
+            run = context.migration_runs.get(migration_run_id, actor=actor)
             if binding.project_id != project_id or run.purpose.value != run_kind.purpose:
                 raise HTTPException(
                     status_code=404,
@@ -413,23 +440,27 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 )
             data_version = context.data_versions.get(
                 binding.data_version_id,
-                actor=context.actor,
+                actor=actor,
             )
             if data_version.state.value != "FROZEN":
                 raise MigrationFoundationError(
                     "Accept the fresh data before checking this Odoo target"
                 )
             workspace_id = binding.setup_workspace_id
-            _, values = context.run_setups.fresh_data_details(binding, actor=context.actor)
+            _, values = context.run_setups.fresh_data_details(binding, actor=actor)
             if not values.ready_to_continue:
                 raise MigrationFoundationError("Confirm the Recipe details on Fresh data before checking Odoo")
             if run_kind is RunSetupKind.PRODUCTION:
-                operation = context.production_runs.activation_operation(migration_run_id, actor=context.actor)
+                operation = context.production_runs.activation_operation(
+                    migration_run_id,
+                    actor=actor,
+                )
                 if operation is not None:
                     return RedirectResponse(f"/projects/{project_id}/production-runs/{migration_run_id}/activate", status_code=303)
             resumed = await run_in_threadpool(
                 context.test_runs.resume_activation_if_needed,
-                migration_run_id, actor=context.actor,
+                migration_run_id,
+                actor=actor,
             ) if run_kind is RunSetupKind.TEST else None
             if resumed is not None:
                 _flash(request, "The saved Test activation is complete. Continue with Review and load.")
@@ -439,7 +470,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
             workspace_state = context.queries.get(workspace_id)
             plan = context.run_setups.odoo_check_requirements_for_workspace(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
             )
             if plan is None or not plan.models:
                 raise RecipeError(
@@ -448,7 +479,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
             if workspace_state.intended_models != plan.model_names:
                 workspace_state = context.workspace_states.update_schema_scope(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     expected_revision=workspace_state.revision,
                     permitted_models=plan.model_names,
                 )
@@ -458,9 +489,17 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     "Review the detected Odoo changes before continuing"
                 )
             schema = (
-                await _check_selected_schema(context, workspace_state)
+                await _check_selected_schema(
+                    context,
+                    workspace_state,
+                    actor=actor,
+                )
                 if current is not None and current.origin is SchemaOrigin.LIVE_API
-                else await _capture_selected_schema(context, workspace_state)
+                else await _capture_selected_schema(
+                    context,
+                    workspace_state,
+                    actor=actor,
+                )
             )
             if schema.pending_refresh is not None:
                 _flash(
@@ -477,12 +516,13 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 workspace_state,
                 schema,
                 plan.supporting_values,
+                actor=actor,
             )
             target_schema, target_references = (
                 context.run_planning.target_evidence_from_workspace(
                     project_id,
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
             )
             if run_kind is RunSetupKind.PRODUCTION:
@@ -493,7 +533,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     context.run_planning.recover_blocked_test_run_defaults,
                     migration_run_id,
                     current_schema=target_schema,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 if recovered:
                     _flash(
@@ -528,7 +568,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 target_reference_bundle=target_references,
                 credential_generation=read_credential.binding_hash,
                 operation_id=_text(form, "operation_id"),
-                actor=context.actor,
+                actor=actor,
             )
         except (
             ConnectorError,
@@ -601,6 +641,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     start_next_preparation,
                     context,
                     migration_run_id,
+                    actor=actor,
                 )
             except WorkspaceError as error:
                 _flash(
@@ -626,11 +667,13 @@ def build_schema_router(context: WebContext) -> APIRouter:
         """Show resumable progress for one read-only Recipe run task."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         job = _get_recipe_run_job(
             context,
             project_id,
             migration_run_id,
             job_id,
+            actor=actor,
         )
         workspace_state = context.queries.get(job.workspace_id)
         return _render(
@@ -653,6 +696,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
         """Return the latest non-sensitive job checkpoint."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         return JSONResponse(
             _recipe_run_job_payload(
                 _get_recipe_run_job(
@@ -660,6 +704,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     project_id,
                     migration_run_id,
                     job_id,
+                    actor=actor,
                 )
             )
         )
@@ -708,9 +753,14 @@ def build_schema_router(context: WebContext) -> APIRouter:
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         try:
-            catalog = await _refresh_model_catalog(context, workspace_state)
+            catalog = await _refresh_model_catalog(
+                context,
+                workspace_state,
+                actor=actor,
+            )
         except (
             ConnectorError,
             WorkspaceStateError,
@@ -746,10 +796,11 @@ def build_schema_router(context: WebContext) -> APIRouter:
     async def update_workspace_schema_scope(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "permitted_models"})
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         test_setup = context.run_setups.setup_binding_for_workspace(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
         )
         if test_setup is not None:
             _flash(
@@ -776,7 +827,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     )
             saved_workspace_state = context.workspace_states.update_schema_scope(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=_revision(form),
                 permitted_models=permitted_models,
             )
@@ -795,7 +846,11 @@ def build_schema_router(context: WebContext) -> APIRouter:
         )
         if needs_capture:
             try:
-                await _capture_selected_schema(context, saved_workspace_state)
+                await _capture_selected_schema(
+                    context,
+                    saved_workspace_state,
+                    actor=actor,
+                )
             except (
                 ConnectorError,
                 WorkspaceStateError,
@@ -846,10 +901,11 @@ def build_schema_router(context: WebContext) -> APIRouter:
             {"csrf_token", "return_to_sources"},
         )
         return_to_sources = _checked(form, "return_to_sources")
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         test_setup = context.run_setups.setup_binding_for_workspace(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
         )
         if test_setup is not None:
             return RedirectResponse(
@@ -860,9 +916,17 @@ def build_schema_router(context: WebContext) -> APIRouter:
         current = context.queries.get_odoo_schema_catalog(workspace_id)
         try:
             schema = (
-                await _check_selected_schema(context, workspace_state)
+                await _check_selected_schema(
+                    context,
+                    workspace_state,
+                    actor=actor,
+                )
                 if current is not None and current.origin is SchemaOrigin.LIVE_API
-                else await _capture_selected_schema(context, workspace_state)
+                else await _capture_selected_schema(
+                    context,
+                    workspace_state,
+                    actor=actor,
+                )
             )
         except (
             ConnectorError,
@@ -927,6 +991,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
         """Promote one reviewed checked snapshot and invalidate dependents."""
 
         form = await request.form()
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         _secure_form(
             request,
@@ -960,7 +1025,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 expected_candidate_semantic_hash=_text(
                     form, "candidate_semantic_hash"
                 ),
-                actor=context.actor,
+                actor=actor,
             )
         except (WorkspaceStateError, WorkspaceError) as error:
             return _render_schema(
@@ -987,6 +1052,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
     @router.post("/workspaces/{workspace_id}/schema/local-draft")
     async def create_local_schema_draft(request: Request, workspace_id: str):
         form = await request.form()
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         allowed = {"csrf_token", "acknowledge_local_draft"} | {
             name
@@ -1008,7 +1074,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 read_credential_binding_hash=(
                     local_read_credential_binding_hash(workspace_state)
                 ),
-                actor=context.actor,
+                actor=actor,
             )
         except (WorkspaceStateError, WorkspaceError) as error:
             return _render_schema(
@@ -1035,6 +1101,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
         """Confirm business-key definitions against the current schema."""
 
         form = await request.form()
+        actor = request_identity(request, context.identity_resolver).actor
         schema = context.queries.get_odoo_schema_catalog(workspace_id)
         if schema is None:
             raise HTTPException(status_code=422, detail="Odoo schema missing")
@@ -1159,7 +1226,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 business_keys=definitions,
                 expected_catalog_hash=schema.content_hash,
-                actor=context.actor,
+                actor=actor,
             )
         except (ValueError, WorkspaceError) as error:
             return _render_schema(
@@ -1189,19 +1256,21 @@ def _run_odoo_check_scope(
     project_id: str,
     migration_run_id: str,
     run_kind: RunSetupKind,
+    *,
+    actor: Actor,
 ):
     """Validate the immutable run scope before starting or repeating a job."""
 
     binding = context.run_setups.get(
         migration_run_id,
-        actor=context.actor,
+        actor=actor,
     )
-    run = context.migration_runs.get(migration_run_id, actor=context.actor)
+    run = context.migration_runs.get(migration_run_id, actor=actor)
     if binding.project_id != project_id or run.purpose.value != run_kind.purpose:
         raise HTTPException(status_code=404, detail="Recipe run not found")
     data_version = context.data_versions.get(
         binding.data_version_id,
-        actor=context.actor,
+        actor=actor,
     )
     if data_version.state.value != "FROZEN":
         raise MigrationFoundationError(
@@ -1209,7 +1278,7 @@ def _run_odoo_check_scope(
         )
     _, values = context.run_setups.fresh_data_details(
         binding,
-        actor=context.actor,
+        actor=actor,
     )
     if not values.ready_to_continue:
         raise MigrationFoundationError(
@@ -1218,7 +1287,7 @@ def _run_odoo_check_scope(
     workspace_state = context.queries.get(binding.setup_workspace_id)
     plan = context.run_setups.odoo_check_requirements_for_workspace(
         workspace_state.workspace_id,
-        actor=context.actor,
+        actor=actor,
     )
     if plan is None or not plan.models:
         raise RecipeError(
@@ -1254,6 +1323,7 @@ def _perform_run_odoo_check(
     expected_workspace_revision: int,
     operation_id: str,
     report: Callable[[RecipeRunJobProgress], None],
+    actor: Actor,
 ) -> RecipeRunJobResult:
     """Execute the former request-bound Odoo check with visible checkpoints."""
 
@@ -1269,11 +1339,12 @@ def _perform_run_odoo_check(
         project_id,
         migration_run_id,
         run_kind,
+        actor=actor,
     )
     if run_kind is RunSetupKind.PRODUCTION:
         operation = context.production_runs.activation_operation(
             migration_run_id,
-            actor=context.actor,
+            actor=actor,
         )
         if operation is not None:
             return RecipeRunJobResult(
@@ -1290,7 +1361,7 @@ def _perform_run_odoo_check(
     if run_kind is RunSetupKind.TEST:
         resumed = context.test_runs.resume_activation_if_needed(
             migration_run_id,
-            actor=context.actor,
+            actor=actor,
             progress=lambda completed, total, recipe_id: (
                 _report_materialization(
                     report,
@@ -1308,11 +1379,12 @@ def _perform_run_odoo_check(
                 resumed,
                 report,
                 start_preparation=False,
+                actor=actor,
             )
     if workspace_state.intended_models != plan.model_names:
         workspace_state = context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=actor,
             expected_revision=workspace_state.revision,
             permitted_models=plan.model_names,
         )
@@ -1334,9 +1406,17 @@ def _perform_run_odoo_check(
         )
     )
     schema = (
-        _check_selected_schema_sync(context, workspace_state)
+        _check_selected_schema_sync(
+            context,
+            workspace_state,
+            actor=actor,
+        )
         if current is not None and current.origin is SchemaOrigin.LIVE_API
-        else _capture_selected_schema_sync(context, workspace_state)
+        else _capture_selected_schema_sync(
+            context,
+            workspace_state,
+            actor=actor,
+        )
     )
     report(
         RecipeRunJobProgress(
@@ -1374,6 +1454,7 @@ def _perform_run_odoo_check(
         workspace_state,
         schema,
         plan.supporting_values,
+        actor=actor,
     )
     report(
         RecipeRunJobProgress(
@@ -1394,7 +1475,7 @@ def _perform_run_odoo_check(
         context.run_planning.target_evidence_from_workspace(
             project_id,
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=actor,
         )
     )
     if run_kind is RunSetupKind.PRODUCTION:
@@ -1414,7 +1495,7 @@ def _perform_run_odoo_check(
         context.run_planning.recover_blocked_test_run_defaults(
             migration_run_id,
             current_schema=target_schema,
-            actor=context.actor,
+            actor=actor,
         )
         bundle = context.run_planning.repository.get_bundle(migration_run_id)
         return _complete_test_run_check(
@@ -1424,6 +1505,7 @@ def _perform_run_odoo_check(
             bundle,
             report,
             start_preparation=False,
+            actor=actor,
         )
     read_credential = get_target_credential(
         context.secret_store,
@@ -1449,7 +1531,7 @@ def _perform_run_odoo_check(
         target_reference_bundle=target_references,
         credential_generation=read_credential.binding_hash,
         operation_id=operation_id,
-        actor=context.actor,
+        actor=actor,
         progress=lambda completed, total, recipe_id: _report_materialization(
             report,
             completed,
@@ -1464,6 +1546,7 @@ def _perform_run_odoo_check(
         result,
         report,
         start_preparation=True,
+        actor=actor,
     )
 
 
@@ -1500,6 +1583,7 @@ def _complete_test_run_check(
     report: Callable[[RecipeRunJobProgress], None],
     *,
     start_preparation: bool,
+    actor: Actor,
 ) -> RecipeRunJobResult:
     """Prepare focused reviews so their browser route is a bounded read."""
 
@@ -1547,7 +1631,7 @@ def _complete_test_run_check(
         )
         context.recipe_target_matches.prepare_review(
             application,
-            actor=context.actor,
+            actor=actor,
         )
         report(
             RecipeRunJobProgress(
@@ -1568,7 +1652,7 @@ def _complete_test_run_check(
         )
     if start_preparation and context.preparation_jobs is not None:
         try:
-            start_next_preparation(context, migration_run_id)
+            start_next_preparation(context, migration_run_id, actor=actor)
         except WorkspaceError:
             pass
     return RecipeRunJobResult(
@@ -1582,11 +1666,13 @@ def _get_recipe_run_job(
     project_id: str,
     migration_run_id: str,
     job_id: str,
+    *,
+    actor: Actor,
 ) -> RecipeRunJob:
     if context.recipe_run_jobs is None:
         raise HTTPException(status_code=404, detail="Recipe run job not found")
-    project = context.migration_projects.get(project_id, actor=context.actor)
-    run = context.migration_runs.get(migration_run_id, actor=context.actor)
+    project = context.migration_projects.get(project_id, actor=actor)
+    run = context.migration_runs.get(migration_run_id, actor=actor)
     if run.project_id != project.project_id:
         raise HTTPException(status_code=404, detail="Recipe run job not found")
     try:

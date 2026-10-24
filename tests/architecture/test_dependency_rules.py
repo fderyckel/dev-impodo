@@ -45,6 +45,21 @@ SERVER_ADAPTER_IMPORT_PREFIXES = (
     "psycopg",
     "sqlalchemy",
 )
+REQUEST_SCOPED_WEB_MODULES = frozenset(
+    {
+        "impodo.web.presenters.mapping_view",
+        "impodo.web.presenters.schema",
+        "impodo.web.routers.derived_entities",
+        "impodo.web.routers.mapping",
+        "impodo.web.routers.migration_projects",
+        "impodo.web.routers.schema",
+        "impodo.web.routers.sources",
+        "impodo.web.routers.target",
+        "impodo.web.routers.workspace_setup",
+        "impodo.web.security",
+        "impodo.web.source_file_commands",
+    }
+)
 
 
 def _edge_text(edge: ImportEdge) -> str:
@@ -148,6 +163,29 @@ def _server_adapter_import_violations(
     return tuple(sorted(violations))
 
 
+def _global_request_actor_violations(
+    modules: tuple[ProductionModule, ...],
+) -> tuple[str, ...]:
+    """Keep migrated request paths from reading ``WebContext.actor``."""
+
+    violations: list[str] = []
+    for module in modules:
+        if module.name not in REQUEST_SCOPED_WEB_MODULES:
+            continue
+        tree = ast.parse(
+            module.path.read_text(encoding="utf-8"), filename=str(module.path)
+        )
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == "actor"
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "context"
+            ):
+                violations.append(f"{module.name}:{node.lineno}")
+    return tuple(sorted(violations))
+
+
 class ArchitectureDependencyRuleTests(unittest.TestCase):
     def test_production_dependencies_point_inward(self) -> None:
         """Keep direction, ownership, construction, and cycle rules true."""
@@ -213,6 +251,14 @@ class ArchitectureDependencyRuleTests(unittest.TestCase):
             (),
             "Portable layers must not import concrete PostgreSQL clients:\n"
             + "\n".join(server_adapter_imports),
+        )
+
+        global_request_actors = _global_request_actor_violations(modules)
+        self.assertEqual(
+            global_request_actors,
+            (),
+            "Migrated request paths must resolve their actor per request:\n"
+            + "\n".join(global_request_actors),
         )
 
 

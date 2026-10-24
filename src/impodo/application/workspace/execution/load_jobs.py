@@ -7,6 +7,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from functools import partial
 from threading import Condition, RLock, Thread
 from uuid import uuid4
 
@@ -244,8 +245,8 @@ class LoadJobManager:
                 with bind_workspace_access_context(access_context):
                     result = work(
                         access_context,
-                        lambda run: self._report_writing(job_id, run),
-                        lambda run: self._report_verifying(job_id, run),
+                        partial(self._report_writing, job_id),
+                        partial(self._report_verifying, job_id),
                     )
             except Exception as error:
                 with self._lock:

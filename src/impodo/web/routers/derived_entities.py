@@ -1,12 +1,13 @@
 """Expose bounded related-dataset authoring between source and Match data.
 
-Layer: web route. The router parses lookup extraction, multi-column hierarchy,
-and parent/child rules, then delegates preview and optimistic plan revisions to
-``DerivedEntityWorkspaceService``. A saved plan changes the effective datasets
-visible to mapping but never edits frozen source bytes.
+Layer: web route. The router parses exact joins, lookup extraction,
+multi-column hierarchy, and parent/child rules, then delegates preview and
+optimistic plan revisions to ``DerivedEntityWorkspaceService``. A saved plan
+changes the effective datasets visible to mapping but never edits frozen
+source bytes.
 
 See ``docs/user/guides/related-tables.md`` and
-``tests/integration/web/test_source_workflow.py``.
+``tests/integration/web/test_exact_join_workflow.py``.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from impodo.adapters.odoo.local_stack import LocalStackError
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.structural import ExactJoinRule
 from impodo.domain.workspace.derived_entities import (
     HierarchicalLookupRule,
     RelatedDatasetRule,
@@ -29,11 +31,19 @@ from impodo.web.composition.target_readers import (
     _refresh_model_catalog,
 )
 
-from ..composition.page_reads import run_page_read
+from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
+from ..exact_join_forms import (
+    EXACT_JOIN_FORM_FIELDS,
+    exact_join_dataset_uses,
+    parse_exact_join_form,
+    resolve_exact_join_request,
+    source_use_label,
+)
 from ..forms import _optional_int, _secure_form, _text
 from ..presenters.common import _flash
 from ..presenters.schema import _render_derived_entities
+from ..request_identity import request_identity
 from ..security import require_session
 
 
@@ -58,9 +68,14 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         try:
-            catalog = await _refresh_model_catalog(context, workspace_state)
+            catalog = await _refresh_model_catalog(
+                context,
+                workspace_state,
+                actor=actor,
+            )
         except (
             ConnectorError,
             LocalStackError,
@@ -107,6 +122,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 "blank_policy",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         source_binding = _text(form, "source_binding")
         if "|" not in source_binding:
             return _render_derived_entities(
@@ -124,7 +140,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 workspace_state,
                 _text(form, "target_model"),
             )
-            plan, rule = context.derived_entities.save_rule(
+            _plan, rule = context.derived_entities.save_rule(
                 workspace_id,
                 output_dataset_name=_text(form, "output_dataset_name"),
                 source_dataset_id=source_dataset_id,
@@ -137,7 +153,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 expected_parent_version=_optional_int(
                     _text(form, "expected_parent_version")
                 ),
-                actor=context.actor,
+                actor=actor,
             )
         except (WorkspaceError, ValueError) as error:
             return _render_derived_entities(
@@ -222,6 +238,157 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             context,
             workspace_id,
             pending_lookup={"rule": rule, "preview": preview},
+        )
+
+    @router.post("/workspaces/{workspace_id}/derived-entities/join/preview")
+    async def preview_workspace_exact_join(request: Request, workspace_id: str):
+        """Review one exact enrichment over the complete accepted snapshots."""
+
+        form = await request.form()
+        _secure_form(request, form, EXACT_JOIN_FORM_FIELDS)
+        try:
+            submission = parse_exact_join_form(form)
+        except ValueError as error:
+            return await run_local_operation(
+                _render_derived_entities,
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=422,
+            )
+
+        def review_join():
+            try:
+                selection = context.queries.get_source_selection(workspace_id)
+                if selection is None:
+                    raise WorkspaceError(
+                        "Freeze source datasets before combining tables"
+                    )
+                plan = context.queries.get_derived_entity_plan(workspace_id)
+                join_request, available = resolve_exact_join_request(
+                    submission,
+                    selection,
+                    plan,
+                )
+                rule, review = context.derived_entities.preview_join(
+                    workspace_id,
+                    join_request,
+                )
+                dataset_uses = exact_join_dataset_uses(
+                    submission,
+                    join_request,
+                    selection,
+                    plan,
+                )
+                datasets = {
+                    dataset.dataset_id: dataset for dataset in available.datasets
+                }
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    pending_join={
+                        "rule": rule,
+                        "review": review,
+                        "left": datasets[rule.left_dataset_id],
+                        "right": datasets[rule.right_dataset_id],
+                        "left_use_label": source_use_label(
+                            dataset_uses.get(rule.left_dataset_id)
+                        ),
+                        "right_use_label": source_use_label(
+                            dataset_uses.get(rule.right_dataset_id)
+                        ),
+                        "expected_parent_version": (
+                            plan.version if plan is not None else None
+                        ),
+                    },
+                    join_form=submission,
+                )
+            except (WorkspaceError, ValueError) as error:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error=str(error),
+                    status_code=422,
+                    join_form=submission,
+                )
+
+        return await run_local_operation(review_join)
+
+    @router.post("/workspaces/{workspace_id}/derived-entities/join/save")
+    async def save_workspace_exact_join(request: Request, workspace_id: str):
+        """Recheck and save one versioned exact-join decision."""
+
+        form = await request.form()
+        _secure_form(request, form, EXACT_JOIN_FORM_FIELDS)
+        actor = request_identity(request, context.identity_resolver).actor
+        try:
+            submission = parse_exact_join_form(form)
+        except ValueError as error:
+            return await run_local_operation(
+                _render_derived_entities,
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=422,
+            )
+
+        def save_join():
+            try:
+                selection = context.queries.get_source_selection(workspace_id)
+                if selection is None:
+                    raise WorkspaceError(
+                        "Freeze source datasets before combining tables"
+                    )
+                plan = context.queries.get_derived_entity_plan(workspace_id)
+                join_request, _available = resolve_exact_join_request(
+                    submission,
+                    selection,
+                    plan,
+                )
+                dataset_uses = exact_join_dataset_uses(
+                    submission,
+                    join_request,
+                    selection,
+                    plan,
+                )
+                return context.derived_entities.save_join(
+                    workspace_id,
+                    join_request,
+                    dataset_uses=dataset_uses,
+                    expected_parent_version=submission.expected_parent_version,
+                    actor=actor,
+                )
+            except (WorkspaceError, ValueError) as error:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error=str(error),
+                    status_code=422,
+                    join_form=submission,
+                )
+
+        outcome = await run_local_operation(save_join)
+        if isinstance(outcome, HTMLResponse):
+            return outcome
+        _plan, rule, _review = outcome
+        _flash(
+            request,
+            (
+                f"Created the combined table {rule.output_dataset_name}. "
+                "The accepted source tables remain unchanged."
+            ),
+        )
+        return RedirectResponse(
+            (
+                f"/workspaces/{workspace_id}/derived-entities"
+                f"#join-rule-{rule.rule_id}"
+            ),
+            status_code=303,
         )
 
     hierarchy_fields = {
@@ -310,6 +477,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
     async def save_workspace_hierarchy(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, hierarchy_fields)
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             values = hierarchy_values(form)
             workspace_state = context.queries.get(workspace_id)
@@ -325,7 +493,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 expected_parent_version=_optional_int(
                     _text(form, "expected_parent_version")
                 ),
-                actor=context.actor,
+                actor=actor,
             )
         except (WorkspaceError, ValueError) as error:
             return _render_derived_entities(
@@ -406,8 +574,9 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             "blank_policy",
         }
         _secure_form(request, form, fields)
+        actor = request_identity(request, context.identity_resolver).actor
         try:
-            plan, rule = context.derived_entities.save_related_split(
+            _plan, rule = context.derived_entities.save_related_split(
                 workspace_id,
                 source_dataset_id=_text(form, "source_dataset_id"),
                 parent_dataset_name=_text(form, "parent_dataset_name"),
@@ -419,7 +588,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 expected_parent_version=_optional_int(
                     _text(form, "expected_parent_version")
                 ),
-                actor=context.actor,
+                actor=actor,
             )
         except (WorkspaceError, ValueError) as error:
             return _render_derived_entities(
@@ -458,34 +627,53 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "expected_parent_version"},
         )
-        plan = context.queries.get_derived_entity_plan(workspace_id)
-        removed_rule = next(
-            (rule for rule in (plan.rules if plan else ()) if rule.rule_id == rule_id),
-            None,
-        )
-        try:
-            context.derived_entities.delete_rule(
-                workspace_id,
-                rule_id,
-                expected_parent_version=_optional_int(
-                    _text(form, "expected_parent_version")
+        actor = request_identity(request, context.identity_resolver).actor
+
+        def delete_rule():
+            plan = context.queries.get_derived_entity_plan(workspace_id)
+            removed_rule = next(
+                (
+                    rule
+                    for rule in (plan.rules if plan else ())
+                    if rule.rule_id == rule_id
                 ),
-                actor=context.actor,
+                None,
             )
-        except (WorkspaceError, ValueError) as error:
-            return _render_derived_entities(
-                request,
-                context,
-                workspace_id,
-                error=str(error),
-                status_code=422,
-            )
+            try:
+                context.derived_entities.delete_rule(
+                    workspace_id,
+                    rule_id,
+                    expected_parent_version=_optional_int(
+                        _text(form, "expected_parent_version")
+                    ),
+                    actor=actor,
+                )
+            except (WorkspaceError, ValueError) as error:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error=str(error),
+                    status_code=422,
+                )
+            return removed_rule
+
+        outcome = await run_local_operation(delete_rule)
+        if isinstance(outcome, HTMLResponse):
+            return outcome
+        removed_rule = outcome
         _flash(
             request,
-            "Removed the saved separation rule.",
+            (
+                "Removed the saved combination."
+                if isinstance(removed_rule, ExactJoinRule)
+                else "Removed the saved separation rule."
+            ),
         )
         return_anchor = (
-            "create-related-datasets"
+            "combine-source-tables"
+            if isinstance(removed_rule, ExactJoinRule)
+            else "create-related-datasets"
             if isinstance(removed_rule, RelatedDatasetRule)
             else "hierarchy-extraction"
             if isinstance(removed_rule, HierarchicalLookupRule)

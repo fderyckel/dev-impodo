@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import unittest
 from contextlib import nullcontext
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-import unittest
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
@@ -13,7 +13,7 @@ from impodo.application.workspace.derived_entities import (
     ExactJoinRequest,
 )
 from impodo.domain.preparation.source import SourceRow, SourceTable
-from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.structural import (
     ExactJoinRule,
@@ -34,7 +34,6 @@ from impodo.domain.workspace.derived_entities import (
     validate_saved_exact_join_reviews,
 )
 from impodo.domain.workspace.errors import WorkspaceError
-
 
 WORKSPACE_ID = str(uuid4())
 
@@ -238,7 +237,7 @@ class ExactJoinAuthoringTests(unittest.TestCase):
             workspace_id=WORKSPACE_ID,
             source_selection_hash=self.selection.content_hash,
             rules=(first,),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
             updated_by="Test operator",
         )
         first_output = structural_dataset_id(first)
@@ -319,7 +318,7 @@ class ExactJoinAuthoringTests(unittest.TestCase):
             workspace_id=WORKSPACE_ID,
             source_selection_hash=self.selection.content_hash,
             rules=(),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
             updated_by="Test operator",
         )
 
@@ -344,6 +343,77 @@ class ExactJoinAuthoringTests(unittest.TestCase):
         self.assertEqual(len(plan.rules), 1)
         self.assertEqual(len(plan.join_reviews), 1)
         self.assertEqual(self.plans.save_attempts, 2)
+
+    def test_dependent_join_must_be_removed_first_and_other_review_is_kept(
+        self,
+    ) -> None:
+        first_uses = {
+            item.dataset_id: SourceDatasetUse.PREPARATION_ONLY
+            for item in self.selection.datasets[:2]
+        }
+        first_uses["dataset:terms"] = SourceDatasetUse.MAP_DIRECTLY
+        first_plan, first_rule, _review = self._save(
+            _customer_request(),
+            expected_parent_version=None,
+            dataset_uses=first_uses,
+        )
+        first_output = structural_dataset_id(first_rule)
+        second_request = ExactJoinRequest(
+            output_dataset_name="customer_complete",
+            left_dataset_id=first_output,
+            right_dataset_id="dataset:terms",
+            keys=(JoinKey("account", "terms_account"),),
+            output_columns=(
+                StructuralOutputColumn("account", "Account", "string"),
+                StructuralOutputColumn("terms", "Terms", "string"),
+            ),
+            projections=(
+                StructuralProjection("account", first_output, "account"),
+                StructuralProjection("terms", "dataset:terms", "terms"),
+            ),
+            require_all_right_rows=True,
+        )
+        second_plan, second_rule, _review = self._save(
+            second_request,
+            expected_parent_version=first_plan.version,
+            dataset_uses={
+                item.dataset_id: SourceDatasetUse.PREPARATION_ONLY
+                for item in self.selection.datasets
+            },
+        )
+
+        with self.assertRaisesRegex(WorkspaceError, "later source-preparation"):
+            self.service.delete_rule(
+                WORKSPACE_ID,
+                first_rule.rule_id,
+                expected_parent_version=second_plan.version,
+                actor=LOCAL_ACTOR,
+            )
+
+        first_only = self.service.delete_rule(
+            WORKSPACE_ID,
+            second_rule.rule_id,
+            expected_parent_version=second_plan.version,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(first_only.rules, (first_rule,))
+        self.assertEqual(
+            tuple(review.rule_id for review in first_only.join_reviews),
+            (first_rule.rule_id,),
+        )
+
+        empty = self.service.delete_rule(
+            WORKSPACE_ID,
+            first_rule.rule_id,
+            expected_parent_version=first_only.version,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(empty.rules, ())
+        self.assertEqual(empty.join_reviews, ())
+        self.assertEqual(
+            {policy.use for policy in empty.dataset_uses},
+            {SourceDatasetUse.MAP_DIRECTLY},
+        )
 
 
 def _customer_request(*, kind: JoinKind = JoinKind.LEFT) -> ExactJoinRequest:
@@ -386,7 +456,7 @@ def _customer_rule() -> ExactJoinRule:
 
 
 def _source_evidence() -> tuple[SourceSelection, dict[str, SourceTable]]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     definitions = (
         (
             "dataset:customers",

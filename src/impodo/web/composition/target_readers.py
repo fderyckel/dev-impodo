@@ -43,6 +43,7 @@ from impodo.domain.odoo.contracts import (
 )
 from impodo.domain.odoo_source_policy import odoo_source_policy_hash
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
+from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import (
     OdooReadIdentity,
     TargetFingerprint,
@@ -327,24 +328,34 @@ def _read_model_catalog(
 async def _refresh_model_catalog(
     context: WebContext,
     workspace_state: WorkspaceState,
+    *,
+    actor: Actor,
 ) -> OdooModelCatalog:
     """Refresh persistent model choices through the configured read-only target."""
 
     return await run_in_threadpool(
-        _refresh_model_catalog_sync, context, workspace_state
+        _refresh_model_catalog_sync,
+        context,
+        workspace_state,
+        actor=actor,
     )
 
 
 def _refresh_model_catalog_sync(
     context: WebContext,
     workspace_state: WorkspaceState,
+    *,
+    actor: Actor,
 ) -> OdooModelCatalog:
     """Read and publish model discovery within one synchronous worker."""
 
     local_profile = _selected_local_profile(context, workspace_state)
     credential = get_target_credential(
         context.secret_store,
-        context.target_credential_workspace(workspace_state.workspace_id),
+        context.target_credential_workspace(
+            workspace_state.workspace_id,
+            actor=actor,
+        ),
         TargetCredentialRole.READ,
     )
     if local_profile is not None and credential is None:
@@ -372,7 +383,7 @@ def _refresh_model_catalog_sync(
         snapshot,
         read_credential_binding_hash=read_credential_binding_hash,
         read_identity=read_identity,
-        actor=context.actor,
+        actor=actor,
     )
     if local_profile is not None and credential is None:
         context.local_stack.mark_metadata_ready(
@@ -1005,6 +1016,8 @@ def _refresh_mapping_odoo_defaults(
     workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
     requested_fields: tuple[tuple[str, tuple[str, ...]], ...],
+    *,
+    actor: Actor,
 ) -> OdooSchemaCatalog:
     """Read supported required create defaults and preserve saved mapping."""
 
@@ -1058,7 +1071,10 @@ def _refresh_mapping_odoo_defaults(
     else:
         credential = get_target_credential(
             context.secret_store,
-            context.target_credential_workspace(workspace_state.workspace_id),
+            context.target_credential_workspace(
+                workspace_state.workspace_id,
+                actor=actor,
+            ),
             TargetCredentialRole.READ,
         )
         if credential is None:
@@ -1084,7 +1100,7 @@ def _refresh_mapping_odoo_defaults(
                 context.schema_reader(workspace_state, credential.secret),
                 read_credential_binding_hash=credential.binding_hash,
                 read_identity=read_identity,
-                actor=context.actor,
+                actor=actor,
             )
             if checked_schema.pending_refresh is not None:
                 return checked_schema
@@ -1099,7 +1115,7 @@ def _refresh_mapping_odoo_defaults(
         requested_fields=dict(requested_fields),
         read_credential_binding_hash=read_credential_binding_hash,
         read_identity=read_identity,
-        actor=context.actor,
+        actor=actor,
     )
 
 
@@ -1112,6 +1128,7 @@ def _relationship_value_choices(
     key: BusinessKeyDefinition,
     *,
     refresh: bool = False,
+    actor: Actor,
 ) -> tuple[
     tuple[dict[str, str], ...],
     tuple[str, ...],
@@ -1229,7 +1246,7 @@ def _relationship_value_choices(
             read_credential_binding_hash=schema.read_credential_binding_hash,
             read_principal_hash=schema.read_principal_hash,
             read_context_hash=schema.read_context_hash,
-            actor=context.actor,
+            actor=actor,
             reference_policy_hash=decision.policy_hash,
         )
         if current is not None:
@@ -1367,7 +1384,7 @@ def _relationship_value_choices(
             for item in choices
         ),
         ambiguous_values=ambiguous,
-        actor=context.actor,
+        actor=actor,
         reference_policy_hash=decision.policy_hash,
     )
     return (
@@ -1400,6 +1417,8 @@ def _capture_recipe_supporting_values(
     workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
     requirements,
+    *,
+    actor: Actor,
 ) -> tuple[object, ...]:
     """Refresh every Recipe-owned supporting value set in one bounded read."""
 
@@ -1411,6 +1430,7 @@ def _capture_recipe_supporting_values(
         purpose=ReferenceReadPurpose.RECIPE_APPLICATION,
         operation=OdooOperation.RECIPE,
         workflow_label="Recipe",
+        actor=actor,
     )
 
 
@@ -1419,6 +1439,8 @@ def _capture_mapping_supporting_values(
     workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
     datasets,
+    *,
+    actor: Actor,
 ) -> tuple[object, ...]:
     """Capture every external resolver required by the submitted mapping.
 
@@ -1478,6 +1500,7 @@ def _capture_mapping_supporting_values(
         operation=OdooOperation.COMPARE,
         workflow_label="mapping",
         targeted_values=targeted,
+        actor=actor,
     )
 
 
@@ -1490,6 +1513,7 @@ def _capture_supporting_values(
     purpose: ReferenceReadPurpose,
     operation: OdooOperation,
     workflow_label: str,
+    actor: Actor,
     targeted_values: dict[
         tuple[str, tuple[str, ...], tuple[str, ...]],
         tuple[tuple[str, ...], ...],
@@ -1809,7 +1833,7 @@ def _capture_supporting_values(
                 captured_at=captured_at,
                 choices=verified_item.choices,
                 ambiguous_values=verified_item.ambiguous_values,
-                actor=context.actor,
+                actor=actor,
                 reference_policy_hash=current_reference_policy_hash,
             )
         )

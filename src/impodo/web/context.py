@@ -314,6 +314,7 @@ class WebContext:
         workspace_id: str,
         *,
         workspace_state: WorkspaceState | None = None,
+        actor: Actor | None = None,
     ) -> WorkspaceState:
         """Project current target details onto the shared credential owner."""
 
@@ -322,13 +323,14 @@ class WebContext:
             raise MigrationIdentifierConfusionError(
                 "The target credential request changed workspace identity"
             )
+        resolved_actor = actor or self.actor
         test_owner_id = self.test_runs.credential_workspace_id(
             workspace_id,
-            actor=self.actor,
+            actor=resolved_actor,
         )
         owner_id = self.production_runs.credential_workspace_id(
             test_owner_id,
-            actor=self.actor,
+            actor=resolved_actor,
         )
         if owner_id == current.workspace_id:
             return current

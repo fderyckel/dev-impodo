@@ -54,7 +54,7 @@ from impodo.domain.run.contracts import (
     MigrationRunPlanningError,
     RecipeApplicationStatus,
 )
-from impodo.domain.shared.access import Capability
+from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.contracts import MappingWorkingDraft
 from impodo.domain.workspace.derived_entities import (
     derived_dataset_links,
@@ -148,6 +148,7 @@ from ..presenters.mapping_view import (
     _render_mapping_field_catalog,
     _safe_spreadsheet_text,
 )
+from ..request_identity import request_identity
 from ..security import require_csrf, require_session
 from ..source_stage_gate import source_stage_redirect
 
@@ -159,6 +160,8 @@ def _require_selected_company_scopes(
     workspace_id: str,
     datasets,
     schema,
+    *,
+    actor: Actor,
 ) -> None:
     """Accept scoped constant choices only from current Odoo lookup evidence."""
 
@@ -184,7 +187,7 @@ def _require_selected_company_scopes(
                 read_credential_binding_hash=schema.read_credential_binding_hash,
                 read_principal_hash=schema.read_principal_hash,
                 read_context_hash=schema.read_context_hash,
-                actor=context.actor,
+                actor=actor,
             )
             chosen = portable_supporting_value(
                 (reference.key_values[0].value, reference.scope_values[0].value)
@@ -251,6 +254,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Show one bounded, server-filtered page of checked row decisions."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         active_url = _active_preparation_url(context, workspace_id)
         if active_url:
             return RedirectResponse(active_url, status_code=303)
@@ -273,7 +277,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 page_size=100,
                 after=after,
                 before=before,
-                actor=context.actor,
+                actor=actor,
             )
         except (ValueError, WorkspaceError) as error:
             _flash(request, str(error))
@@ -327,6 +331,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Save or reset the isolated Stage 3 table display order."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         _require_mapping_idle(context, workspace_id)
         form = await _mapping_request_form(request)
         _secure_form(
@@ -354,7 +359,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     context.matching_order.reset_preference,
                     workspace_id,
                     expected_version=expected_version,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 message = "Impodo's recommended table order is restored."
             else:
@@ -364,7 +369,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     draft = context.queries.get_mapping_working_draft(workspace_id)
                     check = context.matching_order.current_check(
                         workspace_id,
-                        actor=context.actor,
+                        actor=actor,
                     )
                     if (
                         schema is None
@@ -401,7 +406,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     selection,
                     ordered_dataset_ids,
                     expected_version=expected_version,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 message = (
                     "Odoo-refined recommendation applied."
@@ -453,6 +458,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Start one explicit read-only Odoo refinement of the saved draft."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         _require_mapping_idle(context, workspace_id)
         form = await _mapping_request_form(request)
         _secure_form(request, form, {"csrf_token"})
@@ -468,7 +474,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
             preference = context.matching_order.current_preference(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
             )
             tie_break_order = context.matching_order.effective_preference_order(
                 preference,
@@ -492,7 +498,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 draft,
                 local,
                 tie_break_order=tie_break_order,
-                actor=context.actor,
+                actor=actor,
             )
             attempt = context.matching_order.start_live_check(
                 prepared,
@@ -537,12 +543,13 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Return an aggregate-only status projection for one browser session."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             attempt = await run_in_threadpool(
                 context.matching_order.check_attempt,
                 workspace_id,
                 check_id,
-                actor=context.actor,
+                actor=actor,
             )
         except WorkspaceError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
@@ -574,6 +581,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Return only the saved scalar-field catalogue for browser search."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         _require_mapping_idle(context, workspace_id)
         search_generation = _mapping_catalog_search_generation(request)
         queued_at = perf_counter()
@@ -605,8 +613,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             response = await catalog_searches.run_latest(
                 (
                     workspace_id,
-                    context.actor.identity.issuer,
-                    context.actor.identity.subject_id,
+                    actor.identity.issuer,
+                    actor.identity.subject_id,
                     editor_id,
                     catalog_kind,
                 ),
@@ -614,8 +622,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 render_latest_catalog,
                 work_key=(
                     workspace_id,
-                    context.actor.identity.issuer,
-                    context.actor.identity.subject_id,
+                    actor.identity.issuer,
+                    actor.identity.subject_id,
                 ),
             )
         except MappingCatalogCapacityError:
@@ -648,6 +656,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Return bounded source and Odoo choices for the mapping dialog."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         _require_mapping_idle(context, workspace_id)
         form = await request.form()
         _secure_form(
@@ -783,6 +792,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     field,
                     key,
                     refresh=_text(form, "refresh") == "1",
+                    actor=actor,
                 )
                 target_checked_at = checked_at.isoformat()
             return JSONResponse(
@@ -986,6 +996,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Prepare one hash-bound local snapshot without contacting Odoo."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         _require_mapping_idle(context, workspace_id)
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
@@ -1006,7 +1017,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             await run_in_threadpool(
                 context.transformation_impacts.prepare_snapshot,
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
             )
         except (OSError, ReadinessError, WorkspaceError) as error:
             (
@@ -1187,12 +1198,13 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Resolve a timed-out browser mutation without repeating its write."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             receipt = await run_page_read(
                 context.mapping_workspace.get_mutation_receipt,
                 workspace_id,
                 operation_id,
-                actor=context.actor,
+                actor=actor,
             )
         except WorkspaceError:
             receipt = None
@@ -1220,6 +1232,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Run one explicit save, check, or confirmation command."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         json_request = _is_json_request(request)
         if json_request:
             require_csrf(request, request.headers.get("x-csrf-token", ""))
@@ -1304,7 +1317,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     request_hash=_mapping_mutation_request_hash(form),
                     submitted_working_draft_version=expected_working_version,
                     submitted_mapping_revision_version=expected_parent,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 return (
                     selection,
@@ -1385,7 +1398,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     target_field=parts[2],
                     handling=handling,
                     expected_version=expected_working_version,
-                    actor=context.actor,
+                    actor=actor,
                     operation_id=operation_id,
                 )
                 decision_base_url = (
@@ -1402,6 +1415,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         draft,
                         expected_parent_version=expected_parent,
                         operation_id=operation_id,
+                        actor=actor,
                     )
                     message = _checked_default_message(
                         "Odoo will choose this value.",
@@ -1435,6 +1449,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                             operation_id,
                             message=message,
                             redirect_url=decision_return_url,
+                            actor=actor,
                         )
                     )
                 _flash(request, message)
@@ -1444,7 +1459,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     context.mapping_workspace.remove_readonly_field_mappings,
                     workspace_id,
                     expected_version=expected_working_version,
-                    actor=context.actor,
+                    actor=actor,
                     operation_id=operation_id,
                 )
                 message = (
@@ -1461,6 +1476,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                             operation_id,
                             message=message,
                             redirect_url=mapping_return_url,
+                            actor=actor,
                         )
                     )
                 _flash(request, message)
@@ -1470,7 +1486,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     context.mapping_workspace.confirm_available_odoo_defaults,
                     workspace_id,
                     expected_version=expected_working_version,
-                    actor=context.actor,
+                    actor=actor,
                     operation_id=operation_id,
                 )
                 working_draft, validation = await _check_saved_default_decision(
@@ -1479,6 +1495,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     working_draft,
                     expected_parent_version=expected_parent,
                     operation_id=operation_id,
+                    actor=actor,
                 )
                 message = _checked_default_message(
                     f"Confirmed {confirmed_count} Odoo default"
@@ -1500,6 +1517,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                             operation_id,
                             message=message,
                             redirect_url=decision_return_url,
+                            actor=actor,
                         )
                     )
                 _flash(request, message)
@@ -1508,7 +1526,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 requested_fields = await run_local_operation(
                     context.mapping_workspace.default_recovery_fields,
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 workspace_state = context.queries.get(workspace_id)
                 refreshed_schema = await run_in_threadpool(
@@ -1517,6 +1535,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     workspace_state,
                     schema,
                     requested_fields,
+                    actor=actor,
                 )
                 if refreshed_schema.pending_refresh is not None:
                     change_count = refreshed_schema.pending_refresh.change_count
@@ -1533,7 +1552,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         context.mapping_workspace.complete_mutation,
                         workspace_id,
                         operation_id,
-                        actor=context.actor,
+                        actor=actor,
                         content_identity=refreshed_schema.content_hash,
                     )
                     _flash(request, message)
@@ -1546,6 +1565,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                                 operation_id,
                                 message=message,
                                 redirect_url=schema_review_url,
+                                actor=actor,
                             )
                         )
                     return RedirectResponse(schema_review_url, status_code=303)
@@ -1553,7 +1573,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     context.mapping_workspace.confirm_available_odoo_defaults,
                     workspace_id,
                     expected_version=expected_working_version,
-                    actor=context.actor,
+                    actor=actor,
                     operation_id=operation_id,
                 )
                 working_draft, validation = await _check_saved_default_decision(
@@ -1562,6 +1582,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     working_draft,
                     expected_parent_version=expected_parent,
                     operation_id=operation_id,
+                    actor=actor,
                 )
                 message = _checked_default_message(
                     f"Odoo will decide {confirmed_count} required field"
@@ -1584,6 +1605,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                             operation_id,
                             message=message,
                             redirect_url=decision_return_url,
+                            actor=actor,
                         )
                     )
                 _flash(request, message)
@@ -1603,7 +1625,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         )
                     return active_definition, active_definition.datasets, ()
                 access = context.workspace_access.require(
-                    context.actor,
+                    actor,
                     Capability.PROJECT_VIEW,
                     workspace_id=workspace_id,
                 )
@@ -1630,7 +1652,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     derived_links=derived_dataset_links(preparation_plan),
                 )
                 _require_selected_company_scopes(
-                    context, workspace_id, datasets, schema
+                    context,
+                    workspace_id,
+                    datasets,
+                    schema,
+                    actor=actor,
                 )
                 datasets = _merge_partial_mapping_datasets(
                     datasets,
@@ -1663,7 +1689,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     datasets=datasets,
                     expected_revision_version=expected_parent,
                     expected_working_draft_version=expected_working_version,
-                    actor=context.actor,
+                    actor=actor,
                     operation_id=operation_id,
                 )
                 message = "Rows to use confirmed."
@@ -1679,7 +1705,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                             workspace_id,
                             datasets=datasets,
                             expected_version=expected_working_version,
-                            actor=context.actor,
+                            actor=actor,
                             operation_id=operation_id,
                         )
                     )
@@ -1692,7 +1718,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     )
                     preference = context.matching_order.current_preference(
                         workspace_id,
-                        actor=context.actor,
+                        actor=actor,
                     )
                     preference_tie_break = (
                         context.matching_order.effective_preference_order(
@@ -1738,7 +1764,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     receipt = context.mapping_workspace.get_mutation_receipt(
                         workspace_id,
                         operation_id,
-                        actor=context.actor,
+                        actor=actor,
                     )
                     if (
                         receipt is None
@@ -1827,6 +1853,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     workspace_state,
                     schema,
                     datasets,
+                    actor=actor,
                 )
 
                 def check_mapping():
@@ -1839,7 +1866,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                             expected_working_draft_version=(
                                 expected_working_version
                             ),
-                            actor=context.actor,
+                            actor=actor,
                         )
                     )
                     row_review = None
@@ -1851,14 +1878,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         row_review_check_started = True
                         row_review = context.row_inclusion_reviews.check_current(
                             workspace_id,
-                            actor=context.actor,
+                            actor=actor,
                             operation_id=operation_id,
                         )
                     else:
                         context.mapping_workspace.complete_mutation(
                             workspace_id,
                             operation_id,
-                            actor=context.actor,
+                            actor=actor,
                             content_identity=(
                                 _revision.definition.content_hash
                             ),
@@ -1866,7 +1893,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     receipt = context.mapping_workspace.get_mutation_receipt(
                         workspace_id,
                         operation_id,
-                        actor=context.actor,
+                        actor=actor,
                     )
                     if (
                         receipt is None
@@ -1926,11 +1953,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     warning_acknowledgements=_texts(
                         form, "warning_acknowledgement"
                     ),
-                    actor=context.actor,
+                    actor=actor,
                     operation_id=operation_id,
                 )
                 access = context.workspace_access.require(
-                    context.actor,
+                    actor,
                     Capability.MAPPING_SUBMIT,
                     workspace_id=workspace_id,
                 )
@@ -1938,7 +1965,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     confirmed_application = await run_local_operation(
                         context.run_planning.confirm_application_mapping,
                         access.recipe_application_id,
-                        actor=context.actor,
+                        actor=actor,
                     )
                     mapping_return_url = (
                         _confirmed_recipe_mapping_destination(
@@ -1971,6 +1998,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 mutation_started=mutation_started,
                 failure_code=error.code,
                 failure_detail=str(error),
+                actor=actor,
             )
             if (
                 json_request
@@ -2042,6 +2070,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 mutation_started=mutation_started,
                 failure_code=f"HTTP_{error.status_code}",
                 failure_detail=str(error.detail),
+                actor=actor,
             )
             if json_request and rejected is not None:
                 payload = _mapping_mutation_receipt_payload(
@@ -2076,6 +2105,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 mutation_started=mutation_started,
                 failure_code=failure_code,
                 failure_detail=_mapping_mutation_failure_detail(error),
+                actor=actor,
             )
             if (
                 json_request
@@ -2151,6 +2181,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     operation_id,
                     message=message,
                     redirect_url=mapping_return_url,
+                    actor=actor,
                 )
             )
         return RedirectResponse(
@@ -2168,6 +2199,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Acknowledge one zero-match or overlap fact for the current snapshot."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         _require_mapping_idle(context, workspace_id)
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "rule_fingerprint"})
@@ -2176,7 +2208,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 context.transformation_impacts.acknowledge_rule,
                 workspace_id,
                 _text(form, "rule_fingerprint"),
-                actor=context.actor,
+                actor=actor,
             )
         except WorkspaceError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -2194,6 +2226,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Create a workbook from the exact current Stage 3 check."""
 
         form = await request.form()
+        actor = request_identity(request, context.identity_resolver).actor
         _secure_form(request, form, {"csrf_token"})
         _require_mapping_idle(context, workspace_id)
         try:
@@ -2202,7 +2235,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             )
             access = context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.PROTECTED_EVIDENCE_MANAGE,
             )
             filename = mapping_review_workbook_name(revision)
@@ -2210,6 +2243,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 context,
                 workspace_id,
                 access,
+                actor=actor,
             )
             row_projection = None
             row_projection_error = ""
@@ -2308,12 +2342,13 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Download only the workbook for the exact current Stage 3 check."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         revision, _validation, _selection, _schema = (
             _current_mapping_review_evidence(context, workspace_id)
         )
         access = context.workspace_access.resolve(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
             capability=Capability.PROTECTED_EVIDENCE_READ,
         )
         filename = mapping_review_workbook_name(revision)
@@ -2506,13 +2541,14 @@ async def _mapping_mutation_result_payload(
     *,
     message: str,
     redirect_url: str,
+    actor: Actor,
     extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
     receipt = await run_local_operation(
         context.mapping_workspace.get_mutation_receipt,
         workspace_id,
         operation_id,
-        actor=context.actor,
+        actor=actor,
     )
     if receipt is None or receipt.state is not MappingMutationState.COMMITTED:
         raise WorkspaceError(
@@ -2542,6 +2578,7 @@ async def _reject_mapping_mutation(
     mutation_started: bool,
     failure_code: str,
     failure_detail: str,
+    actor: Actor,
 ) -> MappingMutationReceipt | None:
     if not mutation_started or not operation_id:
         return None
@@ -2552,7 +2589,7 @@ async def _reject_mapping_mutation(
             operation_id,
             failure_code=failure_code,
             failure_detail=failure_detail,
-            actor=context.actor,
+            actor=actor,
         )
     except Exception:
         # Cleanup must never hide the original command failure. A surviving
@@ -2598,6 +2635,7 @@ async def _check_saved_default_decision(
     *,
     expected_parent_version: int | None,
     operation_id: str | None = None,
+    actor: Actor,
 ) -> tuple[MappingWorkingDraft, MappingValidationResult]:
     """Validate saved Odoo-default decisions before returning to the page."""
 
@@ -2607,7 +2645,7 @@ async def _check_saved_default_decision(
             datasets=working_draft.definition.datasets,
             expected_parent_version=expected_parent_version,
             expected_working_draft_version=working_draft.version,
-            actor=context.actor,
+            actor=actor,
             operation_id=operation_id,
         )
         checked_draft = (
@@ -2711,6 +2749,8 @@ def _mapping_review_recipe_label(
     context: WebContext,
     workspace_id: str,
     access,
+    *,
+    actor: Actor,
 ) -> str | None:
     """Return verified Recipe lineage for one Recipe-application workspace."""
 
@@ -2721,7 +2761,7 @@ def _mapping_review_recipe_label(
         application = context.run_planning.repository.get_application(
             application_id
         )
-        recipe = context.recipes.get(application.recipe_id, actor=context.actor)
+        recipe = context.recipes.get(application.recipe_id, actor=actor)
     except MigrationFoundationError as error:
         raise WorkspaceError(
             "The Recipe details for this matching review could not be verified"

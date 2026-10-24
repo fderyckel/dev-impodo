@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, replace
+from functools import partial
 from time import perf_counter
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
@@ -80,6 +81,7 @@ from ...domain.source_binding import (
 )
 from ..constants import DEFAULT_MAPPING_FIELDS_PER_PAGE, MAPPING_FIELD_PAGE_SIZES
 from ..context import WebContext
+from ..request_identity import request_identity
 from ..diagnostics import set_diagnostic_working_draft_version
 from ..forms import (
     _positive_query_int,
@@ -143,6 +145,7 @@ def _render_mapping(
     error: str | None = None,
     status_code: int = 200,
 ):
+    actor = request_identity(request, context.identity_resolver).actor
     started = perf_counter()
     session_error = request.session.pop("mapping_error", None)
     if error is None and isinstance(session_error, str):
@@ -255,7 +258,7 @@ def _render_mapping(
     matching_order_preference = (
         context.matching_order.current_preference(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
         )
         if selection is not None
         else None
@@ -281,7 +284,7 @@ def _render_mapping(
         else None
     )
     matching_order_check = (
-        context.matching_order.current_check(workspace_id, actor=context.actor)
+        context.matching_order.current_check(workspace_id, actor=actor)
         if selection is not None and schema is not None
         else None
     )
@@ -310,7 +313,7 @@ def _render_mapping(
     matching_order_attempt = (
         context.matching_order.active_check_attempt(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
         )
         if selection is not None
         else None
@@ -321,7 +324,7 @@ def _render_mapping(
             matching_order_attempt = context.matching_order.check_attempt(
                 workspace_id,
                 requested_check_id,
-                actor=context.actor,
+                actor=actor,
             )
         except WorkspaceError:
             matching_order_attempt = None
@@ -367,6 +370,7 @@ def _render_mapping(
         active_definition,
         active_dataset_index,
         has_unvalidated_changes,
+        actor=actor,
     )
     missing_parent_overrides, missing_parent_draft = _missing_parent_exclusion_draft(
         request,
@@ -376,6 +380,7 @@ def _render_mapping(
         active_definition,
         active_dataset_index,
         has_unvalidated_changes,
+        actor=actor,
     )
     if missing_parent_draft is not None:
         collision_overrides, collision_draft = (
@@ -469,7 +474,7 @@ def _render_mapping(
                 row_inclusion_confirmation,
             ) = context.row_inclusion_reviews.current(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
             )
         except WorkspaceError:
             row_inclusion_review = None
@@ -512,7 +517,7 @@ def _render_mapping(
         try:
             access = context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.PROTECTED_EVIDENCE_READ,
             )
             mapping_review_workbook_ready = context.artifacts.report_exists(
@@ -2294,20 +2299,20 @@ def _mapping_dataset_views(
             tuple(sorted(selected_model_by_dataset.items())),
         )
 
-        def build_catalog_projection() -> _DatasetCatalogProjection:
-            return _build_dataset_catalog_projection(
-                model=model,
-                identity_targets=identity_targets,
-                scalar_by_target=scalar_by_target,
-                relation_by_target=relation_by_target,
-                disposition_by_target=disposition_by_target,
-                odoo_pinned=odoo_pinned,
-                source_dataset_id=source_dataset.dataset_id,
-                link_by_child=link_by_child,
-                derived_by_consumer=derived_by_consumer,
-                derived_by_dataset=derived_by_dataset,
-                selected_model_by_dataset=selected_model_by_dataset,
-            )
+        build_catalog_projection = partial(
+            _build_dataset_catalog_projection,
+            model=model,
+            identity_targets=identity_targets,
+            scalar_by_target=scalar_by_target,
+            relation_by_target=relation_by_target,
+            disposition_by_target=disposition_by_target,
+            odoo_pinned=odoo_pinned,
+            source_dataset_id=source_dataset.dataset_id,
+            link_by_child=link_by_child,
+            derived_by_consumer=derived_by_consumer,
+            derived_by_dataset=derived_by_dataset,
+            selected_model_by_dataset=selected_model_by_dataset,
+        )
 
         if catalog_projection_cache is None:
             catalog_projection = build_catalog_projection()
@@ -2732,6 +2737,8 @@ def _collision_exclusion_draft(
     definition,
     active_dataset_index,
     has_unvalidated_changes,
+    *,
+    actor: Actor,
 ):
     """Prefill, but never save, one safe source-key exclusion from review."""
 
@@ -2757,7 +2764,7 @@ def _collision_exclusion_draft(
                 "a collision exclusion. No rule was changed."
             ),
         }
-    owner = context.workspace_views.get(workspace_id, actor=context.actor)
+    owner = context.workspace_views.get(workspace_id, actor=actor)
     if owner.migration_project.data_classification.value == "RESTRICTED":
         return {}, {
             "ready": False,
@@ -2861,6 +2868,8 @@ def _missing_parent_exclusion_draft(
     definition,
     active_dataset_index,
     has_unvalidated_changes,
+    *,
+    actor: Actor,
 ):
     """Prefill one exact NOT_IN rule from the saved comparison, without saving."""
 
@@ -2886,7 +2895,7 @@ def _missing_parent_exclusion_draft(
                 "exclusion. No rule was changed."
             ),
         }
-    owner = context.workspace_views.get(workspace_id, actor=context.actor)
+    owner = context.workspace_views.get(workspace_id, actor=actor)
     if owner.migration_project.data_classification.value == "RESTRICTED":
         return {}, {
             "ready": False,
@@ -2980,7 +2989,7 @@ def _missing_parent_exclusion_draft(
     )
     try:
         preview = context.row_inclusion_reviews.preview_definition(
-            workspace_id, candidate, actor=context.actor
+            workspace_id, candidate, actor=actor
         )
     except (WorkspaceError, ValueError):
         return {}, {
@@ -3494,3 +3503,4 @@ def _safe_spreadsheet_text(value: object) -> object:
     if value.lstrip("\t\r\n").startswith(("=", "+", "-", "@")):
         return f"'{value}"
     return value
+from impodo.domain.shared.access import Actor
