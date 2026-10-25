@@ -123,12 +123,23 @@ class ResolutionStagingRepository(Protocol):
 
 
 class ResolutionSummary(Protocol):
-    run_id: str
-    staging_run_id: str
-    staging_content_hash: str
-    status: str
-    lifecycle_version: int
-    effective_content_hash: str | None
+    @property
+    def run_id(self) -> str: ...
+
+    @property
+    def staging_run_id(self) -> str: ...
+
+    @property
+    def staging_content_hash(self) -> str: ...
+
+    @property
+    def status(self) -> str: ...
+
+    @property
+    def lifecycle_version(self) -> int: ...
+
+    @property
+    def effective_content_hash(self) -> str | None: ...
 
 
 @dataclass(frozen=True, slots=True)

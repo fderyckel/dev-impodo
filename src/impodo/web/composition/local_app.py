@@ -32,8 +32,6 @@ from impodo.adapters.jobs.inline import InlineJobDispatcher
 from impodo.adapters.odoo.connectors import Json2Config
 from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
 from impodo.adapters.odoo.local_stack import LocalStackService
-from impodo.application.data_version.inspection import SourceInspectionService
-from impodo.application.data_version.intake import SourceIntakeService
 from impodo.application.shared.artifacts import GovernedArtifactStores
 from impodo.application.shared.build_contract import (
     PROCESS_BUILD_CONTRACT,
@@ -41,9 +39,6 @@ from impodo.application.shared.build_contract import (
 )
 from impodo.application.shared.jobs import JobDispatcher
 from impodo.application.shared.secrets import SecretStore, SecretStoreError
-from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
-from impodo.application.workspace.navigation import WorkspaceNavigationQueryService
-from impodo.application.workspace.views import WorkspaceOwnerViewService
 from impodo.domain.shared.access import (
     LOCAL_ACTOR,
     Actor,
@@ -141,22 +136,14 @@ from ...adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
 from ...adapters.protected_project_evidence_store import (
     ProtectedProjectEvidenceStore,
 )
-from ...application.browser_queries import BrowserQueryService
 from ...application.correction_jobs import CorrectionJobManager
 from ...application.odoo_capture_job_service import OdooCaptureJobManager
 from ...application.odoo_capture_publication_service import (
     OdooCapturePublication,
-    OdooCapturePublicationService,
 )
-from ...application.odoo_connection_service import OdooConnectionTestService
-from ...application.odoo_provenance_service import OdooProvenanceService
-from ...application.odoo_source_capture_service import OdooSourceCaptureService
 from ...application.preflight_jobs import PreflightJobManager
 from ...application.run.recipe_run_jobs import RecipeRunJobManager
-from ...application.run.target_matches import RecipeTargetMatchService
-from ...application.supporting_lookup_service import SupportingLookupService
 from ...application.workspace.execution.load_jobs import LoadJobManager
-from ...application.workspace.preparation.recovery import PreparationRecoveryService
 from ...application.workspace_source_projection import (
     WorkspaceMappingSourceProjection,
 )
@@ -195,19 +182,25 @@ from ..target_credentials import (
     local_read_credential_binding_hash,
 )
 from .application_graph import (
+    BrowserQueryPorts,
     WebInfrastructureDependencies,
     WebJobRuntimes,
     WebRequestDependencies,
     WebTargetDependencies,
-    WorkflowSupportServiceGraph,
+    WorkflowSupportPorts,
     build_application_service_graph,
     build_web_context,
+    build_workflow_support_service_graph,
 )
 from .correction_target import CredentialBackedCorrectionTargetReviewStage
 from .http_app import install_http_application
 from .local_identity import (
     LOCAL_ORGANIZATION_ID,
     LocalRequestIdentityResolver,
+)
+from .odoo_source_graph import (
+    OdooSourcePorts,
+    build_odoo_source_service_graph,
 )
 from .service_graph import (
     AuthoringSchemaPorts,
@@ -375,7 +368,6 @@ def create_local_app(
         resolved_authorization,
     )
     workspace_access = foundation_services.workspace_access
-    workspace_states = foundation_services.workspace_states
     request_workspace_access = LocalScopedWorkspaceAccessQuery(
         workspace_access,
         organization_id=LOCAL_ORGANIZATION_ID,
@@ -398,38 +390,32 @@ def create_local_app(
             / "protected"
         ),
     )
-    odoo_provenance_service = OdooProvenanceService(
-        workspace_state_repository,
-        source_repository,
-        odoo_provenance_repository,
-        resolved_secret_store,
-        workspace_access,
-        ProtectedOdooProvenanceCodec(),
-        ProtectedOdooComparisonCodec(),
-    )
     odoo_capture_filters = ProtectedOdooCaptureFilterStore(
         ProtectedProjectEvidenceStore(project_root, resolved_secret_store)
     )
     destination_create_fields = ProtectedDestinationCreateFieldStore(
         ProtectedProjectEvidenceStore(project_root, resolved_secret_store)
     )
-    odoo_source_capture = OdooSourceCaptureService(
-        workspace_state_repository,
-        source_repository,
-        schema_repository,
-        workspace_access,
-        capture_filters=odoo_capture_filters,
-        relationship_scopes=source_repository,
+    odoo_sources = build_odoo_source_service_graph(
+        workspace_access=workspace_access,
+        ports=OdooSourcePorts(
+            capture_workspaces=workspace_state_repository,
+            capture_selections=source_repository,
+            capture_schemas=schema_repository,
+            capture_filters=odoo_capture_filters,
+            relationship_scopes=source_repository,
+            provenance_workspaces=workspace_state_repository,
+            provenance_selections=source_repository,
+            provenance_store=odoo_provenance_repository,
+            publication_selections=source_repository,
+            publication_store=odoo_provenance_repository,
+            source_artifacts=artifacts,
+            secrets=resolved_secret_store,
+            provenance_codec=ProtectedOdooProvenanceCodec(),
+            comparison_codec=ProtectedOdooComparisonCodec(),
+        ),
     )
-    odoo_capture_publication = OdooCapturePublicationService(
-        odoo_source_capture,
-        source_repository,
-        odoo_provenance_service,
-        odoo_provenance_repository,
-        artifacts,
-        workspace_access,
-    )
-    recipe_application_state = RecipeQualitySeedRepository(database)
+    recipe_application_state = RecipeQualitySeedRepository(database, database)
     authoring_services = build_authoring_service_graph(
         foundation=foundation_services,
         foundation_repository=foundation_repository,
@@ -456,7 +442,6 @@ def create_local_app(
     data_version_source_projection = (
         authoring_services.data_version_source_projection
     )
-    mapping_workspace = authoring_services.mapping_workspace
     run_services = build_run_service_graph(
         foundation=foundation_services,
         authoring=authoring_services,
@@ -466,7 +451,6 @@ def create_local_app(
         cutover_plan_repository=cutover_plan_repository,
         authorization=resolved_authorization,
     )
-    run_planning = run_services.run_planning
     preparation_services = build_preparation_service_graph(
         workspaces=workspace_state_repository,
         sources=source_repository,
@@ -485,7 +469,7 @@ def create_local_app(
         preflight_repository=preflight_repository,
         schemas=schema_repository,
         columnar_transformations=PolarsTransformationAdapter(),
-        odoo_provenance=odoo_provenance_service,
+        odoo_provenance=odoo_sources.provenance,
         recipe_quality=recipe_application_state,
     )
     preflight = preparation_services.preflight
@@ -523,11 +507,10 @@ def create_local_app(
         schemas=schema_repository,
         artifacts=artifacts,
         authorization=workspace_access,
-        provenance=odoo_provenance_service,
+        provenance=odoo_sources.provenance,
         current_read_credential_binding=current_read_credential_binding,
         fallout_workbook_renderer=build_fallout_workbook,
     )
-    execution = execution_services.execution
     cutover_services = build_cutover_service_graph(
         foundation=foundation_services,
         preparation=preparation_services,
@@ -565,7 +548,7 @@ def create_local_app(
 
     odoo_capture_jobs = (
         OdooCaptureJobManager(
-            odoo_capture_publication,
+            odoo_sources.publication,
             accept_publication=accept_odoo_capture_publication,
         )
         if odoo_capture_jobs_enabled
@@ -617,6 +600,14 @@ def create_local_app(
         authorization=resolved_authorization,
     )
     correction_jobs = CorrectionJobManager()
+    job_runtimes = WebJobRuntimes(
+        recipe_runs=recipe_run_jobs,
+        preparation=preparation_jobs,
+        preflight=preflight_jobs,
+        load=load_jobs,
+        corrections=correction_jobs,
+        odoo_capture=odoo_capture_jobs,
+    )
     resolved_destination_match_reader = destination_match_reader
     if resolved_destination_match_reader is None and readiness_reader is not None:
 
@@ -634,63 +625,41 @@ def create_local_app(
 
         resolved_destination_match_reader = injected_destination_match_reader
 
-    supporting_lookups = SupportingLookupService(supporting_lookup_repository, workspace_access)
     resolved_identity_resolver = (
         request_identity_resolver or LocalRequestIdentityResolver(actor)
     )
-    workflow_support = WorkflowSupportServiceGraph(
-        queries=BrowserQueryService(
-            workspace_state_repository,
-            source_repository,
-            derived_entity_repository,
-            schema_repository,
-            mapping_repository,
-            mapping_field_catalog_repository,
-            quality_repository,
-            transformation_impact_repository,
-            workspace_mapping_sources,
+    workflow_support = build_workflow_support_service_graph(
+        foundation=foundation_services,
+        authoring=authoring_services,
+        runs=run_services,
+        execution=execution_services,
+        ports=WorkflowSupportPorts(
+            queries=BrowserQueryPorts(
+                workspace_states=workspace_state_repository,
+                sources=source_repository,
+                derived_entities=derived_entity_repository,
+                schemas=schema_repository,
+                mappings=mapping_repository,
+                mapping_field_catalogs=mapping_field_catalog_repository,
+                quality=quality_repository,
+                transformation_impacts=transformation_impact_repository,
+                mapping_sources=workspace_mapping_sources,
+            ),
+            workspace_owners=foundation_repository,
+            navigation=WorkspaceNavigationRepository(database),
+            workspace_catalogs=workspace_state_repository,
+            source_catalogs=source_repository,
+            derived_sources=source_repository,
+            derived_entities=derived_entity_repository,
+            supporting_lookups=supporting_lookup_repository,
+            preparation_recovery=PreparationRecoveryRepository(database),
+            recovery_workspace_states=workspace_state_repository,
         ),
-        workspace_views=WorkspaceOwnerViewService(
-            foundation_repository,
-            workspace_access,
-        ),
-        navigation=WorkspaceNavigationQueryService(
-            WorkspaceNavigationRepository(database),
-            execution,
-            preparation_jobs=preparation_jobs,
-            load_jobs=load_jobs,
-        ),
-        intake=SourceIntakeService(
-            workspace_states,
-            artifacts,
-            workspace_access,
-        ),
-        inspections=SourceInspectionService(
-            workspace_state_repository,
-            source_repository,
-            artifacts,
-            workspace_access,
-        ),
-        derived_entities=DerivedEntityWorkspaceService(
-            source_repository,
-            derived_entity_repository,
-            workspace_access,
-            artifacts,
-        ),
-        supporting_lookups=supporting_lookups,
-        recipe_target_matches=RecipeTargetMatchService(
-            mapping_workspace, run_planning, supporting_lookups,
-        ),
-        preparation_recovery=PreparationRecoveryService(
-            PreparationRecoveryRepository(database), mapping_workspace, workspace_state_repository,
-        ),
-        odoo_source_capture=odoo_source_capture,
-        odoo_capture_publication=odoo_capture_publication,
-        odoo_provenance=odoo_provenance_service,
-        odoo_connection_tests=OdooConnectionTestService(
-            resolved_connection_tester,
-            resolved_read_identity_probe,
-        ),
+        artifacts=artifacts,
+        jobs=job_runtimes,
+        odoo_sources=odoo_sources,
+        connection_tester=resolved_connection_tester,
+        read_identity_probe=resolved_read_identity_probe,
     )
     application_services = build_application_service_graph(
         foundation=foundation_services,
@@ -712,14 +681,7 @@ def create_local_app(
             identity_resolver=resolved_identity_resolver,
             unavailable_projects=unavailable_projects,
         ),
-        jobs=WebJobRuntimes(
-            recipe_runs=recipe_run_jobs,
-            preparation=preparation_jobs,
-            preflight=preflight_jobs,
-            load=load_jobs,
-            corrections=correction_jobs,
-            odoo_capture=odoo_capture_jobs,
-        ),
+        jobs=job_runtimes,
         infrastructure=WebInfrastructureDependencies(
             destination_create_fields=destination_create_fields,
             artifacts=artifacts,

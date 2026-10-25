@@ -98,7 +98,7 @@ def create_preparation_worker(
         mappings,
         sources,
         quality_repository,
-        recipe_quality=RecipeQualitySeedRepository(database),
+        recipe_quality=RecipeQualitySeedRepository(database, database),
     )
     normalization = NormalizationService(
         normalization_repository,

@@ -18,7 +18,6 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     SourceMode,
     WorkspaceState,
-    WorkspaceStateRepository,
 )
 
 from ..domain.odoo_capture import OdooCaptureSelection
@@ -81,6 +80,12 @@ class OdooCaptureSelectionReader(Protocol):
     ) -> tuple[OdooCaptureSelection, ...]: ...
 
 
+class OdooProvenanceWorkspaceReader(Protocol):
+    """Load the workspace facts required by protected provenance policy."""
+
+    def get(self, workspace_id: str) -> WorkspaceState: ...
+
+
 @dataclass(frozen=True, slots=True)
 class OdooCaptureProvenanceCandidate:
     """Encrypted bounded origins and the complete manifest awaiting promotion."""
@@ -103,7 +108,7 @@ class OdooProvenanceService:
 
     def __init__(
         self,
-        workspaces: WorkspaceStateRepository,
+        workspaces: OdooProvenanceWorkspaceReader,
         selections: OdooCaptureSelectionReader,
         provenance: OdooProvenanceStore,
         secrets: SecretStore,

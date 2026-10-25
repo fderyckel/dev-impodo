@@ -15,7 +15,7 @@ CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "Basedpyright",
-        ("basedpyright", "--baselinemode", "lock"),
+        ("basedpyright",),
     ),
     (
         "Python compilation",

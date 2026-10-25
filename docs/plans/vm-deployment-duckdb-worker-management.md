@@ -607,9 +607,17 @@ top-level application graph now joins those groups, and one shared context
 builder maps explicit request, job, infrastructure, and target runtime bundles
 into the browser context. The launch token remains local, and the server may
 omit the explicit local Odoo runtime instead of constructing a false local
-adapter. Job runtimes, artifact-store construction, Odoo target factories,
-correction and Cutover qualification artifact construction, and browser-support
-service construction remain in the local composition. Integrated Test
+adapter. Shared routes and that graph now depend on structural job-runtime
+ports instead of concrete local manager classes. A deployment-neutral support
+builder constructs browser queries, owner views, navigation, source intake and
+inspection, derived-data authoring, supporting lookups, Recipe target matching,
+preparation recovery, and connection testing from explicit ports. The local
+composition still selects the in-process manager implementations, DuckDB
+repositories, and filesystem artifacts. Its current closure-based enqueue
+calls are a compatibility boundary; server workers still require serializable
+commands, authorization receipts, leases, and fencing. Artifact-store
+construction, Odoo target factories, and correction and Cutover qualification
+artifact construction remain in the local composition. Integrated Test
 qualification now reuses the shared foundation, preparation, and execution
 graphs while the local deployment still owns its protected Project evidence
 store and DuckDB Cutover repository. All PostgreSQL
@@ -622,6 +630,18 @@ runs; the shared graph never receives credentials or caches a client. The
 current closure-based correction job manager remains local-only. The server
 will use the common durable job, authorization-receipt, lease, and fencing
 contracts instead of adapting that process-local manager.
+
+Odoo source capture, protected provenance, and atomic publication now form one
+deployment-neutral `OdooSourceServiceGraph` built from an explicit
+`OdooSourcePorts` bundle. The local composition supplies its existing DuckDB,
+artifact, secret, filter, and codec implementations. A fake-server composition
+test assembles the complete application graph from fake ports with no local
+Odoo runtime and rejects imports of DuckDB, local identity, local compatibility
+storage, and concrete in-process job managers from the shared graph. The
+unavailable-Project browser projection is also neutral; the DuckDB/filesystem
+compatibility migration remains local-only. This closes the remaining shared
+Odoo-source construction dependency but does not yet provide PostgreSQL
+adapters or enable server startup.
 
 **Exit gate.** Local Impodo starts through the explicit local composition and
 passes its focused workflow suites. Architecture tests reject direct adapter

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from multiprocessing.context import BaseContext
+from multiprocessing.context import SpawnContext
 from pathlib import Path
 from queue import Empty
 from threading import RLock, Thread
@@ -67,7 +67,7 @@ class PreparationJobManager:
         self,
         root: str | Path,
         *,
-        process_context: BaseContext | None = None,
+        process_context: SpawnContext | None = None,
         max_workers: int = 1,
         build_contract: ApplicationBuildContract = PROCESS_BUILD_CONTRACT,
         status_listener: Callable[[PreparationJob, Actor], None] | None = None,

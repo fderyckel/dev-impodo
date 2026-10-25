@@ -19,7 +19,7 @@ import argparse
 import json
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -259,6 +259,8 @@ def _scenario_run_command(arguments: argparse.Namespace) -> int:
         is ScenarioWritePolicy.DISPOSABLE_SCENARIO_ONLY
     )
     evidence_directory = None
+    connector_factory: Callable[[], Json2ReadConnector] | None = None
+    config: Json2Config | None = None
     if write_capable:
         if arguments.confirm_disposable_write != loaded.definition.scenario_id:
             raise ValueError(
@@ -305,18 +307,23 @@ def _scenario_run_command(arguments: argparse.Namespace) -> int:
                 "local live scenarios accept only an impodo_scenario_* database"
             )
         api_key = _read_scenario_api_key(arguments.api_key_file)
-        config = Json2Config(
+        write_config = Json2Config(
             base_url=arguments.base_url.rstrip("/"),
             database=arguments.database,
             api_key=api_key,
             connection_mode=("LOCAL" if local_destination else "REMOTE"),
             relevant_modules=definition.destination.relevant_modules,
         )
-        def connector_factory() -> Json2ReadConnector:
-            return Json2ReadConnector(target_record_read_config(config))
+        config = write_config
 
+        def create_connector() -> Json2ReadConnector:
+            return Json2ReadConnector(target_record_read_config(write_config))
+
+        connector_factory = create_connector
         connector = connector_factory()
     if write_capable:
+        if connector_factory is None or config is None:
+            raise ValueError("a write-capable scenario requires --connector json2")
         workflow = ProfileScenarioWorkflow(
             loaded,
             connector=connector,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from impodo.application.workspace.access import WorkspaceAccessRepository
 from impodo.domain.mapping.contracts import MappingDefinition
 from impodo.domain.preparation.quality import QualityRule
 from impodo.domain.recipe.mapping_adaptation import recipe_mapping_shape
@@ -12,11 +13,20 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
 from ...domain.serialization import canonical_json, content_hash
+from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
 
 
 class RecipeQualitySeedRepository(DuckDbRepository):
     """Bind reusable checks to one exact fresh mapping hash."""
+
+    def __init__(
+        self,
+        database: DuckDbWorkspaceDatabase,
+        access_contexts: WorkspaceAccessRepository,
+    ) -> None:
+        super().__init__(database)
+        self._access_contexts = access_contexts
 
     def save_quality_seed(
         self,
@@ -86,7 +96,7 @@ class RecipeQualitySeedRepository(DuckDbRepository):
                 """,
             ).fetchone()
         if row is None:
-            if self._database.resolve_workspace_access_context(
+            if self._access_contexts.resolve_workspace_access_context(
                 workspace_id
             ).recipe_application_id is not None:
                 raise WorkspaceError(
@@ -116,7 +126,7 @@ class RecipeQualitySeedRepository(DuckDbRepository):
     ) -> None:
         """Reject authoring changes in an application before submission."""
 
-        if self._database.resolve_workspace_access_context(
+        if self._access_contexts.resolve_workspace_access_context(
             workspace_id
         ).recipe_application_id is None:
             return

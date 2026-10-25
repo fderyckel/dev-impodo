@@ -485,6 +485,50 @@ behavior. These are construction and type-boundary changes only. They do not
 open another DuckDB connection, change evidence ownership, or enable server
 startup.
 
+The fifteenth increment removes the remaining concrete background-manager
+types from the shared browser context and top-level graph. The
+`application/shared/job_runtimes.py` contracts describe the exact job
+lifecycle that routes currently need for Recipe checks, preparation, final
+review, loading, corrections, and Odoo source capture. The local composition
+continues to supply the existing in-process managers. A server composition can
+instead supply durable runtime adapters without changing `WebContext` or the
+route signatures. The current `enqueue` methods still accept process-local
+work callables, so these ports are a compatibility boundary, not the future
+PostgreSQL job-command schema. Phase 6 must replace those callables at the
+server boundary with serializable command kinds, immutable input references,
+authorization receipts, leases, and fencing tokens.
+
+The same increment adds `BrowserQueryPorts`, `WorkflowSupportPorts`, and
+`build_workflow_support_service_graph`. The builder constructs the browser
+query facade, canonical-owner views, navigation, source intake and inspection,
+derived-data authoring, supporting lookups, Recipe target matching,
+preparation recovery, and connection testing from injected application ports.
+`local_app.py` now chooses the DuckDB repositories and filesystem artifact
+store, but it no longer repeats that application-service wiring. The builder
+does not open a database, create a connection cache, contact Odoo, or change a
+job's scheduling and shutdown behavior.
+
+The sixteenth increment extracts Odoo source capture, protected provenance,
+and atomic publication into `OdooSourcePorts` and
+`OdooSourceServiceGraph`. The shared builder names every Workspace, selection,
+schema, relationship-scope, protected-evidence, artifact, secret, and codec
+dependency without choosing DuckDB, PostgreSQL, a filesystem, or an Odoo
+transport. The local composition supplies the existing repositories and
+protected codecs, then reuses the resulting provenance service in preparation
+and transfer execution and the publication service in its current capture-job
+manager. Capture selection, evidence hashing, encryption, publication, and
+database lifetime semantics are unchanged.
+
+The same increment removes a transitive local-storage dependency from the
+shared browser context. `UnavailableProjectSummary` now lives in a neutral web
+projection module; only the local compatibility composition imports the
+DuckDB/filesystem migration implementation. A fake-server architecture test
+constructs every responsibility-named service graph and the final
+`WebContext` from fake ports with `local_target=None`. It also rejects DuckDB,
+local identity, local compatibility storage, local application composition,
+and concrete in-process job-manager imports from the shared server graph. This
+is a Phase 1 composition proof, not a server startup implementation.
+
 The fail-closed server entry still requires an explicit `ServerAdapterBundle`
 that names identity, authorization, scoped Project and Workspace access,
 operation journal, lease, job, artifact, and secret ports. Server startup
@@ -515,11 +559,14 @@ global actor, and `WebContext` cannot carry one. Work package 1.2 is complete.
 The foundation, authoring, run-setup, preparation, execution, Cutover, and
 correction builders advance work package 1.1. Completed-load correction
 orchestration now uses the same deployment-neutral pattern, while its secret
-and Odoo reader capability remains deployment-owned. Job runtimes, artifact
-store construction, remaining request and worker target factories, Cutover
-qualification artifact construction, and the construction of browser-support
-services remain inside the large local builder. Final context mapping now has
-one shared owner. Work packages 1.1 and 1.4 therefore remain in progress.
+and Odoo reader capability remains deployment-owned. Shared routes and context
+mapping now depend on structural job-runtime contracts, and browser-support
+services use one deployment-neutral builder. The concrete local job managers,
+artifact-store construction, remaining request and worker target factories,
+and Cutover qualification artifact construction remain inside the local
+composition. Durable server job commands and their PostgreSQL adapters remain
+planned. Final context mapping now has one shared owner. Work packages 1.1 and
+1.4 therefore remain in progress.
 No PostgreSQL adapter, server session, Organization administration page, or
 Linux runtime has been added.
 
@@ -603,6 +650,27 @@ repository call or move an existing call across an asynchronous boundary, so
 the established request-scoped DuckDB ownership remains unchanged. This is
 controlled local evidence, not live server, PostgreSQL, Odoo-network, or Linux
 performance qualification.
+
+Focused verification for the fifteenth increment covers seven top-level graph
+and port-wiring cases, the existing local lifecycle contracts for all six job
+families, and the hosting contracts for artifact containment and idempotent job
+dispatch. The restricted Windows run first hit the known disposable `.tmp`
+ACL limitation in the artifact cases; all four hosting cases passed under the
+established fixture permission. Eleven existing page-read and DuckDB lifetime
+cases also pass. The job and service wiring changed no repository operation
+and introduced no cross-request DuckDB connection. This is controlled local
+evidence, not live server, PostgreSQL, Odoo-network, or Linux performance
+qualification.
+
+Focused verification for the sixteenth increment covers ten Odoo-source,
+top-level composition, and fake-server architecture cases; nine request-
+identity and legacy-storage compatibility cases; three canonical-ownership
+cases that construct the local application; and fourteen existing Odoo capture
+publication and job cases. The repository Python quality gate passes with no
+Ruff or Basedpyright diagnostics. The builder opens no database and performs no
+remote I/O, so the existing bounded DuckDB and Odoo adapter lifetimes remain
+the operational boundary. This is controlled local evidence, not live
+PostgreSQL, Odoo-network, container, Debian, or Ubuntu qualification.
 
 The complete local-stack browser module is not yet green. Two recovery cases
 register a file-source Workspace without checking its source file first. The

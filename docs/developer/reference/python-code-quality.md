@@ -7,10 +7,9 @@ status: current
 # Python code quality
 
 Impodo uses one repeatable quality gate so developers, coding agents, and
-continuous integration apply the same Python rules. The gate prevents new lint
-and type debt while the team removes the existing Basedpyright baseline in
-reviewable batches. It does not authorize a static-analysis fix to change
-business behavior.
+continuous integration apply the same Python rules. The gate rejects every
+Ruff or Basedpyright diagnostic in the checked source. It does not authorize a
+static-analysis fix to change business behavior.
 
 ## Sources of authority
 
@@ -20,7 +19,6 @@ Each quality artifact owns one decision:
 | --- | --- |
 | Accepted contracts, runtime behavior, and focused tests | Define the required program semantics. |
 | `pyproject.toml` | Defines the Ruff and Basedpyright configuration and pins their quality dependency versions. |
-| `.basedpyright/baseline.json` | Records only the type diagnostics accepted when Basedpyright was introduced. |
 | `scripts/check_python_quality.py` | Runs the repository checks in their supported order. |
 | `.github/workflows/python-quality.yml` | Requires the same command for proposed and accepted changes. |
 | `AGENTS.md` | Tells coding agents how to apply the policy safely. |
@@ -49,8 +47,7 @@ uv run --frozen --group quality python scripts/check_python_quality.py
 The command uses the versions locked in `uv.lock` and performs these checks:
 
 1. Ruff checks `src/impodo` and the quality runner.
-2. Basedpyright runs in Standard mode with the baseline locked against new
-   entries.
+2. Basedpyright runs in Standard mode and reports every type diagnostic.
 3. Python compiles `src/impodo`.
 4. Git checks the working diff locally and the complete pull-request or push
    range in continuous integration for whitespace errors.
@@ -59,17 +56,13 @@ The gate does not replace focused behavioral tests. Run the tests owned by the
 changed route, service, domain rule, adapter, or repository after the static
 checks pass.
 
-## Keep the baseline moving downward
+## Keep type diagnostics visible
 
-The Basedpyright baseline is historical debt, not an exception list for new
-code. Normal work may leave its count unchanged or remove entries. Do not run
-`basedpyright --writebaseline`, edit diagnostic entries manually, or accept an
-increased count without explicit human approval and a reviewed explanation.
-
-When a changed line exposes a baseline diagnostic, prefer a narrow type-safe
-correction supported by a focused test. Keep the diagnostic visible when the
-correct runtime contract is unclear, and ask for a semantic decision instead
-of guessing.
+The repository has no Basedpyright baseline. Do not create one or run
+`basedpyright --writebaseline`. Correct the type contract and support the change
+with a focused behavioral test. When the correct runtime contract is unclear,
+keep the diagnostic visible and ask for a semantic decision instead of
+guessing or hiding the error.
 
 ## Review fixes safely
 
@@ -81,8 +74,8 @@ Use this sequence for a cleanup or refactor:
 3. Inspect the complete diff and run the focused tests for the affected code.
 4. Review every unsafe Ruff fix and every manual type correction against the
    runtime contract before editing.
-5. Run the complete quality gate again and report the baseline count when it
-   changes.
+5. Run the complete quality gate again and report the direct Basedpyright
+   result.
 
 Do not use blanket `noqa`, `type: ignore`, directory exclusions, or disabled
 diagnostic categories to obtain a green result. A necessary narrow suppression
@@ -99,6 +92,5 @@ separately reviewed scope.
 
 Upgrade Ruff, Basedpyright, or uv in a dedicated change. Update the pin and
 lockfile, run the quality gate, classify new diagnostics, and review any
-changed fix behavior before accepting the upgrade. Do not regenerate the
-Basedpyright baseline merely because a new tool version reports additional
-issues.
+changed fix behavior before accepting the upgrade. Do not create a baseline
+merely because a new tool version reports additional issues.

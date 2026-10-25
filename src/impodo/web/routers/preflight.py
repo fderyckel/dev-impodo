@@ -30,6 +30,7 @@ from impodo.adapters.artifacts.reporting import (
     write_review_workbook,
 )
 from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.application.shared.job_runtimes import PreflightJobRuntime
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.workspace.access import bind_workspace_access_context
 from impodo.domain.odoo.contracts import ConnectorError
@@ -49,7 +50,6 @@ from ...application.odoo_read_failures import (
 )
 from ...application.preflight_jobs import (
     PreflightJob,
-    PreflightJobManager,
     PreflightJobNotFoundError,
     PreflightJobResult,
     PreflightJobStateError,
@@ -919,7 +919,7 @@ def _recover_deferred_scope_review(context: WebContext, workspace_id: str):
         return None
 
 
-def _preflight_manager(context: WebContext) -> PreflightJobManager:
+def _preflight_manager(context: WebContext) -> PreflightJobRuntime:
     if context.preflight_jobs is None:
         raise PreflightJobStateError("Background comparisons are unavailable")
     return context.preflight_jobs

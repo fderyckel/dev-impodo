@@ -1,5 +1,0 @@
-{
-    "include": ["src/impodo"],
-    "pythonVersion": "3.12",
-    "typeCheckingMode": "standard"
-}

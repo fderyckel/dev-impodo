@@ -16,6 +16,13 @@ from impodo.domain.shared.models import OdooWriteIdentity
 from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateError
 
 
+def _connection_mode(workspace_state: WorkspaceState) -> str:
+    mode = workspace_state.odoo_connection_mode
+    if mode is None:
+        raise WorkspaceStateError("Configure the Odoo target before loading it")
+    return mode.value
+
+
 def _probe_write_identity(
     workspace_state: WorkspaceState,
     api_key: str,
@@ -31,7 +38,7 @@ def _probe_write_identity(
                 base_url=workspace_state.odoo_base_url,
                 database=workspace_state.odoo_database,
                 api_key=api_key,
-                connection_mode=workspace_state.odoo_connection_mode.value,
+                connection_mode=_connection_mode(workspace_state),
                 retries=0,
             )
         )
@@ -56,7 +63,7 @@ def _write_executor(
             base_url=workspace_state.odoo_base_url,
             database=workspace_state.odoo_database,
             api_key=api_key,
-            connection_mode=workspace_state.odoo_connection_mode.value,
+            connection_mode=_connection_mode(workspace_state),
             timeout_seconds=120.0,
             retries=2,
         ),
@@ -79,7 +86,7 @@ def _readback_reader(
                 base_url=workspace_state.odoo_base_url,
                 database=workspace_state.odoo_database,
                 api_key=api_key,
-                connection_mode=workspace_state.odoo_connection_mode.value,
+                connection_mode=_connection_mode(workspace_state),
                 retries=2,
             )
         ),

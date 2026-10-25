@@ -59,11 +59,22 @@ transformation adapter, Odoo provenance, and the current credential-binding
 callback. Odoo reader and writer factories stay at deployment-owned request or
 worker boundaries.
 `web/composition/application_graph.py` joins those responsibility-named groups
-with the remaining browser-facing application services. It then maps explicit
-request, job, infrastructure, and target runtime bundles into `WebContext`.
-The local launch token stays outside that shared context. A deployment that
-does not support local Odoo control can omit `LocalTargetRuntime` instead of
-constructing a local adapter or branching inside an application service.
+and constructs the remaining browser-facing application services from
+`BrowserQueryPorts` and `WorkflowSupportPorts`. It then maps explicit request,
+job, infrastructure, and target runtime bundles into `WebContext`.
+`web/composition/odoo_source_graph.py` constructs Odoo source capture,
+protected provenance, and atomic publication from the deployment-neutral
+`OdooSourcePorts` bundle. Deployment compositions choose the repositories,
+artifact and secret stores, filters, relationship scopes, and protected codecs.
+`application/shared/job_runtimes.py` defines the structural job ports used by
+that shared graph and context; local in-process managers and future durable
+server adapters implement those ports. The local launch token stays outside
+the shared context. A deployment that does not support local Odoo control can
+omit `LocalTargetRuntime` instead of constructing a local adapter or branching
+inside an application service.
+`web/project_listing.py` owns the neutral unavailable-Project projection so the
+shared context does not import the local DuckDB/filesystem compatibility
+migration.
 `application/run/ports.py` owns the repository contracts for integrated run
 planning, Test setup, Production setup, Cutover plans, and the small shared
 foundation surface those services consume. Run application code depends on
@@ -83,11 +94,11 @@ services.
 | Portable Mapping, Preparation, and Execution decisions | `domain/mapping`, `domain/compiler`, `domain/relationship_dependencies.py`, `domain/relationship_health.py`, `domain/matching_order.py`, `domain/preparation`, `domain/staging`, `domain/execution_snapshot.py`, and `domain/execution` |
 | Owner-qualified commands, queries, and ports | `application/project`, `application/data_version`, `application/recipe`, `application/run`, `application/workspace`, and `application/scenarios` |
 | Cross-owner workflow coordinators and stable facades | Named modules directly below `application`, including Project authoring, Recipe compilation and publication, source projection, preflight, Cutover, and Production coordination. |
-| Shared application ports | `application/shared` |
+| Shared application ports | `application/shared`, including `job_runtimes.py` for route-facing background-work lifecycles |
 | DuckDB stores and forward-only schema handling | `adapters/duckdb` and `adapters/duckdb/schema` |
 | Artifact, protected-evidence, job, Odoo, scenario, and columnar implementations | `adapters/artifacts`, `adapters/protected_evidence`, `adapters/jobs`, `adapters/odoo`, and `adapters/scenarios`, plus named integration facades directly below `adapters` |
 | Request handling and view construction | `web/routers` and `web/presenters` |
-| Concrete runtime construction | `web/composition/local_app.py` chooses local adapters; `web/composition/service_graph.py` wires deployment-neutral Project foundation, authoring, Recipe application, integrated run setup, preparation, reviewed loading, transfer, reconciliation, fallout evidence, integrated Test qualification, and completed-load correction; `web/composition/application_graph.py` joins those groups and performs the one shared mapping into `WebContext`; `web/composition/correction_target.py` resolves a deployment-owned secret and creates a scope-bound Odoo correction reader only when review work runs; other focused modules below `web/composition` and `web/capability_builders.py` own bounded construction; `web/app.py` is only a compatibility entry point |
+| Concrete runtime construction | `web/composition/local_app.py` chooses local adapters; `web/composition/service_graph.py` wires deployment-neutral Project foundation, authoring, Recipe application, integrated run setup, preparation, reviewed loading, transfer, reconciliation, fallout evidence, integrated Test qualification, and completed-load correction; `web/composition/odoo_source_graph.py` wires capture, provenance, and publication from explicit ports; `web/composition/application_graph.py` constructs browser-support services from explicit ports, joins all service groups, and performs the one shared mapping into `WebContext`; `web/composition/correction_target.py` resolves a deployment-owned secret and creates a scope-bound Odoo correction reader only when review work runs; other focused modules below `web/composition` and `web/capability_builders.py` own bounded construction; `web/app.py` is only a compatibility entry point |
 | Privacy-safe local diagnostics and process recovery | `web/diagnostics.py` builds bounded evidence and redacted bundles, including process-local child logs when a shared file is locked; `web/server_supervisor.py` owns same-port child restart and the circuit breaker; `web/launcher.py` secures and binds the local runtime; `web/routers/lifecycle.py`, `web/static/server-recovery.js`, and `web/static/operation-state.js` own authenticated recovery and operation-aware liveness |
 | Safe formula authoring feedback | `domain/recipe/value_rules.py` owns parsing; `web/mapping_formula_authoring.py` projects formula-free issues for the mapping route and browser |
 | Reuse arithmetic preparation work | `domain/recipe/value_rules.py` compiles safe arithmetic into bounded Python instructions; `domain/staging/evaluator.py` binds them once per dataset, and `domain/mapping/scalar_values.py` supplies only referenced formula inputs |

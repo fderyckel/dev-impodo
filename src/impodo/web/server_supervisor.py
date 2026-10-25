@@ -16,6 +16,7 @@ from urllib.parse import quote
 
 import h11
 import uvicorn
+from uvicorn.config import LOGGING_CONFIG
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
 from .composition.local_app import create_local_app
@@ -66,8 +67,11 @@ class ServerSupervisionResult:
 class ServerChildProcess(Protocol):
     """Describe the bounded process surface used by the supervisor."""
 
-    pid: int | None
-    exitcode: int | None
+    @property
+    def pid(self) -> int | None: ...
+
+    @property
+    def exitcode(self) -> int | None: ...
 
     def start(self) -> None: ...
 
@@ -270,7 +274,7 @@ def _serve_child_process(
 ) -> None:
     # Uvicorn's logging configuration closes existing handlers, including the
     # recorder's process lock. Configure logging before opening diagnostics.
-    logging.config.dictConfig(uvicorn.config.LOGGING_CONFIG)
+    logging.config.dictConfig(LOGGING_CONFIG)
     diagnostics = _open_child_diagnostic_recorder(settings.diagnostics_root)
     port = listener.getsockname()[1]
     stop_reason = "server_returned"

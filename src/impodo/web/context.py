@@ -26,6 +26,14 @@ from impodo.application.destination_matching_service import (
 )
 from impodo.application.project.ports import ScopedMigrationProjectQuery
 from impodo.application.shared.artifacts import WorkspaceArtifactStore
+from impodo.application.shared.job_runtimes import (
+    CorrectionJobRuntime,
+    LoadJobRuntime,
+    OdooCaptureJobRuntime,
+    PreflightJobRuntime,
+    PreparationJobRuntime,
+    RecipeRunJobRuntime,
+)
 from impodo.application.shared.jobs import JobDispatcher
 from impodo.application.shared.secrets import SecretStore
 from impodo.application.workspace.access import WorkspaceAccessService
@@ -54,15 +62,9 @@ from impodo.domain.workspace.workbench import (
     WorkspaceStateError,
     WorkspaceStateService,
 )
-from impodo.web.composition.incompatible_project_storage import (
-    UnavailableProjectSummary,
-)
-from impodo.web.composition.preparation_job_manager import (
-    PreparationJobManager,
-)
+from impodo.web.project_listing import UnavailableProjectSummary
 
 from ..application.browser_queries import BrowserQueryService
-from ..application.correction_jobs import CorrectionJobManager
 from ..application.correction_workflow import CorrectionWorkflowService
 from ..application.cutover_plan_service import CutoverPlanService
 from ..application.data_version.service import DataVersionService
@@ -70,7 +72,6 @@ from ..application.fallout_workbook_service import FalloutWorkbookService
 from ..application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
-from ..application.odoo_capture_job_service import OdooCaptureJobManager
 from ..application.odoo_capture_publication_service import OdooCapturePublicationService
 from ..application.odoo_connection_service import OdooConnectionTestService
 from ..application.odoo_provenance_service import OdooProvenanceService
@@ -79,7 +80,6 @@ from ..application.odoo_source_capture_service import (
     OdooSourceCaptureService,
 )
 from ..application.odoo_source_restart_service import OdooSourceRestartService
-from ..application.preflight_jobs import PreflightJobManager
 from ..application.preflight_service import PreflightService
 from ..application.production_cutover_service import ProductionCutoverService
 from ..application.project.service import MigrationProjectService
@@ -88,7 +88,6 @@ from ..application.recipe_publication_service import RecipePublicationService
 from ..application.run.planning_service import (
     MigrationRunPlanningService,
 )
-from ..application.run.recipe_run_jobs import RecipeRunJobManager
 from ..application.run.service import MigrationRunService
 from ..application.run.setup_service import RunSetupService
 from ..application.run.target_matches import RecipeTargetMatchService
@@ -97,7 +96,6 @@ from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.supporting_lookup_service import SupportingLookupService
 from ..application.transfer_execution_service import TransferExecutionService
-from ..application.workspace.execution.load_jobs import LoadJobManager
 from ..application.workspace.execution.reconciliation import ReconciliationService
 from ..application.workspace.execution.service import ExecutionService
 from ..application.workspace.mapping.categorical_coverage import (
@@ -149,12 +147,14 @@ class SchemaReadSession(Protocol):
 
     def read_models(self, models: tuple[str, ...]) -> MetadataSnapshot:
         """Read metadata for exactly these newly reached models."""
+        ...
 
     def verify_identity(
         self,
         models: tuple[str, ...],
     ) -> OdooReadIdentity | None:
         """Verify read access for the final complete model scope."""
+        ...
 
 
 SchemaReadSessionFactory = Callable[
@@ -224,7 +224,7 @@ class CorrectionRouteContext(Protocol):
     queries: BrowserQueryService
     workspace_states: WorkspaceStateService
     corrections: CorrectionWorkflowService
-    correction_jobs: CorrectionJobManager
+    correction_jobs: CorrectionJobRuntime
     secret_store: SecretStore
     write_identity_probe: WriteIdentityProbe
     write_executor_factory: OdooWriteExecutorFactory
@@ -276,28 +276,28 @@ class WebContext:
     matching_order: MatchingOrderService
     supporting_lookups: SupportingLookupService
     recipe_target_matches: RecipeTargetMatchService
-    recipe_run_jobs: RecipeRunJobManager | None
+    recipe_run_jobs: RecipeRunJobRuntime | None
     categorical_coverage: CategoricalCoverageService
     preparation: PreparationService
     preparation_recovery: PreparationRecoveryService
-    preparation_jobs: PreparationJobManager | None
+    preparation_jobs: PreparationJobRuntime | None
     quality: QualityService
     resolution: ResolutionService
     normalization: NormalizationService
     preflight: PreflightService
-    preflight_jobs: PreflightJobManager | None
+    preflight_jobs: PreflightJobRuntime | None
     execution: ExecutionService
     transfer_execution: TransferExecutionService
-    load_jobs: LoadJobManager | None
+    load_jobs: LoadJobRuntime | None
     reconciliation: ReconciliationService
     fallout_workbooks: FalloutWorkbookService
     corrections: CorrectionWorkflowService
-    correction_jobs: CorrectionJobManager
+    correction_jobs: CorrectionJobRuntime
     transformation_impacts: TransformationImpactService
     row_inclusion_reviews: RowInclusionReviewService
     odoo_source_capture: OdooSourceCaptureService
     odoo_capture_publication: OdooCapturePublicationService
-    odoo_capture_jobs: OdooCaptureJobManager | None
+    odoo_capture_jobs: OdooCaptureJobRuntime | None
     odoo_provenance: OdooProvenanceService
     destination_create_fields: DestinationCreateFieldStore
     artifacts: WorkspaceArtifactStore

@@ -10,35 +10,75 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from impodo.application.browser_queries import BrowserQueryService
-from impodo.application.correction_jobs import CorrectionJobManager
-from impodo.application.data_version.inspection import SourceInspectionService
+from impodo.application.browser_queries import (
+    BrowserQueryService,
+    DerivedEntityQueryRepository,
+    MappingQueryRepository,
+    MappingSourceQueryRepository,
+    QualityQueryRepository,
+    SchemaQueryRepository,
+    SourceQueryRepository,
+    TransformationImpactQueryRepository,
+    WorkspaceStateQueryRepository,
+)
+from impodo.application.data_version.inspection import (
+    SourceCatalogRepository,
+    SourceInspectionService,
+    WorkspaceCatalogReader,
+)
 from impodo.application.data_version.intake import SourceIntakeService
 from impodo.application.destination_matching_service import (
     DestinationCreateFieldStore,
 )
-from impodo.application.odoo_capture_job_service import OdooCaptureJobManager
 from impodo.application.odoo_capture_publication_service import (
     OdooCapturePublicationService,
 )
 from impodo.application.odoo_connection_service import OdooConnectionTestService
 from impodo.application.odoo_provenance_service import OdooProvenanceService
 from impodo.application.odoo_source_capture_service import OdooSourceCaptureService
-from impodo.application.preflight_jobs import PreflightJobManager
 from impodo.application.project.ports import ScopedMigrationProjectQuery
-from impodo.application.run.recipe_run_jobs import RecipeRunJobManager
 from impodo.application.run.target_matches import RecipeTargetMatchService
-from impodo.application.shared.artifacts import WorkspaceArtifactStore
+from impodo.application.shared.artifacts import (
+    GovernedArtifactStores,
+    WorkspaceArtifactStore,
+)
+from impodo.application.shared.job_runtimes import (
+    CorrectionJobRuntime,
+    LoadJobRuntime,
+    OdooCaptureJobRuntime,
+    PreflightJobRuntime,
+    PreparationJobRuntime,
+    RecipeRunJobRuntime,
+)
 from impodo.application.shared.jobs import JobDispatcher
 from impodo.application.shared.secrets import SecretStore
-from impodo.application.supporting_lookup_service import SupportingLookupService
-from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
-from impodo.application.workspace.execution.load_jobs import LoadJobManager
-from impodo.application.workspace.navigation import WorkspaceNavigationQueryService
+from impodo.application.supporting_lookup_service import (
+    SupportingLookupRepositoryPort,
+    SupportingLookupService,
+)
+from impodo.application.workspace.derived_entities import (
+    DerivedEntityRepository,
+    DerivedEntityWorkspaceService,
+    DerivedSourceRepository,
+)
+from impodo.application.workspace.mapping.field_catalog import (
+    MappingFieldCatalogQueryRepository,
+)
+from impodo.application.workspace.navigation import (
+    WorkspaceNavigationQueryService,
+    WorkspaceNavigationRepository,
+)
 from impodo.application.workspace.preparation.recovery import (
+    PreparationRecoveryRepository,
     PreparationRecoveryService,
 )
-from impodo.application.workspace.views import WorkspaceOwnerViewService
+from impodo.application.workspace.preparation.recovery import (
+    WorkspaceStateReader as PreparationRecoveryWorkspaceReader,
+)
+from impodo.application.workspace.views import (
+    WorkspaceOwnerRepository,
+    WorkspaceOwnerViewService,
+)
 from impodo.domain.shared.access import AuthorizationPolicy
 from impodo.web.context import (
     BrowserReadinessReader,
@@ -58,8 +98,8 @@ from impodo.web.context import (
 from impodo.web.remote_connection import RemoteConnectionStatusService
 from impodo.web.request_identity import RequestIdentityResolver
 
-from .incompatible_project_storage import UnavailableProjectSummary
-from .preparation_job_manager import PreparationJobManager
+from ..project_listing import UnavailableProjectSummary
+from .odoo_source_graph import OdooSourceServiceGraph
 from .service_graph import (
     AuthoringServiceGraph,
     CorrectionServiceGraph,
@@ -91,6 +131,37 @@ class WorkflowSupportServiceGraph:
 
 
 @dataclass(frozen=True, slots=True)
+class BrowserQueryPorts:
+    """Hold read ports used by the browser's deployment-neutral query facade."""
+
+    workspace_states: WorkspaceStateQueryRepository
+    sources: SourceQueryRepository
+    derived_entities: DerivedEntityQueryRepository
+    schemas: SchemaQueryRepository
+    mappings: MappingQueryRepository
+    mapping_field_catalogs: MappingFieldCatalogQueryRepository
+    quality: QualityQueryRepository
+    transformation_impacts: TransformationImpactQueryRepository
+    mapping_sources: MappingSourceQueryRepository
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowSupportPorts:
+    """Hold persistence ports required by browser-support application services."""
+
+    queries: BrowserQueryPorts
+    workspace_owners: WorkspaceOwnerRepository
+    navigation: WorkspaceNavigationRepository
+    workspace_catalogs: WorkspaceCatalogReader
+    source_catalogs: SourceCatalogRepository
+    derived_sources: DerivedSourceRepository
+    derived_entities: DerivedEntityRepository
+    supporting_lookups: SupportingLookupRepositoryPort
+    preparation_recovery: PreparationRecoveryRepository
+    recovery_workspace_states: PreparationRecoveryWorkspaceReader
+
+
+@dataclass(frozen=True, slots=True)
 class ApplicationServiceGraph:
     """Hold the complete deployment-neutral Impodo application graph."""
 
@@ -117,12 +188,12 @@ class WebRequestDependencies:
 class WebJobRuntimes:
     """Hold process or durable job runtimes selected by the deployment."""
 
-    recipe_runs: RecipeRunJobManager | None
-    preparation: PreparationJobManager | None
-    preflight: PreflightJobManager | None
-    load: LoadJobManager | None
-    corrections: CorrectionJobManager
-    odoo_capture: OdooCaptureJobManager | None
+    recipe_runs: RecipeRunJobRuntime | None
+    preparation: PreparationJobRuntime | None
+    preflight: PreflightJobRuntime | None
+    load: LoadJobRuntime | None
+    corrections: CorrectionJobRuntime
+    odoo_capture: OdooCaptureJobRuntime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +224,87 @@ class WebTargetDependencies:
     readback_reader_factory: OdooReadbackReaderFactory
     local_target: LocalTargetRuntime | None
     remote_connections: RemoteConnectionStatusService
+
+
+def build_workflow_support_service_graph(
+    *,
+    foundation: FoundationServiceGraph,
+    authoring: AuthoringServiceGraph,
+    runs: RunServiceGraph,
+    execution: ExecutionServiceGraph,
+    ports: WorkflowSupportPorts,
+    artifacts: GovernedArtifactStores,
+    jobs: WebJobRuntimes,
+    odoo_sources: OdooSourceServiceGraph,
+    connection_tester: ConnectionTester,
+    read_identity_probe: ReadIdentityProbe,
+) -> WorkflowSupportServiceGraph:
+    """Wire browser-support services without selecting persistence adapters."""
+
+    query_ports = ports.queries
+    queries = BrowserQueryService(
+        query_ports.workspace_states,
+        query_ports.sources,
+        query_ports.derived_entities,
+        query_ports.schemas,
+        query_ports.mappings,
+        query_ports.mapping_field_catalogs,
+        query_ports.quality,
+        query_ports.transformation_impacts,
+        query_ports.mapping_sources,
+    )
+    supporting_lookups = SupportingLookupService(
+        ports.supporting_lookups,
+        foundation.workspace_access,
+    )
+    return WorkflowSupportServiceGraph(
+        queries=queries,
+        workspace_views=WorkspaceOwnerViewService(
+            ports.workspace_owners,
+            foundation.workspace_access,
+        ),
+        navigation=WorkspaceNavigationQueryService(
+            ports.navigation,
+            execution.execution,
+            preparation_jobs=jobs.preparation,
+            load_jobs=jobs.load,
+        ),
+        intake=SourceIntakeService(
+            foundation.workspace_states,
+            artifacts,
+            foundation.workspace_access,
+        ),
+        inspections=SourceInspectionService(
+            ports.workspace_catalogs,
+            ports.source_catalogs,
+            artifacts,
+            foundation.workspace_access,
+        ),
+        derived_entities=DerivedEntityWorkspaceService(
+            ports.derived_sources,
+            ports.derived_entities,
+            foundation.workspace_access,
+            artifacts,
+        ),
+        supporting_lookups=supporting_lookups,
+        recipe_target_matches=RecipeTargetMatchService(
+            authoring.mapping_workspace,
+            runs.run_planning,
+            supporting_lookups,
+        ),
+        preparation_recovery=PreparationRecoveryService(
+            ports.preparation_recovery,
+            authoring.mapping_workspace,
+            ports.recovery_workspace_states,
+        ),
+        odoo_source_capture=odoo_sources.capture,
+        odoo_capture_publication=odoo_sources.publication,
+        odoo_provenance=odoo_sources.provenance,
+        odoo_connection_tests=OdooConnectionTestService(
+            connection_tester,
+            read_identity_probe,
+        ),
+    )
 
 
 def build_application_service_graph(
@@ -276,11 +428,14 @@ def build_web_context(
 
 __all__ = [
     "ApplicationServiceGraph",
+    "BrowserQueryPorts",
     "WebInfrastructureDependencies",
     "WebJobRuntimes",
     "WebRequestDependencies",
     "WebTargetDependencies",
+    "WorkflowSupportPorts",
     "WorkflowSupportServiceGraph",
     "build_application_service_graph",
     "build_web_context",
+    "build_workflow_support_service_graph",
 ]

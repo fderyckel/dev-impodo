@@ -19,17 +19,15 @@ from impodo.web.composition.development_reset import (
     DevelopmentResetPlan,
     plan_development_reset,
 )
+from impodo.web.project_listing import (
+    UNAVAILABLE_PROJECT_MESSAGE,
+    UnavailableProjectSummary,
+)
 
 LEGACY_RECIPE_ROOT_MIGRATION_ID = "2026-08-19-recipe-clean-root-v2"
 LEGACY_RECIPE_ROOT_MIGRATION_CHECKSUM = (
     "sha256:84954535ac8c1342ca4735553811a24c9347e13b53ad38ce9434224c83049e89"
 )
-UNAVAILABLE_PROJECT_MESSAGE = (
-    "This project uses an older saved-data format that this version of Impodo "
-    "cannot safely open. Its saved data is preserved. Create a new project to "
-    "continue."
-)
-
 _ARCHIVE_DIRECTORY = ".impodo-development-reset"
 _MANIFEST_NAME = "unavailable-projects.json"
 _MANIFEST_VERSION = 1
@@ -60,17 +58,6 @@ _KNOWN_PROJECT_STATUSES = frozenset(
 class _KnownIncompatibleStorage:
     layout: str
     projects: tuple[UnavailableProjectSummary, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class UnavailableProjectSummary:
-    """Describe one preserved Project that the current build cannot open."""
-
-    project_id: str
-    display_name: str
-    previous_status: str
-    updated_at: datetime
-    message: str = UNAVAILABLE_PROJECT_MESSAGE
 
 
 def prepare_incompatible_project_storage(
@@ -276,18 +263,18 @@ def _plan_matches_known_root(
         if "projects" not in target_names:
             return False
         projects_root = plan.storage_root / "projects"
-        directory_ids: set[str] = set()
+        migration_directory_ids: set[str] = set()
         for entry in projects_root.iterdir():
             if not _is_direct_directory(projects_root, entry):
                 return False
             canonical = _canonical_uuid(entry.name)
             if canonical is None:
                 return False
-            directory_ids.add(canonical)
-        return directory_ids == project_ids
+            migration_directory_ids.add(canonical)
+        return migration_directory_ids == project_ids
     if incompatible.layout != "LEGACY_RECIPE_ROOT" or "projects" in target_names:
         return False
-    directory_ids: set[str] = set()
+    legacy_directory_ids: set[str] = set()
     for target in plan.targets:
         if not target.is_dir():
             continue
@@ -299,8 +286,8 @@ def _plan_matches_known_root(
         database = target / "project.duckdb"
         if not database.is_file() or database.resolve().parent != target:
             return False
-        directory_ids.add(canonical)
-    return directory_ids == project_ids
+        legacy_directory_ids.add(canonical)
+    return legacy_directory_ids == project_ids
 
 
 def _quarantine_known_root(
@@ -411,6 +398,8 @@ def _summary_from_values(
     canonical = _canonical_uuid(project_id)
     name = str(display_name).strip() if display_name is not None else ""
     status = str(previous_status).strip() if previous_status is not None else ""
+    if isinstance(revision, bool) or not isinstance(revision, (int, str)):
+        return None
     try:
         parsed_revision = int(revision)
         parsed_updated_at = datetime.fromisoformat(str(updated_at))
@@ -448,3 +437,10 @@ def _is_direct_directory(parent: Path, candidate: Path) -> bool:
         and candidate.resolve() == candidate
         and candidate.parent == parent
     )
+
+
+__all__ = [
+    "UNAVAILABLE_PROJECT_MESSAGE",
+    "UnavailableProjectSummary",
+    "prepare_incompatible_project_storage",
+]

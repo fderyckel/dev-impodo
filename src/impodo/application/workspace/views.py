@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
-from impodo.application.workspace.access import WorkspaceAccessService
+from impodo.application.workspace.access import (
+    WorkspaceAccessContext,
+    WorkspaceAccessService,
+)
 from impodo.domain.data_version.models import DataVersion
 from impodo.domain.project.foundation import (
     MigrationIdentifierConfusionError,
@@ -79,10 +83,29 @@ class WorkspaceOwnerView:
         return self.migration_run.migration_run_id
 
 
+class WorkspaceOwnerRepository(Protocol):
+    """Read every canonical owner for one verified workspace lineage."""
+
+    def get_workspace_owner_records(
+        self,
+        context: WorkspaceAccessContext,
+    ) -> tuple[
+        MigrationProject,
+        MigrationWorkspace,
+        DataVersion,
+        MigrationRun,
+        MigrationRunTargetSetup | None,
+    ]: ...
+
+
 class WorkspaceOwnerViewService:
     """Read canonical owners after resolving one Project access context."""
 
-    def __init__(self, repository, access: WorkspaceAccessService) -> None:
+    def __init__(
+        self,
+        repository: WorkspaceOwnerRepository,
+        access: WorkspaceAccessService,
+    ) -> None:
         self.repository = repository
         self.access = access
 

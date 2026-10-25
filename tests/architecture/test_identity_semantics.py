@@ -50,8 +50,16 @@ TRUE_PROJECT_ID_TYPES = frozenset(
     {
         "application/data_version/source_packages.py::DataVersionSourcePackage",
         "application/data_version/source_packages.py::WorkspaceSourceProjection",
+        "domain/shared/coordination.py::DataPlaneOperationReceipt",
+        "domain/shared/coordination.py::OperationRequest",
+        "domain/shared/coordination.py::WorkspaceLease",
+        "domain/shared/jobs.py::DurableJobRequest",
+        "domain/shared/retention.py::MinimalDeletionReceipt",
+        "domain/shared/retention.py::ProjectDeletionRequest",
+        "domain/shared/retention.py::ProjectDeletionResult",
+        "domain/shared/retention.py::ProjectRetentionSelection",
         "domain/data_version/models.py::DataVersion",
-        "web/composition/incompatible_project_storage.py::UnavailableProjectSummary",
+        "web/project_listing.py::UnavailableProjectSummary",
         "domain/cutover/models.py::ApplicationQualificationEvidence",
         "domain/cutover/models.py::CutoverPlan",
         "domain/cutover/models.py::CutoverPlanQualification",
@@ -61,9 +69,16 @@ TRUE_PROJECT_ID_TYPES = frozenset(
         "domain/project/foundation.py::MigrationOperationIntent",
         "domain/run/production.py::ProductionRunBinding",
         "domain/run/production_values.py::ProductionRunValues",
+        "domain/shared/coordination.py::DataPlaneOperationReceipt",
+        "domain/shared/coordination.py::OperationRequest",
+        "domain/shared/coordination.py::WorkspaceLease",
+        "domain/shared/jobs.py::DurableJobRequest",
+        "domain/shared/retention.py::MinimalDeletionReceipt",
+        "domain/shared/retention.py::ProjectDeletionRequest",
+        "domain/shared/retention.py::ProjectDeletionResult",
+        "domain/shared/retention.py::ProjectRetentionSelection",
         "application/run/setup_service.py::RunSetupSelection",
         "application/run/recipe_run_jobs.py::RecipeRunJob",
-        "application/run/odoo_requirements.py::SelectedRunSetup",
         "domain/project/models.py::MigrationProject",
         "domain/project/models.py::MigrationProjectSummary",
         "domain/run/contracts.py::MigrationRunRequirementPlan",
@@ -75,16 +90,13 @@ TRUE_PROJECT_ID_TYPES = frozenset(
         "domain/run/test_setup.py::TestRunValues",
         "domain/run/test_setup.py::TestRunSetupBinding",
         "application/workspace/preparation/job_models.py::PreparationWorkspace",
+        "application/workspace/views.py::WorkspaceOwnerView",
         "domain/recipe/models.py::Recipe",
         "application/workspace/access.py::WorkspaceAccessContext",
         "application/cutover_plan_service.py::IntegratedQualificationReview",
         "application/run/planning_models.py::IntegratedRunReview",
         "application/recipe_publication_service.py::RecipeDraft",
         "application/correction_orchestration.py::CorrectionBinding",
-        "application/correction_orchestration.py::StoredOrigin",
-        "application/correction_orchestration.py::StoredPlan",
-        "application/correction_orchestration.py::StoredConfirmation",
-        "application/correction_orchestration.py::StoredTargetIndex",
         "application/correction_workflow.py::CorrectionJourneyView",
         "application/correction_workflow.py::_StoredConfirmationReference",
         "application/correction_workflow.py::_StoredOriginReference",
@@ -275,7 +287,9 @@ class IdentitySemanticsTests(unittest.TestCase):
         )
         self.assertIn("class DataVersionSourceArtifactStore", artifact_text)
         self.assertIn("class WorkspaceArtifactStore", artifact_text)
-        self.assertNotIn("project_id", artifact_text)
+        self.assertIn("class GovernedArtifactMaterializer", artifact_text)
+        self.assertIn("organization_id: OrganizationId", artifact_text)
+        self.assertIn("project_id: str", artifact_text)
         self.assertFalse(
             (ROOT / "src/impodo/adapters/data_version_artifact_store.py").exists()
         )
@@ -430,6 +444,15 @@ def _typed_project_identity_types() -> frozenset[str]:
                 if isinstance(child, ast.AnnAssign)
                 and isinstance(child.target, ast.Name)
             }
+            fields.update(
+                child.name
+                for child in node.body
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and any(
+                    isinstance(decorator, ast.Name) and decorator.id == "property"
+                    for decorator in child.decorator_list
+                )
+            )
             if "project_id" in fields:
                 result.add(f"{path.relative_to(source_root).as_posix()}::{node.name}")
     return frozenset(result)

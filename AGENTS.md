@@ -30,8 +30,9 @@ These instructions apply to the complete repository.
 
 - Ruff owns imports, modernization, and non-type lint rules. Basedpyright owns
   type compatibility, narrowing, annotations, and interface conformance.
-- Do not run `basedpyright --writebaseline` or otherwise add baseline entries
-  without explicit human approval. A normal cleanup may reduce the baseline.
+- Keep every Basedpyright diagnostic visible. Do not create a baseline or run
+  `basedpyright --writebaseline`; correct the type contract and verify the
+  affected behavior instead.
 - Do not add blanket `noqa`, `type: ignore`, package exclusions, or disabled
   diagnostic categories. A narrow suppression requires a documented reason and
   must stay beside the affected expression.

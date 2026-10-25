@@ -50,7 +50,7 @@ class RecipeApplicationEvidenceTests(TestCase):
             _ensure_workspace_database_schema=schema._ensure_workspace_database_schema,
             _insert_workspace_audit=lambda *args, **kwargs: None,
         )
-        self.repository = RecipeQualitySeedRepository(self.database)
+        self.repository = RecipeQualitySeedRepository(self.database, self.database)
         self.repository._workspace_revision = lambda connection: 1
         self.definition = MappingDefinition(
             mapping_id=str(uuid4()), source_selection_hash=content_hash("sources"),

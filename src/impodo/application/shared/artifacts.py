@@ -8,9 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Protocol
 
-from impodo.domain.shared.coordination import ArtifactIdentity
-from impodo.domain.shared.tenancy import OrganizationId
-
 
 class ArtifactStoreError(RuntimeError):
     """Raised when governed artifact storage cannot complete an operation."""
@@ -251,17 +248,3 @@ class GovernedArtifactStores(
     Protocol,
 ):
     """Provide both explicit owner-specific ports at composition boundaries."""
-
-
-class GovernedArtifactMaterializer(Protocol):
-    """Materialize a verified artifact inside an authorized owner scope."""
-
-    def materialize(
-        self,
-        artifact: ArtifactIdentity,
-        *,
-        organization_id: OrganizationId,
-        project_id: str,
-    ) -> AbstractContextManager[Path]:
-        """Yield a temporary local path after scope and hash verification."""
-        ...
