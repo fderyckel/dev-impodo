@@ -239,7 +239,7 @@ def canonicalize_scalar_value(
         elif mapping.value_type == "datetime":
             date_format = _DATETIME_FORMATS[mapping.transform.date_format]
             parsed = (
-                datetime.fromisoformat(prepared.replace("Z", "+00:00"))
+                datetime.fromisoformat(prepared)
                 if date_format is None
                 else datetime.strptime(prepared, date_format)
             )

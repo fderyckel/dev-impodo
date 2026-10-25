@@ -167,7 +167,7 @@ def _worker(
         start_event.wait()
         require_same_application_build(expected_build_contract)
         validate_source_file(path)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - child-process boundary
         sender.send(("error", str(error)))
     else:
         sender.send(("ok", ""))
@@ -194,7 +194,7 @@ def _inspection_worker(
             source_file=source_file,
             options=options,
         )
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - child-process boundary
         sender.send(("error", str(error)))
     else:
         sender.send(("ok", catalog.to_json()))

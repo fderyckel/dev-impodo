@@ -163,7 +163,7 @@ def _value_mappings_from_form(
             target_value,
             str,
         ):
-            raise ValueError("Matched choices are invalid")
+            raise TypeError("Matched choices are invalid")
         mappings.append(ValueMapping(source_value, target_value))
     return tuple(mappings)
 

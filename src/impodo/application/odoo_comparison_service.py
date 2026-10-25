@@ -808,7 +808,7 @@ def _report(
 
 def _snapshot_time(value: str) -> datetime:
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     except ValueError as error:
         raise ReadinessError("Odoo comparison timestamp is invalid") from error
     if parsed.tzinfo is None:

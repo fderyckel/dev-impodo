@@ -3041,16 +3041,16 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             status=PreparationJobStatus.RUNNING,
         )
 
-        publish_preparation_progress(context, job)
+        publish_preparation_progress(context, job, actor=LOCAL_ACTOR)
         current.status = RecipeApplicationStatus.COMPARED
         job.status = PreparationJobStatus.SUCCEEDED
-        publish_preparation_progress(context, job)
+        publish_preparation_progress(context, job, actor=LOCAL_ACTOR)
 
         self.assertEqual(len(attempted), 2)
 
         current.status = RecipeApplicationStatus.DRAFT_READINESS
         with self.assertRaises(MigrationConflictError):
-            publish_preparation_progress(context, job)
+            publish_preparation_progress(context, job, actor=LOCAL_ACTOR)
 
     def test_review_projection_orders_recipes_without_workspace_open(self):
         result = self._start()

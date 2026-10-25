@@ -506,15 +506,7 @@ def _target_credential_id(
     role: TargetCredentialRole,
 ) -> str:
     connection_mode, base_url, database = _target_parts(workspace_state, role)
-    target = "\0".join(
-        (
-            workspace_state.workspace_id,
-            role.value,
-            connection_mode,
-            base_url,
-            database,
-        )
-    ).encode("utf-8")
+    target = f"{workspace_state.workspace_id}\x00{role.value}\x00{connection_mode}\x00{base_url}\x00{database}".encode()
     digest = hashlib.sha256(target).hexdigest()[:24]
     return f"{workspace_state.workspace_id}:{role.value.lower()}:{digest}"
 

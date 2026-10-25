@@ -227,9 +227,10 @@ class JobProgress:
             raise ValueError("phase_code must be a short non-blank code")
         if self.completed_units < 0:
             raise ValueError("completed_units must not be negative")
-        if self.total_units is not None:
-            if self.total_units < 0 or self.completed_units > self.total_units:
-                raise ValueError("progress units exceed the bounded total")
+        if self.total_units is not None and (
+            self.total_units < 0 or self.completed_units > self.total_units
+        ):
+            raise ValueError("progress units exceed the bounded total")
         _aware(self.updated_at, "updated_at")
 
 

@@ -441,7 +441,7 @@ def _restore_typed_value(value: object, value_type: str):
         if value_type == "date":
             return date.fromisoformat(str(value))
         if value_type == "datetime":
-            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(str(value))
             return (
                 parsed
                 if parsed.tzinfo is not None

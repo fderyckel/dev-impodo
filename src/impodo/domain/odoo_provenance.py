@@ -8,6 +8,7 @@ portable source contract.
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 from dataclasses import InitVar, dataclass
@@ -116,7 +117,7 @@ class OdooOriginBatch:
                 "Origin relationship columns are inconsistent"
             )
         if any(not 1 <= value <= _MAX_ODOO_ID for value in ids) or any(
-            current <= previous for previous, current in zip(ids, ids[1:])
+            current <= previous for previous, current in itertools.pairwise(ids)
         ):
             raise OdooProvenanceError(
                 "Odoo origin identifiers must be positive and strictly increasing"

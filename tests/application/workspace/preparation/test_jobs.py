@@ -325,11 +325,11 @@ class PreparationWorkspaceProjectionTests(unittest.TestCase):
             "from_context",
             return_value=base,
         ):
-        result = _preparation_workspace(
-            context,
-            base.workspace_id,
-            actor=LOCAL_ACTOR,
-        )
+            result = _preparation_workspace(
+                context,
+                base.workspace_id,
+                actor=LOCAL_ACTOR,
+            )
 
         self.assertEqual(result.source_package_hash, projection.package_hash)
         self.assertEqual(

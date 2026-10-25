@@ -8,6 +8,7 @@ values are deliberately absent.
 
 from __future__ import annotations
 
+import itertools
 import os
 import struct
 from collections.abc import Iterable
@@ -409,7 +410,7 @@ def _decode_relationship_columns(
         offset += offsets_size
         if offsets[0] != 0 or offsets[-1] != member_count or any(
             current < previous
-            for previous, current in zip(offsets, offsets[1:])
+            for previous, current in itertools.pairwise(offsets)
         ):
             raise ProtectedOdooProvenanceError(
                 "Odoo relationship offsets are invalid"

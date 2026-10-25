@@ -98,7 +98,7 @@ class RecipeResumeTests(TestCase):
         context = NS(run_planning=NS(repository=repository))
         publish_preparation_progress(context, NS(
             workspace=NS(recipe_application_id="app", mapping_content_hash="old"),
-        ))
+        ), actor=LOCAL_ACTOR)
         repository.transition_application_status.assert_not_called()
 
     def test_restart_keeps_verified_and_compared_work_at_its_own_step(self):

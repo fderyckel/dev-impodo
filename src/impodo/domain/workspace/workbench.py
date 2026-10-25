@@ -1800,16 +1800,15 @@ def workspace_setup_requirements(
     """Return every unmet setup requirement with one owning browser step."""
 
     requirements: list[WorkspaceSetupRequirement] = []
-    if workspace.source_mode is SourceMode.FILE:
-        if not workspace.source_files:
-            requirements.append(
-                WorkspaceSetupRequirement(
-                    code="SOURCE_FILE_REQUIRED",
-                    step=WorkspaceSetupStep.FILES,
-                    problem="At least one source file is required",
-                    guidance="Add at least one source file.",
-                )
+    if workspace.source_mode is SourceMode.FILE and not workspace.source_files:
+        requirements.append(
+            WorkspaceSetupRequirement(
+                code="SOURCE_FILE_REQUIRED",
+                step=WorkspaceSetupStep.FILES,
+                problem="At least one source file is required",
+                guidance="Add at least one source file.",
             )
+        )
     if (
         workspace.source_mode is SourceMode.ODOO
         and workspace.odoo_connection_mode is None

@@ -24,6 +24,8 @@ from impodo.application.shared.columnar_runtime import configure_columnar_runtim
 
 configure_columnar_runtime()
 
+import itertools
+
 import polars as pl
 
 from impodo.application.data_version.inspection import (
@@ -215,7 +217,7 @@ class SourceSnapshotCandidateWriter:
             or row_numbers[0] <= self._previous_row
             or any(
                 current <= previous
-                for previous, current in zip(row_numbers, row_numbers[1:])
+                for previous, current in itertools.pairwise(row_numbers)
             )
         ):
             raise SourceLoadError("Source row order is not strictly increasing")

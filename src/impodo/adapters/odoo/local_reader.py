@@ -259,8 +259,8 @@ class LocalOdooMetadataReader:
             create_defaults=create_defaults,
             complete=True,
             limitations=(
-                "Captured through a fixed local Odoo shell transaction that "
-                "is rolled back on exit.",
+                ("Captured through a fixed local Odoo shell transaction that "
+                "is rolled back on exit."),
             ),
         )
 
@@ -422,8 +422,8 @@ class LocalOdooMetadataReader:
                 create_defaults=create_defaults,
                 complete=True,
                 limitations=(
-                    "Captured through a fixed local Odoo shell transaction that "
-                    "is rolled back on exit.",
+                    ("Captured through a fixed local Odoo shell transaction that "
+                    "is rolled back on exit."),
                 ),
             ),
             RecordSnapshot(

@@ -189,7 +189,7 @@ def validate_odoo_base_url(
         return ""
     try:
         parsed_url = urlsplit(base_url)
-        parsed_url.port
+        _ = parsed_url.port
     except ValueError as error:
         raise MigrationFoundationError(
             "The Odoo URL contains an invalid port"

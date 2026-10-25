@@ -201,9 +201,9 @@ def _identity_state(
             return (
                 "Tested - needs attention",
                 "review",
-                f"{result.blocked_count:,} source row"
+                (f"{result.blocked_count:,} source row"
                 f"{'s' if result.blocked_count != 1 else ''} cannot be "
-                "identified safely with this rule.",
+                "identified safely with this rule."),
             )
         return (
             "Tested on current data",

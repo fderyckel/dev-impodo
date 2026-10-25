@@ -301,7 +301,7 @@ def relationship_scope_decisions(
     assigned_and_unresolved = unresolved & (included | set(actions))
     if assigned_and_unresolved:
         raise OdooRelationshipScopeError(
-            f"{sorted(assigned_and_unresolved)[0]} cannot be both unresolved "
+            f"{min(assigned_and_unresolved)} cannot be both unresolved "
             "and assigned an Odoo relationship action"
         )
     available = (
@@ -368,7 +368,7 @@ def relationship_scope_decisions(
     ) | (set(unresolved) - current_selectable_models)
     if unknown:
         raise OdooRelationshipScopeError(
-            f"{sorted(unknown)[0]} is not a selectable Odoo relationship"
+            f"{min(unknown)} is not a selectable Odoo relationship"
         )
     decided_identities = {item.identity for item in decisions}
     current_identities = {
@@ -498,7 +498,7 @@ def propose_relationship_action_defaults(
     unknown = set(explicit) - selectable_models
     if unknown:
         raise OdooRelationshipScopeError(
-            f"{sorted(unknown)[0]} is not a selectable Odoo relationship"
+            f"{min(unknown)} is not a selectable Odoo relationship"
         )
     conflicts = tuple(
         sorted(

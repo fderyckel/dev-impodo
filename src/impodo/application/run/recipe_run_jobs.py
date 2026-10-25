@@ -226,7 +226,7 @@ class RecipeRunJobManager:
             result = work(
                 lambda progress: self._report(job_id, progress)
             )
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - background-job boundary
             with self._lock:
                 self._finish_failed(job_id, _safe_failure_message(error))
         else:

@@ -138,13 +138,13 @@ class PreparedCanonicalProjection:
     ) -> PreparedCanonicalProjection:
         program_payload = payload.get("program")
         if not isinstance(program_payload, Mapping):
-            raise ValueError("Prepared canonical projection program is invalid")
+            raise TypeError("Prepared canonical projection program is invalid")
         program = ColumnarTransformationProgram.from_portable_dict(program_payload)
         if payload.get("program_hash") != program.content_hash:
             raise ValueError("Prepared canonical projection program changed")
         raw_field_sources = payload.get("field_sources", {})
         if not isinstance(raw_field_sources, Mapping):
-            raise ValueError("Prepared canonical field sources are invalid")
+            raise TypeError("Prepared canonical field sources are invalid")
         return cls(
             dataset_id=str(payload["dataset_id"]),
             dataset=str(payload["dataset"]),

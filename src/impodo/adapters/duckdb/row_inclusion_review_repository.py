@@ -411,13 +411,7 @@ class RowInclusionReviewRepository(DuckDbRepository):
             or str(current[5]) != snapshot.identity.source_selection_hash
         ):
             return False
-        if working_draft_version is not None and (
-            current[6] is None
-            or int(current[6]) != working_draft_version
-            or str(current[7]) != snapshot.identity.mapping_content_hash
-        ):
-            return False
-        return True
+        return not (working_draft_version is not None and (current[6] is None or int(current[6]) != working_draft_version or str(current[7]) != snapshot.identity.mapping_content_hash))
 
     def get_review_page(
         self,

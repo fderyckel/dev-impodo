@@ -262,7 +262,7 @@ class ReferenceEntry:
         key = restore_portable_value(payload["key"])
         values = restore_portable_value(payload["values"])
         if not isinstance(key, tuple) or not isinstance(values, dict):
-            raise ValueError("Reference entry portable values are invalid")
+            raise TypeError("Reference entry portable values are invalid")
         return cls(key=key, values=values)
 
 

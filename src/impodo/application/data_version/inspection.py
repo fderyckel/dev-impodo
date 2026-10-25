@@ -1379,7 +1379,7 @@ def _value_kind(value: Any) -> tuple[str, Any]:
         return "decimal", decimal_value
     try:
         if "T" in cleaned or " " in cleaned:
-            parsed_datetime = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+            parsed_datetime = datetime.fromisoformat(cleaned)
             if parsed_datetime.tzinfo is None:
                 parsed_datetime = parsed_datetime.replace(tzinfo=UTC)
             return "datetime", parsed_datetime.astimezone(UTC)

@@ -149,7 +149,7 @@ class SupportingLookupSnapshot:
                 key=str.casefold,
             )
         )
-        requested_fields = set((*key_fields, *scope_fields, display_field))
+        requested_fields = {*key_fields, *scope_fields, display_field}
         contracts_by_name = {item.name: item for item in field_contracts}
         if set(contracts_by_name) != requested_fields:
             raise ValueError(

@@ -130,6 +130,21 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 page,
                 output_directory / "06d-customer-combination.png",
             )
+
+            preview.get_by_role("button", name="Save combined table").click()
+            page.wait_for_load_state("networkidle")
+            saved = page.locator(".exact-join-rule-card").first
+            expect(saved).to_be_visible()
+            expect(saved).to_contain_text("Combined table prepared")
+            expect(saved).to_contain_text("Mapped logical dataset")
+            saved.evaluate(
+                "(element) => element.scrollIntoView({block: 'start'})"
+            )
+            page.evaluate("window.scrollBy(0, -80)")
+            _capture(
+                page,
+                output_directory / "06e-customer-combination-saved.png",
+            )
             browser_context.close()
             browser.close()
     finally:

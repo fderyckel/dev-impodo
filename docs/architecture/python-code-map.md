@@ -45,8 +45,11 @@ belongs or which dependencies it may introduce.
 | Version and qualify an integrated plan | `domain/cutover/models.py`, `CutoverPlanService` | `CutoverPlanRepository`, protected Project evidence, qualification routes |
 | Run selected meaning with latest data | `ProductionCutoverService` | `ProductionRunRepository`, Production run routes, shared workspace engine |
 
-`web/app.py` composes these Project-first boundaries, including the current
-Production coordinator. It does not compose the superseded Recipe-root list,
+`web/composition/local_app.py` composes these Project-first boundaries,
+including the current Production coordinator.
+`web/composition/http_app.py` installs the common route set around that
+assembled graph, while `web/app.py` preserves the historical local import.
+The local composition does not restore the superseded Recipe-root list,
 creation, deletion, Test-application, Production-application, or qualification
 services.
 
@@ -63,7 +66,7 @@ services.
 | DuckDB stores and forward-only schema handling | `adapters/duckdb` and `adapters/duckdb/schema` |
 | Artifact, protected-evidence, job, Odoo, scenario, and columnar implementations | `adapters/artifacts`, `adapters/protected_evidence`, `adapters/jobs`, `adapters/odoo`, and `adapters/scenarios`, plus named integration facades directly below `adapters` |
 | Request handling and view construction | `web/routers` and `web/presenters` |
-| Concrete runtime construction | `web/composition`, `web/app.py`, and `web/capability_builders.py` |
+| Concrete runtime construction | `web/composition/local_app.py`, focused modules below `web/composition`, and `web/capability_builders.py`; `web/app.py` is only a compatibility entry point |
 | Privacy-safe local diagnostics and process recovery | `web/diagnostics.py` builds bounded evidence and redacted bundles, including process-local child logs when a shared file is locked; `web/server_supervisor.py` owns same-port child restart and the circuit breaker; `web/launcher.py` secures and binds the local runtime; `web/routers/lifecycle.py`, `web/static/server-recovery.js`, and `web/static/operation-state.js` own authenticated recovery and operation-aware liveness |
 | Safe formula authoring feedback | `domain/recipe/value_rules.py` owns parsing; `web/mapping_formula_authoring.py` projects formula-free issues for the mapping route and browser |
 | Reuse arithmetic preparation work | `domain/recipe/value_rules.py` compiles safe arithmetic into bounded Python instructions; `domain/staging/evaluator.py` binds them once per dataset, and `domain/mapping/scalar_values.py` supplies only referenced formula inputs |

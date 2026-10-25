@@ -269,7 +269,7 @@ dependency, transaction, browser-asset, test, and review rules.
 | Optional Recipe publication | `domain/recipe/models.py`, `application/recipe/service.py`, `application/recipe_publication_service.py`, `adapters/duckdb/recipe_repository.py` |
 | Integrated Test planning | `domain/run/contracts.py`, `application/run/planning_service.py`, `adapters/duckdb/migration_run_planning_repository.py` |
 | Fresh Recipe application | `application/recipe_application_service.py`, `adapters/duckdb/run_aware_schema_repository.py`, `adapters/duckdb/run_aware_advanced_coverage_repository.py` |
-| Browser composition | `web/app.py`, `web/routers/migration_projects.py`, `web/routers/integrated_runs.py`, `web/routers/workspace_setup.py` |
+| Browser composition | `web/composition/local_app.py` builds local services; `web/composition/http_app.py` installs shared routes; `web/app.py` preserves the local import; route ownership remains in `web/routers` |
 
 ## Related documentation
 

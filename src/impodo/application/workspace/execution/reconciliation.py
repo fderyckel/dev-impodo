@@ -8,6 +8,7 @@ outcome of the original load.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -258,7 +259,9 @@ class ReconciliationService:
                 try:
                     self.evidence.delete(report)
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).exception(
+                        "Could not remove incomplete reconciliation evidence"
+                    )
             raise
         return report
 
@@ -1011,15 +1014,15 @@ class ReconciliationService:
         difference_sink: list[ReconciliationFieldDifference] | None = None,
         target_digits: Mapping[tuple[str, str], tuple[int, int]] | None = None,
     ) -> ReconciliationRow:
-        common = dict(
-            row_id=row.row_id,
-            dataset=row.dataset,
-            source_row=row.source_row,
-            target_model=row.target_model,
-            operation=row.disposition,
-            execution_status=attempt.status.value,
-            odoo_id=actual.odoo_id if actual is not None else attempt.odoo_id,
-        )
+        common = {
+            "row_id": row.row_id,
+            "dataset": row.dataset,
+            "source_row": row.source_row,
+            "target_model": row.target_model,
+            "operation": row.disposition,
+            "execution_status": attempt.status.value,
+            "odoo_id": actual.odoo_id if actual is not None else attempt.odoo_id,
+        }
         if attempt.status in {
             ExecutionRowStatus.PLANNED,
             ExecutionRowStatus.RETRY_READY,

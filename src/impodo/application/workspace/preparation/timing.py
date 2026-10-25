@@ -46,6 +46,6 @@ def _report_safely(
         return
     try:
         reporter(stage, duration_ms, outcome)
-    except Exception:
+    except Exception:  # noqa: BLE001 - optional diagnostics are isolated
         # Optional support evidence must never alter governed preparation.
         return

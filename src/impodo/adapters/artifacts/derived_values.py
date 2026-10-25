@@ -8,6 +8,7 @@ projector are integrated with the pending preparation session.
 
 from __future__ import annotations
 
+import logging
 import shutil
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -351,7 +352,9 @@ class DerivedValueArtifactPublisher:
                             artifact.parquet_storage_key,
                         )
                     except Exception:
-                        pass
+                        logging.getLogger(__name__).exception(
+                            "Could not remove an incomplete derived-value artifact"
+                        )
                 raise
         return DerivedValueArtifactPublication(
             artifact=artifact,

@@ -19,6 +19,7 @@ added to ``OdooReadConnector``. Post-write checks use the separate closed
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import socket
@@ -325,7 +326,7 @@ class Json2Config:
 
         try:
             parsed_url = urlparse(self.base_url)
-            parsed_url.port
+            _ = parsed_url.port
         except ValueError as error:
             raise ConnectorConfigurationError(
                 "Odoo base URL contains an invalid port"
@@ -1069,7 +1070,9 @@ class Json2ReadConnector:
                     observer(failure)
                 except Exception:
                     # Diagnostics must never replace the connector failure.
-                    pass
+                    logging.getLogger(__name__).exception(
+                        "JSON-2 read failure observer raised an exception"
+                    )
             raise ConnectorTransportError(failure.user_message) from error
         if status != 200:
             if status in {401, 403}:
@@ -1420,11 +1423,12 @@ def _validate_snapshot_binding(
     """Verify exact profile and source-package snapshot bindings."""
 
     profile = data.get("profile")
-    if expected_profile_id is not None:
-        if not isinstance(profile, Mapping) or profile.get("id") != expected_profile_id:
-            raise ConnectorConfigurationError(
-                "snapshot profile ID does not match selected profile"
-            )
+    if expected_profile_id is not None and (
+        not isinstance(profile, Mapping) or profile.get("id") != expected_profile_id
+    ):
+        raise ConnectorConfigurationError(
+            "snapshot profile ID does not match selected profile"
+        )
     if expected_source_hashes is not None:
         if "source_hashes" not in data:
             raise ConnectorConfigurationError(
@@ -1458,7 +1462,7 @@ def _many2one_id(value: Any) -> int:
 
     candidate = value[0] if isinstance(value, (list, tuple)) and value else value
     if isinstance(candidate, bool):
-        raise ValueError("boolean is not a valid Odoo identifier")
+        raise TypeError("boolean is not a valid Odoo identifier")
     identifier = int(candidate)
     if identifier <= 0:
         raise ValueError("Odoo identifier must be positive")
@@ -1473,7 +1477,7 @@ def _positive_ids(value: Any) -> tuple[int, ...]:
     identifiers: list[int] = []
     for item in value:
         if isinstance(item, bool):
-            raise ValueError("boolean is not a valid Odoo identifier")
+            raise TypeError("boolean is not a valid Odoo identifier")
         identifier = int(item)
         if identifier <= 0:
             raise ValueError("Odoo identifier must be positive")

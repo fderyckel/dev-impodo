@@ -407,7 +407,7 @@ def _fields_are_available(
     fields: dict[str, SchemaField],
 ) -> bool:
     expected = {field.name: field for field in rule.fields}
-    if set(expected) != set((*rule.key_fields, *rule.scope_fields)):
+    if set(expected) != {*rule.key_fields, *rule.scope_fields}:
         return False
     for name, contract in expected.items():
         field = fields.get(name)

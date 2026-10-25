@@ -466,7 +466,7 @@ class DerivedEntityPlan:
         for evidence in reviews:
             rule = rules.get(evidence.rule_id)
             if not isinstance(rule, ExactJoinRule):
-                raise ValueError("Saved exact-join review does not match a plan rule")
+                raise TypeError("Saved exact-join review does not match a plan rule")
             if evidence.rule_hash != _content_hash(rule.to_dict()):
                 raise ValueError("Saved exact-join review rule hash is invalid")
             if evidence.source_selection_hash != self.source_selection_hash:

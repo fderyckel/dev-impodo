@@ -11,6 +11,7 @@ totals. Full-pipeline admission also checks downstream preparation capabilities.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -983,7 +984,9 @@ def _cleanup_prepared_snapshot_orphans(
         referenced = sessions.prepared_snapshot_storage_keys(workspace_id)
         artifacts.cleanup_prepared_snapshots(workspace_id, referenced)
     except Exception:
-        pass
+        logging.getLogger(__name__).exception(
+            "Could not clean up orphaned prepared snapshots"
+        )
 
 
 @contextmanager

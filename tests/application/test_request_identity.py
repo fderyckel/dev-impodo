@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import unittest
+from datetime import UTC, datetime
+from unittest.mock import Mock
 
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.shared.tenancy import AuthenticationMethod, PrincipalKind
+from impodo.web.composition.local_app import LocalWebContext
 from impodo.web.composition.local_identity import (
     LOCAL_ORGANIZATION_ID,
     LocalRequestIdentityResolver,
 )
 from impodo.web.composition.server_app import (
+    ServerAdapterBundle,
     ServerCompositionError,
     create_server_app,
 )
+from impodo.web.context import WebContext
 
-
-NOW = datetime(2026, 10, 23, 9, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 23, 9, 0, tzinfo=UTC)
 
 
 class RequestIdentityCompositionTests(unittest.TestCase):
@@ -48,6 +51,29 @@ class RequestIdentityCompositionTests(unittest.TestCase):
             "PostgreSQL control-plane",
         ):
             create_server_app()
+
+    def test_server_composition_stays_disabled_after_ports_are_named(self) -> None:
+        adapters = ServerAdapterBundle(
+            identity_resolver=Mock(),
+            authorization=Mock(),
+            project_queries=Mock(),
+            workspace_access=Mock(),
+            operation_journal=Mock(),
+            workspace_leases=Mock(),
+            artifacts=Mock(),
+            jobs=Mock(),
+            secret_store=Mock(),
+        )
+
+        with self.assertRaisesRegex(
+            ServerCompositionError,
+            "deployment-neutral service graph",
+        ):
+            create_server_app(adapters)
+
+    def test_shared_web_context_has_no_process_global_actor(self) -> None:
+        self.assertNotIn("actor", WebContext.__dataclass_fields__)
+        self.assertIn("actor", LocalWebContext.__dataclass_fields__)
 
 
 if __name__ == "__main__":

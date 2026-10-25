@@ -124,9 +124,7 @@ class TargetNumericPrecisionLosses:
 
         if not self._groups:
             return None
-        (model, field_name, digits), group = sorted(
-            self._groups.items(), key=lambda item: (-item[1].count, item[0])
-        )[0]
+        (model, field_name, digits), group = min(self._groups.items(), key=lambda item: (-item[1].count, item[0]))
         return TargetNumericPrecisionSummary(
             model=model,
             field_name=field_name,

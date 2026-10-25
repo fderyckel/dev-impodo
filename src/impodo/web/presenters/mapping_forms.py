@@ -128,7 +128,7 @@ def _selection_rules_from_form(form, field_name: str) -> SelectionRuleSet:
     }:
         raise ValueError("Conditional choice rules are invalid")
     if not isinstance(payload["rules"], list):
-        raise ValueError("Conditional choice rules are invalid")
+        raise TypeError("Conditional choice rules are invalid")
     rules = []
     for rule_payload in payload["rules"]:
         if not isinstance(rule_payload, dict) or set(rule_payload) != {
@@ -139,7 +139,7 @@ def _selection_rules_from_form(form, field_name: str) -> SelectionRuleSet:
         }:
             raise ValueError("Conditional choice rules are invalid")
         if not isinstance(rule_payload["conditions"], list):
-            raise ValueError("Conditional choice conditions are invalid")
+            raise TypeError("Conditional choice conditions are invalid")
         conditions = []
         for condition_payload in rule_payload["conditions"]:
             if not isinstance(condition_payload, dict) or set(condition_payload) != {

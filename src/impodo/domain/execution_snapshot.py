@@ -2129,7 +2129,7 @@ def _restore_row(payload: Mapping[str, Any]) -> ExecutionRow:
         or not isinstance(scope, tuple)
         or not isinstance(source_identity, tuple)
     ):
-        raise ValueError("Execution snapshot business identity is invalid")
+        raise TypeError("Execution snapshot business identity is invalid")
     row = ExecutionRow(
         row_id=str(payload["row_id"]),
         dataset=str(payload["dataset"]),

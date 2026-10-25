@@ -16,7 +16,9 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Set
+import logging
+from collections.abc import Callable, Iterable
+from collections.abc import Set as AbstractSet
 from contextlib import ExitStack
 from typing import Protocol
 
@@ -481,13 +483,15 @@ class PreparationService:
                         "BOUNDED_PIPELINE_FAILED",
                     )
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).exception(
+                        "Could not mark the failed preparation session"
+                    )
             raise
 
 
 def prepared_target_precision_error(
     rows: Iterable[CanonicalRow],
-    eligible_row_ids: Set[str],
+    eligible_row_ids: AbstractSet[str],
     definition: MappingDefinition,
     selection: SourceSelection,
     schema: OdooSchemaCatalog | None,

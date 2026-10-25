@@ -720,7 +720,7 @@ def _timestamp_text(value: datetime) -> str:
 
 
 def _timestamp_from_text(value: str) -> datetime:
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    parsed = datetime.fromisoformat(value)
     require_aware(parsed, "timestamp")
     return parsed.astimezone(UTC)
 

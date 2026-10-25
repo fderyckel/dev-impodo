@@ -207,7 +207,6 @@ class PreparationNormalizationRecords:
                     )
                     """
                 )
-                construction_ordinal = 0
                 pending_effects: list[list[object]] = []
                 pending_group_seeds: list[list[object]] = []
                 bound_rows = self._iter_bound_impacts_with_eligibility(
@@ -217,7 +216,9 @@ class PreparationNormalizationRecords:
                     sparse_quality=sparse_quality,
                     batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
                 )
-                for effect, metadata in effect_builder(bound_rows):
+                for construction_ordinal, (effect, metadata) in enumerate(
+                    effect_builder(bound_rows)
+                ):
                     kind = getattr(metadata["kind"], "value", metadata["kind"])
                     outcome = getattr(
                         metadata["outcome"],
@@ -269,7 +270,6 @@ class PreparationNormalizationRecords:
                             metadata_values["owner_label"],
                         ]
                     )
-                    construction_ordinal += 1
                     if len(pending_effects) >= PREPARATION_SESSION_ROW_BATCH_SIZE:
                         self._insert_prepared_normalization_effects(
                             connection,

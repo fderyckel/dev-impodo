@@ -319,6 +319,9 @@ class PreparationJobManager:
             except Exception:
                 # _start records the actionable terminal failure. Continue so
                 # one launch problem cannot strand unrelated queued workspaces.
+                logging.getLogger(__name__).exception(
+                    "Could not start a queued preparation job"
+                )
                 continue
 
     def _start(self, job: PreparationJob, actor: Actor) -> None:
@@ -643,21 +646,21 @@ def _run_preparation_worker(
             (
                 "failed",
                 "LOCAL_WORKSPACE_STORAGE_IO_FAILED",
-                "Impodo could not read or save this workspace's local files. "
+                ("Impodo could not read or save this workspace's local files. "
                 "No Odoo records were changed and your previous prepared "
                 "evidence remains available. Check that the local drive is "
-                "available and has free space, then try again.",
+                "available and has free space, then try again."),
             )
         )
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - child-process boundary
         failure_code = type(error).__name__[:200]
         finish_timing("failed", failure_code)
         events.put(
             (
                 "failed",
                 failure_code,
-                "Preparation stopped unexpectedly. Your previous saved evidence "
-                "remains available; try again.",
+                ("Preparation stopped unexpectedly. Your previous saved evidence "
+                "remains available; try again."),
             )
         )
 
@@ -667,7 +670,7 @@ def _resolution_review_is_waiting(preparation: Any, workspace_id: str) -> bool:
         return False
     try:
         review = preparation.resolution.current_review(workspace_id)
-    except Exception:
+    except Exception:  # noqa: BLE001 - optional review status is best effort
         return False
     return bool(
         review is not None

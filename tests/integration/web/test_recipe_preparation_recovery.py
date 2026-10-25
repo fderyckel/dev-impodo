@@ -53,17 +53,21 @@ class RecipePreparationRecoveryBrowserTests(TestCase):
         manager = PreparationJobManager(self.root)
         self.addCleanup(manager.shutdown)
         context.preparation_jobs = manager
-        manager.set_result_reader(lambda job: context.preparation_recovery.current(
-            job.workspace_id, job.workspace.mapping_content_hash, actor=actor,
+        manager.set_result_reader(lambda job, worker_actor: context.preparation_recovery.current(
+            job.workspace_id, job.workspace.mapping_content_hash, actor=worker_actor,
         ))
 
-        def lost_registry_notification(job):
+        def lost_registry_notification(job, worker_actor):
             if job.status is PreparationJobStatus.SUCCEEDED:
                 raise RuntimeError("Injected loss of the final registry notification")
-            publish_preparation_progress(context, job)
+            publish_preparation_progress(context, job, actor=worker_actor)
 
         manager.set_status_listener(lost_registry_notification)
-        workspace = replace(_preparation_workspace(context, application.workspace_id),
+        workspace = replace(_preparation_workspace(
+            context,
+            application.workspace_id,
+            actor=actor,
+        ),
                             mapping_content_hash=application.mapping_content_hash)
         with patch("impodo.web.composition.preparation_job_manager._run_preparation_worker", _worker_without_final_notification):
             job = manager.enqueue(application.workspace_id, "Customer balances", 2, actor=actor, workspace=workspace)

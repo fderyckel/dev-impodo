@@ -682,7 +682,7 @@ def odoo_scalar_values_equal(expected: object, actual: object) -> bool:
             parsed = (
                 actual
                 if isinstance(actual, datetime)
-                else datetime.fromisoformat(str(actual).replace("Z", "+00:00"))
+                else datetime.fromisoformat(str(actual))
             )
         except (TypeError, ValueError):
             return False

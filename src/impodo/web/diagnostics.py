@@ -285,10 +285,8 @@ class LocalDiagnosticRecorder:
         self.slow_request_seconds = float(slow_request_seconds)
         self._lock = Lock()
         self._closed = False
-        self._logger = logging.Logger(
-            f"impodo.local_diagnostics.{uuid4()}",
-            level=logging.INFO,
-        )
+        self._logger = logging.getLogger(f"impodo.local_diagnostics.{uuid4()}")
+        self._logger.setLevel(logging.INFO)
         self._logger.propagate = False
         handler = _ConcurrentRotatingFileHandler(
             self.path,

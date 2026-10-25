@@ -17,7 +17,7 @@ T = TypeVar("T")
 DatabaseScope = Callable[[], AbstractContextManager[None]]
 
 
-async def _run_in_database_scope(
+async def _run_in_database_scope[**P, T](
     database_scope: DatabaseScope,
     function: Callable[P, T],
     *args: P.args,
@@ -39,7 +39,7 @@ async def _run_in_database_scope(
     return await run_in_threadpool(invoke)
 
 
-async def run_page_read(
+async def run_page_read[**P, T](
     function: Callable[P, T], *args: P.args, **kwargs: P.kwargs
 ) -> T:
     """Run one local page read off-loop while reusing its database owners.
@@ -57,7 +57,7 @@ async def run_page_read(
     )
 
 
-async def run_local_operation(
+async def run_local_operation[**P, T](
     function: Callable[P, T], *args: P.args, **kwargs: P.kwargs
 ) -> T:
     """Run one local command off-loop while reusing its database owners.

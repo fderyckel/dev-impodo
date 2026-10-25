@@ -1208,7 +1208,7 @@ def _row_inclusion_policy_from_dict(
     )
     conditions_payload = payload.get("conditions", ())
     if not isinstance(conditions_payload, (list, tuple)):
-        raise ValueError("Row-inclusion conditions are invalid")
+        raise TypeError("Row-inclusion conditions are invalid")
     return RowInclusionPolicy(
         mode=RowInclusionMode(
             payload.get("mode", RowInclusionMode.ALL_ROWS.value)
@@ -1308,12 +1308,12 @@ def _scalar_field_mapping_from_dict(
     )
     transform_payload = payload.get("transform", {})
     if not isinstance(transform_payload, Mapping):
-        raise ValueError("Scalar transform policy must be an object")
+        raise TypeError("Scalar transform policy must be an object")
     if set(transform_payload) != set(asdict(ScalarTransformPolicy())):
         raise ValueError("Scalar transform fields do not match the current contract")
     validation_payload = payload.get("validation", {})
     if not isinstance(validation_payload, Mapping):
-        raise ValueError("Scalar validation policy must be an object")
+        raise TypeError("Scalar validation policy must be an object")
     if set(validation_payload) != set(asdict(ScalarValidationPolicy())):
         raise ValueError("Scalar validation fields do not match the current contract")
     return ScalarFieldMapping(
@@ -1450,7 +1450,7 @@ def _selection_rule_set_from_dict(payload: Mapping[str, Any]) -> SelectionRuleSe
     )
     rules_payload = payload.get("rules")
     if not isinstance(rules_payload, list):
-        raise ValueError("Selection rules must be a list")
+        raise TypeError("Selection rules must be a list")
     return SelectionRuleSet(
         rules=tuple(_selection_rule_from_dict(item) for item in rules_payload),
         otherwise_value=(
@@ -1469,7 +1469,7 @@ def _selection_rule_from_dict(payload: Mapping[str, Any]) -> SelectionRule:
     )
     conditions_payload = payload.get("conditions")
     if not isinstance(conditions_payload, list):
-        raise ValueError("Selection-rule conditions must be a list")
+        raise TypeError("Selection-rule conditions must be a list")
     return SelectionRule(
         rule_id=str(payload.get("rule_id", "")),
         conditions=tuple(

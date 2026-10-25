@@ -8,11 +8,12 @@ normalization/preflight evidence when quality semantics change.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import (
     UTC,
     datetime,
 )
+from typing import cast
 from uuid import UUID, uuid4
 
 import duckdb
@@ -34,6 +35,7 @@ from impodo.domain.preparation.quality import (
     QualityRunStatus,
     QualityRunSummary,
     QuarantineEntry,
+    SourceAccountingEntry,
     SourceAccountingState,
     StoredQualityRun,
     retention_context_hash,
@@ -98,6 +100,107 @@ _SOURCE_ACCOUNTING_LINK_JSON_STRUCTURE = """[{
     "accounting_ordinal":"BIGINT",
     "row_id":"VARCHAR"
 }]"""
+
+
+def _quality_issue_rows(
+    batch: Sequence[QualityIssue],
+    *,
+    start: int,
+    hasher: CanonicalJsonObjectHasher,
+) -> Iterator[Mapping[str, object]]:
+    """Yield one bounded quality-issue batch in canonical order."""
+
+    for offset, item in enumerate(batch):
+        item_json = _canonical_json(item.to_portable_dict())
+        hasher.add_encoded_array_item(item_json)
+        yield {
+            "ordinal": start + offset,
+            "issue_id": item.issue_id,
+            "rule_id": item.rule_id,
+            "dataset": item.dataset,
+            "row_id": item.row_id,
+            "policy": item.policy.value,
+            "issue_json": item_json,
+        }
+
+
+def _quarantine_rows(
+    batch: Sequence[QuarantineEntry],
+    *,
+    start: int,
+    hasher: CanonicalJsonObjectHasher,
+) -> Iterator[Mapping[str, object]]:
+    """Yield one bounded quarantine batch in canonical order."""
+
+    for offset, item in enumerate(batch):
+        item_json = _canonical_json(item.to_portable_dict())
+        hasher.add_encoded_array_item(item_json)
+        yield {
+            "ordinal": start + offset,
+            "entry_id": item.entry_id,
+            "row_id": item.row_id,
+            "rule_id": item.rule_id,
+            "entry_json": item_json,
+        }
+
+
+def _quality_result_rows(
+    batch: Sequence[QualityRowResult],
+    *,
+    start: int,
+    hasher: CanonicalJsonObjectHasher,
+    sparse: bool,
+) -> Iterator[Mapping[str, object]]:
+    """Yield one bounded result batch while preserving sparse hashing."""
+
+    for offset, item in enumerate(batch):
+        item_json = _canonical_json(item.to_portable_dict())
+        hasher.add_encoded_array_item(item_json)
+        if sparse and not (
+            item.issue_ids
+            or item.requires_review
+            or item.base_disposition
+            not in {
+                QualityDisposition.CANDIDATE,
+                QualityDisposition.REFERENCE,
+            }
+            or item.effective_disposition is not item.base_disposition
+        ):
+            continue
+        yield {
+            "ordinal": start + offset,
+            "row_id": item.row_id,
+            "dataset": item.dataset,
+            "source_row": item.source_row,
+            "record_label": item.record_label,
+            "base_disposition": item.base_disposition.value,
+            "effective_disposition": item.effective_disposition.value,
+            "requires_review": item.requires_review,
+            "row_json": "" if sparse else item_json,
+        }
+
+
+def _source_accounting_rows(
+    batch: Sequence[SourceAccountingEntry],
+    *,
+    start: int,
+    hasher: CanonicalJsonObjectHasher,
+    sparse: bool,
+) -> Iterator[Mapping[str, object]]:
+    """Yield one bounded accounting batch while preserving sparse hashing."""
+
+    for offset, item in enumerate(batch):
+        item_json = _canonical_json(item.to_portable_dict())
+        hasher.add_encoded_array_item(item_json)
+        if sparse:
+            continue
+        yield {
+            "ordinal": start + offset,
+            "physical_dataset_id": item.physical_dataset_id,
+            "source_row": item.source_row,
+            "state": item.state.value,
+            "entry_json": item_json,
+        }
 
 
 def _collision_display(value: object) -> str:
@@ -1191,23 +1294,9 @@ class QualityRepository(DuckDbRepository):
         for start in range(0, len(run.issues), QUALITY_ROW_BATCH_SIZE):
             batch = run.issues[start : start + QUALITY_ROW_BATCH_SIZE]
 
-            def transport_rows():
-                for offset, item in enumerate(batch):
-                    item_json = _canonical_json(item.to_portable_dict())
-                    hasher.add_encoded_array_item(item_json)
-                    yield {
-                        "ordinal": start + offset,
-                        "issue_id": item.issue_id,
-                        "rule_id": item.rule_id,
-                        "dataset": item.dataset,
-                        "row_id": item.row_id,
-                        "policy": item.policy.value,
-                        "issue_json": item_json,
-                    }
-
             inserted_issues = 0
             for encoded_batch in iter_encoded_json_batches(
-                transport_rows(),
+                _quality_issue_rows(batch, start=start, hasher=hasher),
                 max_rows=QUALITY_ROW_BATCH_SIZE,
                 max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
             ):
@@ -1242,21 +1331,9 @@ class QualityRepository(DuckDbRepository):
         for start in range(0, len(run.quarantine), QUALITY_ROW_BATCH_SIZE):
             batch = run.quarantine[start : start + QUALITY_ROW_BATCH_SIZE]
 
-            def transport_rows():
-                for offset, item in enumerate(batch):
-                    item_json = _canonical_json(item.to_portable_dict())
-                    hasher.add_encoded_array_item(item_json)
-                    yield {
-                        "ordinal": start + offset,
-                        "entry_id": item.entry_id,
-                        "row_id": item.row_id,
-                        "rule_id": item.rule_id,
-                        "entry_json": item_json,
-                    }
-
             inserted_entries = 0
             for encoded_batch in iter_encoded_json_batches(
-                transport_rows(),
+                _quarantine_rows(batch, start=start, hasher=hasher),
                 max_rows=QUALITY_ROW_BATCH_SIZE,
                 max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
             ):
@@ -1321,38 +1398,13 @@ class QualityRepository(DuckDbRepository):
             for batch in row_batch_reader(connection, QUALITY_ROW_BATCH_SIZE):
                 batch_start_ordinal = row_ordinal
 
-                def transport_rows():
-                    for offset, item in enumerate(batch):
-                        item_json = _canonical_json(item.to_portable_dict())
-                        hasher.add_encoded_array_item(item_json)
-                        if sparse_rows and not (
-                            item.issue_ids
-                            or item.requires_review
-                            or item.base_disposition
-                            not in {
-                                QualityDisposition.CANDIDATE,
-                                QualityDisposition.REFERENCE,
-                            }
-                            or item.effective_disposition
-                            is not item.base_disposition
-                        ):
-                            continue
-                        yield {
-                            "ordinal": batch_start_ordinal + offset,
-                            "row_id": item.row_id,
-                            "dataset": item.dataset,
-                            "source_row": item.source_row,
-                            "record_label": item.record_label,
-                            "base_disposition": item.base_disposition.value,
-                            "effective_disposition": (
-                                item.effective_disposition.value
-                            ),
-                            "requires_review": item.requires_review,
-                            "row_json": "" if sparse_rows else item_json,
-                        }
-
                 for encoded_batch in iter_encoded_json_batches(
-                    transport_rows(),
+                    _quality_result_rows(
+                        cast(Sequence[QualityRowResult], batch),
+                        start=batch_start_ordinal,
+                        hasher=hasher,
+                        sparse=bool(sparse_rows),
+                    ),
                     max_rows=QUALITY_ROW_BATCH_SIZE,
                     max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
                 ):
@@ -1392,27 +1444,14 @@ class QualityRepository(DuckDbRepository):
                 ]
                 batch_start_ordinal = row_ordinal
 
-                def transport_rows():
-                    for offset, item in enumerate(batch):
-                        item_json = _canonical_json(item.to_portable_dict())
-                        hasher.add_encoded_array_item(item_json)
-                        yield {
-                            "ordinal": batch_start_ordinal + offset,
-                            "row_id": item.row_id,
-                            "dataset": item.dataset,
-                            "source_row": item.source_row,
-                            "record_label": item.record_label,
-                            "base_disposition": item.base_disposition.value,
-                            "effective_disposition": (
-                                item.effective_disposition.value
-                            ),
-                            "requires_review": item.requires_review,
-                            "row_json": item_json,
-                        }
-
                 inserted_rows = 0
                 for encoded_batch in iter_encoded_json_batches(
-                    transport_rows(),
+                    _quality_result_rows(
+                        batch,
+                        start=batch_start_ordinal,
+                        hasher=hasher,
+                        sparse=False,
+                    ),
                     max_rows=QUALITY_ROW_BATCH_SIZE,
                     max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
                 ):
@@ -1468,25 +1507,14 @@ class QualityRepository(DuckDbRepository):
             for batch in accounting_batches:
                 batch_start_ordinal = accounting_ordinal
 
-                def entry_transport_rows():
-                    for offset, item in enumerate(batch):
-                        item_json = _canonical_json(item.to_portable_dict())
-                        hasher.add_encoded_array_item(item_json)
-                        if sparse_accounting:
-                            continue
-                        yield {
-                            "ordinal": batch_start_ordinal + offset,
-                            "physical_dataset_id": item.physical_dataset_id,
-                            "source_row": item.source_row,
-                            "state": item.state.value,
-                            "entry_json": (
-                                "" if sparse_accounting else item_json
-                            ),
-                        }
-
                 inserted_entries = 0
                 for encoded_batch in iter_encoded_json_batches(
-                    entry_transport_rows(),
+                    _source_accounting_rows(
+                        cast(Sequence[SourceAccountingEntry], batch),
+                        start=batch_start_ordinal,
+                        hasher=hasher,
+                        sparse=bool(sparse_accounting),
+                    ),
                     max_rows=QUALITY_ROW_BATCH_SIZE,
                     max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
                 ):
@@ -1577,21 +1605,14 @@ class QualityRepository(DuckDbRepository):
                 ]
                 batch_start_ordinal = accounting_ordinal
 
-                def entry_transport_rows():
-                    for offset, item in enumerate(batch):
-                        item_json = _canonical_json(item.to_portable_dict())
-                        hasher.add_encoded_array_item(item_json)
-                        yield {
-                            "ordinal": batch_start_ordinal + offset,
-                            "physical_dataset_id": item.physical_dataset_id,
-                            "source_row": item.source_row,
-                            "state": item.state.value,
-                            "entry_json": item_json,
-                        }
-
                 inserted_entries = 0
                 for encoded_batch in iter_encoded_json_batches(
-                    entry_transport_rows(),
+                    _source_accounting_rows(
+                        batch,
+                        start=batch_start_ordinal,
+                        hasher=hasher,
+                        sparse=False,
+                    ),
                     max_rows=QUALITY_ROW_BATCH_SIZE,
                     max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
                 ):

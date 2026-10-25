@@ -250,7 +250,7 @@ class LoadJobManager:
                         partial(self._report_writing, job_id),
                         partial(self._report_verifying, job_id),
                     )
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - background-job boundary
                 with self._lock:
                     finished = self._finish_failed(
                         job_id,

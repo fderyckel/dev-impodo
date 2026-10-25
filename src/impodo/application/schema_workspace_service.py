@@ -1192,7 +1192,7 @@ class SchemaWorkspaceService:
         )
         missing_discovered = permitted - set(discovered_labels)
         if model_catalog and missing_discovered:
-            missing = sorted(missing_discovered)[0]
+            missing = min(missing_discovered)
             raise WorkspaceError(
                 f"{missing} is no longer in the refreshed Odoo model catalogue; "
                 "save the permitted model scope again"
@@ -1765,8 +1765,8 @@ def _schema_refresh_changes(
         (
             current.read_context_hash,
             candidate.read_context_hash,
-            "The saved access verification format or available Odoo company "
-            "scope changed.",
+            ("The saved access verification format or available Odoo company "
+            "scope changed."),
         ),
     )
     for previous, observed, description in target_facts:

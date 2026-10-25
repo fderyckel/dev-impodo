@@ -553,6 +553,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             total_rows=3,
             relationship_total_rows=1,
             load_group_count=2,
+            actor=context.actor,
             access_context=context.workspace_access.resolve(
                 workspace_state.workspace_id,
                 actor=context.actor,
@@ -658,7 +659,8 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         preview_reads_outside_event_loop = []
 
-        def current_preview(_workspace_id):
+        def current_preview(_workspace_id, *, actor):
+            self.assertEqual(actor, context.actor)
             try:
                 asyncio.get_running_loop()
             except RuntimeError:

@@ -233,7 +233,7 @@ class PreflightJobManager:
             try:
                 with bind_workspace_access_context(access_context):
                     result = work(partial(self._update_phase, job_id))
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - background-job boundary
                 with self._lock:
                     self._finish_failed(job_id, error)
             else:

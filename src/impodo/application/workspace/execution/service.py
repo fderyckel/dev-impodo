@@ -146,15 +146,21 @@ def _targeted_recovery_row_ids(
                 related_models.add(intent.related_model)
                 values = intent.value if isinstance(intent.value, tuple) else (intent.value,)
                 for value in values:
-                    if isinstance(value, LogicalReference) and value.origin == "incoming":
-                        if value.dataset:
-                            related_datasets.add(value.dataset)
+                    if (
+                        isinstance(value, LogicalReference)
+                        and value.origin == "incoming"
+                        and value.dataset
+                    ):
+                        related_datasets.add(value.dataset)
         for value in (*row.business_identity, *row.business_scope):
             if isinstance(value, BusinessReference) and value.model:
                 related_models.add(value.model)
-            elif isinstance(value, LogicalReference) and value.origin == "incoming":
-                if value.dataset:
-                    related_datasets.add(value.dataset)
+            elif (
+                isinstance(value, LogicalReference)
+                and value.origin == "incoming"
+                and value.dataset
+            ):
+                related_datasets.add(value.dataset)
         for model in related_models.difference(expanded_models):
             related_ids.update(by_model.get(model, ()))
             expanded_models.add(model)
@@ -3765,18 +3771,18 @@ def _execution_dependency_summary(
 _BLOCKER_GUIDANCE: dict[str, tuple[str, str]] = {
     "HARD_DEPENDENCY_CYCLE": (
         "Required relationships cannot be created in a safe order",
-        "Make one relationship optional, point it to an existing Odoo record, "
-        "or correct the source relationships, then compare again.",
+        ("Make one relationship optional, point it to an existing Odoo record, "
+        "or correct the source relationships, then compare again."),
     ),
     "MISSING_INCOMING_ROW": (
         "A related source record is missing",
-        "Add the supporting record or change the relationship to a valid "
-        "reviewed record, then compare again.",
+        ("Add the supporting record or change the relationship to a valid "
+        "reviewed record, then compare again."),
     ),
     "DUPLICATE_INCOMING_ROW": (
         "A related source record is not unique",
-        "Remove the duplicate or choose a business key that identifies one "
-        "record, then compare again.",
+        ("Remove the duplicate or choose a business key that identifies one "
+        "record, then compare again."),
     ),
     "INCOMPLETE_INCOMING_REFERENCE": (
         "A source relationship is incomplete",
@@ -3792,13 +3798,13 @@ _BLOCKER_GUIDANCE: dict[str, tuple[str, str]] = {
     ),
     "MISSING_DEPENDENCY_STRENGTH": (
         "A relationship rule is incomplete",
-        "Review whether the relationship is required or optional, then compare "
-        "again.",
+        ("Review whether the relationship is required or optional, then compare "
+        "again."),
     ),
     "BLOCKED_DEPENDENCY": (
         "A record depends on another blocked source record",
-        "Resolve the earlier relationship warning; Impodo will then recalculate "
-        "the load order.",
+        ("Resolve the earlier relationship warning; Impodo will then recalculate "
+        "the load order."),
     ),
     "AMBIGUOUS_ROWS": (
         "Some records match more than one Odoo record",
@@ -3806,8 +3812,8 @@ _BLOCKER_GUIDANCE: dict[str, tuple[str, str]] = {
     ),
     "BLOCKED_ROWS": (
         "Some records still need a valid mapping or value",
-        "Open the affected rows in Final review to see the field and reason. "
-        "Correct the source, mapping, or Odoo record, then compare again.",
+        ("Open the affected rows in Final review to see the field and reason. "
+        "Correct the source, mapping, or Odoo record, then compare again."),
     ),
 }
 

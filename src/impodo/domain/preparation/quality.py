@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import json
 from collections import deque
-from collections.abc import Iterable, Mapping, Sequence, Set
+from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -829,7 +830,7 @@ class StoredQualityRun:
     issues: Sequence[QualityIssue]
     quarantine: Sequence[QuarantineEntry]
     effective_dataset_hash: str
-    eligible_row_ids: Set[str]
+    eligible_row_ids: AbstractSet[str]
     summary_counts: Mapping[str, int]
     published_content_hash: str | None = None
     evaluator_version: int = QUALITY_EVALUATOR_VERSION
@@ -1644,7 +1645,7 @@ def _quality_issue(
     *,
     policy: QualityOutcomePolicy,
 ) -> QualityIssue:
-    affected_fields = tuple(sorted(set(item for item in fields if item)))
+    affected_fields = tuple(sorted({item for item in fields if item}))
     issue_id = _hash({"rule_id": rule.rule_id, "row_id": row.row_id, "reason_code": reason_code, "message": message, "fields": affected_fields, "policy": policy.value})
     return QualityIssue(
         issue_id=issue_id,
@@ -2098,15 +2099,15 @@ def _relationship_issue_details(
     if state == "MISSING":
         return (
             "INCOMING_RELATIONSHIP_MISSING",
-            f"The incoming {linked_label} record linked{through} is missing. "
-            "This dependent record was set aside.",
+            (f"The incoming {linked_label} record linked{through} is missing. "
+            "This dependent record was set aside."),
             fields,
         )
     if state == "AMBIGUOUS":
         return (
             "INCOMING_RELATIONSHIP_AMBIGUOUS",
-            f"The incoming {linked_label} record linked{through} matches more "
-            "than one source row. This dependent record was set aside.",
+            (f"The incoming {linked_label} record linked{through} matches more "
+            "than one source row. This dependent record was set aside."),
             fields,
         )
     if state == "UNSAFE_PARENT":
@@ -2117,8 +2118,8 @@ def _relationship_issue_details(
         )
         return (
             "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE",
-            f"The linked incoming {linked_label} record{row_label} was already "
-            "set aside. This dependent record was also set aside.",
+            (f"The linked incoming {linked_label} record{row_label} was already "
+            "set aside. This dependent record was also set aside."),
             fields,
         )
     if state == "IDENTITY_GROUP":
@@ -2132,9 +2133,9 @@ def _relationship_issue_details(
         )
         return (
             "INCOMING_IDENTITY_DEPENDENT_SET_ASIDE",
-            f"A dependent {dependent_label} record{row_label} that uses this "
+            (f"A dependent {dependent_label} record{row_label} that uses this "
             "incoming identity was set aside. This record and its dependent "
-            "group were also set aside.",
+            "group were also set aside."),
             fields,
         )
     raise ValueError(f"Unsupported relationship readiness state {state!r}")

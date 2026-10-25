@@ -207,7 +207,7 @@ def relation_ids(value: Any) -> tuple[int, ...]:
         result = []
         for item in value:
             if isinstance(item, bool) or not isinstance(item, int):
-                raise ValueError(f"unsupported many2many target value {value!r}")
+                raise TypeError(f"unsupported many2many target value {value!r}")
             result.append(item)
         return tuple(result)
     raise ValueError(f"unsupported many2many target value {value!r}")

@@ -196,7 +196,9 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | Navigation presentation | [`build_workspace_navigation`](../../../src/impodo/web/presenters/navigation.py) |
 | Data-manager concept registry | [`ConceptHelp`](../../../src/impodo/web/presenters/concepts.py) |
 | Read-only Concepts route | [`concepts.py`](../../../src/impodo/web/routers/concepts.py) |
-| Browser composition | [`app.py`](../../../src/impodo/web/app.py) |
+| Local service composition | [`local_app.py`](../../../src/impodo/web/composition/local_app.py) |
+| Shared HTTP and route installation | [`http_app.py`](../../../src/impodo/web/composition/http_app.py) |
+| Compatibility import | [`app.py`](../../../src/impodo/web/app.py) |
 
 ## Verification
 

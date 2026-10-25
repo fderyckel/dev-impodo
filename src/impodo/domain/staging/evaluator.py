@@ -851,7 +851,7 @@ def _row_inclusion_review_report(
             )
             for decision in dataset_decisions
         )
-    if set(matching) != set(item.dataset_id for item in dataset_reviews):
+    if set(matching) != {item.dataset_id for item in dataset_reviews}:
         missing = sorted(set(matching).difference(effective_by_id))
         raise ReadinessError(
             "Row-inclusion review is missing current datasets: "

@@ -58,3 +58,9 @@ impodo = [
   "web/templates/*.html",
   "web/templates/*/*.html",
 ]
+
+[tool.basedpyright]
+include = ["src/impodo"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+baselineFile = ".basedpyright/baseline.json"

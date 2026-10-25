@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
 import ast
 import importlib.util
-from pathlib import Path
 import unittest
 
 from scripts.architecture_inventory import (
@@ -15,7 +12,7 @@ from scripts.architecture_inventory import (
     discover_imports,
     discover_modules,
 )
-
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 FORBIDDEN_IMPORTS = {
@@ -24,7 +21,7 @@ FORBIDDEN_IMPORTS = {
 }
 ADAPTER_CONSTRUCTION_MODULES = frozenset(
     {
-        "impodo.web.app",
+        "impodo.web.composition.local_app",
         "impodo.web.capability_builders",
         "impodo.web.composition.cli",
         "impodo.web.composition.preparation_worker",
@@ -36,7 +33,7 @@ ADAPTER_CONSTRUCTION_MODULES = frozenset(
 LOCAL_ACTOR_IMPORT_MODULES = frozenset(
     {
         "impodo.adapters.scenarios.profile_workflow",
-        "impodo.web.app",
+        "impodo.web.composition.local_app",
         "impodo.web.composition.local_identity",
     }
 )
@@ -45,42 +42,7 @@ SERVER_ADAPTER_IMPORT_PREFIXES = (
     "psycopg",
     "sqlalchemy",
 )
-REQUEST_SCOPED_WEB_MODULES = frozenset(
-    {
-        "impodo.web.composition.target_readers",
-        "impodo.web.presenters.common",
-        "impodo.web.presenters.mapping_view",
-        "impodo.web.presenters.schema",
-        "impodo.web.presenters.summary",
-        "impodo.web.routers.corrections",
-        "impodo.web.routers.cutover_plans",
-        "impodo.web.routers.derived_entities",
-        "impodo.web.routers.destination_matching",
-        "impodo.web.routers.execution",
-        "impodo.web.routers.integrated_runs",
-        "impodo.web.routers.mapping",
-        "impodo.web.routers.migration_projects",
-        "impodo.web.routers.normalization",
-        "impodo.web.routers.preflight",
-        "impodo.web.routers.preparation",
-        "impodo.web.routers.production_runs",
-        "impodo.web.routers.quality",
-        "impodo.web.routers.resolution",
-        "impodo.web.routers.run_fresh_data",
-        "impodo.web.routers.schema",
-        "impodo.web.routers.sources",
-        "impodo.web.routers.target",
-        "impodo.web.routers.transfer_destination",
-        "impodo.web.routers.transfer_load",
-        "impodo.web.routers.transfer_order",
-        "impodo.web.routers.transfer_preflight",
-        "impodo.web.routers.transfer_review",
-        "impodo.web.routers.workspace_setup",
-        "impodo.web.run_commands",
-        "impodo.web.security",
-        "impodo.web.source_file_commands",
-    }
-)
+REQUEST_SCOPED_WEB_PREFIX = "impodo.web."
 
 
 def _edge_text(edge: ImportEdge) -> str:
@@ -191,7 +153,7 @@ def _global_request_actor_violations(
 
     violations: list[str] = []
     for module in modules:
-        if module.name not in REQUEST_SCOPED_WEB_MODULES:
+        if not module.name.startswith(REQUEST_SCOPED_WEB_PREFIX):
             continue
         tree = ast.parse(
             module.path.read_text(encoding="utf-8"), filename=str(module.path)
@@ -201,7 +163,7 @@ def _global_request_actor_violations(
                 isinstance(node, ast.Attribute)
                 and node.attr == "actor"
                 and isinstance(node.value, ast.Name)
-                and node.value.id == "context"
+                and node.value.id in {"application", "context"}
             ):
                 violations.append(f"{module.name}:{node.lineno}")
     return tuple(sorted(violations))

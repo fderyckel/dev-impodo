@@ -1034,7 +1034,7 @@ def _selection_condition_expression(
         right = datetime.strptime(comparison, "%Y-%m-%d").date()
     elif condition.value_type == "datetime":
         left = stripped.str.to_datetime(strict=False, time_zone="UTC")
-        right = datetime.fromisoformat(comparison.replace("Z", "+00:00"))
+        right = datetime.fromisoformat(comparison)
         if right.tzinfo is None:
             right = right.replace(tzinfo=UTC)
         right = right.astimezone(UTC)

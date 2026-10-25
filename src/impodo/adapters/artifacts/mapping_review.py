@@ -268,7 +268,7 @@ def _identity_values(components, values) -> dict[str, Any]:
 def _source_row_reference(row, physical_labels: dict[str, str]) -> str:
     sources = dict(row.lineage.physical_sources)
     if len(sources) == 1:
-        dataset_id, source_rows = next(iter(sources.items()))
+        _dataset_id, source_rows = next(iter(sources.items()))
         if len(source_rows) == 1:
             return str(source_rows[0])
         return ", ".join(str(value) for value in source_rows)

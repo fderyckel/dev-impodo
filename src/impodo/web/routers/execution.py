@@ -508,18 +508,18 @@ def build_execution_router(
                         workspace_id,
                         actor=actor,
                     )
-                except (CorrectionOriginError, WorkspaceError) as error:
-                    failure_code = getattr(
-                        error,
+                except (CorrectionOriginError, WorkspaceError) as correction_error:
+                    failure_code = str(getattr(
+                        correction_error,
                         "failure_code",
                         "CORRECTION_ORIGIN_STATUS_UNAVAILABLE",
-                    )
+                    ))
                     logging.getLogger(__name__).warning(
                         "Completed-load correction status is unavailable for "
                         "%s [%s]: %s",
                         workspace_id,
                         failure_code,
-                        error,
+                        correction_error,
                     )
                     durable_warning = _correction_unavailable_warning(failure_code)
                 else:
@@ -603,6 +603,7 @@ def build_execution_router(
     @router.get("/workspaces/{workspace_id}/load")
     async def load_landing(request: Request, workspace_id: str):
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         active_job = _manager(context).active(workspace_id)
         if active_job is not None:
             return RedirectResponse(
@@ -612,6 +613,7 @@ def build_execution_router(
         preview = await run_in_threadpool(
             context.execution.current_preview,
             workspace_id,
+            actor=actor,
         )
         if preview is None:
             destination = f"/workspaces/{workspace_id}/summary"
@@ -658,6 +660,7 @@ def build_execution_router(
         preview = await run_in_threadpool(
             context.execution.current_preview,
             workspace_id,
+            actor=actor,
         )
         if preview is None:
             return RedirectResponse(
@@ -716,6 +719,7 @@ def build_execution_router(
         return await run_page_read(render_outcome, request, workspace_id)
 
     def render_outcome(request: Request, workspace_id: str):
+        actor = request_identity(request, context.identity_resolver).actor
         preview = context.execution.current_preview(workspace_id, actor=actor)
         if preview is None:
             return RedirectResponse(
@@ -1085,6 +1089,7 @@ def build_execution_router(
                 preview = await run_in_threadpool(
                     context.execution.current_preview,
                     workspace_id,
+                    actor=actor,
                 )
             if preview is None:
                 raise WorkspaceError("Compare the prepared data with Odoo first")
@@ -1509,6 +1514,7 @@ def build_execution_router(
             preview = await run_in_threadpool(
                 context.execution.current_preview,
                 workspace_id,
+                actor=actor,
             )
             if preview is None:
                 raise WorkspaceError("Compare the prepared data with Odoo first")

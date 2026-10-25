@@ -493,13 +493,13 @@ class OdooSchemaCatalog:
 
 def _schema_models_from_payload(value: object) -> tuple[SchemaModel, ...]:
     if not isinstance(value, list):
-        raise ValueError("Stored Odoo schema models are invalid")
+        raise TypeError("Stored Odoo schema models are invalid")
     return tuple(_schema_model_from_payload(model) for model in value)
 
 
 def _schema_model_from_payload(value: object) -> SchemaModel:
     if not isinstance(value, dict):
-        raise ValueError("Stored Odoo schema model is invalid")
+        raise TypeError("Stored Odoo schema model is invalid")
     return SchemaModel(
         name=str(value["name"]),
         label=str(value["label"]),
@@ -518,7 +518,7 @@ def _schema_model_from_payload(value: object) -> SchemaModel:
 
 def _schema_field_from_payload(value: object) -> SchemaField:
     if not isinstance(value, dict):
-        raise ValueError("Stored Odoo schema field is invalid")
+        raise TypeError("Stored Odoo schema field is invalid")
     return SchemaField(
         name=str(value["name"]),
         label=str(value["label"]),
@@ -558,7 +558,7 @@ def _schema_refresh_candidate_from_payload(
     value: object,
 ) -> OdooSchemaRefreshCandidate:
     if not isinstance(value, dict):
-        raise ValueError("Stored Odoo schema refresh candidate is invalid")
+        raise TypeError("Stored Odoo schema refresh candidate is invalid")
     return OdooSchemaRefreshCandidate(
         candidate_id=str(value["candidate_id"]),
         checked_at=datetime.fromisoformat(value["checked_at"]),
@@ -604,7 +604,7 @@ def _optional_bool(value: object) -> bool | None:
     if value is None:
         return None
     if not isinstance(value, bool):
-        raise ValueError("Stored schema boolean metadata is invalid")
+        raise TypeError("Stored schema boolean metadata is invalid")
     return value
 
 

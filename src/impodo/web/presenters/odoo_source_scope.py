@@ -110,49 +110,49 @@ class RelatedDataScopeView:
 _GROUP_COPY = {
     RelatedDataHandling.TRANSFER_RELATED: (
         "Related records included in the migration",
-        "Impodo recommends transferring the reached business records with "
+        ("Impodo recommends transferring the reached business records with "
         "their selected values, then applying the same bounded rules to "
-        "their own links.",
+        "their own links."),
     ),
     RelatedDataHandling.INCLUDE_SUPPORTING: (
         "Needed to keep the records meaningful",
-        "Impodo recommends keeping these populated links. It will reuse "
+        ("Impodo recommends keeping these populated links. It will reuse "
         "destination matches and prepare only identity and required values "
         "for missing records "
-        "without expanding their whole relationship graph.",
+        "without expanding their whole relationship graph."),
     ),
     RelatedDataHandling.OPTIONAL_BUSINESS_DATA: (
         "Related business data to confirm",
-        "Impodo recommends keeping each populated link without assuming that "
+        ("Impodo recommends keeping each populated link without assuming that "
         "the whole related record type belongs in this migration. Choose to "
-        "transfer it as migration data only when that wider data is in scope.",
+        "transfer it as migration data only when that wider data is in scope."),
     ),
     RelatedDataHandling.REUSE_DESTINATION: (
         "Reuse destination setup",
-        "Keep these out of ordinary source creation. Before transfer, Impodo "
-        "must match them to existing destination settings.",
+        ("Keep these out of ordinary source creation. Before transfer, Impodo "
+        "must match them to existing destination settings."),
     ),
     RelatedDataHandling.ODOO_MANAGED: (
         "Created by Odoo",
-        "Impodo should preserve the inputs and verify the result instead of "
-        "creating these generated records directly.",
+        ("Impodo should preserve the inputs and verify the result instead of "
+        "creating these generated records directly."),
     ),
     RelatedDataHandling.SEPARATE_PROCESS: (
         "Move as a separate business process",
-        "These records expand the migration beyond the selected root data "
-        "and need their own reviewed scope.",
+        ("These records expand the migration beyond the selected root data "
+        "and need their own reviewed scope."),
     ),
     RelatedDataHandling.EXCLUDE_HISTORY: (
         "Not part of the business-data move",
-        "Activity and message history stays out unless a separate, supported "
-        "history migration is explicitly approved.",
+        ("Activity and message history stays out unless a separate, supported "
+        "history migration is explicitly approved."),
     ),
     RelatedDataHandling.NEEDS_DECISION: (
         "Safe default for an unclassified link",
-        "Impodo cannot infer the full business scope of these links. It "
+        ("Impodo cannot infer the full business scope of these links. It "
         "recommends keeping each populated value without expanding the whole "
         "related record type. Choose another outcome under Advanced when the "
-        "migration requires it.",
+        "migration requires it."),
     ),
 }
 
@@ -173,20 +173,20 @@ _ATTENTION_HANDLINGS = frozenset(
 _ACTION_COPY = {
     OdooRelationshipCaptureAction.PRESERVE_LINKED: (
         "Keep linked value",
-        "Reuse a matching destination record when one exists. Otherwise, "
+        ("Reuse a matching destination record when one exists. Otherwise, "
         "prepare only its identity and required values, without following the "
         "rest of its relationships. If those values cannot be proven safe, "
-        "Impodo asks for a decision before any load.",
+        "Impodo asks for a decision before any load."),
     ),
     OdooRelationshipCaptureAction.CAPTURE_LINKED: (
         "Transfer related records as migration data",
-        "Include the related records as migration data and review the "
-        "relationships that they need in turn.",
+        ("Include the related records as migration data and review the "
+        "relationships that they need in turn."),
     ),
     OdooRelationshipCaptureAction.MATCH_EXISTING: (
         "Use existing destination records only",
-        "Match these links to records that already exist in the destination. "
-        "A missing match stops the transfer instead of creating a record.",
+        ("Match these links to records that already exist in the destination. "
+        "A missing match stops the transfer instead of creating a record."),
     ),
     OdooRelationshipCaptureAction.DO_NOT_CAPTURE: (
         "Do not include",

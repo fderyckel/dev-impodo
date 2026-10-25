@@ -1602,7 +1602,10 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             report.normalization_run_id,
         )
 
-        load_preview = self.app.state.context.execution.current_preview(workspace_id)
+        load_preview = self.app.state.context.execution.current_preview(
+            workspace_id,
+            actor=self.app.state.context.actor,
+        )
         assert load_preview is not None
         final_review = self.client.get(f"/workspaces/{workspace_id}/summary")
         self.assertIn("Final review complete", final_review.text)

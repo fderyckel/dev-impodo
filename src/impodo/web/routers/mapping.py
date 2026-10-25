@@ -1679,7 +1679,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
 
             (
-                active_definition,
+                _active_definition,
                 datasets,
                 dependency_repairs,
             ) = await run_page_read(prepare_mapping_datasets)
@@ -2592,7 +2592,7 @@ async def _reject_mapping_mutation(
             failure_detail=failure_detail,
             actor=actor,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - cleanup must preserve the command failure
         # Cleanup must never hide the original command failure. A surviving
         # PENDING receipt correctly leaves the browser outcome as unknown.
         return None

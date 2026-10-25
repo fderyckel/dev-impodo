@@ -243,7 +243,7 @@ def parse_source_condition_value(value: Any, value_type: str) -> Any:
     if value_type == "date":
         return date.fromisoformat(text)
     if value_type == "datetime":
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(text)
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=UTC)
         return parsed.astimezone(UTC)

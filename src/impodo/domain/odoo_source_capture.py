@@ -288,8 +288,8 @@ class OdooSourceCaptureRequest:
             )
             or tuple(item.name for item in relationships)
             != tuple(sorted({item.name for item in relationships}))
-            or set(item.name for item in relationships)
-            & set(item.name for item in projection)
+            or {item.name for item in relationships}
+            & {item.name for item in projection}
             or any(item.relation_model not in self.schema_model_names for item in relationships)
         ):
             raise OdooSourceCaptureConfigurationError(
@@ -306,7 +306,7 @@ class OdooSourceCaptureRequest:
             )
             or tuple(item.name for item in discovery)
             != tuple(sorted({item.name for item in discovery}))
-            or set(item.name for item in discovery)
+            or {item.name for item in discovery}
             & ({item.name for item in relationships} | {item.name for item in projection})
         ):
             raise OdooSourceCaptureConfigurationError(

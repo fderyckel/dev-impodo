@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from impodo.application.workspace.access import (
     WorkspaceAccessContext,
@@ -30,7 +30,7 @@ class LocalScopedWorkspaceAccessQuery:
     ) -> None:
         self._access = access
         self._organization_id = organization_id
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     def resolve_visible_workspace_access(
         self,

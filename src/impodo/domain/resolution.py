@@ -1454,7 +1454,7 @@ def _require_same_scalar_type(source_values: tuple[Any, ...], replacement: Any) 
     if isinstance(replacement, Decimal) and not replacement.is_finite():
         raise ValueError("Reviewer correction decimal must be finite")
     if not isinstance(replacement, (str, bool, int, Decimal, date, datetime)):
-        raise ValueError("Reviewer correction supports typed scalar values only")
+        raise TypeError("Reviewer correction supports typed scalar values only")
 
 
 def _candidate(

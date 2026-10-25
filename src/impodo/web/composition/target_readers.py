@@ -2104,7 +2104,7 @@ def _snapshot_datetime(value: str) -> datetime:
     """Normalize connector timestamps for durable UI freshness evidence."""
 
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     except ValueError:
         return datetime.now(UTC)
     if parsed.tzinfo is None:

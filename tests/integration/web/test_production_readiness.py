@@ -202,7 +202,15 @@ class ProductionReadinessBrowserTests(TestCase):
             self.assertIn("Setup needs attention", overview.text)
             self.assertIn("Continue Production setup", overview.text)
             with self.assertRaisesRegex(WorkspaceError, "Finish Production setup"):
-                _assert_recipe_application_can_prepare(context, _preparation_workspace(context, application.workspace_id))
+                _assert_recipe_application_can_prepare(
+                    context,
+                    _preparation_workspace(
+                        context,
+                        application.workspace_id,
+                        actor=context.actor,
+                    ),
+                    actor=context.actor,
+                )
             with self.assertRaisesRegex(ProductionRunError, "Finish Production setup"):
                 context.production_runs.assert_execution_authority(application.workspace_id,
                     read_identity=None, read_credential_generation="", expected_read_credential_generation="",

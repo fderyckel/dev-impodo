@@ -1861,7 +1861,6 @@ def build_sources_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         actor = request_identity(request, context.identity_resolver).actor
-        workspace_state = context.queries.get(workspace_id)
         try:
             catalogs = await run_in_threadpool(
                 context.inspections.inspect_project,
@@ -2469,10 +2468,9 @@ def _render_odoo_capture_selection(
         context.secret_store, workspace_state, TargetCredentialRole.READ,
     )
     read_credential_present = read_credential_status.available
-    if read_credential_status.support_error is not None:
-        if error is None:
-            error = read_credential_status.support_error
-            status_code = 422
+    if read_credential_status.support_error is not None and error is None:
+        error = read_credential_status.support_error
+        status_code = 422
     read_credential_matches_schema = bool(
         schema is not None
         and read_credential_status.available

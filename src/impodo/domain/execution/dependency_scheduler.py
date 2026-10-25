@@ -70,11 +70,9 @@ def dependency_component_pages(
 
     if type(max_rows) is not int or max_rows <= 0:
         raise ValueError("dependency component page size is invalid")
-    expected_component = 0
-    for component_sequence, row_ids in components:
+    for expected_component, (component_sequence, row_ids) in enumerate(components):
         if component_sequence != expected_component:
             raise ValueError("dependency component sequence is invalid")
-        expected_component += 1
         rows = tuple(row_ids)
         if not rows:
             raise ValueError("dependency component is empty")

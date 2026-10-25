@@ -260,7 +260,9 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
 
         return SimpleNamespace(
             secret_store=self.store,
-            target_credential_workspace=lambda _workspace_id: self.workspace_state,
+            target_credential_workspace=(
+                lambda _workspace_id, **_kwargs: self.workspace_state
+            ),
             queries=SimpleNamespace(
                 get_odoo_schema_catalog=lambda _project_id: self.schema
             ),
@@ -289,6 +291,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                 context,
                 self.workspace_state,
                 self._requirements(),
+                actor=LOCAL_ACTOR,
             )
 
         self.assertEqual(
@@ -305,6 +308,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                 context,
                 self.workspace_state,
                 self._requirements(),
+                actor=LOCAL_ACTOR,
             )
 
         self.assertEqual(self.reader_calls, 0)
@@ -342,6 +346,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                     ),
                 ),
             ),
+            actor=LOCAL_ACTOR,
         )
 
         self.assertEqual(result, ("metadata", "records"))
@@ -457,6 +462,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                     ),
                 ),
             ),
+            actor=LOCAL_ACTOR,
         )
 
         self.assertIn(relation_model, metadata.models)
@@ -490,6 +496,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                 self._requirements(
                     (MetadataRequest(model="res.users", fields=("login",)),),
                 ),
+                actor=LOCAL_ACTOR,
             )
 
         self.assertEqual(self.probe_calls, [])
@@ -521,6 +528,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                         ),
                     ),
                 ),
+                actor=LOCAL_ACTOR,
             )
 
         self.assertEqual(self.probe_calls, [])
@@ -571,6 +579,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                         ),
                     ),
                 ),
+                actor=LOCAL_ACTOR,
             )
 
         self.assertEqual(self.probe_calls, [])
@@ -627,6 +636,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                 context,
                 self.workspace_state,
                 self.schema,
+                actor=LOCAL_ACTOR,
                 relation_model="res.country",
                 requested_fields=("code", "name"),
             )
@@ -662,6 +672,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                         context,
                         self.workspace_state,
                         self.schema,
+                        actor=LOCAL_ACTOR,
                         relation_model="res.country",
                         requested_fields=("code", "name"),
                     )

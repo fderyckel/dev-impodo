@@ -169,7 +169,7 @@ class CorrectionJobManager:
                     message,
                 )
             )
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - background-job boundary
             with self._lock:
                 self._store_failure(job_id, _safe_message(error))
         else:

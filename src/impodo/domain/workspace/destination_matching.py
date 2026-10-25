@@ -601,7 +601,7 @@ class DestinationModelMatch:
         if _HASH.fullmatch(self.destination_key_binding_hash) is None:
             raise ValueError("Destination key classification binding is invalid")
         if not isinstance(self.requires_workflow_handler, bool):
-            raise ValueError("Destination workflow requirement is invalid")
+            raise TypeError("Destination workflow requirement is invalid")
         if self.destination_handling not in DESTINATION_HANDLINGS:
             raise ValueError("Destination handling is invalid")
         if any(

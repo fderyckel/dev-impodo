@@ -73,7 +73,10 @@ class RecipeComparisonRecoveryBrowserTests(TestCase):
         self.assertEqual(page.status_code, 200, page.text)
         self.assertNotIn('id="comparison-recovery"', page.text)
 
-        owner = context.target_credential_workspace(workspace_id)
+        owner = context.target_credential_workspace(
+            workspace_id,
+            actor=context.actor,
+        )
         self.assertNotEqual(owner.workspace_id, workspace_id)
         context.secret_store.delete(target_read_credential_id(owner))
         recovery = self.client.get(summary_url)

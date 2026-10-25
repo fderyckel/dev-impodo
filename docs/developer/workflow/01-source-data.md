@@ -620,9 +620,10 @@ exercises complete, missing-parent, missing-leaf, and all-blank paths without
 reading or changing an operator workspace.
 
 `capture_exact_join_screenshot.py::capture` creates an isolated fictional AX
-customer workspace, drives the authenticated exact-join form in Edge, and
-captures the current complete-data review at 1440 by 1024. It does not read or
-change an operator workspace.
+customer workspace, drives the authenticated exact-join form in Edge, saves
+the accepted composition, and captures both the complete-data review and the
+saved logical-dataset summary at 1440 by 1024. It does not read or change an
+operator workspace.
 
 - [`tests/integration/duckdb/test_workspace.py`](../../../tests/integration/duckdb/test_workspace.py)
 - [`tests/application/data_version/test_source_worker.py`](../../../tests/application/data_version/test_source_worker.py)
@@ -642,6 +643,7 @@ change an operator workspace.
 - [`tests/application/workspace/test_derived_entities.py`](../../../tests/application/workspace/test_derived_entities.py)
 - [`tests/application/workspace/test_exact_join_authoring.py`](../../../tests/application/workspace/test_exact_join_authoring.py)
 - [`tests/integration/web/test_exact_join_workflow.py`](../../../tests/integration/web/test_exact_join_workflow.py)
+- [`tests/integration/web/test_generic_source_composition.py`](../../../tests/integration/web/test_generic_source_composition.py)
 - [`tests/integration/web/test_bom_source_composition.py`](../../../tests/integration/web/test_bom_source_composition.py)
 - [`tests/domain/recipe/test_bom_source_composition.py`](../../../tests/domain/recipe/test_bom_source_composition.py)
 - [`tests/performance/test_source_composition_benchmark.py`](../../../tests/performance/test_source_composition_benchmark.py)

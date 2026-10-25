@@ -47,9 +47,21 @@ free-form SQL join. The added dataset may contain zero or one row for a key.
 Repeated added keys block the result because Impodo cannot choose an arbitrary
 row or multiply the base rows safely.
 
+Impodo reviews every row in the complete frozen source selection when that
+selection contains no more than 25,000 rows in total. A combined output may
+contain no more than 200 fields. These boundaries prevent the browser from
+starting unbounded in-memory work; they are not a reason to omit required key
+fields or business columns.
+
 For fictional AX customer exports, the base table might contain `AccountNum`
 and `Party`, while the added table contains the party `RecId`, name, and email.
 Use the complete key required by the source system. For example:
+
+The customer names in this example make the decision easy to recognize; they
+are not a product rule. The same form lists any confirmed CSV table, Excel
+worksheet, or Excel named table in the current Data version. It creates a
+model-neutral logical dataset, which you map to the appropriate Odoo record
+type later in **Match data**.
 
 | Base field | Added field | Type |
 | --- | --- | --- |
@@ -79,6 +91,8 @@ To build the logical customer table:
 The saved summary distinguishes the immutable inputs from the mapped logical
 dataset. Impodo retains row-level physical lineage and the complete review.
 The two source files do not need to be pre-joined with Python or SQL.
+
+![The saved summary keeps both physical inputs for preparation and exposes only the logical customer table to Match data.](../../images/user/06e-customer-combination-saved.png)
 
 Do not use this choice to flatten one-to-many data. BoM lines and operations
 normally remain separate logical datasets linked to their header. Two partial

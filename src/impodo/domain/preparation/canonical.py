@@ -81,7 +81,7 @@ def parse_value(
             if isinstance(value, datetime):
                 parsed = value
             else:
-                parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                parsed = datetime.fromisoformat(str(value))
             if parsed.tzinfo is None:
                 # UTC source timestamps are supported. Other profile timezones
                 # are validated but intentionally not guessed.

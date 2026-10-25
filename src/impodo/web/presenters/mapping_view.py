@@ -81,7 +81,6 @@ from ...domain.source_binding import (
 )
 from ..constants import DEFAULT_MAPPING_FIELDS_PER_PAGE, MAPPING_FIELD_PAGE_SIZES
 from ..context import WebContext
-from ..request_identity import request_identity
 from ..diagnostics import set_diagnostic_working_draft_version
 from ..forms import (
     _positive_query_int,
@@ -92,6 +91,7 @@ from ..mapping_formula_authoring import (
     formula_issues_by_dataset,
     mapping_formula_authoring_issues,
 )
+from ..request_identity import request_identity
 from .common import _render
 from .identity_health import identity_health_view
 from .mapping_forms import (
@@ -1305,9 +1305,9 @@ def _matching_order_reason(
             for fact in component_facts
         )
         return (
-            "Match together with "
+            ("Match together with "
             f"{', '.join(other_names)}; the local relationship evidence forms "
-            "a cycle.",
+            "a cycle."),
             "Preliminary" if preliminary else "Confirmed relationship",
         )
 
@@ -2325,9 +2325,6 @@ def _mapping_dataset_views(
                 projection_key,
                 build_catalog_projection,
             )
-        all_scalar_fields = tuple(
-            item.field for item in catalog_projection.scalar_fields
-        )
         numeric_fields = catalog_projection.numeric_fields
         existing_controls = existing.effective_control_totals if existing else ()
         existing_control_ids = (

@@ -464,10 +464,13 @@ class Json2WriteExecutor:
                     ) from error
                 time.sleep(2**attempt)
                 continue
-            if not write and status in {408, 425, 429, 500, 502, 503, 504}:
-                if attempt + 1 < attempts:
-                    time.sleep(2**attempt)
-                    continue
+            if (
+                not write
+                and status in {408, 425, 429, 500, 502, 503, 504}
+                and attempt + 1 < attempts
+            ):
+                time.sleep(2**attempt)
+                continue
             break
         if status == 200:
             return response

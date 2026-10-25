@@ -8,11 +8,12 @@ and invalidates quality and every later artifact; identical content is reused.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import (
     UTC,
     datetime,
 )
+from typing import cast
 from uuid import UUID, uuid4
 
 import duckdb
@@ -58,6 +59,71 @@ _STAGING_ROW_JSON_STRUCTURE = """[{
     "disposition":"VARCHAR",
     "row_json":"VARCHAR"
 }]"""
+
+
+def _stored_staging_rows(
+    batch: Sequence[
+        tuple[int | str, object, object, int | str, object, object, object]
+    ],
+    *,
+    start: int,
+    hasher: CanonicalJsonObjectHasher,
+) -> Iterator[Mapping[str, object]]:
+    """Validate and yield one bounded stored-row batch in ordinal order."""
+
+    for offset, (
+        ordinal,
+        row_id,
+        dataset,
+        source_row,
+        target_model,
+        disposition,
+        row_json,
+    ) in enumerate(batch):
+        expected_ordinal = start + offset
+        if int(ordinal) != expected_ordinal:
+            raise WorkspaceError("Stored preparation rows are not contiguous")
+        encoded = str(row_json)
+        if (
+            not encoded
+            or not str(row_id)
+            or not str(dataset)
+            or int(source_row) < 1
+            or not str(target_model)
+        ):
+            raise WorkspaceError("Stored preparation row metadata is inconsistent")
+        hasher.add_encoded_array_item(encoded)
+        yield {
+            "ordinal": expected_ordinal,
+            "row_id": str(row_id),
+            "dataset": str(dataset),
+            "source_row": int(source_row),
+            "target_model": str(target_model),
+            "disposition": str(disposition),
+            "row_json": encoded,
+        }
+
+
+def _canonical_staging_rows(
+    batch: Sequence[CanonicalRow],
+    *,
+    start: int,
+    hasher: CanonicalJsonObjectHasher,
+) -> Iterator[Mapping[str, object]]:
+    """Yield one bounded canonical-row batch in ordinal order."""
+
+    for offset, row in enumerate(batch):
+        row_json = _canonical_json(row.to_portable_dict())
+        hasher.add_encoded_array_item(row_json)
+        yield {
+            "ordinal": start + offset,
+            "row_id": row.row_id,
+            "dataset": row.dataset,
+            "source_row": row.source_row,
+            "target_model": row.target_model,
+            "disposition": row.disposition.value,
+            "row_json": row_json,
+        }
 
 
 class StagingRepository(DuckDbRepository):
@@ -678,47 +744,26 @@ class StagingRepository(DuckDbRepository):
             for batch in encoded_batches(connection, STAGING_ROW_BATCH_SIZE):
                 batch_start_ordinal = expected_ordinal
 
-                def transport_rows():
-                    nonlocal expected_ordinal
-                    for (
-                        ordinal,
-                        row_id,
-                        dataset,
-                        source_row,
-                        target_model,
-                        disposition,
-                        row_json,
-                    ) in batch:
-                        if int(ordinal) != expected_ordinal:
-                            raise WorkspaceError(
-                                "Stored preparation rows are not contiguous"
-                            )
-                        encoded = str(row_json)
-                        if (
-                            not encoded
-                            or not str(row_id)
-                            or not str(dataset)
-                            or int(source_row) < 1
-                            or not str(target_model)
-                        ):
-                            raise WorkspaceError(
-                                "Stored preparation row metadata is inconsistent"
-                            )
-                        hasher.add_encoded_array_item(encoded)
-                        yield {
-                            "ordinal": expected_ordinal,
-                            "row_id": str(row_id),
-                            "dataset": str(dataset),
-                            "source_row": int(source_row),
-                            "target_model": str(target_model),
-                            "disposition": str(disposition),
-                            "row_json": encoded,
-                        }
-                        expected_ordinal += 1
-
                 inserted_rows = 0
                 for encoded_batch in iter_encoded_json_batches(
-                    transport_rows(),
+                    _stored_staging_rows(
+                        cast(
+                            Sequence[
+                                tuple[
+                                    int | str,
+                                    object,
+                                    object,
+                                    int | str,
+                                    object,
+                                    object,
+                                    object,
+                                ]
+                            ],
+                            batch,
+                        ),
+                        start=batch_start_ordinal,
+                        hasher=hasher,
+                    ),
                     max_rows=STAGING_ROW_BATCH_SIZE,
                     max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
                 ):
@@ -745,10 +790,11 @@ class StagingRepository(DuckDbRepository):
                         ],
                     )
                     inserted_rows += encoded_batch.row_count
-                if inserted_rows != expected_ordinal - batch_start_ordinal:
+                if inserted_rows != len(batch):
                     raise WorkspaceError(
                         "Stored preparation row batch is incomplete"
                     )
+                expected_ordinal += len(batch)
             if expected_ordinal != len(run.rows):
                 raise WorkspaceError("Stored preparation rows are incomplete")
             hasher.end_array()
@@ -758,23 +804,10 @@ class StagingRepository(DuckDbRepository):
             return hasher.finish()
         for start in range(0, len(run.rows), STAGING_ROW_BATCH_SIZE):
             batch = run.rows[start : start + STAGING_ROW_BATCH_SIZE]
-            def transport_rows():
-                for offset, row in enumerate(batch):
-                    row_json = _canonical_json(row.to_portable_dict())
-                    hasher.add_encoded_array_item(row_json)
-                    yield {
-                        "ordinal": start + offset,
-                        "row_id": row.row_id,
-                        "dataset": row.dataset,
-                        "source_row": row.source_row,
-                        "target_model": row.target_model,
-                        "disposition": row.disposition.value,
-                        "row_json": row_json,
-                    }
 
             inserted_rows = 0
             for encoded_batch in iter_encoded_json_batches(
-                transport_rows(),
+                _canonical_staging_rows(batch, start=start, hasher=hasher),
                 max_rows=STAGING_ROW_BATCH_SIZE,
                 max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
             ):

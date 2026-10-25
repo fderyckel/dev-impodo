@@ -73,6 +73,7 @@ class RecipeRunOdooProgressTests(TestCase):
                 RunSetupKind.TEST,
                 expected_workspace_revision=7,
                 operation_id="operation-1",
+                actor=context.actor,
                 report=reports.append,
             )
 

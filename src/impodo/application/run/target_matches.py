@@ -343,10 +343,10 @@ def _build_target_match_review(
                 "scalar",
                 result,
                 choices,
-                dict(
-                    (item.source_value, item.target_value)
+                {
+                    item.source_value: item.target_value
                     for item in scalar.value_mappings
-                ),
+                },
                 exact_values=_scalar_exact_values(scalar, result),
                 submitted=submitted,
             )
@@ -434,10 +434,10 @@ def _build_target_match_review(
                 "relationship",
                 result,
                 choices,
-                dict(
-                    (item.source_value, item.target_value)
+                {
+                    item.source_value: item.target_value
                     for item in resolver.value_mappings
-                ),
+                },
                 exact_values={
                     portable_supporting_value(item.values): portable_supporting_value(item.values)
                     for item in result.distinct_values

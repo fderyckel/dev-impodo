@@ -176,6 +176,7 @@ stages:
       - tests/application/workspace/test_derived_entities.py
       - tests/application/workspace/test_exact_join_authoring.py
       - tests/integration/web/test_exact_join_workflow.py
+      - tests/integration/web/test_generic_source_composition.py
       - tests/integration/web/test_bom_source_composition.py
       - tests/domain/recipe/test_bom_source_composition.py
       - tests/performance/test_source_composition_benchmark.py

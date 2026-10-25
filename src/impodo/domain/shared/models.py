@@ -570,7 +570,7 @@ def restore_portable_value(value: Any) -> Any:
         if value_type == "date":
             return date.fromisoformat(raw)
         if value_type == "datetime":
-            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(raw)
             if parsed.tzinfo is None:
                 raise ValueError("portable datetime must include a timezone")
             return parsed.astimezone(UTC)

@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Hashable
 from concurrent.futures import Future
 from dataclasses import dataclass
 from threading import Lock
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 ResultT = TypeVar("ResultT")
 
@@ -17,7 +17,7 @@ class MappingCatalogCapacityError(RuntimeError):
     """Raised when every bounded catalogue scheduler slot is active."""
 
 
-class MappingCatalogProjectionCache(Generic[ResultT]):
+class MappingCatalogProjectionCache[ResultT]:
     """Share bounded immutable projections identified by saved evidence."""
 
     def __init__(self, *, maximum_entries: int = 64) -> None:

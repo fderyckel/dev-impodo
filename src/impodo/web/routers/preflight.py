@@ -360,6 +360,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 preview = await run_in_threadpool(
                     context.execution.current_preview,
                     workspace_id,
+                    actor=actor,
                 )
                 run = context.migration_runs.get(
                     access_context.migration_run_id,

@@ -10,6 +10,7 @@ protected snapshots. It never reloads source files and exposes no Odoo write.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -610,7 +611,9 @@ class PreflightService:
                         filename,
                     )
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).exception(
+                        "Could not remove an incomplete deferred-scope report"
+                    )
             raise
         return DeferredScopeAcceptance(
             decision=decision,
@@ -1013,7 +1016,9 @@ class PreflightService:
                 try:
                     self.artifacts.delete_report(workspace_id, run_id, filename)
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).exception(
+                        "Could not remove incomplete preflight evidence"
+                    )
             raise
         return report
 
@@ -1147,7 +1152,9 @@ class PreflightService:
                         workspace_state.workspace_id, run_id, filename
                     )
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).exception(
+                        "Could not remove incomplete Odoo comparison evidence"
+                    )
             raise
         return publication.report
 

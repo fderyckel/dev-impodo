@@ -384,8 +384,9 @@ mapping selection contains only that two-row logical dataset for `res.partner`.
 Focused HTTP tests cover complete preview, persisted evidence, optimistic-save
 recovery, and command connection/schema ceilings. Edge tests cover keyboard
 activation, distinct-input validation, and the stacked narrow-screen summary.
-The current 1440 by 1024 authenticated review screenshot uses only the same
-fictional customer evidence. No live latency claim was made because the running
+The current 1440 by 1024 authenticated screenshots show both the complete-data
+review and the saved logical-dataset summary. They use only the same fictional
+customer evidence. No live latency claim was made because the running
 Impodo build was not restarted and timed for this slice. The combined
 application, structural mapping, preparation, Recipe, DuckDB, and browser
 regression selection passed 140 tests; five focused Edge checks passed

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
@@ -1021,7 +1022,7 @@ class MatchingOrderService:
             )
             if published_status is MatchingOrderCheckStatus.STALE:
                 return
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - background-check boundary
             finished = datetime.now(UTC)
             failed = replace(
                 attempt,
@@ -1040,6 +1041,9 @@ class MatchingOrderService:
                     actor=prepared.actor,
                 )
             except Exception:
+                logging.getLogger(__name__).exception(
+                    "Could not persist a failed matching-order check"
+                )
                 return
         finally:
             with self._check_lock:

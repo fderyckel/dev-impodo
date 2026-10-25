@@ -211,9 +211,10 @@ class WebContext:
 
     Service fields expose browser use cases; ``queries`` provides read-only
     projections; target callables isolate read and practical write I/O; and
-    actor, authorization, artifacts, jobs, secrets, and local-stack services
-    provide cross-cutting boundaries. The object is mutable only so the local
-    launcher and tests can replace explicitly injectable runtime seams.
+    Authorization, artifacts, jobs, secrets, and local-stack services provide
+    cross-cutting boundaries. Request actors are deliberately absent and must
+    be resolved through ``identity_resolver``. The object is mutable only so
+    composition roots and tests can replace explicitly injectable runtime seams.
     """
 
     queries: BrowserQueryService
@@ -273,7 +274,6 @@ class WebContext:
     odoo_provenance: OdooProvenanceService
     destination_create_fields: ProtectedDestinationCreateFieldStore
     artifacts: WorkspaceArtifactStore
-    actor: Actor
     authorization: AuthorizationPolicy
     jobs: JobDispatcher
     secret_store: SecretStore

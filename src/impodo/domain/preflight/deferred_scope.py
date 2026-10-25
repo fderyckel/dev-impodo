@@ -651,7 +651,7 @@ def portable_reference_resolutions(
             item = dict(raw)
             reference = restore_portable_value(item["reference"])
             if not isinstance(reference, LogicalReference):
-                raise ValueError("Reference resolution is not logical")
+                raise TypeError("Reference resolution is not logical")
             resolutions.append(
                 ReferenceResolution(
                     dataset=str(item["dataset"]),

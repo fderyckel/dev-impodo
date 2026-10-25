@@ -54,8 +54,8 @@ server behavior.
 
 | Current seam or limitation | Delivery consequence |
 | --- | --- |
-| [`create_local_app`](../../src/impodo/web/app.py) constructs the complete local FastAPI graph. There is no `create_server_app`. | Extract explicit composition boundaries before adding server adapters. |
-| [`WebContext`](../../src/impodo/web/context.py) contains the fixed `actor`, authorization, repositories, job managers, target factories, local-stack services, and many workflow services. | Resolve the actor per request and give routes smaller deployment-neutral contexts. |
+| [`create_local_app`](../../src/impodo/web/composition/local_app.py) constructs the local service graph. [`web/app.py`](../../src/impodo/web/app.py) is a temporary compatibility import, while [`http_app.py`](../../src/impodo/web/composition/http_app.py) installs the shared route set without choosing deployment security. | Continue splitting the large local builder into responsibility-named service builders before connecting server adapters. |
+| [`WebContext`](../../src/impodo/web/context.py) contains authorization, repositories, job managers, target factories, local-stack services, and many workflow services, but no actor. [`LocalWebContext`](../../src/impodo/web/composition/local_app.py) temporarily retains the implicit actor for local fixtures and direct automation. | Keep request identity explicit and remove the local-only compatibility field after fixtures resolve the local identity. |
 | [`LOCAL_ACTOR`](../../src/impodo/domain/shared/access.py) owns every current capability, and `Actor.has` treats `PROJECT_ADMIN` as a universal bypass. | Keep that trust model local. The server must resolve scoped grants and must not reuse the universal bypass. |
 | [`MigrationProjectService.list`](../../src/impodo/application/project/service.py) checks `project.view` once and then returns every Project summary from its repository. | Add an authorization-aware visibility query before exposing a multi-Organization catalogue. |
 | [`MigrationFoundationDatabase`](../../src/impodo/adapters/duckdb/migration_foundation_database.py) and [`MigrationFoundationRepository`](../../src/impodo/adapters/duckdb/migration_foundation_repository.py) own the current registry. Its schema mixes lifecycle, catalogue, operation, and migration-evidence concerns. | Classify facts before implementing PostgreSQL. Do not migrate whole tables merely because they currently share one file. |
@@ -113,7 +113,8 @@ src/impodo/
 |   `-- secrets/                    local and server secret adapters
 `-- web/
     |-- composition/
-    |   |-- common.py               deployment-neutral service builders
+    |   |-- http_app.py             deployment-neutral HTTP installation
+    |   |-- common.py               planned focused service builders
     |   |-- local_app.py            local composition
     |   `-- server_app.py           shared-server composition
     |-- routers/admin/              planned server administration routes
@@ -321,7 +322,7 @@ or target values out of jobs, logs, and PostgreSQL projections.
 
 ## Phase 1 - Extract explicit compositions and request identity
 
-**Implementation status on 2026-10-23:** In progress. The first increment adds
+**Implementation status on 2026-10-25:** In progress. The first increment adds
 an explicit local entry module, a fail-closed server entry point, immutable
 request-identity resolution for the implicit local Organization, and an
 Organization-scoped Project query used by the local Project-list route.
@@ -348,6 +349,35 @@ target-reader, schema, mapping, and presenter helpers receive that actor rather
 than reaching back to the local process actor. Architecture checks now reject
 new `WebContext.actor` reads in every migrated module.
 
+The fourth increment migrates Prepare data, quality, resolution,
+normalization, Final review, load, correction, Odoo-transfer, destination
+matching, cutover, fresh-data, Test-run, and Production-run request paths.
+Request-launched preparation and load jobs now carry the authorizing actor in
+their queued work item and pass it to status publication and recovery; a
+worker never recovers identity from application-global state. Execution
+preview, navigation enrichment, target-credential ownership, and supporting
+Odoo reads also require the caller's actor. The architecture rule now scans
+every `impodo.web` production module and rejects direct `context.actor` or
+`application.actor` reads, including in future modules.
+
+The fifth increment moves the complete local construction graph from
+`web/app.py` into `web/composition/local_app.py`. The historical module now
+only re-exports `create_local_app`. A deployment-neutral HTTP installer owns
+the common route set, error handling, templates, static assets, Workspace
+middleware, and job shutdown. The local composition injects its launch
+lifecycle router, signed local session, and loopback transport security, so a
+future server composition can inject different authentication and transport
+security without copying routes.
+
+The shared `WebContext` no longer stores an actor. A local-only
+`LocalWebContext` temporarily exposes the implicit local actor to existing
+fixtures and direct local automation; browser requests still resolve their
+actor through the request identity. The fail-closed server entry now requires
+an explicit `ServerAdapterBundle` that names identity, authorization, scoped
+Project and Workspace access, operation journal, lease, job, artifact, and
+secret ports. Server startup remains disabled even when those ports are
+supplied until the shared service builders can consume them.
+
 The local Project-list route retains one physical registry connection inside
 one `run_page_read` scope. A controlled fresh-Project overview measured two
 physical connections, zero schema checks, and zero retries both before and
@@ -364,13 +394,26 @@ same before-and-after route counts:
 | Target connection | 6 | 2 | 0 |
 
 These figures are controlled fixture evidence, not a live deployment latency
-result.
+result. The fourth increment did not add DuckDB connections or schema checks;
+the focused transfer page-read ceilings remain green.
 
-The legacy `WebContext.actor` remains for routes not yet migrated, including
-Prepare data, review, load, correction, and run-orchestration paths, and the
-main service graph still resides in `web/app.py`; therefore none of work
-packages 1.1 through 1.4 is declared complete. No PostgreSQL adapter, server
+Shared request and worker paths no longer read a global actor, and the shared
+`WebContext` cannot carry one. The local compatibility subclass still keeps
+the implicit actor for fixtures, and the service graph remains one large local
+builder rather than focused deployment-neutral builders. Therefore work
+packages 1.1, 1.2, and 1.4 remain in progress. No PostgreSQL adapter, server
 session, Organization administration page, or Linux runtime has been added.
+
+Focused verification for the fourth increment covers the architecture rule,
+request-scoped preparation and load job contracts, execution and navigation
+services, Load browser routes, Odoo target readers, and transfer page-read
+ceilings. Two Recipe/Production browser scenarios still expect a Recipe
+application's direct `/mapping` URL to render the mapping page, while the
+current route redirects that run-owned work area to Review and load. That
+pre-existing navigation expectation must be reconciled separately; it is not
+an actor-resolution failure. The full integrated Recipe-run suite also exceeds
+the current 180-second local verification window and needs a bounded rerun or
+test split before Phase 1 closes.
 
 ### Objective and entry conditions
 

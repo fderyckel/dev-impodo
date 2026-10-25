@@ -39,23 +39,23 @@ class _SupportingPreviewOutcome(StrEnum):
 _OUTCOME_COPY = {
     _SupportingPreviewOutcome.KEEP_LINKED: (
         "Keep linked value",
-        "For each populated link, Impodo first reuses a matching destination "
+        ("For each populated link, Impodo first reuses a matching destination "
         "record. If no match exists, it prepares only the identity and required "
         "values needed to create that record. It does not add the whole related "
-        "record type to the top-level transfer.",
+        "record type to the top-level transfer."),
         "Reuse or create identity and required values only",
     ),
     _SupportingPreviewOutcome.USE_EXISTING_DESTINATION: (
         "Use existing destination records only",
-        "Destination-owned setup stays protected. Impodo must match an existing "
+        ("Destination-owned setup stays protected. Impodo must match an existing "
         "destination record; a missing match stops the load instead of creating "
-        "or updating setup here.",
+        "or updating setup here."),
         "Protected destination setup",
     ),
     _SupportingPreviewOutcome.ODOO_MANAGED: (
         "Handled by Odoo",
-        "Odoo computes these relationships or owns them through the related "
-        "record. Impodo will not ask you to migrate the related record type here.",
+        ("Odoo computes these relationships or owns them through the related "
+        "record. Impodo will not ask you to migrate the related record type here."),
         "No incoming data required",
     ),
 }
