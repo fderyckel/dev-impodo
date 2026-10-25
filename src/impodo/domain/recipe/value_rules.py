@@ -490,19 +490,24 @@ def validate_scalar_value(
     if policy.character_class != "none":
         segment = value
         if policy.segment_location in {"first", "last"}:
-            assert policy.segment_length is not None
-            if len(value) < policy.segment_length:
+            segment_length = policy.segment_length
+            if segment_length is None:
+                raise ScalarRuleError(
+                    "SOURCE_VALUE_RULE_INVALID",
+                    "Segment validation requires a configured segment length",
+                )
+            if len(value) < segment_length:
                 raise ScalarRuleError(
                     "SOURCE_TEXT_SEGMENT_INVALID",
                     (
-                        f"Expected at least {policy.segment_length} characters "
+                        f"Expected at least {segment_length} characters "
                         f"to check the {policy.segment_location} part"
                     ),
                 )
             segment = (
-                value[: policy.segment_length]
+                value[:segment_length]
                 if policy.segment_location == "first"
-                else value[-policy.segment_length :]
+                else value[-segment_length:]
             )
         matcher = _ASCII_CLASSES[policy.character_class]
         if matcher.fullmatch(segment) is None:
@@ -578,7 +583,10 @@ class CompiledArithmeticFormula:
             operation = instruction.operation
             if operation == "source":
                 source_name = instruction.argument
-                assert isinstance(source_name, str)
+                if not isinstance(source_name, str):
+                    raise ValueError(
+                        "Compiled source instructions require a source name"
+                    )
                 stack.append(prepared[source_name])
             elif operation == "constant":
                 stack.append(instruction.argument)

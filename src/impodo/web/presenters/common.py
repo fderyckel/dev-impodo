@@ -111,7 +111,10 @@ def _render(
         isinstance(workspace_state, WorkspaceState)
         and "workspace_navigation" not in context
     ):
-        assert workspace_view is not None
+        if workspace_view is None:
+            raise RuntimeError(
+                "Workspace navigation requires the current workspace view"
+            )
         if supplied_navigation_facts is None:
             started = perf_counter()
             navigation_facts = application.navigation.get(
@@ -154,7 +157,10 @@ def _render(
         isinstance(workspace_state, WorkspaceState)
         and "migration_context" not in context
     ):
-        assert workspace_view is not None
+        if workspace_view is None:
+            raise RuntimeError(
+                "Migration context requires the current workspace view"
+            )
         context["workspace_view"] = workspace_view
         context["workspace_id"] = workspace_view.migration_workspace.workspace_id
         context["migration_project"] = workspace_view.migration_project

@@ -328,7 +328,8 @@ def write_mapping_review_workbook(
 
     workbook = Workbook()
     overview = workbook.active
-    assert overview is not None
+    if overview is None:
+        raise RuntimeError("A new workbook must contain an active worksheet")
     overview.title = "Matching overview"
     attention = workbook.create_sheet("Needs attention")
     field_matches = workbook.create_sheet("Field matches")

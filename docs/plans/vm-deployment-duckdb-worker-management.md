@@ -647,6 +647,13 @@ adapters or enable server startup.
 passes its focused workflow suites. Architecture tests reject direct adapter
 dependencies and scattered deployment-mode branching.
 
+**Current exit-audit result, 2026-10-25.** The Odoo-source and fake-server
+composition checks pass. The complete architecture suite passes 66 of 68 cases;
+the remaining failures require splitting the oversized shared workflow style
+sheet and historical source-workflow test module. Phase 1 remains open until
+those maintainability limits pass, so the Linux container phase has not been
+formally opened.
+
 ### Phase 2 - Deliver the Linux container baseline
 
 **Purpose.** Create a reproducible server package before enabling multi-user

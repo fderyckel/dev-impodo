@@ -1,3 +1,5 @@
+# Keep this historical workflow name so existing required-check rules continue
+# to match while the job now runs the complete repository gate.
 name: Python quality
 
 on:
@@ -30,7 +32,7 @@ jobs:
       - name: Install Python
         run: uv python install 3.12
 
-      - name: Run the pinned Python quality gate
-        run: uv run --frozen --group quality python scripts/check_python_quality.py
+      - name: Run the complete repository quality gate
+        run: uv run --frozen --group quality python scripts/check_repository_quality.py
         env:
           IMPODO_CI_BEFORE: ${{ github.event.before }}

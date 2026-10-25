@@ -324,21 +324,24 @@ together.
 
 ## Verification
 
-Run the structural gates after a package, port, composition, test, template, or
-asset change:
+Before committing, pushing, or handing off any repository change, run the
+complete repository gate:
 
 ```console
-python scripts/architecture_inventory.py \
-  --check tests/architecture/phase0_baseline.json
-python -m unittest \
-  tests.architecture.test_inventory \
-  tests.architecture.test_dependency_rules \
-  tests.architecture.test_test_organization \
-  tests.architecture.test_static_asset_ownership
-python scripts/documentation_quality.py --check
-python scripts/code_documentation_inventory.py --check
-git diff --check
+uv run --frozen --group quality python scripts/check_repository_quality.py
 ```
+
+The runner applies the Python quality gate, verifies the reviewed architecture
+inventory, discovers every test below `tests/architecture`, checks repository
+documentation, and checks Python code documentation. This discovery keeps new
+architecture guardrails inside the mandatory gate without requiring a second
+command list to be updated.
+
+Every failure blocks delivery even when it appears pre-existing or belongs to
+concurrent work. The contributor reports the exact failure and coordinates its
+owner instead of committing or pushing a knowingly red tree. Only an explicit
+human instruction that names the failed guardrail may waive it for one
+delivery.
 
 Also run the focused owner, transaction, bounded-I/O, browser, seeded-order, or
 end-to-end commands that match the change. The

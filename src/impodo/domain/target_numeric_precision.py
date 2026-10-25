@@ -35,7 +35,8 @@ def required_decimal_places(value: Decimal) -> int:
     parts = value.as_tuple()
     if not any(parts.digits):
         return 0
-    assert isinstance(parts.exponent, int)
+    if not isinstance(parts.exponent, int):
+        raise TypeError("A finite Decimal must have an integer exponent")
     trailing_zeros = 0
     for digit in reversed(parts.digits):
         if digit != 0:

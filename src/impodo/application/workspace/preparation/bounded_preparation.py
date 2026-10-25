@@ -392,7 +392,10 @@ def prepare_bounded_direct_session(
                         "Supported direct preparation requires its frozen "
                         "source snapshot"
                     )
-                assert columnar.program is not None
+                if columnar.program is None:
+                    raise ReadinessError(
+                        "Supported direct preparation requires a compiled program"
+                    )
                 row_count = 0
                 pending_rows: list[CanonicalPreparedSessionRow] = []
                 try:

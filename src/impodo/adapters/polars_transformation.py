@@ -88,6 +88,18 @@ _ERROR_PARSE = "__parse__"
 _ERROR_PARTIAL_OPTIONAL_REFERENCE = "__partial_optional_reference__"
 
 
+def _required_step_argument[StepArgument](
+    value: StepArgument | None,
+    step: ColumnarExpressionStep,
+    name: str,
+) -> StepArgument:
+    if value is None:
+        raise ValueError(
+            f"Compiled {step.operation.value} step requires its {name} argument"
+        )
+    return value
+
+
 class PolarsTransformationAdapter:
     """Implement the preparation-owned native transformation port with Polars."""
 
@@ -872,8 +884,8 @@ def _compile_scalar(
     )
     for step in field.validation_steps:
         invalid = _validation_invalid_expression(typed_for_validation, step)
-        assert step.error_code is not None
-        error = error.when(invalid).then(pl.lit(step.error_code))
+        error_code = _required_step_argument(step.error_code, step, "error code")
+        error = error.when(invalid).then(pl.lit(error_code))
     if (
         field.required_step is not None
         and field.conversion_step.operation is ColumnarOperationKind.PARSE_STRING
@@ -1112,8 +1124,10 @@ def _mapped_value_expression(
 
 def _fallback_used_expression(field: ColumnarScalarFieldProgram) -> pl.Expr:
     provider = field.provider
-    assert provider.source is not None
-    raw = pl.col(source_value_column(provider.source.ordinal))
+    source = provider.source
+    if source is None:
+        raise ValueError("A fallback provider requires its source column")
+    raw = pl.col(source_value_column(source.ordinal))
     probe, _ = _text_expression(raw, provider.fallback_probe_steps)
     return probe.is_null()
 
@@ -1149,8 +1163,12 @@ def _text_expression(
                 .otherwise(result)
             )
         elif operation is ColumnarOperationKind.VALIDATE_RULE_OUTPUT_LENGTH:
-            assert step.integer is not None
-            output_too_long = result.str.len_chars() > step.integer
+            maximum_length = _required_step_argument(
+                step.integer,
+                step,
+                "maximum length",
+            )
+            output_too_long = result.str.len_chars() > maximum_length
         else:
             raise ValueError(f"Unsupported native text operation {operation.value}")
     return result, output_too_long.fill_null(False)
@@ -1258,11 +1276,19 @@ def _validation_invalid_expression(
     step: ColumnarExpressionStep,
 ) -> pl.Expr:
     if step.operation is ColumnarOperationKind.VALIDATE_EXACT_LENGTH:
-        assert step.integer is not None
-        return value.is_not_null() & (value.str.len_chars() != step.integer)
+        exact_length = _required_step_argument(step.integer, step, "exact length")
+        return value.is_not_null() & (value.str.len_chars() != exact_length)
     if step.operation is ColumnarOperationKind.VALIDATE_CHARACTER_CLASS:
-        assert step.character_class is not None
-        assert step.segment_location is not None
+        character_class = _required_step_argument(
+            step.character_class,
+            step,
+            "character class",
+        )
+        segment_location = _required_step_argument(
+            step.segment_location,
+            step,
+            "segment location",
+        )
         patterns = {
             "digits": r"^[0-9]+$",
             "uppercase": r"^[A-Z]+$",
@@ -1270,14 +1296,18 @@ def _validation_invalid_expression(
         }
         segment = value
         too_short = pl.lit(False)
-        if step.segment_location in {"first", "last"}:
-            assert step.segment_length is not None
-            too_short = value.str.len_chars() < step.segment_length
-            segment = value.str.slice(
-                0 if step.segment_location == "first" else -step.segment_length,
+        if segment_location in {"first", "last"}:
+            segment_length = _required_step_argument(
                 step.segment_length,
+                step,
+                "segment length",
             )
-        mismatch = ~segment.str.contains(patterns[step.character_class])
+            too_short = value.str.len_chars() < segment_length
+            segment = value.str.slice(
+                0 if segment_location == "first" else -segment_length,
+                segment_length,
+            )
+        mismatch = ~segment.str.contains(patterns[character_class])
         return value.is_not_null() & (too_short | mismatch.fill_null(True))
     raise ValueError(f"Unsupported native validation {step.operation.value}")
 
@@ -1699,17 +1729,22 @@ def _columnar_rule_definitions(
         search_mode = modes.get(step.operation)
         if search_mode is None:
             continue
-        assert step.text is not None and step.replacement is not None
-        assert step.integer is not None
+        search_text = _required_step_argument(step.text, step, "search text")
+        replacement = _required_step_argument(
+            step.replacement,
+            step,
+            "replacement text",
+        )
+        step_index = _required_step_argument(step.integer, step, "step index")
         rule_kind = f"find_replace_{search_mode}"
         fingerprint = content_hash(
             {
                 "dataset_id": program.dataset_id,
                 "target_field": field.target_field,
-                "step_index": step.integer,
+                "step_index": step_index,
                 "rule_kind": rule_kind,
-                "search_value": step.text,
-                "replacement_value": step.replacement,
+                "search_value": search_text,
+                "replacement_value": replacement,
                 "replace_all": bool(step.flag),
                 "characters": "",
             }
@@ -1943,40 +1978,45 @@ def _native_replacement_expression(
     value: pl.Expr,
     step: ColumnarExpressionStep,
 ) -> pl.Expr:
-    assert step.text is not None and step.replacement is not None
+    search_text = _required_step_argument(step.text, step, "search text")
+    replacement = _required_step_argument(
+        step.replacement,
+        step,
+        "replacement text",
+    )
     if step.operation is ColumnarOperationKind.REPLACE_LITERAL:
         return (
             value.str.replace_all(
-                step.text,
-                step.replacement,
+                search_text,
+                replacement,
                 literal=True,
             )
             if step.flag
             else value.str.replace(
-                step.text,
-                step.replacement,
+                search_text,
+                replacement,
                 literal=True,
                 n=1,
             )
         )
     if step.operation is ColumnarOperationKind.REPLACE_PREFIX:
         return (
-            pl.when(value.str.starts_with(step.text))
+            pl.when(value.str.starts_with(search_text))
             .then(
                 pl.concat_str(
-                    pl.lit(step.replacement),
-                    value.str.strip_prefix(step.text),
+                    pl.lit(replacement),
+                    value.str.strip_prefix(search_text),
                 )
             )
             .otherwise(value)
         )
     if step.operation is ColumnarOperationKind.REPLACE_SUFFIX:
         return (
-            pl.when(value.str.ends_with(step.text))
+            pl.when(value.str.ends_with(search_text))
             .then(
                 pl.concat_str(
-                    value.str.strip_suffix(step.text),
-                    pl.lit(step.replacement),
+                    value.str.strip_suffix(search_text),
+                    pl.lit(replacement),
                 )
             )
             .otherwise(value)
@@ -1988,13 +2028,13 @@ def _native_replacement_match_expression(
     value: pl.Expr,
     step: ColumnarExpressionStep,
 ) -> pl.Expr:
-    assert step.text is not None
+    search_text = _required_step_argument(step.text, step, "search text")
     if step.operation is ColumnarOperationKind.REPLACE_LITERAL:
-        return value.str.contains(step.text, literal=True)
+        return value.str.contains(search_text, literal=True)
     if step.operation is ColumnarOperationKind.REPLACE_PREFIX:
-        return value.str.starts_with(step.text)
+        return value.str.starts_with(search_text)
     if step.operation is ColumnarOperationKind.REPLACE_SUFFIX:
-        return value.str.ends_with(step.text)
+        return value.str.ends_with(search_text)
     raise ValueError("Unsupported native replacement operation")
 
 
@@ -2160,7 +2200,11 @@ def _row_issues(
                 )
                 == _ERROR_PARTIAL_OPTIONAL_REFERENCE
             ):
-                assert component.resolver is not None
+                resolver = component.resolver
+                if resolver is None:
+                    raise ValueError(
+                        "Partial reference errors require a compiled resolver"
+                    )
                 issues.append(
                     Issue(
                         code="SOURCE_REQUIRED_VALUE_MISSING",
@@ -2170,7 +2214,7 @@ def _row_issues(
                         ),
                         dataset=program.dataset_name,
                         row=source_row,
-                        field=component.resolver.target_field,
+                        field=resolver.target_field,
                     )
                 )
     for relationship, component in zip(
@@ -2323,29 +2367,37 @@ def _scalar_error_messages(
             for item in field.validation_steps
             if item.operation is ColumnarOperationKind.VALIDATE_CHARACTER_CLASS
         )
-        assert step.segment_location is not None
-        assert step.character_class is not None
+        segment_location = _required_step_argument(
+            step.segment_location,
+            step,
+            "segment location",
+        )
+        character_class = _required_step_argument(
+            step.character_class,
+            step,
+            "character class",
+        )
         rendered = str(prepared)
         if (
-            step.segment_location in {"first", "last"}
+            segment_location in {"first", "last"}
             and step.segment_length is not None
             and len(rendered) < step.segment_length
         ):
             message = (
                 f"Expected at least {step.segment_length} characters to check "
-                f"the {step.segment_location} part"
+                f"the {segment_location} part"
             )
         else:
             label = {
                 "digits": "digits 0-9",
                 "uppercase": "capital letters A-Z",
                 "lowercase": "lowercase letters a-z",
-            }[step.character_class]
+            }[character_class]
             area = {
                 "entire": "The whole value",
                 "first": f"The first {step.segment_length} characters",
                 "last": f"The last {step.segment_length} characters",
-            }[step.segment_location]
+            }[segment_location]
             message = f"{area} must contain only {label}"
         return error, message, message
     raise ValueError("Unsupported native scalar error")

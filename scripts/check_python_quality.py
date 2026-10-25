@@ -11,7 +11,13 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "Ruff",
-        ("ruff", "check", "src/impodo", "scripts/check_python_quality.py"),
+        (
+            "ruff",
+            "check",
+            "src/impodo",
+            "scripts/check_python_quality.py",
+            "scripts/check_repository_quality.py",
+        ),
     ),
     (
         "Basedpyright",

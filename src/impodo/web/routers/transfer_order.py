@@ -166,7 +166,8 @@ def build_transfer_order_router(context: WebContext) -> APIRouter:
             ):
                 raise WorkspaceError("Complete current destination matching first")
             match_plan = workspace_state.destination_match_plan
-            assert match_plan is not None
+            if match_plan is None:
+                raise WorkspaceError("Complete current destination matching first")
             plan = service.build(
                 workspace_state,
                 match_plan,

@@ -122,7 +122,10 @@ class EncodedSourceCell:
 
         if self.kind is SourceCellKind.NULL:
             return None
-        assert self.text is not None
+        if self.text is None:
+            raise SourceSnapshotContractError(
+                "Non-null source cells require an encoded value"
+            )
         if self.kind is SourceCellKind.STRING:
             return self.text
         if self.kind is SourceCellKind.BOOLEAN:

@@ -301,9 +301,16 @@ class WorkspaceIntegratedQualificationEvidenceReader:
             )
         ):
             return None, self._deduplicate(issues)
-        assert run is not None and run.completed_at is not None
-        assert staging is not None and quality is not None
-        assert report is not None and reconciliation is not None
+        if run is None or run.completed_at is None:
+            raise RuntimeError("Successful Test qualification requires a completed run")
+        if staging is None or quality is None:
+            raise RuntimeError(
+                "Successful Test qualification requires staging and quality evidence"
+            )
+        if report is None or reconciliation is None:
+            raise RuntimeError(
+                "Successful Test qualification requires report and reconciliation evidence"
+            )
         outcomes = QualifiedOutcomes(
             create_count=report.create_count,
             update_count=report.update_count,

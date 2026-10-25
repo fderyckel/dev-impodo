@@ -234,7 +234,9 @@ def _structured_version_string(info: object) -> str | None:
     parsed = _recognize_string(rendered)
     if parsed.problem is not None:
         return None
-    assert parsed.release_stage is not None
-    if parsed.release_stage.value != stage:
+    release_stage = parsed.release_stage
+    if release_stage is None:
+        raise RuntimeError("A recognized Odoo version must have a release stage")
+    if release_stage.value != stage:
         return None
     return rendered

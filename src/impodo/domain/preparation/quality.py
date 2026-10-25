@@ -1832,7 +1832,8 @@ def _business_rule_failed(rule: QualityRule, row: CanonicalRow) -> tuple[bool, s
         if len(values) != 2 or not all(present):
             return False, ""
         left, right = values
-        assert left is not None and right is not None
+        if left is None or right is None:
+            raise QualityError("Ordered comparison values are incomplete")
         try:
             return left > right, "The first selected value must not be greater than the second."
         except TypeError:

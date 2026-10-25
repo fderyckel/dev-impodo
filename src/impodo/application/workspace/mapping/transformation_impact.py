@@ -327,7 +327,10 @@ class TransformationImpactService:
                 transformation_impact_sink=write_impact,
             )
             report = staged.transformation_impact
-            assert report is not None
+            if report is None:
+                raise WorkspaceError(
+                    "Transformation-impact evaluation produced no report"
+                )
             return report
 
         return self.replace_snapshot(

@@ -189,7 +189,8 @@ def _csv_workbook(
     del header_row
     workbook = Workbook()
     worksheet = workbook.active
-    assert worksheet is not None
+    if worksheet is None:
+        raise RuntimeError("A new workbook must contain an active worksheet")
     worksheet.title = _safe_sheet_title(Path(source_display_name).stem or "Source")
     with source_path.open("rb") as raw:
         text = TextIOWrapper(raw, encoding=encoding or "utf-8-sig", newline="")

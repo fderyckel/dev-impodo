@@ -18,7 +18,7 @@ import json
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol
+from typing import Any, Protocol, cast
 
 from impodo.domain.mapping.contracts import MappingDefinition
 from impodo.domain.serialization import canonical_json, content_hash
@@ -160,7 +160,7 @@ class SourceSelection:
         """Restore a frozen selection without reopening source artifacts."""
 
         payload = json.loads(value)
-        _require_exact_fields(
+        payload = _require_exact_fields(
             payload,
             {
                 "contract_version",
@@ -214,12 +214,11 @@ def canonical_mapping_source_selection(
 
 
 def _source_dataset_from_dict(value: object) -> SourceDataset:
-    _require_exact_fields(
+    value = _require_exact_fields(
         value,
         {"dataset_id", "name", "source", "row_count", "columns"},
         "source dataset",
     )
-    assert isinstance(value, dict)
     return SourceDataset(
         dataset_id=value["dataset_id"],
         name=value["name"],
@@ -230,12 +229,11 @@ def _source_dataset_from_dict(value: object) -> SourceDataset:
 
 
 def _source_column_from_dict(value: object) -> SourceDatasetColumn:
-    _require_exact_fields(
+    value = _require_exact_fields(
         value,
         {"ordinal", "source_name", "stable_key", "candidate_type"},
         "source column",
     )
-    assert isinstance(value, dict)
     return SourceDatasetColumn(
         ordinal=int(value["ordinal"]),
         source_name=value["source_name"],
@@ -248,9 +246,10 @@ def _require_exact_fields(
     value: object,
     expected: set[str],
     label: str,
-) -> None:
+) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != expected:
         raise ValueError(f"Stored {label} does not match the current contract")
+    return cast(dict[str, Any], value)
 
 
 @dataclass(frozen=True, slots=True)

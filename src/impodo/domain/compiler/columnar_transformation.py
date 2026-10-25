@@ -2016,11 +2016,15 @@ def _input_column(column: SourceDatasetColumn) -> ColumnarInputColumn:
 
 def _fallback_reason(use: ColumnarCapabilityUse) -> ColumnarFallbackReason:
     capability = _CAPABILITY_BY_OPERATION[use.operation]
-    assert capability.fallback_code is not None
-    assert capability.fallback_message is not None
+    fallback_code = capability.fallback_code
+    fallback_message = capability.fallback_message
+    if fallback_code is None or fallback_message is None:
+        raise ColumnarCompilationError(
+            f"Operation {use.operation.value} does not define a fallback reason"
+        )
     return ColumnarFallbackReason(
-        code=capability.fallback_code,
-        message=capability.fallback_message,
+        code=fallback_code,
+        message=fallback_message,
         path=use.path,
         operation=use.operation,
         target_field=use.target_field,

@@ -106,12 +106,16 @@ class CorrectionBinding:
                 "Correction successor run and workspace must be bound together"
             )
         if self.successor_migration_run_id is not None:
-            assert self.successor_workspace_id is not None
+            successor_workspace_id = self.successor_workspace_id
+            if successor_workspace_id is None:
+                raise CorrectionOriginError(
+                    "Correction successor run and workspace must be bound together"
+                )
             require_uuid(
                 self.successor_migration_run_id,
                 "successor_migration_run_id",
             )
-            require_uuid(self.successor_workspace_id, "successor_workspace_id")
+            require_uuid(successor_workspace_id, "successor_workspace_id")
         for value, name in (
             (self.current_mapping_hash, "current_mapping_hash"),
             (self.current_prepared_hash, "current_prepared_hash"),

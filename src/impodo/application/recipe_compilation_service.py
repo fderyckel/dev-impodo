@@ -1031,7 +1031,10 @@ class RecipeCompiler:
                 )
             )
         odoo_major_version = version_decision.version.major
-        assert odoo_major_version is not None
+        if odoo_major_version is None:
+            raise RuntimeError(
+                "An allowed Odoo operation must have a recognized major version"
+            )
         field_roles: dict[tuple[str, str], set[str]] = {}
         write_fields: dict[str, set[str]] = {}
         selection_codes: dict[tuple[str, str], set[str]] = {}

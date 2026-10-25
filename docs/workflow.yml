@@ -181,7 +181,10 @@ stages:
       - tests/domain/recipe/test_bom_source_composition.py
       - tests/performance/test_source_composition_benchmark.py
       - tests/domain/recipe/test_source_composition_round_trip.py
-      - tests/integration/web/test_source_workflow.py
+      - tests/integration/web/test_file_source_workflow.py
+      - tests/integration/web/test_odoo_source_lifecycle.py
+      - tests/integration/web/test_odoo_relationship_review.py
+      - tests/integration/web/test_odoo_relationship_capture.py
       - tests/integration/web/test_stage12_page_loading.py
       - tests/integration/duckdb/test_schema_structure.py
       - tests/e2e/test_derived_entities_navigation.py

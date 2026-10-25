@@ -454,7 +454,10 @@ def _validate_resolver(
     )
     if version_decision.allowed:
         odoo_major_version = version_decision.version.major
-        assert odoo_major_version is not None
+        if odoo_major_version is None:
+            raise RuntimeError(
+                "An allowed Odoo operation must have a recognized major version"
+            )
     else:
         odoo_major_version = -1
     reference_decision = authorize_governed_reference(

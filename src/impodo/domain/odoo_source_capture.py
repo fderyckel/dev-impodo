@@ -264,7 +264,10 @@ class OdooSourceCaptureRequest:
             raise OdooSourceCaptureConfigurationError(
                 "Odoo capture request does not match the current policy"
             )
-        assert policy is not None
+        if policy is None:
+            raise OdooSourceCaptureConfigurationError(
+                "Odoo capture request does not match the current policy"
+            )
         projection = tuple(self.projection)
         if (
             not projection
@@ -599,7 +602,10 @@ def plan_odoo_source_capture(
         raise OdooSourceCaptureConfigurationError(
             "Odoo capture selection no longer matches the current schema evidence"
         )
-    assert policy is not None
+    if policy is None:
+        raise OdooSourceCaptureConfigurationError(
+            "Odoo capture selection no longer matches the current schema evidence"
+        )
     schema_model = next(
         (item for item in schema.models if item.name == selection.model),
         None,
@@ -620,7 +626,10 @@ def plan_odoo_source_capture(
             raise OdooSourceCaptureConfigurationError(
                 f"Odoo field {name} is not eligible for Tier-1 capture"
             )
-        assert field is not None
+        if field is None:
+            raise OdooSourceCaptureConfigurationError(
+                f"Odoo field {name} is not eligible for Tier-1 capture"
+            )
         projection.append(OdooCaptureFieldProjection(name, field.type))
     selected_models = {item.name for item in schema.models}
     preserve_leaf_models = (
@@ -736,7 +745,10 @@ def plan_odoo_source_capture(
             raise OdooSourceCaptureConfigurationError(
                 f"Odoo filter field {clause.field_name} is not eligible"
             )
-        assert field is not None
+        if field is None:
+            raise OdooSourceCaptureConfigurationError(
+                f"Odoo filter field {clause.field_name} is not eligible"
+            )
         _validate_filter_values(clause, field)
     return OdooSourceCaptureRequest(
         data_version_id=selection.data_version_id,

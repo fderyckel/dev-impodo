@@ -146,6 +146,7 @@ class ConceptHelpBrowserTests(unittest.TestCase):
             response = self.client.get("/projects")
 
         self.assertEqual(response.status_code, 200)
+        self.assertIn('/concept-help.css', response.text)
         project_queries.list_visible_project_summaries.assert_called_once()
         project_queries.get_visible_project.assert_not_called()
         self.assertIn('href="/concepts#data-project"', response.text)
@@ -154,6 +155,10 @@ class ConceptHelpBrowserTests(unittest.TestCase):
         self.assertIn('aria-label="Explain how a data project is organized"', response.text)
         self.assertIn('id="concept-help-dialog-data-project"', response.text)
         self.assertIn('aria-labelledby="concept-help-title-data-project"', response.text)
+
+        styles = self.client.get("/static/concept-help.css")
+        self.assertEqual(styles.status_code, 200)
+        self.assertIn(".concept-help-dialog", styles.text)
 
     def test_data_project_overview_explains_workspace_and_recipe(self) -> None:
         self._launch()

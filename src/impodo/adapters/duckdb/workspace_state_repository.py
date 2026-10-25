@@ -525,7 +525,10 @@ class WorkspaceStateRepository(DuckDbRepository):
                             "Odoo model discovery changed while capture was prepared"
                         )
                 if capture_selections is not None:
-                    assert schema_catalog is not None
+                    if schema_catalog is None:
+                        raise WorkspaceStateError(
+                            "Prepared Odoo capture plans require prepared schema evidence"
+                        )
                     for selection in capture_selections:
                         try:
                             validate_odoo_capture_selection_reference(

@@ -23,8 +23,10 @@ read bounded workspace-level projections, but must not add an Odoo call or a
 repository query per source row, field, or captured record.
 
 See ``docs/developer/workflow/01-source-data.md``,
-``docs/developer/contracts/evidence-lifecycle.md``, and
-``tests/integration/web/test_source_workflow.py``.
+``docs/developer/contracts/evidence-lifecycle.md``, and the focused browser
+evidence in ``tests/integration/web/test_file_source_workflow.py``,
+``test_odoo_source_lifecycle.py``, ``test_odoo_relationship_review.py``, and
+``test_odoo_relationship_capture.py``.
 """
 
 from __future__ import annotations
@@ -1132,7 +1134,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     new_record_types=0,
                 ):
                     prepared_schema = await incremental_session.finalize(final_state)
-            assert prepared_schema is not None
+            if prepared_schema is None:
+                raise WorkspaceStateError(
+                    "Related-data planning did not produce prepared schema evidence"
+                )
             staged_scope = OdooRelationshipScope.create(
                 scope_id=(current_scope.scope_id if current_scope else str(uuid4())),
                 version=(current_scope.version + 1 if current_scope else 1),
@@ -1273,7 +1278,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 f"/workspaces/{workspace_id}/sources#related-data-scope",
                 status_code=303,
             )
-        assert guided_proposal is not None
+        if guided_proposal is None:
+            raise WorkspaceError(
+                "Related-data review did not produce a guided capture plan"
+            )
         if guided_proposal.issues:
             count = len(guided_proposal.issues)
             _flash(
@@ -1413,8 +1421,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     f"{workspace_id}?resume=source",
                     status_code=307,
                 )
-            assert credential is not None
-            assert prepared is not None
+            if credential is None or prepared is None:
+                raise WorkspaceError(
+                    "Odoo source assessment preparation is incomplete"
+                )
             gateway = context.source_capture_factory(
                 workspace_state,
                 credential.secret,

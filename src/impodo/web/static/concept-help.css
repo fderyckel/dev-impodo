@@ -1,0 +1,86 @@
+.heading-with-help,
+.eyebrow-with-help {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+}
+
+.heading-with-help h1,
+.heading-with-help h2,
+.eyebrow-with-help .eyebrow {
+  margin-bottom: 0;
+}
+
+.concept-help-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 2.75rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.concept-help-link:hover {
+  background: var(--impodo-soft);
+  color: var(--impodo-charcoal-dark);
+}
+
+.concept-help-link:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.concept-help-dialog {
+  width: min(660px, calc(100vw - 2rem));
+  max-height: min(760px, calc(100vh - 2rem));
+  margin: auto;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 24px 64px rgba(41, 44, 40, .28);
+  color: var(--ink);
+  padding: 1.5rem;
+}
+
+.concept-help-dialog::backdrop {
+  background: rgba(41, 44, 40, .58);
+}
+
+.concept-help-dialog form {
+  margin: 0;
+}
+
+.concept-help-body {
+  display: grid;
+  gap: .8rem;
+  margin-top: 1.25rem;
+}
+
+.concept-help-body > p,
+.concept-example p,
+.concept-practical-effect p {
+  margin: 0;
+}
+
+.concept-example,
+.concept-practical-effect {
+  padding: 1rem;
+  border-left: 4px solid var(--impodo-grey-light);
+  background: var(--impodo-soft);
+}
+
+.concept-practical-effect {
+  border-left-color: var(--brand);
+  background: var(--accent);
+}
+
+.concept-related {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  align-items: baseline;
+}

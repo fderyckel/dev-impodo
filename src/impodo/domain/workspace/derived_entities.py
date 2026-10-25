@@ -1020,8 +1020,7 @@ def evaluate_hierarchy_path(
     )
     if not any(normalized):
         if rule.all_blank.mode == "fixed":
-            assert rule.all_blank.value is not None
-            display = (rule.all_blank.value,)
+            display = (_fixed_policy_value(rule.all_blank, "All-blank"),)
             return HierarchyPathEvaluation(
                 display_parts=display,
                 canonical_parts=tuple(item.casefold() for item in display),
@@ -1061,9 +1060,12 @@ def evaluate_hierarchy_path(
                 outcomes=(f"{rule.missing_parent.mode}_missing_parent",),
             )
         if rule.missing_parent.mode == "fixed":
-            assert rule.missing_parent.value is not None
+            fixed_parent = _fixed_policy_value(
+                rule.missing_parent,
+                "Missing-parent",
+            )
             working = [
-                rule.missing_parent.value if value is None else value
+                fixed_parent if value is None else value
                 for value in working
             ]
             outcomes.append("fixed_parent")
@@ -2042,6 +2044,13 @@ def _require_fixed_policy_value(
         raise ValueError(f"{label} fixed behavior requires a value")
     if policy.mode != "fixed" and policy.value is not None:
         raise ValueError(f"{label} behavior must not retain a hidden fixed value")
+
+
+def _fixed_policy_value(policy: HierarchyValuePolicy, label: str) -> str:
+    value = policy.value
+    if policy.mode != "fixed" or value is None:
+        raise ValueError(f"{label} fixed behavior requires a value")
+    return value
 
 
 def _content_hash(payload: object) -> str:

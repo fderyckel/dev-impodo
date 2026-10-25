@@ -72,6 +72,15 @@ class ProductionRunValuesTests(TestCase):
         with self.assertRaisesRegex(ProductionRunError, "export date"):
             self.service.normalize(self.review, {"one": {EXPORT_AS_OF_PARAMETER_ID: "2020-01-01"}}, {})
 
+    def test_persistence_operations_require_a_repository(self):
+        with self.assertRaisesRegex(ProductionRunError, "not configured"):
+            self.service.activation_values(
+                NS(migration_run_id="run"),
+                self.review,
+                None,
+                None,
+            )
+
     def test_changed_delivery_or_recipe_does_not_accept_an_old_form(self):
         with self.assertRaisesRegex(ProductionRunError, "setup changed"):
             self.submitted(evidence_hash="old")

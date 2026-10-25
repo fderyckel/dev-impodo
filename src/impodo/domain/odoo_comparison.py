@@ -340,7 +340,8 @@ def canonical_write_date(value: object) -> datetime | None:
     if value is False or value is None:
         return None
     normalized = canonical_odoo_scalar("datetime", value)
-    assert isinstance(normalized, datetime)
+    if not isinstance(normalized, datetime):
+        raise TypeError("Canonical Odoo datetime normalization returned another type")
     return normalized
 
 

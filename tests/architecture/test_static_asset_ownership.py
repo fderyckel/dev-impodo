@@ -19,6 +19,7 @@ class StaticAssetOwnershipTests(unittest.TestCase):
             "/layout.css",
             "/components.css",
             "/workflow-pages.css",
+            "/concept-help.css",
         )
 
         positions = [template.index(style) for style in styles]
@@ -31,6 +32,17 @@ class StaticAssetOwnershipTests(unittest.TestCase):
             template.index("/server-recovery.js"),
         )
         self.assertFalse((STATIC_ROOT / "app.css").exists())
+
+    def test_page_specific_styles_remain_owned_by_their_templates(self) -> None:
+        template = (TEMPLATE_ROOT / "project_recipe_target_matches.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("/recipe-target-matching.css", template)
+        self.assertNotIn(
+            "/recipe-target-matching.css",
+            (TEMPLATE_ROOT / "base.html").read_text(encoding="utf-8"),
+        )
 
     def test_shared_recovery_ui_uses_bounded_authenticated_heartbeat(self) -> None:
         template = (TEMPLATE_ROOT / "base.html").read_text(encoding="utf-8")

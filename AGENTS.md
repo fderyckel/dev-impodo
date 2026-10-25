@@ -22,7 +22,7 @@ These instructions apply to the complete repository.
   [`docs/developer/reference/python-code-quality.md`](docs/developer/reference/python-code-quality.md)
   before adding, editing, reviewing, or refactoring Python.
 - Apply the `impodo-python-quality` skill when it is available.
-- Run the repository quality command before handing off any Python change:
+- Run the Python quality command after a Python change:
 
   ```powershell
   uv run --frozen --group quality python scripts/check_python_quality.py
@@ -53,3 +53,22 @@ These instructions apply to the complete repository.
 - Report checks that passed, checks that failed, and checks that were omitted.
   Do not describe an unavailable executable or an unrelated failing test as a
   clean result.
+
+## Block delivery when a repository guardrail fails
+
+- Before committing, pushing, or handing off any repository change, run the
+  complete repository gate:
+
+  ```powershell
+  uv run --frozen --group quality python scripts/check_repository_quality.py
+  ```
+
+- The complete gate does not replace focused behavioral tests. It adds the
+  architecture inventory, the complete architecture test suite, documentation
+  checks, and code-documentation checks to the Python quality gate.
+- Treat every failure as blocking, even when it appears pre-existing,
+  unrelated, or owned by another concurrent agent. Do not commit, push, or
+  describe the tree as ready. Report the exact failure and coordinate its
+  owner instead of reclassifying it as acceptable debt.
+- Only an explicit human instruction that names the failed guardrail may waive
+  it for one delivery. Record the failed or omitted check in the handoff.

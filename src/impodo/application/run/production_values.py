@@ -133,16 +133,14 @@ class ProductionRunValuesUseCase:
             revision=1 if expected_revision is None else expected_revision + 1,
             parameters=normalized.parameters, controls=normalized.controls, updated_by=actor.identity, updated_at=utc_now(),
         )
-        repository = self._repository
-        assert repository is not None
+        repository = self._require_repository()
         return repository.replace_run_values(values, expected_revision=expected_revision,
             expected_binding_hash=binding.content_hash, actor=actor)
 
     def activation_values(self, binding, review, parameters, controls) -> FreshDataActivationValues:
         """Use saved delivery answers and reject an activation-time replacement."""
 
-        repository = self._repository
-        assert repository is not None
+        repository = self._require_repository()
         saved = repository.get_run_values(binding.migration_run_id)
         if saved is None:
             return self.normalize(review, parameters, controls)
@@ -152,6 +150,14 @@ class ProductionRunValuesUseCase:
         if normalized != expected:
             raise MigrationConflictError("Run details were accepted with this fresh data; start a new Production run to change them")
         return normalized
+
+    def _require_repository(self) -> ProductionRunRepository:
+        repository = self._repository
+        if repository is None:
+            raise ProductionRunError(
+                "Production run value persistence is not configured"
+            )
+        return repository
 
     @staticmethod
     def normalize(

@@ -459,8 +459,8 @@ class DryRun:
         """
 
         self._require_status(DryRunStatus.REVIEW_REQUIRED)
-        assert self.summary is not None
-        if key not in self.summary.required_group_keys:
+        summary = self._require_summary()
+        if key not in summary.required_group_keys:
             raise DryRunTransitionError(
                 "only approval-required correction groups can be approved"
             )
@@ -486,8 +486,8 @@ class DryRun:
         """Approve every still-pending required group in one domain action."""
 
         self._require_status(DryRunStatus.REVIEW_REQUIRED)
-        assert self.summary is not None
-        pending = self.summary.required_group_keys.difference(
+        summary = self._require_summary()
+        pending = summary.required_group_keys.difference(
             self.approved_groups
         )
         updated = self
@@ -518,8 +518,8 @@ class DryRun:
         """
 
         self._require_status(DryRunStatus.REVIEW_REQUIRED)
-        assert self.summary is not None
-        if key not in self.summary.required_group_keys:
+        summary = self._require_summary()
+        if key not in summary.required_group_keys:
             raise DryRunTransitionError(
                 "only approval-required correction groups can be rejected"
             )
@@ -584,8 +584,8 @@ class DryRun:
         """
 
         self._require_status(DryRunStatus.REVIEW_REQUIRED)
-        assert self.summary is not None
-        pending = self.summary.required_group_keys.difference(self.approved_groups)
+        summary = self._require_summary()
+        pending = summary.required_group_keys.difference(self.approved_groups)
         if pending:
             raise DryRunTransitionError(
                 f"{len(pending)} correction group(s) still require approval"
@@ -625,6 +625,14 @@ class DryRun:
                 f"dry run must be {expected.value}; "
                 f"current status is {self.status.value}"
             )
+
+    def _require_summary(self) -> DryRunSummary:
+        summary = self.summary
+        if summary is None:
+            raise DryRunTransitionError(
+                "a review-required dry run must contain its reconciled summary"
+            )
+        return summary
 
     def _append_decision(
         self,

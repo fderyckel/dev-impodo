@@ -672,6 +672,15 @@ remote I/O, so the existing bounded DuckDB and Odoo adapter lifetimes remain
 the operational boundary. This is controlled local evidence, not live
 PostgreSQL, Odoo-network, container, Debian, or Ubuntu qualification.
 
+The Phase 1 architecture exit audit runs 68 cases. After reconciling the
+reviewed production import inventory and current Project-identity classifier,
+66 pass. The two remaining failures are independent reviewability limits:
+`workflow-pages.css` has 2,587 lines and
+`tests/integration/web/test_source_workflow.py` has 3,626 lines. Neither failure
+is caused by the composition extraction, but both are maintainability debt and
+the Phase 1 exit gate remains open until they are split below their enforced
+limits. Phase 2 is therefore not formally open yet.
+
 The complete local-stack browser module is not yet green. Two recovery cases
 register a file-source Workspace without checking its source file first. The
 current journey gate sends both requests to **Source inspection**, while the

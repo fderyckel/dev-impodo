@@ -35,8 +35,10 @@ class _ValueBinding:
             if self.source == "identity"
             else record.target_scope
         )
-        assert self.position is not None
-        return values[self.position]
+        position = self.position
+        if position is None:
+            raise ValueError("Identity and scope value bindings require a position")
+        return values[position]
 
 
 @dataclass(frozen=True, slots=True)

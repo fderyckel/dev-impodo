@@ -382,7 +382,10 @@ def _transformation_rule_impact_views(
                 }
             )
             continue
-        assert selection_step is not None
+        if selection_step is None:
+            raise RuntimeError(
+                "Transformation impact does not match a configured mapping rule"
+            )
         rule_index, rule, overlap_fingerprint = selection_step
         overlap_impact = impact_by_fingerprint.get(overlap_fingerprint)
         overlap_count = (

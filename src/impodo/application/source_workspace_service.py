@@ -1102,9 +1102,11 @@ class SourceWorkspaceService:
         workspace_id: str,
         data_version_id: str,
     ) -> None:
-        assert self.artifacts is not None
+        artifacts = self.artifacts
+        if artifacts is None:
+            raise RuntimeError("Source snapshot cleanup requires an artifact store")
         referenced = self.sources.source_snapshot_storage_keys(workspace_id)
-        self.artifacts.cleanup_source_snapshots(data_version_id, referenced)
+        artifacts.cleanup_source_snapshots(data_version_id, referenced)
 
 
 def _guided_capture_mode(

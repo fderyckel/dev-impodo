@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from hashlib import sha256
@@ -382,20 +382,13 @@ class _TransformationImpactCollector:
     invalid_count: int = 0
     provided_count: int = 0
     unchanged_count: int = 0
-    rows: list[TransformationImpactRow] | None = None
+    rows: list[TransformationImpactRow] = field(default_factory=list)
     sink: Callable[[TransformationImpactRow], None] | None = None
-    rule_impacts: dict[str, TransformationRuleImpact] | None = None
-
-    def __post_init__(self) -> None:
-        if self.rows is None:
-            self.rows = []
-        if self.rule_impacts is None:
-            self.rule_impacts = {}
+    rule_impacts: dict[str, TransformationRuleImpact] = field(default_factory=dict)
 
     def register_rule(self, rule: TransformationRuleImpact) -> None:
         """Register one configured rule even when no row reaches it."""
 
-        assert self.rule_impacts is not None
         existing = self.rule_impacts.get(rule.rule_fingerprint)
         if existing is not None:
             if (
@@ -417,7 +410,6 @@ class _TransformationImpactCollector:
         """Count one non-empty value evaluated by a configured rule."""
 
         self.register_rule(rule)
-        assert self.rule_impacts is not None
         current = self.rule_impacts[rule.rule_fingerprint]
         self.rule_impacts[rule.rule_fingerprint] = TransformationRuleImpact(
             dataset_id=current.dataset_id,
@@ -435,7 +427,6 @@ class _TransformationImpactCollector:
     ) -> None:
         """Merge complete counts from one bounded native result batch."""
 
-        assert self.rule_impacts is not None
         current = self.rule_impacts.get(rule.rule_fingerprint)
         if current is None:
             self.rule_impacts[rule.rule_fingerprint] = rule
@@ -493,9 +484,8 @@ class _TransformationImpactCollector:
         )
         if self.sink is not None:
             self.sink(impact)
-        if len(self.rows or ()) >= self.detail_limit:
+        if len(self.rows) >= self.detail_limit:
             return
-        assert self.rows is not None
         self.rows.append(impact)
 
     def record_precomputed(
@@ -534,7 +524,6 @@ class _TransformationImpactCollector:
         self.invalid_count += counts.invalid_count
         self.provided_count += counts.provided_count
         self.unchanged_count += counts.unchanged_count
-        assert self.rows is not None
         for impact in impacts:
             if self.sink is not None:
                 self.sink(impact)
@@ -561,7 +550,6 @@ class _TransformationImpactCollector:
             self.record_rule_precomputed(rule_impact)
 
     def report(self) -> TransformationImpactReport:
-        assert self.rule_impacts is not None
         return TransformationImpactReport(
             mapping_content_hash=self.mapping_content_hash,
             evaluated_count=self.evaluated_count,
@@ -571,7 +559,7 @@ class _TransformationImpactCollector:
             invalid_count=self.invalid_count,
             provided_count=self.provided_count,
             unchanged_count=self.unchanged_count,
-            rows=tuple(self.rows or ()),
+            rows=tuple(self.rows),
             rule_impacts=tuple(
                 self.rule_impacts[key] for key in sorted(self.rule_impacts)
             ),

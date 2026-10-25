@@ -153,8 +153,7 @@ class TestRunActivationUseCase:
             )
             if item.name in required_reference_names
         )
-        if captured_reference_datasets:
-            assert target_reference_bundle is not None
+        if target_reference_bundle is not None and captured_reference_datasets:
             run_reference_bundle = MigrationRunReferenceBundle.capture(
                 run_id,
                 target_reference_bundle,
@@ -416,8 +415,7 @@ class TestRunActivationUseCase:
             )
             if item.name in required_reference_names
         )
-        if captured_reference_datasets:
-            assert target_reference_bundle is not None
+        if target_reference_bundle is not None and captured_reference_datasets:
             run_reference_bundle = MigrationRunReferenceBundle.capture(
                 run.migration_run_id,
                 target_reference_bundle,

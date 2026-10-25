@@ -140,7 +140,10 @@ def append_clean_native_projection(
         layout,
         control_fields,
     )
-    assert control_totals is not None
+    if control_totals is None:
+        raise WorkspaceError(
+            "Native projection control totals could not be calculated"
+        )
 
     relation = _projected_relation_sql(
         projection,
@@ -1078,7 +1081,8 @@ def _python_tuple_repr(values: tuple[str, ...]) -> str:
 
 def _reference_display(component: _IdentityComponent) -> str:
     resolver = component.resolver
-    assert resolver is not None
+    if resolver is None:
+        raise ValueError("Reference display requires a compiled resolver")
     incoming = tuple(_identifier(item.alias) for item in component.values)
     target = tuple(_identifier(item.alias) for item in (component.target_values or component.values))
     origin = (

@@ -145,6 +145,20 @@ class _CoverageField:
     target_values: frozenset[str] = frozenset()
     unsupported_reason: str | None = None
 
+    def require_scalar(self) -> ScalarFieldMapping:
+        scalar = self.scalar
+        if scalar is None:
+            raise WorkspaceError("Categorical coverage requires a scalar mapping")
+        return scalar
+
+    def require_relationship(self) -> RelationshipMapping:
+        relationship = self.relationship
+        if relationship is None:
+            raise WorkspaceError(
+                "Categorical coverage requires a relationship mapping"
+            )
+        return relationship
+
 
 class CategoricalCoverageService:
     """Scan each affected source dataset once and close every v11 domain."""
@@ -646,7 +660,10 @@ class CategoricalCoverageService:
                 continue
             if not scan_fields:
                 continue
-            assert physical_selection is not None
+            if physical_selection is None:
+                raise WorkspaceError(
+                    "Categorical coverage requires a physical source selection"
+                )
             frame = self._scan_dataset(
                 workspace_id,
                 physical_selection,
@@ -949,9 +966,9 @@ def _categorical_evidence_limit(item: _CoverageField) -> int:
 
 
 def _constant_scalar_uncovered(item: _CoverageField) -> tuple[tuple[str, ...], ...]:
-    assert item.scalar is not None
+    scalar = item.require_scalar()
     try:
-        proposed = evaluate_scalar_mapping_value(item.scalar, None)
+        proposed = evaluate_scalar_mapping_value(scalar, None)
     except ScalarValueError:
         return (("<invalid-provider-value>",),)
     if proposed is None:
@@ -980,8 +997,7 @@ def _uncovered_values(
         if item.scalar is not None:
             mappings = item.scalar.value_mappings
         else:
-            assert item.relationship is not None
-            mappings = item.relationship.resolver.value_mappings
+            mappings = item.require_relationship().resolver.value_mappings
         covered = {mapping.source_value for mapping in mappings}
         uncovered_values = tuple(
             values
@@ -991,12 +1007,12 @@ def _uncovered_values(
         return (*uncovered_values, *_fallback_uncovered(item))
     if item.policy is CategoricalCoveragePolicy.EXACT_BUSINESS_KEY:
         return ()
-    assert item.scalar is not None
+    scalar = item.require_scalar()
     uncovered: list[tuple[str, ...]] = []
     for values in sorted(raw_counts):
         try:
             proposed = evaluate_scalar_mapping_value(
-                item.scalar,
+                scalar,
                 values[0] if values else None,
                 source_values_by_key=dict(
                     zip(item.source_column_keys, values, strict=True)

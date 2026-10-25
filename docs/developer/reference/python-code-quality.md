@@ -6,10 +6,12 @@ status: current
 
 # Python code quality
 
-Impodo uses one repeatable quality gate so developers, coding agents, and
-continuous integration apply the same Python rules. The gate rejects every
-Ruff or Basedpyright diagnostic in the checked source. It does not authorize a
-static-analysis fix to change business behavior.
+Impodo uses a focused Python gate while code is being changed and one complete
+repository gate before delivery. The Python gate rejects every Ruff or
+Basedpyright diagnostic in the checked source. The repository gate also
+enforces architecture, test organization, static-asset ownership, and
+documentation rules. Neither gate authorizes a static-analysis fix to change
+business behavior.
 
 ## Sources of authority
 
@@ -19,8 +21,10 @@ Each quality artifact owns one decision:
 | --- | --- |
 | Accepted contracts, runtime behavior, and focused tests | Define the required program semantics. |
 | `pyproject.toml` | Defines the Ruff and Basedpyright configuration and pins their quality dependency versions. |
-| `scripts/check_python_quality.py` | Runs the repository checks in their supported order. |
-| `.github/workflows/python-quality.yml` | Requires the same command for proposed and accepted changes. |
+| `scripts/check_python_quality.py` | Runs the focused Python checks in their supported order. |
+| `scripts/check_repository_quality.py` | Runs every required repository guardrail before delivery. |
+| `.github/workflows/python-quality.yml` | Runs the complete repository gate for proposed and accepted changes. |
+| GitHub branch protection | Must require the stable `Python quality / quality` check before merge. |
 | `AGENTS.md` | Tells coding agents how to apply the policy safely. |
 
 Ruff and Basedpyright are complementary:
@@ -36,7 +40,7 @@ If an exact duplicate needs one owner, retain the diagnostic that matches this
 table and disable only the duplicate in the non-owning tool. Record the reason
 beside the narrow configuration or expression.
 
-## Run the quality gate
+## Run the Python quality gate
 
 Run this command from the repository root:
 
@@ -56,6 +60,32 @@ The gate does not replace focused behavioral tests. Run the tests owned by the
 changed route, service, domain rule, adapter, or repository after the static
 checks pass.
 
+## Run the complete repository gate before delivery
+
+Before committing, pushing, or handing off any repository change, run:
+
+```powershell
+uv run --frozen --group quality python scripts/check_repository_quality.py
+```
+
+The command runs the Python quality gate, verifies the reviewed architecture
+inventory, discovers every architecture test, checks repository documentation,
+and checks Python code documentation. The architecture suite includes the
+test-module and static-asset reviewability limits.
+
+Any failure blocks delivery even when it appears pre-existing, unrelated to
+the current change, or owned by another concurrent agent. Report the exact
+failure and coordinate its owner. Do not commit, push, or describe the tree as
+ready unless the gate passes or a human explicitly names and waives that
+failure for the delivery. Focused behavioral tests remain required for the
+responsibility that changed.
+
+The workflow and job identifiers remain `Python quality` and `quality` so an
+existing required-check rule continues to match `Python quality / quality`.
+The workflow file makes the check run, but GitHub repository settings determine
+whether a pull request may merge without it. A repository administrator must
+keep that check required on `main`.
+
 ## Keep type diagnostics visible
 
 The repository has no Basedpyright baseline. Do not create one or run
@@ -74,8 +104,8 @@ Use this sequence for a cleanup or refactor:
 3. Inspect the complete diff and run the focused tests for the affected code.
 4. Review every unsafe Ruff fix and every manual type correction against the
    runtime contract before editing.
-5. Run the complete quality gate again and report the direct Basedpyright
-   result.
+5. Run the Python quality gate again and report the direct Basedpyright result.
+6. Run the complete repository gate before delivery.
 
 Do not use blanket `noqa`, `type: ignore`, directory exclusions, or disabled
 diagnostic categories to obtain a green result. A necessary narrow suppression

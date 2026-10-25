@@ -443,11 +443,15 @@ class LocalOdooMetadataReader:
         """Run one fixed script against the validated local stack and parse it."""
 
         _validate_local_binding(workspace_state, profile)
-        assert profile.python_path is not None
-        assert profile.odoo_bin_path is not None
+        python_path = profile.python_path
+        odoo_bin_path = profile.odoo_bin_path
+        if python_path is None or odoo_bin_path is None:
+            raise LocalOdooReaderError(
+                "The validated local Odoo stack is missing an executable path"
+            )
         command = (
-            str(profile.python_path),
-            str(profile.odoo_bin_path),
+            str(python_path),
+            str(odoo_bin_path),
             "shell",
             "-c",
             str(profile.config_path),
@@ -519,14 +523,18 @@ class LocalOdooMetadataReader:
                 f"Local schema capture does not support Odoo {version or 'unknown'}. "
                 f"Version check: {decision.reason}; version_info: {payload.get('version_info')!r}."
             )
-        assert workspace_state.odoo_connection_mode is not None
+        connection_mode = workspace_state.odoo_connection_mode
+        if connection_mode is None:
+            raise LocalOdooReaderError(
+                "Local schema capture requires an Odoo connection mode"
+            )
         return TargetFingerprint(
             target_hash=target_identity_hash(
-                connection_mode=workspace_state.odoo_connection_mode.value,
+                connection_mode=connection_mode.value,
                 base_url=workspace_state.odoo_base_url,
                 database=workspace_state.odoo_database,
             ),
-            connection_mode=workspace_state.odoo_connection_mode.value,
+            connection_mode=connection_mode.value,
             database=database,
             odoo_version=version,
             snapshot_timestamp=datetime.now(UTC)

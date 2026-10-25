@@ -1372,7 +1372,10 @@ class WorkspaceStateService:
                     "Prepared Odoo capture plans require schema and "
                     "relationship evidence"
                 )
-            assert prepared_selections
+            if not prepared_selections:
+                raise WorkspaceStateError(
+                    "Prepared Odoo capture plans require at least one selection"
+                )
             selection_models = tuple(item.model for item in prepared_selections)
             if selection_models != tuple(sorted(models)):
                 raise WorkspaceStateError(
@@ -1757,9 +1760,13 @@ def transfer_destination_identity_hash(workspace: WorkspaceState) -> str:
 
     if not workspace.destination_configured:
         return ""
-    assert workspace.destination_odoo_connection_mode is not None
+    connection_mode = workspace.destination_odoo_connection_mode
+    if connection_mode is None:
+        raise WorkspaceStateError(
+            "A configured destination requires its Odoo connection mode"
+        )
     return target_identity_hash(
-        connection_mode=workspace.destination_odoo_connection_mode.value,
+        connection_mode=connection_mode.value,
         base_url=workspace.destination_odoo_base_url,
         database=workspace.destination_odoo_database,
     )

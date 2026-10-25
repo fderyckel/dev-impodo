@@ -865,7 +865,10 @@ class MappingSemanticValidator:
         )
         if version_decision.allowed:
             odoo_major_version = version_decision.version.major
-            assert odoo_major_version is not None
+            if odoo_major_version is None:
+                raise RuntimeError(
+                    "An allowed Odoo operation must have a recognized major version"
+                )
             current_reference_policy_hash = reference_policy_hash(
                 odoo_major_version
             )

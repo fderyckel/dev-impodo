@@ -438,7 +438,10 @@ def authorize_supporting_match_probe(
     if accepted and captured_fields is not None:
         fields = {field.name: field for field in captured_fields}
         if candidate_identity:
-            assert candidate is not None
+            if candidate is None:
+                raise RuntimeError(
+                    "A supporting-reference identity requires its candidate contract"
+                )
             expected_fields = {
                 field.name: field for field in candidate.field_contracts
             }
@@ -626,7 +629,10 @@ def authorize_governed_reference(
         )
 
     if standard_identity:
-        assert standard is not None
+        if standard is None:
+            raise RuntimeError(
+                "A standard reference identity requires its governed contract"
+            )
         if request.odoo_major_version != standard.odoo_major_version:
             return reject(
                 ReferencePolicyDenial.ODOO_VERSION_MISMATCH,
