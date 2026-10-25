@@ -23,12 +23,10 @@ _UNCHECKED_MESSAGES = {
         "that complete scope in the relationship-checking slice."
     ),
     MatchingIdentityNotCheckableReason.UNSUPPORTED_TARGET_FIELD: (
-        "This matching field type is not included in the direct identity "
-        "check yet."
+        "This matching field type is not included in the direct identity check yet."
     ),
     MatchingIdentityNotCheckableReason.SOURCE_EVIDENCE_UNAVAILABLE: (
-        "Impodo could not read the required columns from the current frozen "
-        "source."
+        "Impodo could not read the required columns from the current frozen source."
     ),
     MatchingIdentityNotCheckableReason.ODOO_PINNED_SELECTION: (
         "These rows stay bound through protected Odoo selection evidence."
@@ -82,7 +80,7 @@ def identity_health_view(
         "attention_count": sum(bool(card["blocked_count"]) for card in cards),
         "message": (
             check_attempt.message
-            if running
+            if running and check_attempt is not None
             else (
                 "Save the current matching choices before checking Odoo."
                 if not working_draft_is_current
@@ -111,9 +109,7 @@ def _identity_card(
         else "No confirmed matching rule"
     )
     if not rule_label and selected_key is not None:
-        rule_label = " + ".join(
-            (*selected_key.key_fields, *selected_key.scope_fields)
-        )
+        rule_label = " + ".join((*selected_key.key_fields, *selected_key.scope_fields))
     chosen = bool(mapping is not None and selected_key is not None)
     status_label, status_class, message = _identity_state(
         result,
@@ -138,9 +134,7 @@ def _identity_card(
         "status_class": status_class,
         "message": message,
         "checked": result_counts is not None,
-        "source_row_count": (
-            result_counts.source_row_count if result_counts else 0
-        ),
+        "source_row_count": (result_counts.source_row_count if result_counts else 0),
         "source_unique_row_count": (
             result_counts.source_unique_row_count if result_counts else 0
         ),
@@ -190,8 +184,7 @@ def _identity_state(
             "Needs refresh",
             "review",
             (
-                "The Odoo fields changed. Return to Odoo data before checking "
-                "again."
+                "The Odoo fields changed. Return to Odoo data before checking again."
                 if schema_changed
                 else "The source or saved matching choices changed. Check again."
             ),
@@ -201,9 +194,11 @@ def _identity_state(
             return (
                 "Tested - needs attention",
                 "review",
-                (f"{result.blocked_count:,} source row"
-                f"{'s' if result.blocked_count != 1 else ''} cannot be "
-                "identified safely with this rule."),
+                (
+                    f"{result.blocked_count:,} source row"
+                    f"{'s' if result.blocked_count != 1 else ''} cannot be "
+                    "identified safely with this rule."
+                ),
             )
         return (
             "Tested on current data",
@@ -214,7 +209,12 @@ def _identity_state(
         return (
             "Chosen - not tested",
             "review",
-            _UNCHECKED_MESSAGES[result.not_checkable_reason],
+            (
+                _UNCHECKED_MESSAGES.get(result.not_checkable_reason)
+                if result.not_checkable_reason is not None
+                else None
+            )
+            or "This saved identity could not be tested safely.",
         )
     if chosen:
         return (

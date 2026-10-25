@@ -17,7 +17,6 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 from uuid import uuid4
 
-from impodo.application.preflight_service import PreflightService
 from impodo.application.reconciliation_evidence_service import (
     ReconciliationEvidenceService,
 )
@@ -53,15 +52,21 @@ from impodo.domain.reconciliation_detail import (
     ReconciliationDetailManifest,
     ReconciliationFieldDifference,
 )
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import (
+    Actor,
+    Capability,
+    WorkspaceAuthorizationPolicy,
+)
 from impodo.domain.shared.models import (
     BusinessReference,
     LogicalReference,
     OdooWriteIdentity,
 )
+from impodo.domain.workspace.contracts import OdooSchemaCatalog
 from impodo.domain.workspace.errors import WorkspaceError
 
 from .service import (
+    ExecutionSnapshotRepository,
     _identity_domain,
     _portable_key,
     _targeted_recovery_row_ids,
@@ -115,7 +120,10 @@ class ReconciliationResultRepository(Protocol):
 
 
 class ReconciliationSchemaReader(Protocol):
-    def get_odoo_schema_catalog(self, workspace_id: str):
+    def get_odoo_schema_catalog(
+        self,
+        workspace_id: str,
+    ) -> OdooSchemaCatalog | None:
         """Supply numeric precision only when the snapshot did not preserve it."""
         ...
 
@@ -136,10 +144,10 @@ class ReconciliationService:
     returns an ephemeral report for the execution service to use.
     """
 
-    preflight: PreflightService
+    preflight: ExecutionSnapshotRepository
     execution: ReconciliationExecutionRepository
     results: ReconciliationResultRepository
-    authorization: AuthorizationPolicy
+    authorization: WorkspaceAuthorizationPolicy
     evidence: ReconciliationEvidenceService | None = None
     schemas: ReconciliationSchemaReader | None = None
 
@@ -220,7 +228,8 @@ class ReconciliationService:
         # Exercise the portable contract before it reaches durable storage.
         report = ReconciliationRun.from_json(report.to_json())
         candidate = None
-        if self.evidence is not None:
+        evidence = self.evidence
+        if evidence is not None:
             detail = ReconciliationDetailArtifact(
                 reconciliation_id=report.reconciliation_id,
                 workspace_id=report.workspace_id,
@@ -240,8 +249,8 @@ class ReconciliationService:
                 ),
             )
             detail = ReconciliationDetailArtifact.from_json(detail.to_json())
-            candidate = self.evidence.prepare(report, detail, actor=actor)
-            self.evidence.publish(report, candidate)
+            candidate = evidence.prepare(report, detail, actor=actor)
+            evidence.publish(report, candidate)
         try:
             if candidate is None:
                 self.results.publish(workspace_id, report, actor=actor)
@@ -255,9 +264,9 @@ class ReconciliationService:
         except Exception:
             # The protected detail file has no current-pointer meaning until
             # its matching compact result is durable, so compensate on failure.
-            if candidate is not None:
+            if candidate is not None and evidence is not None:
                 try:
-                    self.evidence.delete(report)
+                    evidence.delete(report)
                 except Exception:
                     logging.getLogger(__name__).exception(
                         "Could not remove incomplete reconciliation evidence"
@@ -1293,7 +1302,7 @@ class ReconciliationService:
             raise WorkspaceError(
                 "A related Odoo business key now matches more than one record"
             )
-        return identifiers[0]
+        return next(iter(identifiers))
 
 
 def _require_matching_write_identity(

@@ -217,6 +217,8 @@ class WorkspaceNavigationRepository(DuckDbRepository):
                 )
             """
         ).fetchone()
+        if source is None:
+            raise WorkspaceError("Stored source navigation evidence is missing")
         schema = connection.execute(
             """
             SELECT EXISTS (
@@ -305,31 +307,34 @@ class WorkspaceNavigationRepository(DuckDbRepository):
                    )
             """
         ).fetchone()
+        if schema is None:
+            raise WorkspaceError("Stored schema navigation evidence is missing")
         capture_models = tuple(
             str(row[0])
             for row in connection.execute(
                 "SELECT model FROM odoo_capture_selection_current ORDER BY model"
             ).fetchall()
         )
-        mapping_complete = bool(
-            connection.execute(
-                """
-                SELECT EXISTS (
-                    SELECT 1
-                      FROM mapping_current AS current
-                      JOIN mapping_revision AS revision
-                        ON revision.mapping_id = current.mapping_id
-                       AND revision.version = current.version
-                      JOIN mapping_submission AS submission
-                        ON submission.mapping_id = revision.mapping_id
-                       AND submission.version = revision.version
-                       AND submission.content_hash = revision.content_hash
-                     WHERE current.singleton_id = 1
-                       AND try_cast(revision.revision_json AS JSON) IS NOT NULL
-                )
-                """
-            ).fetchone()[0]
-        )
+        mapping_row = connection.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                  FROM mapping_current AS current
+                  JOIN mapping_revision AS revision
+                    ON revision.mapping_id = current.mapping_id
+                   AND revision.version = current.version
+                  JOIN mapping_submission AS submission
+                    ON submission.mapping_id = revision.mapping_id
+                   AND submission.version = revision.version
+                   AND submission.content_hash = revision.content_hash
+                 WHERE current.singleton_id = 1
+                   AND try_cast(revision.revision_json AS JSON) IS NOT NULL
+            )
+            """
+        ).fetchone()
+        if mapping_row is None:
+            raise WorkspaceError("Stored mapping navigation evidence is missing")
+        mapping_complete = bool(mapping_row[0])
         preparation = connection.execute(
             """
             SELECT coalesce(staging.run_id, ''),
@@ -362,12 +367,13 @@ class WorkspaceNavigationRepository(DuckDbRepository):
                 ON normalization.run_id = normalization_pointer.run_id
             """
         ).fetchone()
+        if preparation is None:
+            raise WorkspaceError("Stored preparation navigation evidence is missing")
         execution_state = read_execution_navigation_state(connection)
-        preflight_status = (
-            execution_state.summary.comparison_status
-            if execution_state is not None
-            else str(
-                connection.execute(
+        if execution_state is not None:
+            preflight_status = execution_state.summary.comparison_status
+        else:
+            preflight_row = connection.execute(
                     """
                     SELECT CASE
                              WHEN count(dataset.run_id) = 0 THEN ''
@@ -399,10 +405,10 @@ class WorkspaceNavigationRepository(DuckDbRepository):
                         ON dataset.run_id = current.run_id
                      WHERE current.singleton_id = 1
                     """
-                ).fetchone()[0]
-                or ""
-            )
-        )
+                ).fetchone()
+            if preflight_row is None:
+                raise WorkspaceError("Stored preflight navigation evidence is missing")
+            preflight_status = str(preflight_row[0] or "")
         transfer = connection.execute(
             """
             SELECT coalesce(execution.run_id, ''),
@@ -420,6 +426,8 @@ class WorkspaceNavigationRepository(DuckDbRepository):
                AND reconciliation.execution_run_id = execution.run_id
             """
         ).fetchone()
+        if transfer is None:
+            raise WorkspaceError("Stored transfer navigation evidence is missing")
         schema_models = tuple(str(item) for item in json.loads(str(schema[2])))
         return WorkspaceNavigationFacts(
             workspace_id=workspace_id,

@@ -25,7 +25,7 @@ from impodo.domain.preparation.quality import (
 from impodo.domain.preparation.staging import StagingRunSummary
 from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
 from impodo.domain.resolution import EffectiveDataset
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.staging.transformation_impact import TransformationImpactRow
 from impodo.domain.workspace.contracts import SourceSelection
@@ -45,7 +45,7 @@ class NormalizationService:
     def __init__(
         self,
         repository: NormalizationRepository,
-        authorization: AuthorizationPolicy,
+        authorization: WorkspaceAuthorizationPolicy,
     ) -> None:
         self.repository = repository
         self.authorization = authorization

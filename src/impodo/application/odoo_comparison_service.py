@@ -56,7 +56,7 @@ from impodo.domain.workspace.reference_keys import (
 from impodo.domain.workspace.workbench import WorkspaceState
 
 from ..domain.errors import ReadinessError
-from ..domain.mapping.contracts import MappingTargetMode
+from ..domain.mapping.contracts import MappingDefinition, MappingTargetMode
 from ..domain.odoo_comparison import (
     OdooComparisonArtifact,
     OdooComparisonError,
@@ -154,15 +154,20 @@ def build_odoo_comparison_publication(
         )
     approved_fields = tuple(dataset_mapping.approved_write_fields)
     fields = tuple(sorted({*approved_fields, "write_date"}))
-    record_ids = tuple(_origin_for_record(item.source_row, origins)[0] for item in prepared)
-    origin_set_hash = "sha256:" + sha256(
-        canonical_json_bytes(
-            {
-                "model": binding.model,
-                "record_ids": list(record_ids),
-            }
-        )
-    ).hexdigest()
+    record_ids = tuple(
+        _origin_for_record(item.source_row, origins)[0] for item in prepared
+    )
+    origin_set_hash = (
+        "sha256:"
+        + sha256(
+            canonical_json_bytes(
+                {
+                    "model": binding.model,
+                    "record_ids": list(record_ids),
+                }
+            )
+        ).hexdigest()
+    )
     # Build one closed read plan from protected evidence.  No caller-supplied
     # model, method, field, or numeric identifier reaches the Odoo reader.
     metadata_requests = (MetadataRequest(binding.model, fields),)
@@ -263,7 +268,9 @@ def build_odoo_comparison_publication(
     )
     metadata, redacted = bind_snapshot_hashes(metadata, redacted)
     readiness_rows = tuple(
-        _readiness_row(item, dataset.name, frozen.dataset_labels.get(dataset.name, dataset.name))
+        _readiness_row(
+            item, dataset.name, frozen.dataset_labels.get(dataset.name, dataset.name)
+        )
         for item in comparison_rows
     )
     report = _report(
@@ -318,9 +325,14 @@ def build_odoo_comparison_publication(
 
 
 def _pinned_context(frozen: FrozenPreflightInput, selection: SourceSelection):
-    if len(frozen.revision.definition.datasets) != 1 or len(selection.datasets) != 1:
+    definition = frozen.revision.definition
+    if not isinstance(definition, MappingDefinition):
+        raise ReadinessError(
+            "Pinned Odoo comparison requires a full mapping definition"
+        )
+    if len(definition.datasets) != 1 or len(selection.datasets) != 1:
         raise ReadinessError("Pinned Odoo comparison requires one captured record type")
-    mapping = frozen.revision.definition.datasets[0]
+    mapping = definition.datasets[0]
     dataset = selection.datasets[0]
     binding = dataset.source
     if (
@@ -330,7 +342,9 @@ def _pinned_context(frozen: FrozenPreflightInput, selection: SourceSelection):
         or mapping.dataset_id != dataset.dataset_id
         or mapping.target_model != binding.model
     ):
-        raise ReadinessError("The approved field matches are not pinned to this Odoo capture")
+        raise ReadinessError(
+            "The approved field matches are not pinned to this Odoo capture"
+        )
     return mapping, dataset, binding
 
 
@@ -449,7 +463,9 @@ def _validate_live_binding(
     if (
         fingerprint.target_hash != binding.connection_target_hash
         or fingerprint.database != workspace_state.odoo_database
-        or not assess_odoo_operation(fingerprint.odoo_version, OdooOperation.COMPARE).allowed
+        or not assess_odoo_operation(
+            fingerprint.odoo_version, OdooOperation.COMPARE
+        ).allowed
     ):
         raise ReadinessError(
             "The Odoo target changed. Refresh the captured records before comparing."
@@ -524,7 +540,11 @@ def compare_pinned_odoo_row(
             fields=tuple(
                 OdooFieldComparison(
                     field=name,
-                    field_type=(captured_fields[name].type if name in captured_fields else "unknown"),
+                    field_type=(
+                        captured_fields[name].type
+                        if name in captured_fields
+                        else "unknown"
+                    ),
                     baseline=(baseline or {}).get(name),
                     proposed=prepared.scalar_values.get(name),
                     current=(current.values.get(name) if current else None),
@@ -571,7 +591,9 @@ def compare_pinned_odoo_row(
             raise ReadinessError("Odoo comparison values are incomplete")
         try:
             original = canonical_odoo_scalar(metadata.type, baseline[name])
-            proposed = canonical_odoo_scalar(metadata.type, prepared.scalar_values[name])
+            proposed = canonical_odoo_scalar(
+                metadata.type, prepared.scalar_values[name]
+            )
             live = canonical_odoo_scalar(metadata.type, current.values[name])
         except OdooComparisonError as error:
             raise ReadinessError(
@@ -656,7 +678,13 @@ def plan_pinned_record_requests(
         RecordRequest(
             model,
             fields,
-            (["id", "in", list(record_ids[start : start + ODOO_COMPARISON_CHUNK_SIZE])],),
+            (
+                [
+                    "id",
+                    "in",
+                    list(record_ids[start : start + ODOO_COMPARISON_CHUNK_SIZE]),
+                ],
+            ),
         )
         for start in range(0, len(record_ids), ODOO_COMPARISON_CHUNK_SIZE)
     )
@@ -675,7 +703,11 @@ def _readiness_row(
         reason = "The prepared values are ready to update."
         action = "Review the changes. Nothing has been written to Odoo."
         field = next(
-            (item.field for item in row.fields if item.outcome is OdooFieldComparisonOutcome.UPDATE),
+            (
+                item.field
+                for item in row.fields
+                if item.outcome is OdooFieldComparisonOutcome.UPDATE
+            ),
             "",
         )
     elif row.outcome is OdooComparisonOutcome.UNCHANGED:
@@ -735,37 +767,43 @@ def _report(
     update_count = sum(item.classification == "UPDATE" for item in rows)
     unchanged_count = sum(item.classification == "UNCHANGED" for item in rows)
     blocked_count = sum(item.status == "blocked" for item in rows)
-    requirement_hash = "sha256:" + sha256(
-        canonical_json_bytes(
-            {
-                "chunk_count": chunk_count,
-                "fields": list(requested_fields),
-                "model": model,
-                "record_count": len(rows),
-                "protected_origin_set_hash": origin_set_hash,
-            }
-        )
-    ).hexdigest()
-    result_hash = "sha256:" + sha256(
-        canonical_json_bytes(
-            {
-                "counts": {
-                    "blocked": blocked_count,
-                    "unchanged": unchanged_count,
-                    "update": update_count,
-                },
-                "protected_artifact_hash": protected_artifact_hash,
-                "rows": [
-                    {
-                        "classification": item.classification,
-                        "source_trace_id": item.source_trace_id,
-                        "technical_code": item.technical_code,
-                    }
-                    for item in rows
-                ],
-            }
-        )
-    ).hexdigest()
+    requirement_hash = (
+        "sha256:"
+        + sha256(
+            canonical_json_bytes(
+                {
+                    "chunk_count": chunk_count,
+                    "fields": list(requested_fields),
+                    "model": model,
+                    "record_count": len(rows),
+                    "protected_origin_set_hash": origin_set_hash,
+                }
+            )
+        ).hexdigest()
+    )
+    result_hash = (
+        "sha256:"
+        + sha256(
+            canonical_json_bytes(
+                {
+                    "counts": {
+                        "blocked": blocked_count,
+                        "unchanged": unchanged_count,
+                        "update": update_count,
+                    },
+                    "protected_artifact_hash": protected_artifact_hash,
+                    "rows": [
+                        {
+                            "classification": item.classification,
+                            "source_trace_id": item.source_trace_id,
+                            "technical_code": item.technical_code,
+                        }
+                        for item in rows
+                    ],
+                }
+            )
+        ).hexdigest()
+    )
     return ReadinessReport(
         run_id=run_id,
         workspace_id=workspace_state.workspace_id,

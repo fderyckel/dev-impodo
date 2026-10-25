@@ -13,6 +13,7 @@ from datetime import (
     UTC,
     datetime,
 )
+from typing import Protocol, cast
 from uuid import UUID, uuid4
 
 import duckdb
@@ -42,6 +43,31 @@ from .constants import (
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository, WorkspaceAggregateReader
 from .serialization import _canonical_json, iter_encoded_json_batches
+
+
+class _EffectCopy(Protocol):
+    def __call__(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+        run_id: str,
+    ) -> int: ...
+
+
+class _EncodedEffectReader(Protocol):
+    def __call__(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+        batch_size: int,
+    ) -> Iterator[Sequence[object]]: ...
+
+
+def _stored_integer(value: object) -> int:
+    """Return one exact integer loaded from normalization storage."""
+
+    if type(value) is not int:
+        raise WorkspaceError("Stored normalization count is invalid")
+    return value
+
 
 _NORMALIZATION_EFFECT_JSON_STRUCTURE = """[{
     "ordinal":"BIGINT",
@@ -763,11 +789,13 @@ class NormalizationRepository(DuckDbRepository):
                 raise WorkspaceError(
                     "Stored normalization effects require durable transport"
                 )
-            copied_effect_count = int(copy_to_run(connection, run_id))
+            copy_effects = cast(_EffectCopy, copy_to_run)
+            copied_effect_count = copy_effects(connection, run_id)
             if copied_effect_count != evaluation.effect_count:
                 raise WorkspaceError("Stored normalization effects are incomplete")
             hashed_effect_count = 0
-            for batch in encoded_reader(
+            read_encoded_effects = cast(_EncodedEffectReader, encoded_reader)
+            for batch in read_encoded_effects(
                 connection,
                 NORMALIZATION_ROW_BATCH_SIZE,
             ):
@@ -905,7 +933,7 @@ class NormalizationRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Stored prepared review decision is invalid"
             ) from error
-        if int(row[15]) != len(dry_run.group_decisions):
+        if _stored_integer(row[15]) != len(dry_run.group_decisions):
             raise WorkspaceError("Stored prepared review decision count is invalid")
         return NormalizationRunSummary(
             run_id=str(row[0]),
@@ -917,15 +945,15 @@ class NormalizationRepository(DuckDbRepository):
             quality_content_hash=str(row[5]),
             eligible_dataset_hash=str(row[6]),
             status=str(row[7]),
-            lifecycle_version=int(row[8]),
+            lifecycle_version=_stored_integer(row[8]),
             published_at=datetime.fromisoformat(str(row[9])),
             published_by=str(row[10]),
-            eligible_record_count=int(row[11]),
-            changed_record_count=int(row[12]),
-            automatic_group_count=int(row[13]),
-            decision_group_count=int(row[14]),
-            reviewed_group_count=int(row[15]),
-            set_aside_record_count=int(row[16]),
+            eligible_record_count=_stored_integer(row[11]),
+            changed_record_count=_stored_integer(row[12]),
+            automatic_group_count=_stored_integer(row[13]),
+            decision_group_count=_stored_integer(row[14]),
+            reviewed_group_count=_stored_integer(row[15]),
+            set_aside_record_count=_stored_integer(row[16]),
             effective_dataset_run_id=(
                 str(row[18]) if len(row) > 18 and row[18] is not None else None
             ),

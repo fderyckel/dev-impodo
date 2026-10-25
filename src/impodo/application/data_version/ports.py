@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from impodo.domain.project.foundation import FaultInjector
+from impodo.domain.project.foundation import FaultInjector, MigrationOperationIntent
 from impodo.domain.shared.access import Actor
 
 from ...domain.data_version.models import DataVersion
@@ -27,6 +27,18 @@ class DataVersionRepository(Protocol):
     ) -> DataVersion: ...
 
     def get_data_version(self, data_version_id: str) -> DataVersion: ...
+
+    def get_operation_intent(
+        self,
+        operation_id: str,
+    ) -> MigrationOperationIntent: ...
+
+    def resume_data_version_creation(
+        self,
+        operation_id: str,
+        *,
+        actor: Actor,
+    ) -> DataVersion: ...
 
     def list_data_versions(self, project_id: str) -> tuple[DataVersion, ...]: ...
 

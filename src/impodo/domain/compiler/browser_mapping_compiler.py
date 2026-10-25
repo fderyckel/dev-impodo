@@ -10,6 +10,7 @@ Compilation reads metadata only; it does not evaluate rows or contact Odoo.
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping
+from typing import Literal
 
 from impodo.domain.recipe.profile import (
     DatasetSpec,
@@ -18,6 +19,7 @@ from impodo.domain.recipe.profile import (
     NormalizationSpec,
     RelationSpec,
     ResolveSpec,
+    ScalarType,
     SourceIdentitySpec,
     SourceSpec,
     TargetIdentitySpec,
@@ -37,6 +39,86 @@ from ..mapping.contracts import (
 from ..mapping.create_field_policy import required_create_hook_inputs
 from ..staging.fields import synthetic_field, synthetic_relationship_field
 from .contracts import CompiledMigrationPlan
+
+
+def _scalar_type(value: str) -> ScalarType:
+    """Validate a browser scalar type before crossing into profile contracts."""
+
+    if value == "string":
+        return "string"
+    if value == "integer":
+        return "integer"
+    if value == "decimal":
+        return "decimal"
+    if value == "boolean":
+        return "boolean"
+    if value == "date":
+        return "date"
+    if value == "datetime":
+        return "datetime"
+    raise ReadinessError(f"Unsupported browser scalar type: {value}")
+
+
+def _null_policy(
+    value: str,
+) -> Literal["distinct", "equivalent", "ignore_source_null"]:
+    """Validate null-comparison policy at the compiler boundary."""
+
+    if value == "distinct":
+        return "distinct"
+    if value == "equivalent":
+        return "equivalent"
+    if value == "ignore_source_null":
+        return "ignore_source_null"
+    raise ReadinessError(f"Unsupported null-comparison policy: {value}")
+
+
+def _relation_kind(value: str) -> Literal["many2one", "many2many"]:
+    """Validate the relationship kind at the compiler boundary."""
+
+    if value == "many2one":
+        return "many2one"
+    if value == "many2many":
+        return "many2many"
+    raise ReadinessError(f"Unsupported relationship kind: {value}")
+
+
+def _resolution_outcome(value: str) -> Literal["error", "warning"]:
+    """Validate missing and ambiguous relationship outcomes."""
+
+    if value == "error":
+        return "error"
+    if value == "warning":
+        return "warning"
+    raise ReadinessError(f"Unsupported relationship outcome: {value}")
+
+
+def _relationship_operation(
+    value: str,
+) -> Literal["replace", "add", "remove"]:
+    """Validate the target relationship update operation."""
+
+    if value == "replace":
+        return "replace"
+    if value == "add":
+        return "add"
+    if value == "remove":
+        return "remove"
+    raise ReadinessError(f"Unsupported relationship operation: {value}")
+
+
+def _existing_record_policy(
+    value: str | None,
+) -> Literal["block", "unchanged"] | None:
+    """Validate create-only existing-record behavior."""
+
+    if value is None:
+        return None
+    if value == "block":
+        return "block"
+    if value == "unchanged":
+        return "unchanged"
+    raise ReadinessError(f"Unsupported existing-record policy: {value}")
 
 
 def compile_browser_mapping(
@@ -75,9 +157,7 @@ def compile_browser_mapping(
                 dataset=target_dataset.name,
                 target_source_fields=target_mapping.source_identity_column_keys,
                 target_model=value.model,
-                target_fields=tuple(
-                    item.target_field for item in value.key_mappings
-                ),
+                target_fields=tuple(item.target_field for item in value.key_mappings),
                 target_scope_fields=tuple(
                     item.target_field for item in value.scope_mappings
                 ),
@@ -124,7 +204,7 @@ def compile_browser_mapping(
                 continue
             scalar_fields[field.target_field] = FieldSpec(
                 source=synthetic_field(index),
-                type=field.value_type,
+                type=_scalar_type(field.value_type),
                 required=field.required,
                 required_on_create=(
                     field.required_on_create or field.target_field in hook_inputs
@@ -132,7 +212,7 @@ def compile_browser_mapping(
                 compare=field.compare,
                 validate_only=field.validate_only,
                 normalize=NormalizationSpec(empty_as_null=True),
-                null_policy=field.null_policy,
+                null_policy=_null_policy(field.null_policy),
             )
         relations = {}
         for index, item in enumerate(mapping.relationships):
@@ -147,7 +227,7 @@ def compile_browser_mapping(
             else:
                 relation_resolver = resolver(item.resolver)
             relations[item.target_field] = RelationSpec(
-                kind=item.kind,
+                kind=_relation_kind(item.kind),
                 source_fields=tuple(
                     synthetic_relationship_field(index, source_index)
                     for source_index, _source_column_key in enumerate(
@@ -174,11 +254,11 @@ def compile_browser_mapping(
                     or item.target_field
                     in captured_required.get(mapping.target_model, ())
                 ),
-                on_missing=item.on_missing,
-                on_ambiguous=item.on_ambiguous,
-                operation=item.operation,
+                on_missing=_resolution_outcome(item.on_missing),
+                on_ambiguous=_resolution_outcome(item.on_ambiguous),
+                operation=_relationship_operation(item.operation),
                 separator=item.separator,
-                null_policy=item.null_policy,
+                null_policy=_null_policy(item.null_policy),
             )
         identity_normalization = NormalizationSpec(
             trim=True,
@@ -192,7 +272,7 @@ def compile_browser_mapping(
                 target=TargetSpec(
                     model=mapping.target_model,
                     mode=mapping.mode.value,
-                    on_existing=mapping.on_existing,
+                    on_existing=_existing_record_policy(mapping.on_existing),
                 ),
                 source_identity=SourceIdentitySpec(
                     fields=mapping.source_identity_column_keys
@@ -202,7 +282,7 @@ def compile_browser_mapping(
                         IdentityComponent(
                             source_fields=item.source_column_keys,
                             target_fields=item.target_fields,
-                            type=item.value_type,
+                            type=_scalar_type(item.value_type),
                             normalize=identity_normalization,
                             resolve=(
                                 resolver(item.resolver)
@@ -217,7 +297,7 @@ def compile_browser_mapping(
                         IdentityComponent(
                             source_fields=item.source_column_keys,
                             target_fields=item.target_fields,
-                            type=item.value_type,
+                            type=_scalar_type(item.value_type),
                             normalize=identity_normalization,
                             resolve=(
                                 resolver(item.resolver)
@@ -253,8 +333,7 @@ def browser_mapping_labels(
 
     datasets = {item.dataset_id: item for item in selection.datasets}
     dataset_labels = {
-        item.name: item.name.replace("_", " ").title()
-        for item in selection.datasets
+        item.name: item.name.replace("_", " ").title() for item in selection.datasets
     }
     field_labels: dict[tuple[str, str], str] = {}
     for mapping in definition.datasets:

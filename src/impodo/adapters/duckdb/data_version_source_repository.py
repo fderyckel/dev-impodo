@@ -29,6 +29,12 @@ from .migration_foundation_repository import MigrationFoundationRepository
 from .source_repository import SourceRepository
 
 
+def _manifest_integer(value: object) -> int:
+    if type(value) is not int:
+        raise TypeError("Source snapshot manifest integer is invalid")
+    return value
+
+
 class DataVersionOwnedSourceRepository(SourceRepository):
     """Keep workbench tables as derived caches of one DataVersion package.
 
@@ -47,7 +53,9 @@ class DataVersionOwnedSourceRepository(SourceRepository):
         self.foundation = foundation
 
     def get_source_review(
-        self, workspace_id: str, workspace_state: WorkspaceState,
+        self,
+        workspace_id: str,
+        workspace_state: WorkspaceState,
         package: DataVersionSourcePackage,
     ) -> SourceReviewPage:
         """Reuse a verified package while checking this page's exact source lineage."""
@@ -62,7 +70,10 @@ class DataVersionOwnedSourceRepository(SourceRepository):
                 "The source review belongs to another workspace DataVersion"
             )
         selection = super().get_source_selection(workspace_id)
-        if selection is not None and selection.data_version_id != package.data_version_id:
+        if (
+            selection is not None
+            and selection.data_version_id != package.data_version_id
+        ):
             raise MigrationFoundationError(
                 "The workspace source selection belongs to another DataVersion"
             )
@@ -157,12 +168,8 @@ class DataVersionOwnedSourceRepository(SourceRepository):
     ) -> None:
         current = self._draft_package(workspace_id)
         super().save_source_configuration(workspace_id, configuration, actor=actor)
-        configurations = {
-            item.file_id: item for item in current.configurations
-        }
-        configurations[configuration.file_id] = self._configuration(
-            configuration
-        )
+        configurations = {item.file_id: item for item in current.configurations}
+        configurations[configuration.file_id] = self._configuration(configuration)
         candidate = replace(
             current,
             revision=current.revision + 1,
@@ -223,7 +230,7 @@ class DataVersionOwnedSourceRepository(SourceRepository):
                     physical_selection_hash=str(
                         item.manifest["physical_selection_hash"]
                     ),
-                    reader_contract_version=int(
+                    reader_contract_version=_manifest_integer(
                         item.manifest["reader_contract_version"]
                     ),
                     schema=SourceSnapshotSchema.create(

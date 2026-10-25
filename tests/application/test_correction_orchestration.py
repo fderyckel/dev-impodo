@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-from datetime import datetime, timezone
-from types import SimpleNamespace
 import unittest
+from dataclasses import replace
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from impodo.application.correction_orchestration import (
-    CorrectionBinding,
     CorrectionAuthoringStageCoordinator,
+    CorrectionBinding,
     CorrectionNoChangedIntent,
     CorrectionReviewEvidence,
     CorrectionReviewOrchestrator,
@@ -27,8 +27,7 @@ from impodo.domain.shared.models import OdooReadIdentity
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from tests.domain.test_correction_origin import HASHES, IDS, _index, _manifest
 
-
-NOW = datetime(2026, 8, 28, 4, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 28, 4, 0, tzinfo=UTC)
 ACTOR = Actor(
     ActorIdentity("test", "data-manager", "Data manager"),
     frozenset(),
@@ -322,16 +321,15 @@ class CorrectionSuccessorServiceTests(unittest.TestCase):
             datasets=(SimpleNamespace(dataset_id="dataset:" + "a" * 24),),
         )
 
-        class Repository:
-            def get_project(self, project_id):
+        class Projects:
+            def get(self, project_id, *, actor):
                 return project
 
+        class SourcePackages:
             def get_source_package(self, data_version_id):
                 return package
 
         class Runs:
-            repository = Repository()
-
             def __init__(self):
                 self.created = 0
                 self.run = None
@@ -432,6 +430,8 @@ class CorrectionSuccessorServiceTests(unittest.TestCase):
         seeder = Seeder()
         service = CorrectionSuccessorService(
             bindings=bindings,
+            projects=Projects(),
+            source_packages=SourcePackages(),
             runs=runs,
             workspaces=workspaces,
             workspace_states=workspace_states,

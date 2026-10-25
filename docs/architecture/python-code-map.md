@@ -48,11 +48,26 @@ belongs or which dependencies it may introduce.
 `web/composition/local_app.py` composes these Project-first boundaries,
 including the current Production coordinator.
 `web/composition/service_graph.py` builds the deployment-neutral Project
-foundation, source and Recipe authoring, Match data, Recipe application, and
-preparation services from repository, authorization, artifact, and
-transformation ports. The local composition currently supplies DuckDB-backed
-repositories, governed filesystem artifacts, workspace-scoped access, and the
-Polars transformation adapter.
+foundation, source and Recipe authoring, Match data, Recipe application,
+integrated run planning, run setup, preparation, reviewed loading, transfer,
+reconciliation, fallout evidence, integrated Test qualification, and
+completed-load correction services from injected dependencies. The local
+composition currently supplies
+DuckDB-backed repositories, protected run and Project evidence stores,
+governed filesystem artifacts, workspace-scoped access, the Polars
+transformation adapter, Odoo provenance, and the current credential-binding
+callback. Odoo reader and writer factories stay at deployment-owned request or
+worker boundaries.
+`web/composition/application_graph.py` joins those responsibility-named groups
+with the remaining browser-facing application services. It then maps explicit
+request, job, infrastructure, and target runtime bundles into `WebContext`.
+The local launch token stays outside that shared context. A deployment that
+does not support local Odoo control can omit `LocalTargetRuntime` instead of
+constructing a local adapter or branching inside an application service.
+`application/run/ports.py` owns the repository contracts for integrated run
+planning, Test setup, Production setup, Cutover plans, and the small shared
+foundation surface those services consume. Run application code depends on
+those contracts rather than on DuckDB repository classes.
 `web/composition/http_app.py` installs the common route set around that
 assembled graph, while `web/app.py` preserves the historical local import.
 The local composition does not restore the superseded Recipe-root list,
@@ -72,7 +87,7 @@ services.
 | DuckDB stores and forward-only schema handling | `adapters/duckdb` and `adapters/duckdb/schema` |
 | Artifact, protected-evidence, job, Odoo, scenario, and columnar implementations | `adapters/artifacts`, `adapters/protected_evidence`, `adapters/jobs`, `adapters/odoo`, and `adapters/scenarios`, plus named integration facades directly below `adapters` |
 | Request handling and view construction | `web/routers` and `web/presenters` |
-| Concrete runtime construction | `web/composition/local_app.py` chooses local adapters; `web/composition/service_graph.py` wires deployment-neutral Project foundation, authoring, Recipe application, and preparation services; other focused modules below `web/composition` and `web/capability_builders.py` own bounded construction; `web/app.py` is only a compatibility entry point |
+| Concrete runtime construction | `web/composition/local_app.py` chooses local adapters; `web/composition/service_graph.py` wires deployment-neutral Project foundation, authoring, Recipe application, integrated run setup, preparation, reviewed loading, transfer, reconciliation, fallout evidence, integrated Test qualification, and completed-load correction; `web/composition/application_graph.py` joins those groups and performs the one shared mapping into `WebContext`; `web/composition/correction_target.py` resolves a deployment-owned secret and creates a scope-bound Odoo correction reader only when review work runs; other focused modules below `web/composition` and `web/capability_builders.py` own bounded construction; `web/app.py` is only a compatibility entry point |
 | Privacy-safe local diagnostics and process recovery | `web/diagnostics.py` builds bounded evidence and redacted bundles, including process-local child logs when a shared file is locked; `web/server_supervisor.py` owns same-port child restart and the circuit breaker; `web/launcher.py` secures and binds the local runtime; `web/routers/lifecycle.py`, `web/static/server-recovery.js`, and `web/static/operation-state.js` own authenticated recovery and operation-aware liveness |
 | Safe formula authoring feedback | `domain/recipe/value_rules.py` owns parsing; `web/mapping_formula_authoring.py` projects formula-free issues for the mapping route and browser |
 | Reuse arithmetic preparation work | `domain/recipe/value_rules.py` compiles safe arithmetic into bounded Python instructions; `domain/staging/evaluator.py` binds them once per dataset, and `domain/mapping/scalar_values.py` supplies only referenced formula inputs |
@@ -109,7 +124,7 @@ owner module.
 | Final review evidence | `domain/preflight` defines portable report and prepared-cell meaning; `application/preflight_service.py` binds current workspace evidence; `application/preflight_jobs.py` serializes observable read-only comparisons | `adapters/artifacts/reporting.py` renders the manifest-authoritative workbook; `web/routers/preflight.py` enqueues, presents progress, and serves the artifact |
 | Matching review evidence | `domain/mapping` defines the checked revision, validation issues, and coverage; `TransformationImpactService.prepare_mapping_review_rows` reuses the Stage 3 evaluator over exact frozen file rows in memory | `adapters/artifacts/mapping_review.py` renders the non-authoritative row projection without publishing Stage 4 evidence or contacting Odoo; `web/routers/mapping.py` verifies Recipe lineage and creates and serves the exact-revision artifact |
 | Execution state and decisions | `domain/run`, `domain/execution`, `application/run`, and `application/workspace/execution`; `ExecutionPreview` and `LoadJob` expose bounded read-only browser projections | `adapters/odoo` implements the target ports; `web/composition/target_readers.py` and `target_writers.py` select implementations, while `web/routers/execution.py` presents but never recalculates the frozen order |
-| Completed-load correction decisions | `domain/correction.py`, `domain/correction_origin.py`, `domain/correction_execution.py`, `application/correction_service.py`, `application/correction_orchestration.py`, `application/correction_stages.py`, `application/correction_workflow.py`, and `application/correction_execution.py` | `adapters/polars_correction.py` emits sparse typed A/C differences from immutable prepared Parquet artifacts; `CorrectionReviewService` resolves distinct exact-existing many-to-one keys in bounded groups; `adapters/correction_review_pipeline.py` requires native programs; `web/routers/corrections.py` exposes safe counts and resumable progress only; the correction executor uses exact protected IDs and the existing scoped JSON-2, execution-journal, and reconciliation adapters without related-record writes; `adapters/duckdb/correction_repository.py` owns current pointers and verified successor completion |
+| Completed-load correction decisions | `domain/correction.py`, `domain/correction_origin.py`, `domain/correction_execution.py`, `application/correction_service.py`, `application/correction_orchestration.py`, `application/correction_stages.py`, `application/correction_workflow.py`, and `application/correction_execution.py` | `web/composition/service_graph.py::build_correction_service_graph` wires the shared use cases from application-owned ports; `web/composition/correction_target.py` owns secret resolution, live identity verification, and one scope-bound reader; `adapters/polars_correction.py` emits sparse typed A/C differences from immutable prepared Parquet artifacts; `CorrectionReviewService` resolves distinct exact-existing many-to-one keys in bounded groups; `adapters/correction_review_pipeline.py` requires native programs; `web/routers/corrections.py` exposes safe counts and resumable progress only; the correction executor uses exact protected IDs and the existing scoped JSON-2, execution-journal, and reconciliation adapters without related-record writes; `adapters/duckdb/correction_repository.py` owns current pointers and verified successor completion |
 | Artifact and secret storage | `application/shared/artifacts.py` and `application/shared/secrets.py` | concrete filesystem and credential implementations live below `adapters/artifacts`, `adapters/protected_evidence`, and `adapters/protected_project_evidence_store.py`; typed Project artifacts reuse that encrypted store through focused adapter facades |
 
 Do not add a DuckDB connection parameter to an application use case. Add a

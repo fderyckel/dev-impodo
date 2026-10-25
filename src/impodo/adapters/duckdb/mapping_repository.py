@@ -109,12 +109,8 @@ class MappingRepository(DuckDbRepository):
             action=action,
             request_hash=request_hash,
             state=MappingMutationState.PENDING,
-            submitted_working_draft_version=(
-                submitted_working_draft_version
-            ),
-            submitted_mapping_revision_version=(
-                submitted_mapping_revision_version
-            ),
+            submitted_working_draft_version=(submitted_working_draft_version),
+            submitted_mapping_revision_version=(submitted_mapping_revision_version),
             working_draft_version=None,
             mapping_revision_version=None,
             content_identity="",
@@ -125,7 +121,9 @@ class MappingRepository(DuckDbRepository):
             actor_issuer=actor.identity.issuer,
             actor_subject=actor.identity.subject_id,
         )
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -180,7 +178,9 @@ class MappingRepository(DuckDbRepository):
     ) -> MappingMutationReceipt | None:
         """Return one durable browser command receipt, when it reached Impodo."""
 
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -207,7 +207,9 @@ class MappingRepository(DuckDbRepository):
     ) -> MappingMutationReceipt:
         """Record a definitive non-commit after a reserved command is rejected."""
 
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -243,7 +245,9 @@ class MappingRepository(DuckDbRepository):
     ) -> MappingMutationReceipt:
         """Complete a command whose durable change is owned outside mapping."""
 
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -286,7 +290,9 @@ class MappingRepository(DuckDbRepository):
         self._assert_workspace_mutable(workspace_id)
         if draft.workspace_id != workspace_id:
             raise WorkspaceError("Working draft belongs to another workspace")
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -299,14 +305,10 @@ class MappingRepository(DuckDbRepository):
                 """
             ).fetchone()
             if schema_row is None:
-                raise WorkspaceError(
-                    "Freeze datasets and capture Odoo schema first"
-                )
+                raise WorkspaceError("Freeze datasets and capture Odoo schema first")
             if self._source_projection is not None:
                 mapping_selection = (
-                    self._source_projection.get_mapping_source_selection(
-                        workspace_id
-                    )
+                    self._source_projection.get_mapping_source_selection(workspace_id)
                 )
                 if mapping_selection is None:
                     raise WorkspaceError(
@@ -353,8 +355,7 @@ class MappingRepository(DuckDbRepository):
                     selection,
                     plan,
                     tuple(
-                        SourceFileCatalog.from_json(str(row[0]))
-                        for row in catalog_rows
+                        SourceFileCatalog.from_json(str(row[0])) for row in catalog_rows
                     ),
                 )
             schema = OdooSchemaCatalog.from_json(str(schema_row[0]))
@@ -378,10 +379,7 @@ class MappingRepository(DuckDbRepository):
                 if governance is not None
                 else schema.content_hash
             )
-            if (
-                draft.definition.source_selection_hash
-                != mapping_selection.content_hash
-            ):
+            if draft.definition.source_selection_hash != mapping_selection.content_hash:
                 raise WorkspaceError(
                     "Working draft does not match the current source evidence"
                 )
@@ -397,9 +395,7 @@ class MappingRepository(DuckDbRepository):
                 """
             ).fetchone()
             actual_version = int(existing[1]) if existing else None
-            expected_mapping_id = (
-                str(existing[0]) if existing else draft.mapping_id
-            )
+            expected_mapping_id = str(existing[0]) if existing else draft.mapping_id
             current_mapping = connection.execute(
                 """
                 SELECT mapping_id, version
@@ -407,9 +403,7 @@ class MappingRepository(DuckDbRepository):
                  WHERE singleton_id = 1
                 """
             ).fetchone()
-            actual_base_version = (
-                int(current_mapping[1]) if current_mapping else None
-            )
+            actual_base_version = int(current_mapping[1]) if current_mapping else None
             if current_mapping is not None:
                 expected_mapping_id = str(current_mapping[0])
             if (
@@ -466,6 +460,7 @@ class MappingRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
+
     def get_mapping_revision(
         self,
         workspace_id: str,
@@ -496,6 +491,7 @@ class MappingRepository(DuckDbRepository):
             )
             value = values[0] if values else None
         return MappingRevision.from_json(value) if value else None
+
     def list_mapping_revisions(
         self,
         workspace_id: str,
@@ -513,6 +509,7 @@ class MappingRepository(DuckDbRepository):
                 """,
             )
         )
+
     def save_mapping_revision(
         self,
         workspace_id: str,
@@ -529,23 +526,19 @@ class MappingRepository(DuckDbRepository):
 
         self._assert_workspace_mutable(workspace_id)
         if revision.definition.mapping_id != revision.mapping_id:
-            raise WorkspaceError(
-                "Mapping revision and definition IDs do not match"
-            )
+            raise WorkspaceError("Mapping revision and definition IDs do not match")
         if validation.mapping_content_hash != revision.definition.content_hash:
-            raise WorkspaceError(
-                "Mapping validation does not match its revision"
-            )
+            raise WorkspaceError("Mapping validation does not match its revision")
         if (
             checked_draft.workspace_id != workspace_id
             or checked_draft.mapping_id != revision.mapping_id
             or checked_draft.base_mapping_version != revision.version
             or checked_draft.content_hash != revision.definition.content_hash
         ):
-            raise WorkspaceError(
-                "Checked working draft does not match its revision"
-            )
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+            raise WorkspaceError("Checked working draft does not match its revision")
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -560,9 +553,7 @@ class MappingRepository(DuckDbRepository):
                     """
                 ).fetchone()
                 current_version = int(current[1]) if current else None
-                current_id = (
-                    str(current[0]) if current else revision.mapping_id
-                )
+                current_id = str(current[0]) if current else revision.mapping_id
                 working = connection.execute(
                     """
                     SELECT version
@@ -574,7 +565,8 @@ class MappingRepository(DuckDbRepository):
                 maximum = connection.execute(
                     "SELECT COALESCE(MAX(version), 0) FROM mapping_revision"
                 ).fetchone()
-                next_version = int(maximum[0]) + 1
+                maximum_version = maximum[0] if maximum is not None else 0
+                next_version = int(maximum_version) + 1
                 if (
                     current_version != expected_parent_version
                     or revision.parent_version != expected_parent_version
@@ -587,9 +579,7 @@ class MappingRepository(DuckDbRepository):
                         submitted_working_draft_version=(
                             expected_working_draft_version
                         ),
-                        submitted_mapping_revision_version=(
-                            expected_parent_version
-                        ),
+                        submitted_mapping_revision_version=(expected_parent_version),
                         current_working_draft_version=working_version,
                         current_mapping_revision_version=current_version,
                     )
@@ -673,6 +663,7 @@ class MappingRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
+
     def get_mapping_validation(
         self,
         workspace_id: str,
@@ -690,9 +681,8 @@ class MappingRepository(DuckDbRepository):
             """,
             [version],
         )
-        return (
-            MappingValidationResult.from_json(values[0]) if values else None
-        )
+        return MappingValidationResult.from_json(values[0]) if values else None
+
     def save_mapping_validation(
         self,
         workspace_id: str,
@@ -705,7 +695,9 @@ class MappingRepository(DuckDbRepository):
         """Append revalidation only when its mapping content hash matches."""
 
         self._assert_workspace_mutable(workspace_id)
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -721,9 +713,7 @@ class MappingRepository(DuckDbRepository):
                 [version],
             ).fetchone()
             if row is None or str(row[1]) != validation.mapping_content_hash:
-                raise WorkspaceError(
-                    "Mapping validation does not match its revision"
-                )
+                raise WorkspaceError("Mapping validation does not match its revision")
             working = connection.execute(
                 "SELECT version FROM mapping_working_draft WHERE singleton_id = 1"
             ).fetchone()
@@ -747,9 +737,7 @@ class MappingRepository(DuckDbRepository):
                     self._commit_mapping_mutation(
                         connection,
                         operation_id,
-                        working_draft_version=(
-                            int(working[0]) if working else None
-                        ),
+                        working_draft_version=(int(working[0]) if working else None),
                         mapping_revision_version=version,
                         content_identity=validation.mapping_content_hash,
                     )
@@ -757,6 +745,7 @@ class MappingRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
+
     def get_mapping_submission(
         self,
         workspace_id: str,
@@ -777,6 +766,7 @@ class MappingRepository(DuckDbRepository):
             parameters,
         )
         return MappingSubmission.from_json(values[0]) if values else None
+
     def save_mapping_submission(
         self,
         workspace_id: str,
@@ -788,7 +778,9 @@ class MappingRepository(DuckDbRepository):
         """Append a submission only when validation and warnings match exactly."""
 
         self._assert_workspace_mutable(workspace_id)
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -829,8 +821,7 @@ class MappingRepository(DuckDbRepository):
             )
             if (
                 validation.status is MappingValidationStatus.INVALID
-                or submission.warning_acknowledgements
-                != warning_fingerprints
+                or submission.warning_acknowledgements != warning_fingerprints
             ):
                 raise WorkspaceError(
                     "Mapping submission has not passed its validation gate"
@@ -874,9 +865,7 @@ class MappingRepository(DuckDbRepository):
                     self._commit_mapping_mutation(
                         connection,
                         operation_id,
-                        working_draft_version=(
-                            int(working[0]) if working else None
-                        ),
+                        working_draft_version=(int(working[0]) if working else None),
                         mapping_revision_version=submission.version,
                         content_identity=submission.mapping_content_hash,
                     )
@@ -930,9 +919,7 @@ class MappingRepository(DuckDbRepository):
         row,
     ) -> MappingMutationReceipt:
         completed_at = (
-            datetime.fromisoformat(str(row[12]))
-            if row[12] is not None
-            else None
+            datetime.fromisoformat(str(row[12])) if row[12] is not None else None
         )
         return MappingMutationReceipt(
             operation_id=str(row[0]),
@@ -946,12 +933,8 @@ class MappingRepository(DuckDbRepository):
             submitted_mapping_revision_version=(
                 int(row[5]) if row[5] is not None else None
             ),
-            working_draft_version=(
-                int(row[6]) if row[6] is not None else None
-            ),
-            mapping_revision_version=(
-                int(row[7]) if row[7] is not None else None
-            ),
+            working_draft_version=(int(row[6]) if row[6] is not None else None),
+            mapping_revision_version=(int(row[7]) if row[7] is not None else None),
             content_identity=str(row[8]),
             failure_code=str(row[9]),
             failure_detail=str(row[10]),

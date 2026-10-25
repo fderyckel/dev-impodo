@@ -69,10 +69,7 @@ def _manual_schema_models(
     return tuple(
         SchemaModel(
             name=model_name,
-            label=(
-                _text(form, f"manual_model_label_{index}").strip()
-                or model_name
-            ),
+            label=(_text(form, f"manual_model_label_{index}").strip() or model_name),
             fields=_manual_schema_fields(
                 model_name,
                 _text(form, f"manual_fields_{index}"),
@@ -105,16 +102,12 @@ def _manual_schema_fields(
                 f"{model_name} line {line_number} has an invalid field name"
             )
         if not label or len(label) > 200:
-            raise WorkspaceError(
-                f"{model_name} line {line_number} needs a field label"
-            )
+            raise WorkspaceError(f"{model_name} line {line_number} needs a field label")
         if not _MANUAL_FIELD_TYPE.fullmatch(field_type):
             raise WorkspaceError(
                 f"{model_name} line {line_number} has an invalid field type"
             )
-        required, readonly, relation, relation_field = (
-            optional + ["", "", "", ""]
-        )[:4]
+        required, readonly, relation, relation_field = (optional + ["", "", "", ""])[:4]
         fields.append(
             SchemaField(
                 name=name,
@@ -256,6 +249,7 @@ def _render_derived_entities(
     )
     rule_views: list[dict[str, object]] = []
     related_rule_views: list[dict[str, object]] = []
+    split_sources: set[str] = set()
     previewable_rules = tuple(
         rule
         for rule in (plan.rules if plan else ())
@@ -282,9 +276,8 @@ def _render_derived_entities(
                 "preview_error": result.error,
             }
         )
-    split_sources = {
-        view["rule"].source_dataset_id for view in related_rule_views
-    }
+        if isinstance(rule, RelatedDatasetRule):
+            split_sources.add(rule.source_dataset_id)
     related_source_views = tuple(
         {
             "dataset": dataset,
@@ -398,9 +391,7 @@ def _schema_model_choices(
     automatic_supporting_models: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, object], ...]:
     selected = set(
-        workspace_state.intended_models
-        if selected_models is None
-        else selected_models
+        workspace_state.intended_models if selected_models is None else selected_models
     )
     models = list(catalog.models) if catalog else []
     known = {model.name for model in models}
@@ -419,15 +410,12 @@ def _schema_model_choices(
             "label": model.label,
             "modules": model.modules,
             "state": model.state,
-            "selected": (
-                model.name in selected or model.name in suggested_models
-            ),
+            "selected": (model.name in selected or model.name in suggested_models),
             "suggested": (
                 model.name in suggested_models and model.name not in selected
             ),
             "automatic_supporting": (
-                model.name in automatic_supporting_models
-                and model.name not in selected
+                model.name in automatic_supporting_models and model.name not in selected
             ),
             "in_focus": _model_matches_application_scope(
                 model,
@@ -534,7 +522,9 @@ def _render_schema(
     model_catalog = context.queries.get_odoo_model_catalog(workspace_id)
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
     read_credential_status = get_target_credential_status(
-        context.secret_store, workspace_state, TargetCredentialRole.READ,
+        context.secret_store,
+        workspace_state,
+        TargetCredentialRole.READ,
     )
     read_credential_present = read_credential_status.available
     schema_credential_current = bool(
@@ -547,9 +537,12 @@ def _render_schema(
         if schema is not None
         else ()
     )
-    capture_plans_complete = bool(schema and schema.models) and {
-        item.model for item in current_capture_plans
-    } == {item.name for item in schema.models}
+    capture_plans_complete = (
+        schema is not None
+        and bool(schema.models)
+        and {item.model for item in current_capture_plans}
+        == {item.name for item in schema.models}
+    )
     run_setup_page = run_setup_page or context.run_setups.page_for_workspace(
         workspace_id,
         actor=actor,
@@ -609,16 +602,12 @@ def _render_schema(
             "recipe_names": item.recipe_names,
         }
         for item in (
-            odoo_check_plan.supporting_values
-            if odoo_check_plan is not None
-            else ()
+            odoo_check_plan.supporting_values if odoo_check_plan is not None else ()
         )
     )
     governance = context.queries.get_schema_governance(workspace_id)
     governed_by_model = (
-        {item.model: item for item in governance.business_keys}
-        if governance
-        else {}
+        {item.model: item for item in governance.business_keys} if governance else {}
     )
     key_views = _schema_key_views(
         schema,
@@ -630,8 +619,7 @@ def _render_schema(
         "confirmed": sum(
             1
             for view in key_views
-            if view["existing"] is not None
-            and not view["has_submitted_draft"]
+            if view["existing"] is not None and not view["has_submitted_draft"]
         ),
         "suggested": sum(1 for view in key_views if view["is_prefilled"]),
         "changed": sum(
@@ -639,11 +627,7 @@ def _render_schema(
             for view in key_views
             if view["has_submitted_draft"] and view["key_fields"]
         ),
-        "needs_attention": sum(
-            1
-            for view in key_views
-            if not view["key_fields"]
-        ),
+        "needs_attention": sum(1 for view in key_views if not view["key_fields"]),
         "total": len(key_views),
     }
     local_stack = context.local_stack.get(workspace_id)
@@ -653,8 +637,7 @@ def _render_schema(
             schema,
             model_catalog,
         )
-        if workspace_state.source_mode.value == "FILE"
-        and odoo_check_plan is None
+        if workspace_state.source_mode.value == "FILE" and odoo_check_plan is None
         else supporting_model_plan_view(workspace_id, None, None)
     )
     suggested_models = frozenset(
@@ -676,8 +659,7 @@ def _render_schema(
     else:
         automatic_supporting_models = relationship_scope.included_models
         selected_models = (
-            frozenset(workspace_state.intended_models)
-            - automatic_supporting_models
+            frozenset(workspace_state.intended_models) - automatic_supporting_models
         )
     model_choices = _schema_model_choices(
         workspace_state,
@@ -704,12 +686,8 @@ def _render_schema(
             actor=actor,
         ),
         operation_id=operation_id or str(uuid4()),
-        focus_model_count=sum(
-            1 for choice in model_choices if choice["in_focus"]
-        ),
-        suggested_model_count=sum(
-            1 for choice in model_choices if choice["suggested"]
-        ),
+        focus_model_count=sum(1 for choice in model_choices if choice["in_focus"]),
+        suggested_model_count=sum(1 for choice in model_choices if choice["suggested"]),
         odoo_root_model_count=len(selected_models),
         automatic_supporting_model_count=len(automatic_supporting_models),
         schema=schema,
@@ -792,7 +770,9 @@ def _schema_key_views(
             else (
                 existing.key_fields
                 if existing
-                else recommendation.key_fields if recommendation else ()
+                else recommendation.key_fields
+                if recommendation
+                else ()
             )
         )
         scope_fields = (
@@ -801,7 +781,9 @@ def _schema_key_views(
             else (
                 existing.scope_fields
                 if existing
-                else recommendation.scope_fields if recommendation else ()
+                else recommendation.scope_fields
+                if recommendation
+                else ()
             )
         )
         description = (
@@ -810,7 +792,9 @@ def _schema_key_views(
             else (
                 existing.description
                 if existing
-                else recommendation.description if recommendation else ""
+                else recommendation.description
+                if recommendation
+                else ""
             )
         )
         matches_recommendation = bool(
@@ -838,9 +822,7 @@ def _schema_key_views(
                 "recommendation": recommendation,
                 "recommendation_assessment": assessment,
                 "is_prefilled": (
-                    draft is None
-                    and existing is None
-                    and recommendation is not None
+                    draft is None and existing is None and recommendation is not None
                 ),
                 "has_submitted_draft": draft is not None,
                 "is_changed_from_suggestion": bool(
@@ -849,10 +831,7 @@ def _schema_key_views(
                     and not matches_recommendation
                 ),
                 "field_choices": selectable_business_key_fields(model),
-                "field_labels": {
-                    field.name: field.label for field in model.fields
-                },
+                "field_labels": {field.name: field.label for field in model.fields},
             }
         )
     return tuple(views)
-

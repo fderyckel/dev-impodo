@@ -152,7 +152,13 @@ class DuckDbConnectionFactory:
         deadline = time.monotonic() + self.lock_wait_timeout_seconds
         while True:
             try:
-                connection = duckdb.connect(str(path), config=config)
+                connection_config: dict[str, str | bool | int | float | list[str]] = (
+                    dict(config)
+                )
+                connection = duckdb.connect(
+                    str(path),
+                    config=connection_config,
+                )
                 record_duckdb_connection_timing(
                     duration_ms=(time.perf_counter() - started) * 1000,
                     lock_wait_ms=lock_wait_seconds * 1000,
@@ -164,9 +170,7 @@ class DuckDbConnectionFactory:
                     raise
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise WorkspaceDatabaseBusyError(
-                        _DATABASE_BUSY_MESSAGE
-                    ) from error
+                    raise WorkspaceDatabaseBusyError(_DATABASE_BUSY_MESSAGE) from error
                 wait_seconds = min(self.lock_retry_interval_seconds, remaining)
                 time.sleep(wait_seconds)
                 lock_wait_seconds += wait_seconds

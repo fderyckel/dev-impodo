@@ -28,6 +28,7 @@ from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS, ExecutionRunSt
 from impodo.domain.execution.odoo_readback import OdooReadbackError
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.project.foundation import MigrationConflictError
+from impodo.domain.reconciliation import ReconciliationRun
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.domain.run.production import ProductionRunError
 from impodo.domain.shared.access import Actor, AuthorizationError, Capability
@@ -50,6 +51,7 @@ from ...application.workspace.execution.load_jobs import (
 )
 from ...application.workspace.execution.service import (
     ExecutionPreview,
+    RecoveryResumePlan,
     validated_create_batch_rows,
 )
 from ..composition.page_reads import run_local_operation, run_page_read
@@ -63,6 +65,7 @@ from ..request_identity import request_identity
 from ..run_commands import publish_reconciled_application
 from ..security import require_session
 from ..target_credentials import (
+    TargetCredential,
     TargetCredentialRole,
     audit_reauthorized_target_credential,
     audit_stored_target_credential,
@@ -187,12 +190,23 @@ class LoadCompletionWarning:
     code: str
 
 
+@dataclass(frozen=True, slots=True)
+class LoadRecoveryCheck:
+    """Validated browser receipt for one read-only recovery assessment."""
+
+    check_id: str
+    confirmed_after_interruption_count: int
+    safe_to_retry_count: int
+    relationship_pending_count: int
+    resume_count: int
+
+
 def _current_recovery_check(
     request: Request,
     workspace_id: str,
     preview: ExecutionPreview,
-    write_credential,
-):
+    write_credential: TargetCredential | None,
+) -> LoadRecoveryCheck | None:
     """Return the current safe browser receipt for a read-only recovery check."""
 
     raw = request.session.get(_LOAD_RECOVERY_CHECK_SESSION_KEY)
@@ -213,31 +227,50 @@ def _current_recovery_check(
         "relationship_pending_count",
         "resume_count",
     }
-    valid = (
-        isinstance(raw, dict)
-        and set(raw) == expected_keys
-        and raw.get("contract_version") == _LOAD_RECOVERY_CHECK_CONTRACT_VERSION
-        and raw.get("workspace_id") == workspace_id
-        and run is not None
-        and raw.get("execution_run_id") == run.run_id
-        and raw.get("snapshot_hash") == preview.snapshot.semantic_hash
-        and write_credential is not None
-        and raw.get("credential_binding_hash") == write_credential.binding_hash
-        and isinstance(raw.get("check_id"), str)
-        and bool(str(raw.get("check_id", "")).strip())
-        and all(
-            type(raw.get(name)) is int and int(raw[name]) >= 0
-            for name in expected_keys
-            if name.endswith("_count")
-        )
+    count_names = tuple(
+        name for name in expected_keys if name.endswith("_count")
     )
-    if not valid:
+    if not isinstance(raw, dict) or set(raw) != expected_keys:
         request.session.pop(_LOAD_RECOVERY_CHECK_SESSION_KEY, None)
         return None
-    return SimpleNamespace(**raw)
+    counts: dict[str, int] = {}
+    for name in count_names:
+        value = raw.get(name)
+        if type(value) is not int or value < 0:
+            request.session.pop(_LOAD_RECOVERY_CHECK_SESSION_KEY, None)
+            return None
+        counts[name] = value
+    check_id = raw.get("check_id")
+    if (
+        raw.get("contract_version") != _LOAD_RECOVERY_CHECK_CONTRACT_VERSION
+        or raw.get("workspace_id") != workspace_id
+        or run is None
+        or raw.get("execution_run_id") != run.run_id
+        or raw.get("snapshot_hash") != preview.snapshot.semantic_hash
+        or write_credential is None
+        or raw.get("credential_binding_hash") != write_credential.binding_hash
+        or not isinstance(check_id, str)
+        or not check_id.strip()
+    ):
+        request.session.pop(_LOAD_RECOVERY_CHECK_SESSION_KEY, None)
+        return None
+    return LoadRecoveryCheck(
+        check_id=check_id,
+        confirmed_after_interruption_count=counts[
+            "confirmed_after_interruption_count"
+        ],
+        safe_to_retry_count=counts["safe_to_retry_count"],
+        relationship_pending_count=counts["relationship_pending_count"],
+        resume_count=counts["resume_count"],
+    )
 
 
-def _save_recovery_check(request: Request, workspace_id: str, plan, credential) -> None:
+def _save_recovery_check(
+    request: Request,
+    workspace_id: str,
+    plan: RecoveryResumePlan,
+    credential: TargetCredential,
+) -> None:
     request.session[_LOAD_RECOVERY_CHECK_SESSION_KEY] = {
         "contract_version": _LOAD_RECOVERY_CHECK_CONTRACT_VERSION,
         "check_id": str(uuid4()),
@@ -1167,10 +1200,15 @@ def build_execution_router(
                         "before resuming"
                     )
                 if prior_run_id and (
-                    submitted_key or saved_write_credential is None
-                    or saved_write_credential.binding_hash != prior_run.write_credential_binding_hash
+                    prior_run is None
+                    or submitted_key
+                    or saved_write_credential is None
+                    or saved_write_credential.binding_hash
+                    != prior_run.write_credential_binding_hash
                 ):
-                    raise WorkspaceError("Fresh recovery requires the original saved loading key")
+                    raise WorkspaceError(
+                        "Fresh recovery requires the original saved loading key"
+                    )
                 if not submitted_key and saved_write_credential is None:
                     raise SecretStoreError(
                         "Recovery requires the original saved loading key. "
@@ -1178,11 +1216,14 @@ def build_execution_router(
                         if recovering else
                         "Enter an Odoo API key approved for loading on this exact target"
                     )
-                api_key = (
-                    submitted_key
-                    if submitted_key
-                    else saved_write_credential.secret
-                )
+                if submitted_key:
+                    api_key = submitted_key
+                elif saved_write_credential is not None:
+                    api_key = saved_write_credential.secret
+                else:
+                    raise SecretStoreError(
+                        "Enter an Odoo API key approved for loading on this exact target"
+                    )
                 if (
                     credential_owner.workspace_id != workspace_state.workspace_id
                     and read_credential is not None
@@ -1205,6 +1246,11 @@ def build_execution_router(
                         "The authorized workspace changed before the load began"
                     )
                 if recovering or prior_run_id:
+                    expected_write_credential = saved_write_credential
+                    if expected_write_credential is None:
+                        raise WorkspaceError(
+                            "Recovery requires the original saved loading key"
+                        )
                     current_preview = context.execution.current_preview(
                         workspace_id,
                         actor=actor,
@@ -1230,7 +1276,7 @@ def build_execution_router(
                         is not ExecutionRunStatus.RUNNING
                         or current_credential is None
                         or current_credential.binding_hash
-                        != saved_write_credential.binding_hash
+                        != expected_write_credential.binding_hash
                     ):
                         raise WorkspaceError(
                             "The interrupted load, preview, or loading key changed "
@@ -1297,6 +1343,10 @@ def build_execution_router(
                         actor=actor,
                     )
                 if prior_run_id:
+                    if read_identity is None or write_identity is None:
+                        raise WorkspaceError(
+                            "Fresh recovery requires a verified remote Odoo identity"
+                        )
                     with _diagnostic_load_stage(diagnostic_recorder, "close_prior_interrupted_load"):
                         context.execution.close_interrupted_run_for_recomparison(
                             workspace_id,
@@ -1308,6 +1358,7 @@ def build_execution_router(
                             write_credential_binding_hash=write_credential.binding_hash,
                             actor=actor,
                         )
+                recovery: ReconciliationRun | None = None
                 if recovering:
                     with _diagnostic_load_stage(diagnostic_recorder, "recovery_readback"):
                         recovery_reader = context.readback_reader_factory(
@@ -1332,6 +1383,10 @@ def build_execution_router(
                         preview.api_scope,
                     )
                     if recovering:
+                        if recovery is None:
+                            raise WorkspaceError(
+                                "The recovery assessment is missing"
+                            )
                         run = context.execution.resume(
                             workspace_id,
                             expected_execution_run_id=recovery_run_id,
@@ -1346,6 +1401,8 @@ def build_execution_router(
                             progress=report_writing,
                         )
                     else:
+                        if batch_rows is None:
+                            raise WorkspaceError("The load batch size is missing")
                         run = context.execution.execute(
                             workspace_id,
                             expected_snapshot_hash=snapshot_hash,
@@ -1506,6 +1563,7 @@ def build_execution_router(
             actor=actor,
         )
         try:
+            write_credential: TargetCredential | None = None
             access_context = context.workspace_access.resolve(
                 workspace_id,
                 actor=actor,
@@ -1578,7 +1636,9 @@ def build_execution_router(
                 actor=actor,
                 write_identity=write_identity,
                 write_credential_binding_hash=(
-                    write_credential.binding_hash if write_identity is not None else ""
+                    write_credential.binding_hash
+                    if write_identity is not None and write_credential is not None
+                    else ""
                 ),
             )
         except (
@@ -1823,7 +1883,7 @@ def _fallout_detail_page(
     visible = filtered[start : start + page_size]
 
     def page_url(number: int) -> str:
-        params = {"fallout_page": number}
+        params: dict[str, str | int] = {"fallout_page": number}
         if field:
             params["fallout_field"] = field
         if query:

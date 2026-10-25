@@ -8,6 +8,7 @@ to browser projections.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from impodo.application.correction_execution import (
     CorrectionExecutionResult,
@@ -25,6 +26,14 @@ from impodo.application.correction_orchestration import (
     CorrectionSuccessorService,
 )
 from impodo.application.correction_service import CorrectionReview
+from impodo.application.recipe_compilation_service import (
+    RecipeAuthoringMappingRepository,
+)
+from impodo.application.run.service import MigrationRunService
+from impodo.application.workspace.execution.service import (
+    ExecutionSnapshotRepository,
+)
+from impodo.application.workspace.service import MigrationWorkspaceService
 from impodo.domain.correction import (
     CorrectionConfirmation,
     CorrectionPlan,
@@ -33,10 +42,53 @@ from impodo.domain.correction import (
 from impodo.domain.correction_origin import (
     CorrectionOriginError,
 )
+from impodo.domain.execution.models import ExecutionRun
 from impodo.domain.execution.odoo_readback import OdooReadbackReader
 from impodo.domain.execution.odoo_write import OdooWriteExecutor
+from impodo.domain.odoo.contracts import RecordSnapshot
+from impodo.domain.prepared_snapshot import PreparedSnapshot
+from impodo.domain.reconciliation import ReconciliationRun
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import OdooWriteIdentity
+
+
+class CorrectionPreparedEvidenceReader(Protocol):
+    """Read the immutable prepared snapshots used to seal an origin."""
+
+    def current_prepared_snapshots(
+        self,
+        workspace_id: str,
+    ) -> tuple[PreparedSnapshot, ...]: ...
+
+
+class CorrectionTargetSnapshotReader(Protocol):
+    """Read the exact protected target snapshot bound to final review."""
+
+    def get_record_snapshot(
+        self,
+        workspace_id: str,
+        run_id: str,
+    ) -> RecordSnapshot | None: ...
+
+
+class CorrectionExecutionEvidenceReader(Protocol):
+    """Read the current journal needed to seal completed-load evidence."""
+
+    def get_current_run(
+        self,
+        workspace_id: str,
+        snapshot_hash: str | None = None,
+    ) -> ExecutionRun | None: ...
+
+
+class CorrectionReconciliationEvidenceReader(Protocol):
+    """Read the verified reconciliation used to seal completed-load evidence."""
+
+    def get_current(
+        self,
+        workspace_id: str,
+        execution_run_id: str | None = None,
+    ) -> ReconciliationRun | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,14 +152,14 @@ class CorrectionWorkflowService:
         successors: CorrectionSuccessorService,
         reviewer: CorrectionReviewOrchestrator,
         executor: CorrectionExecutionService,
-        runs,
-        workspaces,
-        mappings,
-        preparations,
-        preflight,
-        preflight_repository,
-        executions,
-        reconciliations,
+        runs: MigrationRunService,
+        workspaces: MigrationWorkspaceService,
+        mappings: RecipeAuthoringMappingRepository,
+        preparations: CorrectionPreparedEvidenceReader,
+        preflight: ExecutionSnapshotRepository,
+        preflight_repository: CorrectionTargetSnapshotReader,
+        executions: CorrectionExecutionEvidenceReader,
+        reconciliations: CorrectionReconciliationEvidenceReader,
     ) -> None:
         self.bindings = bindings
         self.protected = protected
@@ -385,4 +437,11 @@ class CorrectionWorkflowService:
         )
 
 
-__all__ = ["CorrectionJourneyView", "CorrectionWorkflowService"]
+__all__ = [
+    "CorrectionExecutionEvidenceReader",
+    "CorrectionJourneyView",
+    "CorrectionPreparedEvidenceReader",
+    "CorrectionReconciliationEvidenceReader",
+    "CorrectionTargetSnapshotReader",
+    "CorrectionWorkflowService",
+]

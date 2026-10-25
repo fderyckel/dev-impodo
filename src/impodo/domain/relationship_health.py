@@ -166,7 +166,7 @@ class RelationshipHealthResult:
                 if payload.get("dependency_dataset_id") is not None
                 else None
             ),
-            required=bool(payload["required"]),
+            required=_portable_boolean(payload, "required"),
             status=RelationshipHealthStatus(str(payload["status"])),
             not_checkable_reason=(
                 RelationshipHealthNotCheckableReason(
@@ -175,16 +175,30 @@ class RelationshipHealthResult:
                 if payload.get("not_checkable_reason") is not None
                 else None
             ),
-            source_row_count=int(payload.get("source_row_count", 0)),
-            populated_choice_count=int(payload.get("populated_choice_count", 0)),
-            blank_row_count=int(payload.get("blank_row_count", 0)),
-            incomplete_row_count=int(payload.get("incomplete_row_count", 0)),
-            target_count=int(payload.get("target_count", 0)),
-            incoming_count=int(payload.get("incoming_count", 0)),
-            missing_count=int(payload.get("missing_count", 0)),
-            ambiguous_count=int(payload.get("ambiguous_count", 0)),
-            case_mismatch_count=int(payload.get("case_mismatch_count", 0)),
+            source_row_count=_portable_count(payload, "source_row_count"),
+            populated_choice_count=_portable_count(payload, "populated_choice_count"),
+            blank_row_count=_portable_count(payload, "blank_row_count"),
+            incomplete_row_count=_portable_count(payload, "incomplete_row_count"),
+            target_count=_portable_count(payload, "target_count"),
+            incoming_count=_portable_count(payload, "incoming_count"),
+            missing_count=_portable_count(payload, "missing_count"),
+            ambiguous_count=_portable_count(payload, "ambiguous_count"),
+            case_mismatch_count=_portable_count(payload, "case_mismatch_count"),
         )
+
+
+def _portable_boolean(payload: Mapping[str, object], key: str) -> bool:
+    value = payload.get(key)
+    if not isinstance(value, bool):
+        raise WorkspaceError(f"Relationship health {key} must be a boolean")
+    return value
+
+
+def _portable_count(payload: Mapping[str, object], key: str) -> int:
+    value = payload.get(key, 0)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise WorkspaceError(f"Relationship health {key} must be an integer")
+    return value
 
 
 def classify_relationship_health(

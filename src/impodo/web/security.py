@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import PlainTextResponse, Response
+from starlette.responses import PlainTextResponse, Response, StreamingResponse
 
 from impodo.application.workspace.access import (
     ScopedWorkspaceAccessQuery,
@@ -57,17 +57,19 @@ class LoopbackSecurityMiddleware(BaseHTTPMiddleware):
             return self._secure(PlainTextResponse("Invalid host", status_code=400))
         if any(header in request.headers for header in FORWARDED_HEADERS):
             return self._secure(
-                PlainTextResponse("Forwarded requests are not accepted", status_code=400)
+                PlainTextResponse(
+                    "Forwarded requests are not accepted", status_code=400
+                )
             )
         if request.method not in SAFE_METHODS:
             origin = request.headers.get("origin")
             referer = request.headers.get("referer")
             fetch_site = request.headers.get("sec-fetch-site")
             source_origin = origin or _referer_origin(referer)
-            if (
-                source_origin != self.expected_origin
-                or fetch_site not in {None, "same-origin"}
-            ):
+            if source_origin != self.expected_origin or fetch_site not in {
+                None,
+                "same-origin",
+            }:
                 return self._secure(
                     PlainTextResponse("Untrusted request origin", status_code=403)
                 )
@@ -140,10 +142,7 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
         """Resolve one safe Project-owned context or return an opaque 404."""
 
         workspace_id = _workspace_id_from_path(request.url.path)
-        if (
-            workspace_id is None
-            or request.session.get("authenticated") is not True
-        ):
+        if workspace_id is None or request.session.get("authenticated") is not True:
             return await call_next(request)
         access_started = perf_counter()
         identity = request_identity(request, self.identity_resolver)
@@ -192,13 +191,11 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
         existing_timing = response.headers.get("Server-Timing", "")
         access_timing = f"access_context;dur={access_context_ms:.3f}"
         response.headers["Server-Timing"] = (
-            f"{existing_timing}, {access_timing}"
-            if existing_timing
-            else access_timing
+            f"{existing_timing}, {access_timing}" if existing_timing else access_timing
         )
-        body_iterator = getattr(response, "body_iterator", None)
-        if body_iterator is None:
+        if not isinstance(response, StreamingResponse):
             return response
+        body_iterator = response.body_iterator
 
         async def authorized_body():
             with bind_workspace_access_context(context):

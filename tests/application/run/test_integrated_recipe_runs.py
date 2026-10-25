@@ -840,8 +840,9 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 *,
                 expected_version,
                 actor,
+                operation_id=None,
             ):
-                del workspace_id, expected_version, actor
+                del workspace_id, expected_version, actor, operation_id
                 self.draft = draft
 
             def save_mapping_revision(
@@ -854,12 +855,14 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 expected_working_draft_version,
                 checked_draft,
                 actor,
+                operation_id=None,
             ):
                 del (
                     workspace_id,
                     expected_parent_version,
                     expected_working_draft_version,
                     actor,
+                    operation_id,
                 )
                 self.revision = revision
                 self.validation = validation
@@ -872,8 +875,9 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 validation,
                 *,
                 actor,
+                operation_id=None,
             ):
-                del workspace_id, version, actor
+                del workspace_id, version, actor, operation_id
                 self.validation = validation
 
             def get_mapping_validation(self, workspace_id, version):
@@ -890,8 +894,9 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 submission,
                 *,
                 actor,
+                operation_id=None,
             ):
-                del workspace_id, actor
+                del workspace_id, actor, operation_id
                 self.submission = submission
 
         governance_state = {"value": None}

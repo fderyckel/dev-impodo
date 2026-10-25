@@ -23,9 +23,10 @@ from ...domain.project.models import (
     MigrationProjectStatus,
     MigrationProjectSummary,
 )
+from .foundation_repository_mixin import FoundationRepositoryMixin
 
 
-class FoundationProjectRecords:
+class FoundationProjectRecords(FoundationRepositoryMixin):
     """Own Project identity, summary, and optimistic-revision persistence."""
 
     def create_project(
@@ -51,7 +52,12 @@ class FoundationProjectRecords:
         )
         if intent.state is MigrationOperationState.COMMITTED:
             return self.get_project(intent.owner_id)
-        stored = self._project_from_dict(dict(intent.detail["project"]))
+        stored = self._project_from_dict(
+            self._stored_mapping(
+                intent.detail.get("project"),
+                "Project operation detail",
+            )
+        )
         self._fault(fault, "INTENT_RESERVED")
         with self._registry_transactions.transaction() as connection:
             existing = connection.execute(

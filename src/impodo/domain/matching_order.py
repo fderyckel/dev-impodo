@@ -288,6 +288,15 @@ class MatchingIdentityNotCheckableReason(StrEnum):
     ODOO_SCHEMA_CHANGED = "ODOO_SCHEMA_CHANGED"
 
 
+def _matching_count(payload: dict[str, object], key: str) -> int:
+    """Return one exact integer count from portable matching evidence."""
+
+    value = payload.get(key, 0)
+    if type(value) is not int:
+        raise WorkspaceError("Matching identity counts are invalid")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class MatchingIdentityResult:
     """Aggregate-only health for one saved dataset-to-Odoo identity."""
@@ -378,10 +387,17 @@ class MatchingIdentityResult:
     def from_dict(cls, payload: dict[str, object]) -> MatchingIdentityResult:
         """Restore the bounded portable identity-health shape."""
 
+        raw_target_fields = payload.get("target_fields", ())
+        if not isinstance(raw_target_fields, (list, tuple)) or not all(
+            isinstance(item, str) for item in raw_target_fields
+        ):
+            raise WorkspaceError("Matching identity target fields are invalid")
         return cls(
             dataset_id=str(payload["dataset_id"]),
             target_model=str(payload["target_model"]),
-            target_fields=tuple(payload.get("target_fields", ())),
+            target_fields=tuple(
+                item for item in raw_target_fields if isinstance(item, str)
+            ),
             status=MatchingIdentityCheckStatus(str(payload["status"])),
             not_checkable_reason=(
                 MatchingIdentityNotCheckableReason(
@@ -390,28 +406,37 @@ class MatchingIdentityResult:
                 if payload.get("not_checkable_reason") is not None
                 else None
             ),
-            source_row_count=int(payload.get("source_row_count", 0)),
-            source_unique_row_count=int(
-                payload.get("source_unique_row_count", 0)
+            source_row_count=_matching_count(payload, "source_row_count"),
+            source_unique_row_count=_matching_count(
+                payload,
+                "source_unique_row_count",
             ),
-            source_blank_row_count=int(payload.get("source_blank_row_count", 0)),
-            source_repeated_row_count=int(
-                payload.get("source_repeated_row_count", 0)
+            source_blank_row_count=_matching_count(
+                payload,
+                "source_blank_row_count",
             ),
-            source_repeated_group_count=int(
-                payload.get("source_repeated_group_count", 0)
+            source_repeated_row_count=_matching_count(
+                payload,
+                "source_repeated_row_count",
             ),
-            target_unique_key_count=int(
-                payload.get("target_unique_key_count", 0)
+            source_repeated_group_count=_matching_count(
+                payload,
+                "source_repeated_group_count",
             ),
-            target_ambiguous_key_count=int(
-                payload.get("target_ambiguous_key_count", 0)
+            target_unique_key_count=_matching_count(
+                payload,
+                "target_unique_key_count",
             ),
-            expected_new_count=int(payload.get("expected_new_count", 0)),
-            expected_existing_count=int(
-                payload.get("expected_existing_count", 0)
+            target_ambiguous_key_count=_matching_count(
+                payload,
+                "target_ambiguous_key_count",
             ),
-            blocked_count=int(payload.get("blocked_count", 0)),
+            expected_new_count=_matching_count(payload, "expected_new_count"),
+            expected_existing_count=_matching_count(
+                payload,
+                "expected_existing_count",
+            ),
+            blocked_count=_matching_count(payload, "blocked_count"),
         )
 
 
@@ -1001,15 +1026,15 @@ def _strong_components(
         if start in assigned:
             continue
         members: set[str] = set()
-        stack = [start]
+        component_stack = [start]
         assigned.add(start)
-        while stack:
-            dataset_id = stack.pop()
+        while component_stack:
+            dataset_id = component_stack.pop()
             members.add(dataset_id)
             for dependency in reversed(reverse[dataset_id]):
                 if dependency not in assigned:
                     assigned.add(dependency)
-                    stack.append(dependency)
+                    component_stack.append(dependency)
         components.append(tuple(sorted(members, key=rank.__getitem__)))
     return tuple(
         sorted(

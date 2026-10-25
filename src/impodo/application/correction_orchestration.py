@@ -20,6 +20,13 @@ from impodo.application.correction_service import (
     CorrectionReviewService,
     build_completed_load_target_index,
 )
+from impodo.application.data_version.source_packages import (
+    DataVersionSourceRepository,
+    WorkspaceSourceProjectionService,
+)
+from impodo.application.project.service import MigrationProjectService
+from impodo.application.run.service import MigrationRunService
+from impodo.application.workspace.service import MigrationWorkspaceService
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarTransformationProgram,
 )
@@ -212,35 +219,71 @@ class CorrectionBindingRepository(Protocol):
 
 
 class StoredTargetIndex(Protocol):
-    project_id: str
-    index_id: str
-    index_hash: str
-    storage_key: str
-    artifact_hash: str
+    @property
+    def project_id(self) -> str: ...
+
+    @property
+    def index_id(self) -> str: ...
+
+    @property
+    def index_hash(self) -> str: ...
+
+    @property
+    def storage_key(self) -> str: ...
+
+    @property
+    def artifact_hash(self) -> str: ...
 
 
 class StoredOrigin(Protocol):
-    project_id: str
-    manifest_id: str
-    manifest_hash: str
-    storage_key: str
-    artifact_hash: str
+    @property
+    def project_id(self) -> str: ...
+
+    @property
+    def manifest_id(self) -> str: ...
+
+    @property
+    def manifest_hash(self) -> str: ...
+
+    @property
+    def storage_key(self) -> str: ...
+
+    @property
+    def artifact_hash(self) -> str: ...
 
 
 class StoredPlan(Protocol):
-    project_id: str
-    plan_id: str
-    plan_hash: str
-    storage_key: str
-    artifact_hash: str
+    @property
+    def project_id(self) -> str: ...
+
+    @property
+    def plan_id(self) -> str: ...
+
+    @property
+    def plan_hash(self) -> str: ...
+
+    @property
+    def storage_key(self) -> str: ...
+
+    @property
+    def artifact_hash(self) -> str: ...
 
 
 class StoredConfirmation(Protocol):
-    project_id: str
-    confirmation_id: str
-    confirmation_hash: str
-    storage_key: str
-    artifact_hash: str
+    @property
+    def project_id(self) -> str: ...
+
+    @property
+    def confirmation_id(self) -> str: ...
+
+    @property
+    def confirmation_hash(self) -> str: ...
+
+    @property
+    def storage_key(self) -> str: ...
+
+    @property
+    def artifact_hash(self) -> str: ...
 
 
 class CorrectionProtectedStore(Protocol):
@@ -698,14 +741,18 @@ class CorrectionSuccessorService:
         self,
         *,
         bindings: CorrectionBindingRepository,
-        runs,
-        workspaces,
+        projects: MigrationProjectService,
+        source_packages: DataVersionSourceRepository,
+        runs: MigrationRunService,
+        workspaces: MigrationWorkspaceService,
         workspace_states: WorkspaceStateService,
-        source_projections,
+        source_projections: WorkspaceSourceProjectionService,
         target_setups: MigrationRunTargetSetupService,
         mapping_seeder: CorrectionMappingSeeder,
     ) -> None:
         self.bindings = bindings
+        self.projects = projects
+        self.source_packages = source_packages
         self.runs = runs
         self.workspaces = workspaces
         self.workspace_states = workspace_states
@@ -729,15 +776,20 @@ class CorrectionSuccessorService:
                 "Completed load has no published correction origin"
             )
         if binding.successor_migration_run_id is not None:
+            successor_workspace_id = binding.successor_workspace_id
+            if successor_workspace_id is None:
+                raise CorrectionOriginError(
+                    "Correction successor workspace binding is missing"
+                )
             return CorrectionSuccessor(
                 binding=binding,
                 run=self.runs.get(binding.successor_migration_run_id, actor=actor),
                 workspace=self.workspaces.get(
-                    binding.successor_workspace_id,
+                    successor_workspace_id,
                     actor=actor,
                 ),
             )
-        project = self.runs.repository.get_project(binding.project_id)
+        project = self.projects.get(binding.project_id, actor=actor)
         run = self.runs.create(
             binding.project_id,
             actor=actor,
@@ -750,7 +802,7 @@ class CorrectionSuccessorService:
                 f"correction-successor-run:{binding.correction_binding_id}",
             ),
         )
-        project = self.runs.repository.get_project(binding.project_id)
+        project = self.projects.get(binding.project_id, actor=actor)
         workspace = self.workspaces.create(
             binding.project_id,
             actor=actor,
@@ -763,8 +815,8 @@ class CorrectionSuccessorService:
                 f"correction-successor-workspace:{binding.correction_binding_id}",
             ),
         )
-        project_root = self.runs.repository.get_project(binding.project_id)
-        package = self.runs.repository.get_source_package(binding.data_version_id)
+        project_root = self.projects.get(binding.project_id, actor=actor)
+        package = self.source_packages.get_source_package(binding.data_version_id)
         if package is None:
             raise CorrectionOriginError("Correction DataVersion package is missing")
         try:

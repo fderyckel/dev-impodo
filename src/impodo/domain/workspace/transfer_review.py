@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
@@ -739,14 +740,21 @@ def _export_plan_dict(plan: FrozenExportPlan) -> dict[str, Any]:
 
 
 def _export_plan_from_dict(value: object) -> FrozenExportPlan:
-    payload = dict(value)
+    payload = _portable_mapping(value, "Frozen export plan")
+    source_hashes = _portable_mapping(
+        payload["source_hashes"],
+        "Frozen export-plan source hashes",
+    )
+    contract_version = payload["contract_version"]
+    if type(contract_version) is not int:
+        raise TypeError("Frozen export-plan contract version must be an integer")
     result = FrozenExportPlan(
         plan_id=str(payload["plan_id"]),
         workspace_id=str(payload["workspace_id"]),
         run_id=str(payload["run_id"]),
         source_hashes={
             str(name): str(digest)
-            for name, digest in dict(payload["source_hashes"]).items()
+            for name, digest in source_hashes.items()
         },
         mapping_hash=str(payload["mapping_hash"]),
         ruleset_hash=str(payload["ruleset_hash"]),
@@ -754,7 +762,7 @@ def _export_plan_from_dict(value: object) -> FrozenExportPlan:
         target_snapshot_hash=str(payload["target_snapshot_hash"]),
         actions_hash=str(payload["actions_hash"]),
         frozen_at=datetime.fromisoformat(str(payload["frozen_at"])),
-        contract_version=int(payload["contract_version"]),
+        contract_version=contract_version,
     )
     if payload.get("semantic_hash") != result.semantic_hash:
         raise ValueError("Stored frozen export-plan hash is invalid")
@@ -770,9 +778,22 @@ def _actor_dict(actor: ActorIdentity) -> dict[str, str]:
 
 
 def _actor_from_dict(value: object) -> ActorIdentity:
-    payload = dict(value)
+    payload = _portable_mapping(value, "Transfer-review actor")
     return ActorIdentity(
         issuer=str(payload["issuer"]),
         subject_id=str(payload["subject_id"]),
         display_name=str(payload["display_name"]),
     )
+
+
+def _portable_mapping(value: object, label: str) -> dict[str, object]:
+    """Return one validated JSON object from portable transfer evidence."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{label} must be an object")
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise TypeError(f"{label} keys must be strings")
+        result[key] = item
+    return result

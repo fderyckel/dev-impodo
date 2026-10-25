@@ -22,9 +22,10 @@ from impodo.domain.shared.access import Actor
 from ...domain.workspace.models import (
     MigrationWorkspace,
 )
+from .foundation_repository_mixin import FoundationRepositoryMixin
 
 
-class FoundationWorkspaceCommands:
+class FoundationWorkspaceCommands(FoundationRepositoryMixin):
     def create_migration_workspace(
         self,
         workspace: MigrationWorkspace,
@@ -48,7 +49,12 @@ class FoundationWorkspaceCommands:
         )
         if intent.state is MigrationOperationState.COMMITTED:
             return self.get_migration_workspace(intent.owner_id)
-        stored = self._workspace_from_dict(dict(intent.detail["migration_workspace"]))
+        stored = self._workspace_from_dict(
+            self._stored_mapping(
+                intent.detail.get("migration_workspace"),
+                "MigrationWorkspace operation detail",
+            )
+        )
         self._fault(fault, "INTENT_RESERVED")
         self._insert_workspace_if_needed(stored, intent, actor)
         self._fault(fault, "REGISTRY_COMMITTED")
@@ -74,7 +80,12 @@ class FoundationWorkspaceCommands:
         )
         if intent.state is MigrationOperationState.COMMITTED:
             return self.get_migration_workspace(intent.owner_id)
-        stored = self._workspace_from_dict(dict(intent.detail["migration_workspace"]))
+        stored = self._workspace_from_dict(
+            self._stored_mapping(
+                intent.detail.get("migration_workspace"),
+                "MigrationWorkspace operation detail",
+            )
+        )
         return self.create_migration_workspace(
             stored,
             expected_workspace_revision=int(intent.expected_revision or 0),
@@ -173,8 +184,11 @@ class FoundationWorkspaceCommands:
                         ],
                     )
                     selected = tuple(
-                        package.dataset(str(dataset_id))
-                        for dataset_id in stored["dataset_ids"]
+                        package.dataset(dataset_id)
+                        for dataset_id in self._stored_string_tuple(
+                            stored["dataset_ids"],
+                            "workspace source dataset identifiers",
+                        )
                     )
                     connection.executemany(
                         "INSERT INTO workspace_source_dataset VALUES (?, ?)",

@@ -11,7 +11,6 @@ from decimal import Decimal
 from typing import Any, Protocol
 from uuid import uuid4
 
-from impodo.application.preflight_service import PreflightService
 from impodo.application.workspace.execution.navigation import ExecutionNavigationState
 from impodo.domain.execution.dependency_scheduler import dependency_component_pages
 from impodo.domain.execution.models import (
@@ -42,7 +41,11 @@ from impodo.domain.reconciliation import (
     ReconciliationRowStatus,
     ReconciliationRun,
 )
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import (
+    Actor,
+    Capability,
+    WorkspaceAuthorizationPolicy,
+)
 from impodo.domain.shared.models import (
     BusinessReference,
     LogicalReference,
@@ -186,6 +189,25 @@ class ExecutionWorkspaceRepository(Protocol):
 
     def get(self, workspace_id: str) -> WorkspaceState:
         """Return state for preview, execute, resume, and completion commands."""
+        ...
+
+
+class ExecutionSnapshotRepository(Protocol):
+    """Read current and historical immutable load-preview snapshots."""
+
+    def current_execution_snapshot(
+        self,
+        workspace_id: str,
+    ) -> ExecutionSnapshot | None:
+        """Return the current approved snapshot, if one remains valid."""
+        ...
+
+    def execution_snapshot(
+        self,
+        workspace_id: str,
+        preflight_run_id: str,
+    ) -> ExecutionSnapshot:
+        """Return the exact snapshot bound to a historical comparison."""
         ...
 
 
@@ -431,9 +453,9 @@ class ExecutionService:
     def __init__(
         self,
         workspaces: ExecutionWorkspaceRepository,
-        preflight: PreflightService,
+        preflight: ExecutionSnapshotRepository,
         journal: ExecutionJournalRepository,
-        authorization: AuthorizationPolicy,
+        authorization: WorkspaceAuthorizationPolicy,
         *,
         require_remote_read_identity: bool = False,
         require_remote_write_identity: bool = False,
@@ -2651,6 +2673,7 @@ class ExecutionService:
                 or attempt.odoo_id is None
             ):
                 continue
+            record_id = attempt.odoo_id
             try:
                 values = {
                     intent.field: self._relation_value(
@@ -2684,13 +2707,17 @@ class ExecutionService:
                 component=row.schedule_component,
                 page=0,
                 batch=next_transport_batch,
-                known_ids={row.row_id: attempt.odoo_id},
+                known_ids={row.row_id: record_id},
             )
             next_transport_batch += 1
             attempt = recorded[row.row_id]
+            if attempt.odoo_id != record_id:
+                raise WorkspaceError(
+                    "The deferred relationship target changed in the execution journal"
+                )
             progress()
             try:
-                executor.update_row(row.target_model, attempt.odoo_id, values)
+                executor.update_row(row.target_model, record_id, values)
             except OdooWriteOutcomeUnknown as error:
                 outcome = replace(
                     attempt,
@@ -2856,6 +2883,10 @@ class ExecutionService:
             )
         if isinstance(value, LogicalReference) and value.origin == "incoming":
             if not intent.incoming_projection_field:
+                if value.dataset is None:
+                    raise WorkspaceError(
+                        "An incoming relationship has no source table identity"
+                    )
                 referenced = by_source.get(
                     (value.dataset, _portable_key(value.key))
                 )

@@ -9,7 +9,7 @@ seeding.
 
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Any
 
 from impodo.application.data_version.source_files import (
@@ -75,9 +75,7 @@ def _combined_distinct_table(
     for index, selected in enumerate(rule.inputs, 1):
         path = _contained_fixture_path(root, selected.file)
         table_key = (
-            f"sheet:{selected.sheet}"
-            if path.suffix.casefold() == ".xlsx"
-            else "csv"
+            f"sheet:{selected.sheet}" if path.suffix.casefold() == ".xlsx" else "csv"
         )
         table = load_selected_source_table(
             path,
@@ -150,8 +148,10 @@ def _contained_fixture_path(root: Path, relative_name: str) -> Path:
     return path
 
 
-def _relative_source_name(root: Path, path: object) -> str:
+def _relative_source_name(root: Path, path: PurePath) -> str:
     try:
         return Path(path).resolve(strict=True).relative_to(root).as_posix()
     except (OSError, TypeError, ValueError) as error:
-        raise SourceLoadError("profile source path left the fixture directory") from error
+        raise SourceLoadError(
+            "profile source path left the fixture directory"
+        ) from error

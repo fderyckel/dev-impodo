@@ -7,9 +7,41 @@ deployment choices do not duplicate application-service wiring.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol, cast
+from typing import Protocol
 
+from impodo.application.correction_execution import (
+    CorrectionExecutionRepository,
+    CorrectionExecutionService,
+)
+from impodo.application.correction_orchestration import (
+    CorrectionAuthoringStageCoordinator,
+    CorrectionBindingRepository,
+    CorrectionMappingSeedService,
+    CorrectionOriginPublisher,
+    CorrectionProtectedStore,
+    CorrectionReviewOrchestrator,
+    CorrectionReviewPipeline,
+    CorrectionSuccessorService,
+    CorrectionTargetReviewStage,
+)
+from impodo.application.correction_stages import (
+    CorrectionPreparationEvidenceReader,
+    CurrentCorrectionMappingReviewStage,
+    CurrentCorrectionPreparationReviewStage,
+    CurrentCorrectionQualityReviewStage,
+)
+from impodo.application.correction_workflow import (
+    CorrectionExecutionEvidenceReader,
+    CorrectionPreparedEvidenceReader,
+    CorrectionTargetSnapshotReader,
+    CorrectionWorkflowService,
+)
+from impodo.application.cutover_plan_service import (
+    CutoverPlanService,
+    WorkspaceIntegratedQualificationEvidenceReader,
+)
 from impodo.application.data_version.ports import DataVersionRepository
 from impodo.application.data_version.service import DataVersionService
 from impodo.application.data_version.source_packages import (
@@ -18,6 +50,13 @@ from impodo.application.data_version.source_packages import (
     WorkspaceSourceProjectionRepository,
     WorkspaceSourceProjectionService,
 )
+from impodo.application.fallout_workbook_port import FalloutWorkbookRenderer
+from impodo.application.fallout_workbook_service import (
+    FalloutSourceReader,
+    FalloutStagingReader,
+    FalloutWorkbookService,
+    FalloutWorkspaceReader,
+)
 from impodo.application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
@@ -25,6 +64,7 @@ from impodo.application.odoo_capture_filters import OdooCaptureFilterStore
 from impodo.application.odoo_provenance_service import OdooProvenanceService
 from impodo.application.odoo_source_restart_service import OdooSourceRestartService
 from impodo.application.preflight_service import PreflightService
+from impodo.application.production_cutover_service import ProductionCutoverService
 from impodo.application.project.ports import MigrationProjectRepository
 from impodo.application.project.service import MigrationProjectService
 from impodo.application.recipe.ports import RecipeRepository
@@ -41,24 +81,55 @@ from impodo.application.recipe_compilation_service import (
     RecipeCompiler,
 )
 from impodo.application.recipe_publication_service import RecipePublicationService
-from impodo.application.run.ports import MigrationRunRepository
+from impodo.application.reconciliation_evidence_service import (
+    ReconciliationEvidenceService,
+)
+from impodo.application.run.planning_service import MigrationRunPlanningService
+from impodo.application.run.ports import (
+    MigrationRunRepository,
+    ProductionRunRepository,
+    RunCutoverPlanRepository,
+    RunPlanningRepository,
+    TestRunRepository,
+)
 from impodo.application.run.service import MigrationRunService
+from impodo.application.run.setup_service import RunSetupService
+from impodo.application.run.test_setup_service import TestRunSetupService
 from impodo.application.schema_workspace_service import (
     SchemaWorkspaceReader,
     SchemaWorkspaceRepository,
     SchemaWorkspaceService,
     SourceSelectionReader,
 )
-from impodo.application.shared.artifacts import GovernedArtifactStores
+from impodo.application.shared.artifacts import (
+    GovernedArtifactStores,
+    WorkspaceArtifactStore,
+)
 from impodo.application.source_workspace_service import (
     OdooCaptureSchemaReader,
     SourceWorkspaceRepository,
     SourceWorkspaceService,
     WorkspaceStateReader,
 )
+from impodo.application.transfer_execution_service import (
+    TransferExecutionService,
+    TransferExecutionSourceRepository,
+)
 from impodo.application.workspace.access import (
     WorkspaceAccessRepository,
     WorkspaceAccessService,
+)
+from impodo.application.workspace.execution.reconciliation import (
+    ReconciliationExecutionRepository,
+    ReconciliationResultRepository,
+    ReconciliationSchemaReader,
+    ReconciliationService,
+)
+from impodo.application.workspace.execution.service import (
+    ExecutionJournalRepository,
+    ExecutionService,
+    ExecutionWorkspaceRepository,
+    ReadCredentialBindingProvider,
 )
 from impodo.application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
@@ -142,6 +213,8 @@ from impodo.application.workspace_data_version_source_service import (
 )
 from impodo.domain.mapping.contracts import MappingDefinition
 from impodo.domain.preparation.quality import QualityRule
+from impodo.domain.reconciliation import ReconciliationRun
+from impodo.domain.reconciliation_detail import ReconciliationDetailManifest
 from impodo.domain.run.setup import (
     MigrationRunTargetSetupRepository,
     MigrationRunTargetSetupService,
@@ -203,6 +276,71 @@ class PreparationStagingPorts(
     Protocol,
 ):
     """Combine canonical-staging publication and review reads."""
+
+
+class ExecutionWorkspacePorts(
+    ExecutionWorkspaceRepository,
+    FalloutWorkspaceReader,
+    Protocol,
+):
+    """Combine Workspace state reads used by loading and fallout evidence."""
+
+
+class ExecutionSourcePorts(
+    TransferExecutionSourceRepository,
+    FalloutSourceReader,
+    Protocol,
+):
+    """Combine frozen source reads used by transfer loading and fallout evidence."""
+
+
+class ExecutionJournalPorts(
+    ExecutionJournalRepository,
+    ReconciliationExecutionRepository,
+    Protocol,
+):
+    """Combine journal commands with the reconciliation read surface."""
+
+
+class CorrectionPreparedEvidencePorts(
+    CorrectionPreparationEvidenceReader,
+    CorrectionPreparedEvidenceReader,
+    Protocol,
+):
+    """Read prepared evidence required by correction origin and review."""
+
+
+class CorrectionExecutionPorts(
+    CorrectionExecutionRepository,
+    CorrectionExecutionEvidenceReader,
+    Protocol,
+):
+    """Write correction journals and read completed execution evidence."""
+
+
+class CorrectionReconciliationPorts(Protocol):
+    """Publish and read correction reconciliation results."""
+
+    def publish(
+        self,
+        workspace_id: str,
+        report: ReconciliationRun,
+        *,
+        actor: Actor,
+        detail: ReconciliationDetailManifest | None = None,
+    ) -> None: ...
+
+    def get_current(
+        self,
+        workspace_id: str,
+        execution_run_id: str | None = None,
+    ) -> ReconciliationRun | None: ...
+
+
+CorrectionReviewPipelineFactory = Callable[
+    [CorrectionAuthoringStageCoordinator],
+    CorrectionReviewPipeline,
+]
 
 
 class PreparationQualityPorts(
@@ -358,6 +496,46 @@ class AuthoringServiceGraph:
 
 
 @dataclass(frozen=True, slots=True)
+class RunServiceGraph:
+    """Hold integrated run planning and setup services for either deployment."""
+
+    run_planning: MigrationRunPlanningService
+    test_runs: TestRunSetupService
+    production_runs: ProductionCutoverService
+    run_setups: RunSetupService
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionServiceGraph:
+    """Hold load, transfer, reconciliation, and fallout services for a deployment."""
+
+    execution: ExecutionService
+    transfer_execution: TransferExecutionService
+    reconciliation: ReconciliationService
+    fallout_workbooks: FalloutWorkbookService
+
+
+@dataclass(frozen=True, slots=True)
+class CutoverServiceGraph:
+    """Hold integrated Test qualification services for either deployment."""
+
+    qualification_evidence: WorkspaceIntegratedQualificationEvidenceReader
+    cutover_plans: CutoverPlanService
+
+
+@dataclass(frozen=True, slots=True)
+class CorrectionServiceGraph:
+    """Hold completed-load correction services for either deployment."""
+
+    stages: CorrectionAuthoringStageCoordinator
+    origin_publisher: CorrectionOriginPublisher
+    successors: CorrectionSuccessorService
+    reviewer: CorrectionReviewOrchestrator
+    executor: CorrectionExecutionService
+    workflow: CorrectionWorkflowService
+
+
+@dataclass(frozen=True, slots=True)
 class PreparationServiceGraph:
     """Hold the target-independent preparation and final-review services."""
 
@@ -445,13 +623,6 @@ def build_authoring_service_graph(
 ) -> AuthoringServiceGraph:
     """Wire source, Recipe, and Match data without choosing storage adapters."""
 
-    # These established constructors call the workspace-scoped ``require``
-    # contract while their annotations still name the Project authorization
-    # protocol. Keep that compatibility cast at this composition boundary.
-    workspace_authorization = cast(
-        AuthorizationPolicy,
-        foundation.workspace_access,
-    )
     recipe_compiler = RecipeCompiler(
         mapping_sources,
         mappings,
@@ -498,13 +669,13 @@ def build_authoring_service_graph(
         workspaces,
         sources,
         schemas,
-        workspace_authorization,
+        foundation.workspace_access,
     )
     mapping_workspace = MappingWorkspaceService(
         mapping_sources,
         schemas,
         mappings,
-        workspace_authorization,
+        foundation.workspace_access,
         categorical_coverage=categorical_coverage,
         numeric_precision_coverage=numeric_precision_coverage,
         supporting_lookups=supporting_lookups,
@@ -519,7 +690,7 @@ def build_authoring_service_graph(
         derived_entities,
         transformation_impacts,
         artifacts,
-        workspace_authorization,
+        foundation.workspace_access,
     )
     row_inclusion_reviews = RowInclusionReviewService(
         transformation_impact_service,
@@ -560,6 +731,252 @@ def build_authoring_service_graph(
     )
 
 
+def build_run_service_graph(
+    *,
+    foundation: FoundationServiceGraph,
+    authoring: AuthoringServiceGraph,
+    planning_repository: RunPlanningRepository,
+    test_run_repository: TestRunRepository,
+    production_run_repository: ProductionRunRepository,
+    cutover_plan_repository: RunCutoverPlanRepository,
+    authorization: AuthorizationPolicy,
+) -> RunServiceGraph:
+    """Wire run planning and setup through application-owned persistence ports."""
+
+    run_planning = MigrationRunPlanningService(
+        projects=foundation.migration_projects,
+        data_versions=foundation.data_versions,
+        recipes=authoring.recipes,
+        repository=planning_repository,
+        test_run_values=test_run_repository,
+        source_packages=foundation.source_packages,
+        source_projections=authoring.source_projections,
+        workspace_states=foundation.workspace_states,
+        compiler=authoring.recipe_application,
+        cutover_plans=cutover_plan_repository,
+        authorization=authorization,
+    )
+    test_runs = TestRunSetupService(
+        projects=foundation.migration_projects,
+        data_versions=foundation.data_versions,
+        runs=foundation.migration_runs,
+        migration_workspaces=foundation.migration_workspaces,
+        source_packages=foundation.source_packages,
+        workspace_states=foundation.workspace_states,
+        recipes=authoring.recipes,
+        test_runs=test_run_repository,
+        run_planning=run_planning,
+        authorization=authorization,
+    )
+    production_runs = ProductionCutoverService(
+        projects=foundation.migration_projects,
+        data_versions=foundation.data_versions,
+        runs=foundation.migration_runs,
+        migration_workspaces=foundation.migration_workspaces,
+        source_packages=foundation.source_packages,
+        workspace_states=foundation.workspace_states,
+        cutover_plans=cutover_plan_repository,
+        production_runs=production_run_repository,
+        run_planning=run_planning,
+        authorization=authorization,
+    )
+    run_setups = RunSetupService(
+        test_runs=test_runs,
+        production_runs=production_runs,
+        runs=foundation.migration_runs,
+        recipes=authoring.recipes,
+        authorization=authorization,
+    )
+    return RunServiceGraph(
+        run_planning=run_planning,
+        test_runs=test_runs,
+        production_runs=production_runs,
+        run_setups=run_setups,
+    )
+
+
+def build_execution_service_graph(
+    *,
+    workspaces: ExecutionWorkspacePorts,
+    preflight: PreflightService,
+    journal: ExecutionJournalPorts,
+    reconciliation_results: ReconciliationResultRepository,
+    sources: ExecutionSourcePorts,
+    staging: FalloutStagingReader,
+    schemas: ReconciliationSchemaReader,
+    artifacts: GovernedArtifactStores,
+    authorization: WorkspaceAuthorizationPolicy,
+    provenance: OdooProvenanceService,
+    current_read_credential_binding: ReadCredentialBindingProvider,
+    fallout_workbook_renderer: FalloutWorkbookRenderer,
+) -> ExecutionServiceGraph:
+    """Wire reviewed loading and read-back without choosing deployment adapters."""
+
+    execution = ExecutionService(
+        workspaces,
+        preflight,
+        journal,
+        authorization,
+        require_remote_read_identity=True,
+        require_remote_write_identity=True,
+        current_read_credential_binding=current_read_credential_binding,
+    )
+    transfer_execution = TransferExecutionService(
+        sources,
+        artifacts,
+        provenance,
+        execution,
+    )
+    reconciliation = ReconciliationService(
+        preflight,
+        journal,
+        reconciliation_results,
+        authorization,
+        ReconciliationEvidenceService(authorization, artifacts),
+        schemas,
+    )
+    fallout_workbooks = FalloutWorkbookService(
+        reconciliation,
+        preflight,
+        staging,
+        sources,
+        workspaces,
+        artifacts,
+        authorization,
+        fallout_workbook_renderer,
+    )
+    return ExecutionServiceGraph(
+        execution=execution,
+        transfer_execution=transfer_execution,
+        reconciliation=reconciliation,
+        fallout_workbooks=fallout_workbooks,
+    )
+
+
+def build_cutover_service_graph(
+    *,
+    foundation: FoundationServiceGraph,
+    preparation: PreparationServiceGraph,
+    execution: ExecutionServiceGraph,
+    run_planning: RunPlanningRepository,
+    repository: RunCutoverPlanRepository,
+    mappings: RecipeAuthoringMappingRepository,
+    staging: PreflightStagingRepository,
+    quality: PreflightQualityRepository,
+    authorization: AuthorizationPolicy,
+) -> CutoverServiceGraph:
+    """Wire integrated Test qualification without choosing storage adapters."""
+
+    qualification_evidence = WorkspaceIntegratedQualificationEvidenceReader(
+        mappings=mappings,
+        staging=staging,
+        quality=quality,
+        preflight=preparation.preflight,
+        execution=execution.execution.journal,
+        reconciliation=execution.reconciliation,
+    )
+    cutover_plans = CutoverPlanService(
+        projects=foundation.migration_projects,
+        data_versions=foundation.data_versions,
+        run_planning=run_planning,
+        repository=repository,
+        evidence_reader=qualification_evidence,
+        authorization=authorization,
+    )
+    return CutoverServiceGraph(
+        qualification_evidence=qualification_evidence,
+        cutover_plans=cutover_plans,
+    )
+
+
+def build_correction_service_graph(
+    *,
+    foundation: FoundationServiceGraph,
+    authoring: AuthoringServiceGraph,
+    preparation: PreparationServiceGraph,
+    bindings: CorrectionBindingRepository,
+    protected: CorrectionProtectedStore,
+    mappings: RecipeAuthoringMappingRepository,
+    sources: RecipeAuthoringSourceRepository,
+    prepared: CorrectionPreparedEvidencePorts,
+    preflight_records: CorrectionTargetSnapshotReader,
+    execution: CorrectionExecutionPorts,
+    reconciliations: CorrectionReconciliationPorts,
+    artifacts: WorkspaceArtifactStore,
+    target: CorrectionTargetReviewStage,
+    review_pipeline_factory: CorrectionReviewPipelineFactory,
+    authorization: AuthorizationPolicy,
+) -> CorrectionServiceGraph:
+    """Wire correction use cases without choosing secrets, Odoo, or storage."""
+
+    stages = CorrectionAuthoringStageCoordinator(
+        mapping=CurrentCorrectionMappingReviewStage(authoring.mapping_workspace),
+        preparation=CurrentCorrectionPreparationReviewStage(
+            preparation=preparation.preparation,
+            sessions=prepared,
+            mappings=mappings,
+            sources=sources,
+            artifacts=artifacts,
+        ),
+        quality=CurrentCorrectionQualityReviewStage(
+            quality=preparation.quality,
+            normalization=preparation.normalization,
+        ),
+        target=target,
+    )
+    origin_publisher = CorrectionOriginPublisher(bindings, protected)
+    successors = CorrectionSuccessorService(
+        bindings=bindings,
+        projects=foundation.migration_projects,
+        source_packages=foundation.source_packages.repository,
+        runs=foundation.migration_runs,
+        workspaces=foundation.migration_workspaces,
+        workspace_states=foundation.workspace_states,
+        source_projections=authoring.source_projections,
+        target_setups=foundation.migration_run_target_setup,
+        mapping_seeder=CorrectionMappingSeedService(
+            schemas=authoring.schema_workspace,
+            mappings=authoring.mapping_workspace,
+        ),
+    )
+    reviewer = CorrectionReviewOrchestrator(
+        bindings=bindings,
+        protected=protected,
+        pipeline=review_pipeline_factory(stages),
+    )
+    executor = CorrectionExecutionService(
+        bindings=bindings,
+        protected_store=protected,
+        execution=execution,
+        reconciliations=reconciliations,
+        authorization=authorization,
+    )
+    workflow = CorrectionWorkflowService(
+        bindings=bindings,
+        protected=protected,
+        origin_publisher=origin_publisher,
+        successors=successors,
+        reviewer=reviewer,
+        executor=executor,
+        runs=foundation.migration_runs,
+        workspaces=foundation.migration_workspaces,
+        mappings=mappings,
+        preparations=prepared,
+        preflight=preparation.preflight,
+        preflight_repository=preflight_records,
+        executions=execution,
+        reconciliations=reconciliations,
+    )
+    return CorrectionServiceGraph(
+        stages=stages,
+        origin_publisher=origin_publisher,
+        successors=successors,
+        reviewer=reviewer,
+        executor=executor,
+        workflow=workflow,
+    )
+
+
 def build_preparation_service_graph(
     *,
     workspaces: PreparationWorkspacePorts,
@@ -581,11 +998,6 @@ def build_preparation_service_graph(
 ) -> PreparationServiceGraph:
     """Wire preparation and final review without choosing concrete adapters."""
 
-    # The established preparation constructors call the workspace-scoped
-    # ``require`` contract even though their annotations still name the older
-    # Project authorization protocol. Keep that compatibility cast inside the
-    # shared builder until those historical diagnostics can be retired.
-    legacy_authorization = cast(AuthorizationPolicy, authorization)
     quality = QualityService(
         mappings,
         sources,
@@ -594,7 +1006,7 @@ def build_preparation_service_graph(
     )
     normalization = NormalizationService(
         normalization_repository,
-        legacy_authorization,
+        authorization,
     )
     resolution = ResolutionService(resolution_repository, staging)
     preparation = PreparationService(
@@ -605,7 +1017,7 @@ def build_preparation_service_graph(
         staging,
         sessions,
         artifacts,
-        legacy_authorization,
+        authorization,
         quality,
         normalization,
         columnar_transformations,
@@ -622,7 +1034,7 @@ def build_preparation_service_graph(
         sources,
         preflight_repository,
         artifacts,
-        legacy_authorization,
+        authorization,
         resolution_repository,
         schemas,
         odoo_provenance,

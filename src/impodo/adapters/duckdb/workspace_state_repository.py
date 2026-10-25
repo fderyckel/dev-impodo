@@ -118,7 +118,9 @@ class WorkspaceStateRepository(DuckDbRepository):
     def get(self, workspace_id: str) -> WorkspaceState:
         """Return current mutable state from one initialized workspace engine."""
 
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace engine not found")
         with self._connect(database_path) as connection:
@@ -149,11 +151,12 @@ class WorkspaceStateRepository(DuckDbRepository):
         if self.get(workspace_id).status is WorkspaceStatus.CLOSED:
             raise WorkspaceStateError("This MigrationWorkspace is closed and read-only")
 
-
     def has_audit_event(self, workspace_id: str, event_type: str) -> bool:
         """Return whether the workspace recorded the exact lifecycle event."""
 
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -180,7 +183,9 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         """Append a credential event without mutating workspace semantics."""
 
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -199,7 +204,6 @@ class WorkspaceStateRepository(DuckDbRepository):
                 connection.rollback()
                 raise
 
-
     def save(
         self,
         workspace: WorkspaceState,
@@ -216,7 +220,9 @@ class WorkspaceStateRepository(DuckDbRepository):
         manifest.
         """
 
-        database_path = self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -249,8 +255,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                     or str(current[5]) != workspace.odoo_database
                     or tuple(json.loads(str(current[6])))
                     != workspace.intended_applications
-                    or tuple(json.loads(str(current[7])))
-                    != workspace.intended_models
+                    or tuple(json.loads(str(current[7]))) != workspace.intended_models
                 )
                 governance_changed = (
                     str(current[1]) != workspace.data_classification.value
@@ -259,9 +264,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                 self._update_workspace(connection, workspace)
                 if target_changed:
                     connection.execute("DELETE FROM odoo_schema_catalog")
-                    connection.execute(
-                        "DELETE FROM odoo_capture_selection_current"
-                    )
+                    connection.execute("DELETE FROM odoo_capture_selection_current")
                     connection.execute("DELETE FROM odoo_capture_manifest_current")
                     connection.execute("DELETE FROM schema_governance_current")
                     connection.execute("DELETE FROM mapping_current")
@@ -299,7 +302,9 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         """Insert one immutable source row without rewriting existing evidence."""
 
-        database_path = self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -317,9 +322,12 @@ class WorkspaceStateRepository(DuckDbRepository):
                     )
                 if str(current[1]) == WorkspaceStatus.CLOSED.value:
                     raise WorkspaceStateError("Closed workspaces cannot be edited")
-                if connection.execute(
+                selection_exists = connection.execute(
                     "SELECT EXISTS (SELECT 1 FROM source_selection)"
-                ).fetchone()[0]:
+                ).fetchone()
+                if selection_exists is None:
+                    raise WorkspaceStateError("Source selection state is unavailable")
+                if selection_exists[0]:
                     raise WorkspaceStateError(
                         "Source files cannot be changed after table choices are saved"
                     )
@@ -355,7 +363,6 @@ class WorkspaceStateRepository(DuckDbRepository):
         if workspace.status is WorkspaceStatus.REGISTERED:
             self._write_registration_manifest(workspace)
 
-
     def remove_source_file(
         self,
         workspace: WorkspaceState,
@@ -366,7 +373,9 @@ class WorkspaceStateRepository(DuckDbRepository):
     ) -> None:
         """Atomically remove one unfrozen file and its file-scoped evidence."""
 
-        database_path = self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -384,9 +393,12 @@ class WorkspaceStateRepository(DuckDbRepository):
                     )
                 if str(current[1]) == WorkspaceStatus.CLOSED.value:
                     raise WorkspaceStateError("Closed workspaces cannot be edited")
-                if connection.execute(
+                selection_exists = connection.execute(
                     "SELECT EXISTS (SELECT 1 FROM source_selection)"
-                ).fetchone()[0]:
+                ).fetchone()
+                if selection_exists is None:
+                    raise WorkspaceStateError("Source selection state is unavailable")
+                if selection_exists[0]:
                     raise WorkspaceStateError(
                         "Source files cannot be changed after table choices are saved"
                     )
@@ -450,7 +462,9 @@ class WorkspaceStateRepository(DuckDbRepository):
                 "and model evidence"
             )
 
-        database_path = self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace.workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -483,10 +497,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                     current_scope_hash = (
                         str(scope_row[0]) if scope_row is not None else None
                     )
-                    if (
-                        current_scope_hash
-                        != expected_relationship_scope_content_hash
-                    ):
+                    if current_scope_hash != expected_relationship_scope_content_hash:
                         raise WorkspaceStateConflictError(
                             "Odoo relationship decisions changed while capture "
                             "was prepared"
@@ -527,8 +538,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                                 "prepared schema"
                             ) from error
                 model_scope_changed = (
-                    tuple(json.loads(str(current[1])))
-                    != workspace.intended_models
+                    tuple(json.loads(str(current[1]))) != workspace.intended_models
                 )
                 self._update_workspace(connection, workspace)
                 self._replace_odoo_relationship_scope(
@@ -693,9 +703,10 @@ class WorkspaceStateRepository(DuckDbRepository):
         if workspace.status is WorkspaceStatus.REGISTERED:
             self._write_registration_manifest(workspace)
 
-
     def _get_workspace_unresolved(self, workspace_id: str) -> WorkspaceState:
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace not found")
         with self._connect(database_path) as connection:
@@ -773,6 +784,7 @@ class WorkspaceStateRepository(DuckDbRepository):
             """,
             _workspace_values(workspace)[1:],
         )
+
     def _write_registration_manifest(self, workspace: WorkspaceState) -> Path:
         payload = {
             "contract_version": 6,
@@ -817,9 +829,7 @@ class WorkspaceStateRepository(DuckDbRepository):
             ],
         }
         audit_dir = self.workspace_directory(workspace.workspace_id) / "audit"
-        target = audit_dir / (
-            f"workspace-registration-r{workspace.revision}.json"
-        )
+        target = audit_dir / (f"workspace-registration-r{workspace.revision}.json")
         partial = target.with_suffix(".json.partial")
         encoded = (
             json.dumps(

@@ -41,6 +41,7 @@ from .native_prepared_projection import (
 )
 from .preparation_session_support import (
     _STAGING_DISPOSITIONS,
+    PreparationSessionRepositoryHost,
     _SessionCanonicalRows,
     canonical_preparation_session_id,
 )
@@ -49,9 +50,15 @@ from .serialization import (
 )
 
 
+def _stored_integer(value: object, field_name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise WorkspaceError(f"Stored preparation {field_name} must be an integer")
+    return value
+
+
 class PreparationStoredRunReader:
     def load_stored_run(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
     ) -> StoredCanonicalStagingRun:
@@ -74,7 +81,7 @@ class PreparationStoredRunReader:
                   FROM preparation_session
                  WHERE session_id = ?
                 """,
-                [self._session_id(session_id)],
+                [canonical_preparation_session_id(session_id)],
             ).fetchone()
             direct = connection.execute(
                 """
@@ -82,7 +89,7 @@ class PreparationStoredRunReader:
                   FROM canonical_staging_run
                  WHERE run_id = ?
                 """,
-                [self._session_id(session_id)],
+                [canonical_preparation_session_id(session_id)],
             ).fetchone()
         if row is None:
             raise WorkspaceError("Preparation session was not found")
@@ -131,7 +138,7 @@ class PreparationStoredRunReader:
         )
 
     def _reconciliation(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
         evidence: Mapping[
@@ -222,7 +229,7 @@ class PreparationStoredRunReader:
         )
 
     def _hash_direct_run(
-        self,
+        self: PreparationSessionRepositoryHost,
         *,
         workspace_id: str,
         run_id: str,
@@ -263,7 +270,7 @@ class PreparationStoredRunReader:
         )
         hasher.start_array("rows")
         expected_ordinal = 0
-        for batch in self._iter_direct_encoded_batches(
+        for batch in self.iter_direct_encoded_batches(
             workspace_id,
             run_id,
             batch_size=STAGING_ROW_BATCH_SIZE,
@@ -277,14 +284,16 @@ class PreparationStoredRunReader:
                 disposition,
                 row_text,
             ) in batch:
-                if int(ordinal) != expected_ordinal:
+                stored_ordinal = _stored_integer(ordinal, "row ordinal")
+                stored_source_row = _stored_integer(source_row, "source row")
+                if stored_ordinal != expected_ordinal:
                     raise WorkspaceError(
                         "Stored direct preparation rows are not contiguous"
                     )
                 if (
                     not str(row_id)
                     or not str(dataset)
-                    or int(source_row) < 1
+                    or stored_source_row < 1
                     or not str(target_model)
                     or str(disposition) not in _STAGING_DISPOSITIONS
                 ):
@@ -306,14 +315,17 @@ class PreparationStoredRunReader:
                 if (
                     canonical.row_id != str(row_id)
                     or canonical.dataset != str(dataset)
-                    or canonical.source_row != int(source_row)
+                    or canonical.source_row != stored_source_row
                     or canonical.target_model != str(target_model)
                     or canonical.disposition.value != str(disposition)
                     or canonical.lineage.mapping_hash != bindings.mapping_hash
                     or canonical.lineage.schema_hash != bindings.schema_hash
-                    or canonical.lineage.source_selection_hash != bindings.source_selection_hash
+                    or canonical.lineage.source_selection_hash
+                    != bindings.source_selection_hash
                 ):
-                    raise WorkspaceError("Stored direct preparation row bindings changed")
+                    raise WorkspaceError(
+                        "Stored direct preparation row bindings changed"
+                    )
                 hasher.add_encoded_array_item(encoded)
                 expected_ordinal += 1
         hasher.end_array()
@@ -325,14 +337,14 @@ class PreparationStoredRunReader:
         hasher.add_value("workspace_id", workspace_id)
         return hasher.finish(), expected_ordinal
 
-    def _iter_direct_encoded_batches(
-        self,
+    def iter_direct_encoded_batches(
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         run_id: str,
         *,
         batch_size: int,
-        connection=None,
-    ):
+        connection: duckdb.DuckDBPyConnection | None = None,
+    ) -> Iterator[Sequence[Sequence[object]]]:
         """Yield stored or prepared-backed canonical JSON in ordinal order."""
 
         if connection is None:
@@ -341,14 +353,14 @@ class PreparationStoredRunReader:
             )
             with self._connect(database_path) as owned_connection:
                 self._ensure_workspace_database_schema(owned_connection)
-                yield from self._iter_direct_encoded_batches(
+                yield from self.iter_direct_encoded_batches(
                     workspace_id,
                     run_id,
                     batch_size=batch_size,
                     connection=owned_connection,
                 )
             return
-        canonical_run_id = self._session_id(run_id)
+        canonical_run_id = canonical_preparation_session_id(run_id)
         raw_projections = connection.execute(
             """
             SELECT projection.ordinal_start, projection.row_count,
@@ -399,7 +411,7 @@ class PreparationStoredRunReader:
         for ordinal_start, row_count, projection, snapshot in projections:
             if ordinal_start < next_ordinal:
                 raise WorkspaceError("Prepared canonical projection ordinals overlap")
-            yield from self._iter_stored_direct_encoded_batches(
+            yield from PreparationStoredRunReader._iter_stored_direct_encoded_batches(
                 connection,
                 canonical_run_id,
                 start=next_ordinal,
@@ -421,7 +433,7 @@ class PreparationStoredRunReader:
                 raise WorkspaceError("Prepared canonical row index is incomplete")
             empty_count = int(counts[1])
             if empty_count == 0:
-                yield from self._iter_stored_direct_encoded_batches(
+                yield from PreparationStoredRunReader._iter_stored_direct_encoded_batches(
                     connection,
                     canonical_run_id,
                     start=ordinal_start,
@@ -429,7 +441,8 @@ class PreparationStoredRunReader:
                     batch_size=batch_size,
                 )
             elif empty_count == row_count:
-                yield from self._iter_projected_dataset_encoded_batches(
+                yield from PreparationStoredRunReader._iter_projected_dataset_encoded_batches(
+                    self,
                     workspace_id,
                     canonical_run_id,
                     projection,
@@ -440,7 +453,7 @@ class PreparationStoredRunReader:
             else:
                 raise WorkspaceError("Prepared canonical value storage is inconsistent")
             next_ordinal = projection_end
-        yield from self._iter_stored_direct_encoded_batches(
+        yield from PreparationStoredRunReader._iter_stored_direct_encoded_batches(
             connection,
             canonical_run_id,
             start=next_ordinal,
@@ -450,13 +463,13 @@ class PreparationStoredRunReader:
 
     @staticmethod
     def _iter_stored_direct_encoded_batches(
-        connection,
+        connection: duckdb.DuckDBPyConnection,
         run_id: str,
         *,
         start: int,
         stop: int | None,
         batch_size: int,
-    ):
+    ) -> Iterator[Sequence[Sequence[object]]]:
         next_ordinal = start
         while True:
             if stop is not None and next_ordinal >= stop:
@@ -479,18 +492,19 @@ class PreparationStoredRunReader:
             yield batch
             next_ordinal += len(batch)
 
+    @staticmethod
     def _iter_projected_dataset_encoded_batches(
-        self,
+        host: PreparationSessionRepositoryHost,
         workspace_id: str,
         run_id: str,
         projection: PreparedCanonicalProjection,
         snapshot: PreparedSnapshot,
         *,
         batch_size: int,
-        connection,
-    ):
+        connection: duckdb.DuckDBPyConnection,
+    ) -> Iterator[Sequence[Sequence[object]]]:
         try:
-            artifact_context = self._artifacts.materialize_prepared_snapshot(
+            artifact_context = host._artifacts.materialize_prepared_snapshot(
                 workspace_id,
                 snapshot.parquet_storage_key,
                 expected_sha256=snapshot.parquet_sha256,
@@ -710,7 +724,7 @@ class PreparationStoredRunReader:
             ) from error
 
     def _direct_rows_by_ordinal(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         run_id: str,
         ordinals: Sequence[int],
@@ -720,13 +734,13 @@ class PreparationStoredRunReader:
             return {}
         rows: dict[int, CanonicalRow] = {}
         maximum = max(wanted)
-        for batch in self._iter_direct_encoded_batches(
+        for batch in self.iter_direct_encoded_batches(
             workspace_id,
             run_id,
             batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
         ):
             for ordinal, *_metadata, row_text in batch:
-                observed = int(ordinal)
+                observed = _stored_integer(ordinal, "row ordinal")
                 if observed in wanted:
                     try:
                         rows[observed] = CanonicalRow.from_dict(
@@ -741,7 +755,7 @@ class PreparationStoredRunReader:
         return rows
 
     def _load_canonical_row_range(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
         start: int,
@@ -750,37 +764,39 @@ class PreparationStoredRunReader:
         if stop <= start:
             return ()
         rows: list[CanonicalRow] = []
-        for batch in self._iter_direct_encoded_batches(
+        for batch in self.iter_direct_encoded_batches(
             workspace_id,
             session_id,
             batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
         ):
             for ordinal, *_metadata, row_text in batch:
-                observed = int(ordinal)
+                observed = _stored_integer(ordinal, "row ordinal")
                 if observed >= stop:
                     return tuple(rows)
                 if observed >= start:
-                    rows.append(self._canonical_row(str(row_text)))
+                    rows.append(
+                        PreparationStoredRunReader._canonical_row(str(row_text))
+                    )
         return tuple(rows)
 
     def _iter_canonical_rows(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
     ) -> Iterator[CanonicalRow]:
         next_ordinal = 0
-        for batch in self._iter_direct_encoded_batches(
+        for batch in self.iter_direct_encoded_batches(
             workspace_id,
             session_id,
             batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
         ):
             for ordinal, *_metadata, row_text in batch:
-                if int(ordinal) != next_ordinal:
+                if _stored_integer(ordinal, "row ordinal") != next_ordinal:
                     raise WorkspaceError(
                         "Stored preparation canonical rows are not contiguous"
                     )
                 next_ordinal += 1
-                yield self._canonical_row(str(row_text))
+                yield PreparationStoredRunReader._canonical_row(str(row_text))
 
     @staticmethod
     def _canonical_row(row_text: str) -> CanonicalRow:
@@ -874,10 +890,10 @@ class PreparationStoredRunReader:
 
     @staticmethod
     def _require_status(
-        connection,
+        connection: duckdb.DuckDBPyConnection,
         session_id: str,
         expected: PreparationSessionStatus,
-    ):
+    ) -> tuple[str, int, int]:
         row = connection.execute(
             """
             SELECT status, staged_row_count, impact_row_count
@@ -888,6 +904,13 @@ class PreparationStoredRunReader:
         ).fetchone()
         if row is None:
             raise WorkspaceError("Preparation session was not found")
-        if PreparationSessionStatus(str(row[0])) is not expected:
+        status = row[0]
+        if not isinstance(status, str):
+            raise WorkspaceError("Stored preparation status must be text")
+        if PreparationSessionStatus(status) is not expected:
             raise WorkspaceError("Preparation session is in the wrong state")
-        return row
+        return (
+            status,
+            _stored_integer(row[1], "staged row count"),
+            _stored_integer(row[2], "impact row count"),
+        )

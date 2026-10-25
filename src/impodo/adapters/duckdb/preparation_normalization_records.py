@@ -6,6 +6,8 @@ import json
 from collections.abc import Iterator
 from hashlib import sha256
 
+import duckdb
+
 from impodo.domain.preparation.normalization import NormalizationEffect
 from impodo.domain.preparation.quality import QualityIssue
 from impodo.domain.workspace.errors import WorkspaceError
@@ -22,7 +24,9 @@ from .constants import (
     PREPARATION_SESSION_ROW_BATCH_SIZE,
 )
 from .preparation_session_support import (
+    PreparationSessionRepositoryHost,
     _SessionImpacts,
+    canonical_preparation_session_id,
 )
 from .serialization import (
     _canonical_json,
@@ -74,16 +78,20 @@ _NORMALIZATION_FINDING_JSON_STRUCTURE = """[{
 
 class PreparationNormalizationRecords:
     def iter_impacts(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
     ) -> _SessionImpacts:
         """Return a replayable bounded view of persisted transformation impacts."""
 
-        return _SessionImpacts(self, workspace_id, self._session_id(session_id))
+        return _SessionImpacts(
+            self,
+            workspace_id,
+            canonical_preparation_session_id(session_id),
+        )
 
     def _iter_impacts(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
     ) -> Iterator[TransformationImpactRow]:
@@ -105,7 +113,7 @@ class PreparationNormalizationRecords:
                  LIMIT ?
                 """,
                 [
-                    self._session_id(session_id),
+                    canonical_preparation_session_id(session_id),
                     next_ordinal,
                     PREPARATION_SESSION_ROW_BATCH_SIZE,
                 ],
@@ -126,7 +134,7 @@ class PreparationNormalizationRecords:
                         ) from error
 
     def _prepare_normalization_facts(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
         *,
@@ -138,7 +146,7 @@ class PreparationNormalizationRecords:
         database_path = (
             self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         )
-        canonical_session_id = self._session_id(session_id)
+        canonical_session_id = canonical_preparation_session_id(session_id)
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -209,7 +217,7 @@ class PreparationNormalizationRecords:
                 )
                 pending_effects: list[list[object]] = []
                 pending_group_seeds: list[list[object]] = []
-                bound_rows = self._iter_bound_impacts_with_eligibility(
+                bound_rows = PreparationNormalizationRecords._iter_bound_impacts_with_eligibility(
                     connection,
                     canonical_session_id,
                     quality_run_id,
@@ -271,28 +279,28 @@ class PreparationNormalizationRecords:
                         ]
                     )
                     if len(pending_effects) >= PREPARATION_SESSION_ROW_BATCH_SIZE:
-                        self._insert_prepared_normalization_effects(
+                        PreparationNormalizationRecords._insert_prepared_normalization_effects(
                             connection,
                             pending_effects,
                         )
-                        self._insert_prepared_normalization_group_seeds(
+                        PreparationNormalizationRecords._insert_prepared_normalization_group_seeds(
                             connection,
                             pending_group_seeds,
                         )
                         pending_effects.clear()
                         pending_group_seeds.clear()
                 if pending_effects:
-                    self._insert_prepared_normalization_effects(
+                    PreparationNormalizationRecords._insert_prepared_normalization_effects(
                         connection,
                         pending_effects,
                     )
-                    self._insert_prepared_normalization_group_seeds(
+                    PreparationNormalizationRecords._insert_prepared_normalization_group_seeds(
                         connection,
                         pending_group_seeds,
                     )
 
                 pending_findings: list[list[object]] = []
-                warning_issues = self._iter_eligible_warning_issues(
+                warning_issues = PreparationNormalizationRecords._iter_eligible_warning_issues(
                     connection,
                     canonical_session_id,
                     quality_run_id,
@@ -325,13 +333,13 @@ class PreparationNormalizationRecords:
                         ]
                     )
                     if len(pending_findings) >= PREPARATION_SESSION_ROW_BATCH_SIZE:
-                        self._insert_prepared_normalization_findings(
+                        PreparationNormalizationRecords._insert_prepared_normalization_findings(
                             connection,
                             pending_findings,
                         )
                         pending_findings.clear()
                 if pending_findings:
-                    self._insert_prepared_normalization_findings(
+                    PreparationNormalizationRecords._insert_prepared_normalization_findings(
                         connection,
                         pending_findings,
                     )
@@ -368,6 +376,10 @@ class PreparationNormalizationRecords:
                     """,
                     [canonical_session_id, canonical_session_id],
                 ).fetchone()
+                if totals is None:
+                    raise WorkspaceError(
+                        "Prepared normalization totals could not be loaded"
+                    )
                 effect_groups = connection.execute(
                     """
                     SELECT seed.group_id, seed.rule_id, seed.kind,
@@ -598,8 +610,8 @@ class PreparationNormalizationRecords:
                 ],
             )
 
+    @staticmethod
     def _iter_bound_impacts_with_eligibility(
-        self,
         connection,
         session_id: str,
         quality_run_id: str,
@@ -657,8 +669,8 @@ class PreparationNormalizationRecords:
                     ) from error
                 yield impact, str(row_id), bool(eligible)
 
+    @staticmethod
     def _iter_eligible_warning_issues(
-        self,
         connection,
         session_id: str,
         quality_run_id: str,
@@ -715,7 +727,7 @@ class PreparationNormalizationRecords:
 
     @staticmethod
     def _copy_normalization_effects_to_run(
-        connection,
+        connection: duckdb.DuckDBPyConnection,
         session_id: str,
         run_id: str,
     ) -> int:
@@ -725,19 +737,23 @@ class PreparationNormalizationRecords:
             raise WorkspaceError(
                 "Prepared normalization facts use a different run identifier"
             )
-        return int(
-            connection.execute(
-                "SELECT COUNT(*) FROM normalization_effect WHERE run_id = ?",
-                [run_id],
-            ).fetchone()[0]
-        )
+        row = connection.execute(
+            "SELECT COUNT(*) FROM normalization_effect WHERE run_id = ?",
+            [run_id],
+        ).fetchone()
+        if row is None:
+            raise WorkspaceError("Prepared normalization count could not be loaded")
+        count = row[0]
+        if not isinstance(count, int) or isinstance(count, bool):
+            raise WorkspaceError("Stored normalization count must be an integer")
+        return count
 
     @staticmethod
     def _iter_normalization_effect_json_batches(
-        connection,
+        connection: duckdb.DuckDBPyConnection,
         session_id: str,
         batch_size: int,
-    ):
+    ) -> Iterator[tuple[str, ...]]:
         cursor = connection.execute(
             """
             SELECT effect_json
@@ -751,10 +767,10 @@ class PreparationNormalizationRecords:
             yield tuple(str(item[0]) for item in batch)
 
     def _iter_prepared_normalization_effects(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
-    ):
+    ) -> Iterator[NormalizationEffect]:
         database_path = (
             self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         )

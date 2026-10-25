@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import cast
 from uuid import UUID, uuid5
 
 from impodo.application.data_version.source_packages import (
@@ -14,6 +15,7 @@ from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationNotFoundError,
+    MigrationOperationIntent,
     MigrationOperationKind,
     MigrationOperationState,
     require_revision,
@@ -38,6 +40,11 @@ from impodo.domain.workspace.workbench import SourceMode, WorkspaceStateNotFound
 from ..domain.data_version.models import DataVersionPurpose, DataVersionState
 from ..domain.run.models import MigrationRunPurpose
 from ..domain.serialization import content_hash
+from .run.planning_service import MigrationRunPlanningService
+from .run.ports import (
+    ProductionRunRepository,
+    RunCutoverPlanRepository,
+)
 from .run.production_values import ProductionRunValuesUseCase
 
 
@@ -53,9 +60,9 @@ class ProductionCutoverService:
         migration_workspaces,
         source_packages,
         workspace_states,
-        cutover_plans,
-        production_runs,
-        run_planning,
+        cutover_plans: RunCutoverPlanRepository,
+        production_runs: ProductionRunRepository,
+        run_planning: MigrationRunPlanningService,
         authorization: AuthorizationPolicy,
     ) -> None:
         self.projects = projects
@@ -365,7 +372,12 @@ class ProductionCutoverService:
         self.authorization.require(actor, Capability.PROJECT_VIEW, project_id=project_id)
         return self.run_planning.repository.completed_production_activations(project_id)
 
-    def activation_operation(self, migration_run_id: str, *, actor: Actor):
+    def activation_operation(
+        self,
+        migration_run_id: str,
+        *,
+        actor: Actor,
+    ) -> MigrationOperationIntent | None:
         """Read activation completion separately from registered target authority."""
 
         binding = self.production_runs.get(migration_run_id)
@@ -395,20 +407,85 @@ class ProductionCutoverService:
             raise ProductionRunError("This older activation needs its original values and access evidence to resume")
         schema = MigrationRunTargetSchema.from_json(str(operation.detail["target_schema_json"])).source_schema
         references = operation.detail.get("reference_bundle")
-        references = (MigrationRunReferenceBundle.from_dict(dict(references)).for_workspace(binding.setup_workspace_id)
-                      if references is not None else None)
-        saved_binding = operation.detail["production_binding"]
-        identity = dict(inputs["write_identity"])
-        identity["readable_models"] = tuple(identity["readable_models"])
-        identity["writable_models"] = tuple(identity["writable_models"])
+        if references is not None and not isinstance(references, Mapping):
+            raise ProductionRunError(
+                "The saved Production activation reference evidence is invalid"
+            )
+        reference_bundle = None
+        if references is not None:
+            reference_bundle = MigrationRunReferenceBundle.from_dict(
+                cast(Mapping[str, object], references)
+            ).for_workspace(binding.setup_workspace_id)
+        saved_binding = operation.detail.get("production_binding")
+        identity = inputs.get("write_identity")
+        parameters = inputs.get("parameters")
+        controls = inputs.get("controls")
+        if not all(
+            isinstance(value, Mapping)
+            for value in (saved_binding, identity, parameters, controls)
+        ):
+            raise ProductionRunError(
+                "The saved Production activation inputs are invalid"
+            )
+        expected_revision = operation.expected_revision
+        if expected_revision is None:
+            raise ProductionRunError(
+                "The saved Production activation Workspace revision is missing"
+            )
+        saved_binding = cast(Mapping[str, object], saved_binding)
+        identity = cast(Mapping[str, object], identity)
+        write_identity = self._stored_write_identity(identity)
+        saved_read_generation = saved_binding.get("read_credential_generation")
+        saved_write_generation = saved_binding.get("write_credential_generation")
+        if not isinstance(saved_read_generation, str) or not isinstance(
+            saved_write_generation,
+            str,
+        ):
+            raise ProductionRunError(
+                "The saved Production credential generations are invalid"
+            )
         return self.activate(
-            project_id, migration_run_id, expected_workspace_revision=operation.expected_revision,
-            target_schema=schema, target_reference_bundle=references,
-            read_credential_generation=saved_binding["read_credential_generation"],
-            write_identity=OdooWriteIdentity(**identity),
-            write_credential_generation=saved_binding["write_credential_generation"],
-            parameter_values=inputs["parameters"], control_values=inputs["controls"],
+            project_id, migration_run_id, expected_workspace_revision=expected_revision,
+            target_schema=schema, target_reference_bundle=reference_bundle,
+            read_credential_generation=saved_read_generation,
+            write_identity=write_identity,
+            write_credential_generation=saved_write_generation,
+            parameter_values=cast(Mapping[str, Mapping[str, object]], parameters),
+            control_values=cast(Mapping[str, Mapping[str, str]], controls),
             operation_id=operation.operation_id, actor=actor,
+        )
+
+    @staticmethod
+    def _stored_write_identity(payload: Mapping[str, object]) -> OdooWriteIdentity:
+        text_values = {
+            name: payload.get(name)
+            for name in (
+                "target_hash",
+                "principal_hash",
+                "permission_hash",
+                "context_hash",
+                "observed_at",
+            )
+        }
+        readable = payload.get("readable_models")
+        writable = payload.get("writable_models")
+        if (
+            not all(isinstance(value, str) for value in text_values.values())
+            or not isinstance(readable, (list, tuple))
+            or not isinstance(writable, (list, tuple))
+            or not all(isinstance(value, str) for value in (*readable, *writable))
+        ):
+            raise ProductionRunError(
+                "The saved Production write identity is invalid"
+            )
+        return OdooWriteIdentity(
+            target_hash=cast(str, text_values["target_hash"]),
+            principal_hash=cast(str, text_values["principal_hash"]),
+            permission_hash=cast(str, text_values["permission_hash"]),
+            context_hash=cast(str, text_values["context_hash"]),
+            readable_models=tuple(cast(tuple[str, ...] | list[str], readable)),
+            writable_models=tuple(cast(tuple[str, ...] | list[str], writable)),
+            observed_at=cast(str, text_values["observed_at"]),
         )
 
     def write_scope(self, migration_run_id: str) -> OdooApiScope:
@@ -463,6 +540,8 @@ class ProductionCutoverService:
                 "Complete Production activation before loading data into Odoo"
             )
         operation = self.activation_operation(binding.migration_run_id, actor=actor)
+        if operation is None:
+            raise ProductionRunError("The saved Production activation is missing")
         if operation.state is not MigrationOperationState.COMMITTED:
             raise ProductionRunError("Finish Production setup before loading data into Odoo")
         current_selection = self.cutover_plans.current_selection(binding.project_id)

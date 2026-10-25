@@ -38,6 +38,64 @@ class RecipeParameterType(StrEnum):
     DECIMAL = "decimal"
 
 
+def _definition_mapping(value: object, label: str) -> dict[str, object]:
+    """Validate one persisted parameter-definition object."""
+
+    if not isinstance(value, Mapping):
+        raise RecipeParameterDefinitionError(f"{label} must be an object")
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise RecipeParameterDefinitionError(f"{label} keys must be text")
+        result[key] = item
+    return result
+
+
+def _definition_sequence(value: object) -> tuple[object, ...]:
+    """Validate the persisted parameter-definition collection."""
+
+    if not isinstance(value, (list, tuple)):
+        raise RecipeParameterDefinitionError(
+            "Recipe parameter definitions must be a sequence"
+        )
+    return tuple(value)
+
+
+def _definition_integer(value: object, label: str) -> int:
+    """Decode one persisted integer-valued definition field."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise RecipeParameterDefinitionError(f"{label} is invalid")
+    try:
+        return int(value)
+    except ValueError as error:
+        raise RecipeParameterDefinitionError(f"{label} is invalid") from error
+
+
+def _parameter_constraints(value: object) -> dict[str, object]:
+    """Validate parameter constraints before interpreting their values."""
+
+    if not isinstance(value, Mapping):
+        raise RecipeParameterValueError("Parameter constraints must be an object")
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise RecipeParameterValueError("Parameter constraint keys must be text")
+        result[key] = item
+    return result
+
+
+def _constraint_integer(value: object, label: str) -> int:
+    """Decode a validated integer constraint without arbitrary coercion."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise RecipeParameterValueError(f"{label} is invalid")
+    try:
+        return int(value)
+    except ValueError as error:
+        raise RecipeParameterValueError(f"{label} is invalid") from error
+
+
 @dataclass(frozen=True, slots=True)
 class RecipeParameterDefinition:
     """One named value that every Recipe application may need to supply."""
@@ -133,9 +191,15 @@ class RecipeParameterDefinitions:
                     value_type=RecipeParameterType(str(item["value_type"])),
                     required=bool(item.get("required", True)),
                 )
-                for item in payload.get("definitions", ())
+                for item in (
+                    _definition_mapping(value, "Recipe parameter definition")
+                    for value in _definition_sequence(payload.get("definitions", ()))
+                )
             ),
-            contract_version=int(payload["contract_version"]),
+            contract_version=_definition_integer(
+                payload["contract_version"],
+                "Recipe parameter-definition contract version",
+            ),
         )
         if payload.get("content_hash") != result.content_hash:
             raise RecipeParameterDefinitionError(
@@ -156,9 +220,7 @@ def normalize_recipe_parameter_values(
 ) -> dict[str, object]:
     """Validate and normalize values against one exact Recipe revision."""
 
-    expected = {
-        str(item["logical_parameter_id"]): dict(item) for item in definitions
-    }
+    expected = {str(item["logical_parameter_id"]): dict(item) for item in definitions}
     unknown = sorted(set(supplied) - set(expected))
     if unknown:
         raise RecipeParameterValueError(
@@ -174,21 +236,17 @@ def normalize_recipe_parameter_values(
                 raise RecipeParameterValueError(f"Enter {label}")
             continue
         value_type = str(definition.get("type", "string"))
-        constraints = dict(definition.get("constraints", {}))
+        constraints = _parameter_constraints(definition.get("constraints", {}))
         if value_type == RecipeParameterType.DATE.value:
             try:
                 value = date.fromisoformat(raw)
             except ValueError as error:
-                raise RecipeParameterValueError(
-                    f"{label} must be a date"
-                ) from error
+                raise RecipeParameterValueError(f"{label} must be a date") from error
             if (
                 constraints.get("not_after_application_date")
                 and value > comparison_date
             ):
-                raise RecipeParameterValueError(
-                    f"{label} cannot be in the future"
-                )
+                raise RecipeParameterValueError(f"{label} cannot be in the future")
             normalized[logical_id] = value.isoformat()
         elif value_type == RecipeParameterType.INTEGER.value:
             try:
@@ -201,18 +259,19 @@ def normalize_recipe_parameter_values(
             try:
                 normalized[logical_id] = format(Decimal(raw), "f")
             except InvalidOperation as error:
-                raise RecipeParameterValueError(
-                    f"{label} must be a number"
-                ) from error
+                raise RecipeParameterValueError(f"{label} must be a number") from error
         elif value_type == RecipeParameterType.STRING.value:
             maximum = constraints.get("max_length")
-            if maximum is not None and len(raw) > int(maximum):
+            maximum_length = (
+                _constraint_integer(maximum, f"{label} maximum length")
+                if maximum is not None
+                else None
+            )
+            if maximum_length is not None and len(raw) > maximum_length:
                 raise RecipeParameterValueError(
-                    f"{label} must be {int(maximum)} characters or fewer"
+                    f"{label} must be {maximum_length} characters or fewer"
                 )
             normalized[logical_id] = raw
         else:
-            raise RecipeParameterValueError(
-                f"{label} has an unsupported value type"
-            )
+            raise RecipeParameterValueError(f"{label} has an unsupported value type")
     return normalized

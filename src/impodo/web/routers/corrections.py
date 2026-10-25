@@ -22,7 +22,7 @@ from impodo.domain.shared.access import AuthorizationError
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateError
 
-from ..context import WebContext
+from ..context import CorrectionRouteContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..request_identity import request_identity
@@ -35,7 +35,7 @@ from ..target_credentials import (
 )
 
 
-def build_corrections_router(context: WebContext) -> APIRouter:
+def build_corrections_router(context: CorrectionRouteContext) -> APIRouter:
     router = APIRouter()
 
     @router.get(
@@ -367,7 +367,7 @@ def build_corrections_router(context: WebContext) -> APIRouter:
 
 def _render_correction(
     request: Request,
-    context: WebContext,
+    context: CorrectionRouteContext,
     completed_workspace_id: str,
     *,
     error: str | None = None,

@@ -270,6 +270,8 @@ class Json2ReadbackReader:
             "User-Agent": "impodo",
         }
         transient_statuses = {429, 500, 502, 503, 504}
+        status = 0
+        response: object = None
         for attempt in range(self.config.retries + 1):
             try:
                 status, response = self.transport(

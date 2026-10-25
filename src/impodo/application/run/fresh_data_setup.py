@@ -49,6 +49,7 @@ from .fresh_data_values import (
     parameter_definitions,
     recipe_definition,
 )
+from .ports import TestRunRepository
 
 
 class TestRunFreshDataUseCase:
@@ -59,7 +60,7 @@ class TestRunFreshDataUseCase:
         *,
         data_versions,
         recipes,
-        test_runs,
+        test_runs: TestRunRepository,
         authorization: AuthorizationPolicy,
     ) -> None:
         self._data_versions = data_versions

@@ -38,6 +38,8 @@ from impodo.domain.shared.models import canonical_json_bytes, target_identity_ha
 
 MAX_WRITE_BODY_BYTES = 1024 * 1024
 _EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")
+
+
 @dataclass(slots=True)
 class Json2WriteExecutor:
     """Native JSON-2 load/create/write adapter with no automatic write retry."""
@@ -114,7 +116,9 @@ class Json2WriteExecutor:
         if not permitted:
             raise OdooWriteRejected("Odoo lookup model is outside the reviewed preview")
         if not domain_page or len(domain_page) > MAX_IDENTITY_LOOKUP_KEYS:
-            raise OdooWriteRejected("Odoo business-key lookup page is outside the safe bound")
+            raise OdooWriteRejected(
+                "Odoo business-key lookup page is outside the safe bound"
+            )
         normalized: list[tuple[tuple[str, str, Any], ...]] = []
         requested_fields: set[str] = set()
         for domain in domain_page:
@@ -419,7 +423,7 @@ class Json2WriteExecutor:
         payload: Mapping[str, Any],
         *,
         write: bool,
-    ) -> Any:
+    ) -> object:
         permitted_methods = {"create", "load", "write"} if write else {"search_read"}
         permitted_fields = (
             self.scope.write_fields(model) if write else self.scope.lookup_fields(model)
@@ -444,6 +448,8 @@ class Json2WriteExecutor:
         # A search_read is safe to repeat after a lost response. A write is
         # not: Odoo might have committed it before the connection failed.
         attempts = 1 if write else max(1, self.config.retries + 1)
+        status: int | None = None
+        response: object = None
         for attempt in range(attempts):
             try:
                 status, response = self.transport(
@@ -472,6 +478,8 @@ class Json2WriteExecutor:
                 time.sleep(2**attempt)
                 continue
             break
+        if status is None:
+            raise OdooWriteRejected("Odoo did not return a response")
         if status == 200:
             return response
         if status in {401, 403}:

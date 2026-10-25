@@ -53,6 +53,7 @@ from impodo.domain.shared.models import (
     PreflightResult,
     PreparedRecord,
     ReferenceResolution,
+    ScalarValue,
     Severity,
     TargetRecord,
     canonical_json_text,
@@ -90,13 +91,13 @@ class PreflightEngine:
         """
 
         if metadata_snapshot.fingerprint != record_snapshot.fingerprint:
-            raise ValueError("metadata and record snapshots have different fingerprints")
+            raise ValueError(
+                "metadata and record snapshots have different fingerprints"
+            )
         if not record_snapshot.complete:
             raise ValueError("record snapshot is incomplete")
 
-        metadata_issues, coverage = validate_plan_metadata(
-            plan, metadata_snapshot
-        )
+        metadata_issues, coverage = validate_plan_metadata(plan, metadata_snapshot)
         metadata_issues = (
             *metadata_issues,
             *live_selection_metadata_issues(plan, metadata_snapshot),
@@ -107,9 +108,7 @@ class PreflightEngine:
             ),
         )
         catalog = TargetCatalog(record_snapshot.records)
-        with_metadata_issues = _apply_dataset_issues(
-            prepared.records, metadata_issues
-        )
+        with_metadata_issues = _apply_dataset_issues(prepared.records, metadata_issues)
         with_selection_issues = apply_live_selection_domains(
             plan,
             with_metadata_issues,
@@ -127,9 +126,7 @@ class PreflightEngine:
             dataset_records = [
                 record for record in resolved_records if record.dataset == dataset.name
             ]
-            target_index, index_issues = _build_target_index(
-                plan, dataset, catalog
-            )
+            target_index, index_issues = _build_target_index(plan, dataset, catalog)
             runtime_issues.extend(index_issues)
             if index_issues:
                 dataset_records = [
@@ -145,11 +142,7 @@ class PreflightEngine:
             *prepared.issues,
             *metadata_issues,
             *runtime_issues,
-            *(
-                issue
-                for record in resolved_records
-                for issue in record.issues
-            ),
+            *(issue for record in resolved_records for issue in record.issues),
         ]
         grouped_issues = _group_issues(all_issues)
         grouped_resolutions = _group_resolutions(resolution_evidence)
@@ -216,9 +209,9 @@ def _resolve_records(
     """
 
     original = tuple(records)
-    by_dataset_identity: dict[
-        tuple[str, tuple[Any, ...]], list[PreparedRecord]
-    ] = defaultdict(list)
+    by_dataset_identity: dict[tuple[str, tuple[Any, ...]], list[PreparedRecord]] = (
+        defaultdict(list)
+    )
     for record in original:
         by_dataset_identity[(record.dataset, record.source_identity)].append(record)
 
@@ -353,9 +346,7 @@ def _resolve_records(
         for field_name, value in record.references.items():
             relation = dataset.relations[field_name]
             severity_missing = (
-                Severity.ERROR
-                if relation.on_missing == "error"
-                else Severity.WARNING
+                Severity.ERROR if relation.on_missing == "error" else Severity.WARNING
             )
             if isinstance(value, tuple):
                 references[field_name] = tuple(
@@ -546,8 +537,12 @@ def _resolve_records(
                             status = "RESOLVED_INCOMING"
                             result = BusinessReference(
                                 model=target_record.target_model,
-                                key=tuple(target_record.target_identity),
-                                scope=tuple(target_record.target_scope),
+                                key=_resolved_business_components(
+                                    target_record.target_identity
+                                ),
+                                scope=_resolved_business_components(
+                                    target_record.target_scope
+                                ),
                             )
             evidence.append(
                 ReferenceResolution(
@@ -561,9 +556,7 @@ def _resolve_records(
             )
             return result
         if value.origin == "incoming":
-            candidates = by_dataset_identity.get(
-                (str(value.dataset), value.key), ()
-            )
+            candidates = by_dataset_identity.get((str(value.dataset), value.key), ())
             matches = tuple(candidates)
         else:
             matches = catalog.find_by_fields(
@@ -577,9 +570,7 @@ def _resolve_records(
             issues.append(
                 Issue(
                     code="REFERENCE_NOT_FOUND",
-                    message=(
-                        f"{field_name} reference {value.key!r} was not found"
-                    ),
+                    message=(f"{field_name} reference {value.key!r} was not found"),
                     severity=missing_severity,
                     dataset=owner.dataset,
                     row=owner.source_row,
@@ -626,8 +617,8 @@ def _resolve_records(
                 status = "RESOLVED"
                 result = BusinessReference(
                     model=target_record.target_model,
-                    key=tuple(target_record.target_identity),
-                    scope=tuple(target_record.target_scope),
+                    key=_resolved_business_components(target_record.target_identity),
+                    scope=_resolved_business_components(target_record.target_scope),
                 )
         else:
             status = "RESOLVED"
@@ -654,6 +645,19 @@ def _resolve_records(
 
     resolved_records = tuple(resolve_record(record) for record in original)
     return resolved_records, tuple(evidence)
+
+
+def _resolved_business_components(
+    values: Iterable[ScalarValue | LogicalReference | BusinessReference],
+) -> tuple[ScalarValue, ...]:
+    """Require a dependency record's business identity to be fully resolved."""
+
+    components: list[ScalarValue] = []
+    for value in values:
+        if isinstance(value, LogicalReference | BusinessReference):
+            raise TypeError("A resolved dependency still contains a symbolic identity")
+        components.append(value)
+    return tuple(components)
 
 
 def _hybrid_incoming_outcomes(
@@ -745,9 +749,9 @@ def _build_target_index(
     ambiguous target identity without additional Odoo reads.
     """
 
-    buckets: dict[
-        tuple[tuple[Any, ...], tuple[Any, ...]], list[TargetRecord]
-    ] = defaultdict(list)
+    buckets: dict[tuple[tuple[Any, ...], tuple[Any, ...]], list[TargetRecord]] = (
+        defaultdict(list)
+    )
     issues: list[Issue] = []
     for target in catalog.records(dataset.target.model):
         try:
@@ -918,8 +922,7 @@ def _classify_record(
         )
 
     if any(
-        issue.code == "REFERENCE_TARGET_PRECEDENCE_REUSE"
-        for issue in record_issues
+        issue.code == "REFERENCE_TARGET_PRECEDENCE_REUSE" for issue in record_issues
     ):
         return Decision(
             dataset=record.dataset,
@@ -1120,8 +1123,7 @@ def _compare_record(
                     existing=existing,
                     proposed=final_proposal,
                     comparison_rule=(
-                        f"{spec.kind}:{spec.operation}:"
-                        f"null={spec.null_policy}"
+                        f"{spec.kind}:{spec.operation}:null={spec.null_policy}"
                     ),
                 )
             )
@@ -1140,9 +1142,7 @@ def _existing_relation(
     produce a false difference.
     """
 
-    model, identity_fields, scope_fields = _resolve_target_shape(
-        plan, spec.resolve
-    )
+    model, identity_fields, scope_fields = _resolve_target_shape(plan, spec.resolve)
     if spec.kind == "many2one":
         return catalog.reference_from_id(
             model, raw_value, identity_fields, scope_fields
@@ -1150,9 +1150,7 @@ def _existing_relation(
     return tuple(
         sorted(
             (
-                catalog.reference_from_id(
-                    model, odoo_id, identity_fields, scope_fields
-                )
+                catalog.reference_from_id(model, odoo_id, identity_fields, scope_fields)
                 for odoo_id in relation_ids(raw_value)
             ),
             key=lambda item: canonical_json_text(portable_value(item)),
@@ -1235,9 +1233,9 @@ def _group_issues(issues: Iterable[Issue]) -> list[Issue]:
                 dataset=dataset,
                 row=min(rows) if len(set(rows)) == 1 else None,
                 field=field,
-                affected_count=len(set(rows)) if rows else max(
-                    issue.affected_count for issue in group
-                ),
+                affected_count=len(set(rows))
+                if rows
+                else max(issue.affected_count for issue in group),
             )
         )
     return sorted(

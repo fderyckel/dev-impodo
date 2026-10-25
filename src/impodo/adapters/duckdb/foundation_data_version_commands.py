@@ -23,9 +23,10 @@ from ...domain.data_version.models import (
     DataVersion,
     DataVersionState,
 )
+from .foundation_repository_mixin import FoundationRepositoryMixin
 
 
-class FoundationDataVersionCommands:
+class FoundationDataVersionCommands(FoundationRepositoryMixin):
     def create_data_version(
         self,
         data_version: DataVersion,
@@ -49,7 +50,12 @@ class FoundationDataVersionCommands:
         )
         if intent.state is MigrationOperationState.COMMITTED:
             return self.get_data_version(intent.owner_id)
-        stored = self._data_version_from_dict(dict(intent.detail["data_version"]))
+        stored = self._data_version_from_dict(
+            self._stored_mapping(
+                intent.detail.get("data_version"),
+                "DataVersion operation detail",
+            )
+        )
         self._fault(fault, "INTENT_RESERVED")
         self._insert_data_version_if_needed(stored, intent, actor)
         self._fault(fault, "REGISTRY_COMMITTED")
@@ -77,7 +83,12 @@ class FoundationDataVersionCommands:
         )
         if intent.state is MigrationOperationState.COMMITTED:
             return self.get_data_version(intent.owner_id)
-        stored = self._data_version_from_dict(dict(intent.detail["data_version"]))
+        stored = self._data_version_from_dict(
+            self._stored_mapping(
+                intent.detail.get("data_version"),
+                "DataVersion operation detail",
+            )
+        )
         return self.create_data_version(
             stored,
             expected_workspace_revision=int(intent.expected_revision or 0),
@@ -116,7 +127,12 @@ class FoundationDataVersionCommands:
                     "SELECT revision, state FROM source_package_state "
                     "WHERE singleton_id = 1"
                 ).fetchone()
-                current_revision = int(current[0])
+                if current is None:
+                    raise MigrationConflictError("Source package state is missing")
+                current_revision = self._integer(
+                    current[0],
+                    "source package revision",
+                )
                 required_current = expected_package_revision or 0
                 if (
                     str(current[1]) != SourcePackageState.DRAFT.value
@@ -208,7 +224,10 @@ class FoundationDataVersionCommands:
         self._freeze_source_store(
             data_version,
             package_hash=str(stored["package_hash"]),
-            expected_package_revision=int(stored["package_revision"]),
+            expected_package_revision=self._integer(
+                stored["package_revision"],
+                "source package revision",
+            ),
             frozen_at=datetime.fromisoformat(str(stored["frozen_at"])),
             actor=actor,
         )

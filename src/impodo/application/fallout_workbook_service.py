@@ -8,22 +8,23 @@ from typing import Protocol
 
 from openpyxl.utils import get_column_letter, range_boundaries
 
+from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.fallout_workbook_port import (
     FalloutWorkbookCell,
     FalloutWorkbookRenderer,
 )
 from impodo.application.shared.artifacts import GovernedArtifactStores
-from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.application.workspace.execution.reconciliation import (
     ReconciliationService,
 )
 from impodo.domain.execution_snapshot import ExecutionSnapshot
 from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
-from impodo.domain.shared.access import Actor, Capability
+from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.shared.models import portable_value
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.workspace.contracts import SourceSelection
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import WorkspaceState
 
 
 class FalloutPreflightReader(Protocol):
@@ -47,11 +48,13 @@ class FalloutStagingReader(Protocol):
 class FalloutSourceReader(Protocol):
     def get_source_selection(self, workspace_id: str) -> SourceSelection | None: ...
 
-    def get_source_catalogs(self, workspace_id: str) -> tuple[object, ...]: ...
+    def get_source_catalogs(
+        self, workspace_id: str
+    ) -> tuple[SourceFileCatalog, ...]: ...
 
 
 class FalloutWorkspaceReader(Protocol):
-    def get(self, workspace_id: str): ...
+    def get(self, workspace_id: str) -> WorkspaceState: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +75,7 @@ class FalloutWorkbookService:
         sources: FalloutSourceReader,
         workspaces: FalloutWorkspaceReader,
         artifacts: GovernedArtifactStores,
-        authorization: WorkspaceAccessService,
+        authorization: WorkspaceAuthorizationPolicy,
         workbook_renderer: FalloutWorkbookRenderer,
     ) -> None:
         self._reconciliation = reconciliation
@@ -146,17 +149,16 @@ class FalloutWorkbookService:
                 (),
             )
             resolved = []
-            for physical_dataset_id, source_rows in (
-                canonical_row.lineage.physical_sources.items()
-            ):
+            for (
+                physical_dataset_id,
+                source_rows,
+            ) in canonical_row.lineage.physical_sources.items():
                 source_dataset = datasets.get(physical_dataset_id)
                 if source_dataset is None or not isinstance(
                     source_dataset.source, FileSourceBinding
                 ):
                     continue
-                columns = {
-                    item.stable_key: item for item in source_dataset.columns
-                }
+                columns = {item.stable_key: item for item in source_dataset.columns}
                 binding = source_dataset.source
                 for field_source in field_sources:
                     column = columns.get(field_source)
@@ -231,7 +233,10 @@ class FalloutWorkbookService:
             ),
             None,
         )
-        if binding is None or _canonical_hash(source_file.sha256) != binding.source_sha256:
+        if (
+            binding is None
+            or _canonical_hash(source_file.sha256) != binding.source_sha256
+        ):
             raise WorkspaceError("The accepted source workbook failed verification")
         with self._artifacts.materialize_source(
             selection.data_version_id,
@@ -251,6 +256,7 @@ class FalloutWorkbookService:
             content=content,
             affected_cell_count=sum(bool(item.coordinate) for item in workbook_cells),
         )
+
 
 def _workbook_cell(
     difference,
@@ -296,28 +302,34 @@ def _worksheet_name(table_key: str, source_file) -> str:
     if table_key.startswith("table:"):
         return table_key.removeprefix("table:").rsplit(":", 1)[0]
     if table_key == "csv":
-        return _safe_sheet_title(Path(source_file.display_name).stem if source_file else "Source")
+        return _safe_sheet_title(
+            Path(source_file.display_name).stem if source_file else "Source"
+        )
     return ""
 
 
-def _source_column_number(binding: FileSourceBinding, ordinal: int, catalog) -> int:
+def _source_column_number(
+    binding: FileSourceBinding,
+    ordinal: int,
+    catalog: SourceFileCatalog | None,
+) -> int:
     """Resolve a selected-table-relative ordinal to an Excel column number."""
 
     if not binding.table_key.startswith("table:"):
         return ordinal
+    if catalog is None:
+        raise WorkspaceError("The frozen source catalog is unavailable")
     table = next(
-        (
-            item
-            for item in getattr(catalog, "tables", ())
-            if item.table_key == binding.table_key
-        ),
+        (item for item in catalog.tables if item.table_key == binding.table_key),
         None,
     )
-    if table is None or len(getattr(table, "named_tables", ())) != 1:
+    if table is None or len(table.named_tables) != 1:
         raise WorkspaceError("The frozen Excel table bounds are unavailable")
     minimum_column, _minimum_row, maximum_column, _maximum_row = range_boundaries(
         table.named_tables[0].cell_range
     )
+    if minimum_column is None or maximum_column is None:
+        raise WorkspaceError("The frozen Excel table bounds are invalid")
     column_number = minimum_column + ordinal - 1
     if ordinal < 1 or column_number > maximum_column:
         raise WorkspaceError("The frozen Excel table column is invalid")

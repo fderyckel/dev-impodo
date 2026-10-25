@@ -66,7 +66,8 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
         )
         actor = request_identity(request, context.identity_resolver).actor
         try:
-            bundle = await run_in_threadpool(context.production_runs.start_setup,
+            bundle = await run_in_threadpool(
+                context.production_runs.start_setup,
                 project_id,
                 expected_workspace_revision=int(
                     _text(form, "expected_workspace_revision")
@@ -109,7 +110,8 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
     ):
         require_session(request)
         actor = request_identity(request, context.identity_resolver).actor
-        return await run_in_threadpool(_render_activation,
+        return await run_in_threadpool(
+            _render_activation,
             request,
             context,
             project_id,
@@ -117,9 +119,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
             actor=actor,
         )
 
-    @router.post(
-        "/projects/{project_id}/production-runs/{migration_run_id}/activate"
-    )
+    @router.post("/projects/{project_id}/production-runs/{migration_run_id}/activate")
     async def activate_production_run(
         request: Request,
         project_id: str,
@@ -145,24 +145,43 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
         }
         _secure_form(request, form, allowed)
         try:
-            if (view["activation_complete"] and view["saved_operation"].operation_id == _text(form, "operation_id")):
-                return RedirectResponse(f"/projects/{project_id}/runs/{migration_run_id}", status_code=303)
+            if view["activation_complete"] and view[
+                "saved_operation"
+            ].operation_id == _text(form, "operation_id"):
+                return RedirectResponse(
+                    f"/projects/{project_id}/runs/{migration_run_id}", status_code=303
+                )
             if view["activation_pending"] or view["activation_complete"]:
-                raise MigrationFoundationError("Continue the saved Production setup from its current step")
-            if int(_text(form, "expected_workspace_revision")) != view["project"].optimistic_revision:
-                raise MigrationFoundationError("The Project changed. Reload and review Production setup.")
-            if _text(form, "values_evidence_hash") != view["value_review"].evidence_hash:
-                raise MigrationFoundationError("Production setup changed. Reload and review its current values.")
+                raise MigrationFoundationError(
+                    "Continue the saved Production setup from its current step"
+                )
+            if (
+                int(_text(form, "expected_workspace_revision"))
+                != view["project"].optimistic_revision
+            ):
+                raise MigrationFoundationError(
+                    "The Project changed. Reload and review Production setup."
+                )
+            if (
+                _text(form, "values_evidence_hash")
+                != view["value_review"].evidence_hash
+            ):
+                raise MigrationFoundationError(
+                    "Production setup changed. Reload and review its current values."
+                )
             if not view["run_value_plan"].ready_to_continue:
-                raise MigrationFoundationError("Confirm the Recipe details on Fresh data before continuing")
+                raise MigrationFoundationError(
+                    "Confirm the Recipe details on Fresh data before continuing"
+                )
             values = context.production_runs.values.activation_values(
-                view["binding"], view["value_review"], None, None)
+                view["binding"], view["value_review"], None, None
+            )
             setup_state = view["setup_state"]
             target_schema, target_references = await run_in_threadpool(
                 context.run_planning.target_evidence_from_workspace,
-                    project_id,
-                    setup_state.workspace_id,
-                    actor=actor,
+                project_id,
+                setup_state.workspace_id,
+                actor=actor,
             )
             read_credential = get_target_credential(
                 context.secret_store,
@@ -173,6 +192,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 raise SecretStoreError(
                     "Enter and verify the Production read-only Odoo key first"
                 )
+            current_write = None
             write_key = _text(form, "write_api_key")
             if not write_key:
                 current_write = get_target_credential(
@@ -181,9 +201,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                     TargetCredentialRole.WRITE,
                 )
                 if current_write is None:
-                    raise SecretStoreError(
-                        "Enter a separate Production write API key"
-                    )
+                    raise SecretStoreError("Enter a separate Production write API key")
                 write_key = current_write.secret
             if compare_digest(read_credential.secret, write_key):
                 raise SecretStoreError(
@@ -213,7 +231,10 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 )
             else:
                 write_credential = current_write
-            await run_in_threadpool(context.production_runs.activate,
+            if write_credential is None:
+                raise SecretStoreError("Enter a separate Production write API key")
+            await run_in_threadpool(
+                context.production_runs.activate,
                 project_id,
                 migration_run_id,
                 expected_workspace_revision=int(
@@ -236,7 +257,8 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
             TypeError,
             ValueError,
         ) as error:
-            return await run_in_threadpool(_render_activation,
+            return await run_in_threadpool(
+                _render_activation,
                 request,
                 context,
                 project_id,
@@ -255,8 +277,12 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
-    @router.post("/projects/{project_id}/production-runs/{migration_run_id}/activate/resume")
-    async def resume_production_activation(request: Request, project_id: str, migration_run_id: str):
+    @router.post(
+        "/projects/{project_id}/production-runs/{migration_run_id}/activate/resume"
+    )
+    async def resume_production_activation(
+        request: Request, project_id: str, migration_run_id: str
+    ):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         actor = request_identity(request, context.identity_resolver).actor
@@ -275,10 +301,16 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 project_id,
                 migration_run_id,
                 actor=actor,
-                error=str(error), status_code=422,
+                error=str(error),
+                status_code=422,
             )
-        _flash(request, "Production setup is complete. Continue with fresh review and load.")
-        return RedirectResponse(f"/projects/{project_id}/runs/{migration_run_id}", status_code=303)
+        _flash(
+            request,
+            "Production setup is complete. Continue with fresh review and load.",
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/runs/{migration_run_id}", status_code=303
+        )
 
     return router
 
@@ -298,9 +330,7 @@ def _render_new(
     project = context.migration_projects.get(project_id, actor=actor)
     selection = context.cutover_plans.repository.current_selection(project_id)
     qualification = (
-        context.cutover_plans.repository.get_qualification(
-            selection.qualification_id
-        )
+        context.cutover_plans.repository.get_qualification(selection.qualification_id)
         if selection is not None
         else None
     )
@@ -349,9 +379,7 @@ def _activation_view(context, project_id, migration_run_id, *, actor: Actor):
     project = context.migration_projects.get(project_id, actor=actor)
     binding = context.production_runs.production_runs.get(migration_run_id)
     if binding.project_id != project_id:
-        raise MigrationFoundationError(
-            "Production run does not belong to this Project"
-        )
+        raise MigrationFoundationError("Production run does not belong to this Project")
     run = context.migration_runs.get(migration_run_id, actor=actor)
     data_version = context.data_versions.get(binding.data_version_id, actor=actor)
     setup_workspace = context.migration_workspaces.get(
@@ -397,8 +425,13 @@ def _activation_view(context, project_id, migration_run_id, *, actor: Actor):
     else:
         target_ready = True
         target_error = ""
-    if data_version.state.value != "FROZEN" or not value_review.values.ready_to_continue:
-        setup_destination = f"/projects/{project_id}/production-runs/{migration_run_id}/fresh-data"
+    if (
+        data_version.state.value != "FROZEN"
+        or not value_review.values.ready_to_continue
+    ):
+        setup_destination = (
+            f"/projects/{project_id}/production-runs/{migration_run_id}/fresh-data"
+        )
         setup_action_label = "Continue fresh data"
     elif not target_ready:
         setup_destination = f"/projects/{project_id}/runs/{migration_run_id}/odoo"
@@ -412,11 +445,16 @@ def _activation_view(context, project_id, migration_run_id, *, actor: Actor):
         "binding": binding,
         "value_review": value_review,
         "run_value_plan": value_review.values,
-        "fresh_data_complete": data_version.state.value == "FROZEN" and value_review.values.ready_to_continue,
+        "fresh_data_complete": data_version.state.value == "FROZEN"
+        and value_review.values.ready_to_continue,
         "activation_pending": activation_pending,
-        "activation_resumable": bool(operation and isinstance(operation.detail.get("activation_inputs"), dict)
-                                     and operation.detail["activation_inputs"].get("contract_version") == 1),
-        "activation_complete": binding.state.value == "ACTIVE" and not activation_pending,
+        "activation_resumable": bool(
+            operation
+            and isinstance(operation.detail.get("activation_inputs"), dict)
+            and operation.detail["activation_inputs"].get("contract_version") == 1
+        ),
+        "activation_complete": binding.state.value == "ACTIVE"
+        and not activation_pending,
         "saved_operation": operation,
         "data_version": data_version,
         "plan": plan,

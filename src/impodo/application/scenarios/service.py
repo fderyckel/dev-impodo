@@ -72,7 +72,9 @@ class ScenarioExecutionEvidence:
 
     @property
     def total(self) -> int:
-        return self.committed + self.failed + self.partially_applied + self.outcome_unknown
+        return (
+            self.committed + self.failed + self.partially_applied + self.outcome_unknown
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +102,7 @@ class ScenarioReadOnlyWorkflow(Protocol):
 
     def prepare(self, definition: ScenarioDefinition) -> ScenarioPreparationEvidence:
         """Run normal source preparation without contacting Odoo."""
+        ...
 
     def compare(
         self,
@@ -107,6 +110,7 @@ class ScenarioReadOnlyWorkflow(Protocol):
         preparation: ScenarioPreparationEvidence,
     ) -> ScenarioComparisonEvidence:
         """Run the existing bounded, read-only destination comparison."""
+        ...
 
 
 class ScenarioWriteWorkflow(ScenarioReadOnlyWorkflow, Protocol):
@@ -119,6 +123,7 @@ class ScenarioWriteWorkflow(ScenarioReadOnlyWorkflow, Protocol):
         comparison: ScenarioComparisonEvidence,
     ) -> ScenarioExecutionEvidence:
         """Execute only through the normal journal-before-transport service."""
+        ...
 
     def reconcile(
         self,
@@ -127,6 +132,7 @@ class ScenarioWriteWorkflow(ScenarioReadOnlyWorkflow, Protocol):
         execution: ScenarioExecutionEvidence,
     ) -> ScenarioReconciliationEvidence:
         """Read back through the normal independent reconciliation service."""
+        ...
 
     def verify_projection(
         self,
@@ -135,6 +141,7 @@ class ScenarioWriteWorkflow(ScenarioReadOnlyWorkflow, Protocol):
         reconciliation: ScenarioReconciliationEvidence,
     ) -> ScenarioProjectionEvidence:
         """Compare actual target values with the reviewed independent oracle."""
+        ...
 
 
 class ScenarioWorkflowFailure(RuntimeError):
@@ -175,9 +182,7 @@ class ScenarioRunner:
 
         run_id = str(self._run_id_factory())
         started_at = self._now()
-        expectation_hash = content_hash(
-            definition.expectations.model_dump(mode="json")
-        )
+        expectation_hash = content_hash(definition.expectations.model_dump(mode="json"))
         phase_seconds: dict[str, float] = {}
 
         def result(
@@ -282,7 +287,10 @@ class ScenarioRunner:
         blocked = comparison.counts.get("BLOCKED", 0) + comparison.counts.get(
             "AMBIGUOUS", 0
         )
-        if definition.expectations.expected_outcome is ScenarioExpectedOutcome.EXPECTED_BLOCK:
+        if (
+            definition.expectations.expected_outcome
+            is ScenarioExpectedOutcome.EXPECTED_BLOCK
+        ):
             if blocked == 0:
                 return result(
                     status=ScenarioRunStatus.NEEDS_ATTENTION,
@@ -321,9 +329,7 @@ class ScenarioRunner:
 
         run_id = str(self._run_id_factory())
         started_at = self._now()
-        expectation_hash = content_hash(
-            definition.expectations.model_dump(mode="json")
-        )
+        expectation_hash = content_hash(definition.expectations.model_dump(mode="json"))
         phase_seconds: dict[str, float] = {}
         preparation: ScenarioPreparationEvidence | None = None
         first: ScenarioComparisonEvidence | None = None
@@ -419,9 +425,7 @@ class ScenarioRunner:
                 ),
                 target_hash=first.target_hash if first else "",
                 preflight_hash=first.preflight_hash if first else "",
-                execution_snapshot_hash=(
-                    execution.snapshot_hash if execution else ""
-                ),
+                execution_snapshot_hash=(execution.snapshot_hash if execution else ""),
                 reconciliation_hash=(
                     reconciliation.result_hash if reconciliation else ""
                 ),
@@ -553,9 +557,7 @@ class ScenarioRunner:
                 return finish(
                     ScenarioRunStatus.NEEDS_ATTENTION,
                     stage=ScenarioFailureStage.REPEAT_COMPARISON,
-                    reason=(
-                        ScenarioReasonCode.REPEAT_COMPARISON_EXPECTATION_MISMATCH
-                    ),
+                    reason=(ScenarioReasonCode.REPEAT_COMPARISON_EXPECTATION_MISMATCH),
                 )
             return finish(ScenarioRunStatus.PASSED)
         except ScenarioWorkflowFailure as exc:

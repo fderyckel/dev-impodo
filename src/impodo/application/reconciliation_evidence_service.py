@@ -6,13 +6,12 @@ from dataclasses import dataclass
 from hashlib import sha256
 
 from impodo.application.shared.artifacts import WorkspaceArtifactStore
-from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.domain.reconciliation import ReconciliationRun
 from impodo.domain.reconciliation_detail import (
     ReconciliationDetailArtifact,
     ReconciliationDetailManifest,
 )
-from impodo.domain.shared.access import Actor, Capability
+from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.workspace.errors import WorkspaceError
 
 RECONCILIATION_DETAIL_STORAGE_NAME = "fallout-detail.json"
@@ -31,7 +30,7 @@ class ReconciliationEvidenceService:
 
     def __init__(
         self,
-        authorization: WorkspaceAccessService,
+        authorization: WorkspaceAuthorizationPolicy,
         artifacts: WorkspaceArtifactStore,
     ) -> None:
         self._authorization = authorization

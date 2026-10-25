@@ -18,7 +18,7 @@ from impodo.application.shared.artifacts import (
 )
 from impodo.domain.preparation.source import SourceLoadError, SourceTable
 from impodo.domain.serialization import content_hash
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.scale import (
     LOOKUP_DERIVED_BROWSER_EVALUATION_ROW_LIMIT,
@@ -159,7 +159,7 @@ class DerivedEntityWorkspaceService:
         self,
         sources: DerivedSourceRepository,
         derived_entities: DerivedEntityRepository,
-        authorization: AuthorizationPolicy,
+        authorization: WorkspaceAuthorizationPolicy,
         artifacts: DataVersionSourceArtifactStore | None = None,
     ) -> None:
         self.sources = sources

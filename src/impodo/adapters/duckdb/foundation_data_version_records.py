@@ -10,9 +10,10 @@ from impodo.domain.project.foundation import (
 from impodo.domain.shared.access import Actor
 
 from ...domain.data_version.models import DataVersion
+from .foundation_repository_mixin import FoundationRepositoryMixin
 
 
-class FoundationDataVersionRecords:
+class FoundationDataVersionRecords(FoundationRepositoryMixin):
     """Own Data version numbering, reads, and optimistic-revision persistence."""
 
     def next_data_version_number(self, project_id: str) -> int:

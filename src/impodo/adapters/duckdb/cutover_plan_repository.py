@@ -42,6 +42,59 @@ from ..protected_project_evidence_store import ProtectedProjectEvidenceStore
 from .migration_foundation_repository import MigrationFoundationRepository
 
 
+def _portable_mapping(value: object, label: str) -> dict[str, object]:
+    """Return one validated JSON object from CutoverPlan evidence."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{label} must be an object")
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise TypeError(f"{label} keys must be strings")
+        result[key] = item
+    return result
+
+
+def _portable_sequence(value: object, label: str) -> tuple[object, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(f"{label} must be a sequence")
+    return tuple(value)
+
+
+def _stored_revision(value: object) -> int:
+    if type(value) is not int:
+        raise TypeError("Stored CutoverPlan revision must be an integer")
+    return require_revision(value, "stored CutoverPlan revision")
+
+
+def _recipe_revision_selection(value: object) -> RecipeRevisionSelection:
+    item = _portable_mapping(value, "CutoverPlan Recipe selection")
+    return RecipeRevisionSelection(
+        recipe_id=str(item["recipe_id"]),
+        recipe_revision=_stored_revision(item["recipe_revision"]),
+        semantic_hash=str(item["semantic_hash"]),
+    )
+
+
+def _recipe_dependency(value: object) -> RecipeDependency:
+    item = _portable_mapping(value, "CutoverPlan Recipe dependency")
+    return RecipeDependency(
+        before_recipe_id=str(item["before_recipe_id"]),
+        after_recipe_id=str(item["after_recipe_id"]),
+        kind=str(item["kind"]),
+        reason=str(item["reason"]),
+    )
+
+
+def _write_ownership(value: object) -> CutoverWriteOwnership:
+    item = _portable_mapping(value, "CutoverPlan write ownership")
+    return CutoverWriteOwnership(
+        recipe_id=str(item["recipe_id"]),
+        model=str(item["model"]),
+        field=str(item["field"]),
+    )
+
+
 class CutoverPlanRepository:
     """Own bounded CutoverPlan projections and protected evidence."""
 
@@ -96,7 +149,10 @@ class CutoverPlanRepository:
             if existing_intent.state is MigrationOperationState.COMMITTED:
                 return self.get_run_binding(migration_run_id)
             stored_revision = self._revision_from_dict(
-                dict(existing_intent.detail["plan_revision"])
+                _portable_mapping(
+                    existing_intent.detail["plan_revision"],
+                    "Stored CutoverPlan revision",
+                )
             )
             expected_workspace_revision = int(existing_intent.expected_revision or 0)
             created_plan = bool(existing_intent.detail["created_plan"])
@@ -621,8 +677,8 @@ class CutoverPlanRepository:
             cutover_plan_id=str(row["cutover_plan_id"]),
             project_id=str(row["project_id"]),
             display_name=str(row["display_name"]),
-            current_revision=int(row["current_revision"]),
-            optimistic_revision=int(row["optimistic_revision"]),
+            current_revision=_stored_revision(row["current_revision"]),
+            optimistic_revision=_stored_revision(row["optimistic_revision"]),
             created_at=datetime.fromisoformat(str(row["created_at"])),
             updated_at=datetime.fromisoformat(str(row["updated_at"])),
             archived_at=(
@@ -666,14 +722,14 @@ class CutoverPlanRepository:
             project_id=self.get_plan(cutover_plan_id).project_id,
             version=version,
             parent_version=(
-                int(row["parent_version"])
+                _stored_revision(row["parent_version"])
                 if row["parent_version"] is not None
                 else None
             ),
             selected_revisions=tuple(
                 RecipeRevisionSelection(
                     recipe_id=str(item["recipe_id"]),
-                    recipe_revision=int(item["recipe_revision"]),
+                    recipe_revision=_stored_revision(item["recipe_revision"]),
                     semantic_hash=str(item["semantic_hash"]),
                 )
                 for item in recipes
@@ -717,7 +773,7 @@ class CutoverPlanRepository:
         return RunCutoverPlanBinding(
             migration_run_id=migration_run_id,
             cutover_plan_id=str(row["cutover_plan_id"]),
-            cutover_plan_revision=int(row["cutover_plan_revision"]),
+            cutover_plan_revision=_stored_revision(row["cutover_plan_revision"]),
             plan_content_hash=str(row["plan_content_hash"]),
             bound_at=datetime.fromisoformat(str(row["bound_at"])),
         )
@@ -760,7 +816,7 @@ class CutoverPlanRepository:
             qualification_id=str(row["qualification_id"]),
             project_id=str(row["project_id"]),
             cutover_plan_id=str(row["cutover_plan_id"]),
-            cutover_plan_revision=int(row["cutover_plan_revision"]),
+            cutover_plan_revision=_stored_revision(row["cutover_plan_revision"]),
             plan_content_hash=str(row["plan_content_hash"]),
             test_run_id=str(row["test_run_id"]),
             application_ids=tuple(json.loads(str(row["application_ids_json"]))),
@@ -813,7 +869,7 @@ class CutoverPlanRepository:
             cutover_selection_id=selection_id,
             project_id=str(row["project_id"]),
             cutover_plan_id=str(row["cutover_plan_id"]),
-            cutover_plan_revision=int(row["cutover_plan_revision"]),
+            cutover_plan_revision=_stored_revision(row["cutover_plan_revision"]),
             qualification_id=str(row["qualification_id"]),
             content_hash=str(row["content_hash"]),
             selected_by=self._actor_from_row(row, "selected_by"),
@@ -1098,42 +1154,44 @@ class CutoverPlanRepository:
 
     @staticmethod
     def _revision_from_dict(value: Mapping[str, object]) -> CutoverPlanRevision:
-        actor = dict(value["created_by"])
+        actor = _portable_mapping(value["created_by"], "CutoverPlan author")
         return CutoverPlanRevision(
             cutover_plan_id=str(value["cutover_plan_id"]),
             project_id=str(value["project_id"]),
-            version=int(value["version"]),
+            version=_stored_revision(value["version"]),
             parent_version=(
-                int(value["parent_version"])
+                _stored_revision(value["parent_version"])
                 if value["parent_version"] is not None
                 else None
             ),
             selected_revisions=tuple(
-                RecipeRevisionSelection(
-                    recipe_id=str(item["recipe_id"]),
-                    recipe_revision=int(item["recipe_revision"]),
-                    semantic_hash=str(item["semantic_hash"]),
+                _recipe_revision_selection(item)
+                for item in _portable_sequence(
+                    value["selected_revisions"],
+                    "CutoverPlan Recipe selections",
                 )
-                for item in value["selected_revisions"]
             ),
             dependencies=tuple(
-                RecipeDependency(
-                    before_recipe_id=str(item["before_recipe_id"]),
-                    after_recipe_id=str(item["after_recipe_id"]),
-                    kind=str(item["kind"]),
-                    reason=str(item["reason"]),
+                _recipe_dependency(item)
+                for item in _portable_sequence(
+                    value["dependencies"],
+                    "CutoverPlan dependencies",
                 )
-                for item in value["dependencies"]
             ),
             write_ownership=tuple(
-                CutoverWriteOwnership(
-                    recipe_id=str(item["recipe_id"]),
-                    model=str(item["model"]),
-                    field=str(item["field"]),
+                _write_ownership(item)
+                for item in _portable_sequence(
+                    value["write_ownership"],
+                    "CutoverPlan write ownership",
                 )
-                for item in value["write_ownership"]
             ),
-            shared_control_ids=tuple(str(item) for item in value["shared_control_ids"]),
+            shared_control_ids=tuple(
+                str(item)
+                for item in _portable_sequence(
+                    value["shared_control_ids"],
+                    "CutoverPlan shared controls",
+                )
+            ),
             requirement_plan_hash=str(value["requirement_plan_hash"]),
             created_by=ActorIdentity(
                 issuer=str(actor["issuer"]),

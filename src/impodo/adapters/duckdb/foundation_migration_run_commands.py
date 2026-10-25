@@ -12,9 +12,10 @@ from impodo.domain.shared.access import Actor
 from ...domain.run.models import (
     MigrationRun,
 )
+from .foundation_repository_mixin import FoundationRepositoryMixin
 
 
-class FoundationMigrationRunCommands:
+class FoundationMigrationRunCommands(FoundationRepositoryMixin):
     def create_migration_run(
         self,
         run: MigrationRun,
@@ -38,7 +39,12 @@ class FoundationMigrationRunCommands:
         )
         if intent.state is MigrationOperationState.COMMITTED:
             return self.get_migration_run(intent.owner_id)
-        stored = self._run_from_dict(dict(intent.detail["migration_run"]))
+        stored = self._run_from_dict(
+            self._stored_mapping(
+                intent.detail.get("migration_run"),
+                "MigrationRun operation detail",
+            )
+        )
         self._fault(fault, "INTENT_RESERVED")
         self._insert_run_if_needed(stored, intent, actor)
         self._fault(fault, "REGISTRY_COMMITTED")
@@ -62,7 +68,12 @@ class FoundationMigrationRunCommands:
         )
         if intent.state is MigrationOperationState.COMMITTED:
             return self.get_migration_run(intent.owner_id)
-        stored = self._run_from_dict(dict(intent.detail["migration_run"]))
+        stored = self._run_from_dict(
+            self._stored_mapping(
+                intent.detail.get("migration_run"),
+                "MigrationRun operation detail",
+            )
+        )
         return self.create_migration_run(
             stored,
             expected_workspace_revision=int(intent.expected_revision or 0),

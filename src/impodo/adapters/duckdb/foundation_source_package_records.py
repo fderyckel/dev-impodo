@@ -23,9 +23,10 @@ from ...domain.data_version.models import (
     DataVersion,
 )
 from ...domain.serialization import canonical_json
+from .foundation_repository_mixin import FoundationRepositoryMixin
 
 
-class FoundationSourcePackageRecords:
+class FoundationSourcePackageRecords(FoundationRepositoryMixin):
     @staticmethod
     def _insert_source_package(
         connection: duckdb.DuckDBPyConnection,

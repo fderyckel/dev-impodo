@@ -18,6 +18,8 @@ from impodo.domain.run.planning import (
 from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
+from .ports import RunPlanningRepository
+
 
 class RunReviewUseCase:
     """Own selection, compatibility, and write-ownership review for a run."""
@@ -28,7 +30,7 @@ class RunReviewUseCase:
         projects,
         data_versions,
         recipes,
-        repository,
+        repository: RunPlanningRepository,
         source_packages,
         compiler,
         authorization,

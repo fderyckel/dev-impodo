@@ -5,6 +5,8 @@ from __future__ import annotations
 from impodo.domain.project.foundation import require_uuid
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 
+from .ports import TestRunRepository
+
 
 class TestRunCredentialWorkspaceUseCase:
     """Own credential-owner resolution without opening unrelated workspaces."""
@@ -12,7 +14,7 @@ class TestRunCredentialWorkspaceUseCase:
     def __init__(
         self,
         *,
-        test_runs,
+        test_runs: TestRunRepository,
         workspace_states,
         authorization: AuthorizationPolicy,
     ) -> None:

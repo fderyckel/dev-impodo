@@ -29,6 +29,7 @@ from impodo.domain.execution.models import (
 )
 from impodo.domain.execution_snapshot import ExecutionSnapshot
 from impodo.domain.reconciliation import ReconciliationRun
+from impodo.domain.reconciliation_detail import ReconciliationDetailManifest
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import canonical_json_bytes
 from impodo.domain.workspace.errors import WorkspaceError
@@ -92,6 +93,35 @@ class ScenarioExecutionJournal:
         except BaseException:
             self.path.unlink(missing_ok=True)
             raise
+
+    def close_interrupted_run_for_recomparison(
+        self,
+        workspace_id: str,
+        expected_run: ExecutionRun,
+        expected_preflight_run_id: str,
+        *,
+        actor: Actor,
+    ) -> ExecutionRun:
+        """Close one unchanged interrupted run while retaining all row evidence."""
+
+        del actor
+        current = self._read()
+        if (
+            current != expected_run
+            or expected_run.workspace_id != workspace_id
+            or expected_run.status is not ExecutionRunStatus.RUNNING
+            or expected_preflight_run_id == expected_run.preflight_run_id
+        ):
+            raise WorkspaceError(
+                "The interrupted scenario load is no longer current"
+            )
+        completed = replace(
+            expected_run,
+            status=ExecutionRunStatus.OUTCOME_UNKNOWN,
+            completed_at=datetime.now(UTC),
+        )
+        self._replace(completed)
+        return completed
 
     def record_outcomes(
         self,
@@ -198,8 +228,13 @@ class ScenarioReconciliationResults:
         report: ReconciliationRun,
         *,
         actor: Actor,
+        detail: ReconciliationDetailManifest | None = None,
     ) -> None:
         del actor
+        if detail is not None:
+            raise WorkspaceError(
+                "Scenario reconciliation detail requires a protected evidence store"
+            )
         if report.workspace_id != workspace_id or self.path.exists():
             raise WorkspaceError("Scenario reconciliation evidence already exists")
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
@@ -217,6 +252,16 @@ class ScenarioReconciliationResults:
         except BaseException:
             self.path.unlink(missing_ok=True)
             raise
+
+    def get_detail_manifest(
+        self,
+        workspace_id: str,
+        reconciliation_id: str,
+    ) -> ReconciliationDetailManifest | None:
+        """Report that compact scenario evidence has no protected detail artifact."""
+
+        del workspace_id, reconciliation_id
+        return None
 
 
 def write_scenario_execution_snapshot(
@@ -247,6 +292,15 @@ def _execution_run_payload(run: ExecutionRun) -> dict[str, object]:
 
 
 def _execution_run_from_payload(payload: dict[str, object]) -> ExecutionRun:
+    batch_rows = payload.get("batch_rows")
+    if batch_rows is not None and type(batch_rows) is not int:
+        raise TypeError("Scenario execution batch size is invalid")
+    completed_at = payload.get("completed_at")
+    if completed_at is not None and not isinstance(completed_at, str):
+        raise TypeError("Scenario execution completion time is invalid")
+    raw_rows = payload.get("rows", ())
+    if not isinstance(raw_rows, list):
+        raise TypeError("Scenario execution rows are invalid")
     return ExecutionRun(
         run_id=str(payload["run_id"]),
         workspace_id=str(payload["workspace_id"]),
@@ -255,22 +309,18 @@ def _execution_run_from_payload(payload: dict[str, object]) -> ExecutionRun:
         preflight_run_id=str(payload["preflight_run_id"]),
         target_hash=str(payload["target_hash"]),
         target_database=str(payload["target_database"]),
-        batch_rows=(
-            int(payload["batch_rows"])
-            if payload.get("batch_rows") is not None
-            else None
-        ),
+        batch_rows=batch_rows,
         status=ExecutionRunStatus(str(payload["status"])),
         started_at=datetime.fromisoformat(str(payload["started_at"])),
         started_by=str(payload["started_by"]),
         completed_at=(
-            datetime.fromisoformat(str(payload["completed_at"]))
-            if payload.get("completed_at") is not None
+            datetime.fromisoformat(completed_at)
+            if completed_at is not None
             else None
         ),
         rows=tuple(
             ExecutionRowAttempt.from_json(json.dumps(item))
-            for item in payload.get("rows", ())
+            for item in raw_rows
         ),
         write_credential_binding_hash=str(
             payload.get("write_credential_binding_hash", "")

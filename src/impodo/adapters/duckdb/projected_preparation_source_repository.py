@@ -28,6 +28,12 @@ from .foundation_source_package_reader import read_source_package_store
 from .source_repository import SourceRepository
 
 
+def _manifest_integer(value: object) -> int:
+    if type(value) is not int:
+        raise TypeError("Source snapshot manifest integer is invalid")
+    return value
+
+
 class ProjectedPreparationSourceRepository(SourceRepository):
     """Expose one immutable DataVersion projection to a preparation worker.
 
@@ -53,8 +59,7 @@ class ProjectedPreparationSourceRepository(SourceRepository):
             return super().get_source_selection(workspace_id)
         package, datasets = self._selected_package(workspace_id)
         physical_hashes = {
-            str(item.manifest.get("physical_selection_hash", ""))
-            for item in datasets
+            str(item.manifest.get("physical_selection_hash", "")) for item in datasets
         }
         if len(physical_hashes) != 1 or not next(iter(physical_hashes)):
             raise WorkspaceStateError(
@@ -125,7 +130,7 @@ class ProjectedPreparationSourceRepository(SourceRepository):
                     physical_selection_hash=str(
                         item.manifest["physical_selection_hash"]
                     ),
-                    reader_contract_version=int(
+                    reader_contract_version=_manifest_integer(
                         item.manifest["reader_contract_version"]
                     ),
                     schema=SourceSnapshotSchema.create(

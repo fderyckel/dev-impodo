@@ -34,6 +34,7 @@ from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceStateNotFoundError
 
 from .fresh_data_values import normalize_export_date
+from .ports import TestRunRepository
 
 
 class TestRunSetupStartUseCase:
@@ -49,7 +50,7 @@ class TestRunSetupStartUseCase:
         source_packages,
         workspace_states,
         recipes,
-        test_runs,
+        test_runs: TestRunRepository,
         authorization: AuthorizationPolicy,
     ) -> None:
         self._projects = projects

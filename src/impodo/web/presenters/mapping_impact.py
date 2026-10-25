@@ -91,13 +91,9 @@ def _trailing_spacing_count(value: str) -> int:
 def _spacing_change_phrase(leading: int, trailing: int) -> str:
     parts = []
     if leading:
-        parts.append(
-            f"{leading} space{'s' if leading != 1 else ''} before the value"
-        )
+        parts.append(f"{leading} space{'s' if leading != 1 else ''} before the value")
     if trailing:
-        parts.append(
-            f"{trailing} space{'s' if trailing != 1 else ''} after the value"
-        )
+        parts.append(f"{trailing} space{'s' if trailing != 1 else ''} after the value")
     return " and ".join(parts)
 
 
@@ -154,9 +150,7 @@ def _transformation_impact_labels(
     effective_selection,
 ):
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
-    model_by_name = {
-        model.name: model for model in (schema.models if schema else ())
-    }
+    model_by_name = {model.name: model for model in (schema.models if schema else ())}
     dataset_by_id = {
         dataset.dataset_id: dataset for dataset in effective_selection.datasets
     }
@@ -170,19 +164,21 @@ def _transformation_impact_labels(
             continue
         if model is not None:
             for field in model.fields:
-                field_labels[(dataset.name, field.name)] = field.label
+                field_labels[(dataset.name, field.name)] = field.label or field.name
                 for technical_value, label in field.selection:
                     selection_labels[
                         (dataset.name, field.name, str(technical_value))
                     ] = label
         for field in mapping.fields:
-            if field.value_source is ScalarValueSource.ODOO_DEFAULT:
+            target_field = field.target_field
+            if field.value_source is ScalarValueSource.ODOO_DEFAULT or not target_field:
                 continue
+            target_field_name = str(target_field)
             field_choices.setdefault(
-                field.target_field,
+                target_field_name,
                 field_labels.get(
-                    (dataset.name, field.target_field),
-                    field.target_field,
+                    (dataset.name, target_field_name),
+                    target_field_name,
                 ),
             )
     datasets = tuple(
@@ -210,17 +206,13 @@ def _transformation_impact_filters(
     selected_outcome = outcome.strip()[:32]
     selected_field = target_field.strip()[:128]
     return TransformationImpactFilter(
-        dataset=(
-            selected_dataset if selected_dataset in allowed_datasets else ""
-        ),
+        dataset=(selected_dataset if selected_dataset in allowed_datasets else ""),
         outcome=(
             selected_outcome
             if selected_outcome in TRANSFORMATION_IMPACT_OUTCOMES
             else ""
         ),
-        target_field=(
-            selected_field if selected_field in allowed_fields else ""
-        ),
+        target_field=(selected_field if selected_field in allowed_fields else ""),
         query=query.strip()[:128],
     )
 
@@ -240,9 +232,7 @@ def _transformation_impact_url(
         "after": str(after) if after is not None else "",
         "before": str(before) if before is not None else "",
     }
-    query = urlencode(
-        {name: value for name, value in parameters.items() if value}
-    )
+    query = urlencode({name: value for name, value in parameters.items() if value})
     base = f"/workspaces/{workspace_id}/mapping/transformation-impact"
     return f"{base}?{query}" if query else base
 
@@ -266,8 +256,7 @@ def _mapping_return_url(
         name: value
         for name, value in request.query_params.items()
         if (
-            name in allowed_names
-            or re.fullmatch(r"target_model_\d+", name) is not None
+            name in allowed_names or re.fullmatch(r"target_model_\d+", name) is not None
         )
         and len(value) <= 256
     }
@@ -313,9 +302,7 @@ def _transformation_rule_impact_views(
             )
             authored_steps = (
                 (step_index, step)
-                for step_index, step in enumerate(
-                    field.transform.text_steps
-                )
+                for step_index, step in enumerate(field.transform.text_steps)
                 if step.configured
             )
             for (step_index, step), definition in zip(
@@ -339,8 +326,7 @@ def _transformation_rule_impact_views(
                         overlap_definition.rule_fingerprint,
                     )
     impact_by_fingerprint = {
-        impact.rule_fingerprint: impact
-        for impact in snapshot.report.rule_impacts
+        impact.rule_fingerprint: impact for impact in snapshot.report.rule_impacts
     }
     views = []
     for impact in snapshot.report.rule_impacts:
@@ -400,9 +386,7 @@ def _transformation_rule_impact_views(
         rule_index, rule, overlap_fingerprint = selection_step
         overlap_impact = impact_by_fingerprint.get(overlap_fingerprint)
         overlap_count = (
-            overlap_impact.matched_value_count
-            if overlap_impact is not None
-            else 0
+            overlap_impact.matched_value_count if overlap_impact is not None else 0
         )
         pending_acknowledgements = []
         if (
@@ -454,7 +438,7 @@ def _transformation_rule_impact_views(
             views,
             key=lambda item: (
                 item["dataset_index"],
-                item["field_label"].casefold(),
+                str(item["field_label"]).casefold(),
                 item["step_number"],
             ),
         )

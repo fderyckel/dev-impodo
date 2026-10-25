@@ -597,9 +597,31 @@ denominator deployment.
 entry points now share an actor-free route context and common HTTP installer.
 Deployment-neutral builders now wire the Project foundation and the complete
 source and Recipe authoring, Match data, Recipe application, preparation, and
-final-review service groups from injected ports. Run, execution, job,
-artifact, target, and final context groups remain in the local composition,
-and all PostgreSQL server adapters are still planned.
+final-review service groups, together with integrated run planning and setup,
+from injected dependencies. They also wire reviewed loading, transfer
+execution, reconciliation, protected reconciliation evidence, and fallout
+workbooks. The builders require application-owned ports; the local composition
+supplies the existing DuckDB repositories, governed artifacts, authorization,
+Odoo provenance, and deployment-specific credential callback. A shared
+top-level application graph now joins those groups, and one shared context
+builder maps explicit request, job, infrastructure, and target runtime bundles
+into the browser context. The launch token remains local, and the server may
+omit the explicit local Odoo runtime instead of constructing a false local
+adapter. Job runtimes, artifact-store construction, Odoo target factories,
+correction and Cutover qualification artifact construction, and browser-support
+service construction remain in the local composition. Integrated Test
+qualification now reuses the shared foundation, preparation, and execution
+graphs while the local deployment still owns its protected Project evidence
+store and DuckDB Cutover repository. All PostgreSQL
+server adapters are still planned. Completed-load correction orchestration now
+uses a deployment-neutral service graph as well. The local composition injects
+the DuckDB correction repository, protected correction evidence, native Polars
+review pipeline, and a deployment-owned target adapter. That adapter resolves
+the current secret and creates a scope-bound Odoo reader only when the review
+runs; the shared graph never receives credentials or caches a client. The
+current closure-based correction job manager remains local-only. The server
+will use the common durable job, authorization-receipt, lease, and fencing
+contracts instead of adapting that process-local manager.
 
 **Exit gate.** Local Impodo starts through the explicit local composition and
 passes its focused workflow suites. Architecture tests reject direct adapter

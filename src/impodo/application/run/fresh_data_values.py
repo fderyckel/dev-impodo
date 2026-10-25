@@ -24,6 +24,30 @@ from .fresh_data_matching import (
 )
 
 
+def _parameter_constraints(value: object) -> dict[str, object]:
+    """Validate one Recipe parameter-constraint object."""
+
+    if not isinstance(value, Mapping):
+        raise RecipeError("Stored Recipe parameter constraints are invalid")
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise RecipeError("Stored Recipe parameter constraints are invalid")
+        result[key] = item
+    return result
+
+
+def _constraint_integer(value: object, label: str) -> int:
+    """Decode an integer constraint without arbitrary object coercion."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise RecipeError(f"Stored Recipe {label} is invalid")
+    try:
+        return int(value)
+    except ValueError as error:
+        raise RecipeError(f"Stored Recipe {label} is invalid") from error
+
+
 @dataclass(frozen=True, slots=True)
 class FreshDataRunValue:
     """Present one shared answer requested by one or more selected Recipes."""
@@ -58,7 +82,9 @@ class FreshDataRunValue:
     @property
     def max_length(self) -> int | None:
         value = self.constraints.get("max_length")
-        return int(value) if value is not None else None
+        return (
+            _constraint_integer(value, "maximum length") if value is not None else None
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,11 +195,10 @@ def fresh_parameter_requirements(
             label=str(item.get("label", "Run value")),
             value_type=str(item.get("type", "string")),
             required=bool(item.get("required", False)),
-            constraints=dict(item.get("constraints", {})),
+            constraints=_parameter_constraints(item.get("constraints", {})),
             supplied_value=(
                 normalize_export_date(export_as_of)
-                if item.get("logical_parameter_id")
-                == "parameter:export_as_of_date"
+                if item.get("logical_parameter_id") == "parameter:export_as_of_date"
                 else None
             ),
         )
@@ -214,44 +239,64 @@ def fresh_input_requirements(
     return tuple(sorted(result, key=lambda item: item.logical_dataset_id))
 
 
-def control_definitions(definition: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
+def control_definitions(
+    definition: Mapping[str, object],
+) -> tuple[Mapping[str, object], ...]:
     """Read control declarations from a verified Recipe envelope."""
 
     payload = definition.get("control_definitions", {})
     if not isinstance(payload, Mapping):
         raise RecipeError("Stored Recipe control totals are invalid")
     controls = payload.get("controls", ())
-    if not isinstance(controls, (list, tuple)) or any(not isinstance(item, Mapping) for item in controls):
+    if not isinstance(controls, (list, tuple)) or any(
+        not isinstance(item, Mapping) for item in controls
+    ):
         raise RecipeError("Stored Recipe control totals are invalid")
     return tuple(controls)
 
 
-def fresh_control_requirements(definition: Mapping[str, object]) -> tuple[FreshDataControlRequirement, ...]:
+def fresh_control_requirements(
+    definition: Mapping[str, object],
+) -> tuple[FreshDataControlRequirement, ...]:
     """Keep reusable controls visible and request only delivery-owned totals."""
 
-    datasets = {item.logical_dataset_id: item.label for item in fresh_input_requirements(definition)}
+    datasets = {
+        item.logical_dataset_id: item.label
+        for item in fresh_input_requirements(definition)
+    }
     return tuple(
         FreshDataControlRequirement(
             logical_control_id=str(item["logical_control_id"]),
             label=str(item["name"]),
-            dataset_label=datasets.get(str(item["dataset_id"]), str(item["dataset_id"])),
+            dataset_label=datasets.get(
+                str(item["dataset_id"]), str(item["dataset_id"])
+            ),
             unit=str(item.get("unit", "")),
             tolerance=str(item.get("tolerance", "0")),
             invariant_total=(
-                normalize_control_total(item["invariant_expected_total"], label=str(item["name"]))
-                if item.get("invariant_expectation") else None
+                normalize_control_total(
+                    item["invariant_expected_total"], label=str(item["name"])
+                )
+                if item.get("invariant_expectation")
+                else None
             ),
         )
-        for item in sorted(control_definitions(definition), key=lambda item: str(item["logical_control_id"]))
+        for item in sorted(
+            control_definitions(definition),
+            key=lambda item: str(item["logical_control_id"]),
+        )
     )
 
 
 class SavedRunValues(Protocol):
     """Read shared prompts without coupling them to a Test or Production store."""
 
-    revision: int
+    @property
+    def revision(self) -> int: ...
+
     @property
     def by_recipe(self) -> Mapping[str, Mapping[str, object]]: ...
+
     @property
     def controls_by_recipe(self) -> Mapping[str, Mapping[str, str]]: ...
 
@@ -348,11 +393,15 @@ def build_fresh_data_run_value_plan(
                 recipe_name=recipe.display_name,
                 requirement=control,
                 supplied_value=(
-                    control.invariant_total if control.invariant_total is not None else
-                    stored_controls.get(recipe.recipe_id, {}).get(control.logical_control_id)
+                    control.invariant_total
+                    if control.invariant_total is not None
+                    else stored_controls.get(recipe.recipe_id, {}).get(
+                        control.logical_control_id
+                    )
                 ),
             )
-            for recipe in requirements for control in recipe.controls
+            for recipe in requirements
+            for control in recipe.controls
         ),
     )
 

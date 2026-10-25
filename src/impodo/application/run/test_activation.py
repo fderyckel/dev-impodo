@@ -42,6 +42,7 @@ from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
 from .application_materialization import RunApplicationMaterializer
+from .ports import RunCutoverPlanRepository, RunPlanningRepository
 from .review import RunReviewUseCase
 
 
@@ -57,11 +58,11 @@ class TestRunActivationUseCase:
     def __init__(
         self,
         *,
-        repository,
+        repository: RunPlanningRepository,
         review: RunReviewUseCase,
         materializer: RunApplicationMaterializer,
         workspace_states,
-        cutover_plans,
+        cutover_plans: RunCutoverPlanRepository,
         authorization: AuthorizationPolicy,
     ) -> None:
         self._repository = repository

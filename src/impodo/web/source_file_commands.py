@@ -44,12 +44,15 @@ async def accept_source_uploads(
         def accept_all() -> None:
             current_revision = expected_revision
             for upload in uploads:
+                display_name = upload.filename
+                if not display_name:
+                    continue
                 added.append(
                     context.intake.accept(
                         workspace_id,
                         actor=actor,
                         expected_revision=current_revision,
-                        display_name=upload.filename,
+                        display_name=display_name,
                         stream=upload.file,
                     )
                 )

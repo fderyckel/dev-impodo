@@ -80,9 +80,7 @@ def relationship_health_view(
         _relationship_card(
             view,
             relationship,
-            current_results.get(
-                (view["source"].dataset_id, relationship.target_field)
-            ),
+            current_results.get((view["source"].dataset_id, relationship.target_field)),
             view_by_id=view_by_id,
             has_check=live_check is not None,
             live_check_current=live_check_current,
@@ -100,7 +98,7 @@ def relationship_health_view(
         "attention_count": sum(bool(card["blocked_count"]) for card in cards),
         "message": (
             check_attempt.message
-            if running
+            if running and check_attempt is not None
             else (
                 "Save the current matching choices before checking relationships."
                 if not working_draft_is_current
@@ -137,7 +135,9 @@ def _relationship_card(
         relationship.resolver.origin,
         related_model_label=related_model_label,
         related_dataset_name=(
-            related_view["source"].name if related_view is not None else "incoming table"
+            related_view["source"].name
+            if related_view is not None
+            else "incoming table"
         ),
     )
     status_label, status_class, message = _relationship_state(
@@ -157,8 +157,7 @@ def _relationship_card(
         view_by_id,
     )
     edit_url = (
-        f"{view['edit_url']}#relationship-"
-        f"{view['index']}-{relationship.target_field}"
+        f"{view['edit_url']}#relationship-{view['index']}-{relationship.target_field}"
     )
     return {
         "dataset_name": source.name,
@@ -196,13 +195,9 @@ def _relationship_card(
             if checked is not None and checked.blocked_count
             else "Review relationship"
         ),
-        "related_url": (
-            related_view["edit_url"] if related_view is not None else None
-        ),
+        "related_url": (related_view["edit_url"] if related_view is not None else None),
         "related_action_label": (
-            f"Open {related_view['source'].name}"
-            if related_view is not None
-            else None
+            f"Open {related_view['source'].name}" if related_view is not None else None
         ),
         "inverse_action": inverse_action,
     }
@@ -260,10 +255,12 @@ def _relationship_state(
         return (
             "Chosen - not tested",
             "review",
-            _UNCHECKED_MESSAGES.get(
-                result.not_checkable_reason,
-                "This saved relationship could not be tested safely.",
-            ),
+            (
+                _UNCHECKED_MESSAGES.get(result.not_checkable_reason)
+                if result.not_checkable_reason is not None
+                else None
+            )
+            or "This saved relationship could not be tested safely.",
         )
     return (
         "Chosen - not tested",
@@ -326,10 +323,7 @@ def _one2many_inverse_action(
         return None
     return {
         "url": (
-            f"{child['edit_url']}#relationship-"
-            f"{child['index']}-{field.relation_field}"
+            f"{child['edit_url']}#relationship-{child['index']}-{field.relation_field}"
         ),
-        "label": (
-            f"Open {child['source'].name} -> {field.relation_field}"
-        ),
+        "label": (f"Open {child['source'].name} -> {field.relation_field}"),
     }

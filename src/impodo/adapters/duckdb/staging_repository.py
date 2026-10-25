@@ -13,7 +13,7 @@ from datetime import (
     UTC,
     datetime,
 )
-from typing import cast
+from typing import Protocol, runtime_checkable
 from uuid import UUID, uuid4
 
 import duckdb
@@ -60,11 +60,53 @@ _STAGING_ROW_JSON_STRUCTURE = """[{
     "row_json":"VARCHAR"
 }]"""
 
+_StoredStagingRow = tuple[
+    int | str,
+    object,
+    object,
+    int | str,
+    object,
+    object,
+    object,
+]
+
+
+@runtime_checkable
+class _EncodedCanonicalRows(Protocol):
+    """Expose bounded stored-row batches without materializing canonical rows."""
+
+    canonical_run_id: str
+
+    def __len__(self) -> int: ...
+
+    def iter_encoded_batches(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+        batch_size: int,
+    ) -> Iterator[Sequence[_StoredStagingRow]]: ...
+
+
+def _encoded_canonical_rows(rows: object) -> _EncodedCanonicalRows:
+    """Require the stored-row transport implemented by finalized sessions."""
+
+    if not isinstance(rows, _EncodedCanonicalRows):
+        raise WorkspaceError("Stored preparation rows are unavailable")
+    return rows
+
+
+def _stored_int(value: object, label: str) -> int:
+    """Decode one persisted integer without accepting arbitrary objects."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise WorkspaceError(f"Stored {label} is invalid")
+    try:
+        return int(value)
+    except ValueError as error:
+        raise WorkspaceError(f"Stored {label} is invalid") from error
+
 
 def _stored_staging_rows(
-    batch: Sequence[
-        tuple[int | str, object, object, int | str, object, object, object]
-    ],
+    batch: Sequence[_StoredStagingRow],
     *,
     start: int,
     hasher: CanonicalJsonObjectHasher,
@@ -160,9 +202,7 @@ class StagingRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Prepared data must be regenerated with the current evaluator"
             )
-        physical_selection = self._source_selections.get_source_selection(
-            workspace_id
-        )
+        physical_selection = self._source_selections.get_source_selection(workspace_id)
         if physical_selection is None:
             raise WorkspaceError(
                 "Freeze the source datasets before saving prepared data"
@@ -171,16 +211,19 @@ class StagingRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Prepared data no longer matches the frozen source datasets"
             )
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         published_at = datetime.now(UTC)
-        pending_run_id = getattr(run.rows, "canonical_run_id", None)
-        if pending_run_id is None:
+        pending_run = run if isinstance(run, StoredCanonicalStagingRun) else None
+        if pending_run is None:
             run_id = str(uuid4())
         else:
+            pending_rows = _encoded_canonical_rows(pending_run.rows)
             try:
-                run_id = str(UUID(str(pending_run_id)))
+                run_id = str(UUID(pending_rows.canonical_run_id))
             except (ValueError, AttributeError) as error:
                 raise WorkspaceError(
                     "Pending prepared-data run identifier is invalid"
@@ -231,13 +274,8 @@ class StagingRepository(DuckDbRepository):
                     """
                 ).fetchone()
                 if local_selection is not None:
-                    local_physical = SourceSelection.from_json(
-                        str(local_selection[0])
-                    )
-                    if (
-                        local_physical.content_hash
-                        != physical_selection.content_hash
-                    ):
+                    local_physical = SourceSelection.from_json(str(local_selection[0]))
+                    if local_physical.content_hash != physical_selection.content_hash:
                         raise WorkspaceError(
                             "The frozen source datasets changed during "
                             "prepared-data publication"
@@ -276,10 +314,10 @@ class StagingRepository(DuckDbRepository):
                     self._pending_canonical_content_hash(
                         connection,
                         run_id,
-                        run,
+                        pending_run,
                         mapping_version=mapping_version,
                     )
-                    if pending_run_id is not None
+                    if pending_run is not None
                     else self._insert_canonical_rows(
                         connection,
                         run_id,
@@ -300,7 +338,7 @@ class StagingRepository(DuckDbRepository):
                     reason="CANONICAL_STAGING_CHANGED",
                 )
 
-                if pending_run_id is not None:
+                if pending_run is not None:
                     promoted = connection.execute(
                         """
                         UPDATE canonical_staging_run
@@ -529,7 +567,9 @@ class StagingRepository(DuckDbRepository):
     ) -> StagingRunSummary | None:
         """Return the summary selected by the current published-run pointer."""
 
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -564,7 +604,9 @@ class StagingRepository(DuckDbRepository):
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Prepared-data run identifier is invalid") from error
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -638,7 +680,7 @@ class StagingRepository(DuckDbRepository):
                 encoded_batches = PreparationSessionRepository(
                     self._database,
                     self._artifacts,
-                )._iter_direct_encoded_batches(
+                ).iter_direct_encoded_batches(
                     workspace_id,
                     canonical_run_id,
                     batch_size=STAGING_ROW_BATCH_SIZE,
@@ -663,7 +705,10 @@ class StagingRepository(DuckDbRepository):
                 encoded_batches = stored_batches()
             for batch in encoded_batches:
                 for ordinal, *_metadata, row_text in batch:
-                    if int(ordinal) != expected_ordinal:
+                    if (
+                        _stored_int(ordinal, "prepared-data row ordinal")
+                        != expected_ordinal
+                    ):
                         raise WorkspaceError(
                             "Stored prepared-data row ordering is invalid"
                         )
@@ -738,29 +783,19 @@ class StagingRepository(DuckDbRepository):
         hasher.add_value("physical_selection_hash", run.physical_selection_hash)
         hasher.add_value("reconciliation", run.reconciliation.to_portable_dict())
         hasher.start_array("rows")
-        encoded_batches = getattr(run.rows, "iter_encoded_batches", None)
-        if callable(encoded_batches):
+        if isinstance(run, StoredCanonicalStagingRun):
+            stored_rows = _encoded_canonical_rows(run.rows)
             expected_ordinal = 0
-            for batch in encoded_batches(connection, STAGING_ROW_BATCH_SIZE):
+            for batch in stored_rows.iter_encoded_batches(
+                connection,
+                STAGING_ROW_BATCH_SIZE,
+            ):
                 batch_start_ordinal = expected_ordinal
 
                 inserted_rows = 0
                 for encoded_batch in iter_encoded_json_batches(
                     _stored_staging_rows(
-                        cast(
-                            Sequence[
-                                tuple[
-                                    int | str,
-                                    object,
-                                    object,
-                                    int | str,
-                                    object,
-                                    object,
-                                    object,
-                                ]
-                            ],
-                            batch,
-                        ),
+                        batch,
                         start=batch_start_ordinal,
                         hasher=hasher,
                     ),
@@ -791,9 +826,7 @@ class StagingRepository(DuckDbRepository):
                     )
                     inserted_rows += encoded_batch.row_count
                 if inserted_rows != len(batch):
-                    raise WorkspaceError(
-                        "Stored preparation row batch is incomplete"
-                    )
+                    raise WorkspaceError("Stored preparation row batch is incomplete")
                 expected_ordinal += len(batch)
             if expected_ordinal != len(run.rows):
                 raise WorkspaceError("Stored preparation rows are incomplete")
@@ -858,9 +891,9 @@ class StagingRepository(DuckDbRepository):
             workspace_id=workspace_id,
             content_hash=str(row[1]),
             mapping_id=str(row[2]),
-            mapping_version=int(row[3]),
-            contract_version=int(row[4]),
-            evaluator_version=int(row[5]),
+            mapping_version=_stored_int(row[3], "mapping version"),
+            contract_version=_stored_int(row[4], "staging contract version"),
+            evaluator_version=_stored_int(row[5], "evaluator version"),
             status=StagingRunStatus(str(row[6])),
             published_at=datetime.fromisoformat(str(row[7])),
             published_by=str(row[8]),

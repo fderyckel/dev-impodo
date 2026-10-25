@@ -114,10 +114,8 @@ def write_polars_correction_candidates(
             or field.value_type != corrected.value_type
             or len(field.value_aliases) != len(corrected.value_aliases)
             or field.relationship_model != corrected.relationship_model
-            or field.relationship_key_fields
-            != corrected.relationship_key_fields
-            or field.relationship_scope_fields
-            != corrected.relationship_scope_fields
+            or field.relationship_key_fields != corrected.relationship_key_fields
+            or field.relationship_scope_fields != corrected.relationship_scope_fields
         ):
             raise CorrectionComparisonError(
                 "Correction changes the contract of target field "
@@ -134,9 +132,7 @@ def write_polars_correction_candidates(
         prefix="previous",
         issue_alias=_PREVIOUS_INVALID_COLUMN,
     )
-    corrected_fields = tuple(
-        corrected_by_field[field.target_field] for field in fields
-    )
+    corrected_fields = tuple(corrected_by_field[field.target_field] for field in fields)
     corrected_lazy = _intent_projection(
         corrected_artifact,
         corrected_fields,
@@ -165,9 +161,7 @@ def write_polars_correction_candidates(
             corrected_aliases,
             strict=True,
         ):
-            equal = equal & pl.col(previous_alias).eq_missing(
-                pl.col(corrected_alias)
-            )
+            equal = equal & pl.col(previous_alias).eq_missing(pl.col(corrected_alias))
         payload_expressions.append(
             pl.when(~equal)
             .then(
@@ -415,9 +409,7 @@ def _restore_intent(value: object, field: PreparedIntentColumn):
     if field.value_kind is CorrectionValueKind.SCALAR:
         return _restore_typed_value(value, field.value_type)
     if not isinstance(value, dict) or len(value) != len(field.value_aliases):
-        raise CorrectionComparisonError(
-            "Correction relationship payload is invalid"
-        )
+        raise CorrectionComparisonError("Correction relationship payload is invalid")
     return tuple(
         _restore_typed_value(value.get(f"component_{index:06d}"), field.value_type)
         for index in range(len(field.value_aliases))
@@ -431,6 +423,8 @@ def _restore_typed_value(value: object, value_type: str):
         if value_type == "string":
             return str(value)
         if value_type == "integer":
+            if type(value) is not int and not isinstance(value, str):
+                raise TypeError
             return int(value)
         if value_type == "decimal":
             return Decimal(str(value))
@@ -442,11 +436,7 @@ def _restore_typed_value(value: object, value_type: str):
             return date.fromisoformat(str(value))
         if value_type == "datetime":
             parsed = datetime.fromisoformat(str(value))
-            return (
-                parsed
-                if parsed.tzinfo is not None
-                else parsed.replace(tzinfo=UTC)
-            )
+            return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
     except (TypeError, ValueError, ArithmeticError) as error:
         raise CorrectionComparisonError(
             "Correction candidate typed value is invalid"

@@ -10,7 +10,7 @@ change the accepted package.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -184,12 +184,8 @@ class SourcePackageDataset:
         if any(item.ordinal < 1 for item in self.columns) or len(
             {item.ordinal for item in self.columns}
         ) != len(self.columns):
-            raise MigrationFoundationError(
-                "Source dataset column ordinals are invalid"
-            )
-        if len({item.stable_key for item in self.columns}) != len(
-            self.columns
-        ):
+            raise MigrationFoundationError("Source dataset column ordinals are invalid")
+        if len({item.stable_key for item in self.columns}) != len(self.columns):
             raise MigrationFoundationError(
                 "Source dataset columns contain duplicate identities"
             )
@@ -315,9 +311,7 @@ class DataVersionSourcePackage:
         return content_hash(
             {
                 "catalogs": [item.to_dict() for item in self.catalogs],
-                "configurations": [
-                    item.to_dict() for item in self.configurations
-                ],
+                "configurations": [item.to_dict() for item in self.configurations],
                 "data_version_id": self.data_version_id,
                 "datasets": [item.to_dict() for item in self.datasets],
                 "files": [item.to_dict() for item in self.files],
@@ -333,14 +327,22 @@ class DataVersionSourcePackage:
         raise MigrationFoundationError("Source package dataset not found")
 
     def _validate_membership(self) -> None:
-        files = _unique(self.files, "file_id", "Source files")
-        catalogs = _unique(self.catalogs, "file_id", "Source catalogs")
+        files = _unique(self.files, lambda item: item.file_id, "Source files")
+        catalogs = _unique(
+            self.catalogs,
+            lambda item: item.file_id,
+            "Source catalogs",
+        )
         configurations = _unique(
             self.configurations,
-            "file_id",
+            lambda item: item.file_id,
             "Source configurations",
         )
-        _unique(self.datasets, "dataset_id", "Source datasets")
+        _unique(
+            self.datasets,
+            lambda item: item.dataset_id,
+            "Source datasets",
+        )
         file_ids = set(files)
         if self.origin is SourcePackageOrigin.FILE:
             if not set(catalogs).issubset(file_ids):
@@ -370,17 +372,13 @@ class DataVersionSourcePackage:
                 raise MigrationFoundationError(
                     "Source dataset references a file outside its DataVersion"
                 )
-            if (
-                self.origin is SourcePackageOrigin.FILE
-                and not dataset.source_file_ids
-            ):
+            if self.origin is SourcePackageOrigin.FILE and not dataset.source_file_ids:
                 raise MigrationFoundationError(
                     "A file dataset requires source-file evidence"
                 )
-            if (
-                isinstance(dataset.source, FileSourceBinding)
-                and dataset.source_file_ids != (dataset.source.file_id,)
-            ):
+            if isinstance(
+                dataset.source, FileSourceBinding
+            ) and dataset.source_file_ids != (dataset.source.file_id,):
                 raise MigrationFoundationError(
                     "File dataset evidence does not match its source binding"
                 )
@@ -399,23 +397,18 @@ class DataVersionSourcePackage:
                     raise MigrationFoundationError(
                         "File dataset binding does not match package evidence"
                     )
-            if (
-                self.origin is SourcePackageOrigin.FILE
-                and isinstance(dataset.source, OdooSourceBinding)
+            if self.origin is SourcePackageOrigin.FILE and isinstance(
+                dataset.source, OdooSourceBinding
             ):
                 raise MigrationFoundationError(
                     "A file package cannot contain an Odoo source binding"
                 )
-            if (
-                self.origin is SourcePackageOrigin.ODOO
-                and dataset.source_file_ids
-            ):
+            if self.origin is SourcePackageOrigin.ODOO and dataset.source_file_ids:
                 raise MigrationFoundationError(
                     "An Odoo dataset cannot reference a source file"
                 )
-            if (
-                self.origin is SourcePackageOrigin.ODOO
-                and isinstance(dataset.source, FileSourceBinding)
+            if self.origin is SourcePackageOrigin.ODOO and isinstance(
+                dataset.source, FileSourceBinding
             ):
                 raise MigrationFoundationError(
                     "An Odoo package cannot contain a file source binding"
@@ -444,10 +437,9 @@ class DataVersionSourcePackage:
                 raise MigrationFoundationError(
                     "A file source package requires at least one file"
                 )
-            if (
-                {item.file_id for item in self.catalogs} != file_ids
-                or {item.file_id for item in self.configurations} != file_ids
-            ):
+            if {item.file_id for item in self.catalogs} != file_ids or {
+                item.file_id for item in self.configurations
+            } != file_ids:
                 raise MigrationFoundationError(
                     "Every source file requires one catalogue and confirmation"
                 )
@@ -484,7 +476,11 @@ class WorkspaceSourceProjection:
             "datasets",
             tuple(sorted(self.datasets, key=lambda item: item.dataset_id)),
         )
-        _unique(self.datasets, "dataset_id", "Projected datasets")
+        _unique(
+            self.datasets,
+            lambda item: item.dataset_id,
+            "Projected datasets",
+        )
         require_aware(self.created_at, "created_at")
         required_text(self.created_by, "created_by", maximum=500)
 
@@ -660,9 +656,7 @@ class DataVersionSourceIntakeService:
                 item for item in current.configurations if item.file_id != file_id
             ),
             datasets=tuple(
-                item
-                for item in current.datasets
-                if file_id not in item.source_file_ids
+                item for item in current.datasets if file_id not in item.source_file_ids
             ),
             updated_at=now,
         )
@@ -713,9 +707,7 @@ class DataVersionSourcePackageService:
         expected_package_revision: int | None,
     ) -> DataVersionSourcePackage:
         self.authorization.require(actor, Capability.DATA_VERSION_EDIT)
-        project_id = self.repository.data_version_project_id(
-            package.data_version_id
-        )
+        project_id = self.repository.data_version_project_id(package.data_version_id)
         if package.project_id != project_id:
             raise MigrationFoundationError(
                 "Source package does not belong to this DataVersion"
@@ -746,9 +738,7 @@ class DataVersionSourcePackageService:
         """Record one inspection result against exact draft file bytes."""
 
         current = self._draft(data_version_id, actor=actor)
-        catalogs = {
-            item.file_id: item for item in current.catalogs
-        }
+        catalogs = {item.file_id: item for item in current.catalogs}
         catalogs[catalog.file_id] = catalog
         candidate = replace(
             current,
@@ -783,9 +773,7 @@ class DataVersionSourcePackageService:
         """Record accepted parsing and table choices for one catalogue."""
 
         current = self._draft(data_version_id, actor=actor)
-        configurations = {
-            item.file_id: item for item in current.configurations
-        }
+        configurations = {item.file_id: item for item in current.configurations}
         configurations[configuration.file_id] = configuration
         candidate = replace(
             current,
@@ -886,13 +874,9 @@ class DataVersionSourcePackageService:
             Capability.DATA_VERSION_EDIT,
             project_id=project_id,
         )
-        current = self.repository.get_source_package(
-            data_version_id
-        )
+        current = self.repository.get_source_package(data_version_id)
         if current is None or current.state is not SourcePackageState.DRAFT:
-            raise MigrationFoundationError(
-                "A draft source package is required"
-            )
+            raise MigrationFoundationError("A draft source package is required")
         return current
 
 
@@ -926,8 +910,7 @@ class WorkspaceSourceProjectionService:
         )
         cleaned = tuple(
             sorted(
-                required_text(item, "dataset_id", maximum=300)
-                for item in dataset_ids
+                required_text(item, "dataset_id", maximum=300) for item in dataset_ids
             )
         )
         if not cleaned or len(set(cleaned)) != len(cleaned):
@@ -964,21 +947,15 @@ def _portable_mapping(value: Mapping[str, object], label: str) -> None:
 def _safe_source_display_name(value: str) -> str:
     name = value.strip()
     if not name or len(name) > 255:
-        raise DataVersionSourceIntakeError(
-            "Source filename is missing or too long"
-        )
+        raise DataVersionSourceIntakeError("Source filename is missing or too long")
     if PurePath(name).name != name or "/" in name or "\\" in name:
-        raise DataVersionSourceIntakeError(
-            "Source filename must not contain a path"
-        )
+        raise DataVersionSourceIntakeError("Source filename must not contain a path")
     if any(ord(character) < 32 for character in name):
         raise DataVersionSourceIntakeError(
             "Source filename contains control characters"
         )
     if Path(name).suffix.casefold() not in DATA_VERSION_SOURCE_EXTENSIONS:
-        raise DataVersionSourceIntakeError(
-            "Only CSV and XLSX files are accepted"
-        )
+        raise DataVersionSourceIntakeError("Only CSV and XLSX files are accepted")
     return name
 
 
@@ -1001,12 +978,12 @@ def source_column_contract_hash(
     )
 
 
-def _unique(
-    values: tuple[object, ...],
-    attribute: str,
+def _unique[UniqueValue](
+    values: tuple[UniqueValue, ...],
+    identity: Callable[[UniqueValue], str],
     label: str,
-) -> dict[str, object]:
-    indexed = {str(getattr(item, attribute)): item for item in values}
+) -> dict[str, UniqueValue]:
+    indexed = {identity(item): item for item in values}
     if len(indexed) != len(values):
         raise MigrationFoundationError(f"{label} contain duplicate identities")
     return indexed

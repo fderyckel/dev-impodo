@@ -15,12 +15,30 @@ from impodo.domain.project.foundation import (
     require_hash,
     require_uuid,
 )
-from impodo.domain.run.production import ProductionRunBinding
+from impodo.domain.run.production import (
+    ProductionRunBinding,
+    ProductionRunBindingState,
+)
 from impodo.domain.run.production_values import ProductionRunValues
 from impodo.domain.serialization import canonical_json
 from impodo.domain.shared.access import Actor
 
 from .migration_foundation_repository import MigrationFoundationRepository
+
+
+def _object_mapping(value: object, field_name: str) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise MigrationConflictError(f"Saved {field_name} must be an object")
+    result = {key: item for key, item in value.items() if isinstance(key, str)}
+    if len(result) != len(value):
+        raise MigrationConflictError(f"Saved {field_name} contains an invalid key")
+    return result
+
+
+def _stored_integer(value: object, field_name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise MigrationConflictError(f"Saved {field_name} must be an integer")
+    return value
 
 
 class ProductionRunRepository:
@@ -55,7 +73,9 @@ class ProductionRunRepository:
             detail={"binding": binding.to_dict()},
             actor=actor,
         )
-        stored = self._from_dict(dict(intent.detail["binding"]))
+        stored = self._from_dict(
+            _object_mapping(intent.detail.get("binding"), "Production binding")
+        )
         if intent.state is MigrationOperationState.COMMITTED:
             return self.get(stored.migration_run_id)
         self.foundation._fault(fault, "INTENT_RESERVED")
@@ -89,8 +109,7 @@ class ProductionRunRepository:
                         ],
                     )
                     connection.execute(
-                        "INSERT INTO migration_run_cutover_plan VALUES "
-                        "(?, ?, ?, ?, ?)",
+                        "INSERT INTO migration_run_cutover_plan VALUES (?, ?, ?, ?, ?)",
                         [
                             stored.migration_run_id,
                             stored.cutover_plan_id,
@@ -164,8 +183,10 @@ class ProductionRunRepository:
 
     def get_run_values(self, migration_run_id: str) -> ProductionRunValues | None:
         with self.database.connect(self.registry_path) as connection:
-            row = connection.execute("SELECT values_json, content_hash FROM production_run_values WHERE migration_run_id = ?",
-                                     [require_uuid(migration_run_id, "migration_run_id")]).fetchone()
+            row = connection.execute(
+                "SELECT values_json, content_hash FROM production_run_values WHERE migration_run_id = ?",
+                [require_uuid(migration_run_id, "migration_run_id")],
+            ).fetchone()
         return self._read_values(row) if row else None
 
     @staticmethod
@@ -173,51 +194,93 @@ class ProductionRunRepository:
         try:
             value = ProductionRunValues.from_dict(json.loads(str(row[0])))
         except (ValueError, KeyError, TypeError) as error:
-            raise MigrationConflictError("Saved Production values could not be verified") from error
+            raise MigrationConflictError(
+                "Saved Production values could not be verified"
+            ) from error
         if value.content_hash != str(row[1]):
-            raise MigrationConflictError("Saved Production values could not be verified")
+            raise MigrationConflictError(
+                "Saved Production values could not be verified"
+            )
         return value
 
-    def replace_run_values(self, values: ProductionRunValues, *, expected_revision: int | None,
-                           expected_binding_hash: str, actor: Actor) -> ProductionRunValues:
+    def replace_run_values(
+        self,
+        values: ProductionRunValues,
+        *,
+        expected_revision: int | None,
+        expected_binding_hash: str,
+        actor: Actor,
+    ) -> ProductionRunValues:
         """Save answers with one transaction; accepted or activating answers stay fixed."""
 
         with self.database.connect(self.registry_path) as connection:
             connection.begin()
             try:
-                row = connection.execute("SELECT values_json, content_hash FROM production_run_values WHERE migration_run_id = ?",
-                                         [values.migration_run_id]).fetchone()
+                row = connection.execute(
+                    "SELECT values_json, content_hash FROM production_run_values WHERE migration_run_id = ?",
+                    [values.migration_run_id],
+                ).fetchone()
                 previous = self._read_values(row) if row else None
                 if expected_revision != (previous.revision if previous else None):
                     raise MigrationConflictError("Run values changed; reload and retry")
                 binding = connection.execute(
                     "SELECT b.production_run_binding_id, b.project_id, b.plan_content_hash, b.content_hash, b.state, d.state "
                     "FROM production_run_binding b JOIN data_version d ON d.data_version_id = b.data_version_id "
-                    "WHERE b.migration_run_id = ?", [values.migration_run_id],
+                    "WHERE b.migration_run_id = ?",
+                    [values.migration_run_id],
                 ).fetchone()
                 if not binding or tuple(binding[:4]) != (
-                    values.production_run_binding_id, values.project_id, values.plan_content_hash, expected_binding_hash,
+                    values.production_run_binding_id,
+                    values.project_id,
+                    values.plan_content_hash,
+                    expected_binding_hash,
                 ):
-                    raise MigrationConflictError("Production setup changed; reload and retry")
-                if previous and previous.parameters == values.parameters and previous.controls == values.controls:
+                    raise MigrationConflictError(
+                        "Production setup changed; reload and retry"
+                    )
+                if (
+                    previous
+                    and previous.parameters == values.parameters
+                    and previous.controls == values.controls
+                ):
                     connection.commit()
                     return previous
                 reserved = connection.execute(
                     "SELECT 1 FROM project_operation_intent WHERE owner_id = ? AND kind = 'PRODUCTION_RUN_ACTIVATE' LIMIT 1",
                     [values.migration_run_id],
                 ).fetchone()
-                if binding[4] != "SETUP" or reserved or (binding[5] == "FROZEN" and previous is not None):
-                    raise MigrationConflictError("Run details were accepted with this fresh data; start a new Production run to change them")
+                if (
+                    binding[4] != "SETUP"
+                    or reserved
+                    or (binding[5] == "FROZEN" and previous is not None)
+                ):
+                    raise MigrationConflictError(
+                        "Run details were accepted with this fresh data; start a new Production run to change them"
+                    )
                 if values.revision != (previous.revision + 1 if previous else 1):
                     raise MigrationConflictError("Run values changed; reload and retry")
-                connection.execute("INSERT INTO production_run_values VALUES (?, ?, ?, ?) "
-                                   "ON CONFLICT (migration_run_id) DO UPDATE SET revision = excluded.revision, "
-                                   "values_json = excluded.values_json, content_hash = excluded.content_hash",
-                                   [values.migration_run_id, values.revision, canonical_json(values.to_dict()), values.content_hash])
-                self.foundation._insert_event(connection, project_id=values.project_id,
-                    aggregate_kind="MIGRATION_RUN", aggregate_id=values.migration_run_id,
-                    aggregate_revision=values.revision, event_type="PRODUCTION_RUN_VALUES_SAVED",
-                    detail={"values_hash": values.content_hash}, actor=actor, occurred_at=values.updated_at)
+                connection.execute(
+                    "INSERT INTO production_run_values VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT (migration_run_id) DO UPDATE SET revision = excluded.revision, "
+                    "values_json = excluded.values_json, content_hash = excluded.content_hash",
+                    [
+                        values.migration_run_id,
+                        values.revision,
+                        canonical_json(values.to_dict()),
+                        values.content_hash,
+                    ],
+                )
+                self.foundation._insert_event(
+                    connection,
+                    project_id=values.project_id,
+                    aggregate_kind="MIGRATION_RUN",
+                    aggregate_id=values.migration_run_id,
+                    aggregate_revision=values.revision,
+                    event_type="PRODUCTION_RUN_VALUES_SAVED",
+                    detail={"values_hash": values.content_hash},
+                    actor=actor,
+                    occurred_at=values.updated_at,
+                )
                 connection.commit()
             except Exception:
                 connection.rollback()
@@ -371,10 +434,13 @@ class ProductionRunRepository:
             cutover_selection_id=str(value["cutover_selection_id"]),
             qualification_id=str(value["qualification_id"]),
             cutover_plan_id=str(value["cutover_plan_id"]),
-            cutover_plan_revision=int(value["cutover_plan_revision"]),
+            cutover_plan_revision=_stored_integer(
+                value["cutover_plan_revision"],
+                "cutover_plan_revision",
+            ),
             plan_content_hash=str(value["plan_content_hash"]),
             test_target_binding_hash=str(value["test_target_binding_hash"]),
-            state=str(value["state"]),
+            state=ProductionRunBindingState(str(value["state"])),
             target_binding_id=(
                 str(value["target_binding_id"])
                 if value.get("target_binding_id")
@@ -405,7 +471,10 @@ class ProductionRunRepository:
                 if value.get("activated_at")
                 else None
             ),
-            contract_version=int(value["contract_version"]),
+            contract_version=_stored_integer(
+                value["contract_version"],
+                "contract_version",
+            ),
         )
 
     @classmethod
@@ -419,10 +488,13 @@ class ProductionRunRepository:
             cutover_selection_id=str(value["cutover_selection_id"]),
             qualification_id=str(value["qualification_id"]),
             cutover_plan_id=str(value["cutover_plan_id"]),
-            cutover_plan_revision=int(value["cutover_plan_revision"]),
+            cutover_plan_revision=_stored_integer(
+                value["cutover_plan_revision"],
+                "cutover_plan_revision",
+            ),
             plan_content_hash=str(value["plan_content_hash"]),
             test_target_binding_hash=str(value["test_target_binding_hash"]),
-            state=str(value["state"]),
+            state=ProductionRunBindingState(str(value["state"])),
             target_binding_id=cls._optional(value, "target_binding_id"),
             read_credential_generation=cls._optional(
                 value,
@@ -447,7 +519,10 @@ class ProductionRunRepository:
                 if value.get("activated_at")
                 else None
             ),
-            contract_version=int(value["contract_version"]),
+            contract_version=_stored_integer(
+                value["contract_version"],
+                "contract_version",
+            ),
         )
 
     @staticmethod

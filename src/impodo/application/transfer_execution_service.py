@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from decimal import Decimal
 from hashlib import sha256
 from typing import Protocol
 
@@ -145,10 +146,9 @@ class TransferExecutionService:
         snapshots = self.sources.get_current_source_snapshots(workspace.workspace_id)
         snapshot_by_dataset = {item.dataset_id: item for item in snapshots}
         dataset_by_id = {item.dataset_id: item for item in selection.datasets}
-        if (
-            len(snapshot_by_dataset) != len(snapshots)
-            or set(snapshot_by_dataset) != set(dataset_by_id)
-        ):
+        if len(snapshot_by_dataset) != len(snapshots) or set(
+            snapshot_by_dataset
+        ) != set(dataset_by_id):
             raise WorkspaceError("The frozen source snapshots are incomplete")
 
         source_rows: dict[str, tuple[SourceRow, ...]] = {}
@@ -180,9 +180,7 @@ class TransferExecutionService:
             workspace.workspace_id,
             actor=actor,
         )
-        manifest_hashes = {
-            item.dataset_id: item.content_hash for item in manifests
-        }
+        manifest_hashes = {item.dataset_id: item.content_hash for item in manifests}
         if set(manifest_hashes) != set(dataset_by_id):
             raise WorkspaceError("Protected source manifests are incomplete")
 
@@ -456,40 +454,34 @@ def compile_transfer_execution_snapshot(
         dataset_id = reviewed.dataset_id
         match = match_by_id[dataset_id]
         all_rows = source_rows[dataset_id]
-        if tuple(row.number for row in all_rows) != tuple(
-            range(1, len(all_rows) + 1)
-        ):
-            raise WorkspaceError(
-                f"Frozen row order changed for {reviewed.model_label}"
-            )
+        if tuple(row.number for row in all_rows) != tuple(range(1, len(all_rows) + 1)):
+            raise WorkspaceError(f"Frozen row order changed for {reviewed.model_label}")
         excluded_rows = set(match.omitted_source_row_numbers)
         if (
             len(all_rows) != match.frozen_source_row_count
             or reviewed.excluded_source_record_count != len(excluded_rows)
         ):
-            raise WorkspaceError(
-                f"Frozen row scope changed for {reviewed.model_label}"
-            )
-        rows = tuple(
-            row for row in all_rows if row.number not in excluded_rows
-        )
+            raise WorkspaceError(f"Frozen row scope changed for {reviewed.model_label}")
+        rows = tuple(row for row in all_rows if row.number not in excluded_rows)
         if len(rows) != reviewed.source_row_count:
-            raise WorkspaceError(
-                f"Frozen row count changed for {reviewed.model_label}"
-            )
+            raise WorkspaceError(f"Frozen row count changed for {reviewed.model_label}")
         included_rows_by_dataset[dataset_id] = rows
         selected = selected_by_id[dataset_id]
         columns_by_key = {item.stable_key: item for item in selected.columns}
+        selected_key_fields = tuple(
+            column.source_name if column is not None else None
+            for key in match.source_column_keys
+            for column in (columns_by_key.get(key),)
+        )
         if (
             reviewed.key_fields != match.key_fields
-            or tuple(columns_by_key.get(key).source_name if columns_by_key.get(key) else None
-                     for key in match.source_column_keys) != reviewed.key_fields
+            or selected_key_fields != reviewed.key_fields
         ):
-            raise WorkspaceError(
-                f"Matching field changed for {reviewed.model_label}"
-            )
+            raise WorkspaceError(f"Matching field changed for {reviewed.model_label}")
         components = tuple(
-            portable_components(tuple(row.values.get(field) for field in reviewed.key_fields))
+            portable_components(
+                tuple(row.values.get(field) for field in reviewed.key_fields)
+            )
             for row in rows
         )
         keys = tuple(record_identity(row.values, reviewed.key_fields) for row in rows)
@@ -540,10 +532,7 @@ def compile_transfer_execution_snapshot(
         source_id_to_row[dataset_id] = {
             identifier: included_ordinal
             for included_ordinal, (row, identifier) in enumerate(
-                (
-                    (row, origin_ids[row.number - 1])
-                    for row in rows
-                ),
+                ((row, origin_ids[row.number - 1]) for row in rows),
                 start=1,
             )
         }
@@ -559,9 +548,9 @@ def compile_transfer_execution_snapshot(
         candidate = (
             next(
                 (
-                    item for item in protected.incoming_reference_candidates
-                    if item.choice_hash
-                    == protected.incoming_reference_choice_hash
+                    item
+                    for item in protected.incoming_reference_candidates
+                    if item.choice_hash == protected.incoming_reference_choice_hash
                 ),
                 None,
             )
@@ -577,8 +566,7 @@ def compile_transfer_execution_snapshot(
             or candidate.related_model != decision.related_model
             or candidate.identity_fields != decision.related_identity_fields
             or candidate.identity_fields != related_review.key_fields
-            or candidate.requires_create
-            != decision.source_reference_requires_create
+            or candidate.requires_create != decision.source_reference_requires_create
         ):
             raise WorkspaceError(
                 f"The reviewed source record changed for "
@@ -586,9 +574,7 @@ def compile_transfer_execution_snapshot(
             )
         candidate_rows = tuple(
             index
-            for index, identity in enumerate(
-                components_by_dataset[related_dataset_id]
-            )
+            for index, identity in enumerate(components_by_dataset[related_dataset_id])
             if identity == candidate.identity
         )
         if len(candidate_rows) != 1:
@@ -609,15 +595,19 @@ def compile_transfer_execution_snapshot(
                 f"The destination status changed for the reviewed source record "
                 f"used by {decision.model}.{decision.field_name}"
             )
+        candidate_key = tuple(
+            Decimal(str(value)) if isinstance(value, float) else value
+            for value in candidate.identity
+        )
         if target_binding:
             reference: BusinessReference | LogicalReference = BusinessReference(
                 model=candidate.related_model,
-                key=candidate.identity,
+                key=candidate_key,
             )
         else:
             reference = LogicalReference(
                 origin="incoming",
-                key=candidate.identity,
+                key=candidate_key,
                 dataset=related_review.dataset_name,
             )
         incoming_create_references[decision.key] = (
@@ -740,7 +730,9 @@ def compile_transfer_execution_snapshot(
                 references = []
                 reference_bindings = []
                 related_keys = keys_by_dataset[relationship.related_dataset_id]
-                related_components = components_by_dataset[relationship.related_dataset_id]
+                related_components = components_by_dataset[
+                    relationship.related_dataset_id
+                ]
                 related_rows = source_id_to_row[relationship.related_dataset_id]
                 for source_id in members:
                     related_ordinal = related_rows.get(source_id)
@@ -922,9 +914,8 @@ def _create_field_intent(
     decision,
     protected,
     source_row: SourceRow,
-    incoming_reference: tuple[
-        BusinessReference | LogicalReference, tuple[str, ...]
-    ] | None = None,
+    incoming_reference: tuple[BusinessReference | LogicalReference, tuple[str, ...]]
+    | None = None,
 ) -> FieldIntent:
     if not decision.reviewed:
         raise WorkspaceError(
@@ -1002,9 +993,7 @@ def _relationship_intent(relationship, references, bindings) -> FieldIntent:
             relation_operation="replace",
             related_model=relationship.related_model,
             related_identity_fields=relationship.related_key_fields,
-            dependency_strength=(
-                "hard" if relationship.required else "deferrable"
-            ),
+            dependency_strength=("hard" if relationship.required else "deferrable"),
         )
     value = references[0] if relationship.kind == "many2one" else references
     return FieldIntent(
@@ -1022,10 +1011,14 @@ def _relationship_intent(relationship, references, bindings) -> FieldIntent:
 
 def _field_type(schema_by_model, model: str, field_name: str) -> str:
     schema_model = schema_by_model.get(model)
-    field = next(
-        (item for item in schema_model.fields if item.name == field_name),
-        None,
-    ) if schema_model is not None else None
+    field = (
+        next(
+            (item for item in schema_model.fields if item.name == field_name),
+            None,
+        )
+        if schema_model is not None
+        else None
+    )
     if field is None:
         raise WorkspaceError(f"Approved field {model}.{field_name} is missing")
     return field.type
@@ -1089,16 +1082,19 @@ def _destination_binding_hash(
 
 
 def _row_id(workspace_id: str, dataset_id: str, source_row: int, model: str) -> str:
-    return "sha256:" + sha256(
-        canonical_json_bytes(
-            {
-                "workspace_id": workspace_id,
-                "dataset_id": dataset_id,
-                "source_row": source_row,
-                "target_model": model,
-            }
-        )
-    ).hexdigest()
+    return (
+        "sha256:"
+        + sha256(
+            canonical_json_bytes(
+                {
+                    "workspace_id": workspace_id,
+                    "dataset_id": dataset_id,
+                    "source_row": source_row,
+                    "target_model": model,
+                }
+            )
+        ).hexdigest()
+    )
 
 
 def _external_id(workspace_id: str, model: str, key: str) -> str:

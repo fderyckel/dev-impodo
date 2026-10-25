@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from impodo.application.data_version.inspection import SourceFileCatalog
-from impodo.application.shared.artifacts import WorkspaceArtifactStore
+from impodo.application.shared.artifacts import GovernedArtifactStores
 from impodo.application.workspace.preparation.preparation_service import (
     stage_browser_mapping,
 )
@@ -17,7 +17,7 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
 )
 from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.transformation_impact import (
     TransformationImpactIdentity,
@@ -169,8 +169,8 @@ class TransformationImpactService:
         sources: TransformationImpactSourceRepository,
         derived_entities: TransformationImpactDerivedRepository,
         impacts: TransformationImpactRepository,
-        artifacts: WorkspaceArtifactStore,
-        authorization: AuthorizationPolicy,
+        artifacts: GovernedArtifactStores,
+        authorization: WorkspaceAuthorizationPolicy,
     ) -> None:
         self.workspaces = workspaces
         self.mappings = mappings

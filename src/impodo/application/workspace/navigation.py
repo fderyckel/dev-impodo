@@ -118,8 +118,15 @@ class WorkspaceNavigationRepository(Protocol):
         ...
 
 
+class ActiveJob(Protocol):
+    """Expose the stable identity shared by preparation and load jobs."""
+
+    @property
+    def job_id(self) -> str: ...
+
+
 class ActiveJobReader(Protocol):
-    def active(self, workspace_id: str):
+    def active(self, workspace_id: str) -> ActiveJob | None:
         """Return the in-flight job used to enrich navigation, if any."""
         ...
 

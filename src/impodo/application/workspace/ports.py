@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from impodo.domain.project.foundation import FaultInjector
+from impodo.domain.project.foundation import FaultInjector, MigrationOperationIntent
 from impodo.domain.shared.access import Actor
 
 from ...domain.workspace.models import MigrationWorkspace
@@ -34,6 +34,18 @@ class MigrationWorkspaceRepository(Protocol):
     def get_migration_workspace(self, workspace_id: str) -> MigrationWorkspace:
         """Read one root for lifecycle commands after service authorization."""
         ...
+
+    def get_operation_intent(
+        self,
+        operation_id: str,
+    ) -> MigrationOperationIntent: ...
+
+    def resume_migration_workspace_creation(
+        self,
+        operation_id: str,
+        *,
+        actor: Actor,
+    ) -> MigrationWorkspace: ...
 
     def list_migration_workspaces(
         self,

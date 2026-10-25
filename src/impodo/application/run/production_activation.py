@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from uuid import UUID, uuid5
 
@@ -35,7 +35,30 @@ from impodo.domain.shared.models import OdooWriteIdentity
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
 from .application_materialization import RunApplicationMaterializer
+from .ports import RunPlanningRepository
 from .production_review import ProductionRunReviewUseCase
+
+
+def _object_mapping(value: object, field_name: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping) or not all(
+        isinstance(key, str) for key in value
+    ):
+        raise ProductionRunError(f"Saved {field_name} must be an object")
+    return value
+
+
+def _required_string(value: object, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ProductionRunError(f"Saved {field_name} must be text")
+    return value
+
+
+def _string_sequence(value: object, field_name: str) -> tuple[str, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise ProductionRunError(f"Saved {field_name} must be a list")
+    if not all(isinstance(item, str) for item in value):
+        raise ProductionRunError(f"Saved {field_name} must contain text")
+    return tuple(item for item in value if isinstance(item, str))
 
 
 class ProductionRunActivationUseCase:
@@ -44,7 +67,7 @@ class ProductionRunActivationUseCase:
     def __init__(
         self,
         *,
-        repository,
+        repository: RunPlanningRepository,
         review: ProductionRunReviewUseCase,
         materializer: RunApplicationMaterializer,
         workspace_states,
@@ -201,15 +224,18 @@ class ProductionRunActivationUseCase:
             )
             if item.name in required_reference_names
         )
-        run_reference_bundle = (
-            MigrationRunReferenceBundle.capture(
+        if captured_reference_datasets:
+            if target_reference_bundle is None:
+                raise ProductionRunError(
+                    "Production reference evidence is inconsistent"
+                )
+            run_reference_bundle = MigrationRunReferenceBundle.capture(
                 run.migration_run_id,
                 target_reference_bundle,
                 captured_reference_datasets,
             )
-            if captured_reference_datasets
-            else None
-        )
+        else:
+            run_reference_bundle = None
         run_target_schema = MigrationRunTargetSchema.capture(
             run.migration_run_id,
             target_schema,
@@ -359,10 +385,15 @@ class ProductionRunActivationUseCase:
     ) -> None:
         """Check reserved meaning before replay, including before registry commit."""
 
-        authority = saved["production_binding"]
-        target = saved["target_binding"]
+        authority = _object_mapping(
+            saved.get("production_binding"),
+            "Production binding",
+        )
+        target = _object_mapping(saved.get("target_binding"), "target binding")
         current_binding = binding.to_dict()
-        saved_schema = MigrationRunTargetSchema.from_json(str(saved["target_schema_json"]))
+        saved_schema = MigrationRunTargetSchema.from_json(
+            _required_string(saved.get("target_schema_json"), "target schema")
+        )
         schema = MigrationRunTargetSchema.capture(binding.migration_run_id, target_schema, set(saved_schema.model_names))
         reference_hashes = tuple(sorted(
             item.content_hash for item in (reference_bundle.datasets if reference_bundle else ())
@@ -386,7 +417,15 @@ class ProductionRunActivationUseCase:
             or target["principal_hash"] != target_schema.read_principal_hash
             or target["permission_hash"] != target_schema.read_permission_hash
             or target["context_hash"] != target_schema.read_context_hash
-            or reference_hashes != tuple(sorted(target["reference_snapshot_hashes"]))
+            or reference_hashes
+            != tuple(
+                sorted(
+                    _string_sequence(
+                        target.get("reference_snapshot_hashes"),
+                        "reference snapshot hashes",
+                    )
+                )
+            )
             or authority["read_credential_generation"] != read_credential_generation
             or authority["write_credential_generation"] != write_credential_generation
             or authority["write_principal_hash"] != write_identity.principal_hash

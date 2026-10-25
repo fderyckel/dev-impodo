@@ -123,8 +123,10 @@ class TargetMatchReview:
 
     @property
     def can_confirm(self) -> bool:
-        return bool(self.fields) and not self.blocking_reasons and not any(
-            item.blocking_reason for item in self.fields
+        return (
+            bool(self.fields)
+            and not self.blocking_reasons
+            and not any(item.blocking_reason for item in self.fields)
         )
 
 
@@ -132,7 +134,8 @@ class RecipeTargetMatchService:
     """Confirm run-owned decisions through the canonical mapping lifecycle."""
 
     def __init__(
-        self, mapping_workspace: MappingWorkspaceService,
+        self,
+        mapping_workspace: MappingWorkspaceService,
         run_planning: MigrationRunPlanningService,
         supporting_lookups: SupportingLookupService,
     ) -> None:
@@ -143,15 +146,22 @@ class RecipeTargetMatchService:
         self._prepared_lock = RLock()
 
     def build_review(
-        self, application: RunRecipeApplication, *, actor: Actor,
+        self,
+        application: RunRecipeApplication,
+        *,
+        actor: Actor,
         submitted: Mapping[str, str] | None = None,
     ) -> TargetMatchReview:
         """Read one bounded source domain and each distinct captured lookup once."""
 
         self.mapping_workspace.authorization.require(
-            actor, Capability.MAPPING_EDIT, workspace_id=application.workspace_id,
+            actor,
+            Capability.MAPPING_EDIT,
+            workspace_id=application.workspace_id,
         )
-        return _build_target_match_review(self, application, actor=actor, submitted=submitted)
+        return _build_target_match_review(
+            self, application, actor=actor, submitted=submitted
+        )
 
     def prepare_review(
         self,
@@ -182,18 +192,28 @@ class RecipeTargetMatchService:
             self._prepared_reviews.pop(application_id, None)
 
     def confirm(
-        self, application: RunRecipeApplication, *, decisions: Mapping[str, str],
-        expected_working_draft_version: int, expected_definition_hash: str,
-        expected_evidence_hash: str, actor: Actor,
+        self,
+        application: RunRecipeApplication,
+        *,
+        decisions: Mapping[str, str],
+        expected_working_draft_version: int,
+        expected_definition_hash: str,
+        expected_evidence_hash: str,
+        actor: Actor,
     ) -> RunRecipeApplication:
         """Reject stale evidence before saving, checking, and submitting choices."""
 
-        current = self.run_planning.repository.get_application(application.application_id)
+        current = self.run_planning.repository.get_application(
+            application.application_id
+        )
         if current is None or current.status not in {
-            RecipeApplicationStatus.BLOCKED, RecipeApplicationStatus.DRAFT_READINESS,
+            RecipeApplicationStatus.BLOCKED,
+            RecipeApplicationStatus.DRAFT_READINESS,
             RecipeApplicationStatus.READY,
         }:
-            raise WorkspaceError("This application has already moved beyond target-value review. Return to the run.")
+            raise WorkspaceError(
+                "This application has already moved beyond target-value review. Return to the run."
+            )
         review = self.prepared_review(application.application_id)
         if review is None or review.evidence_hash != expected_evidence_hash:
             review = self.build_review(application, actor=actor)
@@ -206,36 +226,55 @@ class RecipeTargetMatchService:
                 "The source matches or Odoo evidence changed. Reload and review the current values."
             )
         if not review.can_confirm:
-            raise WorkspaceError("Resolve the checks shown below before confirming target values.")
-        working = self.mapping_workspace.mappings.get_mapping_working_draft(application.workspace_id)
+            raise WorkspaceError(
+                "Resolve the checks shown below before confirming target values."
+            )
+        working = self.mapping_workspace.mappings.get_mapping_working_draft(
+            application.workspace_id
+        )
         if working is None or working.version != review.working_draft_version:
-            raise TargetMatchReviewChanged("The field matches changed. Reload before confirming.")
+            raise TargetMatchReviewChanged(
+                "The field matches changed. Reload before confirming."
+            )
         datasets = apply_target_match_decisions(working.definition, review, decisions)
         if self.mapping_workspace.recipe_applications is not None:
             self.mapping_workspace.recipe_applications.assert_mapping_adaptation(
-                application.workspace_id, replace(working.definition, datasets=datasets),
+                application.workspace_id,
+                replace(working.definition, datasets=datasets),
             )
         if datasets != working.definition.datasets:
             working = self.mapping_workspace.save_working_draft(
-                application.workspace_id, datasets=datasets,
-                expected_version=review.working_draft_version, actor=actor,
+                application.workspace_id,
+                datasets=datasets,
+                expected_version=review.working_draft_version,
+                actor=actor,
             )
         revision, validation = self.mapping_workspace.check_definition(
-            application.workspace_id, datasets=working.definition.datasets,
+            application.workspace_id,
+            datasets=working.definition.datasets,
             expected_parent_version=review.parent_mapping_version,
-            expected_working_draft_version=working.version, actor=actor,
+            expected_working_draft_version=working.version,
+            actor=actor,
         )
         if validation.status.value != "VALID":
-            first = next((item for item in validation.issues if item.severity == "error"),
-                         next(iter(validation.issues), None))
+            first = next(
+                (item for item in validation.issues if item.severity == "error"),
+                next(iter(validation.issues), None),
+            )
             detail = first.message if first is not None else "The Recipe needs review."
-            raise WorkspaceError(f"Target values saved. {detail} Review the run's checks before continuing.")
-        checked = self.mapping_workspace.mappings.get_mapping_working_draft(application.workspace_id)
+            raise WorkspaceError(
+                f"Target values saved. {detail} Review the run's checks before continuing."
+            )
+        checked = self.mapping_workspace.mappings.get_mapping_working_draft(
+            application.workspace_id
+        )
         if checked is None:
             raise WorkspaceError("The checked field matches are unavailable")
         self.mapping_workspace.submit_current(
-            application.workspace_id, datasets=checked.definition.datasets,
-            expected_version=revision.version, expected_working_draft_version=checked.version,
+            application.workspace_id,
+            datasets=checked.definition.datasets,
+            expected_version=revision.version,
+            expected_working_draft_version=checked.version,
             actor=actor,
         )
         confirmed = self.run_planning.confirm_application_mapping(
@@ -261,40 +300,38 @@ def _build_target_match_review(
     selection = mapping.sources.get_mapping_source_selection(workspace_id)
     schema = mapping.schemas.get_odoo_schema_catalog(workspace_id)
     if working is None or selection is None or schema is None:
-        raise WorkspaceError(
-            "Recheck Odoo before reviewing target-specific values"
-        )
-    bundle = service.run_planning.repository.get_bundle(
-        application.migration_run_id
-    )
+        raise WorkspaceError("Recheck Odoo before reviewing target-specific values")
+    bundle = service.run_planning.repository.get_bundle(application.migration_run_id)
     setup_workspace = next(
         (item for item in bundle.workspaces if item.recipe_application_id is None),
         None,
     )
     if setup_workspace is None:
         raise WorkspaceError("The run's Odoo check workspace is unavailable")
-    setup_schema = mapping.schemas.get_odoo_schema_catalog(
-        setup_workspace.workspace_id
-    )
+    setup_schema = mapping.schemas.get_odoo_schema_catalog(setup_workspace.workspace_id)
     if setup_schema is None:
         raise WorkspaceError("Recheck Odoo before reviewing linked values")
     provenance = (
-        "connection_target_hash", "read_credential_binding_hash",
-        "read_principal_hash", "read_permission_hash", "read_context_hash",
+        "connection_target_hash",
+        "read_credential_binding_hash",
+        "read_principal_hash",
+        "read_permission_hash",
+        "read_context_hash",
     )
     if any(getattr(schema, key) != getattr(setup_schema, key) for key in provenance):
-        raise TargetMatchReviewChanged("The run's Odoo evidence changed. Recheck Odoo before reviewing values.")
+        raise TargetMatchReviewChanged(
+            "The run's Odoo evidence changed. Recheck Odoo before reviewing values."
+        )
     coverage = mapping.categorical_coverage.collect(
         workspace_id,
         working.definition,
         selection,
         schema,
     )
-    coverage_by_path = {
-        item.path: item for item in coverage.evidence.field_results
-    }
+    coverage_by_path = {item.path: item for item in coverage.evidence.field_results}
     coverage_problems = {
-        item.path.removesuffix("/categorical_policy"): item.message for item in coverage.issues
+        item.path.removesuffix("/categorical_policy"): item.message
+        for item in coverage.issues
     }
     source_datasets = {item.dataset_id: item for item in selection.datasets}
     schema_models = {item.name: item for item in schema.models}
@@ -325,7 +362,8 @@ def _build_target_match_review(
                 or metadata.type != "selection"
                 or scalar.source_column_key is None
                 or scalar.value_source is not ScalarValueSource.SOURCE
-                or scalar.categorical_policy not in {
+                or scalar.categorical_policy
+                not in {
                     CategoricalCoveragePolicy.EXACT_TARGET_VALUE,
                     CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH,
                 }
@@ -372,7 +410,10 @@ def _build_target_match_review(
                     choices=choices,
                     rows=rows,
                     blocking_reason=(
-                        coverage_problems.get(path, "Source values cannot be checked for this Recipe provider.")
+                        coverage_problems.get(
+                            path,
+                            "Source values cannot be checked for this Recipe provider.",
+                        )
                         if result.status == "UNSUPPORTED"
                         else "This Odoo Selection field has no available choices."
                         if not choices and rows
@@ -396,12 +437,8 @@ def _build_target_match_review(
                 or not resolver.model
             ):
                 continue
-            key_fields = tuple(
-                item.target_field for item in resolver.key_mappings
-            )
-            scope_fields = tuple(
-                item.target_field for item in resolver.scope_mappings
-            )
+            key_fields = tuple(item.target_field for item in resolver.key_mappings)
+            scope_fields = tuple(item.target_field for item in resolver.scope_mappings)
             reviewed_paths.add(path)
             eligible = (
                 len(result.source_column_keys) == 1
@@ -422,7 +459,9 @@ def _build_target_match_review(
                         actor=actor,
                     )
                 snapshot = lookup_cache[cache_key]
-            ambiguous = frozenset(snapshot.ambiguous_values) if snapshot else frozenset()
+            ambiguous = (
+                frozenset(snapshot.ambiguous_values) if snapshot else frozenset()
+            )
             choices = tuple(
                 TargetValueChoice(item.value, item.label)
                 for item in (snapshot.choices if snapshot else ())
@@ -439,15 +478,20 @@ def _build_target_match_review(
                     for item in resolver.value_mappings
                 },
                 exact_values={
-                    portable_supporting_value(item.values): portable_supporting_value(item.values)
+                    portable_supporting_value(item.values): portable_supporting_value(
+                        item.values
+                    )
                     for item in result.distinct_values
-                    if relationship.categorical_policy is CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+                    if relationship.categorical_policy
+                    is CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
                 },
                 ambiguous_values=ambiguous,
                 submitted=submitted,
             )
             if result.status == "UNSUPPORTED":
-                blocking_reason = coverage_problems.get(path, "Source values cannot be checked for this Recipe provider.")
+                blocking_reason = coverage_problems.get(
+                    path, "Source values cannot be checked for this Recipe provider."
+                )
             elif relationship.categorical_policy not in {
                 CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
                 CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
@@ -459,7 +503,9 @@ def _build_target_match_review(
                     "Recheck Odoo to refresh them."
                 )
             elif not choices and rows and eligible:
-                blocking_reason = "Odoo returned no unambiguous choices for this linked field."
+                blocking_reason = (
+                    "Odoo returned no unambiguous choices for this linked field."
+                )
             elif not eligible and any(row.needs_review for row in rows):
                 blocking_reason = (
                     "These keys must match Odoo exactly, including every company or other scope value. "
@@ -483,7 +529,8 @@ def _build_target_match_review(
                     target_field=relationship.target_field,
                     target_field_label=metadata.label,
                     source_column_label=" + ".join(
-                        source_columns.get(key, key) for key in result.source_column_keys
+                        source_columns.get(key, key)
+                        for key in result.source_column_keys
                     ),
                     kind_label="Linked record",
                     choices=choices,
@@ -494,22 +541,29 @@ def _build_target_match_review(
             )
 
     parent = mapping.mappings.get_mapping_revision(workspace_id)
-    blocking_reasons = tuple(dict.fromkeys(
-        issue.message for issue in coverage.issues
-        if issue.path.removesuffix("/categorical_policy") not in reviewed_paths
-    ))
+    blocking_reasons = tuple(
+        dict.fromkeys(
+            issue.message
+            for issue in coverage.issues
+            if issue.path.removesuffix("/categorical_policy") not in reviewed_paths
+        )
+    )
     return TargetMatchReview(
         fields=tuple(fields),
         working_draft_version=working.version,
         parent_mapping_version=parent.version if parent else None,
         definition_hash=working.definition.content_hash,
-        evidence_hash=content_hash({
-            "coverage": coverage.evidence.content_hash,
-            "schema": schema.content_hash,
-            "setup_schema": setup_schema.content_hash,
-            "read_identity": [getattr(setup_schema, key) for key in provenance],
-            "lookups": sorted(item.content_hash for item in lookup_cache.values() if item),
-        }),
+        evidence_hash=content_hash(
+            {
+                "coverage": coverage.evidence.content_hash,
+                "schema": schema.content_hash,
+                "setup_schema": setup_schema.content_hash,
+                "read_identity": [getattr(setup_schema, key) for key in provenance],
+                "lookups": sorted(
+                    item.content_hash for item in lookup_cache.values() if item
+                ),
+            }
+        ),
         blocking_reasons=blocking_reasons,
     )
 
@@ -523,11 +577,15 @@ def apply_target_match_decisions(
 
     datasets = list(definition.datasets)
     allowed = {
-        row.input_name for field in review.fields if field.editable and not field.blocking_reason
+        row.input_name
+        for field in review.fields
+        if field.editable and not field.blocking_reason
         for row in field.review_rows
     }
     if set(decisions).difference(allowed):
-        raise WorkspaceError("Only the target choices shown for this run may be changed.")
+        raise WorkspaceError(
+            "Only the target choices shown for this run may be changed."
+        )
     for field in review.fields:
         if field.blocking_reason or not field.editable or not field.review_rows:
             continue
@@ -548,8 +606,7 @@ def apply_target_match_decisions(
             mappings = list(dataset.fields)
             current = mappings[field.mapping_index]
             merged = {
-                item.source_value: item.target_value
-                for item in current.value_mappings
+                item.source_value: item.target_value for item in current.value_mappings
             }
             merged.update(additions)
             mappings[field.mapping_index] = replace(
@@ -558,9 +615,7 @@ def apply_target_match_decisions(
                     ValueMapping(source_value=source, target_value=target)
                     for source, target in sorted(merged.items())
                 ),
-                categorical_policy=(
-                    CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH
-                ),
+                categorical_policy=(CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH),
             )
             datasets[field.dataset_index] = replace(
                 dataset,
@@ -583,9 +638,7 @@ def apply_target_match_decisions(
                         for source, target in sorted(merged.items())
                     ),
                 ),
-                categorical_policy=(
-                    CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH
-                ),
+                categorical_policy=(CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH),
             )
             datasets[field.dataset_index] = replace(
                 dataset,
@@ -617,12 +670,8 @@ def _target_value_rows(
             source_value,
             exact_values.get(source_value, ""),
         )
-        needs_review = (
-            item.values in uncovered or current_target not in choice_values
-        )
-        input_name = (
-            f"match_{dataset_index}_{mapping_kind}_{mapping_index}_{row_index}"
-        )
+        needs_review = item.values in uncovered or current_target not in choice_values
+        input_name = f"match_{dataset_index}_{mapping_kind}_{mapping_index}_{row_index}"
         selected = (
             str(submitted.get(input_name, ""))
             if submitted is not None and needs_review
@@ -683,7 +732,11 @@ def _choice_suggestions(
         if item.value not in ambiguous_values:
             for label in (item.value, item.label):
                 candidates.setdefault(label.strip().casefold(), set()).add(item.value)
-    return {label: next(iter(values)) for label, values in candidates.items() if len(values) == 1}
+    return {
+        label: next(iter(values))
+        for label, values in candidates.items()
+        if len(values) == 1
+    }
 
 
 def _current_supporting_lookup(
@@ -709,8 +762,13 @@ def _current_supporting_lookup(
         setup_schema.odoo_version,
         OdooOperation.RECIPE,
     )
+    assessed_version = version_decision.version
     odoo_major_version = (
-        version_decision.version.major if version_decision.allowed else -1
+        assessed_version.major
+        if version_decision.allowed
+        and assessed_version is not None
+        and assessed_version.major is not None
+        else -1
     )
     current_reference_policy_hash = reference_policy_hash(odoo_major_version)
     if current_reference_policy_hash is None:
@@ -724,11 +782,7 @@ def _current_supporting_lookup(
         if standard_key is not None
         and standard_key.key_fields == key_fields
         and standard_key.scope_fields == scope_fields
-        else (
-            "name"
-            if "name" in available_fields
-            else key_fields[0]
-        )
+        else ("name" if "name" in available_fields else key_fields[0])
     )
     return service.supporting_lookups.current(
         setup_workspace_id,
@@ -737,9 +791,7 @@ def _current_supporting_lookup(
         scope_fields=scope_fields,
         display_field=display_field,
         target_hash=setup_schema.connection_target_hash,
-        read_credential_binding_hash=(
-            setup_schema.read_credential_binding_hash
-        ),
+        read_credential_binding_hash=(setup_schema.read_credential_binding_hash),
         read_principal_hash=setup_schema.read_principal_hash,
         read_context_hash=setup_schema.read_context_hash,
         actor=actor,

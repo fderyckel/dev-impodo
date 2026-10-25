@@ -173,7 +173,8 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             )
             if activation is None or activation.state.value != "COMMITTED":
                 return RedirectResponse(
-                    f"/projects/{project_id}/production-runs/{migration_run_id}/activate", status_code=303,
+                    f"/projects/{project_id}/production-runs/{migration_run_id}/activate",
+                    status_code=303,
                 )
         try:
             await run_in_threadpool(
@@ -190,8 +191,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         recipe_reads = context.recipes.read_revisions(
             project_id,
             tuple(
-                (item.recipe_id, item.recipe_revision)
-                for item in bundle.applications
+                (item.recipe_id, item.recipe_revision) for item in bundle.applications
             ),
             actor=actor,
         )
@@ -209,8 +209,8 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         )
         plan_binding = (
             context.production_runs.production_runs.get(migration_run_id)
-            if run.purpose is MigrationRunPurpose.PRODUCTION else
-            context.cutover_plans.repository.get_run_binding(migration_run_id)
+            if run.purpose is MigrationRunPurpose.PRODUCTION
+            else context.cutover_plans.repository.get_run_binding(migration_run_id)
         )
         plan_revision = context.cutover_plans.repository.get_revision(
             plan_binding.cutover_plan_id,
@@ -247,7 +247,8 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 migration_run_id=migration_run_id,
                 migration_project_name=project.display_name,
                 run_purpose=run.purpose.value,
-                complete=bool(review.total_count) and review.completed_count == review.total_count,
+                complete=bool(review.total_count)
+                and review.completed_count == review.total_count,
                 odoo_needs_attention=review.odoo_needs_attention,
             ),
         )
@@ -267,17 +268,13 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
 
         require_session(request)
         actor = request_identity(request, context.identity_resolver).actor
-        application = context.run_planning.repository.get_application(
-            application_id
-        )
+        application = context.run_planning.repository.get_application(application_id)
         if (
             application.project_id != project_id
             or application.migration_run_id != migration_run_id
         ):
             return HTMLResponse("RecipeApplication not found", status_code=404)
-        schema = context.queries.get_odoo_schema_catalog(
-            application.workspace_id
-        )
+        schema = context.queries.get_odoo_schema_catalog(application.workspace_id)
         revision = context.mapping_workspace.mappings.get_mapping_revision(
             application.workspace_id
         )
@@ -343,9 +340,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         actor = request_identity(request, context.identity_resolver).actor
-        application = context.run_planning.repository.get_application(
-            application_id
-        )
+        application = context.run_planning.repository.get_application(application_id)
         if (
             application.project_id != project_id
             or application.migration_run_id != migration_run_id
@@ -391,9 +386,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             migration_run_id,
             application_id,
         )
-        prepared_review = context.recipe_target_matches.prepared_review(
-            application_id
-        )
+        prepared_review = context.recipe_target_matches.prepared_review(application_id)
         if prepared_review is None and context.recipe_run_jobs is not None:
             job = context.recipe_run_jobs.enqueue(
                 kind=RecipeRunJobKind.TARGET_MATCH_REVIEW,
@@ -415,8 +408,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 "Impodo is preparing the current target values for review.",
             )
             return RedirectResponse(
-                f"/projects/{project_id}/runs/{migration_run_id}/progress/"
-                f"{job.job_id}",
+                f"/projects/{project_id}/runs/{migration_run_id}/progress/{job.job_id}",
                 status_code=303,
             )
         return await run_in_threadpool(
@@ -454,15 +446,23 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         submitted = {str(key): str(value) for key, value in form.items()}
         try:
             allowed = {
-                "csrf_token", "expected_definition_hash",
-                "expected_working_draft_version", "expected_evidence_hash",
+                "csrf_token",
+                "expected_definition_hash",
+                "expected_working_draft_version",
+                "expected_evidence_hash",
             } | {key for key in submitted if key.startswith("match_")}
             _secure_form(request, form, allowed)
             confirmed = await run_in_threadpool(
                 context.recipe_target_matches.confirm,
                 application,
-                decisions={key: value for key, value in submitted.items() if key.startswith("match_")},
-                expected_working_draft_version=int(_text(form, "expected_working_draft_version")),
+                decisions={
+                    key: value
+                    for key, value in submitted.items()
+                    if key.startswith("match_")
+                },
+                expected_working_draft_version=int(
+                    _text(form, "expected_working_draft_version")
+                ),
                 expected_definition_hash=_text(form, "expected_definition_hash"),
                 expected_evidence_hash=_text(form, "expected_evidence_hash"),
                 actor=actor,
@@ -478,7 +478,9 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 actor=actor,
                 error=str(error),
                 status_code=422,
-                submitted=None if isinstance(error, TargetMatchReviewChanged) else submitted,
+                submitted=None
+                if isinstance(error, TargetMatchReviewChanged)
+                else submitted,
             )
         _flash(request, "Target-specific values confirmed for this Recipe run.")
         if (
@@ -602,7 +604,8 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             )
             if activation is None or activation.state.value != "COMMITTED":
                 return RedirectResponse(
-                    f"/projects/{project_id}/production-runs/{migration_run_id}/activate", status_code=303,
+                    f"/projects/{project_id}/production-runs/{migration_run_id}/activate",
+                    status_code=303,
                 )
         bundle = context.run_planning.repository.get_bundle(migration_run_id)
         application = next(
@@ -636,7 +639,9 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 migration_run_id,
                 actor=actor,
             )
-            application = context.run_planning.repository.get_application(application_id)
+            application = context.run_planning.repository.get_application(
+                application_id
+            )
         except WorkspaceError as error:
             _flash(request, str(error))
         preparation = (
@@ -655,8 +660,12 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         )
         step = application_resume_step(application, preparation, load)
         if step is ApplicationResumeStep.LOAD_PROGRESS:
+            if load is None:
+                raise WorkspaceError("Saved load progress is unavailable")
             suffix = f"load/progress/{load.job_id}"
         elif step is ApplicationResumeStep.PREPARATION_PROGRESS:
+            if preparation is None:
+                raise WorkspaceError("Saved preparation progress is unavailable")
             suffix = f"preparation/{preparation.job_id}"
         else:
             suffix = {
@@ -689,7 +698,10 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         run = context.migration_runs.get(migration_run_id, actor=actor)
         if run.project_id != project.project_id:
             return HTMLResponse("MigrationRun not found", status_code=404)
-        if run.purpose not in {MigrationRunPurpose.TEST, MigrationRunPurpose.PRODUCTION}:
+        if run.purpose not in {
+            MigrationRunPurpose.TEST,
+            MigrationRunPurpose.PRODUCTION,
+        }:
             return HTMLResponse("Recipe run not found", status_code=404)
         binding = context.run_setups.get(migration_run_id, actor=actor)
         if run.purpose is MigrationRunPurpose.PRODUCTION:
@@ -699,7 +711,8 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             )
             if operation is not None:
                 return RedirectResponse(
-                    f"/projects/{project_id}/production-runs/{migration_run_id}/activate", status_code=303,
+                    f"/projects/{project_id}/production-runs/{migration_run_id}/activate",
+                    status_code=303,
                 )
         data_version = context.data_versions.get(binding.data_version_id, actor=actor)
         _, values = context.run_setups.fresh_data_details(binding, actor=actor)
@@ -797,9 +810,7 @@ def _run_application(
 ):
     """Return one application only inside the requested Project run."""
 
-    application = context.run_planning.repository.get_application(
-        application_id
-    )
+    application = context.run_planning.repository.get_application(application_id)
     if (
         application.project_id != project_id
         or application.migration_run_id != migration_run_id

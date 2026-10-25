@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from time import perf_counter
+from typing import TypedDict
 from urllib.parse import urlencode
 
 from fastapi import HTTPException, Request
@@ -18,6 +20,7 @@ from impodo.application.workspace.source_readiness import (
 from impodo.domain.compiler.browser_mapping_compiler import browser_mapping_labels
 from impodo.domain.errors import ReadinessError
 from impodo.domain.preflight.deferred_scope import DeferredScopeEvidenceError
+from impodo.domain.preparation.quality import QualityReviewItem
 from impodo.domain.shared.access import Actor, AuthorizationError, Capability
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
@@ -59,6 +62,17 @@ from ..target_credentials import (
 from .common import _render
 from .comparison_recovery import comparison_recovery_view
 from .missing_parent_actions import missing_parent_source_key
+
+
+class _QualityCauseGroupView(TypedDict):
+    """Present one grouped quality cause without untyped counter mutation."""
+
+    reason_code: str
+    title: str
+    kind: str
+    message: str
+    fields: tuple[str, ...]
+    count: int
 
 
 def _render_target(
@@ -157,11 +171,13 @@ def _render_normalization(
     if selected_status not in {"", "automatic", "pending", "reviewed", "set_aside"}:
         selected_status = ""
     matching = tuple(
-        item for item in items
+        item
+        for item in items
         if not selected_status or item["status"] == selected_status
     )
     requested_page = _positive_query_int(
-        request.query_params.get("page"), default=1,
+        request.query_params.get("page"),
+        default=1,
     )
     set_aside_page = None
     if selected_status == "set_aside":
@@ -196,7 +212,8 @@ def _render_normalization(
             quality_field_labels,
         )
         collision_items = tuple(
-            item for item in set_aside_page.items
+            item
+            for item in set_aside_page.items
             if any(
                 issue.reason_code == "POST_TRANSFORM_IDENTITY_COLLISION"
                 for issue in item.issues
@@ -211,7 +228,8 @@ def _render_normalization(
             if selection is not None:
                 mapped = (
                     {item.dataset_id: item for item in revision.definition.datasets}
-                    if revision is not None else {}
+                    if revision is not None
+                    else {}
                 )
                 collision_routes = {
                     dataset.name: {
@@ -227,9 +245,11 @@ def _render_normalization(
                         "source_key_fields": tuple(
                             column.source_name
                             for column in dataset.columns
-                            if column.stable_key in (
+                            if column.stable_key
+                            in (
                                 mapped[dataset.dataset_id].source_identity_column_keys
-                                if dataset.dataset_id in mapped else ()
+                                if dataset.dataset_id in mapped
+                                else ()
                             )
                         ),
                     }
@@ -266,9 +286,7 @@ def _render_normalization(
         collision_routes=collision_routes,
         set_aside_row_start=(page - 1) * NORMALIZATION_GROUPS_PER_PAGE + 1,
         set_aside_row_end=min(page * NORMALIZATION_GROUPS_PER_PAGE, matching_count),
-        rejected_items=tuple(
-            item for item in items if item["decision"] == "REJECTED"
-        ),
+        rejected_items=tuple(item for item in items if item["decision"] == "REJECTED"),
         review_matching_count=matching_count,
         review_status=selected_status,
         review_page=page,
@@ -349,8 +367,7 @@ def _render_summary(
     local_stack_matches = _local_stack_matches_project(workspace_state, local_stack)
     local_odoo_recovery_needed = (
         workspace_state.source_mode is not SourceMode.ODOO
-        and
-        workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL
+        and workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL
         and (
             not local_stack_matches
             or not local_stack.odoo_ready
@@ -419,9 +436,8 @@ def _render_summary(
     quality = context.quality.current_summary(workspace_id)
     normalization = context.normalization.current_summary(workspace_id)
     resolution = context.resolution.current_summary(workspace_id)
-    if (
-        quality is not None
-        and (staging is None or quality.staging_run_id != staging.run_id)
+    if quality is not None and (
+        staging is None or quality.staging_run_id != staging.run_id
     ):
         quality = None
     summary_evidence_ms = (perf_counter() - evidence_started) * 1000
@@ -468,11 +484,14 @@ def _render_summary(
             allow_missing_parent_draft = (
                 context.workspace_views.get(
                     workspace_id, actor=actor
-                ).migration_project.data_classification.value != "RESTRICTED"
+                ).migration_project.data_classification.value
+                != "RESTRICTED"
             )
-            mapped_datasets = {
-                item.dataset_id: item for item in revision.definition.datasets
-            } if revision else {}
+            mapped_datasets = (
+                {item.dataset_id: item for item in revision.definition.datasets}
+                if revision
+                else {}
+            )
             sources = tuple(effective_selection.datasets) if effective_selection else ()
             schema = context.queries.get_odoo_schema_catalog(workspace_id)
             field_labels = {
@@ -496,11 +515,15 @@ def _render_summary(
                     mapping = mapped_datasets.get(dataset.dataset_id)
                     source_key = (
                         missing_parent_source_key(mapping, group)
-                        if mapping is not None else None
+                        if mapping is not None
+                        else None
                     )
                     source_column = next(
-                        (column for column in dataset.columns
-                         if column.stable_key == source_key),
+                        (
+                            column
+                            for column in dataset.columns
+                            if column.stable_key == source_key
+                        ),
                         None,
                     )
                     if (
@@ -512,37 +535,50 @@ def _render_summary(
                         source_name = source_column.source_name
                         draft_url = (
                             f"/workspaces/{workspace_id}/mapping?"
-                            + urlencode({
-                                "mapping_dataset": index,
-                                "missing_parent_run": report.run_id,
-                                "missing_parent_group": group.group_id,
-                            })
+                            + urlencode(
+                                {
+                                    "mapping_dataset": index,
+                                    "missing_parent_run": report.run_id,
+                                    "missing_parent_group": group.group_id,
+                                }
+                            )
                             + f"#rows-to-use-{index}"
                         )
                     elif source_column is not None:
                         source_name = source_column.source_name
-                missing_parent_views.append({
-                    "group": group,
-                    "dataset_label": next(
-                        (item.label for item in report.datasets
-                         if item.dataset == group.dataset),
-                        group.dataset,
-                    ),
-                    "field_label": field_labels.get(
-                        (next((item.target_model for item in report.datasets
-                               if item.dataset == group.dataset), ""), group.field),
-                        group.field.replace("_", " ").title(),
-                    ),
-                    "source_name": source_name,
-                    "draft_url": draft_url,
-                })
+                missing_parent_views.append(
+                    {
+                        "group": group,
+                        "dataset_label": next(
+                            (
+                                item.label
+                                for item in report.datasets
+                                if item.dataset == group.dataset
+                            ),
+                            group.dataset,
+                        ),
+                        "field_label": field_labels.get(
+                            (
+                                next(
+                                    (
+                                        item.target_model
+                                        for item in report.datasets
+                                        if item.dataset == group.dataset
+                                    ),
+                                    "",
+                                ),
+                                group.field,
+                            ),
+                            group.field.replace("_", " ").title(),
+                        ),
+                        "source_name": source_name,
+                        "draft_url": draft_url,
+                    }
+                )
     if (
         comparison_failure is None
         and remote_read_credential_missing
-        and (
-            report is not None
-            or (normalization is not None and normalization.frozen)
-        )
+        and (report is not None or (normalization is not None and normalization.frozen))
     ):
         comparison_failure = classify_odoo_read_failure(
             OdooReadCredentialMissingError(
@@ -571,9 +607,7 @@ def _render_summary(
     if quality_status not in {"", "ready", "review", "quarantined", "blocked"}:
         quality_status = ""
     quality_dataset = request.query_params.get("quality_dataset", "").strip()
-    quality_datasets = {
-        item.dataset for item in (staging.datasets if staging else ())
-    }
+    quality_datasets = {item.dataset for item in (staging.datasets if staging else ())}
     if quality_dataset not in quality_datasets:
         quality_dataset = ""
     quality_page = None
@@ -596,10 +630,7 @@ def _render_summary(
             page_size=quality_page_size,
         )
         if quality_page.matching_count:
-            quality_row_start = (
-                (quality_page.page - 1) * quality_page_size
-                + 1
-            )
+            quality_row_start = (quality_page.page - 1) * quality_page_size + 1
             quality_row_end = min(
                 quality_page.page * quality_page_size,
                 quality_page.matching_count,
@@ -631,18 +662,14 @@ def _render_summary(
     }:
         status_filter = ""
     dataset_filter = request.query_params.get("dataset", "").strip()
-    available_datasets = {
-        item.dataset for item in (report.datasets if report else ())
-    }
+    available_datasets = {item.dataset for item in (report.datasets if report else ())}
     if dataset_filter not in available_datasets:
         dataset_filter = ""
     requested_row_page = _positive_query_int(
         request.query_params.get("page"),
         default=1,
     )
-    readiness_page_size = _summary_page_size(
-        request.query_params.get("page_size")
-    )
+    readiness_page_size = _summary_page_size(request.query_params.get("page_size"))
     readiness_page_started = perf_counter()
     if report is not None:
         persisted_page = context.preflight.readiness_rows(
@@ -715,8 +742,7 @@ def _render_summary(
                 page=quality_page.page + 1,
                 page_size=quality_page_size,
             )
-            if quality_page is not None
-            and quality_page.page < quality_page.page_count
+            if quality_page is not None and quality_page.page < quality_page.page_count
             else None
         ),
         readiness=report,
@@ -847,15 +873,15 @@ def _quality_field_label_map(
         if dataset is None:
             continue
         scoped = labels.setdefault(dataset.name, {})
-        target_fields = {
-            item.target_field for item in mapping.fields
-        } | {
-            item.target_field for item in mapping.relationships
-        } | {
-            field
-            for component in (*mapping.target_identity, *mapping.target_scope)
-            for field in component.target_fields
-        }
+        target_fields = (
+            {item.target_field for item in mapping.fields}
+            | {item.target_field for item in mapping.relationships}
+            | {
+                field
+                for component in (*mapping.target_identity, *mapping.target_scope)
+                for field in component.target_fields
+            }
+        )
         for field in target_fields:
             scoped.setdefault(
                 field,
@@ -870,7 +896,7 @@ def _quality_field_label_map(
 
 
 def _quality_issue_field_label_map(
-    items,
+    items: Sequence[QualityReviewItem],
     field_labels: dict[str, dict[str, str]],
 ) -> dict[str, tuple[str, ...]]:
     """Resolve issue field identifiers once before rendering a review page."""
@@ -889,9 +915,9 @@ def _quality_issue_field_label_map(
 
 
 def _quality_cause_groups(
-    items,
+    items: Sequence[QualityReviewItem],
     field_labels: dict[str, dict[str, str]],
-) -> tuple[dict[str, object], ...]:
+) -> tuple[_QualityCauseGroupView, ...]:
     """Group findings on the visible page into direct and inherited causes."""
 
     titles = {
@@ -908,7 +934,7 @@ def _quality_cause_groups(
         "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE",
         "INCOMING_IDENTITY_DEPENDENT_SET_ASIDE",
     }
-    grouped: dict[tuple[object, ...], dict[str, object]] = {}
+    grouped: dict[tuple[object, ...], _QualityCauseGroupView] = {}
     for item in items:
         scoped = field_labels.get(item.row.dataset, {})
         for issue in item.issues:
@@ -935,14 +961,14 @@ def _quality_cause_groups(
                     "count": 0,
                 },
             )
-            group["count"] = int(group["count"]) + 1
+            group["count"] += 1
     return tuple(
         sorted(
             grouped.values(),
             key=lambda item: (
-                -int(item["count"]),
-                str(item["title"]),
-                str(item["message"]),
+                -item["count"],
+                item["title"],
+                item["message"],
             ),
         )
     )
@@ -952,13 +978,10 @@ def _append_summary_server_timing(response, **metrics: float) -> None:
     """Expose allowlisted phase durations to local request diagnostics."""
 
     timing = ", ".join(
-        f"{name};dur={max(0.0, duration):.1f}"
-        for name, duration in metrics.items()
+        f"{name};dur={max(0.0, duration):.1f}" for name, duration in metrics.items()
     )
     existing = response.headers.get("Server-Timing", "")
-    response.headers["Server-Timing"] = (
-        f"{existing}, {timing}" if existing else timing
-    )
+    response.headers["Server-Timing"] = f"{existing}, {timing}" if existing else timing
 
 
 def _local_stack_matches_project(

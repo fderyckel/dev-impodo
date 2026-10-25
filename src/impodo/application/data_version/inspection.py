@@ -51,6 +51,7 @@ from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.contracts import SourceSelection
 from impodo.domain.workspace.workbench import (
     SourceFile,
+    WorkspaceState,
     WorkspaceStateError,
     WorkspaceStatus,
 )
@@ -237,7 +238,7 @@ class SourceFileCatalog:
 class WorkspaceCatalogReader(Protocol):
     """Read registered workspace files and lifecycle for source inspection."""
 
-    def get(self, workspace_id: str):
+    def get(self, workspace_id: str) -> WorkspaceState:
         """Return the project whose immutable artifacts will be inspected."""
         ...
 
@@ -1032,9 +1033,10 @@ def _xlsx_metadata(path: Path) -> dict[str, _WorksheetMetadata]:
         for sheet in workbook_root.findall(f".//{{{_MAIN_NS}}}sheet"):
             name = str(sheet.attrib.get("name", ""))
             relationship_id = sheet.attrib.get(f"{{{_DOCUMENT_REL_NS}}}id", "")
-            target = workbook_relationships.get(relationship_id)
-            if not name or not target:
+            relationship = workbook_relationships.get(relationship_id)
+            if not name or relationship is None:
                 continue
+            target, _relationship_type = relationship
             sheet_path = _resolve_relationship_target("xl/workbook.xml", target)
             relationship_path = _relationship_part_path(sheet_path)
             sheet_relationships = _relationship_targets(
@@ -1078,7 +1080,7 @@ def _relationship_targets(
     path: str,
     *,
     missing_ok: bool = False,
-) -> dict[str, tuple[str, str]] | dict[str, str]:
+) -> dict[str, tuple[str, str]]:
     try:
         root = _read_xml(archive, path)
     except KeyError:
@@ -1092,11 +1094,6 @@ def _relationship_targets(
         )
         for item in root.findall(f".//{{{_PACKAGE_REL_NS}}}Relationship")
     }
-    if path == "xl/_rels/workbook.xml.rels":
-        return {
-            relationship_id: target
-            for relationship_id, (target, _relationship_type) in relationships.items()
-        }
     return relationships
 
 
@@ -1443,7 +1440,7 @@ def _detect_csv_delimiter(sample: str) -> tuple[str, str | None]:
             delimiter: first_line.count(delimiter)
             for delimiter in SUPPORTED_CSV_DELIMITERS
         }
-        delimiter = max(counts, key=counts.get)
+        delimiter = max(counts, key=lambda candidate: counts[candidate])
         if counts[delimiter] == 0:
             raise SourceInspectionError(
                 "CSV delimiter could not be detected"
@@ -1566,7 +1563,12 @@ def _table_from_payload(payload: dict[str, Any]) -> SourceTableCatalog:
 
 def _require_dataclass_fields(
     payload: object,
-    contract: type[object],
+    contract: type[
+        SourceFileCatalog
+        | SourceTableCatalog
+        | SourceColumnProfile
+        | NamedTableCatalog
+    ],
     label: str,
 ) -> None:
     expected = {item.name for item in dataclass_fields(contract)}

@@ -3,7 +3,11 @@ from __future__ import annotations
 import unittest
 
 from impodo.domain.mapping.contracts import ResolverOrigin
-from impodo.domain.relationship_health import classify_relationship_health
+from impodo.domain.relationship_health import (
+    RelationshipHealthResult,
+    classify_relationship_health,
+)
+from impodo.domain.workspace.errors import WorkspaceError
 
 
 class RelationshipHealthTests(unittest.TestCase):
@@ -83,6 +87,29 @@ class RelationshipHealthTests(unittest.TestCase):
 
         self.assertTrue(result.ready)
         self.assertEqual(result.blocked_count, 0)
+
+    def test_portable_payload_rejects_coerced_boolean_and_count_values(self) -> None:
+        payload: dict[str, object] = {
+            "owner_dataset_id": "products",
+            "target_field": "category_id",
+            "relationship_kind": "many2one",
+            "resolver_origin": ResolverOrigin.TARGET_CATALOG.value,
+            "related_model": "product.category",
+            "dependency_dataset_id": None,
+            "required": "false",
+            "status": "CHECKED",
+        }
+
+        with self.assertRaisesRegex(WorkspaceError, "required must be a boolean"):
+            RelationshipHealthResult.from_dict(payload)
+
+        payload["required"] = False
+        payload["source_row_count"] = "0"
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "source_row_count must be an integer",
+        ):
+            RelationshipHealthResult.from_dict(payload)
 
 
 if __name__ == "__main__":

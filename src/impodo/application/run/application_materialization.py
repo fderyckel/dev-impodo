@@ -27,6 +27,7 @@ from impodo.domain.workspace.models import MigrationWorkspace, MigrationWorkspac
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceStateNotFoundError
 
 from .planning_models import IntegratedRunReview, ReviewedRecipeApplication
+from .ports import RunPlanningRepository
 
 
 class RunApplicationMaterializer:
@@ -35,7 +36,7 @@ class RunApplicationMaterializer:
     def __init__(
         self,
         *,
-        repository,
+        repository: RunPlanningRepository,
         source_packages,
         projects,
         source_projections,

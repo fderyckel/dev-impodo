@@ -4,13 +4,28 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 
 from impodo.application.correction_orchestration import (
     CorrectionDatasetReviewInput,
     CorrectionTargetReviewEvidence,
 )
+from impodo.application.recipe_compilation_service import (
+    RecipeAuthoringMappingRepository,
+    RecipeAuthoringSourceRepository,
+)
+from impodo.application.shared.artifacts import WorkspaceArtifactStore
+from impodo.application.workspace.mapping.service import MappingWorkspaceService
+from impodo.application.workspace.preparation.normalization_service import (
+    NormalizationService,
+)
+from impodo.application.workspace.preparation.preparation_service import (
+    PreparationService,
+)
+from impodo.application.workspace.preparation.quality_service import QualityService
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarSupport,
+    ColumnarTransformationProgram,
     compile_columnar_transformation_programs,
 )
 from impodo.domain.correction_origin import (
@@ -22,13 +37,31 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
     mapping_issue_fingerprint,
 )
+from impodo.domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.contracts import SourceSelection
+
+
+class CorrectionPreparationEvidenceReader(Protocol):
+    """Read exact prior and current prepared artifacts for correction review."""
+
+    def find_prepared_snapshot(
+        self,
+        workspace_id: str,
+        dataset_id: str,
+        logical_hash: str,
+    ) -> PreparedSnapshot | None: ...
+
+    def current_prepared_snapshots(
+        self,
+        workspace_id: str,
+    ) -> tuple[PreparedSnapshot, ...]: ...
 
 
 class CurrentCorrectionMappingReviewStage:
     """Check and submit the successor's exact current mapping draft."""
 
-    def __init__(self, mappings) -> None:
+    def __init__(self, mappings: MappingWorkspaceService) -> None:
         self.mappings = mappings
 
     def validate_and_submit(
@@ -44,13 +77,12 @@ class CurrentCorrectionMappingReviewStage:
         revision = self.mappings.mappings.get_mapping_revision(
             successor_workspace_id
         )
-        if draft is None and revision is None:
+        if draft is not None:
+            datasets = draft.definition.datasets
+        elif revision is not None:
+            datasets = revision.definition.datasets
+        else:
             raise CorrectionOriginError("Correction rules are missing")
-        datasets = (
-            draft.definition.datasets
-            if draft is not None
-            else revision.definition.datasets
-        )
         revision, validation = self.mappings.check_definition(
             successor_workspace_id,
             datasets=datasets,
@@ -92,11 +124,11 @@ class CurrentCorrectionPreparationReviewStage:
     def __init__(
         self,
         *,
-        preparation,
-        sessions,
-        mappings,
-        sources,
-        artifacts,
+        preparation: PreparationService,
+        sessions: CorrectionPreparationEvidenceReader,
+        mappings: RecipeAuthoringMappingRepository,
+        sources: RecipeAuthoringSourceRepository,
+        artifacts: WorkspaceArtifactStore,
     ) -> None:
         self.preparation = preparation
         self.sessions = sessions
@@ -181,7 +213,12 @@ class CurrentCorrectionPreparationReviewStage:
 class CurrentCorrectionQualityReviewStage:
     """Require current checks and freeze the correction's prepared values."""
 
-    def __init__(self, *, quality, normalization) -> None:
+    def __init__(
+        self,
+        *,
+        quality: QualityService,
+        normalization: NormalizationService,
+    ) -> None:
         self.quality = quality
         self.normalization = normalization
 
@@ -262,7 +299,10 @@ class CallbackCorrectionTargetReviewStage:
         )
 
 
-def _native_programs(revision, selection):
+def _native_programs(
+    revision: MappingRevision,
+    selection: SourceSelection,
+) -> dict[str, ColumnarTransformationProgram]:
     decisions = compile_columnar_transformation_programs(
         revision.definition,
         selection,
@@ -279,6 +319,7 @@ def _native_programs(revision, selection):
 
 __all__ = [
     "CallbackCorrectionTargetReviewStage",
+    "CorrectionPreparationEvidenceReader",
     "CurrentCorrectionMappingReviewStage",
     "CurrentCorrectionPreparationReviewStage",
     "CurrentCorrectionQualityReviewStage",

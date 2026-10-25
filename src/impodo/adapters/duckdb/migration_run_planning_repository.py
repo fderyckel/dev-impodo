@@ -10,6 +10,7 @@ from impodo.domain.project.foundation import (
     FaultInjector,
     MigrationConflictError,
     MigrationNotFoundError,
+    MigrationOperationIntent,
     MigrationOperationKind,
     MigrationOperationState,
     require_hash,
@@ -33,7 +34,10 @@ from impodo.domain.run.contracts import (
     RunRecipeApplication,
     RunTargetBinding,
 )
-from impodo.domain.run.production import ProductionRunBinding
+from impodo.domain.run.production import (
+    ProductionRunBinding,
+    ProductionRunBindingState,
+)
 from impodo.domain.run.test_setup import TestRunSetupBinding
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
@@ -43,6 +47,68 @@ from ...domain.run.models import MigrationRun
 from ...domain.serialization import canonical_json, content_hash
 from .migration_foundation_repository import MigrationFoundationRepository
 from .run_planning_operation_payloads import RunPlanningOperationPayloads
+
+
+def _stored_mapping(value: object, field_name: str) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise MigrationConflictError(f"Stored {field_name} must be a mapping")
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise MigrationConflictError(f"Stored {field_name} keys must be text")
+        result[key] = item
+    return result
+
+
+def _stored_sequence(value: object, field_name: str) -> tuple[object, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise MigrationConflictError(f"Stored {field_name} must be a sequence")
+    return tuple(value)
+
+
+def _stored_mappings(value: object, field_name: str) -> tuple[dict[str, object], ...]:
+    return tuple(
+        _stored_mapping(item, f"{field_name} item")
+        for item in _stored_sequence(value, field_name)
+    )
+
+
+def _stored_text(value: object, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise MigrationConflictError(f"Stored {field_name} must be text")
+    return value
+
+
+def _stored_optional_text(value: object, field_name: str) -> str | None:
+    if value is None:
+        return None
+    return _stored_text(value, field_name)
+
+
+def _stored_texts(value: object, field_name: str) -> tuple[str, ...]:
+    return tuple(
+        _stored_text(item, f"{field_name} item")
+        for item in _stored_sequence(value, field_name)
+    )
+
+
+def _stored_integer(value: object, field_name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise MigrationConflictError(f"Stored {field_name} must be an integer")
+    return value
+
+
+def _stored_datetime(value: object, field_name: str) -> datetime:
+    try:
+        return datetime.fromisoformat(_stored_text(value, field_name))
+    except ValueError as error:
+        raise MigrationConflictError(f"Stored {field_name} is invalid") from error
+
+
+def _stored_optional_datetime(value: object, field_name: str) -> datetime | None:
+    if value is None:
+        return None
+    return _stored_datetime(value, field_name)
 
 
 class MigrationRunPlanningRepository:
@@ -170,7 +236,10 @@ class MigrationRunPlanningRepository:
             intent,
             stored=self._stored_plan(intent.detail),
             stored_binding=TestRunSetupBinding.from_dict(
-                dict(intent.detail["test_binding"])
+                _stored_mapping(
+                    intent.detail.get("test_binding"),
+                    "Test setup binding",
+                )
             ),
             actor=actor,
             fault=fault,
@@ -200,13 +269,19 @@ class MigrationRunPlanningRepository:
             intent,
             stored=self._stored_plan(intent.detail),
             stored_binding=TestRunSetupBinding.from_dict(
-                dict(intent.detail["test_binding"])
+                _stored_mapping(
+                    intent.detail.get("test_binding"),
+                    "Test setup binding",
+                )
             ),
             actor=actor,
             fault=fault,
         )
 
-    def test_activation_operation(self, migration_run_id: str):
+    def test_activation_operation(
+        self,
+        migration_run_id: str,
+    ) -> MigrationOperationIntent:
         """Find the durable activation identity when a browser has restarted."""
 
         migration_run_id = require_uuid(migration_run_id, "migration_run_id")
@@ -304,7 +379,10 @@ class MigrationRunPlanningRepository:
         )
         stored = self._stored_plan(intent.detail)
         stored_binding = self._production_binding_from_dict(
-            dict(intent.detail["production_binding"])
+            _stored_mapping(
+                intent.detail.get("production_binding"),
+                "Production setup binding",
+            )
         )
         return self._continue_production_activation(
             intent,
@@ -327,7 +405,10 @@ class MigrationRunPlanningRepository:
             ).fetchall()
         return frozenset(str(row[0]) for row in rows)
 
-    def production_activation_operation(self, migration_run_id: str):
+    def production_activation_operation(
+        self,
+        migration_run_id: str,
+    ) -> MigrationOperationIntent | None:
         """Find the sole saved Production request without opening child stores."""
 
         migration_run_id = require_uuid(migration_run_id, "migration_run_id")
@@ -364,7 +445,10 @@ class MigrationRunPlanningRepository:
             )
         stored = self._stored_plan(intent.detail)
         stored_binding = self._production_binding_from_dict(
-            dict(intent.detail["production_binding"])
+            _stored_mapping(
+                intent.detail.get("production_binding"),
+                "Production setup binding",
+            )
         )
         return self._continue_production_activation(
             intent,
@@ -693,7 +777,9 @@ class MigrationRunPlanningRepository:
                 """,
                 [migration_run_id, code, MigrationRunPlanIssueLevel.BLOCKER.value],
             ).fetchone()
-        return int(row[0])
+        if row is None:
+            raise MigrationConflictError("Run issue count could not be loaded")
+        return _stored_integer(row[0], "run issue count")
 
     def list_run_issues(
         self,
@@ -1208,6 +1294,10 @@ class MigrationRunPlanningRepository:
         operation_id: str,
         actor: Actor,
     ) -> None:
+        if test_binding.activated_at is None:
+            raise MigrationConflictError(
+                "Activated Test setup binding is missing its activation time"
+            )
         with self.database.connect(self.registry_path) as connection:
             connection.begin()
             try:
@@ -1372,6 +1462,10 @@ class MigrationRunPlanningRepository:
         operation_id: str,
         actor: Actor,
     ) -> None:
+        if production_binding.activated_at is None:
+            raise MigrationConflictError(
+                "Activated Production binding is missing its activation time"
+            )
         with self.database.connect(self.registry_path) as connection:
             connection.begin()
             try:
@@ -1668,21 +1762,55 @@ class MigrationRunPlanningRepository:
     @staticmethod
     def _target_from_dict(value: Mapping[str, object]) -> RunTargetBinding:
         result = RunTargetBinding(
-            target_binding_id=str(value["target_binding_id"]),
-            project_id=str(value["project_id"]),
-            migration_run_id=str(value["migration_run_id"]),
-            environment=str(value["environment"]),
-            connection_target_hash=str(value["connection_target_hash"]),
-            credential_role=str(value["credential_role"]),
-            credential_generation=str(value["credential_generation"]),
-            principal_hash=str(value["principal_hash"]),
-            permission_hash=str(value["permission_hash"]),
-            context_hash=str(value["context_hash"]),
-            schema_dependency_hash=str(value["schema_dependency_hash"]),
-            reference_snapshot_hashes=tuple(
-                str(item) for item in value.get("reference_snapshot_hashes", ())
+            target_binding_id=_stored_text(
+                value.get("target_binding_id"),
+                "TargetBinding identifier",
             ),
-            created_at=datetime.fromisoformat(str(value["created_at"])),
+            project_id=_stored_text(value.get("project_id"), "TargetBinding Project"),
+            migration_run_id=_stored_text(
+                value.get("migration_run_id"),
+                "TargetBinding MigrationRun",
+            ),
+            environment=_stored_text(
+                value.get("environment"),
+                "TargetBinding environment",
+            ),
+            connection_target_hash=_stored_text(
+                value.get("connection_target_hash"),
+                "TargetBinding connection hash",
+            ),
+            credential_role=_stored_text(
+                value.get("credential_role"),
+                "TargetBinding credential role",
+            ),
+            credential_generation=_stored_text(
+                value.get("credential_generation"),
+                "TargetBinding credential generation",
+            ),
+            principal_hash=_stored_text(
+                value.get("principal_hash"),
+                "TargetBinding principal hash",
+            ),
+            permission_hash=_stored_text(
+                value.get("permission_hash"),
+                "TargetBinding permission hash",
+            ),
+            context_hash=_stored_text(
+                value.get("context_hash"),
+                "TargetBinding context hash",
+            ),
+            schema_dependency_hash=_stored_text(
+                value.get("schema_dependency_hash"),
+                "TargetBinding schema dependency hash",
+            ),
+            reference_snapshot_hashes=_stored_texts(
+                value.get("reference_snapshot_hashes"),
+                "TargetBinding reference snapshot hashes",
+            ),
+            created_at=_stored_datetime(
+                value.get("created_at"),
+                "TargetBinding creation time",
+            ),
         )
         if value.get("content_hash") != result.content_hash:
             raise MigrationConflictError("Stored TargetBinding hash is invalid")
@@ -1721,44 +1849,98 @@ class MigrationRunPlanningRepository:
     @staticmethod
     def _plan_from_dict(value: Mapping[str, object]) -> MigrationRunRequirementPlan:
         result = MigrationRunRequirementPlan(
-            migration_run_id=str(value["migration_run_id"]),
-            project_id=str(value["project_id"]),
-            data_version_id=str(value["data_version_id"]),
-            target_binding_id=str(value["target_binding_id"]),
+            migration_run_id=_stored_text(
+                value.get("migration_run_id"),
+                "requirement plan MigrationRun",
+            ),
+            project_id=_stored_text(
+                value.get("project_id"),
+                "requirement plan Project",
+            ),
+            data_version_id=_stored_text(
+                value.get("data_version_id"),
+                "requirement plan DataVersion",
+            ),
+            target_binding_id=_stored_text(
+                value.get("target_binding_id"),
+                "requirement plan TargetBinding",
+            ),
             selected_revisions=tuple(
                 RecipeRevisionSelection(
-                    recipe_id=str(item["recipe_id"]),
-                    recipe_revision=int(item["recipe_revision"]),
-                    semantic_hash=str(item["semantic_hash"]),
+                    recipe_id=_stored_text(
+                        item.get("recipe_id"),
+                        "selected Recipe identifier",
+                    ),
+                    recipe_revision=_stored_integer(
+                        item.get("recipe_revision"),
+                        "selected Recipe revision",
+                    ),
+                    semantic_hash=_stored_text(
+                        item.get("semantic_hash"),
+                        "selected Recipe semantic hash",
+                    ),
                 )
-                for item in value["selected_revisions"]
+                for item in _stored_mappings(
+                    value.get("selected_revisions"),
+                    "selected Recipe revisions",
+                )
             ),
             dependencies=tuple(
                 RecipeDependency(
-                    before_recipe_id=str(item["before_recipe_id"]),
-                    after_recipe_id=str(item["after_recipe_id"]),
-                    kind=str(item["kind"]),
-                    reason=str(item["reason"]),
+                    before_recipe_id=_stored_text(
+                        item.get("before_recipe_id"),
+                        "dependency predecessor",
+                    ),
+                    after_recipe_id=_stored_text(
+                        item.get("after_recipe_id"),
+                        "dependency successor",
+                    ),
+                    kind=_stored_text(item.get("kind"), "dependency kind"),
+                    reason=_stored_text(item.get("reason"), "dependency reason"),
                 )
-                for item in value["dependencies"]
+                for item in _stored_mappings(
+                    value.get("dependencies"),
+                    "Recipe dependencies",
+                )
             ),
             model_requirements=tuple(
                 OdooModelRequirement(
-                    model=str(item["model"]),
-                    fields=tuple(str(field) for field in item["fields"]),
+                    model=_stored_text(item.get("model"), "required Odoo model"),
+                    fields=_stored_texts(
+                        item.get("fields"),
+                        "required Odoo fields",
+                    ),
                 )
-                for item in value["model_requirements"]
+                for item in _stored_mappings(
+                    value.get("model_requirements"),
+                    "Odoo model requirements",
+                )
             ),
             reference_requirements=tuple(
                 ReferenceRequirement(
-                    name=str(item["name"]),
-                    content_hash=str(item["content_hash"]),
+                    name=_stored_text(item.get("name"), "reference name"),
+                    content_hash=_stored_text(
+                        item.get("content_hash"),
+                        "reference content hash",
+                    ),
                 )
-                for item in value.get("reference_requirements", ())
+                for item in _stored_mappings(
+                    value.get("reference_requirements"),
+                    "reference requirements",
+                )
             ),
-            application_order=tuple(str(item) for item in value["application_order"]),
-            created_at=datetime.fromisoformat(str(value["created_at"])),
-            contract_version=int(value["contract_version"]),
+            application_order=_stored_texts(
+                value.get("application_order"),
+                "application order",
+            ),
+            created_at=_stored_datetime(
+                value.get("created_at"),
+                "requirement plan creation time",
+            ),
+            contract_version=_stored_integer(
+                value.get("contract_version"),
+                "requirement plan contract version",
+            ),
         )
         if value.get("content_hash") != result.content_hash:
             raise MigrationConflictError("Stored run requirement plan is invalid")
@@ -1832,28 +2014,77 @@ class MigrationRunPlanningRepository:
     @staticmethod
     def _application_from_dict(value: Mapping[str, object]) -> RunRecipeApplication:
         return RunRecipeApplication(
-            application_id=str(value["application_id"]),
-            project_id=str(value["project_id"]),
-            migration_run_id=str(value["migration_run_id"]),
-            data_version_id=str(value["data_version_id"]),
-            workspace_id=str(value["workspace_id"]),
-            recipe_id=str(value["recipe_id"]),
-            recipe_revision=int(value["recipe_revision"]),
-            recipe_semantic_hash=str(value["recipe_semantic_hash"]),
-            target_binding_id=str(value["target_binding_id"]),
-            physical_binding_hash=str(value["physical_binding_hash"]),
-            parameter_values_hash=str(value["parameter_values_hash"]),
-            status=RecipeApplicationStatus(str(value["status"])),
-            issue_hash=str(value["issue_hash"]),
-            mapping_id=str(value["mapping_id"]) if value.get("mapping_id") else None,
-            mapping_content_hash=(
-                str(value["mapping_content_hash"])
-                if value.get("mapping_content_hash")
-                else None
+            application_id=_stored_text(
+                value.get("application_id"),
+                "RecipeApplication identifier",
             ),
-            evidence_hash=str(value["evidence_hash"]),
-            created_at=datetime.fromisoformat(str(value["created_at"])),
-            updated_at=datetime.fromisoformat(str(value["updated_at"])),
+            project_id=_stored_text(
+                value.get("project_id"),
+                "RecipeApplication Project",
+            ),
+            migration_run_id=_stored_text(
+                value.get("migration_run_id"),
+                "RecipeApplication MigrationRun",
+            ),
+            data_version_id=_stored_text(
+                value.get("data_version_id"),
+                "RecipeApplication DataVersion",
+            ),
+            workspace_id=_stored_text(
+                value.get("workspace_id"),
+                "RecipeApplication workspace",
+            ),
+            recipe_id=_stored_text(
+                value.get("recipe_id"),
+                "RecipeApplication Recipe",
+            ),
+            recipe_revision=_stored_integer(
+                value.get("recipe_revision"),
+                "RecipeApplication Recipe revision",
+            ),
+            recipe_semantic_hash=_stored_text(
+                value.get("recipe_semantic_hash"),
+                "RecipeApplication semantic hash",
+            ),
+            target_binding_id=_stored_text(
+                value.get("target_binding_id"),
+                "RecipeApplication TargetBinding",
+            ),
+            physical_binding_hash=_stored_text(
+                value.get("physical_binding_hash"),
+                "RecipeApplication physical binding hash",
+            ),
+            parameter_values_hash=_stored_text(
+                value.get("parameter_values_hash"),
+                "RecipeApplication parameter values hash",
+            ),
+            status=RecipeApplicationStatus(
+                _stored_text(value.get("status"), "RecipeApplication status")
+            ),
+            issue_hash=_stored_text(
+                value.get("issue_hash"),
+                "RecipeApplication issue hash",
+            ),
+            mapping_id=_stored_optional_text(
+                value.get("mapping_id"),
+                "RecipeApplication Mapping",
+            ),
+            mapping_content_hash=_stored_optional_text(
+                value.get("mapping_content_hash"),
+                "RecipeApplication Mapping content hash",
+            ),
+            evidence_hash=_stored_text(
+                value.get("evidence_hash"),
+                "RecipeApplication evidence hash",
+            ),
+            created_at=_stored_datetime(
+                value.get("created_at"),
+                "RecipeApplication creation time",
+            ),
+            updated_at=_stored_datetime(
+                value.get("updated_at"),
+                "RecipeApplication update time",
+            ),
         )
 
     @classmethod
@@ -1868,21 +2099,56 @@ class MigrationRunPlanningRepository:
         value: Mapping[str, object],
     ) -> ProductionRunBinding:
         def optional(key: str) -> str | None:
-            return str(value[key]) if value.get(key) else None
+            return _stored_optional_text(value.get(key), f"Production binding {key}")
 
         return ProductionRunBinding(
-            production_run_binding_id=str(value["production_run_binding_id"]),
-            project_id=str(value["project_id"]),
-            migration_run_id=str(value["migration_run_id"]),
-            data_version_id=str(value["data_version_id"]),
-            setup_workspace_id=str(value["setup_workspace_id"]),
-            cutover_selection_id=str(value["cutover_selection_id"]),
-            qualification_id=str(value["qualification_id"]),
-            cutover_plan_id=str(value["cutover_plan_id"]),
-            cutover_plan_revision=int(value["cutover_plan_revision"]),
-            plan_content_hash=str(value["plan_content_hash"]),
-            test_target_binding_hash=str(value["test_target_binding_hash"]),
-            state=str(value["state"]),
+            production_run_binding_id=_stored_text(
+                value.get("production_run_binding_id"),
+                "Production binding identifier",
+            ),
+            project_id=_stored_text(
+                value.get("project_id"),
+                "Production binding Project",
+            ),
+            migration_run_id=_stored_text(
+                value.get("migration_run_id"),
+                "Production binding MigrationRun",
+            ),
+            data_version_id=_stored_text(
+                value.get("data_version_id"),
+                "Production binding DataVersion",
+            ),
+            setup_workspace_id=_stored_text(
+                value.get("setup_workspace_id"),
+                "Production binding setup workspace",
+            ),
+            cutover_selection_id=_stored_text(
+                value.get("cutover_selection_id"),
+                "Production binding cutover selection",
+            ),
+            qualification_id=_stored_text(
+                value.get("qualification_id"),
+                "Production binding qualification",
+            ),
+            cutover_plan_id=_stored_text(
+                value.get("cutover_plan_id"),
+                "Production binding cutover plan",
+            ),
+            cutover_plan_revision=_stored_integer(
+                value.get("cutover_plan_revision"),
+                "Production binding cutover plan revision",
+            ),
+            plan_content_hash=_stored_text(
+                value.get("plan_content_hash"),
+                "Production binding plan content hash",
+            ),
+            test_target_binding_hash=_stored_text(
+                value.get("test_target_binding_hash"),
+                "Production binding Test target hash",
+            ),
+            state=ProductionRunBindingState(
+                _stored_text(value.get("state"), "Production binding state")
+            ),
             target_binding_id=optional("target_binding_id"),
             read_credential_generation=optional("read_credential_generation"),
             write_credential_generation=optional("write_credential_generation"),
@@ -1892,13 +2158,18 @@ class MigrationRunPlanningRepository:
             parameter_values_hash=optional("parameter_values_hash"),
             control_values_hash=optional("control_values_hash"),
             activation_evidence_hash=optional("activation_evidence_hash"),
-            created_at=datetime.fromisoformat(str(value["created_at"])),
-            activated_at=(
-                datetime.fromisoformat(str(value["activated_at"]))
-                if value.get("activated_at")
-                else None
+            created_at=_stored_datetime(
+                value.get("created_at"),
+                "Production binding creation time",
             ),
-            contract_version=int(value["contract_version"]),
+            activated_at=_stored_optional_datetime(
+                value.get("activated_at"),
+                "Production binding activation time",
+            ),
+            contract_version=_stored_integer(
+                value.get("contract_version"),
+                "Production binding contract version",
+            ),
         )
 
     @staticmethod
@@ -1925,11 +2196,19 @@ class MigrationRunPlanningRepository:
     @staticmethod
     def _issue_from_dict(value: Mapping[str, object]) -> MigrationRunPlanIssue:
         return MigrationRunPlanIssue(
-            code=str(value["code"]),
-            level=MigrationRunPlanIssueLevel(str(value["level"])),
-            message=str(value["message"]),
-            recovery_action=str(value["recovery_action"]),
-            recipe_ids=tuple(str(item) for item in value.get("recipe_ids", ())),
+            code=_stored_text(value.get("code"), "run issue code"),
+            level=MigrationRunPlanIssueLevel(
+                _stored_text(value.get("level"), "run issue level")
+            ),
+            message=_stored_text(value.get("message"), "run issue message"),
+            recovery_action=_stored_text(
+                value.get("recovery_action"),
+                "run issue recovery action",
+            ),
+            recipe_ids=_stored_texts(
+                value.get("recipe_ids"),
+                "run issue Recipe identifiers",
+            ),
         )
 
     @classmethod

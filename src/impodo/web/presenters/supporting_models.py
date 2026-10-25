@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from enum import StrEnum
 from itertools import groupby
+from typing import TypedDict
 
 from impodo.application.workspace.issues import (
     WorkflowIssueOrigin,
@@ -39,33 +40,48 @@ class _SupportingPreviewOutcome(StrEnum):
 _OUTCOME_COPY = {
     _SupportingPreviewOutcome.KEEP_LINKED: (
         "Keep linked value",
-        ("For each populated link, Impodo first reuses a matching destination "
-        "record. If no match exists, it prepares only the identity and required "
-        "values needed to create that record. It does not add the whole related "
-        "record type to the top-level transfer."),
+        (
+            "For each populated link, Impodo first reuses a matching destination "
+            "record. If no match exists, it prepares only the identity and required "
+            "values needed to create that record. It does not add the whole related "
+            "record type to the top-level transfer."
+        ),
         "Reuse or create identity and required values only",
     ),
     _SupportingPreviewOutcome.USE_EXISTING_DESTINATION: (
         "Use existing destination records only",
-        ("Destination-owned setup stays protected. Impodo must match an existing "
-        "destination record; a missing match stops the load instead of creating "
-        "or updating setup here."),
+        (
+            "Destination-owned setup stays protected. Impodo must match an existing "
+            "destination record; a missing match stops the load instead of creating "
+            "or updating setup here."
+        ),
         "Protected destination setup",
     ),
     _SupportingPreviewOutcome.ODOO_MANAGED: (
         "Handled by Odoo",
-        ("Odoo computes these relationships or owns them through the related "
-        "record. Impodo will not ask you to migrate the related record type here."),
+        (
+            "Odoo computes these relationships or owns them through the related "
+            "record. Impodo will not ask you to migrate the related record type here."
+        ),
         "No incoming data required",
     ),
 }
+
+
+class SupportingModelPlanView(TypedDict):
+    """Expose the stable keys consumed by the schema presenter."""
+
+    groups: tuple[dict[str, object], ...]
+    dependency_count: int
+    issue_summary: object
+    suggestable_model_names: tuple[str, ...]
 
 
 def supporting_model_plan_view(
     workspace_id: str,
     schema: OdooSchemaCatalog | None,
     model_catalog: OdooModelCatalog | None,
-) -> dict[str, object]:
+) -> SupportingModelPlanView:
     """Preview direct relationship defaults without widening write scope."""
 
     if schema is None or schema.origin is not SchemaOrigin.LIVE_API:
@@ -157,8 +173,7 @@ def supporting_model_plan_view(
                     evidence_revision=schema.content_hash,
                     affected_record_types=(relation_label,),
                     affected_fields=tuple(
-                        f"{item.source_label}: {item.field_label}"
-                        for item in related
+                        f"{item.source_label}: {item.field_label}" for item in related
                     ),
                 )
             )

@@ -172,9 +172,7 @@ def build_transfer_order_router(context: WebContext) -> APIRouter:
                 match_plan,
                 recorded_by=actor.identity.display_name,
                 relationship_scope=(
-                    context.queries.get_current_odoo_relationship_scope(
-                        workspace_id
-                    )
+                    context.queries.get_current_odoo_relationship_scope(workspace_id)
                 ),
             )
             workspace_state = context.workspace_states.save_transfer_order_plan(
@@ -196,7 +194,7 @@ def build_transfer_order_router(context: WebContext) -> APIRouter:
             request,
             (
                 "Transfer order is ready. Nothing was changed in Odoo."
-                if workspace_state.transfer_order_plan.ready
+                if plan.ready
                 else "Transfer order was built. Review the dependency blockers."
             ),
         )

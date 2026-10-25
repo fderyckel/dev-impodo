@@ -79,44 +79,47 @@ def repair_unambiguous_incoming_dependencies(
         mapped_by_model.setdefault(dataset.target_model, []).append(dataset)
     governed_signatures = frozenset(
         (item.model, item.key_fields, item.scope_fields)
-        for item in (
-            governance.business_keys if governance is not None else ()
-        )
+        for item in (governance.business_keys if governance is not None else ())
         if item.status is BusinessKeyStatus.CONFIRMED
     )
     version_decision = assess_odoo_operation(
         getattr(schema, "odoo_version", ""),
         OdooOperation.COMPARE,
     )
+    assessed_version = version_decision.version
     odoo_major_version = (
-        version_decision.version.major if version_decision.allowed else -1
+        assessed_version.major
+        if version_decision.allowed
+        and assessed_version is not None
+        and assessed_version.major is not None
+        else -1
     )
 
     repaired_datasets: list[DatasetMapping] = []
     repairs: list[IncomingDependencyRepair] = []
     for dataset in datasets:
         model = schema_by_model.get(dataset.target_model)
-        fields = (
-            {item.name: item for item in model.fields}
-            if model is not None
-            else {}
-        )
+        fields = {item.name: item for item in model.fields} if model is not None else {}
         relationships = []
         for relationship in dataset.relationships:
             resolver = relationship.resolver
             metadata = fields.get(relationship.target_field)
+            related_model_name = (
+                metadata.relation
+                if metadata is not None and metadata.relation is not None
+                else ""
+            )
             candidates = tuple(
                 item
                 for item in mapped_by_model.get(
-                    metadata.relation if metadata is not None else "",
+                    related_model_name,
                     (),
                 )
                 if item.dataset_id != dataset.dataset_id
             )
             if (
                 resolver.origin is not ResolverOrigin.TARGET_CATALOG
-                or relationship.value_source
-                is not RelationshipValueSource.SOURCE
+                or relationship.value_source is not RelationshipValueSource.SOURCE
                 or relationship.kind != "many2one"
                 or metadata is None
                 or metadata.type != "many2one"
@@ -176,9 +179,7 @@ def repair_unambiguous_incoming_dependencies(
                     source_column_keys=inferred_sources,
                 )
             )
-        repaired_datasets.append(
-            replace(dataset, relationships=tuple(relationships))
-        )
+        repaired_datasets.append(replace(dataset, relationships=tuple(relationships)))
     return IncomingDependencyRepairResult(
         datasets=tuple(repaired_datasets),
         repairs=tuple(repairs),
@@ -191,9 +192,7 @@ def _target_resolver_is_governed(
     metadata: SchemaField,
     resolver: RelationshipResolver,
     schema_by_model,
-    governed_signatures: frozenset[
-        tuple[str, tuple[str, ...], tuple[str, ...]]
-    ],
+    governed_signatures: frozenset[tuple[str, tuple[str, ...], tuple[str, ...]]],
     odoo_major_version: int,
 ) -> bool:
     """Use the same reviewed-reference decision as semantic validation."""
@@ -202,9 +201,7 @@ def _target_resolver_is_governed(
     if related_model is None:
         return False
     key_fields = tuple(item.target_field for item in resolver.key_mappings)
-    scope_fields = tuple(
-        item.target_field for item in resolver.scope_mappings
-    )
+    scope_fields = tuple(item.target_field for item in resolver.scope_mappings)
     signature = (resolver.model or "", key_fields, scope_fields)
     if signature in governed_signatures or odoo_major_version < 0:
         return True
@@ -222,9 +219,7 @@ def _target_resolver_is_governed(
             odoo_major_version=odoo_major_version,
             governed_key=False,
         ),
-        captured_fields=captured_reference_field_contracts(
-            related_model.fields
-        ),
+        captured_fields=captured_reference_field_contracts(related_model.fields),
     )
     return decision.accepted
 
@@ -240,25 +235,19 @@ def match_incoming_identity_columns(
 
     if owner is None or referenced is None or not referenced_identity:
         return None
-    referenced_by_key = {
-        item.stable_key: item for item in referenced.columns
-    }
+    referenced_by_key = {item.stable_key: item for item in referenced.columns}
     referenced_tokens = tuple(
         _column_name_token(referenced_by_key[key].source_name)
         for key in referenced_identity
         if key in referenced_by_key
     )
-    if (
-        len(referenced_tokens) != len(referenced_identity)
-        or len(set(referenced_tokens)) != len(referenced_tokens)
-    ):
+    if len(referenced_tokens) != len(referenced_identity) or len(
+        set(referenced_tokens)
+    ) != len(referenced_tokens):
         return None
     owner_by_token: dict[str, list[SourceDatasetColumn]] = {}
     for column in owner.columns:
-        if (
-            owner_column_keys is not None
-            and column.stable_key not in owner_column_keys
-        ):
+        if owner_column_keys is not None and column.stable_key not in owner_column_keys:
             continue
         owner_by_token.setdefault(
             _column_name_token(column.source_name),
@@ -271,9 +260,7 @@ def match_incoming_identity_columns(
     if any(len(owner_by_token.get(token, ())) != 1 for token in referenced_tokens):
         return None
     matched = tuple(owner_by_token[token][0] for token in referenced_tokens)
-    referenced_columns = tuple(
-        referenced_by_key[key] for key in referenced_identity
-    )
+    referenced_columns = tuple(referenced_by_key[key] for key in referenced_identity)
     if any(
         owner_column.candidate_type.casefold()
         != referenced_column.candidate_type.casefold()

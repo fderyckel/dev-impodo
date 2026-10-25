@@ -21,9 +21,10 @@ from impodo.domain.project.foundation import (
 from impodo.domain.shared.access import Actor
 
 from ...domain.serialization import canonical_json
+from .foundation_repository_mixin import FoundationRepositoryMixin
 
 
-class FoundationOperationIntents:
+class FoundationOperationIntents(FoundationRepositoryMixin):
     def get_operation_intent(self, operation_id: str) -> MigrationOperationIntent:
         operation_id = require_uuid(operation_id, "operation_id")
         with self.database.connect(self.registry_path) as connection:

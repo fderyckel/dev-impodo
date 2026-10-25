@@ -59,22 +59,22 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
 
     def initialize_workbench(
         self,
-        workspace_state: WorkspaceState,
+        workspace: WorkspaceState,
         *,
         actor: Actor,
     ) -> None:
         """Initialize only the engine state for an existing clean workspace."""
 
-        workspace = self.foundation.get_migration_workspace(
-            workspace_state.workspace_id
+        migration_workspace = self.foundation.get_migration_workspace(
+            workspace.workspace_id
         )
-        if workspace.state is not MigrationWorkspaceState.OPEN:
+        if migration_workspace.state is not MigrationWorkspaceState.OPEN:
             raise WorkspaceStateError("A closed MigrationWorkspace cannot be initialized")
-        directory = self.workspace_directory(workspace_state.workspace_id)
+        directory = self.workspace_directory(workspace.workspace_id)
         database_path = directory / "workspace-engine.duckdb"
         if database_path.is_file():
-            current = self.get(workspace_state.workspace_id)
-            if current != workspace_state:
+            current = self.get(workspace.workspace_id)
+            if current != workspace:
                 raise MigrationConflictError(
                     "MigrationWorkspace engine was already initialized differently"
                 )
@@ -88,10 +88,10 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             (directory / "protected").chmod(0o700)
             with self._connect(database_path) as connection:
                 self._initialize_workspace_database(connection)
-                self._insert_workspace(connection, workspace_state)
+                self._insert_workspace(connection, workspace)
                 self._insert_audit(
                     connection,
-                    workspace_state,
+                    workspace,
                     event_type="MIGRATION_WORKSPACE_ENGINE_CREATED",
                     detail="",
                     actor=actor,
@@ -160,7 +160,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
 
     def save(
         self,
-        workbench: WorkspaceState,
+        workspace: WorkspaceState,
         *,
         expected_revision: int,
         event_type: str,
@@ -169,19 +169,25 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
     ) -> None:
         """Persist workbench effects, then advance the canonical owner."""
 
-        self.assert_workspace_mutable(workbench.workspace_id)
-        workspace = self.foundation.get_migration_workspace(workbench.workspace_id)
+        self.assert_workspace_mutable(workspace.workspace_id)
+        migration_workspace = self.foundation.get_migration_workspace(
+            workspace.workspace_id
+        )
         super().save(
-            workbench,
+            workspace,
             expected_revision=expected_revision,
             event_type=event_type,
             event_detail=event_detail,
             actor=actor,
         )
         if event_type == "WORKSPACE_TARGET_UPDATED":
-            self._replace_run_target(workspace.migration_run_id, workbench, actor)
+            self._replace_run_target(
+                migration_workspace.migration_run_id,
+                workspace,
+                actor,
+            )
         elif event_type == "WORKSPACE_REGISTERED":
-            current = self.foundation.get_migration_workspace(workbench.workspace_id)
+            current = self.foundation.get_migration_workspace(workspace.workspace_id)
             if current.setup_state is MigrationWorkspaceSetupState.DRAFT:
                 now = utc_now()
                 self.foundation.save_migration_workspace(
@@ -198,7 +204,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
 
     def add_source_file(
         self,
-        workbench: WorkspaceState,
+        workspace: WorkspaceState,
         source_file: SourceFile,
         *,
         expected_revision: int,
@@ -206,9 +212,11 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
     ) -> None:
         """Add canonical DataVersion evidence before its workbench cache."""
 
-        self.assert_workspace_mutable(workbench.workspace_id)
-        workspace = self.foundation.get_migration_workspace(workbench.workspace_id)
-        current = self._draft_file_package(workspace.data_version_id)
+        self.assert_workspace_mutable(workspace.workspace_id)
+        migration_workspace = self.foundation.get_migration_workspace(
+            workspace.workspace_id
+        )
+        current = self._draft_file_package(migration_workspace.data_version_id)
         candidate = replace(
             current,
             revision=current.revision + 1,
@@ -222,7 +230,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
         )
         try:
             super().add_source_file(
-                workbench,
+                workspace,
                 source_file,
                 expected_revision=expected_revision,
                 actor=actor,
@@ -233,7 +241,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
 
     def remove_source_file(
         self,
-        workbench: WorkspaceState,
+        workspace: WorkspaceState,
         source_file: SourceFile,
         *,
         expected_revision: int,
@@ -241,9 +249,11 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
     ) -> None:
         """Remove canonical DataVersion evidence and its workbench cache."""
 
-        self.assert_workspace_mutable(workbench.workspace_id)
-        workspace = self.foundation.get_migration_workspace(workbench.workspace_id)
-        current = self._draft_file_package(workspace.data_version_id)
+        self.assert_workspace_mutable(workspace.workspace_id)
+        migration_workspace = self.foundation.get_migration_workspace(
+            workspace.workspace_id
+        )
+        current = self._draft_file_package(migration_workspace.data_version_id)
         if source_file.file_id not in {item.file_id for item in current.files}:
             raise WorkspaceStateError("The DataVersion source file was not found")
         candidate = replace(
@@ -276,7 +286,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
         )
         try:
             super().remove_source_file(
-                workbench,
+                workspace,
                 source_file,
                 expected_revision=expected_revision,
                 actor=actor,

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from datetime import date, time
 from functools import partial
 from time import perf_counter
 from typing import Any
@@ -29,7 +31,7 @@ from impodo.domain.preparation.quality import (
     QualityRuleFamily,
     manager_quality_rule,
 )
-from impodo.domain.shared.access import Capability
+from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityRule,
     HierarchicalLookupRule,
@@ -135,6 +137,22 @@ class _DatasetCatalogProjection:
     relation_candidates: tuple[_CatalogFieldProjection, ...]
     relation_recommendations: tuple[_CatalogRecommendation, ...]
     relation_mapped_total: int
+
+
+def _mapping_view_dataset_id(view: Mapping[str, object]) -> str:
+    source = view.get("source")
+    dataset_id = getattr(source, "dataset_id", None)
+    if not isinstance(dataset_id, str):
+        raise WorkspaceError("Mapping dataset view has no source identifier")
+    return dataset_id
+
+
+def _mapping_view_source_name(view: Mapping[str, object]) -> str:
+    source = view.get("source")
+    name = getattr(source, "name", None)
+    if not isinstance(name, str):
+        raise WorkspaceError("Mapping dataset view has no source name")
+    return name
 
 
 def _render_mapping(
@@ -387,18 +405,23 @@ def _render_mapping(
             missing_parent_overrides, missing_parent_draft
         )
     if collision_overrides:
-        dataset_views = tuple(
-            {
-                **view,
-                "row_inclusion_policy": collision_overrides[view["source"].dataset_id],
-                "row_inclusion_slots": _row_inclusion_slots(
-                    view["source"].dataset_id,
-                    collision_overrides[view["source"].dataset_id],
-                ),
-            }
-            if view["source"].dataset_id in collision_overrides else view
-            for view in dataset_views
-        )
+        overridden_views = []
+        for view in dataset_views:
+            dataset_id = _mapping_view_dataset_id(view)
+            policy = collision_overrides.get(dataset_id)
+            overridden_views.append(
+                {
+                    **view,
+                    "row_inclusion_policy": policy,
+                    "row_inclusion_slots": _row_inclusion_slots(
+                        dataset_id,
+                        policy,
+                    ),
+                }
+                if policy is not None
+                else view
+            )
+        dataset_views = tuple(overridden_views)
     dataset_views = _ordered_mapping_dataset_views(
         dataset_views,
         matching_order,
@@ -981,7 +1004,7 @@ def _ordered_mapping_dataset_views(
     if recommendation is None:
         ordered = views
     else:
-        by_id = {view["source"].dataset_id: view for view in views}
+        by_id = {_mapping_view_dataset_id(view): view for view in views}
         ordered_dataset_ids = (
             display_order
             if display_order is not None
@@ -992,10 +1015,14 @@ def _ordered_mapping_dataset_views(
             for dataset_id in ordered_dataset_ids
             if dataset_id in by_id
         )
-        included = {view["source"].dataset_id for view in ordered}
+        included = {_mapping_view_dataset_id(view) for view in ordered}
         ordered = (
             *ordered,
-            *(view for view in views if view["source"].dataset_id not in included),
+            *(
+                view
+                for view in views
+                if _mapping_view_dataset_id(view) not in included
+            ),
         )
     for display_position, view in enumerate(ordered, start=1):
         view["display_position"] = display_position
@@ -1024,7 +1051,7 @@ def _matching_order_view(
     if selection is None or recommendation is None or not dataset_views:
         return None
     view_by_id = {
-        view["source"].dataset_id: view for view in dataset_views
+        _mapping_view_dataset_id(view): view for view in dataset_views
     }
     components_by_dataset = {
         dataset_id: component
@@ -1109,10 +1136,14 @@ def _matching_order_view(
             selection,
             recommendation,
             active_definition,
-            current_dataset_id=active_view["source"].dataset_id,
+            current_dataset_id=_mapping_view_dataset_id(active_view),
             work_order=display_order,
         )
-        next_view = view_by_id.get(next_dataset_id)
+        next_view = (
+            view_by_id.get(next_dataset_id)
+            if next_dataset_id is not None
+            else None
+        )
         if next_view is not None:
             next_url = _mapping_return_url(
                 request,
@@ -1145,7 +1176,7 @@ def _matching_order_view(
         and check_attempt.status is MatchingOrderCheckStatus.FAILED
     )
     schema_changed = bool(live_check is not None and live_check.schema_changed)
-    if check_running:
+    if check_running and check_attempt is not None:
         result_status_label = "Preliminary"
         result_status_class = "review"
         check_message = check_attempt.message
@@ -1175,7 +1206,7 @@ def _matching_order_view(
         result_status_class = "review" if preliminary_count else ""
         check_message = (
             check_attempt.failure_message
-            if check_failed
+            if check_failed and check_attempt is not None
             else (
                 "This suggestion uses saved local evidence until you "
                 "explicitly check identities and relationships in Odoo."
@@ -1196,7 +1227,9 @@ def _matching_order_view(
         "preference_adjusted": preference_adjusted,
         "custom_warnings": custom_warnings,
         "active_dataset_id": (
-            active_view["source"].dataset_id if active_view is not None else ""
+            _mapping_view_dataset_id(active_view)
+            if active_view is not None
+            else ""
         ),
         "next_recommended_url": next_url,
         "show_next_recommended": bool(
@@ -1207,11 +1240,13 @@ def _matching_order_view(
             "failed": check_failed,
             "message": check_message,
             "progress_percent": (
-                check_attempt.progress_percent if check_running else 0
+                check_attempt.progress_percent
+                if check_running and check_attempt is not None
+                else 0
             ),
             "status_url": (
                 f"/workspaces/{workspace_id}/mapping/order/check/{check_attempt.check_id}"
-                if check_running
+                if check_running and check_attempt is not None
                 else ""
             ),
             "can_start": working_draft_is_current and not check_running,
@@ -1276,8 +1311,8 @@ def _matching_order_custom_warnings(
         seen_pairs.add(pair)
         messages.append(
             "Impodo recommends matching "
-            f"{dependency_view['source'].name} first because "
-            f"{owner_view['source'].name} refers to it."
+            f"{_mapping_view_source_name(dependency_view)} first because "
+            f"{_mapping_view_source_name(owner_view)} refers to it."
         )
     return tuple(messages)
 
@@ -1290,7 +1325,7 @@ def _matching_order_reason(
 ) -> tuple[str, str]:
     if len(component) > 1:
         other_names = tuple(
-            view_by_id[item]["source"].name
+            _mapping_view_source_name(view_by_id[item])
             for item in component
             if item != dataset_id and item in view_by_id
         )
@@ -1318,7 +1353,9 @@ def _matching_order_reason(
     )
     if owned:
         fact = min(owned, key=_matching_order_fact_priority)
-        dependency_name = view_by_id[fact.dependency_dataset]["source"].name
+        dependency_name = _mapping_view_source_name(
+            view_by_id[fact.dependency_dataset]
+        )
         return (
             _owner_order_reason(
                 fact,
@@ -1334,7 +1371,7 @@ def _matching_order_reason(
     )
     if supporting:
         fact = min(supporting, key=_matching_order_fact_priority)
-        owner_name = view_by_id[fact.owner_dataset]["source"].name
+        owner_name = _mapping_view_source_name(view_by_id[fact.owner_dataset])
         return (
             _dependency_order_reason(
                 fact,
@@ -1536,7 +1573,7 @@ def _mapping_issue_views(
         )
         fix_url = None
         if dataset_index is not None:
-            updates = {
+            updates: dict[str, object] = {
                 "mapping_dataset": dataset_index,
                 "scalar_page": 1,
                 "relation_page": 1,
@@ -2226,6 +2263,7 @@ def _mapping_dataset_views(
                             else (
                                 (derived_link.parent_key_column_key,)
                                 if hierarchy_self_parent
+                                and derived_link is not None
                                 else (
                                     (derived_link.name_column_key,)
                                     if derived_link is not None
@@ -2923,13 +2961,20 @@ def _missing_parent_exclusion_draft(
         (item for item in definition.datasets if item.dataset_id == dataset.dataset_id),
         None,
     )
-    source_key = missing_parent_source_key(mapping, group) if mapping else None
+    if mapping is None:
+        return {}, unavailable
+    source_key = missing_parent_source_key(mapping, group)
     column = next(
         (item for item in dataset.columns if item.stable_key == source_key),
         None,
     )
     values = tuple(item.value for item in group.values)
-    if column is None or group.scope_fields or not group.stage3_list_supported:
+    if (
+        source_key is None
+        or column is None
+        or group.scope_fields
+        or not group.stage3_list_supported
+    ):
         return {}, {
             "ready": False,
             "message": (
@@ -3138,7 +3183,7 @@ def _quality_check_view(
             for item in current_ruleset.manager_rules
             if item.dataset == source.name
         )
-        if rules_current
+        if rules_current and current_ruleset is not None
         else ()
     )
     return {
@@ -3487,8 +3532,8 @@ def _display_mapping_value(value: object) -> str:
         return "∅"
     if isinstance(value, bool):
         return "true" if value else "false"
-    if hasattr(value, "isoformat"):
-        return str(value.isoformat())
+    if isinstance(value, (date, time)):
+        return value.isoformat()
     return str(value)
 
 
@@ -3500,4 +3545,3 @@ def _safe_spreadsheet_text(value: object) -> object:
     if value.lstrip("\t\r\n").startswith(("=", "+", "-", "@")):
         return f"'{value}"
     return value
-from impodo.domain.shared.access import Actor

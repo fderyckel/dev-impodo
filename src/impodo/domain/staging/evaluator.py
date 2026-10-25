@@ -8,6 +8,7 @@ from dataclasses import (
     dataclass,
     replace,
 )
+from functools import partial
 from types import MappingProxyType
 
 from impodo.domain.preparation.source import (
@@ -98,6 +99,7 @@ from .scale import require_supported_browser_scale
 from .transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
+    TransformationRuleImpact,
     _display_value,
     _display_values_equal,
     _TransformationImpactCollector,
@@ -190,6 +192,42 @@ class ProjectedBrowserRow:
     parent_key: tuple[str, ...] | None = None
 
 
+@dataclass(slots=True)
+class _DerivedCandidate:
+    """Keep typed evidence for one generated lookup record."""
+
+    name: str
+    aliases: set[str]
+    source_row: int
+    source_rows: set[int]
+
+
+def _record_selection_rule_impact(
+    collector: _TransformationImpactCollector,
+    configured: Mapping[
+        int,
+        tuple[TransformationRuleImpact, TransformationRuleImpact],
+    ],
+    rule_index: int,
+    matched: bool,
+    selected: bool,
+    overlap: bool,
+) -> None:
+    """Record selection and overlap evidence for one evaluated rule."""
+
+    selection, overlap_rule = configured[rule_index]
+    collector.record_rule(
+        selection,
+        matched=matched,
+        changed=selected,
+    )
+    collector.record_rule(
+        overlap_rule,
+        matched=overlap,
+        changed=overlap,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _RowInclusionDecision:
     """One row that stops before target-oriented transformation."""
@@ -232,7 +270,7 @@ class CompiledBrowserRowTransformer:
     def project(self, row: SourceRow) -> ProjectedBrowserRow:
         """Select stable columns and normalize governed related-row keys."""
 
-        source_values = {
+        source_values: dict[str, object] = {
             stable_key: (
                 row.values.get(self.source_name_by_key[stable_key])
                 if stable_key in self.source_name_by_key
@@ -330,8 +368,7 @@ def evaluate_browser_mapping(
     reference_bundle: ReferenceBundle | None = None,
     collect_transformation_impact: bool = False,
     transformation_detail_limit: int = TRANSFORMATION_IMPACT_DETAIL_LIMIT,
-    transformation_impact_sink: Callable[[TransformationImpactRow], None]
-    | None = None,
+    transformation_impact_sink: Callable[[TransformationImpactRow], None] | None = None,
     supported_limit: int | None = None,
 ) -> StagedBrowserMapping:
     """Evaluate every frozen row without storage access or Odoo access.
@@ -346,9 +383,8 @@ def evaluate_browser_mapping(
         {} if supported_limit is None else {"supported_limit": supported_limit}
     )
     require_supported_browser_scale(physical_selection, **scale_options)
-    if (
-        physical_selection.data_version_id != effective_selection.data_version_id
-        or (plan is not None and plan.workspace_id != workspace_id)
+    if physical_selection.data_version_id != effective_selection.data_version_id or (
+        plan is not None and plan.workspace_id != workspace_id
     ):
         raise ReadinessError(
             "Canonical evaluation evidence belongs to another DataVersion or workspace"
@@ -421,9 +457,7 @@ def evaluate_browser_mapping(
         list[tuple[LookupRule, DerivedDatasetLink]],
     ] = {}
     for link, rule in zip(lookup_links, lookup_rules, strict=True):
-        lookup_by_consumer.setdefault(link.consumer_dataset_id, []).append(
-            (rule, link)
-        )
+        lookup_by_consumer.setdefault(link.consumer_dataset_id, []).append((rule, link))
 
     if set(loaded_tables) != set(physical_by_id):
         raise ReadinessError("Loaded source tables do not match the frozen selection")
@@ -464,9 +498,7 @@ def evaluate_browser_mapping(
         tuple[str, int],
         tuple[str, tuple[int, ...]] | Mapping[str, tuple[int, ...]],
     ] = {}
-    dataset_evidence: dict[
-        str, tuple[str, StagingDatasetRole, int]
-    ] = {}
+    dataset_evidence: dict[str, tuple[str, StagingDatasetRole, int]] = {}
     for dataset_spec in compiled_plan.datasets:
         effective = effective_by_name[dataset_spec.name]
         mapping = mapping_by_id[effective.dataset_id]
@@ -479,10 +511,18 @@ def evaluate_browser_mapping(
                 ExactJoinRule: "join",
                 UnionAllRule: "union",
                 GroupAggregateRule: "group",
-            }[type(next(item for item in structural_rules if item.output_dataset_name == effective.name))]
+            }[
+                type(
+                    next(
+                        item
+                        for item in structural_rules
+                        if item.output_dataset_name == effective.name
+                    )
+                )
+            ]
             rule = None
         elif lookup is not None:
-            lookup_rule, lookup_link = lookup
+            lookup_rule, _lookup_link = lookup
             physical = physical_by_id.get(lookup_rule.source_dataset_id)
             role = "lookup"
             rule = None
@@ -507,20 +547,34 @@ def evaluate_browser_mapping(
                 impact_collector=impact_collector,
                 reference_indexes=reference_indexes,
             )
-            row_lineage = structural.lineage
+            source_lineage.update(
+                {
+                    (effective.name, source_row): physical_sources
+                    for source_row, physical_sources in structural.lineage.items()
+                }
+            )
         elif lookup is not None:
-            staged, issues, row_lineage, decisions = _stage_derived_table(
+            staged, issues, direct_lineage, decisions = _stage_derived_table(
                 effective,
                 physical,
                 mapping,
                 loaded_tables[physical.dataset_id],
-                lookup_rule,
-                lookup_link,
+                lookup[0],
+                lookup[1],
                 impact_collector=impact_collector,
                 reference_indexes=reference_indexes,
             )
+            source_lineage.update(
+                {
+                    (effective.name, source_row): (
+                        physical.dataset_id,
+                        physical_rows,
+                    )
+                    for source_row, physical_rows in direct_lineage.items()
+                }
+            )
         else:
-            staged, issues, row_lineage, decisions = _stage_table(
+            staged, issues, direct_lineage, decisions = _stage_table(
                 effective,
                 physical,
                 mapping,
@@ -530,6 +584,15 @@ def evaluate_browser_mapping(
                 tuple(lookup_by_consumer.get(effective.dataset_id, ())),
                 impact_collector=impact_collector,
                 reference_indexes=reference_indexes,
+            )
+            source_lineage.update(
+                {
+                    (effective.name, source_row): (
+                        physical.dataset_id,
+                        physical_rows,
+                    )
+                    for source_row, physical_rows in direct_lineage.items()
+                }
             )
         staged_tables.append(staged)
         preparation_issues.extend(issues)
@@ -551,23 +614,6 @@ def evaluate_browser_mapping(
         row_inclusion_decisions.extend(
             (effective, mapping, decision) for decision in decisions
         )
-        if structural is not None:
-            source_lineage.update(
-                {
-                    (effective.name, source_row): physical_sources
-                    for source_row, physical_sources in row_lineage.items()
-                }
-            )
-        else:
-            source_lineage.update(
-                {
-                    (effective.name, source_row): (
-                        physical.dataset_id,
-                        physical_rows,
-                    )
-                    for source_row, physical_rows in row_lineage.items()
-                }
-            )
         dataset_evidence[effective.name] = (
             physical.dataset_id,
             {
@@ -604,8 +650,7 @@ def evaluate_browser_mapping(
                     for key in concatenation_keys
                 )
                 if concatenation_keys
-                else
-                column_name_by_key.get(field.source_column_key or "")
+                else column_name_by_key.get(field.source_column_key or "")
                 or field.target_field
             )
         for relationship_index, relationship in enumerate(mapping.relationships):
@@ -716,8 +761,7 @@ def _canonical_row_inclusion_decision(
 
     if isinstance(lineage, Mapping):
         physical_sources = {
-            dataset_id: tuple(rows)
-            for dataset_id, rows in sorted(lineage.items())
+            dataset_id: tuple(rows) for dataset_id, rows in sorted(lineage.items())
         }
         physical_dataset_id = next(iter(physical_sources))
         physical_source_rows = physical_sources[physical_dataset_id]
@@ -806,9 +850,7 @@ def _row_inclusion_review_report(
         mapping = matching.get(effective.dataset_id)
         if mapping is None:
             continue
-        labels = {
-            item.stable_key: item.source_name for item in effective.columns
-        }
+        labels = {item.stable_key: item.source_name for item in effective.columns}
         sentence = describe_row_inclusion_policy(
             mapping.row_inclusion,
             labels,
@@ -845,17 +887,14 @@ def _row_inclusion_review_report(
                 values=decision.values,
                 outcome=decision.outcome,
                 rule_sentence=sentence,
-                message=(
-                    decision.issues[0].message if decision.issues else ""
-                ),
+                message=(decision.issues[0].message if decision.issues else ""),
             )
             for decision in dataset_decisions
         )
     if set(matching) != {item.dataset_id for item in dataset_reviews}:
         missing = sorted(set(matching).difference(effective_by_id))
         raise ReadinessError(
-            "Row-inclusion review is missing current datasets: "
-            + ", ".join(missing)
+            "Row-inclusion review is missing current datasets: " + ", ".join(missing)
         )
     return RowInclusionReviewReport(
         identity=RowInclusionReviewIdentity(
@@ -892,9 +931,7 @@ def _canonical_field_sources(
             fields[field.target_field] = (
                 field.concatenation.source_column_keys
                 if field.concatenation is not None
-                else (
-                    (field.source_column_key,) if field.source_column_key else ()
-                )
+                else ((field.source_column_key,) if field.source_column_key else ())
             )
         for relationship in mapping.relationships:
             fields[relationship.target_field] = relationship.source_column_keys
@@ -917,9 +954,7 @@ def _compile_dataset_evaluation_plan(
 ) -> _DatasetEvaluationPlan:
     """Compile row-invariant mapping work once for one dataset."""
 
-    labels = {
-        column.stable_key: column.source_name for column in effective.columns
-    }
+    labels = {column.stable_key: column.source_name for column in effective.columns}
     identities = tuple(
         _compile_identity_impact(component, labels)
         for component in (*mapping.target_identity, *mapping.target_scope)
@@ -954,8 +989,7 @@ def _compile_dataset_evaluation_plan(
                 f"({len(relationship.resolver.value_mappings)} confirmed choice(s))"
             ),
             apply_to_prepared=(
-                relationship.resolver.origin
-                is not ResolverOrigin.TARGET_THEN_DATASET
+                relationship.resolver.origin is not ResolverOrigin.TARGET_THEN_DATASET
             ),
         )
         for index, relationship in enumerate(mapping.relationships)
@@ -1019,8 +1053,7 @@ def _compile_identity_impact(
         source_column_keys=component.source_column_keys,
         target_fields=component.target_fields,
         source_label=" + ".join(
-            labels.get(key, "Identity field")
-            for key in component.source_column_keys
+            labels.get(key, "Identity field") for key in component.source_column_keys
         ),
     )
 
@@ -1040,9 +1073,7 @@ def _prepared_headers(
         ),
         *(
             synthetic_relationship_field(relationship_index, source_index)
-            for relationship_index, relationship in enumerate(
-                mapping.relationships
-            )
+            for relationship_index, relationship in enumerate(mapping.relationships)
             for source_index, _source_column_key in enumerate(
                 relationship.source_column_keys
             )
@@ -1056,22 +1087,19 @@ def compile_browser_row_transformer(
     mapping: DatasetMapping,
     rule: RelatedDatasetRule | None,
     role: str,
-    lookup_bindings: tuple[
-        tuple[LookupRule, DerivedDatasetLink], ...
-    ] = (),
+    lookup_bindings: tuple[tuple[LookupRule, DerivedDatasetLink], ...] = (),
     reference_indexes: Mapping[
         tuple[str, str],
         tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
-    ] | None = None,
+    ]
+    | None = None,
 ) -> CompiledBrowserRowTransformer:
     """Compile the row-local half of browser staging exactly once."""
 
     headers = _prepared_headers(effective, mapping)
     return CompiledBrowserRowTransformer(
         dataset_name=effective.name,
-        effective_column_keys=tuple(
-            column.stable_key for column in effective.columns
-        ),
+        effective_column_keys=tuple(column.stable_key for column in effective.columns),
         source_name_by_key={
             column.stable_key: column.source_name for column in physical.columns
         },
@@ -1094,15 +1122,14 @@ def _stage_table(
     table: SourceTable,
     rule: RelatedDatasetRule | None,
     role: str,
-    lookup_bindings: tuple[
-        tuple[LookupRule, DerivedDatasetLink], ...
-    ] = (),
+    lookup_bindings: tuple[tuple[LookupRule, DerivedDatasetLink], ...] = (),
     *,
     impact_collector: _TransformationImpactCollector | None = None,
     reference_indexes: Mapping[
         tuple[str, str],
         tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
-    ] | None = None,
+    ]
+    | None = None,
 ) -> tuple[
     SourceTable,
     tuple[Issue, ...],
@@ -1212,7 +1239,8 @@ def _stage_derived_table(
     reference_indexes: Mapping[
         tuple[str, str],
         tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
-    ] | None = None,
+    ]
+    | None = None,
 ) -> tuple[
     SourceTable,
     tuple[Issue, ...],
@@ -1232,7 +1260,7 @@ def _stage_derived_table(
             else (rule.source_column_key,)
         )
     }
-    accumulated: dict[tuple[str, ...], dict[str, object]] = {}
+    accumulated: dict[tuple[str, ...], _DerivedCandidate] = {}
     if isinstance(rule, HierarchicalLookupRule):
         for row in table.rows:
             hierarchy = evaluate_hierarchy_path(
@@ -1251,19 +1279,15 @@ def _stage_derived_table(
                 display_path = display_parts[:depth]
                 entry = accumulated.setdefault(
                     key_path,
-                    {
-                        "name": display_path[-1],
-                        "aliases": set(),
-                        "source_row": row.number,
-                        "source_rows": set(),
-                    },
+                    _DerivedCandidate(
+                        name=display_path[-1],
+                        aliases=set(),
+                        source_row=row.number,
+                        source_rows=set(),
+                    ),
                 )
-                aliases = entry["aliases"]
-                assert isinstance(aliases, set)
-                aliases.add(_display_path(display_path, "/"))
-                source_rows = entry["source_rows"]
-                assert isinstance(source_rows, set)
-                source_rows.add(row.number)
+                entry.aliases.add(_display_path(display_path, "/"))
+                entry.source_rows.add(row.number)
     else:
         source_column = source_columns[rule.source_column_key]
         grouping = _group_lookup_values(
@@ -1274,12 +1298,12 @@ def _stage_derived_table(
             ),
         )
         accumulated = {
-            group.key_path: {
-                "name": group.name,
-                "aliases": set(group.aliases),
-                "source_row": group.source_rows[0],
-                "source_rows": set(group.source_rows),
-            }
+            group.key_path: _DerivedCandidate(
+                name=group.name,
+                aliases=set(group.aliases),
+                source_row=group.source_rows[0],
+                source_rows=set(group.source_rows),
+            )
             for group in grouping.groups
         }
 
@@ -1297,7 +1321,7 @@ def _stage_derived_table(
     ):
         values: dict[str, object] = {
             link.canonical_key_column_key: " / ".join(key_path),
-            link.name_column_key: str(entry["name"]),
+            link.name_column_key: entry.name,
         }
         if link.parent_key_column_key is not None:
             values[link.parent_key_column_key] = (
@@ -1329,9 +1353,7 @@ def _stage_derived_table(
                     ),
                 )
             )
-            source_rows = entry["source_rows"]
-            assert isinstance(source_rows, set)
-            source_rows_by_output[generated_row] = tuple(sorted(source_rows))
+            source_rows_by_output[generated_row] = tuple(sorted(entry.source_rows))
             continue
         if not included:
             row_decisions.append(
@@ -1341,9 +1363,7 @@ def _stage_derived_table(
                     values=review_values,
                 )
             )
-            source_rows = entry["source_rows"]
-            assert isinstance(source_rows, set)
-            source_rows_by_output[generated_row] = tuple(sorted(source_rows))
+            source_rows_by_output[generated_row] = tuple(sorted(entry.source_rows))
             continue
         if mapping.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS:
             row_decisions.append(
@@ -1374,10 +1394,8 @@ def _stage_derived_table(
             impact_collector=impact_collector,
             reference_indexes=reference_indexes or {},
         )
-        evidence_row = int(entry["source_row"])
-        aliases = entry["aliases"]
-        assert isinstance(aliases, set)
-        if len(aliases) > 1:
+        evidence_row = entry.source_row
+        if len(entry.aliases) > 1:
             issues.append(
                 Issue(
                     code="DERIVED_ALIAS_REVIEW_REQUIRED",
@@ -1393,9 +1411,7 @@ def _stage_derived_table(
                 )
             )
         rows.append(SourceRow(number=generated_row, values=values))
-        source_rows = entry["source_rows"]
-        assert isinstance(source_rows, set)
-        source_rows_by_output[generated_row] = tuple(sorted(source_rows))
+        source_rows_by_output[generated_row] = tuple(sorted(entry.source_rows))
 
     headers = _prepared_headers(effective, mapping)
     return (
@@ -1414,9 +1430,7 @@ def _stage_derived_table(
 
 def _compile_derived_reference_plan(
     mapping: DatasetMapping,
-    lookup_bindings: tuple[
-        tuple[LookupRule, DerivedDatasetLink], ...
-    ],
+    lookup_bindings: tuple[tuple[LookupRule, DerivedDatasetLink], ...],
 ) -> tuple[_DerivedReferencePlan, ...]:
     lookup_by_source = {
         (link.derived_dataset_id, link.source_column_key): rule
@@ -1463,9 +1477,7 @@ def _normalize_derived_references(
         if isinstance(item.rule, HierarchicalLookupRule):
             evaluation = evaluate_hierarchy_path(item.rule, values)
             values[item.prepared_column_key] = (
-                " / ".join(evaluation.canonical_parts)
-                if evaluation.has_path
-                else None
+                " / ".join(evaluation.canonical_parts) if evaluation.has_path else None
             )
             blocking_outcome = next(
                 (
@@ -1537,7 +1549,8 @@ def _apply_scalar_mappings(
     reference_indexes: Mapping[
         tuple[str, str],
         tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
-    ] | None = None,
+    ]
+    | None = None,
 ) -> None:
     source_values_by_ordinal = {
         ordinal: source_values.get(stable_key)
@@ -1547,8 +1560,7 @@ def _apply_scalar_mappings(
         field = field_plan.field
         raw = (
             tuple(
-                source_values.get(key)
-                for key in field.concatenation.source_column_keys
+                source_values.get(key) for key in field.concatenation.source_column_keys
             )
             if field.concatenation is not None
             else (
@@ -1569,17 +1581,13 @@ def _apply_scalar_mappings(
                     source_values,
                     reference_indexes or {},
                 )
-            rules = transformation_rule_impact_definitions(
-                plan.dataset_id, field
-            )
+            rules = transformation_rule_impact_definitions(plan.dataset_id, field)
             rules_by_step = {
                 step_index: rule
                 for (step_index, step), rule in zip(
                     (
                         (step_index, step)
-                        for step_index, step in enumerate(
-                            field.transform.text_steps
-                        )
+                        for step_index, step in enumerate(field.transform.text_steps)
                         if step.configured
                     ),
                     rules,
@@ -1617,20 +1625,10 @@ def _apply_scalar_mappings(
                     else None
                 ),
                 selection_rule_observer=(
-                    (
-                        lambda rule_index, matched, selected, overlap,
-                        configured=selection_rules: (
-                            impact_collector.record_rule(
-                                configured[rule_index][0],
-                                matched=matched,
-                                changed=selected,
-                            ),
-                            impact_collector.record_rule(
-                                configured[rule_index][1],
-                                matched=overlap,
-                                changed=overlap,
-                            ),
-                        )
+                    partial(
+                        _record_selection_rule_impact,
+                        impact_collector,
+                        selection_rules,
                     )
                     if impact_collector is not None and selection_rules
                     else None
@@ -1679,8 +1677,7 @@ def _apply_scalar_mappings(
                     "Required value is empty after transformation."
                     if required_value
                     else (
-                        "The prepared value cannot be converted to "
-                        f"{field.value_type}."
+                        f"The prepared value cannot be converted to {field.value_type}."
                     )
                 ),
             )
@@ -1756,8 +1753,7 @@ def _reference_lookup_value(
         )
     key = tuple(values.get(item) for item in lookup.key_source_column_keys)
     if any(
-        item is None or (isinstance(item, str) and not item.strip())
-        for item in key
+        item is None or (isinstance(item, str) and not item.strip()) for item in key
     ):
         if lookup.on_blank == "null":
             return None
@@ -1803,9 +1799,7 @@ def _record_identity_preparation(
         ):
             continue
         raw_display = " | ".join(_display_value(item) for item in raw_values)
-        proposed_display = " | ".join(
-            _display_value(item) for item in proposed_values
-        )
+        proposed_display = " | ".join(_display_value(item) for item in proposed_values)
         for target_field in identity.target_fields:
             impact_collector.record(
                 dataset=plan.dataset_name,
@@ -1901,10 +1895,7 @@ def _concatenation_impact_message(field, raw_value: object) -> str:
     if field.value_source is not ScalarValueSource.CONCATENATE:
         return ""
     parts = raw_value if isinstance(raw_value, tuple) else ()
-    blank_count = sum(
-        value is None or not str(value).strip()
-        for value in parts
-    )
+    blank_count = sum(value is None or not str(value).strip() for value in parts)
     if parts and blank_count == len(parts):
         return "All selected source parts were blank."
     if blank_count:

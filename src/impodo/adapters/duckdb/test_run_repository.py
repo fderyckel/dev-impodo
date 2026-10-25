@@ -28,6 +28,46 @@ from ...domain.serialization import canonical_json
 from .migration_foundation_repository import MigrationFoundationRepository
 
 
+def _stored_mapping(value: object, label: str) -> dict[str, object]:
+    """Validate one stored JSON object before decoding it."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError(f"Stored {label} must be an object")
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise TypeError(f"Stored {label} keys must be text")
+        result[key] = item
+    return result
+
+
+def _stored_sequence(value: object, label: str) -> tuple[object, ...]:
+    """Validate one stored JSON array before decoding it."""
+
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(f"Stored {label} must be a sequence")
+    return tuple(value)
+
+
+def _stored_int(value: object, label: str) -> int:
+    """Decode one stored integer without accepting arbitrary objects."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise TypeError(f"Stored {label} is invalid")
+    try:
+        return int(value)
+    except ValueError as error:
+        raise ValueError(f"Stored {label} is invalid") from error
+
+
+def _stored_parameter_value(value: object) -> str | int:
+    """Validate a normalized Recipe parameter value from durable state."""
+
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise TypeError("Stored Recipe parameter value is invalid")
+    return value
+
+
 class TestRunRepository:
     """Own restart-safe Test setup bindings and bounded Project reads."""
 
@@ -57,7 +97,9 @@ class TestRunRepository:
             detail={"binding": binding.to_dict()},
             actor=actor,
         )
-        stored = self._from_dict(dict(intent.detail["binding"]))
+        stored = self._from_dict(
+            _stored_mapping(intent.detail["binding"], "Test setup binding")
+        )
         if intent.state is MigrationOperationState.COMMITTED:
             return self.get(stored.migration_run_id)
         with self.database.connect(self.registry_path) as connection:
@@ -168,8 +210,7 @@ class TestRunRepository:
         with self.database.connect(self.registry_path) as connection:
             rows = self.foundation._rows(
                 connection,
-                "SELECT * FROM test_run_parameter_values "
-                "WHERE migration_run_id = ?",
+                "SELECT * FROM test_run_parameter_values WHERE migration_run_id = ?",
                 [migration_run_id],
             )
         return self._run_values_from_row(rows[0]) if rows else None
@@ -202,12 +243,18 @@ class TestRunRepository:
                     raise MigrationConflictError(
                         "Run values require the current editable Test setup"
                     )
-                if values.contract_version == 2 and values.recipe_revisions != tuple(sorted(
-                    RecipeRevisionSelection(**item) for item in json.loads(str(binding[3]))
-                )):
-                    raise MigrationConflictError("Run values do not match the selected Recipe revisions")
+                if values.contract_version == 2 and values.recipe_revisions != tuple(
+                    sorted(
+                        RecipeRevisionSelection(**item)
+                        for item in json.loads(str(binding[3]))
+                    )
+                ):
+                    raise MigrationConflictError(
+                        "Run values do not match the selected Recipe revisions"
+                    )
                 rows = self.foundation._rows(
-                    connection, "SELECT * FROM test_run_parameter_values WHERE migration_run_id = ?",
+                    connection,
+                    "SELECT * FROM test_run_parameter_values WHERE migration_run_id = ?",
                     [values.migration_run_id],
                 )
                 previous = self._run_values_from_row(rows[0]) if rows else None
@@ -216,8 +263,11 @@ class TestRunRepository:
                     values.assert_frozen_answers_preserved(previous)
                 payload = values.to_dict(include_hash=False)
                 stored_values = canonical_json(
-                    payload["values"] if values.contract_version == 1 else {
-                        key: payload[key] for key in ("values", "controls", "recipe_revisions")
+                    payload["values"]
+                    if values.contract_version == 1
+                    else {
+                        key: payload[key]
+                        for key in ("values", "controls", "recipe_revisions")
                     }
                 )
                 if current is None:
@@ -243,6 +293,10 @@ class TestRunRepository:
                         ],
                     )
                 else:
+                    if expected_revision is None:
+                        raise MigrationConflictError(
+                            "Run values changed; reload and retry"
+                        )
                     expected = require_revision(
                         expected_revision,
                         "expected_run_parameter_values_revision",
@@ -386,28 +440,69 @@ class TestRunRepository:
     def _run_values_from_row(
         value: Mapping[str, object],
     ) -> TestRunValues:
-        contract_version = int(value["contract_version"])
+        contract_version = _stored_int(
+            value["contract_version"],
+            "Test run value contract version",
+        )
         payload = json.loads(str(value["values_json"]))
         if contract_version == 1:
             payload = {"values": payload, "controls": [], "recipe_revisions": []}
-        if not isinstance(payload, dict) or set(payload) != {"values", "controls", "recipe_revisions"}:
+        if not isinstance(payload, dict) or set(payload) != {
+            "values",
+            "controls",
+            "recipe_revisions",
+        }:
             raise ValueError("Stored Test run value fields are invalid")
+        stored_payload = _stored_mapping(payload, "Test run values")
         result = TestRunValues(
             test_run_setup_id=str(value["test_run_setup_id"]),
             project_id=str(value["project_id"]),
             migration_run_id=str(value["migration_run_id"]),
-            revision=int(value["revision"]),
+            revision=_stored_int(value["revision"], "Test run value revision"),
             values=tuple(
                 RecipeRunParameterValue(
                     recipe_id=str(item["recipe_id"]),
                     logical_parameter_id=str(item["logical_parameter_id"]),
-                    value=item["value"],
+                    value=_stored_parameter_value(item["value"]),
                 )
-                for item in payload["values"]
+                for item in (
+                    _stored_mapping(raw, "Recipe parameter value")
+                    for raw in _stored_sequence(
+                        stored_payload["values"],
+                        "Recipe parameter values",
+                    )
+                )
             ),
-            controls=tuple(RecipeRunControlValue(**item) for item in payload["controls"]),
+            controls=tuple(
+                RecipeRunControlValue(
+                    recipe_id=str(item["recipe_id"]),
+                    logical_control_id=str(item["logical_control_id"]),
+                    expected_total=str(item["expected_total"]),
+                )
+                for item in (
+                    _stored_mapping(raw, "Recipe control value")
+                    for raw in _stored_sequence(
+                        stored_payload["controls"],
+                        "Recipe control values",
+                    )
+                )
+            ),
             recipe_revisions=tuple(
-                RecipeRevisionSelection(**item) for item in payload["recipe_revisions"]
+                RecipeRevisionSelection(
+                    recipe_id=str(item["recipe_id"]),
+                    recipe_revision=_stored_int(
+                        item["recipe_revision"],
+                        "Recipe revision",
+                    ),
+                    semantic_hash=str(item["semantic_hash"]),
+                )
+                for item in (
+                    _stored_mapping(raw, "Recipe revision selection")
+                    for raw in _stored_sequence(
+                        stored_payload["recipe_revisions"],
+                        "Recipe revision selections",
+                    )
+                )
             ),
             updated_by=ActorIdentity(
                 issuer=str(value["updated_by_issuer"]),

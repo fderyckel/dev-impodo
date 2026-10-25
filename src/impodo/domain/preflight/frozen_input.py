@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
+from typing import Protocol
 
 from impodo.domain.cutover.governance import DryRun, DryRunStatus
 from impodo.domain.preparation.normalization import (
@@ -49,6 +50,74 @@ from ..resolution import EffectiveDataset
 FROZEN_PREFLIGHT_INPUT_VERSION = 5
 
 
+class FrozenMappingDefinitionEvidence(Protocol):
+    """Expose the mapping hash needed to bind frozen preflight evidence."""
+
+    @property
+    def content_hash(self) -> str: ...
+
+
+class FrozenMappingRevisionEvidence(Protocol):
+    """Expose immutable mapping revision identity for a frozen input."""
+
+    @property
+    def mapping_id(self) -> str: ...
+
+    @property
+    def version(self) -> int: ...
+
+    @property
+    def definition(self) -> FrozenMappingDefinitionEvidence: ...
+
+
+class FrozenStagingEvidence(Protocol):
+    """Expose the published staging identity required by preflight."""
+
+    @property
+    def run_id(self) -> str: ...
+
+    @property
+    def content_hash(self) -> str: ...
+
+
+class FrozenQualityEvidence(Protocol):
+    """Expose the published quality bindings required by preflight."""
+
+    @property
+    def run_id(self) -> str: ...
+
+    @property
+    def content_hash(self) -> str: ...
+
+    @property
+    def effective_dataset_run_id(self) -> str | None: ...
+
+    @property
+    def effective_dataset_hash(self) -> str | None: ...
+
+    @property
+    def quarantined_count(self) -> int: ...
+
+    @property
+    def excluded_count(self) -> int: ...
+
+
+class FrozenNormalizationEvidence(Protocol):
+    """Expose the frozen normalization bindings required by preflight."""
+
+    @property
+    def run_id(self) -> str: ...
+
+    @property
+    def content_hash(self) -> str: ...
+
+    @property
+    def lifecycle_version(self) -> int: ...
+
+    @property
+    def eligible_dataset_hash(self) -> str: ...
+
+
 @dataclass(frozen=True, slots=True)
 class FrozenPreflightInput:
     """Hold exact approved rows plus every source-side evidence binding.
@@ -60,10 +129,10 @@ class FrozenPreflightInput:
     """
 
     workspace_id: str
-    revision: MappingRevision
-    staging: StagingRunSummary
-    quality: QualityRunSummary
-    normalization: NormalizationRunSummary
+    revision: FrozenMappingRevisionEvidence
+    staging: FrozenStagingEvidence
+    quality: FrozenQualityEvidence
+    normalization: FrozenNormalizationEvidence
     plan: CompiledMigrationPlan
     prepared: PreparedBundle
     dataset_labels: Mapping[str, str]
@@ -103,9 +172,7 @@ class FrozenPreflightInput:
             "dataset_labels": dict(sorted(self.dataset_labels.items())),
             "source_field_labels": [
                 [dataset, field, label]
-                for (dataset, field), label in sorted(
-                    self.source_field_labels.items()
-                )
+                for (dataset, field), label in sorted(self.source_field_labels.items())
             ],
         }
         return "sha256:" + sha256(canonical_json_bytes(payload)).hexdigest()
@@ -188,9 +255,11 @@ def build_frozen_preflight_input(
         dataset.name: _canonical_source_hash(dataset.source_evidence_hash)
         for dataset in selection.datasets
     }
-    rows = tuple(
-        item.canonical_row for item in effective.rows
-    ) if effective is not None else staging.rows
+    rows = (
+        tuple(item.canonical_row for item in effective.rows)
+        if effective is not None
+        else staging.rows
+    )
     if effective is not None and (
         effective.workspace_id != workspace_id
         or effective.staging_content_hash != staging_summary.content_hash
@@ -215,9 +284,7 @@ def build_frozen_preflight_input(
         eligible_row_ids=eligible_ids,
         effective=effective,
     )
-    eligible_row_ids = tuple(
-        row.row_id for row in rows if row.row_id in eligible_ids
-    )
+    eligible_row_ids = tuple(row.row_id for row in rows if row.row_id in eligible_ids)
     result = FrozenPreflightInput(
         workspace_id=workspace_id,
         revision=revision,
@@ -260,9 +327,11 @@ def canonical_rows_to_prepared_bundle(
     canonical_staging_hash = staging_content_hash or staging.content_hash
     if quality.staging_content_hash != canonical_staging_hash:
         raise ReadinessError("Prepared rows no longer match their data checks")
-    rows = tuple(
-        item.canonical_row for item in effective.rows
-    ) if effective is not None else staging.rows
+    rows = (
+        tuple(item.canonical_row for item in effective.rows)
+        if effective is not None
+        else staging.rows
+    )
     if quality.effective_dataset_hash != (
         effective.content_hash if effective is not None else canonical_staging_hash
     ):
@@ -271,11 +340,7 @@ def canonical_rows_to_prepared_bundle(
     if set(by_id) != {item.row_id for item in quality.row_results}:
         raise ReadinessError("Prepared row evidence is incomplete")
     eligible_ids = eligible_row_ids or quality.eligible_row_ids
-    records = tuple(
-        _prepared_record(row)
-        for row in rows
-        if row.row_id in eligible_ids
-    )
+    records = tuple(_prepared_record(row) for row in rows if row.row_id in eligible_ids)
     return PreparedBundle(
         records=records,
         issues=(),

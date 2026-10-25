@@ -54,8 +54,8 @@ server behavior.
 
 | Current seam or limitation | Delivery consequence |
 | --- | --- |
-| [`create_local_app`](../../src/impodo/web/composition/local_app.py) constructs the local service graph. [`web/app.py`](../../src/impodo/web/app.py) is a compatibility import, while [`http_app.py`](../../src/impodo/web/composition/http_app.py) installs the shared route set without choosing deployment security. [`service_graph.py`](../../src/impodo/web/composition/service_graph.py) now builds the deployment-neutral Project foundation, authoring, Recipe application, and preparation service groups from injected ports. | Continue moving responsibility-named run, execution, job, artifact, and target groups out of the large local builder before connecting server adapters. |
-| [`WebContext`](../../src/impodo/web/context.py) contains authorization, repositories, job managers, target factories, local-stack services, and many workflow services, but no actor. Local fixtures and direct automation now resolve the implicit actor through the same authenticated local identity seam as browser requests. | Keep that request-scoped boundary. Do not restore a local or server actor field on the application context. |
+| [`create_local_app`](../../src/impodo/web/composition/local_app.py) constructs the local service graph. [`web/app.py`](../../src/impodo/web/app.py) is a compatibility import, while [`http_app.py`](../../src/impodo/web/composition/http_app.py) installs the shared route set without choosing deployment security. [`service_graph.py`](../../src/impodo/web/composition/service_graph.py) now builds the deployment-neutral Project foundation, authoring, Recipe application, integrated run setup, and preparation service groups from injected dependencies. | Continue moving responsibility-named execution, job, artifact, and target groups out of the large local builder before connecting server adapters. |
+| [`WebContext`](../../src/impodo/web/context.py) contains authorization, repositories, job managers, target factories, an optional local-target runtime, and the browser workflow services, but no actor or local launch token. Local fixtures and direct automation now resolve the implicit actor through the same authenticated local identity seam as browser requests. | Keep that request-scoped boundary. Do not restore a local or server actor field on the application context. |
 | [`LOCAL_ACTOR`](../../src/impodo/domain/shared/access.py) owns every current capability, and `Actor.has` treats `PROJECT_ADMIN` as a universal bypass. | Keep that trust model local. The server must resolve scoped grants and must not reuse the universal bypass. |
 | [`MigrationProjectService.list`](../../src/impodo/application/project/service.py) checks `project.view` once and then returns every Project summary from its repository. | Add an authorization-aware visibility query before exposing a multi-Organization catalogue. |
 | [`MigrationFoundationDatabase`](../../src/impodo/adapters/duckdb/migration_foundation_database.py) and [`MigrationFoundationRepository`](../../src/impodo/adapters/duckdb/migration_foundation_repository.py) own the current registry. Its schema mixes lifecycle, catalogue, operation, and migration-evidence concerns. | Classify facts before implementing PostgreSQL. Do not migrate whole tables merely because they currently share one file. |
@@ -403,6 +403,88 @@ finalization and run planning instead of being constructed twice. This is a
 composition-only change: it neither moves detailed data to PostgreSQL nor
 enables the server entry point.
 
+The ninth increment adds `build_run_service_graph`. It reuses the shared
+foundation and authoring services to construct integrated run planning, Test
+setup, Production setup, and the common run-setup facade. The local
+composition still creates and injects the DuckDB run-planning repository and
+the protected Test-run, Production-run, and Cutover-plan repositories. This
+preserves the existing cross-store recovery sequence and does not open or
+cache a database in the shared builder. At that increment, the established run
+facades still lacked application-owned repository protocols.
+
+The tenth increment closes that type-contract gap. `application/run/ports.py`
+now defines the exact foundation, integrated planning, Test setup, Production
+setup, and Cutover-plan persistence operations consumed by the run services.
+The stable run facades and their focused collaborators depend on those ports,
+and `build_run_service_graph` accepts the same ports instead of `object`. The
+local composition proves that the current DuckDB repositories implement the
+contracts, while a future server composition can inject other adapters without
+changing run orchestration. The change does not move any fact, open another
+database connection, or alter the existing transaction and recovery owners.
+Restart recovery now also validates the typed saved activation payload before
+reusing its Workspace revision, reference evidence, credential generations,
+and write identity.
+
+The eleventh increment adds `build_execution_service_graph`. It constructs
+the reviewed load service, Odoo-to-Odoo transfer execution, reconciliation,
+protected reconciliation evidence, and fallout-workbook service from explicit
+application ports. The local composition still chooses and injects the DuckDB
+journal and evidence repositories, governed artifact stores, Odoo provenance,
+credential-binding callback, and workbook renderer. Odoo reader and writer
+factories remain deployment-specific and are created only at the bounded
+request or worker entry point that uses them. The shared builder opens no
+database, caches no connection, and preserves the existing remote read- and
+write-identity requirements.
+
+The twelfth increment adds `build_cutover_service_graph`. It reuses the shared
+foundation, preparation, and execution graphs to construct the integrated Test
+qualification evidence reader and `CutoverPlanService`. The builder receives
+the run-planning, Cutover-plan, mapping, staging, and quality ports from the
+deployment composition. The application-owned Cutover repository contract now
+includes qualification publication, replay, listing, and selection operations
+instead of relying on untyped adapter methods. The local composition still
+constructs the protected Project evidence store and DuckDB repository. The
+shared builder does not contact Odoo, open a database, or grant Production
+execution authority.
+
+The thirteenth increment adds `build_correction_service_graph`. It constructs
+the completed-load origin publisher, successor workspace service, ordered
+authoring review stages, review orchestrator, correction executor, and browser
+workflow facade from explicit application ports. The correction services now
+depend on named Project, source-package, prepared-evidence, final-review,
+execution, and reconciliation contracts instead of untyped repository access.
+The local composition still constructs the DuckDB correction repository and
+protected correction store. It injects the native Polars review pipeline and a
+deployment-owned target-review adapter. That adapter resolves the current
+secret, verifies the live Odoo identity, and creates a scope-bound reader only
+when review work runs. The shared builder neither receives credentials nor
+constructs or caches an Odoo client. Correction jobs remain on the existing
+local process manager until Phase 6 connects every long-running workflow to
+the common durable job, authorization-receipt, lease, and fencing contracts;
+the server must not adapt the closure-based local manager.
+
+The fourteenth increment adds the shared top-level `ApplicationServiceGraph`.
+It joins the seven responsibility-named service groups with the remaining
+browser-facing application services, then `build_web_context` performs the one
+mapping from that graph and four explicit deployment runtime bundles into the
+shared route context. The bundles separate request identity and visibility,
+job runtimes, infrastructure adapters, and Odoo target adapters. The local
+composition now selects those adapters instead of manually repeating the
+complete `WebContext` field map. The launch token remains in the local
+lifecycle router and is no longer stored on the shared context.
+
+The same increment makes local Odoo control an explicit optional
+`LocalTargetRuntime`. The local composition supplies its local-stack and
+metadata-reader adapters. A future server composition may omit that runtime;
+it is not required to construct a false local adapter. Protected destination
+create-field evidence now depends on an application-owned store port rather
+than the concrete protected-filesystem class. Correction routes declare a
+narrow `CorrectionRouteContext`, while continuing to receive the existing
+mutable context object so job and target test seams retain their current
+behavior. These are construction and type-boundary changes only. They do not
+open another DuckDB connection, change evidence ownership, or enable server
+startup.
+
 The fail-closed server entry still requires an explicit `ServerAdapterBundle`
 that names identity, authorization, scoped Project and Workspace access,
 operation journal, lease, job, artifact, and secret ports. Server startup
@@ -430,10 +512,14 @@ the focused transfer page-read ceilings remain green.
 
 Shared request, worker, fixture, and direct-automation paths no longer read a
 global actor, and `WebContext` cannot carry one. Work package 1.2 is complete.
-The foundation, authoring, and preparation builders advance work package 1.1,
-but run setup, execution, job, artifact, target, and final context assembly
-remain inside the large local builder. Work packages 1.1 and 1.4 therefore
-remain in progress.
+The foundation, authoring, run-setup, preparation, execution, Cutover, and
+correction builders advance work package 1.1. Completed-load correction
+orchestration now uses the same deployment-neutral pattern, while its secret
+and Odoo reader capability remains deployment-owned. Job runtimes, artifact
+store construction, remaining request and worker target factories, Cutover
+qualification artifact construction, and the construction of browser-support
+services remain inside the large local builder. Final context mapping now has
+one shared owner. Work packages 1.1 and 1.4 therefore remain in progress.
 No PostgreSQL adapter, server session, Organization administration page, or
 Linux runtime has been added.
 
@@ -463,6 +549,60 @@ The combined browser modules exceeded a five-minute verification window, and
 the complete source-workflow module exceeded four minutes, so neither broad
 run produced pass-or-fail evidence. These are controlled fixture results, not
 live server or PostgreSQL performance evidence.
+
+Focused verification for the ninth increment covers all four service-graph
+wiring cases, one integrated-run registry-connection case, and four unaffected
+architecture cases. A Fresh-data route case also passed after its harness used
+the build fingerprint calculated from the current checkout, which is
+equivalent to restarting Impodo after a code update. It retained the existing
+connection and schema-check ceilings: 4/3 for the initial page, 8/4 for upload,
+4/3 for the uploaded page, 8/7 for registration, and 4/3 for the registered
+page. The unadjusted browser batch failed closed because unrelated dirty domain
+files changed the build fingerprint; the Odoo-progress unit fixture also lacks
+the current request-identity resolver. These are controlled fixture results,
+not live server or PostgreSQL performance evidence.
+
+Focused verification for the tenth increment covers all four service-graph
+wiring cases, Test and Production saved-value contracts, and the existing Test
+and Production activation-recovery paths. The concrete local adapters satisfy
+the new application ports with no new Basedpyright diagnostics. These are
+controlled fixture and static-contract results, not live server or PostgreSQL
+performance evidence.
+
+Focused verification for the eleventh increment covers all five service-graph
+wiring cases plus the existing execution, transfer, reconciliation, fallout,
+architecture, and documentation contracts. This remains local controlled-test
+evidence; it does not claim live server, PostgreSQL, Odoo-network, or Linux
+performance qualification.
+
+Focused verification for the twelfth increment covers all six service-graph
+wiring cases and the existing integrated qualification, protected-evidence
+recovery, dependency-order, and browser explanation cases. The graph is a
+composition-only change, so the existing request and repository scopes remain
+the performance boundary. This is controlled local evidence, not live server,
+PostgreSQL, Odoo-network, or Linux performance qualification.
+
+Focused verification for the thirteenth increment covers all seven service-
+graph wiring cases, the correction origin, successor, review, execution, and
+local job contracts, and the three existing correction browser journeys. The
+browser tests retain safe compact results and protected-value boundaries. The
+change moves construction only; it does not add a DuckDB operation, retain a
+connection across Odoo work, or claim live server, PostgreSQL, Odoo-network,
+or Linux performance qualification.
+
+Focused verification for the fourteenth increment covers the top-level graph,
+the single context mapping, omission of the local Odoo runtime, the narrow
+correction route contract, all seven existing service-graph builders, and the
+architecture dependency rule. The three correction browser journeys and the
+local session and authorization cases also pass. The Project setup browser
+module currently has three source-upload expectations that return `422`
+instead of the expected redirect in this dirty checkout. This increment does
+not change the upload service or route, so those failures are not accepted as
+verification of this composition boundary. The new graph does not add a
+repository call or move an existing call across an asynchronous boundary, so
+the established request-scoped DuckDB ownership remains unchanged. This is
+controlled local evidence, not live server, PostgreSQL, Odoo-network, or Linux
+performance qualification.
 
 The complete local-stack browser module is not yet green. Two recovery cases
 register a file-source Workspace without checking its source file first. The

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from pathlib import Path
+
+import duckdb
 
 from impodo.domain.workspace.errors import WorkspaceError
 
@@ -16,11 +19,15 @@ from .constants import (
     PREPARATION_SESSION_ROW_BATCH_SIZE,
 )
 from .preparation_identity_group_quality import iter_identity_group_findings
+from .preparation_session_support import (
+    PreparationSessionRepositoryHost,
+    canonical_preparation_session_id,
+)
 
 
 class PreparationQualityIndex:
     def _resolve_relationship_edges(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
     ) -> None:
@@ -113,7 +120,7 @@ class PreparationQualityIndex:
                 raise
 
     def physical_rows(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
     ) -> dict[str, tuple[int, ...]]:
@@ -131,7 +138,7 @@ class PreparationQualityIndex:
                  WHERE session_id = ?
                  ORDER BY physical_dataset_id, source_row
                 """,
-                [self._session_id(session_id)],
+                [canonical_preparation_session_id(session_id)],
             )
             grouped: dict[str, list[int]] = {}
             while batch := cursor.fetchmany(PREPARATION_SESSION_ROW_BATCH_SIZE):
@@ -142,7 +149,7 @@ class PreparationQualityIndex:
         return {dataset_id: tuple(rows) for dataset_id, rows in grouped.items()}
 
     def _bounded_quality_index(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
         physical_rows: Mapping[str, Sequence[int]],
@@ -343,7 +350,7 @@ class PreparationQualityIndex:
             }
 
     def _bounded_relationship_findings(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
         unsafe_row_ids: Sequence[str],
@@ -351,22 +358,26 @@ class PreparationQualityIndex:
     ) -> tuple[tuple[object, ...], ...]:
         """Return only affected children after one recursive set operation."""
 
-        canonical_session_id = self._session_id(session_id)
+        canonical_session_id = canonical_preparation_session_id(session_id)
         database_path = (
             self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         )
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
-            relationship_count = int(
-                connection.execute(
-                    """
+            relationship_count_row = connection.execute(
+                """
                     SELECT COUNT(*)
                       FROM preparation_relationship_edge
                      WHERE session_id = ?
-                    """,
-                    [canonical_session_id],
-                ).fetchone()[0]
-            )
+                """,
+                [canonical_session_id],
+            ).fetchone()
+            if (
+                relationship_count_row is None
+                or type(relationship_count_row[0]) is not int
+            ):
+                raise WorkspaceError("Stored relationship count is invalid")
+            relationship_count = relationship_count_row[0]
             if relationship_count == 0:
                 return ()
             connection.begin()
@@ -511,21 +522,34 @@ class PreparationQualityIndex:
                 connection.rollback()
                 raise
 
-    def _identity_group_findings(self, workspace_id, session_id, unsafe_row_ids, propagating_datasets):
+    def _identity_group_findings(
+        self: PreparationSessionRepositoryHost,
+        workspace_id,
+        session_id,
+        unsafe_row_ids,
+        propagating_datasets,
+    ):
         """Keep the projection and work-queue connection local to lazy findings."""
 
-        canonical_session_id = self._session_id(session_id)
+        canonical_session_id = canonical_preparation_session_id(session_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         with self._connect_prepared(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             yield from iter_identity_group_findings(
                 connection, canonical_session_id, unsafe_row_ids, propagating_datasets,
-                native_projections=self._native_hybrid_dependency_projections(
+                native_projections=PreparationQualityIndex._native_hybrid_dependency_projections(
+                    self,
                     connection, workspace_id, canonical_session_id,
                 ),
             )
 
-    def _native_hybrid_dependency_projections(self, connection, workspace_id, session_id):
+    @staticmethod
+    def _native_hybrid_dependency_projections(
+        host: PreparationSessionRepositoryHost,
+        connection: duckdb.DuckDBPyConnection,
+        workspace_id: str,
+        session_id: str,
+    ) -> Iterator[tuple[PreparedCanonicalProjection, Path]]:
         """Rebuild native relationship and identity dependencies from verified columns."""
 
         raw = connection.execute("""
@@ -557,21 +581,19 @@ class PreparationQualityIndex:
                 or snapshot.mapping_hash != projection.program.mapping_content_hash
                 or snapshot.schema_hash != projection.program.schema_hash):
                 raise WorkspaceError("Prepared canonical projection metadata changed")
-            if self._artifacts is None:
-                raise WorkspaceError("Prepared relationship artifacts are unavailable")
-            with self._artifacts.materialize_prepared_snapshot(
+            with host._artifacts.materialize_prepared_snapshot(
                 workspace_id, snapshot.parquet_storage_key, expected_sha256=snapshot.parquet_sha256,
             ) as path:
                 yield projection, path
 
     def _iter_quality_index_batches(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
         *,
         batch_size: int,
-        connection=None,
-    ):
+        connection: duckdb.DuckDBPyConnection | None = None,
+    ) -> Iterator[Sequence[Sequence[object]]]:
         if connection is None:
             database_path = (
                 self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -599,13 +621,13 @@ class PreparationQualityIndex:
             next_ordinal += len(batch)
 
     def _iter_accounting_index_batches(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
         *,
         batch_size: int,
-        connection=None,
-    ):
+        connection: duckdb.DuckDBPyConnection | None = None,
+    ) -> Iterator[Sequence[Sequence[object]]]:
         if connection is None:
             database_path = (
                 self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -639,7 +661,7 @@ class PreparationQualityIndex:
             offset += len(batch)
 
     def _direct_index_contains_row_id(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
         row_id: str,

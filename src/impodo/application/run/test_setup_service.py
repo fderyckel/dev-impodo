@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from typing import cast
 
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.domain.project.foundation import (
@@ -35,6 +36,8 @@ from .odoo_requirements import (
     OdooCheckRequirementPlan,
     RunOdooRequirementsUseCase,
 )
+from .planning_service import MigrationRunPlanningService
+from .ports import TestRunRepository
 from .test_credential_workspace import TestRunCredentialWorkspaceUseCase
 from .test_setup_start import TestRunSetupStartUseCase
 
@@ -52,8 +55,8 @@ class TestRunSetupService:
         source_packages,
         workspace_states,
         recipes,
-        test_runs,
-        run_planning,
+        test_runs: TestRunRepository,
+        run_planning: MigrationRunPlanningService,
         authorization: AuthorizationPolicy,
     ) -> None:
         self.projects = projects
@@ -186,15 +189,23 @@ class TestRunSetupService:
             str(operation.detail["target_schema_json"])
         ).source_schema
         reference_payload = operation.detail.get("reference_bundle")
-        references = (
-            MigrationRunReferenceBundle.from_dict(dict(reference_payload)).for_workspace(
-                binding.setup_workspace_id
+        if reference_payload is not None and not isinstance(reference_payload, Mapping):
+            raise MigrationFoundationError(
+                "The saved Test activation reference evidence is invalid"
             )
-            if reference_payload is not None else None
-        )
+        references = None
+        if reference_payload is not None:
+            references = MigrationRunReferenceBundle.from_dict(
+                cast(Mapping[str, object], reference_payload)
+            ).for_workspace(binding.setup_workspace_id)
+        expected_revision = operation.expected_revision
+        if expected_revision is None:
+            raise MigrationFoundationError(
+                "The saved Test activation Workspace revision is missing"
+            )
         return self.activate(
             binding.project_id, migration_run_id,
-            expected_workspace_revision=operation.expected_revision,
+            expected_workspace_revision=expected_revision,
             target_schema=schema, target_reference_bundle=references,
             credential_generation=schema.read_credential_binding_hash,
             operation_id=operation.operation_id,

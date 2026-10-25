@@ -23,7 +23,6 @@ from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.shared.models import (
     Classification,
     LogicalReference,
-    PreflightResult,
     PreparedRecord,
     ReferenceResolution,
     assert_no_numeric_odoo_ids,
@@ -52,21 +51,90 @@ class DeferredScopeEvidenceError(ValueError):
 class ExecutionRowEvidence(Protocol):
     """The portable execution-row fields needed by deferred-scope planning."""
 
-    row_id: str
-    dataset: str
-    source_row: int
-    source_trace_id: str
-    source_identity: tuple[object, ...]
-    target_model: str
-    disposition: str
+    @property
+    def row_id(self) -> str: ...
+
+    @property
+    def dataset(self) -> str: ...
+
+    @property
+    def source_row(self) -> int: ...
+
+    @property
+    def source_trace_id(self) -> str: ...
+
+    @property
+    def source_identity(self) -> tuple[object, ...]: ...
+
+    @property
+    def target_model(self) -> str: ...
+
+    @property
+    def disposition(self) -> str: ...
 
 
 class RelationshipBlockerEvidence(Protocol):
     """The saved schedule-blocker fields needed by issue projection."""
 
-    row_id: str
-    code: str
-    field: str
+    @property
+    def row_id(self) -> str: ...
+
+    @property
+    def code(self) -> str: ...
+
+    @property
+    def field(self) -> str: ...
+
+
+class DeferredIssueEvidence(Protocol):
+    """Issue fields consumed while projecting deferred-scope evidence."""
+
+    @property
+    def code(self) -> str: ...
+
+    @property
+    def dataset(self) -> str | None: ...
+
+    @property
+    def row(self) -> int | None: ...
+
+    @property
+    def field(self) -> str | None: ...
+
+    @property
+    def message(self) -> str: ...
+
+    @property
+    def blocking(self) -> bool: ...
+
+
+class DeferredDecisionEvidence(Protocol):
+    """Decision fields consumed while projecting deferred-scope evidence."""
+
+    @property
+    def dataset(self) -> str: ...
+
+    @property
+    def source_row(self) -> int: ...
+
+    @property
+    def source_trace_id(self) -> str: ...
+
+    @property
+    def classification(self) -> Classification: ...
+
+    @property
+    def issues(self) -> Sequence[DeferredIssueEvidence]: ...
+
+
+class DeferredPreflightEvidence(Protocol):
+    """Minimal preflight result contract used by deferred-scope planning."""
+
+    @property
+    def decisions(self) -> Sequence[DeferredDecisionEvidence]: ...
+
+    @property
+    def issues(self) -> Sequence[DeferredIssueEvidence]: ...
 
 
 class DeferredIssueScope(StrEnum):
@@ -220,9 +288,12 @@ class DeferredScopePreview:
 
     @property
     def semantic_hash(self) -> str:
-        return "sha256:" + sha256(
-            canonical_json_bytes(self.portable_dict(include_hash=False))
-        ).hexdigest()
+        return (
+            "sha256:"
+            + sha256(
+                canonical_json_bytes(self.portable_dict(include_hash=False))
+            ).hexdigest()
+        )
 
     def portable_dict(self, *, include_hash: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -306,9 +377,7 @@ class DeferredScopePreview:
                 counts_by_dataset=tuple(
                     sorted(
                         (str(dataset), int(count))
-                        for dataset, count in dict(
-                            payload["counts_by_dataset"]
-                        ).items()
+                        for dataset, count in dict(payload["counts_by_dataset"]).items()
                     )
                 ),
                 prepared_record_count=int(payload["prepared_record_count"]),
@@ -408,9 +477,12 @@ class DeferredScopeDecision:
 
     @property
     def semantic_hash(self) -> str:
-        return "sha256:" + sha256(
-            canonical_json_bytes(self.portable_dict(include_hash=False))
-        ).hexdigest()
+        return (
+            "sha256:"
+            + sha256(
+                canonical_json_bytes(self.portable_dict(include_hash=False))
+            ).hexdigest()
+        )
 
     def portable_dict(self, *, include_hash: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -420,9 +492,7 @@ class DeferredScopeDecision:
             "comparison_hash": self.comparison_hash,
             "full_execution_snapshot_hash": self.full_execution_snapshot_hash,
             "preview_hash": self.preview_hash,
-            "reduced_execution_snapshot_hash": (
-                self.reduced_execution_snapshot_hash
-            ),
+            "reduced_execution_snapshot_hash": (self.reduced_execution_snapshot_hash),
             "selected_issue_ids": list(self.selected_issue_ids),
             "omitted_row_ids": list(self.omitted_row_ids),
             "accepted_by": {
@@ -461,9 +531,7 @@ class DeferredScopeDecision:
                 selected_issue_ids=tuple(
                     str(item) for item in payload["selected_issue_ids"]
                 ),
-                omitted_row_ids=tuple(
-                    str(item) for item in payload["omitted_row_ids"]
-                ),
+                omitted_row_ids=tuple(str(item) for item in payload["omitted_row_ids"]),
                 accepted_by=ActorIdentity(
                     issuer=str(accepted_by["issuer"]),
                     subject_id=str(accepted_by["subject_id"]),
@@ -486,7 +554,7 @@ class DeferredScopeDecision:
 def preflight_deferred_issues(
     comparison_id: str,
     rows: Sequence[ExecutionRowEvidence],
-    result: PreflightResult,
+    result: DeferredPreflightEvidence,
     *,
     relationship_blockers: Sequence[RelationshipBlockerEvidence] = (),
 ) -> tuple[DeferredIssue, ...]:
@@ -532,9 +600,7 @@ def preflight_deferred_issues(
             issues[projected.issue_id] = projected
 
     if matched_row_ids != {row.row_id for row in rows}:
-        raise DeferredScopeEvidenceError(
-            "Comparison decision accounting is incomplete"
-        )
+        raise DeferredScopeEvidenceError("Comparison decision accounting is incomplete")
 
     for issue in result.issues:
         if not issue.blocking or _issue_signature(issue) in represented_blockers:
@@ -565,9 +631,7 @@ def preflight_deferred_issues(
         issues[projected.issue_id] = projected
 
     covered = {
-        item.row_id
-        for item in issues.values()
-        if item.scope is DeferredIssueScope.ROW
+        item.row_id for item in issues.values() if item.scope is DeferredIssueScope.ROW
     }
     missing = sorted(
         row.row_id
@@ -594,7 +658,7 @@ def portable_preflight_deferred_issues(
         decisions = tuple(
             _PortableDecision(
                 dataset=str(item["dataset"]),
-                source_row=int(item["source_row"]),
+                source_row=_portable_int(item["source_row"], "source row"),
                 source_trace_id=str(item.get("source_trace_id", "")),
                 classification=Classification(str(item["classification"])),
                 issues=tuple(
@@ -602,7 +666,7 @@ def portable_preflight_deferred_issues(
                         code=str(issue["code"]),
                         dataset=str(issue.get("dataset") or ""),
                         row=(
-                            int(issue["row"])
+                            _portable_int(issue["row"], "issue row")
                             if issue.get("row") is not None
                             else None
                         ),
@@ -610,23 +674,29 @@ def portable_preflight_deferred_issues(
                         message=str(issue["message"]),
                         severity=str(issue["severity"]),
                     )
-                    for issue in item.get("issues", ())
+                    for issue in _portable_mapping_sequence(
+                        item.get("issues", ()), "decision issues"
+                    )
                 ),
             )
-            for raw in manifest["decisions"]
-            for item in (dict(raw),)
+            for item in _portable_mapping_sequence(manifest["decisions"], "decisions")
         )
         source_issues = tuple(
             _PortableIssue(
                 code=str(item["code"]),
                 dataset=str(item.get("dataset") or ""),
-                row=(int(item["row"]) if item.get("row") is not None else None),
+                row=(
+                    _portable_int(item["row"], "source issue row")
+                    if item.get("row") is not None
+                    else None
+                ),
                 field=str(item.get("field") or ""),
                 message=str(item["message"]),
                 severity=str(item["severity"]),
             )
-            for raw in manifest.get("source_issues", ())
-            for item in (dict(raw),)
+            for item in _portable_mapping_sequence(
+                manifest.get("source_issues", ()), "source issues"
+            )
         )
     except (KeyError, TypeError, ValueError) as error:
         raise DeferredScopeEvidenceError(
@@ -647,8 +717,9 @@ def portable_reference_resolutions(
 
     try:
         resolutions = []
-        for raw in manifest["reference_resolutions"]:
-            item = dict(raw)
+        for item in _portable_mapping_sequence(
+            manifest["reference_resolutions"], "reference resolutions"
+        ):
             reference = restore_portable_value(item["reference"])
             if not isinstance(reference, LogicalReference):
                 raise TypeError("Reference resolution is not logical")
@@ -658,11 +729,11 @@ def portable_reference_resolutions(
                     field=str(item["field"]),
                     reference=reference,
                     status=str(item["status"]),
-                    match_count=int(item["match_count"]),
-                    target_binding_hash=str(
-                        item.get("target_binding_hash") or ""
+                    match_count=_portable_int(item["match_count"], "match count"),
+                    target_binding_hash=str(item.get("target_binding_hash") or ""),
+                    affected_count=_portable_int(
+                        item.get("affected_count", 1), "affected count"
                     ),
-                    affected_count=int(item.get("affected_count", 1)),
                 )
             )
     except (KeyError, TypeError, ValueError) as error:
@@ -670,6 +741,32 @@ def portable_reference_resolutions(
             "Saved relationship-resolution evidence is invalid"
         ) from error
     return tuple(resolutions)
+
+
+def _portable_mapping_sequence(
+    value: object,
+    label: str,
+) -> tuple[Mapping[str, object], ...]:
+    """Validate one sequence of object-shaped portable evidence entries."""
+
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        raise TypeError(f"Saved {label} evidence must be a sequence")
+    items: list[Mapping[str, object]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise TypeError(f"Saved {label} entries must be objects")
+        items.append(item)
+    return tuple(items)
+
+
+def _portable_int(value: object, label: str) -> int:
+    """Decode an integer without accepting booleans or lossy float coercion."""
+
+    if type(value) is int:
+        return value
+    if isinstance(value, str):
+        return int(value)
+    raise TypeError(f"Saved {label} evidence must be an integer")
 
 
 def exact_numeric_precision_issues(
@@ -733,9 +830,9 @@ def prepared_dependency_facts(
     """Build exact row dependencies without reopening source or Odoo evidence."""
 
     row_by_record = _record_row_index(rows, records)
-    source_index: dict[
-        tuple[str, bytes], list[ExecutionRowEvidence]
-    ] = defaultdict(list)
+    source_index: dict[tuple[str, bytes], list[ExecutionRowEvidence]] = defaultdict(
+        list
+    )
     for record in records:
         source_index[
             (
@@ -848,9 +945,7 @@ def preview_deferred_scope(
     unknown = tuple(item for item in selected if item not in issue_by_id)
     if unknown:
         raise DeferredScopeEvidenceError("Selected set-aside issues are not current")
-    if any(
-        issue_by_id[item].scope is DeferredIssueScope.RUN for item in selected
-    ):
+    if any(issue_by_id[item].scope is DeferredIssueScope.RUN for item in selected):
         raise DeferredScopeEvidenceError(
             "A run-wide failure cannot be set aside as a record group"
         )
@@ -911,7 +1006,9 @@ def preview_deferred_scope(
             if row.row_id in closure_by_issue[issue_id]
         )
         direct = tuple(
-            issue_id for issue_id in causes if issue_by_id[issue_id].row_id == row.row_id
+            issue_id
+            for issue_id in causes
+            if issue_by_id[issue_id].row_id == row.row_id
         )
         inherited = tuple(issue_id for issue_id in causes if issue_id not in direct)
         omitted_rows.append(
@@ -1083,9 +1180,9 @@ def _record_row_index(
     rows: Sequence[ExecutionRowEvidence],
     records: Sequence[PreparedRecord],
 ) -> dict[tuple[str, int, str], ExecutionRowEvidence]:
-    candidates: dict[
-        tuple[str, int, str], list[ExecutionRowEvidence]
-    ] = defaultdict(list)
+    candidates: dict[tuple[str, int, str], list[ExecutionRowEvidence]] = defaultdict(
+        list
+    )
     for row in rows:
         candidates[(row.dataset, row.source_row, row.source_trace_id)].append(row)
     result: dict[tuple[str, int, str], ExecutionRowEvidence] = {}
@@ -1106,9 +1203,7 @@ def _record_row_index(
             )
         result[coordinate] = row
     if len(result) != len(rows) or len(result) != len(records):
-        raise DeferredScopeEvidenceError(
-            "Prepared dependency accounting is incomplete"
-        )
+        raise DeferredScopeEvidenceError("Prepared dependency accounting is incomplete")
     return result
 
 
@@ -1117,9 +1212,7 @@ def _logical_references(value: object) -> tuple[LogicalReference, ...]:
         return (value,)
     if isinstance(value, tuple | list):
         return tuple(
-            reference
-            for item in value
-            for reference in _logical_references(item)
+            reference for item in value for reference in _logical_references(item)
         )
     return ()
 
@@ -1184,9 +1277,7 @@ def _unique_issues(
         row.row_id for row in rows.values() if row.disposition in _PROBLEM_DISPOSITIONS
     }
     evidenced_rows = {
-        issue.row_id
-        for issue in issues
-        if issue.scope is DeferredIssueScope.ROW
+        issue.row_id for issue in issues if issue.scope is DeferredIssueScope.ROW
     }
     if not problem_rows.issubset(evidenced_rows):
         raise DeferredScopeEvidenceError(
@@ -1237,8 +1328,7 @@ def _validate_preview_shape(preview: DeferredScopePreview) -> None:
         or _SHA256.fullmatch(preview.comparison_hash) is None
         or _SHA256.fullmatch(preview.execution_snapshot_hash) is None
         or not preview.selected_issue_ids
-        or preview.selected_issue_ids
-        != tuple(sorted(set(preview.selected_issue_ids)))
+        or preview.selected_issue_ids != tuple(sorted(set(preview.selected_issue_ids)))
         or preview.prepared_record_count < 1
         or preview.already_set_aside_count < 0
         or preview.original_write_count < 0
@@ -1255,10 +1345,7 @@ def _validate_preview_shape(preview: DeferredScopePreview) -> None:
         len(omitted_by_id) != len(preview.omitted_rows)
         or preview.counts_by_dataset != _counts_by_dataset(preview.omitted_rows)
         or preview.omitted_write_count
-        != sum(
-            row.disposition in _WRITE_DISPOSITIONS
-            for row in preview.omitted_rows
-        )
+        != sum(row.disposition in _WRITE_DISPOSITIONS for row in preview.omitted_rows)
         or any(
             not row.direct_issue_ids and not row.inherited_issue_ids
             for row in preview.omitted_rows
@@ -1290,7 +1377,5 @@ def _validate_preview_shape(preview: DeferredScopePreview) -> None:
             for group in preview.groups
         )
     ):
-        raise DeferredScopeEvidenceError(
-            "Deferred-scope group accounting is invalid"
-        )
+        raise DeferredScopeEvidenceError("Deferred-scope group accounting is invalid")
     preview.portable_dict()

@@ -54,7 +54,7 @@ from impodo.domain.mapping.validation.evidence import (
 from impodo.domain.mapping.validation.validator import MappingSemanticValidator
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.schema.governance import SchemaGovernance
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
@@ -83,6 +83,10 @@ class MappingSourceRepository(Protocol):
         workspace_id: str,
     ) -> SourceSelection | None:
         """Return the effective physical-plus-derived selection visible to mapping."""
+        ...
+
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None:
+        """Return the frozen physical source selection."""
         ...
 
 
@@ -259,7 +263,9 @@ class RecipeMappingPolicy(Protocol):
     """Constrain submitted run mappings to their compiled Recipe meaning."""
 
     def assert_mapping_adaptation(
-        self, workspace_id: str, definition: MappingDefinition,
+        self,
+        workspace_id: str,
+        definition: MappingDefinition,
     ) -> None:
         """Reject a mapping mutation that violates the applied-recipe policy."""
         ...
@@ -293,7 +299,7 @@ class MappingWorkspaceService:
         sources: MappingSourceRepository,
         schemas: MappingSchemaRepository,
         mappings: MappingWorkspaceRepository,
-        authorization: AuthorizationPolicy,
+        authorization: WorkspaceAuthorizationPolicy,
         categorical_coverage: CategoricalCoverageService,
         numeric_precision_coverage: NumericPrecisionCoverageService | None = None,
         supporting_lookups: MappingSupportingLookupReader | None = None,
@@ -338,12 +344,8 @@ class MappingWorkspaceService:
             operation_id=operation_id,
             action=action,
             request_hash=request_hash,
-            submitted_working_draft_version=(
-                submitted_working_draft_version
-            ),
-            submitted_mapping_revision_version=(
-                submitted_mapping_revision_version
-            ),
+            submitted_working_draft_version=(submitted_working_draft_version),
+            submitted_mapping_revision_version=(submitted_mapping_revision_version),
             actor=actor,
         )
 
@@ -440,9 +442,7 @@ class MappingWorkspaceService:
         schema = self.schemas.get_odoo_schema_catalog(workspace_id)
         governance = self.schemas.get_schema_governance(workspace_id)
         if selection is None or schema is None:
-            raise WorkspaceError(
-                "Freeze datasets and capture Odoo schema first"
-            )
+            raise WorkspaceError("Freeze datasets and capture Odoo schema first")
         current = self.mappings.get_mapping_revision(workspace_id)
         existing = self.mappings.get_mapping_working_draft(workspace_id)
         actual_version = existing.version if existing else None
@@ -453,9 +453,7 @@ class MappingWorkspaceService:
                     current.version if current else None
                 ),
                 current_working_draft_version=actual_version,
-                current_mapping_revision_version=(
-                    current.version if current else None
-                ),
+                current_mapping_revision_version=(current.version if current else None),
             )
         if existing is not None:
             mapping_id = existing.mapping_id
@@ -490,16 +488,12 @@ class MappingWorkspaceService:
                 mapping_hash=definition.content_hash,
                 actor=actor,
             )
-        save_options: dict[str, object] = {
-            "expected_version": expected_version,
-            "actor": actor,
-        }
-        if operation_id is not None:
-            save_options["operation_id"] = operation_id
         self.mappings.save_mapping_working_draft(
             workspace_id,
             draft,
-            **save_options,
+            expected_version=expected_version,
+            actor=actor,
+            operation_id=operation_id,
         )
         return draft
 
@@ -536,15 +530,11 @@ class MappingWorkspaceService:
                     current.version if current else None
                 ),
                 current_working_draft_version=existing.version,
-                current_mapping_revision_version=(
-                    current.version if current else None
-                ),
+                current_mapping_revision_version=(current.version if current else None),
             )
 
         readonly_by_model = {
-            model.name: {
-                field.name for field in model.fields if field.readonly
-            }
+            model.name: {field.name for field in model.fields if field.readonly}
             for model in schema.models
         }
         removed_count = 0
@@ -579,9 +569,7 @@ class MappingWorkspaceService:
                 )
             )
         if not removed_count:
-            raise WorkspaceError(
-                "No Odoo-managed field matches need to be removed"
-            )
+            raise WorkspaceError("No Odoo-managed field matches need to be removed")
         draft = self.save_working_draft(
             workspace_id,
             datasets=cleaned_datasets,
@@ -623,9 +611,7 @@ class MappingWorkspaceService:
                     current.version if current else None
                 ),
                 current_working_draft_version=existing.version,
-                current_mapping_revision_version=(
-                    current.version if current else None
-                ),
+                current_mapping_revision_version=(current.version if current else None),
             )
         dataset = next(
             (
@@ -653,16 +639,15 @@ class MappingWorkspaceService:
             raise WorkspaceError(
                 "This Odoo field does not need a required-field decision"
             )
-        supplied_targets = {
-            field.target_field for field in dataset.fields
-        } | {
-            relationship.target_field
-            for relationship in dataset.relationships
-        } | {
-            target
-            for component in (*dataset.target_identity, *dataset.target_scope)
-            for target in component.target_fields
-        }
+        supplied_targets = (
+            {field.target_field for field in dataset.fields}
+            | {relationship.target_field for relationship in dataset.relationships}
+            | {
+                target
+                for component in (*dataset.target_identity, *dataset.target_scope)
+                for target in component.target_fields
+            }
+        )
         if handling is not None and target_field in supplied_targets:
             raise WorkspaceError(
                 "Remove the current field match before leaving this field to Odoo"
@@ -690,8 +675,7 @@ class MappingWorkspaceService:
                 )
 
         dispositions = {
-            item.target_field: item
-            for item in dataset.target_field_dispositions
+            item.target_field: item for item in dataset.target_field_dispositions
         }
         if handling is None:
             if target_field not in dispositions:
@@ -706,8 +690,7 @@ class MappingWorkspaceService:
             replace(
                 item,
                 target_field_dispositions=tuple(
-                    dispositions[target]
-                    for target in sorted(dispositions)
+                    dispositions[target] for target in sorted(dispositions)
                 ),
             )
             if item.dataset_id == dataset_id
@@ -751,9 +734,7 @@ class MappingWorkspaceService:
                     current.version if current else None
                 ),
                 current_working_draft_version=existing.version,
-                current_mapping_revision_version=(
-                    current.version if current else None
-                ),
+                current_mapping_revision_version=(current.version if current else None),
             )
         models = {model.name: model for model in schema.models}
         updated: list[DatasetMapping] = []
@@ -766,8 +747,7 @@ class MappingWorkspaceService:
                 updated.append(dataset)
                 continue
             supplied = {
-                item.target_field
-                for item in (*dataset.fields, *dataset.relationships)
+                item.target_field for item in (*dataset.fields, *dataset.relationships)
             }
             supplied.update(
                 target
@@ -775,8 +755,7 @@ class MappingWorkspaceService:
                 for target in component.target_fields
             )
             dispositions = {
-                item.target_field: item
-                for item in dataset.target_field_dispositions
+                item.target_field: item for item in dataset.target_field_dispositions
             }
             model = models.get(dataset.target_model)
             for field in model.fields if model is not None else ():
@@ -860,9 +839,7 @@ class MappingWorkspaceService:
                 or not issue.target_field
             ):
                 continue
-            field = fields_by_model.get(issue.target_model, {}).get(
-                issue.target_field
-            )
+            field = fields_by_model.get(issue.target_model, {}).get(issue.target_field)
             if field is not None and supports_create_default_capture(field):
                 grouped.setdefault(issue.target_model, set()).add(field.name)
         if not grouped:
@@ -895,21 +872,15 @@ class MappingWorkspaceService:
         schema = self.schemas.get_odoo_schema_catalog(workspace_id)
         governance = self.schemas.get_schema_governance(workspace_id)
         if selection is None or schema is None:
-            raise WorkspaceError(
-                "Freeze datasets and capture Odoo schema first"
-            )
+            raise WorkspaceError("Freeze datasets and capture Odoo schema first")
         current = self.mappings.get_mapping_revision(workspace_id)
         actual_parent = current.version if current else None
         if expected_parent_version != actual_parent:
             working = self.mappings.get_mapping_working_draft(workspace_id)
             raise MappingVersionConflict(
-                submitted_working_draft_version=(
-                    expected_working_draft_version
-                ),
+                submitted_working_draft_version=(expected_working_draft_version),
                 submitted_mapping_revision_version=expected_parent_version,
-                current_working_draft_version=(
-                    working.version if working else None
-                ),
+                current_working_draft_version=(working.version if working else None),
                 current_mapping_revision_version=actual_parent,
             )
         working_draft = self.mappings.get_mapping_working_draft(workspace_id)
@@ -918,23 +889,18 @@ class MappingWorkspaceService:
         )
         if expected_working_draft_version != actual_working_version:
             raise MappingVersionConflict(
-                submitted_working_draft_version=(
-                    expected_working_draft_version
-                ),
+                submitted_working_draft_version=(expected_working_draft_version),
                 submitted_mapping_revision_version=expected_parent_version,
                 current_working_draft_version=actual_working_version,
                 current_mapping_revision_version=actual_parent,
             )
         expected_schema_hash = (
-            governance.content_hash
-            if governance is not None
-            else schema.content_hash
+            governance.content_hash if governance is not None else schema.content_hash
         )
         compatible_working_draft = (
             working_draft
             if working_draft is not None
-            and working_draft.definition.source_selection_hash
-            == selection.content_hash
+            and working_draft.definition.source_selection_hash == selection.content_hash
             and working_draft.definition.schema_hash == expected_schema_hash
             else None
         )
@@ -976,22 +942,19 @@ class MappingWorkspaceService:
                     expected_version=working_draft.version,
                     actor=actor,
                 )
-            validation_options: dict[str, object] = {"actor": actor}
-            if operation_id is not None:
-                validation_options["operation_id"] = operation_id
             self.mappings.save_mapping_validation(
                 workspace_id,
                 current.version,
                 validation,
-                **validation_options,
+                actor=actor,
+                operation_id=operation_id,
             )
             return current, validation
         historical_versions = self.mappings.list_mapping_revisions(workspace_id)
         revision = MappingRevision(
             mapping_id=mapping_id,
             version=(
-                max((item.version for item in historical_versions), default=0)
-                + 1
+                max((item.version for item in historical_versions), default=0) + 1
             ),
             parent_version=actual_parent,
             definition=definition,
@@ -1007,19 +970,15 @@ class MappingWorkspaceService:
             updated_at=revision.created_at,
             updated_by=actor.identity.display_name,
         )
-        revision_options: dict[str, object] = {
-            "validation": validation,
-            "expected_parent_version": expected_parent_version,
-            "expected_working_draft_version": expected_working_draft_version,
-            "checked_draft": checked_draft,
-            "actor": actor,
-        }
-        if operation_id is not None:
-            revision_options["operation_id"] = operation_id
         self.mappings.save_mapping_revision(
             workspace_id,
             revision,
-            **revision_options,
+            validation=validation,
+            expected_parent_version=expected_parent_version,
+            expected_working_draft_version=expected_working_draft_version,
+            checked_draft=checked_draft,
+            actor=actor,
+            operation_id=operation_id,
         )
         return revision, validation
 
@@ -1046,44 +1005,34 @@ class MappingWorkspaceService:
         governance = self.schemas.get_schema_governance(workspace_id)
         revision = self.mappings.get_mapping_revision(workspace_id)
         if selection is None or schema is None:
-            raise WorkspaceError(
-                "Freeze datasets and capture Odoo schema first"
-            )
+            raise WorkspaceError("Freeze datasets and capture Odoo schema first")
         if schema.origin is not SchemaOrigin.LIVE_API:
             raise WorkspaceError(
                 "Capture the live Odoo schema before confirming field matches; "
                 "the current schema seed is unverified"
             )
         if revision is None:
-            raise WorkspaceError(
-                "Check the field matches before confirming them"
-            )
+            raise WorkspaceError("Check the field matches before confirming them")
         working_draft = self.mappings.get_mapping_working_draft(workspace_id)
         actual_working_version = (
             working_draft.version if working_draft is not None else None
         )
         if expected_version != revision.version:
             raise MappingVersionConflict(
-                submitted_working_draft_version=(
-                    expected_working_draft_version
-                ),
+                submitted_working_draft_version=(expected_working_draft_version),
                 submitted_mapping_revision_version=expected_version,
                 current_working_draft_version=actual_working_version,
                 current_mapping_revision_version=revision.version,
             )
         if expected_working_draft_version != actual_working_version:
             raise MappingVersionConflict(
-                submitted_working_draft_version=(
-                    expected_working_draft_version
-                ),
+                submitted_working_draft_version=(expected_working_draft_version),
                 submitted_mapping_revision_version=expected_version,
                 current_working_draft_version=actual_working_version,
                 current_mapping_revision_version=revision.version,
             )
         expected_schema_hash = (
-            governance.content_hash
-            if governance is not None
-            else schema.content_hash
+            governance.content_hash if governance is not None else schema.content_hash
         )
         candidate = canonicalize_mapping_definition(
             MappingDefinition(
@@ -1102,8 +1051,7 @@ class MappingWorkspaceService:
             )
         if (
             working_draft is not None
-            and working_draft.definition.source_selection_hash
-            == selection.content_hash
+            and working_draft.definition.source_selection_hash == selection.content_hash
             and working_draft.definition.schema_hash == expected_schema_hash
             and working_draft.content_hash != revision.definition.content_hash
         ):
@@ -1118,29 +1066,23 @@ class MappingWorkspaceService:
             schema.odoo_version,
             OdooOperation.COMPARE,
         )
+        odoo_major_version = version_decision.version.major
         expected_reference_policy_hash = (
-            reference_policy_hash(version_decision.version.major)
-            if version_decision.allowed
+            reference_policy_hash(odoo_major_version)
+            if version_decision.allowed and odoo_major_version is not None
             else None
         )
         if (
             validation is None
-            or validation.mapping_content_hash
-            != revision.definition.content_hash
+            or validation.mapping_content_hash != revision.definition.content_hash
             or validation.reference_policy_hash != expected_reference_policy_hash
         ):
             raise WorkspaceError(
                 "Check the current field matches before confirming them"
             )
         if validation.status is MappingValidationStatus.INVALID:
-            first = next(
-                item
-                for item in validation.issues
-                if item.severity == "error"
-            )
-            raise WorkspaceError(
-                f"Mapping cannot be submitted: {first.message}"
-            )
+            first = next(item for item in validation.issues if item.severity == "error")
+            raise WorkspaceError(f"Mapping cannot be submitted: {first.message}")
         if any(
             item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
             for item in revision.definition.datasets
@@ -1166,8 +1108,7 @@ class MappingWorkspaceService:
         acknowledgements = frozenset(warning_acknowledgements)
         if set(warning_fingerprints).difference(acknowledgements):
             raise WorkspaceError(
-                "Acknowledge every current validation warning before "
-                "confirming"
+                "Acknowledge every current validation warning before confirming"
             )
         existing = self.mappings.get_mapping_submission(
             workspace_id,
@@ -1175,8 +1116,7 @@ class MappingWorkspaceService:
         )
         if (
             existing is not None
-            and existing.mapping_content_hash
-            == revision.definition.content_hash
+            and existing.mapping_content_hash == revision.definition.content_hash
             and existing.validation_hash == validation.validation_hash
             and existing.warning_acknowledgements == warning_fingerprints
         ):
@@ -1197,13 +1137,11 @@ class MappingWorkspaceService:
             submitted_at=datetime.now(UTC),
             submitted_by=actor.identity.display_name,
         )
-        submission_options: dict[str, object] = {"actor": actor}
-        if operation_id is not None:
-            submission_options["operation_id"] = operation_id
         self.mappings.save_mapping_submission(
             workspace_id,
             submission,
-            **submission_options,
+            actor=actor,
+            operation_id=operation_id,
         )
         return submission
 
@@ -1225,9 +1163,7 @@ class MappingWorkspaceService:
         schema = self.schemas.get_odoo_schema_catalog(workspace_id)
         governance = self.schemas.get_schema_governance(workspace_id)
         if revision is None or selection is None or schema is None:
-            raise WorkspaceError(
-                "Save a mapping revision before validating"
-            )
+            raise WorkspaceError("Save a mapping revision before validating")
         validation = self._validate_definition(
             workspace_id,
             revision.definition,

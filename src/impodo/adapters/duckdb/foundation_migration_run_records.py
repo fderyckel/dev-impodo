@@ -12,9 +12,10 @@ from impodo.domain.shared.access import Actor
 
 from ...domain.run.models import MigrationRun
 from ...domain.serialization import canonical_json
+from .foundation_repository_mixin import FoundationRepositoryMixin
 
 
-class FoundationMigrationRunRecords:
+class FoundationMigrationRunRecords(FoundationRepositoryMixin):
     """Own MigrationRun reads, revisions, and target-setup persistence."""
 
     def next_run_number(self, project_id: str) -> int:
@@ -110,6 +111,10 @@ class FoundationMigrationRunRecords:
                     ],
                 )
             else:
+                if expected_revision is None:
+                    raise MigrationConflictError(
+                        "MigrationRun target setup revision is required"
+                    )
                 expected = require_revision(
                     expected_revision,
                     "expected_target_setup_revision",

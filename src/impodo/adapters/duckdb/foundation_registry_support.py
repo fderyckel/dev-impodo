@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Never
 
 import duckdb
 
@@ -24,9 +25,10 @@ from ...domain.run.models import (
 from ...domain.workspace.models import (
     MigrationWorkspace,
 )
+from .foundation_repository_mixin import FoundationRepositoryMixin
 
 
-class FoundationRegistrySupport:
+class FoundationRegistrySupport(FoundationRepositoryMixin):
     def _insert_data_version_if_needed(
         self,
         data_version: DataVersion,
@@ -259,7 +261,9 @@ class FoundationRegistrySupport:
                 "WHERE project_id = ?",
                 [project_id],
             ).fetchone()
-        return int(row[0])
+        if row is None:
+            raise MigrationConflictError("Lineage counter could not be loaded")
+        return self._integer(row[0], "lineage counter")
 
     def _require_project(
         self,
@@ -348,7 +352,7 @@ class FoundationRegistrySupport:
         cls,
         connection: duckdb.DuckDBPyConnection,
         identity: str,
-    ) -> None:
+    ) -> Never:
         owner = cls._identity_owner(connection, identity)
         if owner is not None:
             raise MigrationIdentifierConfusionError(

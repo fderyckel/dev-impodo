@@ -8,6 +8,8 @@ from impodo.domain.project.foundation import require_uuid
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
+from .ports import RunRepositoryFoundation
+
 
 class RunTargetEvidenceUseCase:
     """Own validation of the authoring workspace's reusable Odoo evidence."""
@@ -15,7 +17,7 @@ class RunTargetEvidenceUseCase:
     def __init__(
         self,
         *,
-        foundation,
+        foundation: RunRepositoryFoundation,
         compiler,
         authorization: AuthorizationPolicy,
         planning_error: type[Exception],

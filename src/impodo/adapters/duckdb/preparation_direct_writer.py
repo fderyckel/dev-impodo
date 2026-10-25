@@ -60,8 +60,10 @@ from .preparation_session_support import (
     _DIRECT_PHYSICAL_ROW_JSON_STRUCTURE,
     _DIRECT_RELATIONSHIP_JSON_STRUCTURE,
     _PREPARATION_IMPACT_JSON_STRUCTURE,
+    PreparationSessionRepositoryHost,
     _canonical_row_json_requires_scalar_transport,
     _canonical_row_requires_scalar_transport,
+    canonical_preparation_session_id,
 )
 from .serialization import (
     _canonical_json,
@@ -84,7 +86,7 @@ _DIRECT_ROW_UPDATE_JSON_STRUCTURE = """[{
 
 class PreparationDirectWriter:
     def begin_direct_session(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         bindings: PreparationSessionBindings,
         *,
@@ -182,7 +184,7 @@ class PreparationDirectWriter:
         )
 
     def append_direct_rows(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
         rows: Sequence[CanonicalPreparedSessionRow],
@@ -191,7 +193,7 @@ class PreparationDirectWriter:
 
         if not rows:
             return
-        canonical_session_id = self._session_id(session_id)
+        canonical_session_id = canonical_preparation_session_id(session_id)
         expected_lineage_count = 0
         for item in rows:
             if not item.physical_sources:
@@ -571,7 +573,7 @@ class PreparationDirectWriter:
                 raise
 
     def append_native_prepared_projection(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
         snapshot: PreparedSnapshot,
@@ -602,7 +604,7 @@ class PreparationDirectWriter:
             snapshot,
             projection,
         )
-        canonical_session_id = self._session_id(session_id)
+        canonical_session_id = canonical_preparation_session_id(session_id)
         with self._connect_prepared(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
@@ -650,7 +652,7 @@ class PreparationDirectWriter:
                 raise
 
     def append_impacts(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
         rows: Sequence[TransformationImpactRow],
@@ -734,7 +736,7 @@ class PreparationDirectWriter:
                 raise
 
     def finalize_direct_session(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
         *,
@@ -754,8 +756,11 @@ class PreparationDirectWriter:
             PreparationSessionStatus.FINALIZING,
         }:
             raise WorkspaceError("Preparation session cannot be finalized")
-        canonical_session_id = self._session_id(session_id)
-        self._restart_direct_finalization(workspace_id, canonical_session_id)
+        canonical_session_id = canonical_preparation_session_id(session_id)
+        self._restart_direct_finalization(
+            workspace_id,
+            canonical_session_id,
+        )
         bindings = summary.bindings
         database_path = (
             self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -964,7 +969,7 @@ class PreparationDirectWriter:
         return self.load_stored_run(workspace_id, canonical_session_id)
 
     def _restart_direct_finalization(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         session_id: str,
     ) -> None:
@@ -1018,7 +1023,11 @@ class PreparationDirectWriter:
                         False,
                     ]
                 )
-            self._update_direct_rows(workspace_id, session_id, values)
+            self._update_direct_rows(
+                workspace_id,
+                session_id,
+                values,
+            )
 
         with self._connect(database_path) as connection:
             connection.begin()
@@ -1067,7 +1076,7 @@ class PreparationDirectWriter:
                 raise
 
     def _update_direct_rows(
-        self,
+        self: PreparationSessionRepositoryHost,
         workspace_id: str,
         run_id: str,
         values: Sequence[Sequence[object]],

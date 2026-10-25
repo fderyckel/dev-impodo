@@ -28,7 +28,10 @@ from .repository import DuckDbRepository
 _IMPACT_JSON_BATCH_CHARACTER_LIMIT = 2_000_000
 
 
-
+def _stored_integer(value: object, field_name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TypeError(f"Stored transformation impact {field_name} must be an integer")
+    return value
 
 
 class TransformationImpactRepository(DuckDbRepository):
@@ -41,7 +44,9 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> TransformationImpactSnapshot | None:
         """Return the current snapshot only when every input still matches."""
 
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -70,10 +75,7 @@ class TransformationImpactRepository(DuckDbRepository):
             contract_version=int(row[6]),
             evaluator_version=int(row[7]),
         )
-        if (
-            stored_identity != identity
-            or str(row[0]) != stored_identity.content_hash
-        ):
+        if stored_identity != identity or str(row[0]) != stored_identity.content_hash:
             return None
         with self._connect(database_path) as connection:
             rule_impacts = self._rule_impacts(connection)
@@ -87,6 +89,7 @@ class TransformationImpactRepository(DuckDbRepository):
             rule_impacts=rule_impacts,
             acknowledgements=acknowledgements,
         )
+
     def replace_transformation_impact_snapshot(
         self,
         workspace_id: str,
@@ -105,7 +108,9 @@ class TransformationImpactRepository(DuckDbRepository):
             current = self.get_transformation_impact_snapshot(workspace_id, identity)
             if current is not None:
                 return current
-            database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+            database_path = (
+                self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+            )
             if not database_path.is_file():
                 raise WorkspaceStateNotFoundError("Workspace engine state not found")
             created_at = datetime.now(UTC)
@@ -145,27 +150,34 @@ class TransformationImpactRepository(DuckDbRepository):
                     row_characters = sum(
                         len(value)
                         for value in (
-                            row.dataset, row.source_column, row.target_field,
-                            row.raw_value, row.proposed_value, row.rules,
-                            row.outcome, row.message,
+                            row.dataset,
+                            row.source_column,
+                            row.target_field,
+                            row.raw_value,
+                            row.proposed_value,
+                            row.rules,
+                            row.outcome,
+                            row.message,
                         )
                     )
                     if batch and batch_characters + row_characters > (
                         _IMPACT_JSON_BATCH_CHARACTER_LIMIT
                     ):
                         flush()
-                    batch.append({
-                        "ordinal": ordinal,
-                        "dataset": row.dataset,
-                        "source_row": row.source_row,
-                        "source_column": row.source_column,
-                        "target_field": row.target_field,
-                        "raw_value": row.raw_value,
-                        "proposed_value": row.proposed_value,
-                        "rules": row.rules,
-                        "outcome": row.outcome,
-                        "message": row.message,
-                    })
+                    batch.append(
+                        {
+                            "ordinal": ordinal,
+                            "dataset": row.dataset,
+                            "source_row": row.source_row,
+                            "source_column": row.source_column,
+                            "target_field": row.target_field,
+                            "raw_value": row.raw_value,
+                            "proposed_value": row.proposed_value,
+                            "rules": row.rules,
+                            "outcome": row.outcome,
+                            "message": row.message,
+                        }
+                    )
                     batch_characters += row_characters
                     ordinal += 1
                     if (
@@ -277,7 +289,9 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> None:
         """Acknowledge one reviewable rule fact for the exact current snapshot."""
 
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -299,11 +313,7 @@ class TransformationImpactRepository(DuckDbRepository):
                 """,
                 [rule_fingerprint],
             ).fetchone()
-            if (
-                run is None
-                or str(run[0]) != identity.content_hash
-                or rule is None
-            ):
+            if run is None or str(run[0]) != identity.content_hash or rule is None:
                 raise WorkspaceError("Prepare the current rule effects first")
             impact = TransformationRuleImpact(
                 dataset_id=str(rule[0]),
@@ -347,7 +357,9 @@ class TransformationImpactRepository(DuckDbRepository):
             raise WorkspaceError("Transformation impact page size is invalid")
         if after is not None and before is not None:
             raise WorkspaceError("Choose only one transformation impact cursor")
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -389,7 +401,11 @@ class TransformationImpactRepository(DuckDbRepository):
                 """,
                 [*parameters, *cursor_parameters, page_size],
             ).fetchall()
-            if not result and matching_count and (after is not None or before is not None):
+            if (
+                not result
+                and matching_count
+                and (after is not None or before is not None)
+            ):
                 result = connection.execute(
                     f"""
                     SELECT ordinal, dataset, source_row, source_column,
@@ -432,23 +448,18 @@ class TransformationImpactRepository(DuckDbRepository):
                 )
                 for item in result
             )
-            end_position = (
-                start_position + len(rows) - 1 if rows else 0
-            )
+            end_position = start_position + len(rows) - 1 if rows else 0
         return TransformationImpactPage(
             rows=rows,
             matching_count=matching_count,
             start_position=start_position,
             end_position=end_position,
-            previous_before=(
-                ordinals[0] if ordinals and start_position > 1 else None
-            ),
+            previous_before=(ordinals[0] if ordinals and start_position > 1 else None),
             next_after=(
-                ordinals[-1]
-                if ordinals and end_position < matching_count
-                else None
+                ordinals[-1] if ordinals and end_position < matching_count else None
             ),
         )
+
     def iter_transformation_impact_rows(
         self,
         workspace_id: str,
@@ -457,7 +468,9 @@ class TransformationImpactRepository(DuckDbRepository):
     ) -> Iterator[TransformationImpactRow]:
         """Stream all matching snapshot rows in deterministic order."""
 
-        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        database_path = (
+            self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        )
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
         with self._connect(database_path) as connection:
@@ -495,6 +508,7 @@ class TransformationImpactRepository(DuckDbRepository):
                         outcome=str(item[7]),
                         message=str(item[8]),
                     )
+
     @staticmethod
     def _transformation_impact_where(
         filters: TransformationImpactFilter,
@@ -511,7 +525,7 @@ class TransformationImpactRepository(DuckDbRepository):
                 parameters.append(value)
         if filters.query:
             conditions.append(
-                "(" 
+                "("
                 "contains(lower(source_column), ?) OR "
                 "contains(lower(target_field), ?) OR "
                 "contains(lower(raw_value), ?) OR "
@@ -522,6 +536,7 @@ class TransformationImpactRepository(DuckDbRepository):
             )
             parameters.extend([filters.query.lower()] * 6)
         return "WHERE " + " AND ".join(conditions), parameters
+
     @staticmethod
     def _transformation_impact_snapshot(
         identity: TransformationImpactIdentity,
@@ -534,16 +549,16 @@ class TransformationImpactRepository(DuckDbRepository):
             identity=identity,
             created_at=datetime.fromisoformat(str(row[8])),
             created_by=str(row[9]),
-            affected_row_count=int(row[10]),
+            affected_row_count=_stored_integer(row[10], "affected_row_count"),
             report=TransformationImpactReport(
                 mapping_content_hash=str(row[3]),
-                evaluated_count=int(row[11]),
-                changed_count=int(row[12]),
-                fallback_count=int(row[13]),
-                null_count=int(row[14]),
-                invalid_count=int(row[15]),
-                provided_count=int(row[16]),
-                unchanged_count=int(row[17]),
+                evaluated_count=_stored_integer(row[11], "evaluated_count"),
+                changed_count=_stored_integer(row[12], "changed_count"),
+                fallback_count=_stored_integer(row[13], "fallback_count"),
+                null_count=_stored_integer(row[14], "null_count"),
+                invalid_count=_stored_integer(row[15], "invalid_count"),
+                provided_count=_stored_integer(row[16], "provided_count"),
+                unchanged_count=_stored_integer(row[17], "unchanged_count"),
                 rows=(),
                 rule_impacts=rule_impacts,
                 detail_limit=0,

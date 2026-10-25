@@ -9,6 +9,7 @@ boundary and are never passed into the preflight domain or report.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
@@ -25,7 +26,13 @@ from impodo.application.odoo_read_failures import (
     OdooReadFailureCode,
     OdooReadWorkflowError,
 )
+from impodo.application.run.odoo_requirements import (
+    OdooCheckRelationshipRequirement,
+    OdooCheckSupportingRequirement,
+)
 from impodo.application.workspace.mapping.supporting_values import (
+    MappingSupportingRelationship,
+    MappingSupportingRequirement,
     plan_mapping_supporting_values,
 )
 from impodo.domain.execution.planner import (
@@ -33,6 +40,7 @@ from impodo.domain.execution.planner import (
     PreflightRequirementPlan,
     ReferenceReadRequirement,
 )
+from impodo.domain.mapping.contracts import DatasetMapping
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
@@ -47,12 +55,14 @@ from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import (
     OdooReadIdentity,
     TargetFingerprint,
+    TargetRecord,
     target_identity_hash,
 )
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
     OdooSchemaCatalog,
     SchemaField,
+    SchemaModel,
     SchemaOrigin,
 )
 from impodo.domain.workspace.errors import WorkspaceError
@@ -115,7 +125,10 @@ class _PreparedSupportingLookup:
     display_field: str
     requested_fields: tuple[str, ...]
     targeted_values: tuple[tuple[str, ...], ...] | None = None
-    relationships: tuple[object, ...] = ()
+    relationships: tuple[
+        MappingSupportingRelationship | OdooCheckRelationshipRequirement,
+        ...,
+    ] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -422,7 +435,7 @@ def _existing_catalog_model(
     )
     expected_policy_hash = (
         odoo_source_policy_hash(version_decision.version.major)
-        if version_decision.allowed
+        if version_decision.allowed and version_decision.version.major is not None
         else None
     )
     if (
@@ -491,7 +504,7 @@ def _current_preflight_supporting_references(
 
 def _governed_preflight_reference_request(
     schema: OdooSchemaCatalog,
-    captured_models: dict[str, object],
+    captured_models: Mapping[str, SchemaModel],
     reference: ReferenceReadRequirement,
     *,
     governed_key: bool,
@@ -508,7 +521,11 @@ def _governed_preflight_reference_request(
         None,
     )
     version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.COMPARE)
-    odoo_major_version = version_decision.version.major if version_decision.allowed else -1
+    odoo_major_version = (
+        version_decision.version.major
+        if version_decision.allowed and version_decision.version.major is not None
+        else -1
+    )
     return GovernedReferenceRequest(
         parent_model=reference.parent_model,
         relationship_field=reference.relationship_field,
@@ -545,7 +562,7 @@ def _authorized_supplemental_models(
     )
     expected_policy_hash = (
         reference_policy_hash(version_decision.version.major)
-        if version_decision.allowed
+        if version_decision.allowed and version_decision.version.major is not None
         else None
     )
     if requirements.reference_policy_hash != expected_policy_hash:
@@ -1157,8 +1174,11 @@ def _relationship_value_choices(
         raise WorkspaceError(
             "Quick matching currently supports one Odoo key"
         )
+    relation_model = field.relation
+    if relation_model is None:
+        raise WorkspaceError("Choose a linked Odoo field before loading choices")
     related_model = next(
-        (item for item in schema.models if item.name == field.relation),
+        (item for item in schema.models if item.name == relation_model),
         None,
     )
     key_field = key.key_fields[0]
@@ -1169,13 +1189,17 @@ def _relationship_value_choices(
     )
     available_fields = set(field_by_name)
     version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.COMPARE)
-    odoo_major_version = version_decision.version.major if version_decision.allowed else -1
+    odoo_major_version = (
+        version_decision.version.major
+        if version_decision.allowed and version_decision.version.major is not None
+        else -1
+    )
     standard_key = standard_reference_key(
-        field.relation or "",
+        relation_model,
         odoo_major_version=odoo_major_version,
     )
     supporting_candidate = supporting_reference_candidate(
-        field.relation or "",
+        relation_model,
         odoo_major_version=odoo_major_version,
     )
     display_field = (
@@ -1198,8 +1222,8 @@ def _relationship_value_choices(
         parent_model=parent_model,
         relationship_field=field.name,
         relationship_type=field.type,
-        relationship_model=field.relation,
-        related_model=field.relation or "",
+        relationship_model=relation_model,
+        related_model=relation_model,
         key_fields=key.key_fields,
         scope_fields=key.scope_fields,
         requested_fields=requested_fields,
@@ -1250,7 +1274,7 @@ def _relationship_value_choices(
     if not refresh:
         current = context.supporting_lookups.current(
             workspace_state.workspace_id,
-            relation_model=field.relation,
+            relation_model=relation_model,
             key_fields=key.key_fields,
             scope_fields=key.scope_fields,
             display_field=display_field,
@@ -1295,7 +1319,7 @@ def _relationship_value_choices(
         workspace_state,
         schema,
         actor=actor,
-        relation_model=field.relation,
+        relation_model=relation_model,
         requested_fields=requested_fields,
     )
     if (
@@ -1306,7 +1330,7 @@ def _relationship_value_choices(
         raise WorkspaceError("Odoo returned incomplete linked-record choices")
     if record_snapshot.fingerprint.target_hash != expected_target_hash:
         raise WorkspaceError("Odoo choices came from a different target")
-    related_metadata = metadata.models.get(field.relation)
+    related_metadata = metadata.models.get(relation_model)
     if related_metadata is None:
         raise WorkspaceError("Odoo did not return the linked record fields")
     returned_fields = related_metadata.fields
@@ -1338,12 +1362,12 @@ def _relationship_value_choices(
             "The linked Odoo record does not support this name and company matching rule"
         )
 
-    records = record_snapshot.records.get(field.relation, ())
+    records = record_snapshot.records.get(relation_model, ())
     if len(records) > VALUE_MATCH_MAX_TARGET_CHOICES:
         raise WorkspaceError(
             "This Odoo model has too many records for quick matching"
         )
-    by_key: dict[str, list[object]] = {}
+    by_key: dict[str, list[TargetRecord]] = {}
     identity_fields = (*key.key_fields, *key.scope_fields)
     for record in records:
         components = tuple(
@@ -1381,7 +1405,7 @@ def _relationship_value_choices(
     captured_at = _snapshot_datetime(record_snapshot.fingerprint.snapshot_timestamp)
     stored = context.supporting_lookups.capture(
         workspace_state.workspace_id,
-        relation_model=field.relation,
+        relation_model=relation_model,
         key_fields=key.key_fields,
         scope_fields=key.scope_fields,
         display_field=display_field,
@@ -1429,10 +1453,10 @@ def _capture_recipe_supporting_values(
     context: WebContext,
     workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
-    requirements,
+    requirements: Iterable[OdooCheckSupportingRequirement],
     *,
     actor: Actor,
-) -> tuple[object, ...]:
+) -> tuple[SupportingLookupSnapshot, ...]:
     """Refresh every Recipe-owned supporting value set in one bounded read."""
 
     return _capture_supporting_values(
@@ -1451,10 +1475,10 @@ def _capture_mapping_supporting_values(
     context: WebContext,
     workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
-    datasets,
+    datasets: Iterable[DatasetMapping],
     *,
     actor: Actor,
-) -> tuple[object, ...]:
+) -> tuple[SupportingLookupSnapshot, ...]:
     """Capture every external resolver required by the submitted mapping.
 
     Only distinct keys from included frozen source rows are queried. Related
@@ -1521,7 +1545,9 @@ def _capture_supporting_values(
     context: WebContext,
     workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
-    requirements,
+    requirements: Iterable[
+        MappingSupportingRequirement | OdooCheckSupportingRequirement
+    ],
     *,
     purpose: ReferenceReadPurpose,
     operation: OdooOperation,
@@ -1532,7 +1558,7 @@ def _capture_supporting_values(
         tuple[tuple[str, ...], ...],
     ]
     | None = None,
-) -> tuple[object, ...]:
+) -> tuple[SupportingLookupSnapshot, ...]:
     """Authorize, batch, verify, and persist supporting destination values."""
 
     if schema.origin is not SchemaOrigin.LIVE_API:
@@ -1540,11 +1566,11 @@ def _capture_supporting_values(
             "Capture the live Odoo details before checking supporting values"
         )
     version_decision = assess_odoo_operation(schema.odoo_version, operation)
-    odoo_major_version = version_decision.version.major if version_decision.allowed else -1
-    if not version_decision.allowed:
+    if not version_decision.allowed or version_decision.version.major is None:
         raise WorkspaceError(
             f"This {workflow_label} requires a supported Odoo version"
         )
+    odoo_major_version = version_decision.version.major
     current_reference_policy_hash = reference_policy_hash(odoo_major_version)
     if current_reference_policy_hash is None:
         raise WorkspaceError(
@@ -1797,7 +1823,7 @@ def _capture_supporting_values(
                 f"{item.relation_model} returned more than "
                 f"{maximum_records:,} supporting records"
             )
-        by_key: dict[str, list[object]] = {}
+        by_key: dict[str, list[TargetRecord]] = {}
         identity_fields = (*item.key_fields, *item.scope_fields)
         for record in records:
             raw_values = tuple(

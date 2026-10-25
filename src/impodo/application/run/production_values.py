@@ -30,6 +30,7 @@ from .fresh_data_values import (
     parameter_definitions,
     recipe_definition,
 )
+from .ports import ProductionRunRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +65,11 @@ class ProductionValueReview:
 class ProductionRunValuesUseCase:
     """Reuse Test's typed prompts and the canonical Recipe value validators."""
 
-    def __init__(self, recipes, repository=None) -> None:
+    def __init__(
+        self,
+        recipes,
+        repository: ProductionRunRepository | None = None,
+    ) -> None:
         self._recipes = recipes
         self._repository = repository
 

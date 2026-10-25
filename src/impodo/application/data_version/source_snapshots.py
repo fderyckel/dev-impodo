@@ -262,7 +262,9 @@ class SourceSnapshotPublisher:
         """Write, validate, and atomically publish one immutable snapshot."""
 
         binding = require_file_source(dataset.source)
-        _validate_snapshot_bindings(workspace_state, selection, dataset, catalog, source_file)
+        _validate_snapshot_bindings(
+            workspace_state, selection, dataset, catalog, source_file
+        )
         table = _selected_table(catalog, dataset)
         schema = source_snapshot_schema(dataset)
         batch_rows = source_snapshot_batch_rows(len(schema.columns))
@@ -274,20 +276,23 @@ class SourceSnapshotPublisher:
             else None
         )
 
-        with self.artifacts.materialize_source(
-            selection.data_version_id,
-            source_file.stored_name,
-        ) as source_path, open_selected_source_batches(
-            source_path,
-            dataset=dataset.name,
-            table_key=binding.table_key,
-            encoding=binding.encoding,
-            delimiter=binding.delimiter,
-            header_row=binding.header_row,
-            named_table_range=named_range,
-            source_display_name=source_file.display_name,
-            batch_size=batch_rows,
-        ) as source:
+        with (
+            self.artifacts.materialize_source(
+                selection.data_version_id,
+                source_file.stored_name,
+            ) as source_path,
+            open_selected_source_batches(
+                source_path,
+                dataset=dataset.name,
+                table_key=binding.table_key,
+                encoding=binding.encoding,
+                delimiter=binding.delimiter,
+                header_row=binding.header_row,
+                named_table_range=named_range,
+                source_display_name=source_file.display_name,
+                batch_size=batch_rows,
+            ) as source,
+        ):
             if source.content_hash != expected_source_hash:
                 raise SourceLoadError(
                     "Stored source content changed after dataset freezing"
@@ -524,7 +529,7 @@ def _physical_columnar_batch(
     schema: SourceSnapshotSchema,
     data_hasher: _SnapshotDataHasher,
 ) -> pl.DataFrame:
-    data: dict[str, list[object]] = {SOURCE_ROW_COLUMN: list(row_numbers)}
+    data: dict[str, Sequence[object]] = {SOURCE_ROW_COLUMN: list(row_numbers)}
     encoded_by_column: list[tuple[list[str | None], list[int]]] = []
     for column in schema.columns:
         texts: list[str | None] = []
@@ -640,8 +645,10 @@ def _frame_source_rows(
         yield SourceRow(number=number, values=values)
 
 
-def _polars_schema(schema: SourceSnapshotSchema) -> dict[str, pl.DataType]:
-    physical: dict[str, pl.DataType] = {SOURCE_ROW_COLUMN: pl.Int64}
+def _polars_schema(
+    schema: SourceSnapshotSchema,
+) -> dict[str, type[pl.DataType]]:
+    physical: dict[str, type[pl.DataType]] = {SOURCE_ROW_COLUMN: pl.Int64}
     for column in schema.columns:
         physical[column.value_column] = pl.String
         physical[column.kind_column] = pl.UInt8

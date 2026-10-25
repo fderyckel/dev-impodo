@@ -33,6 +33,7 @@ from impodo.domain.workspace.workbench import WorkspaceStateService
 from .application_materialization import RunApplicationMaterializer
 from .application_recovery import RunApplicationRecoveryUseCase
 from .planning_models import IntegratedRunReview, ReviewedRecipeApplication
+from .ports import RunCutoverPlanRepository, RunPlanningRepository, TestRunRepository
 from .production_activation import ProductionRunActivationUseCase
 from .production_review import ProductionRunReviewUseCase
 from .review import RunReviewUseCase
@@ -49,13 +50,13 @@ class MigrationRunPlanningService:
         projects: MigrationProjectService,
         data_versions: DataVersionService,
         recipes: RecipeService,
-        repository,
-        test_run_values,
+        repository: RunPlanningRepository,
+        test_run_values: TestRunRepository,
         source_packages,
         source_projections: WorkspaceSourceProjectionService,
         workspace_states: WorkspaceStateService,
         compiler: RecipeApplicationService,
-        cutover_plans,
+        cutover_plans: RunCutoverPlanRepository,
         authorization: AuthorizationPolicy,
     ) -> None:
         # Preserve the established composition surface while operation logic lives

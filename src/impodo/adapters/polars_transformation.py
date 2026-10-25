@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
@@ -31,6 +31,7 @@ from impodo.domain.shared.models import (
     Issue,
     LogicalReference,
     PreparedRecord,
+    ScalarValue,
     canonical_json_bytes,
     portable_value,
 )
@@ -1198,9 +1199,12 @@ def _conversion_expression(
             "mdy_slash": "%m/%d/%Y",
             "dmy_dot": "%d.%m.%Y",
         }
+        format_name = step.text
+        if format_name not in formats:
+            raise ValueError("Unsupported native date format")
         value = prepared.str.strptime(
             pl.Date,
-            formats[step.text],
+            formats[format_name],
             strict=False,
             exact=True,
         )
@@ -1211,9 +1215,12 @@ def _conversion_expression(
             "mdy_slash": "%m/%d/%Y %H:%M:%S",
             "dmy_dot": "%d.%m.%Y %H:%M:%S",
         }
+        format_name = step.text
+        if format_name not in formats:
+            raise ValueError("Unsupported native datetime format")
         value = prepared.str.strptime(
             pl.Datetime,
-            formats[step.text],
+            formats[format_name],
             strict=False,
             exact=True,
         ).dt.replace_time_zone("UTC")
@@ -1511,11 +1518,11 @@ def _adapt_frame(
     }
     rule_impacts = _aggregate_rule_observations(frame, rule_observations)
     source_rows: list[int] = []
-    source_identities: list[tuple[Any, ...]] = []
-    target_identities: list[tuple[Any, ...]] = []
-    target_scopes: list[tuple[Any, ...]] = []
-    scalar_value_rows: list[Mapping[str, Any]] = []
-    reference_rows: list[Mapping[str, Any]] = []
+    source_identities: list[tuple[ScalarValue, ...]] = []
+    target_identities: list[tuple[ScalarValue | LogicalReference, ...]] = []
+    target_scopes: list[tuple[ScalarValue | LogicalReference, ...]] = []
+    scalar_value_rows: list[Mapping[str, ScalarValue]] = []
+    reference_rows: list[Mapping[str, LogicalReference | None]] = []
     issue_rows: list[tuple[Issue, ...]] = []
     scalar_by_index = {index: item for index, item in enumerate(layout.scalars)}
     for row in frame.iter_rows(named=False):
@@ -2011,8 +2018,8 @@ def _identity_group_values(
     indexes: dict[str, int],
     components: tuple[_IdentityComponentLayout, ...],
     errors: dict[tuple[str, int], str],
-) -> tuple[object, ...]:
-    result: list[object] = []
+) -> tuple[ScalarValue | LogicalReference, ...]:
+    result: list[ScalarValue | LogicalReference] = []
     for component in components:
         incoming_key = tuple(
             _identity_value(row, indexes, item, errors)
@@ -2048,7 +2055,7 @@ def _identity_value(
     errors: dict[tuple[str, int], str],
     *,
     alias: str | None = None,
-):
+) -> ScalarValue:
     if (layout.role, layout.error_index) in errors:
         return None
     value = row[indexes[alias or layout.value_alias]]
@@ -2061,21 +2068,23 @@ def _scalar_value(
     index: int,
     layout: _ScalarLayout,
     errors: dict[tuple[str, int], str],
-):
+) -> ScalarValue:
     if ("scalar", index) in errors:
         return None
     value = row[indexes[layout.value_alias]]
     return _canonical_adapter_value(value, layout.field.value_type)
 
 
-def _canonical_adapter_value(value: object, value_type: str):
+def _canonical_adapter_value(value: object, value_type: str) -> ScalarValue:
     if value is None:
         return None
     if value_type == "integer":
         return int(str(value), 10)
     if value_type == "decimal":
         return Decimal(str(value))
-    return value
+    if isinstance(value, (str, int, Decimal, bool, date, datetime)):
+        return value
+    raise TypeError(f"Unsupported canonical adapter value {type(value).__name__}")
 
 
 def _row_issues(
@@ -2191,8 +2200,8 @@ def _row_issues(
 
 def _relationship_reference(
     relationship: ColumnarRelationshipProgram,
-    incoming_key: tuple[object, ...],
-    target_values: tuple[object, ...],
+    incoming_key: tuple[ScalarValue, ...],
+    target_values: tuple[ScalarValue, ...],
 ) -> LogicalReference | None:
     if not incoming_key or all(value is None for value in incoming_key):
         return None
@@ -2227,8 +2236,8 @@ def _relationship_reference(
 
 def _identity_reference(
     resolver: ColumnarIdentityResolverProgram,
-    incoming_key: tuple[object, ...],
-    target_values: tuple[object, ...],
+    incoming_key: tuple[ScalarValue, ...],
+    target_values: tuple[ScalarValue, ...],
 ) -> LogicalReference:
     if resolver.resolver_origin == "dataset":
         return LogicalReference(

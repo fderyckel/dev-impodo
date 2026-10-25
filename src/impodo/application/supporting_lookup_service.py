@@ -6,7 +6,7 @@ from collections.abc import Collection
 from datetime import datetime
 from typing import Protocol
 
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.workspace.reference_keys import (
     REFERENCE_POLICY_HASH,
     StandardReferenceFieldContract,
@@ -54,7 +54,7 @@ class SupportingLookupService:
     def __init__(
         self,
         repository: SupportingLookupRepositoryPort,
-        authorization: AuthorizationPolicy,
+        authorization: WorkspaceAuthorizationPolicy,
     ) -> None:
         self._repository = repository
         self._authorization = authorization

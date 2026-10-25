@@ -113,7 +113,9 @@ def _validate_windows_location(
     resolved = root.resolve(strict=False)
     for variable in WINDOWS_SYNC_ROOT_ENVIRONMENTS:
         configured = environment.get(variable)
-        if configured and _is_relative_to(resolved, _absolute_path(configured).resolve()):
+        if configured and _is_relative_to(
+            resolved, _absolute_path(configured).resolve()
+        ):
             raise ProjectRootSecurityError(
                 f"The protected project root cannot be inside {variable}."
             )
@@ -161,12 +163,7 @@ def _apply_private_windows_acl(root: Path) -> None:
     """Install a protected DACL for the user, SYSTEM, and Administrators."""
 
     current_sid = _current_windows_user_sid()
-    descriptor_text = (
-        "D:P"
-        f"(A;OICI;FA;;;{current_sid})"
-        "(A;OICI;FA;;;SY)"
-        "(A;OICI;FA;;;BA)"
-    )
+    descriptor_text = f"D:P(A;OICI;FA;;;{current_sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
     advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     local_free = kernel32.LocalFree
@@ -205,12 +202,15 @@ def _apply_private_windows_acl(root: Path) -> None:
         dacl_present = ctypes.c_int()
         dacl = ctypes.c_void_p()
         dacl_defaulted = ctypes.c_int()
-        if not get_dacl(
-            descriptor,
-            ctypes.byref(dacl_present),
-            ctypes.byref(dacl),
-            ctypes.byref(dacl_defaulted),
-        ) or not dacl_present.value:
+        if (
+            not get_dacl(
+                descriptor,
+                ctypes.byref(dacl_present),
+                ctypes.byref(dacl),
+                ctypes.byref(dacl_defaulted),
+            )
+            or not dacl_present.value
+        ):
             raise _windows_security_error("read the private DACL")
 
         set_security = advapi32.SetNamedSecurityInfoW
@@ -271,13 +271,9 @@ def _validate_private_windows_sddl(descriptor: str, current_sid: str) -> None:
         if len(fields) != 6:
             raise ProjectRootSecurityError("Windows returned an unreadable DACL entry.")
         ace_type, flags, rights, _object_guid, _inherit_guid, trustee = fields
-        trustee = aliases.get(trustee, trustee)
-        if (
-            ace_type != "A"
-            or "OI" not in flags
-            or "CI" not in flags
-            or rights != "FA"
-        ):
+        alias = aliases.get(trustee)
+        trustee = alias if alias is not None else trustee
+        if ace_type != "A" or "OI" not in flags or "CI" not in flags or rights != "FA":
             raise ProjectRootSecurityError(
                 "The project-root DACL contains an unexpected access rule."
             )
@@ -379,7 +375,11 @@ def _current_windows_user_sid() -> str:
     local_free.restype = ctypes.c_void_p
 
     open_token = advapi32.OpenProcessToken
-    open_token.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    open_token.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.HANDLE),
+    ]
     open_token.restype = wintypes.BOOL
 
     token = wintypes.HANDLE()
@@ -428,4 +428,6 @@ def _current_windows_user_sid() -> str:
 
 def _windows_security_error(action: str) -> ProjectRootSecurityError:
     error = ctypes.get_last_error()
-    return ProjectRootSecurityError(f"Windows could not {action}: {ctypes.WinError(error)}")
+    return ProjectRootSecurityError(
+        f"Windows could not {action}: {ctypes.WinError(error)}"
+    )

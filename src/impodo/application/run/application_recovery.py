@@ -19,6 +19,7 @@ from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 
+from .ports import RunPlanningRepository, TestRunRepository
 from .target_defaults import mapped_target_defaults
 
 
@@ -28,12 +29,12 @@ class RunApplicationRecoveryUseCase:
     def __init__(
         self,
         *,
-        repository,
+        repository: RunPlanningRepository,
         authorization: AuthorizationPolicy,
         compiler,
         source_packages,
         data_versions,
-        test_run_values,
+        test_run_values: TestRunRepository,
         recipes,
         package_selection,
     ) -> None:

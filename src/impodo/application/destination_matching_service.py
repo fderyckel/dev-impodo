@@ -116,7 +116,28 @@ class DestinationMatchReader(Protocol):
         api_key: str,
         metadata_requests: tuple[MetadataRequest, ...],
         record_requests: tuple[RecordRequest, ...],
+        /,
     ) -> tuple[MetadataSnapshot, RecordSnapshot]: ...
+
+
+class DestinationCreateFieldStore(Protocol):
+    """Persist exact protected create-field values behind an opaque port."""
+
+    def put(
+        self,
+        project_id: str,
+        plan: DestinationMatchPlan,
+    ) -> DestinationMatchPlan:
+        """Protect exact values and return the plan with its artifact binding."""
+        ...
+
+    def read(
+        self,
+        project_id: str,
+        plan: DestinationMatchPlan,
+    ) -> DestinationCreateFieldEvidence | None:
+        """Read exact values only when every plan binding still matches."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,8 +212,7 @@ class _PreparedModel:
     def omitted_source_row_numbers(self) -> tuple[int, ...]:
         return tuple(
             sorted(
-                self.excluded_source_row_numbers
-                + self.unreferenced_source_row_numbers
+                self.excluded_source_row_numbers + self.unreferenced_source_row_numbers
             )
         )
 
@@ -296,11 +316,7 @@ def _exact_identity_domain(
 ) -> tuple[object, ...]:
     """Return one exact Odoo domain for at most one governed key chunk."""
 
-    if (
-        not fields
-        or not values
-        or any(len(value) != len(fields) for value in values)
-    ):
+    if not fields or not values or any(len(value) != len(fields) for value in values):
         raise WorkspaceError("Destination matching key evidence is incomplete")
     if len(fields) == 1:
         return ((fields[0], "in", tuple(value[0] for value in values)),)
@@ -383,7 +399,9 @@ class DestinationMatchingService:
         }
         prepared: list[_PreparedModel] = []
         exclusions_by_dataset = dict(excluded_source_rows or {})
-        if set(exclusions_by_dataset) - {item.dataset_id for item in selection.datasets}:
+        if set(exclusions_by_dataset) - {
+            item.dataset_id for item in selection.datasets
+        }:
             raise WorkspaceError("Excluded source rows do not belong to this selection")
         for dataset in selection.datasets:
             if not isinstance(dataset.source, OdooSourceBinding):
@@ -415,10 +433,9 @@ class DestinationMatchingService:
                     f"{source_model.label} uses the governed identity "
                     f"{governed.title}; reload this page and try again"
                 )
-            if (
-                not 1 <= len(source_column_keys) <= 3
-                or len(set(source_column_keys)) != len(source_column_keys)
-            ):
+            if not 1 <= len(source_column_keys) <= 3 or len(
+                set(source_column_keys)
+            ) != len(source_column_keys):
                 raise WorkspaceError(
                     f"Choose one to three distinct matching fields for {dataset.name}"
                 )
@@ -441,7 +458,10 @@ class DestinationMatchingService:
             if (
                 len(key_fields) != len(source_columns)
                 or key_fields[0].type not in _TEXT_KEY_TYPES
-                or any(field.type not in _TEXT_KEY_TYPES | {"integer"} for field in key_fields)
+                or any(
+                    field.type not in _TEXT_KEY_TYPES | {"integer"}
+                    for field in key_fields
+                )
             ):
                 raise WorkspaceError(
                     f"Choose a text first matching field and scalar components for {dataset.name}"
@@ -462,9 +482,7 @@ class DestinationMatchingService:
                 )
             key_field = key_fields[0]
             source_counts: Counter[str] = Counter()
-            identity_by_key: dict[
-                str, tuple[bool | int | float | str, ...]
-            ] = {}
+            identity_by_key: dict[str, tuple[bool | int | float | str, ...]] = {}
             raw_exclusions = exclusions_by_dataset.get(dataset.dataset_id, ())
             if any(
                 not isinstance(number, int)
@@ -562,9 +580,7 @@ class DestinationMatchingService:
                 raise WorkspaceError(
                     f"The frozen matching counts for {dataset.name} are inconsistent"
                 )
-            selected_source_names = {
-                column.source_name for column in dataset.columns
-            }
+            selected_source_names = {column.source_name for column in dataset.columns}
             prepared.append(
                 _PreparedModel(
                     dataset_id=dataset.dataset_id,
@@ -641,7 +657,9 @@ class DestinationMatchingService:
         )
         model_names = tuple(sorted(item.model for item in prepared))
         if len(model_names) != len(set(model_names)):
-            raise WorkspaceError("Each Odoo record type must have one frozen source table")
+            raise WorkspaceError(
+                "Each Odoo record type must have one frozen source table"
+            )
         destination = replace(
             transfer_destination_workspace(workspace),
             intended_models=model_names,
@@ -680,13 +698,16 @@ class DestinationMatchingService:
                 not snapshot.complete
                 or snapshot.fingerprint.target_hash != expected_target_hash
                 or not assess_odoo_operation(
-                    snapshot.fingerprint.odoo_version, OdooOperation.COMPARE,
+                    snapshot.fingerprint.odoo_version,
+                    OdooOperation.COMPARE,
                 ).allowed
             ):
                 raise WorkspaceError(
                     "The destination matching read returned a different Odoo target"
                 )
-            if not same_odoo_major(source_schema.odoo_version, snapshot.fingerprint.odoo_version):
+            if not same_odoo_major(
+                source_schema.odoo_version, snapshot.fingerprint.odoo_version
+            ):
                 raise WorkspaceError(
                     "Odoo source and destination matching requires the same major version"
                 )
@@ -722,7 +743,9 @@ class DestinationMatchingService:
                 destination_read_principal_hash=read_identity.principal_hash,
                 destination_read_context_hash=read_identity.context_hash,
                 destination_schema_snapshot_hash=schema_snapshot_hash,
-                values=tuple(sorted(create_field_values, key=lambda current: current.key)),
+                values=tuple(
+                    sorted(create_field_values, key=lambda current: current.key)
+                ),
                 recorded_at=recorded_at,
             )
             if create_field_values
@@ -877,9 +900,7 @@ class DestinationMatchingService:
                 and row_number not in explicit_exclusions
             )
             source_counts: Counter[str] = Counter()
-            identity_by_key: dict[
-                str, tuple[bool | int | float | str, ...]
-            ] = {}
+            identity_by_key: dict[str, tuple[bool | int | float | str, ...]] = {}
             for row_number in sorted(referenced_rows):
                 row = rows[row_number - 1]
                 value = portable_identity(row)
@@ -987,11 +1008,7 @@ class DestinationMatchingService:
             and (
                 source_field.required
                 or (
-                    (
-                        destination_field := destination_fields.get(
-                            source_field.name
-                        )
-                    )
+                    (destination_field := destination_fields.get(source_field.name))
                     is not None
                     and destination_field.required
                 )
@@ -999,21 +1016,14 @@ class DestinationMatchingService:
         } | set(item.minimum_identity_relationship_fields)
         minimum_create_fields = tuple(
             sorted(
-                set(item.minimum_identity_fields).intersection(
-                    compared_field_names
-                )
+                set(item.minimum_identity_fields).intersection(compared_field_names)
                 | set(hook_input_fields).intersection(compared_field_names)
                 | {
                     source_field.name
                     for source_field in item.source_fields
-                    if source_field.type
-                    not in {"many2one", "many2many", "one2many"}
+                    if source_field.type not in {"many2one", "many2many", "one2many"}
                     and (
-                        (
-                            destination_field := destination_fields.get(
-                                source_field.name
-                            )
-                        )
+                        (destination_field := destination_fields.get(source_field.name))
                         is not None
                         and destination_field.required
                     )
@@ -1062,9 +1072,7 @@ class DestinationMatchingService:
             source_column_keys=item.source_column_keys,
             key_fields=item.key_fields,
             excluded_source_row_numbers=item.excluded_source_row_numbers,
-            unreferenced_source_row_numbers=(
-                item.unreferenced_source_row_numbers
-            ),
+            unreferenced_source_row_numbers=(item.unreferenced_source_row_numbers),
             destination_handling=item.destination_handling,
             minimum_create_fields=minimum_create_fields,
             minimum_create_relationship_fields=tuple(
@@ -1090,13 +1098,17 @@ class DestinationMatchingService:
         for item in prepared:
             if len(item.key_fields) == 1:
                 rows = self._source_values.source_key_rows(
-                    workspace_id, item.dataset_id, item.source_column_key,
+                    workspace_id,
+                    item.dataset_id,
+                    item.source_column_key,
                 )
             else:
                 rows = tuple(
                     portable_identity(row)
                     for row in self._source_values.source_key_tuples(
-                        workspace_id, item.dataset_id, item.source_column_keys,
+                        workspace_id,
+                        item.dataset_id,
+                        item.source_column_keys,
                     )
                 )
             if len(rows) != item.source_row_count:
@@ -1169,9 +1181,12 @@ class DestinationMatchingService:
                         ambiguous += 1
                     elif destination_count == 1:
                         reused += 1
-                    elif resolver_origin_for_destination_handling(
-                        relationship.related.destination_handling
-                    ) is ResolverOrigin.TARGET_CATALOG:
+                    elif (
+                        resolver_origin_for_destination_handling(
+                            relationship.related.destination_handling
+                        )
+                        is ResolverOrigin.TARGET_CATALOG
+                    ):
                         missing += 1
                     else:
                         incoming += 1
@@ -1205,9 +1220,7 @@ class DestinationMatchingService:
                     required=relationship.field.required,
                 )
             )
-        return tuple(
-            sorted(results, key=lambda item: (item.model, item.field_name))
-        )
+        return tuple(sorted(results, key=lambda item: (item.model, item.field_name)))
 
 
 def _create_field_defaults(
@@ -1388,9 +1401,7 @@ def _create_field_defaults(
                         )
                     ),
                     reference_candidates=reference_candidates,
-                    incoming_reference_candidates=(
-                        incoming_reference_candidates
-                    ),
+                    incoming_reference_candidates=(incoming_reference_candidates),
                 )
             )
             if not automatic:
@@ -1422,17 +1433,12 @@ def _create_field_defaults(
                     source_candidates=source_candidates,
                     selection=tuple(
                         sorted(
-                            (
-                                (str(key), str(label))
-                                for key, label in field.selection
-                            ),
+                            ((str(key), str(label)) for key, label in field.selection),
                             key=lambda choice: choice[0],
                         )
                     ),
                     reference_candidates=reference_candidates,
-                    incoming_reference_candidates=(
-                        incoming_reference_candidates
-                    ),
+                    incoming_reference_candidates=(incoming_reference_candidates),
                 )
             )
     return (
@@ -1487,7 +1493,9 @@ def _create_reference_candidates(
     if related is None:
         return ()
     target_rows = records.records.get(related.model, ())
-    identities = [record_identity(row.values, related.key_fields) for row in target_rows]
+    identities = [
+        record_identity(row.values, related.key_fields) for row in target_rows
+    ]
     counts = Counter(identity for identity in identities if identity)
     candidates = []
     for row, portable_identity_value in zip(target_rows, identities, strict=True):
@@ -1533,7 +1541,8 @@ def _create_incoming_reference_candidates(
     related_model = getattr(field, "relation", None)
     related = next(
         (
-            item for item in prepared
+            item
+            for item in prepared
             if item.model == related_model and item.dataset_id != owner.dataset_id
         ),
         None,
@@ -1541,8 +1550,7 @@ def _create_incoming_reference_candidates(
     if related is None:
         return ()
     target_by_identity: dict[str, list[int]] = {
-        portable_identity(identity): []
-        for identity in related.source_identity_values
+        portable_identity(identity): [] for identity in related.source_identity_values
     }
     for row in records.records.get(related.model, ()):
         identity = record_identity(row.values, related.key_fields)
@@ -1648,7 +1656,9 @@ def _prepare_relationships(
                 inverse_fields = tuple(
                     sorted(
                         candidate.name
-                        for candidate in (related_schema.fields if related_schema else ())
+                        for candidate in (
+                            related_schema.fields if related_schema else ()
+                        )
                         if candidate.type == "one2many"
                         and candidate.relation == owner.model
                         and candidate.relation_field == field.name
@@ -1663,9 +1673,7 @@ def _prepare_relationships(
                     inverse_field=inverse_field,
                 )
             )
-    return tuple(
-        sorted(result, key=lambda item: (item.owner.model, item.field.name))
-    )
+    return tuple(sorted(result, key=lambda item: (item.owner.model, item.field.name)))
 
 
 def _ordered_origin_ids(
@@ -1828,12 +1836,9 @@ def destination_governed_key_choices(
         comparison_field = "complete_name"
         if any(name not in columns or name not in fields for name in source_names):
             continue
-        if (
-            fields[key_fields[0]].type not in _TEXT_KEY_TYPES
-            or any(
-                fields[name].type not in _TEXT_KEY_TYPES | {"integer"}
-                for name in key_fields
-            )
+        if fields[key_fields[0]].type not in _TEXT_KEY_TYPES or any(
+            fields[name].type not in _TEXT_KEY_TYPES | {"integer"}
+            for name in key_fields
         ):
             continue
         component_names = (
@@ -1883,15 +1888,11 @@ def _destination_key_binding_hash(
     and cannot disclose either input.
     """
 
-    bindings: dict[str, list[str]] = {
-        value: [] for value in sorted(item.source_counts)
-    }
+    bindings: dict[str, list[str]] = {value: [] for value in sorted(item.source_counts)}
     for row in target_rows:
         value = record_identity(row.values, item.key_fields)
         if value in bindings:
-            bindings[value].append(
-                target_record_binding_hash(item.model, row.odoo_id)
-            )
+            bindings[value].append(target_record_binding_hash(item.model, row.odoo_id))
     return content_hash(
         {
             "model": item.model,

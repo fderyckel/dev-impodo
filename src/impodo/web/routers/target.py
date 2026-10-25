@@ -43,7 +43,7 @@ from ...application.odoo_connection_service import OdooConnectionPurpose
 from ...application.odoo_read_failures import OdooReadCredentialMissingError
 from ..composition.page_reads import run_page_read
 from ..context import WebContext
-from ..forms import _revision, _secure_form, _text
+from ..forms import _revision, _secure_form, _text, _texts
 from ..presenters.common import _flash
 from ..presenters.setup import blocking_setup_url
 from ..presenters.summary import (
@@ -101,10 +101,7 @@ def _local_stack_return_location(
     request: Request, workspace_id: str, return_to: str
 ) -> str:
     if return_to == _LOCAL_STACK_RETURN_SUMMARY_COMPARE:
-        return (
-            f"/workspaces/{workspace_id}/summary?local_stack=1"
-            "#compare-with-odoo"
-        )
+        return f"/workspaces/{workspace_id}/summary?local_stack=1#compare-with-odoo"
     location = f"/workspaces/{workspace_id}/target?local_stack=1"
     source_return_token = _source_organization_return_token(request)
     if source_return_token:
@@ -217,8 +214,7 @@ async def _validate_selected_local_connection(
     )
     if blocked_checks:
         raise LocalStackError(
-            "Local connection checks failed: "
-            f"{', '.join(blocked_checks)}."
+            f"Local connection checks failed: {', '.join(blocked_checks)}."
         )
     fingerprint = await run_in_threadpool(
         context.local_odoo_reader.get_target_fingerprint,
@@ -510,9 +506,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
-    @router.post(
-        "/projects/{project_id}/odoo-source-restarts/{workspace_id}"
-    )
+    @router.post("/projects/{project_id}/odoo-source-restarts/{workspace_id}")
     async def restart_odoo_source(
         request: Request,
         project_id: str,
@@ -564,14 +558,16 @@ def build_target_router(context: WebContext) -> APIRouter:
             or predecessor_data.state is not DataVersionState.FROZEN
             or predecessor_state.odoo_connection_mode is None
         ):
-            raise HTTPException(status_code=409, detail="Source restart is no longer required")
+            raise HTTPException(
+                status_code=409, detail="Source restart is no longer required"
+            )
 
         if resume == "target":
             expected_revision = _revision(form)
             connection_mode = _text(form, "odoo_connection_mode")
             base_url = _text(form, "odoo_base_url")
             database = _text(form, "odoo_database")
-            intended_applications = tuple(form.getlist("intended_applications"))
+            intended_applications = _texts(form, "intended_applications")
             intended_models = (
                 context.run_setups.required_models_for_workspace(
                     workspace_id,
@@ -622,10 +618,8 @@ def build_target_router(context: WebContext) -> APIRouter:
             same_target = (
                 predecessor_state.odoo_connection_mode
                 is successor_state.odoo_connection_mode
-                and predecessor_state.odoo_base_url
-                == successor_state.odoo_base_url
-                and predecessor_state.odoo_database
-                == successor_state.odoo_database
+                and predecessor_state.odoo_base_url == successor_state.odoo_base_url
+                and predecessor_state.odoo_database == successor_state.odoo_database
             )
             if submitted_key:
                 credential = store_target_credential(
@@ -642,7 +636,11 @@ def build_target_router(context: WebContext) -> APIRouter:
                     credential,
                     actor=actor,
                 )
-            elif credential is None and same_target and predecessor_credential is not None:
+            elif (
+                credential is None
+                and same_target
+                and predecessor_credential is not None
+            ):
                 credential = store_target_credential(
                     context.secret_store,
                     successor_state,
@@ -810,9 +808,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             connection_mode = _text(form, "odoo_connection_mode")
             base_url = _text(form, "odoo_base_url")
             database = _text(form, "odoo_database")
-            intended_applications = tuple(
-                form.getlist("intended_applications")
-            )
+            intended_applications = _texts(form, "intended_applications")
             intended_models = (
                 context.run_setups.required_models_for_workspace(
                     workspace_id,
@@ -869,12 +865,13 @@ def build_target_router(context: WebContext) -> APIRouter:
                     intended_applications=intended_applications,
                     intended_models=intended_models,
                 )
-            target_changed = (
-                target_read_credential_id(previous_workspace_state)
-                != target_read_credential_id(workspace_state)
-                or target_write_credential_id(previous_workspace_state)
-                != target_write_credential_id(workspace_state)
-            )
+            target_changed = target_read_credential_id(
+                previous_workspace_state
+            ) != target_read_credential_id(
+                workspace_state
+            ) or target_write_credential_id(
+                previous_workspace_state
+            ) != target_write_credential_id(workspace_state)
             if target_changed:
                 removal_receipts = tuple(
                     receipt
@@ -974,16 +971,17 @@ def build_target_router(context: WebContext) -> APIRouter:
             if action == "test":
                 local_profile = _selected_local_profile(context, workspace_state)
                 if local_profile is not None:
-                    if workspace_state.source_mode is SourceMode.ODOO and read_credential is None:
-                        raise OdooReadCredentialMissingError(
-                            "Enter a read-only Odoo API key before checking an Odoo source."
-                        )
                     show_local_results = True
                     await _validate_selected_local_connection(
                         context,
                         workspace_state,
                     )
                     if workspace_state.source_mode is SourceMode.ODOO:
+                        if read_credential is None:
+                            raise OdooReadCredentialMissingError(
+                                "Enter a read-only Odoo API key before checking "
+                                "an Odoo source."
+                            )
                         result = await run_in_threadpool(
                             context.odoo_connection_tests.test_read,
                             workspace_state,
@@ -1008,8 +1006,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                                 "readiness assistant first."
                             )
                         raise OdooReadCredentialMissingError(
-                            "Enter an Odoo API key for this exact remote target "
-                            "to test"
+                            "Enter an Odoo API key for this exact remote target to test"
                         )
                     result = await run_in_threadpool(
                         context.odoo_connection_tests.test_read,

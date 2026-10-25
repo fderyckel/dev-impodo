@@ -258,7 +258,10 @@ class RecipeRepository:
                     [recipe_id, semantic_hash],
                 ).fetchone()
                 if existing is not None:
-                    return self._publication(recipe_id, int(existing[0]))
+                    return self._publication(
+                        recipe_id,
+                        _stored_revision(existing[0]),
+                    )
 
         proposed_recipe_id = recipe_id or str(uuid4())
         published_at = utc_now()
@@ -281,10 +284,13 @@ class RecipeRepository:
             actor=actor,
         )
         if intent.state is MigrationOperationState.COMMITTED:
-            return self._publication(intent.owner_id, int(intent.detail["version"]))
+            return self._publication(
+                intent.owner_id,
+                _stored_revision(intent.detail["version"]),
+            )
 
         stored_recipe_id = intent.owner_id
-        stored_version = int(intent.detail["version"])
+        stored_version = _stored_revision(intent.detail["version"])
         stored_published_at = datetime.fromisoformat(
             str(intent.detail["published_at"])
         )
@@ -484,9 +490,9 @@ class RecipeRepository:
             self.foundation._raise_missing_identity(connection, recipe_id)
         if str(row[0]) != project_id:
             raise RecipeError("Recipe belongs to another Project")
-        if int(row[2]) != expected_recipe_revision:
+        if _stored_revision(row[2]) != expected_recipe_revision:
             raise MigrationConflictError("Recipe changed; reload before publishing")
-        return int(row[1]) + 1
+        return _stored_revision(row[1]) + 1
 
     def _publication(self, recipe_id: str, version: int) -> RecipePublication:
         recipe = self.get_recipe(recipe_id)
@@ -507,8 +513,8 @@ class RecipeRepository:
             project_id=str(row["project_id"]),
             display_name=str(row["display_name"]),
             business_purpose=str(row["business_purpose"]),
-            current_recipe_revision=int(current),
-            optimistic_revision=int(row["optimistic_revision"]),
+            current_recipe_revision=_stored_revision(current),
+            optimistic_revision=_stored_revision(row["optimistic_revision"]),
             created_at=datetime.fromisoformat(str(row["created_at"])),
             updated_at=datetime.fromisoformat(str(row["updated_at"])),
             archived_at=(
@@ -522,9 +528,9 @@ class RecipeRepository:
     def _revision_from_row(row: Mapping[str, object]) -> RecipeRevision:
         return RecipeRevision(
             recipe_id=str(row["recipe_id"]),
-            version=int(row["version"]),
+            version=_stored_revision(row["version"]),
             parent_version=(
-                int(row["parent_version"])
+                _stored_revision(row["parent_version"])
                 if row.get("parent_version") is not None
                 else None
             ),
@@ -536,3 +542,11 @@ class RecipeRepository:
             provenance=json.loads(str(row["provenance_json"])),
             published_at=datetime.fromisoformat(str(row["published_at"])),
         )
+
+
+def _stored_revision(value: object) -> int:
+    """Validate one positive revision loaded from durable Recipe evidence."""
+
+    if type(value) is not int:
+        raise RecipeError("Stored Recipe revision is invalid")
+    return require_revision(value, "stored Recipe revision")

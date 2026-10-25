@@ -1,52 +1,63 @@
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
-from datetime import date, datetime, timezone
-from io import BytesIO
 import os
-from pathlib import Path
-import psutil
 import re
 import tempfile
-from time import perf_counter
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
+from datetime import UTC, date, datetime
+from io import BytesIO
+from pathlib import Path
+from time import perf_counter
 from unittest.mock import patch
 from uuid import NAMESPACE_URL, uuid4, uuid5
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from impodo.domain.shared.access import LOCAL_ACTOR
+import psutil
+
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
-from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
-from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.adapters.duckdb.row_inclusion_review_repository import (
     RowInclusionReviewRepository,
 )
+from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.adapters.duckdb.transformation_impact_repository import (
     TransformationImpactRepository,
 )
+from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.adapters.polars_transformation import PolarsTransformationAdapter
-from impodo.application.workspace.preparation.bounded_preparation import (
-    direct_preparation_row_limit,
-    prepare_bounded_direct_session,
+from impodo.application.data_version.inspection import (
+    SourceColumnProfile,
+    SourceFileCatalog,
+    SourceTableCatalog,
 )
+from impodo.application.data_version.source_snapshots import (
+    SourceSnapshotPublisher,
+    load_source_snapshot_table,
+    open_source_snapshot_batches,
+    source_snapshot_batch_rows,
+)
+from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.application.source_workspace_service import SourceWorkspaceService
+from impodo.application.workspace.access import WorkspaceAccessContext
 from impodo.application.workspace.mapping.bounded_direct_review import (
     direct_row_inclusion_review,
     direct_transformation_impact,
 )
+from impodo.application.workspace.preparation.bounded_preparation import (
+    direct_preparation_row_limit,
+    prepare_bounded_direct_session,
+)
 from impodo.application.workspace.preparation.preparation_service import (
     stage_browser_mapping,
 )
-from impodo.application.source_workspace_service import SourceWorkspaceService
-from impodo.application.shared.artifacts import ArtifactStoreError
-from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.domain.errors import ReadinessError
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
@@ -57,32 +68,24 @@ from impodo.domain.mapping.contracts import (
     ScalarFieldMapping,
     SelectionConditionOperator,
 )
-from impodo.domain.errors import ReadinessError
-from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.domain.preparation.staging_contracts import StagingDisposition
+from impodo.domain.recipe.value_rules import ScalarTransformPolicy, TextTransformStep
+from impodo.domain.shared.access import LOCAL_ACTOR
+from impodo.domain.shared.models import canonical_json_bytes
 from impodo.domain.source_binding import FileSourceBinding
+from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
 )
 from impodo.domain.staging.transformation_impact import TransformationImpactIdentity
-from impodo.application.data_version.inspection import (
-    SourceColumnProfile,
-    SourceFileCatalog,
-    SourceTableCatalog,
-)
-from impodo.domain.shared.models import canonical_json_bytes
-from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus, SourceFile
-from impodo.domain.preparation.staging_contracts import StagingDisposition
-from impodo.application.data_version.source_snapshots import (
-    SourceSnapshotPublisher,
-    load_source_snapshot_table,
-    open_source_snapshot_batches,
-    source_snapshot_batch_rows,
-)
-from impodo.domain.recipe.value_rules import ScalarTransformPolicy, TextTransformStep
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.application.workspace.access import WorkspaceAccessContext
-
+from impodo.domain.workspace.workbench import (
+    SourceFile,
+    WorkspaceState,
+    WorkspaceStatus,
+)
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 HASH_B = "sha256:" + "b" * 64
@@ -148,7 +151,9 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             dataset_names={(source_file.file_id, "csv"): "customers"},
             actor=LOCAL_ACTOR,
         )
-        snapshots = self.repository.get_current_source_snapshots(workspace_state.workspace_id)
+        snapshots = self.repository.get_current_source_snapshots(
+            workspace_state.workspace_id
+        )
         self.assertEqual(len(snapshots), 1)
         self.assertEqual(snapshots[0].row_count, 2)
         definition = _direct_mapping(selection)
@@ -211,7 +216,8 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual(len(bounded.run.rows), 2)
         self.assertIsNotNone(bounded.run.validated_content_hash)
         database_path = (
-            sessions.workspace_directory(workspace_state.workspace_id) / "workspace-engine.duckdb"
+            sessions.workspace_directory(workspace_state.workspace_id)
+            / "workspace-engine.duckdb"
         )
         with sessions._connect(database_path) as connection:
             storage = connection.execute(
@@ -235,7 +241,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             with self.subTest(projection_batch_size=batch_size):
                 encoded_rows = tuple(
                     str(item[-1])
-                    for batch in sessions._iter_direct_encoded_batches(
+                    for batch in sessions.iter_direct_encoded_batches(
                         workspace_state.workspace_id,
                         bounded.session_id,
                         batch_size=batch_size,
@@ -293,7 +299,9 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             bounded.run.validated_content_hash,
         )
 
-    def test_unchanged_freeze_reuses_selection_without_snapshot_publication(self) -> None:
+    def test_unchanged_freeze_reuses_selection_without_snapshot_publication(
+        self,
+    ) -> None:
         workspace_state, source_file, catalog = self._registered_csv(
             b"Code,Name\nC1,Acme\n"
         )
@@ -400,13 +408,15 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual(publication.input_batch_rows, 2)
         self.assertEqual(publication.fragment_count, 2)
         snapshot = publication.snapshot
-        with self.artifacts.materialize_source_snapshot(
-            _data_version_id(workspace_state.workspace_id),
-            snapshot.parquet_storage_key,
-            expected_sha256=snapshot.parquet_sha256,
-        ) as path:
-            with open_source_snapshot_batches(path, snapshot, batch_size=1) as stream:
-                rows = [row for batch in stream.iter_batches() for row in batch]
+        with (
+            self.artifacts.materialize_source_snapshot(
+                _data_version_id(workspace_state.workspace_id),
+                snapshot.parquet_storage_key,
+                expected_sha256=snapshot.parquet_sha256,
+            ) as path,
+            open_source_snapshot_batches(path, snapshot, batch_size=1) as stream,
+        ):
+            rows = [row for batch in stream.iter_batches() for row in batch]
         self.assertEqual(
             [row.values["Optional"] for row in rows],
             ["", None, "text"],
@@ -456,7 +466,8 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             )
         )
         database_path = (
-            sessions.workspace_directory(workspace_state.workspace_id) / "workspace-engine.duckdb"
+            sessions.workspace_directory(workspace_state.workspace_id)
+            / "workspace-engine.duckdb"
         )
         with sessions._connect(database_path) as connection:
             storage = connection.execute(
@@ -548,13 +559,17 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             b"Code,Name,Active\nC1, Alpha ,true\nC2,Beta,false\nC3, Gamma ,true\n"
         )
         selection = _selection_for(workspace_state, source_file, catalog)
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            workspace_state,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                workspace_state,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         definition = _direct_mapping(selection)
         active = selection.datasets[0].columns[2]
         mapping = replace(
@@ -624,7 +639,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             b"Code,Name,Active\nC1, Alpha ,true\nC2,Beta,false\n"
         )
         first_selection = _selection_for(workspace_state, source_file, catalog)
-        first, = first_selection.datasets
+        (first,) = first_selection.datasets
         second = replace(
             first,
             dataset_id="dataset:" + uuid4().hex[:24],
@@ -637,7 +652,9 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
         publisher = SourceSnapshotPublisher(self.artifacts)
         snapshots = tuple(
-            publisher.publish(workspace_state, selection, dataset, catalog, source_file).snapshot
+            publisher.publish(
+                workspace_state, selection, dataset, catalog, source_file
+            ).snapshot
             for dataset in selection.datasets
         )
         definition = _direct_mapping(selection)
@@ -655,10 +672,12 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                     ),
                 ),
             ),
-            fields=(replace(
-                definition.datasets[0].fields[0],
-                transform=ScalarTransformPolicy(trim=True),
-            ),),
+            fields=(
+                replace(
+                    definition.datasets[0].fields[0],
+                    transform=ScalarTransformPolicy(trim=True),
+                ),
+            ),
         )
         second_mapping = replace(
             first_mapping,
@@ -714,22 +733,28 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             b"Code,Name,Active\nC1,1000,t\nC2,2500,t\n"
         )
         selection = _selection_for(workspace_state, source_file, catalog)
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            workspace_state,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                workspace_state,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         definition = _direct_mapping(selection)
         mapping = replace(
             definition.datasets[0],
-            fields=(replace(
-                definition.datasets[0].fields[0],
-                target_field="amount",
-                value_type="decimal",
-                transform=ScalarTransformPolicy(formula="value / 1000"),
-            ),),
+            fields=(
+                replace(
+                    definition.datasets[0].fields[0],
+                    target_field="amount",
+                    value_type="decimal",
+                    transform=ScalarTransformPolicy(formula="value / 1000"),
+                ),
+            ),
         )
         definition = replace(definition, datasets=(mapping,))
         materialized_rows = []
@@ -772,22 +797,28 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
         workspace_state, source_file, catalog = self._registered_csv(content)
         selection = _selection_for(workspace_state, source_file, catalog)
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            workspace_state,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                workspace_state,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         definition = _direct_mapping(selection)
         mapping = replace(
             definition.datasets[0],
-            fields=(replace(
-                definition.datasets[0].fields[0],
-                target_field="amount",
-                value_type="decimal",
-                transform=ScalarTransformPolicy(formula="value / 1000"),
-            ),),
+            fields=(
+                replace(
+                    definition.datasets[0].fields[0],
+                    target_field="amount",
+                    value_type="decimal",
+                    transform=ScalarTransformPolicy(formula="value / 1000"),
+                ),
+            ),
         )
         definition = replace(definition, datasets=(mapping,))
         impacts = 0
@@ -819,22 +850,22 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
     )
     def test_direct_stage_three_reviews_publish_50_000_rows(self) -> None:
         content = b"Code,Name,Active\n" + b"".join(
-            (
-                f"C{index:05d},"
-                "1000,"
-                f"{'f' if index % 10 == 1 else 't'}\n"
-            ).encode()
+            (f"C{index:05d},1000,{'f' if index % 10 == 1 else 't'}\n").encode()
             for index in range(50_000)
         )
         workspace_state, source_file, catalog = self._registered_csv(content)
         selection = _selection_for(workspace_state, source_file, catalog)
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            workspace_state,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                workspace_state,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         definition = _direct_mapping(selection)
         active = selection.datasets[0].columns[2]
         mapping = replace(
@@ -1167,11 +1198,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             )
 
         prepared_root = (
-            self.root
-            / "ws"
-            / workspace_state.workspace_id
-            / "snapshots"
-            / "prepared"
+            self.root / "ws" / workspace_state.workspace_id / "snapshots" / "prepared"
         )
         self.assertEqual(tuple(prepared_root.rglob("*.parquet")), ())
         self.assertEqual(
@@ -1280,13 +1307,17 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             declared_dimensions=False,
         )
 
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            workspace_state,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                workspace_state,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
 
         self.assertEqual(snapshot.row_count, 1)
         self.assertEqual(len(snapshot.schema.columns), 6)
@@ -1406,7 +1437,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             row_count=1,
             data_logical_hash=first_snapshot.data_logical_hash,
             parquet_sha256=first_snapshot.parquet_sha256,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         with (
             patch.object(
@@ -1448,10 +1479,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
         data_version_id = _data_version_id(workspace_state.workspace_id)
         snapshot_path = (
-            self.root
-            / "dv"
-            / data_version_id
-            / snapshot.parquet_storage_key
+            self.root / "dv" / data_version_id / snapshot.parquet_storage_key
         )
         self.assertEqual(
             self.artifacts.cleanup_source_snapshots(
@@ -1476,7 +1504,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self,
         content: bytes,
     ) -> tuple[WorkspaceState, SourceFile, SourceFileCatalog]:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         workspace_state = WorkspaceState(
             workspace_id=str(uuid4()),
             name="Snapshot ingestion",
@@ -1542,7 +1570,11 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             delimiter=",",
             tables=(table,),
         )
-        return self.workspace_states.get(workspace_state.workspace_id), source_file, catalog
+        return (
+            self.workspace_states.get(workspace_state.workspace_id),
+            source_file,
+            catalog,
+        )
 
     def _registered_xlsx(
         self,
@@ -1550,6 +1582,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         declared_dimensions: bool = True,
     ):
         from openpyxl import Workbook
+
         from impodo.application.source_workspace_service import (
             _column_key,
             _dataset_key,
@@ -1581,11 +1614,14 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         source_bytes = content.getvalue()
         if not declared_dimensions:
             rewritten = BytesIO()
-            with ZipFile(BytesIO(source_bytes)) as reader, ZipFile(
-                rewritten,
-                mode="w",
-                compression=ZIP_DEFLATED,
-            ) as writer:
+            with (
+                ZipFile(BytesIO(source_bytes)) as reader,
+                ZipFile(
+                    rewritten,
+                    mode="w",
+                    compression=ZIP_DEFLATED,
+                ) as writer,
+            ):
                 for member in reader.infolist():
                     payload = reader.read(member.filename)
                     if member.filename == "xl/worksheets/sheet1.xml":
@@ -1599,7 +1635,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                             raise AssertionError("XLSX fixture has no dimension")
                     writer.writestr(member, payload)
             source_bytes = rewritten.getvalue()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         workspace_state = WorkspaceState(
             workspace_id=str(uuid4()),
             name="XLSX snapshot ingestion",
@@ -1695,7 +1731,12 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             datasets=(dataset,),
             content_hash="sha256:" + "3" * 64,
         )
-        return self.workspace_states.get(workspace_state.workspace_id), source_file, catalog, selection
+        return (
+            self.workspace_states.get(workspace_state.workspace_id),
+            source_file,
+            catalog,
+            selection,
+        )
 
 
 def _column(ordinal: int, name: str, row_count: int) -> SourceColumnProfile:
@@ -1755,7 +1796,7 @@ def _selection_for(
         selection_id=str(uuid4()),
         version=1,
         data_version_id=_data_version_id(workspace_state.workspace_id),
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         created_by="Tester",
         datasets=(dataset,),
         content_hash="sha256:" + "1" * 64,

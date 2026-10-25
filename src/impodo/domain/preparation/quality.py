@@ -10,14 +10,14 @@ from __future__ import annotations
 
 import json
 from collections import deque
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
-from typing import Any, Protocol
+from typing import Any, Protocol, overload
 
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.mapping.contracts import DatasetMapping, ResolverOrigin
@@ -826,6 +826,46 @@ class QualityRun:
         return cls.from_dict(json.loads(value))
 
 
+class QualityRowEvidenceSequence(Protocol):
+    """Replay bounded quality rows through a repository-owned connection."""
+
+    def __len__(self) -> int: ...
+
+    def __iter__(self) -> Iterator[QualityRowResult]: ...
+
+    @overload
+    def __getitem__(self, index: int) -> QualityRowResult: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> Sequence[QualityRowResult]: ...
+
+    def iter_batches(
+        self,
+        connection: object,
+        batch_size: int,
+    ) -> Iterable[Sequence[QualityRowResult]]: ...
+
+
+class SourceAccountingEvidenceSequence(Protocol):
+    """Replay bounded source accounting through a repository-owned connection."""
+
+    def __len__(self) -> int: ...
+
+    def __iter__(self) -> Iterator[SourceAccountingEntry]: ...
+
+    @overload
+    def __getitem__(self, index: int) -> SourceAccountingEntry: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> Sequence[SourceAccountingEntry]: ...
+
+    def iter_batches(
+        self,
+        connection: object,
+        batch_size: int,
+    ) -> Iterable[Sequence[SourceAccountingEntry]]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class StoredQualityRun:
     """Validated quality header backed by bounded evidence sequences.
@@ -842,8 +882,8 @@ class StoredQualityRun:
     mapping_hash: str
     schema_hash: str
     retention_context_hash: str
-    row_results: Sequence[QualityRowResult]
-    source_accounting: Sequence[SourceAccountingEntry]
+    row_results: QualityRowEvidenceSequence
+    source_accounting: SourceAccountingEvidenceSequence
     issues: Sequence[QualityIssue]
     quarantine: Sequence[QuarantineEntry]
     effective_dataset_hash: str

@@ -30,6 +30,7 @@ from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.workspace.destination_matching import (
     DESTINATION_HANDLINGS,
     DESTINATION_MATCH_CONTRACT_VERSION,
+    DestinationCreateFieldDecision,
     carry_destination_create_field_reviews,
     choose_destination_create_field_provider,
     confirm_destination_create_field_defaults,
@@ -67,6 +68,14 @@ def _choice_value(dataset_id: str, source_column_key: str) -> str:
     return f"{dataset_id}::{source_column_key}"
 
 
+def _uses_odoo_default(item: dict[str, object]) -> bool:
+    decision = item.get("decision")
+    return (
+        isinstance(decision, DestinationCreateFieldDecision)
+        and decision.provider_kind == "odoo_default"
+    )
+
+
 def _parse_choices(form) -> tuple[DestinationMatchKeyChoice, ...]:
     choices: list[DestinationMatchKeyChoice] = []
     extras: dict[str, list[str]] = {}
@@ -79,7 +88,9 @@ def _parse_choices(form) -> tuple[DestinationMatchKeyChoice, ...]:
             or handling not in DESTINATION_HANDLINGS
             or dataset_id in handlings
         ):
-            raise WorkspaceStateError("Choose one destination handling for each source table")
+            raise WorkspaceStateError(
+                "Choose one destination handling for each source table"
+            )
         handlings[dataset_id] = handling
     for raw in form.getlist("match_key_extra"):
         if not raw:
@@ -120,13 +131,16 @@ def _matching_rows(
     governed_by_dataset = destination_governed_key_choices(selection, schema)
     model_labels = {item.name: item.label for item in schema.models}
     plan = workspace_state.destination_match_plan
-    selected_by_dataset = {
-        item.dataset_id: item.source_column_keys
-        for item in plan.model_matches
-    } if plan is not None else {}
-    result_by_dataset = {
-        item.dataset_id: item for item in plan.model_matches
-    } if plan is not None else {}
+    selected_by_dataset = (
+        {item.dataset_id: item.source_column_keys for item in plan.model_matches}
+        if plan is not None
+        else {}
+    )
+    result_by_dataset = (
+        {item.dataset_id: item for item in plan.model_matches}
+        if plan is not None
+        else {}
+    )
     reuse_destination_models = {
         item.relation_model
         for item in propose_related_odoo_data(
@@ -169,8 +183,10 @@ def _matching_rows(
         )
         text_fields = {
             field.name
-            for schema_model in schema.models if schema_model.name == model
-            for field in schema_model.fields if field.type in {"char", "text", "selection"}
+            for schema_model in schema.models
+            if schema_model.name == model
+            for field in schema_model.fields
+            if field.type in {"char", "text", "selection"}
         }
         primary_candidates = tuple(
             item for item in available if item["field_name"] in text_fields
@@ -185,24 +201,19 @@ def _matching_rows(
         if governed_keys and selected_keys[: len(governed_keys)] != governed_keys:
             selected_keys = governed_keys
         elif not governed_keys and (
-            not selected_keys or selected_keys[0] not in {
-                item["stable_key"] for item in primary_candidates
-            }
+            not selected_keys
+            or selected_keys[0]
+            not in {item["stable_key"] for item in primary_candidates}
         ):
             selected_keys = (
-                (primary_candidates[0]["stable_key"],)
-                if primary_candidates
-                else ()
+                (primary_candidates[0]["stable_key"],) if primary_candidates else ()
             )
         additional_candidates = tuple(
-            item for item in available
-            if item["stable_key"] not in governed_keys
+            item for item in available if item["stable_key"] not in governed_keys
         )
         optional_start = len(governed_keys) if governed_keys else 1
         optional_slots = (
-            0
-            if governed_identity is not None
-            else max(0, 3 - optional_start)
+            0 if governed_identity is not None else max(0, 3 - optional_start)
         )
         rows.append(
             {
@@ -217,8 +228,7 @@ def _matching_rows(
                     model in DESTINATION_GOVERNED_IDENTITY_MODELS
                 ),
                 "governed_form_values": tuple(
-                    _choice_value(dataset.dataset_id, key)
-                    for key in governed_keys
+                    _choice_value(dataset.dataset_id, key) for key in governed_keys
                 ),
                 "additional_candidates": additional_candidates,
                 "optional_identifiers": tuple(
@@ -257,8 +267,7 @@ def _matching_rows(
                     and (
                         model not in reuse_destination_models
                         or plan is not None
-                        and plan.contract_version
-                        >= DESTINATION_MATCH_CONTRACT_VERSION
+                        and plan.contract_version >= DESTINATION_MATCH_CONTRACT_VERSION
                     )
                     else (
                         "reference_only"
@@ -346,9 +355,7 @@ def _render_matching(
             protected_by_key = {
                 item.key: item for item in (protected.values if protected else ())
             }
-            decisions_by_key = {
-                item.key: item for item in plan.create_field_decisions
-            }
+            decisions_by_key = {item.key: item for item in plan.create_field_decisions}
             labels_by_model = {
                 item.model: item.model_label for item in plan.model_matches
             }
@@ -385,12 +392,10 @@ def _render_matching(
         source_selection=selection,
         source_schema=schema,
         matching_rows=rows,
-        matching_can_check=bool(rows) and all(
+        matching_can_check=bool(rows)
+        and all(
             row["governed_identity"] is not None
-            or (
-                not row["governed_identity_required"]
-                and row["primary_candidates"]
-            )
+            or (not row["governed_identity_required"] and row["primary_candidates"])
             for row in rows
         ),
         match_plan=workspace_state.destination_match_plan,
@@ -410,17 +415,9 @@ def _render_matching(
         disable_default_read_credential_prompt=True,
         create_field_rows=create_field_rows,
         default_create_field_rows={
-            dataset_id: [
-                item for item in items
-                if item["decision"] is not None
-                and item["decision"].provider_kind == "odoo_default"
-            ]
+            dataset_id: [item for item in items if _uses_odoo_default(item)]
             for dataset_id, items in create_field_rows.items()
-            if any(
-                item["decision"] is not None
-                and item["decision"].provider_kind == "odoo_default"
-                for item in items
-            )
+            if any(_uses_odoo_default(item) for item in items)
         },
         create_default_evidence_error=create_field_evidence_error,
         error=error,
@@ -516,9 +513,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 )
             choices = _parse_choices(form)
             previous = workspace_state.destination_match_plan
-            choice_keys = {
-                item.dataset_id: item.source_column_keys for item in choices
-            }
+            choice_keys = {item.dataset_id: item.source_column_keys for item in choices}
             exclusions = {
                 item.dataset_id: item.excluded_source_row_numbers
                 for item in (previous.model_matches if previous is not None else ())
@@ -575,9 +570,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 source_origins=source_origins,
                 excluded_source_rows=exclusions,
                 relationship_scope=(
-                    context.queries.get_current_odoo_relationship_scope(
-                        workspace_id
-                    )
+                    context.queries.get_current_odoo_relationship_scope(workspace_id)
                 ),
             )
             access = None
@@ -644,7 +637,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 else (
                     "Destination matching was checked. Complete the remaining "
                     "decisions below."
-                    if workspace_state.destination_match_plan.ready
+                    if plan.ready
                     else "Destination matching was checked. Review the blockers below."
                 )
             ),
@@ -716,7 +709,12 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 expected_revision=expected_revision,
                 plan=confirmed,
             )
-        except (PermissionError, WorkspaceError, WorkspaceStateError, ValueError) as error:
+        except (
+            PermissionError,
+            WorkspaceError,
+            WorkspaceStateError,
+            ValueError,
+        ) as error:
             return _render_matching(
                 request,
                 context,
@@ -743,9 +741,15 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             request,
             form,
             {
-                "csrf_token", "revision", "match_plan_hash", "field_key",
-                "provider", "source_field", "fixed_value",
-                "reference_choice", "incoming_reference_choice",
+                "csrf_token",
+                "revision",
+                "match_plan_hash",
+                "field_key",
+                "provider",
+                "source_field",
+                "fixed_value",
+                "reference_choice",
+                "incoming_reference_choice",
             },
         )
         actor = request_identity(request, context.identity_resolver).actor
@@ -773,7 +777,9 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 raise WorkspaceStateError(
                     "The destination matching check changed. Reload before choosing a value."
                 )
-            model, separator, field_name = str(form.get("field_key", "")).partition("::")
+            model, separator, field_name = str(form.get("field_key", "")).partition(
+                "::"
+            )
             if not separator or not model or not field_name:
                 raise WorkspaceStateError("Choose a current required field")
             provider = str(form.get("provider", ""))
@@ -836,7 +842,12 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 expected_revision=expected_revision,
                 plan=chosen,
             )
-        except (PermissionError, WorkspaceError, WorkspaceStateError, ValueError) as error:
+        except (
+            PermissionError,
+            WorkspaceError,
+            WorkspaceStateError,
+            ValueError,
+        ) as error:
             return _render_matching(
                 request,
                 context,
@@ -912,7 +923,12 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 expected_revision=expected_revision,
                 plan=updated,
             )
-        except (PermissionError, WorkspaceError, WorkspaceStateError, ValueError) as error:
+        except (
+            PermissionError,
+            WorkspaceError,
+            WorkspaceStateError,
+            ValueError,
+        ) as error:
             return _render_matching(
                 request,
                 context,
@@ -980,15 +996,26 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             try:
                 row_number = int(str(form.get("row_number", "")))
             except ValueError as error:
-                raise WorkspaceStateError("Choose a current affected source record") from error
+                raise WorkspaceStateError(
+                    "Choose a current affected source record"
+                ) from error
             action = str(form.get("record_action", ""))
             if action not in {"exclude", "restore"}:
-                raise WorkspaceStateError("Choose whether to put the source record aside")
+                raise WorkspaceStateError(
+                    "Choose whether to put the source record aside"
+                )
             current = next(
-                (item for item in previous.model_matches if item.dataset_id == dataset_id),
+                (
+                    item
+                    for item in previous.model_matches
+                    if item.dataset_id == dataset_id
+                ),
                 None,
             )
-            if current is None or not 1 <= row_number <= current.frozen_source_row_count:
+            if (
+                current is None
+                or not 1 <= row_number <= current.frozen_source_row_count
+            ):
                 raise WorkspaceStateError("Choose a current affected source record")
             exclusions = {
                 item.dataset_id: set(item.excluded_source_row_numbers)
@@ -999,7 +1026,9 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             if action == "exclude":
                 selected_rows.add(row_number)
             elif row_number not in selected_rows:
-                raise WorkspaceStateError("Choose a source record that is currently put aside")
+                raise WorkspaceStateError(
+                    "Choose a source record that is currently put aside"
+                )
             else:
                 selected_rows.remove(row_number)
             exclusions = {

@@ -16,9 +16,10 @@ from ...domain.data_version.models import DataVersion
 from ...domain.project.models import MigrationProject
 from ...domain.run.models import MigrationRun
 from ...domain.workspace.models import MigrationWorkspace
+from .foundation_repository_mixin import FoundationRepositoryMixin
 
 
-class FoundationWorkspaceRecords:
+class FoundationWorkspaceRecords(FoundationRepositoryMixin):
     """Own workspace registry reads, access verification, and revisions."""
 
     def get_migration_workspace(self, workspace_id: str) -> MigrationWorkspace:

@@ -92,22 +92,14 @@ class WorkflowNavigation:
     @property
     def current_stage(self) -> WorkflowStage | None:
         return next(
-            (
-                stage
-                for stage in self.stages
-                if stage.stage_id == self.current_stage_id
-            ),
+            (stage for stage in self.stages if stage.stage_id == self.current_stage_id),
             None,
         )
 
     @property
     def viewed_stage(self) -> WorkflowStage | None:
         return next(
-            (
-                stage
-                for stage in self.stages
-                if stage.stage_id == self.viewed_stage_id
-            ),
+            (stage for stage in self.stages if stage.stage_id == self.viewed_stage_id),
             None,
         )
 
@@ -136,14 +128,21 @@ def build_recipe_run_navigation(
     stages = (
         WorkflowStage("fresh", 1, "Fresh data", fresh_home, "complete", "Complete"),
         WorkflowStage(
-            "odoo", 2, "Check Odoo", f"{run_home}/odoo",
+            "odoo",
+            2,
+            "Check Odoo",
+            f"{run_home}/odoo",
             "attention" if odoo_needs_attention else "complete",
             "Needs attention" if odoo_needs_attention else "Complete",
         ),
         WorkflowStage(
-            "review", 3, "Review and load", run_home,
+            "review",
+            3,
+            "Review and load",
+            run_home,
             "complete" if complete else "current",
-            "Verified" if complete else "Current", active=True,
+            "Verified" if complete else "Current",
+            active=True,
         ),
     )
     current = stages[1] if odoo_needs_attention else stages[2]
@@ -309,7 +308,7 @@ def _build_authoring_workspace_navigation(
         else:
             viewed_page_label = "Prepare exact destination load"
     if current_workspace_state.status is not WorkspaceStatus.REGISTERED:
-        stages = _locked_stages(current_workspace_state.workspace_id)
+        stages = list(_locked_stages(current_workspace_state.workspace_id))
         setup_page = (
             "files"
             if current_workspace_state.source_mode is SourceMode.FILE
@@ -327,7 +326,7 @@ def _build_authoring_workspace_navigation(
             current_stage_label="Add source data",
             viewed_stage_id="",
             viewed_page_label=viewed_page_label,
-            stages=stages,
+            stages=tuple(stages),
         )
 
     if current_workspace_state.source_mode is SourceMode.ODOO:
@@ -407,9 +406,7 @@ def _build_authoring_workspace_navigation(
             viewed_page_label = "Source connection"
         elif template_name == "workspace_odoo_capture_selection.html":
             viewed_stage_id = (
-                "download"
-                if select_complete or frozen_source_hash
-                else "select"
+                "download" if select_complete or frozen_source_hash else "select"
             )
             viewed_page_label = (
                 "Freeze source datasets"
@@ -711,10 +708,7 @@ def _build_authoring_workspace_navigation(
                     else (
                         "attention"
                         if transfer_run_id
-                        or (
-                            transfer_preflight_current
-                            and not transfer_preflight_ready
-                        )
+                        or (transfer_preflight_current and not transfer_preflight_ready)
                         else ("current" if transfer_review_approved else "locked")
                     )
                 ),
@@ -747,8 +741,7 @@ def _build_authoring_workspace_navigation(
                         "/transfer-preflight",
                         complete=transfer_preflight_ready,
                         attention=(
-                            transfer_preflight_current
-                            and not transfer_preflight_ready
+                            transfer_preflight_current and not transfer_preflight_ready
                         ),
                     ),
                 )
@@ -760,9 +753,7 @@ def _build_authoring_workspace_navigation(
                             "Prepare and load destination",
                             "/transfer-load",
                             complete=bool(transfer_run_id),
-                            attention=(
-                                bool(transfer_run_id) and not transfer_verified
-                            ),
+                            attention=(bool(transfer_run_id) and not transfer_verified),
                         ),
                     )
                     if transfer_preflight_ready or transfer_run_id
@@ -958,8 +949,7 @@ def _build_authoring_workspace_navigation(
                         page_id="preparation-progress",
                         label="Preparation progress",
                         href=(
-                            f"/workspaces/{workspace_id}/preparation/"
-                            f"{active_job_id}"
+                            f"/workspaces/{workspace_id}/preparation/{active_job_id}"
                         ),
                         status="current",
                         status_label="In progress",
@@ -984,18 +974,14 @@ def _build_authoring_workspace_navigation(
         else ""
     )
     quality_run_id = (
-        facts.quality_run_id
-        if facts.quality_staging_run_id == staging_run_id
-        else ""
+        facts.quality_run_id if facts.quality_staging_run_id == staging_run_id else ""
     )
     normalization_current = bool(
         quality_run_id
         and facts.normalization_staging_run_id == staging_run_id
         and facts.normalization_quality_run_id == quality_run_id
     )
-    preparation_complete = bool(
-        normalization_current and facts.normalization_frozen
-    )
+    preparation_complete = bool(normalization_current and facts.normalization_frozen)
     preparation_attention = bool(
         resolution_status in {"BLOCKED", "REVIEW_REQUIRED"}
     ) or bool(
@@ -1162,10 +1148,7 @@ def _build_authoring_workspace_navigation(
         confirm_page = WorkflowPage(
             page_id="load-confirm",
             label="Confirm and load",
-            href=(
-                f"/workspaces/{workspace_id}/load/progress/"
-                f"{active_load_job_id}"
-            ),
+            href=(f"/workspaces/{workspace_id}/load/progress/{active_load_job_id}"),
             status="current",
             status_label="In progress",
         )
@@ -1189,12 +1172,8 @@ def _build_authoring_workspace_navigation(
             "load-outcome",
             "Verify result",
             "/load/outcome",
-            complete=(
-                reconciliation == ReconciliationRunStatus.VERIFIED.value
-            ),
-            attention=(
-                reconciliation != ReconciliationRunStatus.VERIFIED.value
-            ),
+            complete=(reconciliation == ReconciliationRunStatus.VERIFIED.value),
+            attention=(reconciliation != ReconciliationRunStatus.VERIFIED.value),
         )
     else:
         confirm_page = (
@@ -1252,17 +1231,12 @@ def _navigation(
     migration_project_name: str | None = None,
 ) -> WorkspaceNavigation:
     current_stage = next(
-        (
-            stage
-            for stage in stages
-            if stage.status in {"current", "attention"}
-        ),
+        (stage for stage in stages if stage.status in {"current", "attention"}),
         next(
             (stage for stage in reversed(stages) if stage.available),
             stages[-1],
         ),
     )
-
 
     active_stages = tuple(
         replace(
@@ -1325,14 +1299,19 @@ def _recipe_run_setup_navigation(
     )
     run_home = (
         f"/projects/{workspace_view.project_id}/{run_kind}/"
-        f"{workspace_view.migration_run_id}/activate" if purpose == "PRODUCTION" else fresh_home
+        f"{workspace_view.migration_run_id}/activate"
+        if purpose == "PRODUCTION"
+        else fresh_home
     )
     odoo_home = (
         f"/projects/{workspace_view.project_id}/runs/"
         f"{workspace_view.migration_run_id}/odoo"
     )
-    fresh_complete = (workspace_view.data_version.state.value == "FROZEN"
-                      if fresh_data_complete is None else fresh_data_complete)
+    fresh_complete = (
+        workspace_view.data_version.state.value == "FROZEN"
+        if fresh_data_complete is None
+        else fresh_data_complete
+    )
     odoo_stage = _find_stage(navigation.stages, "odoo")
     fresh = WorkflowStage(
         stage_id="fresh",
@@ -1371,14 +1350,25 @@ def _recipe_run_setup_navigation(
         stage_id="review",
         number=3,
         label="Review and load",
-        href=(f"/projects/{workspace_view.project_id}/runs/{workspace_view.migration_run_id}"
-              if purpose == "PRODUCTION" else run_home) if fresh_complete and odoo_complete else None,
+        href=(
+            f"/projects/{workspace_view.project_id}/runs/{workspace_view.migration_run_id}"
+            if purpose == "PRODUCTION"
+            else run_home
+        )
+        if fresh_complete and odoo_complete
+        else None,
         status="current" if fresh_complete and odoo_complete else "locked",
         status_label=(
             "Current" if fresh_complete and odoo_complete else "Finish Odoo check first"
         ),
     )
-    if template_name in {"workspace_files.html", "workspace_sources.html", "workspace_datasets.html", "workspace_derived_entities.html", "project_run_fresh_data.html"}:
+    if template_name in {
+        "workspace_files.html",
+        "workspace_sources.html",
+        "workspace_datasets.html",
+        "workspace_derived_entities.html",
+        "project_run_fresh_data.html",
+    }:
         viewed_stage_id = "fresh"
     elif template_name in {
         "workspace_schema.html",
@@ -1390,11 +1380,7 @@ def _recipe_run_setup_navigation(
     else:
         viewed_stage_id = "review"
     current_stage_id = (
-        "fresh"
-        if not fresh_complete
-        else "odoo"
-        if not odoo_complete
-        else "review"
+        "fresh" if not fresh_complete else "odoo" if not odoo_complete else "review"
     )
     stages = _activate_run_stages((fresh, odoo, review), viewed_stage_id)
     viewed_page_label = {
@@ -1438,8 +1424,8 @@ def _recipe_application_navigation(
     run_home = f"/projects/{project_id}/runs/{migration_run_id}"
     fresh_home = (
         f"/projects/{project_id}/test-runs/{migration_run_id}/fresh-data"
-        if run_purpose == "TEST" else
-        f"/projects/{project_id}/production-runs/{migration_run_id}/fresh-data"
+        if run_purpose == "TEST"
+        else f"/projects/{project_id}/production-runs/{migration_run_id}/fresh-data"
     )
     target_value_review = template_name in {
         "project_recipe_target_matches.html",
@@ -1529,9 +1515,7 @@ def build_odoo_capture_workspace_navigation(
     """Keep the Odoo-transfer sidebar visible without opening a busy store."""
 
     workspace_id = job.workspace_id
-    progress_url = (
-        f"/workspaces/{workspace_id}/sources/odoo-capture/{job.job_id}"
-    )
+    progress_url = f"/workspaces/{workspace_id}/sources/odoo-capture/{job.job_id}"
     if job.status is OdooCaptureJobStatus.SUCCEEDED:
         download_status, download_label = "complete", "Download complete"
     elif job.status is OdooCaptureJobStatus.FAILED:
@@ -1627,9 +1611,7 @@ def build_odoo_capture_workspace_navigation(
                 else None
             ),
             status=(
-                "current"
-                if job.status is OdooCaptureJobStatus.SUCCEEDED
-                else "locked"
+                "current" if job.status is OdooCaptureJobStatus.SUCCEEDED else "locked"
             ),
             status_label=(
                 "Connect destination"
@@ -1655,9 +1637,7 @@ def build_odoo_capture_workspace_navigation(
         ),
     )
     current_stage = (
-        stages[3]
-        if job.status is OdooCaptureJobStatus.SUCCEEDED
-        else stages[2]
+        stages[3] if job.status is OdooCaptureJobStatus.SUCCEEDED else stages[2]
     )
     return WorkspaceNavigation(
         workspace_id=workspace_id,
@@ -1680,8 +1660,7 @@ def _activate_run_stages(
     viewed_stage_id: str,
 ) -> tuple[WorkflowStage, ...]:
     return tuple(
-        replace(stage, active=stage.stage_id == viewed_stage_id)
-        for stage in stages
+        replace(stage, active=stage.stage_id == viewed_stage_id) for stage in stages
     )
 
 
@@ -1829,7 +1808,11 @@ def build_preflight_workspace_navigation(job: PreflightJob) -> WorkspaceNavigati
         current_stage_label="Final review",
         viewed_stage_id="review",
         viewed_page_label="Comparison progress",
-        stages=(*prior_stages, review_stage, *_locked_stages(workspace_id, after="review")),
+        stages=(
+            *prior_stages,
+            review_stage,
+            *_locked_stages(workspace_id, after="review"),
+        ),
     )
     if job.access_context.recipe_application_id is None:
         return navigation

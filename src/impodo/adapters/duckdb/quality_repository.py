@@ -219,6 +219,38 @@ def _collision_display(value: object) -> str:
     return str(value)[:120]
 
 
+def _collision_values(
+    payload: Mapping[str, object],
+    section: str,
+) -> Mapping[str, object]:
+    """Return one validated value section from stored canonical-row evidence."""
+
+    values = payload.get(section, {})
+    if not isinstance(values, dict) or any(
+        not isinstance(field, str) for field in values
+    ):
+        raise WorkspaceError("Stored collision evidence is invalid")
+    return values
+
+
+def _collision_value(payload: Mapping[str, object], field: str) -> object:
+    proposed = _collision_values(payload, "proposed_values")
+    references = _collision_values(payload, "references")
+    return proposed.get(field, references.get(field))
+
+
+def _source_identity_value(payload: Mapping[str, object]) -> str | None:
+    source_identity = payload.get("source_identity")
+    if (
+        not isinstance(source_identity, list)
+        or len(source_identity) != 1
+        or not isinstance(source_identity[0], (str, int))
+    ):
+        return None
+    value = str(source_identity[0])
+    return value if 0 < len(value) <= 10_000 else None
+
+
 class QualityRepository(DuckDbRepository):
     """Implement the quality port with immutable revisions and current pointers."""
 
@@ -1221,15 +1253,13 @@ class QualityRepository(DuckDbRepository):
                 field
                 for payload in payloads
                 for section in ("proposed_values", "references")
-                for field in dict(payload.get(section, {}))
+                for field in _collision_values(payload, section)
             })
             differing = tuple(
                 field for field in fields
                 if len({
                     json.dumps(
-                        payload.get("proposed_values", {}).get(
-                            field, payload.get("references", {}).get(field)
-                        ),
+                        _collision_value(payload, field),
                         sort_keys=True,
                         default=str,
                     )
@@ -1247,22 +1277,12 @@ class QualityRepository(DuckDbRepository):
                         row_id=row_id,
                         source_row=source_row,
                         source_identity=_collision_display(payload.get("source_identity")),
-                        source_identity_value=(
-                            str(payload["source_identity"][0])
-                            if isinstance(payload.get("source_identity"), list)
-                            and len(payload["source_identity"]) == 1
-                            and isinstance(payload["source_identity"][0], (str, int))
-                            and 0 < len(str(payload["source_identity"][0])) <= 10_000
-                            else None
-                        ),
+                        source_identity_value=_source_identity_value(payload),
                         differing_values=tuple(
                             (
                                 field,
                                 _collision_display(
-                                    payload.get("proposed_values", {}).get(
-                                        field,
-                                        payload.get("references", {}).get(field),
-                                    )
+                                    _collision_value(payload, field)
                                 ),
                             )
                             for field in differing
@@ -1392,10 +1412,10 @@ class QualityRepository(DuckDbRepository):
                 ],
             )
         if isinstance(run, StoredQualityRun):
-            row_batch_reader = getattr(run.row_results, "iter_batches", None)
-            if not callable(row_batch_reader):
-                raise WorkspaceError("Stored quality rows are not replayable")
-            for batch in row_batch_reader(connection, QUALITY_ROW_BATCH_SIZE):
+            for batch in run.row_results.iter_batches(
+                connection,
+                QUALITY_ROW_BATCH_SIZE,
+            ):
                 batch_start_ordinal = row_ordinal
 
                 for encoded_batch in iter_encoded_json_batches(
@@ -1491,16 +1511,7 @@ class QualityRepository(DuckDbRepository):
         hasher.start_array("source_accounting")
         accounting_ordinal = 0
         if isinstance(run, StoredQualityRun):
-            accounting_batch_reader = getattr(
-                run.source_accounting,
-                "iter_batches",
-                None,
-            )
-            if not callable(accounting_batch_reader):
-                raise WorkspaceError(
-                    "Stored quality source accounting is not replayable"
-                )
-            accounting_batches = accounting_batch_reader(
+            accounting_batches = run.source_accounting.iter_batches(
                 connection,
                 QUALITY_ROW_BATCH_SIZE,
             )

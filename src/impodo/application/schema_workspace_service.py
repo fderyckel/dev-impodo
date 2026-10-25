@@ -24,7 +24,7 @@ from uuid import uuid4
 
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.shared.models import (
     FieldMetadata,
     OdooReadIdentity,
@@ -205,7 +205,7 @@ class SchemaWorkspaceService:
         workspaces: SchemaWorkspaceReader,
         sources: SourceSelectionReader,
         schemas: SchemaWorkspaceRepository,
-        authorization: AuthorizationPolicy,
+        authorization: WorkspaceAuthorizationPolicy,
     ) -> None:
         self.workspaces = workspaces
         self.sources = sources
@@ -258,7 +258,12 @@ class SchemaWorkspaceService:
         )
         if not version_decision.allowed:
             raise WorkspaceError("Odoo model discovery requires a supported Odoo version")
-        policy_hash = odoo_source_policy_hash(version_decision.version.major)
+        odoo_major_version = version_decision.version.major
+        policy_hash = (
+            odoo_source_policy_hash(odoo_major_version)
+            if odoo_major_version is not None
+            else None
+        )
         if policy_hash is None:
             raise WorkspaceError("Odoo model discovery has no qualified source policy")
         if set(snapshot.records) != {"ir.model"}:
@@ -1515,6 +1520,8 @@ class SchemaWorkspaceService:
             raise WorkspaceError(
                 "Odoo schema response does not match permitted models"
             )
+        if workspace_state.odoo_connection_mode is None:
+            raise WorkspaceError("Odoo schema target is not configured")
         if snapshot.fingerprint.target_hash != _target_identity_hash(
             workspace_state
         ):
@@ -1866,9 +1873,10 @@ def _live_source_policy_hash(odoo_version: str) -> str:
     """Resolve the immutable source policy for qualified live evidence."""
 
     decision = assess_odoo_operation(odoo_version, OdooOperation.CAPTURE_SCHEMA)
+    odoo_major_version = decision.version.major
     policy_hash = (
-        odoo_source_policy_hash(decision.version.major)
-        if decision.allowed
+        odoo_source_policy_hash(odoo_major_version)
+        if decision.allowed and odoo_major_version is not None
         else None
     )
     if policy_hash is None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from collections.abc import Set as AbstractSet
-from typing import Protocol, cast
+from typing import Protocol, runtime_checkable
 
 from impodo.domain.mapping.contracts import DatasetMapping
 from impodo.domain.preparation.normalization import (
@@ -39,6 +39,7 @@ class BoundedNormalizationUnsupported(ValueError):
     """Signal that the complete normalization evaluator is required."""
 
 
+@runtime_checkable
 class _NormalizationImpactRows(Protocol):
     """Session-row capabilities required by the bounded normalizer."""
 
@@ -63,6 +64,70 @@ class _NormalizationImpactRows(Protocol):
         connection: object,
         batch_size: int,
     ) -> Iterator[object]: ...
+
+
+def _summary_int(value: object, label: str) -> int:
+    """Decode one bounded summary count without arbitrary coercion."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise BoundedNormalizationUnsupported(f"{label} is invalid")
+    try:
+        return int(value)
+    except ValueError as error:
+        raise BoundedNormalizationUnsupported(f"{label} is invalid") from error
+
+
+def _summary_rows(
+    summary: Mapping[str, object],
+    key: str,
+) -> tuple[tuple[object, ...], ...]:
+    """Validate one bounded normalization group table."""
+
+    raw_rows = summary.get(key)
+    if not isinstance(raw_rows, (list, tuple)):
+        raise BoundedNormalizationUnsupported(f"{key} is invalid")
+    rows: list[tuple[object, ...]] = []
+    for raw_row in raw_rows:
+        if not isinstance(raw_row, (list, tuple)) or len(raw_row) < 11:
+            raise BoundedNormalizationUnsupported(f"{key} row is invalid")
+        rows.append(tuple(raw_row))
+    return tuple(rows)
+
+
+def _summary_examples(
+    value: object,
+) -> dict[str, tuple[NormalizationExample, ...]]:
+    """Validate the bounded example projection for every effect group."""
+
+    if not isinstance(value, Mapping):
+        raise BoundedNormalizationUnsupported("normalization examples are invalid")
+    examples: dict[str, tuple[NormalizationExample, ...]] = {}
+    for group_id, raw_examples in value.items():
+        if not isinstance(group_id, str) or not isinstance(
+            raw_examples,
+            (list, tuple),
+        ):
+            raise BoundedNormalizationUnsupported("normalization examples are invalid")
+        group_examples: list[NormalizationExample] = []
+        for raw_example in raw_examples:
+            if not isinstance(raw_example, (list, tuple)) or len(raw_example) != 3:
+                raise BoundedNormalizationUnsupported(
+                    "normalization example is invalid"
+                )
+            source_row, before, after = raw_example
+            if not isinstance(before, str) or not isinstance(after, str):
+                raise BoundedNormalizationUnsupported(
+                    "normalization example values are invalid"
+                )
+            group_examples.append(
+                NormalizationExample(
+                    _summary_int(source_row, "normalization example row"),
+                    before,
+                    after,
+                )
+            )
+        examples[group_id] = tuple(group_examples)
+    return examples
 
 
 class _BoundedNormalizationEffects:
@@ -130,6 +195,11 @@ class _BoundedNormalizationEffects:
             candidate.proposed_display,
             restricted=self._restricted,
         )
+        contains_canonical = getattr(
+            self._eligible_row_ids,
+            "contains_canonical",
+            None,
+        )
         effect = NormalizationEffect(
             effect_id=_hash(
                 {
@@ -150,14 +220,8 @@ class _BoundedNormalizationEffects:
                 eligible
                 if eligible is not None
                 else (
-                    self._eligible_row_ids.contains_canonical(row_id)
-                    if callable(
-                        getattr(
-                            self._eligible_row_ids,
-                            "contains_canonical",
-                            None,
-                        )
-                    )
+                    bool(contains_canonical(row_id))
+                    if callable(contains_canonical)
                     else row_id in self._eligible_row_ids
                 )
             ),
@@ -241,9 +305,7 @@ class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
                     "target_field": target_field,
                     "name": "Review this data finding",
                     "explanation": issue.message,
-                    "owner_label": (
-                        issue.owner_label or "Data manager"
-                    ),
+                    "owner_label": (issue.owner_label or "Data manager"),
                 },
             )
 
@@ -280,18 +342,10 @@ def build_bounded_normalization_evaluation(
 ) -> StoredNormalizationEvaluation:
     """Aggregate groups while keeping individual effects durably reusable."""
 
-    durable_methods = (
-        "prepare_normalization_facts",
-        "copy_normalization_effects",
-        "iter_normalization_effect_json_batches",
-        "iter_normalization_effects",
-    )
     if (
         effective is not None
         or quality.blocked_count
-        or not all(
-            callable(getattr(impact_rows, name, None)) for name in durable_methods
-        )
+        or not isinstance(impact_rows, _NormalizationImpactRows)
     ):
         raise BoundedNormalizationUnsupported
     if quality.staging_content_hash != staging_content_hash:
@@ -312,17 +366,18 @@ def build_bounded_normalization_evaluation(
     )
     durable_effects = _DurableNormalizationEffects(
         effect_factory,
-        cast(_NormalizationImpactRows, impact_rows),
+        impact_rows,
     )
     effects: Iterable[NormalizationEffect] = durable_effects
     summary = durable_effects.prepare()
-    effect_count = int(summary["effect_count"])
-    changed_record_count = int(summary["changed_record_count"])
-    examples = summary["examples"]
-    if not isinstance(examples, dict):
-        raise BoundedNormalizationUnsupported
+    effect_count = _summary_int(summary["effect_count"], "effect count")
+    changed_record_count = _summary_int(
+        summary["changed_record_count"],
+        "changed record count",
+    )
+    examples = _summary_examples(summary["examples"])
     groups = []
-    for row in summary["effect_groups"]:
+    for row in _summary_rows(summary, "effect_groups"):
         group_id = str(row[0])
         metadata = {
             "rule_id": str(row[1]),
@@ -339,19 +394,13 @@ def build_bounded_normalization_evaluation(
                 group_id=group_id,
                 dataset_label=_human_label(str(row[4])),
                 field_label=_human_label(str(row[5])),
-                eligible_count=int(row[9]),
-                set_aside_count=int(row[10]),
-                examples=tuple(
-                    NormalizationExample(source_row, before, after)
-                    for source_row, before, after in examples.get(
-                        group_id,
-                        (),
-                    )
-                ),
+                eligible_count=_summary_int(row[9], "eligible count"),
+                set_aside_count=_summary_int(row[10], "set-aside count"),
+                examples=examples.get(group_id, ()),
                 **metadata,
             )
         )
-    for row in summary["finding_groups"]:
+    for row in _summary_rows(summary, "finding_groups"):
         metadata = {
             "rule_id": str(row[1]),
             "kind": NormalizationGroupKind(str(row[2])),
@@ -367,7 +416,7 @@ def build_bounded_normalization_evaluation(
                 group_id=str(row[0]),
                 dataset_label=_human_label(str(row[4])),
                 field_label=_human_label(str(row[5])),
-                eligible_count=int(row[9]),
+                eligible_count=_summary_int(row[9], "finding count"),
                 set_aside_count=0,
                 examples=(),
                 **metadata,

@@ -39,9 +39,10 @@ from ...domain.workspace.models import (
     MigrationWorkspaceSetupState,
     MigrationWorkspaceState,
 )
+from .foundation_repository_mixin import FoundationRepositoryMixin
 
 
-class FoundationRecordCodecs:
+class FoundationRecordCodecs(FoundationRepositoryMixin):
     @staticmethod
     def _insert_event(
         connection: duckdb.DuckDBPyConnection,
@@ -125,9 +126,15 @@ class FoundationRecordCodecs:
             data_classification=MigrationDataClassification(
                 str(value["data_classification"])
             ),
-            retention_days=int(value["retention_days"]),
+            retention_days=FoundationRecordCodecs._integer(
+                value["retention_days"],
+                "retention_days",
+            ),
             status=MigrationProjectStatus(str(value["status"])),
-            optimistic_revision=int(value["optimistic_revision"]),
+            optimistic_revision=FoundationRecordCodecs._integer(
+                value["optimistic_revision"],
+                "optimistic_revision",
+            ),
             created_at=datetime.fromisoformat(str(value["created_at"])),
             updated_at=datetime.fromisoformat(str(value["updated_at"])),
             closed_at=FoundationRecordCodecs._optional_time(value.get("closed_at")),
@@ -179,7 +186,10 @@ class FoundationRecordCodecs:
         return DataVersion(
             data_version_id=str(value["data_version_id"]),
             project_id=str(value["project_id"]),
-            version_number=int(value["version_number"]),
+            version_number=FoundationRecordCodecs._integer(
+                value["version_number"],
+                "version_number",
+            ),
             parent_data_version_id=(
                 str(value["parent_data_version_id"])
                 if value.get("parent_data_version_id")
@@ -194,7 +204,10 @@ class FoundationRecordCodecs:
                 if value.get("source_package_hash")
                 else None
             ),
-            optimistic_revision=int(value["optimistic_revision"]),
+            optimistic_revision=FoundationRecordCodecs._integer(
+                value["optimistic_revision"],
+                "optimistic_revision",
+            ),
             created_at=datetime.fromisoformat(str(value["created_at"])),
             updated_at=datetime.fromisoformat(str(value["updated_at"])),
             frozen_at=FoundationRecordCodecs._optional_time(value.get("frozen_at")),
@@ -246,7 +259,10 @@ class FoundationRecordCodecs:
             migration_run_id=str(value["migration_run_id"]),
             project_id=str(value["project_id"]),
             data_version_id=str(value["data_version_id"]),
-            run_number=int(value["run_number"]),
+            run_number=FoundationRecordCodecs._integer(
+                value["run_number"],
+                "run_number",
+            ),
             purpose=MigrationRunPurpose(str(value["purpose"])),
             label=str(value["label"]),
             state=MigrationRunState(str(value["state"])),
@@ -260,7 +276,10 @@ class FoundationRecordCodecs:
                 if value.get("cutover_selection_id")
                 else None
             ),
-            optimistic_revision=int(value["optimistic_revision"]),
+            optimistic_revision=FoundationRecordCodecs._integer(
+                value["optimistic_revision"],
+                "optimistic_revision",
+            ),
             created_at=datetime.fromisoformat(str(value["created_at"])),
             updated_at=datetime.fromisoformat(str(value["updated_at"])),
             closed_at=FoundationRecordCodecs._optional_time(value.get("closed_at")),
@@ -277,7 +296,7 @@ class FoundationRecordCodecs:
         return MigrationRunTargetSetup(
             migration_run_id=str(value["migration_run_id"]),
             project_id=str(value["project_id"]),
-            revision=int(value["revision"]),
+            revision=FoundationRecordCodecs._integer(value["revision"], "revision"),
             connection_mode=OdooConnectionMode(str(value["connection_mode"])),
             base_url=str(value["base_url"]),
             database=str(value["database"]),
@@ -341,7 +360,10 @@ class FoundationRecordCodecs:
             display_name=str(value["display_name"]),
             state=MigrationWorkspaceState(str(value["state"])),
             setup_state=MigrationWorkspaceSetupState(str(value["setup_state"])),
-            optimistic_revision=int(value["optimistic_revision"]),
+            optimistic_revision=FoundationRecordCodecs._integer(
+                value["optimistic_revision"],
+                "optimistic_revision",
+            ),
             created_at=datetime.fromisoformat(str(value["created_at"])),
             updated_at=datetime.fromisoformat(str(value["updated_at"])),
             setup_completed_at=FoundationRecordCodecs._optional_time(
@@ -367,13 +389,19 @@ class FoundationRecordCodecs:
             kind=MigrationOperationKind(str(value["kind"])),
             request_hash=str(value["request_hash"]),
             expected_revision=(
-                int(value["expected_revision"])
+                FoundationRecordCodecs._integer(
+                    value["expected_revision"],
+                    "expected_revision",
+                )
                 if value.get("expected_revision") is not None
                 else None
             ),
             state=MigrationOperationState(str(value["state"])),
             stage=str(value["stage"]),
-            detail=json.loads(str(value["detail_json"])),
+            detail=FoundationRecordCodecs._stored_mapping(
+                json.loads(str(value["detail_json"])),
+                "operation detail",
+            ),
             last_error=str(value["last_error"]),
             actor=ActorIdentity(
                 issuer=str(value["actor_issuer"]),
@@ -387,3 +415,28 @@ class FoundationRecordCodecs:
     @staticmethod
     def _optional_time(value: object) -> datetime | None:
         return datetime.fromisoformat(str(value)) if value else None
+
+    @staticmethod
+    def _stored_mapping(value: object, field_name: str) -> dict[str, object]:
+        if not isinstance(value, Mapping):
+            raise TypeError(f"Stored {field_name} must be a mapping")
+        result: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError(f"Stored {field_name} keys must be text")
+            result[key] = item
+        return result
+
+    @staticmethod
+    def _stored_string_tuple(value: object, field_name: str) -> tuple[str, ...]:
+        if not isinstance(value, (list, tuple)) or any(
+            not isinstance(item, str) for item in value
+        ):
+            raise TypeError(f"Stored {field_name} must be a sequence of text values")
+        return tuple(value)
+
+    @staticmethod
+    def _integer(value: object, field_name: str) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise TypeError(f"Stored {field_name} must be an integer")
+        return value

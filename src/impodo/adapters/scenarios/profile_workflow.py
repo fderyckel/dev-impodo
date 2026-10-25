@@ -10,10 +10,9 @@ See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
 from uuid import uuid4
 
 from impodo.adapters.artifacts.profile_loader import ProfileLoadError, load_profile
@@ -41,12 +40,14 @@ from impodo.application.workspace.execution.service import (
     execution_api_scope,
 )
 from impodo.domain.compiler import compile_profile_document
+from impodo.domain.compiler.contracts import CompiledMigrationPlan
 from impodo.domain.execution.models import ExecutionRun
 from impodo.domain.execution.planner import plan_metadata_requests, plan_record_requests
-from impodo.domain.execution_snapshot import build_execution_snapshot
+from impodo.domain.execution_snapshot import ExecutionSnapshot, build_execution_snapshot
 from impodo.domain.odoo.contracts import (
     ConnectorError,
     OdooReadConnector,
+    RecordSnapshot,
     bind_snapshot_hashes,
 )
 from impodo.domain.preflight.frozen_input import FrozenPreflightInput
@@ -61,14 +62,89 @@ from impodo.domain.scenarios import (
 )
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
+from impodo.domain.shared.models import PreflightResult, TargetRecord
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.workbench import OdooConnectionMode, SourceMode
+from impodo.domain.workspace.workbench import (
+    OdooConnectionMode,
+    SourceMode,
+    WorkspaceState,
+)
 
 
 @dataclass(frozen=True, slots=True)
 class _PreparedProfileState:
-    plan: object
+    plan: CompiledMigrationPlan
     prepared: PreparedBundle
+
+
+@dataclass(frozen=True, slots=True)
+class _ScenarioMappingDefinitionEvidence:
+    content_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ScenarioMappingRevisionEvidence:
+    mapping_id: str
+    version: int
+    definition: _ScenarioMappingDefinitionEvidence
+
+
+@dataclass(frozen=True, slots=True)
+class _ScenarioStagingEvidence:
+    run_id: str
+    content_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ScenarioQualityEvidence:
+    run_id: str
+    content_hash: str
+    effective_dataset_run_id: str | None
+    effective_dataset_hash: str | None
+    quarantined_count: int = 0
+    excluded_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class _ScenarioNormalizationEvidence:
+    run_id: str
+    content_hash: str
+    lifecycle_version: int
+    eligible_dataset_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ScenarioExecutionSnapshots:
+    workspace_id: str
+    snapshot: ExecutionSnapshot
+
+    def current_execution_snapshot(
+        self,
+        workspace_id: str,
+    ) -> ExecutionSnapshot | None:
+        return self.snapshot if workspace_id == self.workspace_id else None
+
+    def execution_snapshot(
+        self,
+        workspace_id: str,
+        preflight_run_id: str,
+    ) -> ExecutionSnapshot:
+        if (
+            workspace_id != self.workspace_id
+            or preflight_run_id != self.snapshot.preflight_run_id
+        ):
+            raise WorkspaceError("Scenario execution snapshot is missing or changed")
+        return self.snapshot
+
+
+@dataclass(frozen=True, slots=True)
+class _ScenarioWorkspaces:
+    workspace: WorkspaceState
+
+    def get(self, workspace_id: str) -> WorkspaceState:
+        if workspace_id != self.workspace.workspace_id:
+            raise WorkspaceError("Scenario workspace is missing or changed")
+        return self.workspace
 
 
 class ProfileScenarioWorkflow:
@@ -96,10 +172,10 @@ class ProfileScenarioWorkflow:
             if evidence_directory is not None
             else None
         )
-        self._last_preflight = None
-        self._last_records = None
+        self._last_preflight: PreflightResult | None = None
+        self._last_records: RecordSnapshot | None = None
         self._workspace_id = str(uuid4())
-        self._snapshot = None
+        self._snapshot: ExecutionSnapshot | None = None
 
     def prepare(self, definition: ScenarioDefinition) -> ScenarioPreparationEvidence:
         if (
@@ -152,9 +228,7 @@ class ProfileScenarioWorkflow:
         state = preparation.state
         try:
             metadata, records = bind_snapshot_hashes(
-                connector.get_model_metadata(
-                    plan_metadata_requests(state.plan)
-                ),
+                connector.get_model_metadata(plan_metadata_requests(state.plan)),
                 connector.get_records(
                     plan_record_requests(state.plan, state.prepared.records)
                 ),
@@ -191,9 +265,11 @@ class ProfileScenarioWorkflow:
         state = self._prepared_state(preparation)
         approved_preflight = self._last_preflight
         fresh_comparison = self.compare(definition, preparation)
+        current_preflight = self._last_preflight
         if (
             approved_preflight is None
-            or _stable_preflight_hash(self._last_preflight)
+            or current_preflight is None
+            or _stable_preflight_hash(current_preflight)
             != _stable_preflight_hash(approved_preflight)
             or fresh_comparison.target_hash != comparison.target_hash
         ):
@@ -229,17 +305,19 @@ class ProfileScenarioWorkflow:
                 result=self._last_preflight,
             )
             write_scenario_execution_snapshot(snapshot, self._evidence_directory)
-            preflight = SimpleNamespace(
-                current_execution_snapshot=lambda _workspace_id: snapshot,
-                execution_snapshot=lambda _workspace_id, _run_id: snapshot,
-            )
-            workspace = SimpleNamespace(
+            preflight = _ScenarioExecutionSnapshots(
                 workspace_id=self._workspace_id,
+                snapshot=snapshot,
+            )
+            workspace = WorkspaceState(
+                workspace_id=self._workspace_id,
+                name="Scenario qualification",
+                source_system="Scenario fixture",
                 source_mode=SourceMode.FILE,
                 odoo_connection_mode=OdooConnectionMode.LOCAL,
             )
             execution = ExecutionService(
-                SimpleNamespace(get=lambda _workspace_id: workspace),
+                _ScenarioWorkspaces(workspace),
                 preflight,
                 journal,
                 CapabilityAuthorizationPolicy(),
@@ -295,9 +373,9 @@ class ProfileScenarioWorkflow:
                 ScenarioReasonCode.UNSAFE_WRITE_OUTCOME,
             )
         snapshot = self._snapshot
-        preflight = SimpleNamespace(
-            current_execution_snapshot=lambda _workspace_id: snapshot,
-            execution_snapshot=lambda _workspace_id, _run_id: snapshot,
+        preflight = _ScenarioExecutionSnapshots(
+            workspace_id=self._workspace_id,
+            snapshot=snapshot,
         )
         scope = execution_api_scope(snapshot)
         try:
@@ -414,25 +492,25 @@ class ProfileScenarioWorkflow:
 
 def _frozen(
     workspace_id: str,
-    plan: object,
+    plan: CompiledMigrationPlan,
     prepared: PreparedBundle,
 ) -> FrozenPreflightInput:
     binding_hash = plan.semantic_hash
     return FrozenPreflightInput(
         workspace_id=workspace_id,
-        revision=SimpleNamespace(
+        revision=_ScenarioMappingRevisionEvidence(
             mapping_id=str(uuid4()),
             version=1,
-            definition=SimpleNamespace(content_hash=binding_hash),
+            definition=_ScenarioMappingDefinitionEvidence(binding_hash),
         ),
-        staging=SimpleNamespace(run_id=str(uuid4()), content_hash=binding_hash),
-        quality=SimpleNamespace(
+        staging=_ScenarioStagingEvidence(str(uuid4()), binding_hash),
+        quality=_ScenarioQualityEvidence(
             run_id=str(uuid4()),
             content_hash=binding_hash,
             effective_dataset_run_id=None,
             effective_dataset_hash=binding_hash,
         ),
-        normalization=SimpleNamespace(
+        normalization=_ScenarioNormalizationEvidence(
             run_id=str(uuid4()),
             content_hash=binding_hash,
             lifecycle_version=1,
@@ -446,7 +524,7 @@ def _frozen(
     )
 
 
-def _stable_preflight_hash(preflight: object) -> str:
+def _stable_preflight_hash(preflight: PreflightResult) -> str:
     payload = preflight.to_portable_dict(include_hash=False)
     target = dict(payload["target"])
     target.pop("snapshot_timestamp", None)
@@ -467,9 +545,8 @@ def _write_target_matches_definition(
     ):
         return False
     if destination.mode is ScenarioDestinationMode.LOCAL_ODOO:
-        return (
-            config.connection_mode == "LOCAL"
-            and config.database.startswith("impodo_scenario_")
+        return config.connection_mode == "LOCAL" and config.database.startswith(
+            "impodo_scenario_"
         )
     return (
         config.connection_mode == "REMOTE"
@@ -480,18 +557,14 @@ def _write_target_matches_definition(
 def _projection_reference_matches(
     value: object,
     model: str,
-    identity: dict[str, object],
-    records: object,
+    identity: Mapping[str, object],
+    records: Mapping[str, tuple[TargetRecord, ...]],
 ) -> bool:
     """Compare one many2one through its captured business identity."""
 
     if type(value) is int:
         record_id = value
-    elif (
-        isinstance(value, (list, tuple))
-        and value
-        and type(value[0]) is int
-    ):
+    elif isinstance(value, (list, tuple)) and value and type(value[0]) is int:
         record_id = value[0]
     else:
         return False
@@ -501,8 +574,7 @@ def _projection_reference_matches(
         for record in model_records
         if record.odoo_id == record_id
         and all(
-            record.values.get(field) == expected
-            for field, expected in identity.items()
+            record.values.get(field) == expected for field, expected in identity.items()
         )
     )
     return len(matches) == 1

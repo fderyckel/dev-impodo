@@ -19,7 +19,7 @@ from uuid import uuid4
 
 from impodo.application.shared.artifacts import (
     ArtifactStoreError,
-    WorkspaceArtifactStore,
+    GovernedArtifactStores,
 )
 from impodo.domain.execution.planner import (
     PreflightRequirementPlan,
@@ -35,7 +35,7 @@ from impodo.domain.odoo.contracts import (
 )
 from impodo.domain.preparation.preflight import PreflightEngine
 from impodo.domain.preparation.staging import StagingRunSummary
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import (
@@ -159,6 +159,15 @@ def _report_progress(progress: PreflightProgress | None, phase: str) -> None:
         progress(phase)
 
 
+def _portable_mapping(value: object, label: str) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise DeferredScopeEvidenceError(f"{label} must be an object")
+    result = {key: item for key, item in value.items() if isinstance(key, str)}
+    if len(result) != len(value):
+        raise DeferredScopeEvidenceError(f"{label} contains a non-string key")
+    return result
+
+
 class PreflightService:
     """Plan batched Odoo reads and publish target-dependent classifications.
 
@@ -176,8 +185,8 @@ class PreflightService:
         workspaces: PreflightWorkspaceRepository,
         sources: PreflightSourceRepository,
         preflight: PreflightRepository,
-        artifacts: WorkspaceArtifactStore,
-        authorization: AuthorizationPolicy,
+        artifacts: GovernedArtifactStores,
+        authorization: WorkspaceAuthorizationPolicy,
         effective: PreflightEffectiveRepository | None = None,
         schemas: PreflightSchemaRepository | None = None,
         odoo_provenance: OdooProvenanceService | None = None,
@@ -402,7 +411,10 @@ class PreflightService:
                 "The execution snapshot is missing or invalid. Run the Odoo "
                 "comparison again."
             ) from error
-        manifest_evidence = dict(manifest["preflight_evidence"])
+        manifest_evidence = _portable_mapping(
+            manifest["preflight_evidence"],
+            "Preflight evidence",
+        )
         if not _snapshot_matches_report(full_snapshot, report) or not (
             "sha256:" + sha256(manifest_content).hexdigest() == report.manifest_hash
             and manifest_evidence.get("execution_snapshot_hash")
@@ -504,8 +516,7 @@ class PreflightService:
                 dependencies=dependencies,
                 selected_issue_ids=selected,
                 already_set_aside_count=(
-                    frozen.quality.quarantined_count
-                    + frozen.quality.excluded_count
+                    frozen.quality.quarantined_count + frozen.quality.excluded_count
                 ),
             )
         return DeferredScopeReview(
@@ -694,15 +705,9 @@ class PreflightService:
                 REDUCED_EXECUTION_SNAPSHOT_NAME,
             ) as snapshot_path,
         ):
-            decision = DeferredScopeDecision.from_json(
-                decision_path.read_text("utf-8")
-            )
-            preview = DeferredScopePreview.from_json(
-                preview_path.read_text("utf-8")
-            )
-            reduced = ExecutionSnapshot.from_json(
-                snapshot_path.read_text("utf-8")
-            )
+            decision = DeferredScopeDecision.from_json(decision_path.read_text("utf-8"))
+            preview = DeferredScopePreview.from_json(preview_path.read_text("utf-8"))
+            reduced = ExecutionSnapshot.from_json(snapshot_path.read_text("utf-8"))
         omitted_ids = set(decision.omitted_row_ids)
         full_ids = {row.row_id for row in full_snapshot.rows}
         reduced_ids = {row.row_id for row in reduced.rows}
@@ -860,15 +865,17 @@ class PreflightService:
                 progress=progress,
             )
         frozen = self._load_frozen_input(workspace_id)
-        version_decision = assess_odoo_operation(
-            frozen.captured_schema.odoo_version,
-            OdooOperation.COMPARE,
-        )
-        current_reference_policy_hash = (
-            reference_policy_hash(version_decision.version.major)
-            if version_decision.allowed
-            else None
-        )
+        current_reference_policy_hash = None
+        if frozen.captured_schema is not None:
+            version_decision = assess_odoo_operation(
+                frozen.captured_schema.odoo_version,
+                OdooOperation.COMPARE,
+            )
+            odoo_major_version = version_decision.version.major
+            if version_decision.allowed and odoo_major_version is not None:
+                current_reference_policy_hash = reference_policy_hash(
+                    odoo_major_version
+                )
         requirements = plan_preflight_requirements(
             frozen.plan,
             frozen.prepared.records,
@@ -977,7 +984,8 @@ class PreflightService:
             execution_snapshot,
             execution_shape_ready=(
                 assess_odoo_operation(
-                    execution_snapshot.target_odoo_version, OdooOperation.WRITE,
+                    execution_snapshot.target_odoo_version,
+                    OdooOperation.WRITE,
                 ).allowed
                 and not execution_snapshot.relationship_plan.blockers
                 and not precision_issues
@@ -1267,9 +1275,7 @@ class PreflightService:
                         field.name for field in model.fields if field.required
                     )
                     for model in (
-                        captured_schema.models
-                        if captured_schema is not None
-                        else ()
+                        captured_schema.models if captured_schema is not None else ()
                     )
                 },
             )

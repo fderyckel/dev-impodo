@@ -3,17 +3,34 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager
+from pathlib import Path
 from typing import Protocol, overload
 from uuid import UUID
 
+import duckdb
+
+from impodo.application.shared.artifacts import WorkspaceArtifactStore
+from impodo.domain.preparation.normalization import NormalizationEffect
 from impodo.domain.preparation.staging_contracts import (
+    CanonicalControlTotal,
+    CanonicalIssue,
     CanonicalRow,
+    StagingDatasetReconciliation,
+    StagingDatasetRole,
     StagingDisposition,
+    StagingReconciliation,
 )
 from impodo.domain.workspace.errors import WorkspaceError
 
+from ...domain.prepared_snapshot import PreparedSnapshot
 from ...domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
+    PreparationSessionBindings,
+    PreparationSessionStatus,
+    PreparationSessionSummary,
+    PreparedCanonicalProjection,
+    StoredCanonicalStagingRun,
 )
 from ...domain.staging.transformation_impact import (
     TransformationImpactRow,
@@ -106,17 +123,37 @@ class PreparationSessionViewRepository(Protocol):
         session_id: str,
     ) -> Iterator[CanonicalRow]: ...
 
-    def _iter_direct_encoded_batches(self, *args, **kwargs): ...
+    def iter_direct_encoded_batches(
+        self,
+        *args,
+        **kwargs,
+    ) -> Iterator[Sequence[Sequence[object]]]: ...
 
-    def _bounded_quality_index(self, *args, **kwargs): ...
+    def _bounded_quality_index(
+        self,
+        *args,
+        **kwargs,
+    ) -> dict[str, object] | None: ...
 
-    def _bounded_relationship_findings(self, *args, **kwargs): ...
+    def _bounded_relationship_findings(
+        self,
+        *args,
+        **kwargs,
+    ) -> tuple[tuple[object, ...], ...]: ...
 
-    def _identity_group_findings(self, *args, **kwargs): ...
+    def _identity_group_findings(self, *args, **kwargs) -> Iterator[object]: ...
 
-    def _iter_quality_index_batches(self, *args, **kwargs): ...
+    def _iter_quality_index_batches(
+        self,
+        *args,
+        **kwargs,
+    ) -> Iterator[Sequence[Sequence[object]]]: ...
 
-    def _iter_accounting_index_batches(self, *args, **kwargs): ...
+    def _iter_accounting_index_batches(
+        self,
+        *args,
+        **kwargs,
+    ) -> Iterator[Sequence[Sequence[object]]]: ...
 
     def _direct_index_contains_row_id(self, *args, **kwargs) -> bool: ...
 
@@ -126,13 +163,121 @@ class PreparationSessionViewRepository(Protocol):
         session_id: str,
     ) -> Iterator[TransformationImpactRow]: ...
 
-    def _prepare_normalization_facts(self, *args, **kwargs): ...
+    def _prepare_normalization_facts(
+        self,
+        *args,
+        **kwargs,
+    ) -> dict[str, object]: ...
 
     def _copy_normalization_effects_to_run(self, *args, **kwargs) -> int: ...
 
-    def _iter_normalization_effect_json_batches(self, *args, **kwargs): ...
+    def _iter_normalization_effect_json_batches(
+        self,
+        *args,
+        **kwargs,
+    ) -> Iterator[tuple[str, ...]]: ...
 
-    def _iter_prepared_normalization_effects(self, *args, **kwargs): ...
+    def _iter_prepared_normalization_effects(
+        self,
+        *args,
+        **kwargs,
+    ) -> Iterator[NormalizationEffect]: ...
+
+
+class PreparationSessionRepositoryHost(PreparationSessionViewRepository, Protocol):
+    """Dependencies composed by the concrete preparation-session facade."""
+
+    @property
+    def _artifacts(self) -> WorkspaceArtifactStore: ...
+
+    def workspace_directory(self, workspace_id: str) -> Path: ...
+
+    def _connect(
+        self,
+        path: Path,
+    ) -> AbstractContextManager[duckdb.DuckDBPyConnection]: ...
+
+    def _connect_prepared(
+        self,
+        path: Path,
+    ) -> AbstractContextManager[duckdb.DuckDBPyConnection]: ...
+
+    def _ensure_workspace_database_schema(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+    ) -> None: ...
+
+    def bind_prepared_canonical_projection(
+        self,
+        workspace_id: str,
+        session_id: str,
+        snapshot: PreparedSnapshot,
+        projection: PreparedCanonicalProjection,
+    ) -> None: ...
+
+    def get_session(
+        self,
+        workspace_id: str,
+        session_id: str,
+    ) -> PreparationSessionSummary: ...
+
+    def load_stored_run(
+        self,
+        workspace_id: str,
+        session_id: str,
+    ) -> StoredCanonicalStagingRun: ...
+
+    def _direct_rows_by_ordinal(
+        self,
+        workspace_id: str,
+        run_id: str,
+        ordinals: Sequence[int],
+    ) -> dict[int, CanonicalRow]: ...
+
+    def _restart_direct_finalization(
+        self,
+        workspace_id: str,
+        session_id: str,
+    ) -> None: ...
+
+    def _update_direct_rows(
+        self,
+        workspace_id: str,
+        run_id: str,
+        values: Sequence[Sequence[object]],
+    ) -> None: ...
+
+    def _resolve_relationship_edges(
+        self,
+        workspace_id: str,
+        session_id: str,
+    ) -> None: ...
+
+    def _reconciliation(
+        self,
+        workspace_id: str,
+        session_id: str,
+        evidence: Mapping[str, tuple[str, StagingDatasetRole, int, str]],
+    ) -> tuple[StagingReconciliation, tuple[StagingDatasetReconciliation, ...]]: ...
+
+    def _hash_direct_run(
+        self,
+        *,
+        workspace_id: str,
+        run_id: str,
+        bindings: PreparationSessionBindings,
+        datasets: tuple[StagingDatasetReconciliation, ...],
+        issues: tuple[CanonicalIssue, ...],
+        reconciliation: StagingReconciliation,
+        control_totals: tuple[CanonicalControlTotal, ...],
+    ) -> tuple[str, int]: ...
+
+    def _require_status(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+        session_id: str,
+        expected: PreparationSessionStatus,
+    ) -> tuple[str, int, int]: ...
 
 
 def _canonical_row_requires_scalar_transport(
@@ -156,10 +301,7 @@ def _canonical_row_requires_scalar_transport(
 def _canonical_row_json_requires_scalar_transport(row_json: str) -> bool:
     """Keep large direct-row updates outside the copied JSON envelope."""
 
-    return (
-        len(row_json.encode("utf-8"))
-        > _CANONICAL_ROW_SCALAR_FALLBACK_BYTES
-    )
+    return len(row_json.encode("utf-8")) > _CANONICAL_ROW_SCALAR_FALLBACK_BYTES
 
 
 class _SessionCanonicalRows(Sequence[CanonicalRow]):
@@ -223,7 +365,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
     def iter_encoded_batches(self, connection, batch_size: int):
         """Read exact stored JSON through the publication transaction."""
 
-        yield from self._repository._iter_direct_encoded_batches(
+        yield from self._repository.iter_direct_encoded_batches(
             self._workspace_id,
             self._session_id,
             batch_size=batch_size,
@@ -257,7 +399,10 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         """Project symbolic identities and keep readiness propagation durable."""
 
         return self._repository._identity_group_findings(
-            self._workspace_id, self._session_id, unsafe_row_ids, propagating_datasets,
+            self._workspace_id,
+            self._session_id,
+            unsafe_row_ids,
+            propagating_datasets,
         )
 
     def iter_quality_index_batches(self, connection, batch_size: int):
@@ -318,7 +463,7 @@ class _SessionImpacts:
         *,
         effect_builder,
         finding_builder,
-    ):
+    ) -> dict[str, object]:
         """Construct and summarize normalization facts in one durable pass."""
 
         return self._repository._prepare_normalization_facts(
@@ -341,7 +486,7 @@ class _SessionImpacts:
         self,
         connection,
         batch_size: int,
-    ):
+    ) -> Iterator[tuple[str, ...]]:
         """Yield exact effect JSON in the public logical order."""
 
         yield from self._repository._iter_normalization_effect_json_batches(
@@ -350,7 +495,7 @@ class _SessionImpacts:
             batch_size,
         )
 
-    def iter_normalization_effects(self):
+    def iter_normalization_effects(self) -> Iterator[NormalizationEffect]:
         """Decode durable facts for the bounded normalization reader."""
 
         yield from self._repository._iter_prepared_normalization_effects(

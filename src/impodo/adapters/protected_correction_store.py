@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from impodo.application.correction_orchestration import (
+    StoredConfirmation,
+    StoredOrigin,
+    StoredPlan,
+    StoredTargetIndex,
+)
 from impodo.domain.correction import (
     CorrectionConfirmation,
     CorrectionPlan,
@@ -86,7 +92,7 @@ class ProtectedCorrectionStore:
 
     def read_target_index(
         self,
-        reference: StoredCorrectionTargetIndex,
+        reference: StoredTargetIndex,
     ) -> CorrectionTargetIndex:
         payload = self._evidence.read(
             reference.project_id,
@@ -127,7 +133,7 @@ class ProtectedCorrectionStore:
 
     def read_origin(
         self,
-        reference: StoredCorrectionOrigin,
+        reference: StoredOrigin,
     ) -> CorrectionOriginManifest:
         payload = self._evidence.read(
             reference.project_id,
@@ -163,7 +169,7 @@ class ProtectedCorrectionStore:
             artifact_hash=stored.artifact_hash,
         )
 
-    def read_plan(self, reference: StoredCorrectionPlan) -> CorrectionPlan:
+    def read_plan(self, reference: StoredPlan) -> CorrectionPlan:
         payload = self._evidence.read(
             reference.project_id,
             storage_key=reference.storage_key,
@@ -212,7 +218,7 @@ class ProtectedCorrectionStore:
 
     def read_confirmation(
         self,
-        reference: StoredCorrectionConfirmation,
+        reference: StoredConfirmation,
     ) -> CorrectionConfirmation:
         payload = self._evidence.read(
             reference.project_id,

@@ -16,9 +16,6 @@ from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from impodo.domain.preparation.normalization import NormalizationRunSummary
-from impodo.domain.preparation.quality import QualityRunSummary
-from impodo.domain.preparation.staging import StagingRunSummary
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import (
     Classification,
@@ -29,8 +26,13 @@ from impodo.domain.shared.models import (
 from impodo.domain.workspace.workbench import WorkspaceState
 
 from ..contracts import READINESS_CONTRACT_VERSION
-from ..mapping.artifacts import MappingRevision
 from ..staging.transformation_impact import _display_value
+from .frozen_input import (
+    FrozenMappingRevisionEvidence,
+    FrozenNormalizationEvidence,
+    FrozenQualityEvidence,
+    FrozenStagingEvidence,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -453,14 +455,14 @@ def _require_dataclass_fields(
 def _readiness_report(
     run_id: str,
     workspace_state: WorkspaceState,
-    revision: MappingRevision,
+    revision: FrozenMappingRevisionEvidence,
     result: PreflightResult,
     dataset_labels: Mapping[str, str],
     source_labels: Mapping[tuple[str, str], str],
     actor: Actor,
-    staging: StagingRunSummary,
-    quality: QualityRunSummary,
-    normalization: NormalizationRunSummary,
+    staging: FrozenStagingEvidence,
+    quality: FrozenQualityEvidence,
+    normalization: FrozenNormalizationEvidence,
     *,
     frozen_input_hash: str,
     requirement_plan_hash: str,

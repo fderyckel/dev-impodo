@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable
 from ctypes import wintypes
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import psutil
 
@@ -25,6 +25,19 @@ from impodo.domain.preparation.source import SourceLoadError
 VALIDATION_TIMEOUT_SECONDS = 30
 INSPECTION_TIMEOUT_SECONDS = 60
 VALIDATION_MEMORY_BYTES = 512 * 1024 * 1024
+
+
+class _WorkerProcess(Protocol):
+    """Spawned-process operations used by the resource monitor."""
+
+    @property
+    def pid(self) -> int | None: ...
+
+    def is_alive(self) -> bool: ...
+
+    def join(self, timeout: float | None = None) -> None: ...
+
+    def terminate(self) -> None: ...
 
 
 def validate_source_file_isolated(
@@ -48,7 +61,10 @@ def validate_source_file_isolated(
     job_handle: int | None = None
     try:
         if os.name == "nt":
-            job_handle = _assign_windows_job(process.pid)
+            process_id = process.pid
+            if process_id is None:
+                raise SourceLoadError("Source validation worker did not start")
+            job_handle = _assign_windows_job(process_id)
         start_event.set()
         if not _poll_with_memory_limit(
             receiver,
@@ -118,7 +134,10 @@ def inspect_source_file_isolated(
     job_handle: int | None = None
     try:
         if os.name == "nt":
-            job_handle = _assign_windows_job(process.pid)
+            process_id = process.pid
+            if process_id is None:
+                raise inspection_error("Source inspection worker did not start")
+            job_handle = _assign_windows_job(process_id)
         start_event.set()
         if not _poll_with_memory_limit(
             receiver,
@@ -216,7 +235,7 @@ def _limit_unix_memory() -> None:
 
 def _poll_with_memory_limit(
     receiver: Any,
-    process: multiprocessing.Process,
+    process: _WorkerProcess,
     *,
     timeout_seconds: int,
     operation: str,
@@ -234,7 +253,10 @@ def _poll_with_memory_limit(
     if sys.platform != "darwin":
         return receiver.poll(timeout_seconds)
     deadline = time.monotonic() + timeout_seconds
-    monitored = psutil.Process(process.pid)
+    process_id = process.pid
+    if process_id is None:
+        raise error_type(f"Source {operation} worker did not start")
+    monitored = psutil.Process(process_id)
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -248,9 +270,7 @@ def _poll_with_memory_limit(
         if resident > VALIDATION_MEMORY_BYTES:
             process.terminate()
             process.join(timeout=5)
-            raise error_type(
-                f"Source {operation} exceeded its memory limit"
-            )
+            raise error_type(f"Source {operation} exceeded its memory limit")
 
 
 class _IoCounters(ctypes.Structure):
@@ -317,9 +337,7 @@ def _assign_windows_job(process_id: int) -> int:
         if not process_handle:
             raise SourceLoadError("Could not open the source-validator process")
         if not kernel32.AssignProcessToJobObject(job, process_handle):
-            raise SourceLoadError(
-                "Could not isolate the source-validator process"
-            )
+            raise SourceLoadError("Could not isolate the source-validator process")
         return int(job)
     except Exception:
         kernel32.CloseHandle(job)

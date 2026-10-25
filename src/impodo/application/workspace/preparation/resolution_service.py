@@ -27,6 +27,7 @@ from impodo.domain.resolution import (
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import portable_value
+from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 
 
 class ResolutionRepository(Protocol):
@@ -182,7 +183,7 @@ class ResolutionService:
     def evaluate_for_preparation(
         self,
         workspace_id: str,
-        staging: CanonicalStagingRun,
+        staging: CanonicalStagingRun | StoredCanonicalStagingRun,
         *,
         staging_run_id: str,
         staging_content_hash: str,

@@ -49,7 +49,7 @@ from impodo.domain.odoo_provenance import (
 from impodo.domain.preparation.normalization import NormalizationRunSummary
 from impodo.domain.preparation.source import SourceTable
 from impodo.domain.preparation.staging_contracts import CanonicalRow
-from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
+from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.source_binding import (
     OdooSourceBinding,
     SourceOriginKind,
@@ -135,7 +135,7 @@ class PreparationService:
         staging: PreparationStagingRepository,
         sessions: PreparationSessionRepository,
         artifacts: GovernedArtifactStores,
-        authorization: AuthorizationPolicy,
+        authorization: WorkspaceAuthorizationPolicy,
         quality: QualityService,
         normalization: NormalizationService,
         columnar_transformations: ColumnarTransformationPort,
@@ -415,13 +415,19 @@ class PreparationService:
                 ),
                 timing=timing,
             )
+            schemas = self.schemas
             schema = (
-                self.schemas.get_odoo_schema_catalog(workspace_id)
-                if self.schemas is not None else None
+                schemas.get_odoo_schema_catalog(workspace_id)
+                if schemas is not None
+                else None
             )
             if schema is not None or self.target_float_digits:
                 if schema is not None:
-                    governance = self.schemas.get_schema_governance(workspace_id)
+                    if schemas is None:
+                        raise ReadinessError(
+                            "Captured Odoo field details are unavailable"
+                        )
+                    governance = schemas.get_schema_governance(workspace_id)
                     expected_schema_hash = (
                         governance.content_hash if governance is not None
                         else schema.content_hash

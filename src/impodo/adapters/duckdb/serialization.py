@@ -31,6 +31,17 @@ from impodo.domain.workspace.workbench import (
 )
 
 
+def _stored_int(value: object, label: str) -> int:
+    """Decode one persisted integer without accepting arbitrary objects."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise TypeError(f"Stored {label} is invalid")
+    try:
+        return int(value)
+    except ValueError as error:
+        raise ValueError(f"Stored {label} is invalid") from error
+
+
 def _workspace_values(workspace: WorkspaceState) -> list[object]:
     """Flatten validated workbench state into the fixed workspace column order."""
 
@@ -110,9 +121,7 @@ def _workspace_from_rows(
 ) -> WorkspaceState:
     """Rebuild one workbench projection and its immutable source-file children."""
 
-    registered_at = (
-        str(data["registered_at"]) if data["registered_at"] else None
-    )
+    registered_at = str(data["registered_at"]) if data["registered_at"] else None
     connection_mode = (
         OdooConnectionMode(str(data["odoo_connection_mode"]))
         if data.get("odoo_connection_mode")
@@ -128,19 +137,15 @@ def _workspace_from_rows(
         name=str(data["name"]),
         source_system=str(data["source_system"]),
         source_mode=SourceMode(str(data.get("source_mode") or "FILE")),
-        data_classification=DataClassification(
-            str(data["data_classification"])
-        ),
-        retention_days=int(data["retention_days"]),
+        data_classification=DataClassification(str(data["data_classification"])),
+        retention_days=_stored_int(data["retention_days"], "retention days"),
         odoo_connection_mode=connection_mode,
         odoo_base_url=str(data["odoo_base_url"]),
         odoo_database=str(data["odoo_database"]),
         destination_odoo_connection_mode=destination_connection_mode,
         destination_odoo_base_url=str(data["destination_odoo_base_url"]),
         destination_odoo_database=str(data["destination_odoo_database"]),
-        destination_verified_target_hash=str(
-            data["destination_verified_target_hash"]
-        ),
+        destination_verified_target_hash=str(data["destination_verified_target_hash"]),
         destination_verified_credential_binding_hash=str(
             data["destination_verified_credential_binding_hash"]
         ),
@@ -166,16 +171,12 @@ def _workspace_from_rows(
             else None
         ),
         transfer_review_package=(
-            TransferReviewPackage.from_json(
-                str(data["transfer_review_package_json"])
-            )
+            TransferReviewPackage.from_json(str(data["transfer_review_package_json"]))
             if data.get("transfer_review_package_json")
             else None
         ),
         transfer_review_approval=(
-            TransferReviewApproval.from_json(
-                str(data["transfer_review_approval_json"])
-            )
+            TransferReviewApproval.from_json(str(data["transfer_review_approval_json"]))
             if data.get("transfer_review_approval_json")
             else None
         ),
@@ -193,14 +194,14 @@ def _workspace_from_rows(
                 file_id=str(row[0]),
                 display_name=str(row[1]),
                 stored_name=str(row[2]),
-                size_bytes=int(row[3]),
+                size_bytes=_stored_int(row[3], "source file size"),
                 sha256=str(row[4]),
                 received_at=datetime.fromisoformat(str(row[5])),
             )
             for row in source_rows
         ),
         status=WorkspaceStatus(str(data["status"])),
-        revision=int(data["revision"]),
+        revision=_stored_int(data["revision"], "workspace revision"),
         created_at=datetime.fromisoformat(str(data["created_at"])),
         updated_at=datetime.fromisoformat(str(data["updated_at"])),
         registered_at=(
@@ -214,6 +215,7 @@ def _workspace_from_rows(
         ),
         approval_status=ApprovalStatus(str(data["approval_status"])),
     )
+
 
 def _canonical_json(value: object) -> str:
     """Serialize repository evidence with deterministic JSON key ordering."""
@@ -258,16 +260,11 @@ def iter_encoded_json_batches(
         )
         encoded_bytes = len(encoded.encode("utf-8"))
         if encoded_bytes + 2 > max_bytes:
-            raise ValueError(
-                "One DuckDB JSON transport row exceeds the byte limit"
-            )
+            raise ValueError("One DuckDB JSON transport row exceeds the byte limit")
         separator_bytes = 1 if encoded_rows else 0
-        if (
-            encoded_rows
-            and (
-                len(encoded_rows) >= max_rows
-                or payload_bytes + separator_bytes + encoded_bytes > max_bytes
-            )
+        if encoded_rows and (
+            len(encoded_rows) >= max_rows
+            or payload_bytes + separator_bytes + encoded_bytes > max_bytes
         ):
             yield _encoded_json_batch(encoded_rows, payload_bytes)
             encoded_rows = []

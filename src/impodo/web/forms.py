@@ -7,7 +7,7 @@ import re
 from urllib.parse import parse_qsl
 
 from fastapi import HTTPException, Request
-from starlette.datastructures import FormData
+from starlette.datastructures import FormData, UploadFile
 
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateError
@@ -84,7 +84,10 @@ async def _mapping_request_form(request: Request) -> FormData:
                 )
             pairs.append((item[0], item[1]))
         _validate_mapping_form_pairs(pairs)
-        return FormData(pairs)
+        form_pairs: list[tuple[str, str | UploadFile]] = [
+            (name, value) for name, value in pairs
+        ]
+        return FormData(form_pairs)
     if content_type == "application/x-www-form-urlencoded":
         try:
             pairs = parse_qsl(
@@ -100,7 +103,8 @@ async def _mapping_request_form(request: Request) -> FormData:
                 detail="Mapping form could not be read safely",
             ) from error
         _validate_mapping_form_pairs(pairs)
-        return FormData(pairs)
+        form_pairs = [(name, value) for name, value in pairs]
+        return FormData(form_pairs)
     raise HTTPException(
         status_code=415,
         detail="Mapping saves require JSON or URL-encoded form data",
@@ -205,11 +209,7 @@ def _form_values(form: FormData) -> dict[str, str]:
 
 
 def _split_models(value: str) -> tuple[str, ...]:
-    return tuple(
-        part.strip()
-        for part in re.split(r"[,\r\n]+", value)
-        if part.strip()
-    )
+    return tuple(part.strip() for part in re.split(r"[,\r\n]+", value) if part.strip())
 
 
 def _submitted_model_scope(form: FormData) -> tuple[str, ...]:
@@ -224,9 +224,7 @@ def _submitted_model_scope(form: FormData) -> tuple[str, ...]:
 
 def _texts(form: FormData, name: str) -> tuple[str, ...]:
     return tuple(
-        value
-        for value in form.getlist(name)
-        if isinstance(value, str) and value
+        value for value in form.getlist(name) if isinstance(value, str) and value
     )
 
 
@@ -241,4 +239,3 @@ def _optional_int(value: str) -> int | None:
         return int(value)
     except ValueError as error:
         raise WorkspaceError("Invalid mapping parent version") from error
-

@@ -8,6 +8,7 @@ The application service still owns the complete-data review and atomic save.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypedDict
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from starlette.datastructures import FormData
@@ -15,6 +16,7 @@ from starlette.datastructures import FormData
 from impodo.application.workspace.derived_entities import ExactJoinRequest
 from impodo.domain.structural import (
     MAX_STRUCTURAL_COLUMNS,
+    ExactJoinReview,
     ExactJoinRule,
     GroupAggregateRule,
     JoinKey,
@@ -25,7 +27,11 @@ from impodo.domain.structural import (
     structural_dataset_id,
     structural_mapping_selection,
 )
-from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
+from impodo.domain.workspace.contracts import (
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+)
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     SourceDatasetUse,
@@ -58,6 +64,19 @@ _JOIN_VALUE_TYPES = frozenset(
     {"string", "integer", "decimal", "boolean", "date", "datetime"}
 )
 _MAX_PROJECTION_CANDIDATES = 1_000
+
+
+class SavedExactJoinView(TypedDict):
+    """Typed presentation shape for one saved exact-join rule."""
+
+    rule: ExactJoinRule
+    review: ExactJoinReview | None
+    left: SourceDataset
+    right: SourceDataset
+    output: SourceDataset
+    left_use: SourceDatasetUse | None
+    right_use: SourceDatasetUse | None
+    step: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,18 +112,20 @@ def parse_exact_join_form(form: FormData) -> ExactJoinFormSubmission:
     except (ValueError, TypeError, AttributeError) as error:
         raise ValueError("The combination review identifier is invalid") from error
 
-    raw_projection_indexes = tuple(form.getlist("projection"))
+    raw_projection_values = tuple(form.getlist("projection"))
+    if not all(isinstance(value, str) for value in raw_projection_values):
+        raise ValueError("The selected output fields are invalid")
+    raw_projection_indexes = tuple(
+        value for value in raw_projection_values if isinstance(value, str)
+    )
     if len(raw_projection_indexes) > MAX_STRUCTURAL_COLUMNS:
-        raise ValueError(
-            f"Choose no more than {MAX_STRUCTURAL_COLUMNS} output fields"
-        )
+        raise ValueError(f"Choose no more than {MAX_STRUCTURAL_COLUMNS} output fields")
     try:
         projection_indexes = tuple(int(value) for value in raw_projection_indexes)
     except (TypeError, ValueError) as error:
         raise ValueError("The selected output fields are invalid") from error
     if len(set(projection_indexes)) != len(projection_indexes) or any(
-        index < 0 or index >= _MAX_PROJECTION_CANDIDATES
-        for index in projection_indexes
+        index < 0 or index >= _MAX_PROJECTION_CANDIDATES for index in projection_indexes
     ):
         raise ValueError("The selected output fields are invalid")
 
@@ -132,12 +153,10 @@ def parse_exact_join_form(form: FormData) -> ExactJoinFormSubmission:
         kind=_text(form, "kind") or JoinKind.LEFT.value,
         require_all_right_rows=_checked(form, "require_all_right_rows"),
         left_dataset_use=(
-            _text(form, "left_dataset_use")
-            or SourceDatasetUse.PREPARATION_ONLY.value
+            _text(form, "left_dataset_use") or SourceDatasetUse.PREPARATION_ONLY.value
         ),
         right_dataset_use=(
-            _text(form, "right_dataset_use")
-            or SourceDatasetUse.PREPARATION_ONLY.value
+            _text(form, "right_dataset_use") or SourceDatasetUse.PREPARATION_ONLY.value
         ),
         projection_indexes=projection_indexes,
         projection_names=projection_names,
@@ -160,7 +179,7 @@ def available_exact_join_selection(
 
 def exact_join_projection_candidates(
     selection: SourceSelection,
-) -> tuple[tuple[SourceDataset, object], ...]:
+) -> tuple[tuple[SourceDataset, SourceDatasetColumn], ...]:
     """Return the stable browser ordering for selectable output fields."""
 
     candidates = tuple(
@@ -339,7 +358,7 @@ def exact_join_dataset_uses(
 def saved_exact_join_views(
     selection: SourceSelection,
     plan: DerivedEntityPlan | None,
-) -> tuple[dict[str, object], ...]:
+) -> tuple[SavedExactJoinView, ...]:
     """Describe saved exact joins without rereading their source rows."""
 
     if plan is None:
@@ -349,7 +368,7 @@ def saved_exact_join_views(
     reviews = {evidence.rule_id: evidence.review for evidence in plan.join_reviews}
     uses = validate_source_dataset_uses(selection, plan)
     physical_ids = {dataset.dataset_id for dataset in selection.datasets}
-    result: list[dict[str, object]] = []
+    result: list[SavedExactJoinView] = []
     structural_step = 0
     for rule in plan.rules:
         if not isinstance(rule, (ExactJoinRule, UnionAllRule, GroupAggregateRule)):

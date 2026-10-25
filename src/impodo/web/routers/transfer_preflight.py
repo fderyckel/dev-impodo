@@ -76,7 +76,13 @@ def _current_evidence(context: WebContext, workspace_id: str):
 
 
 def _labels(codes) -> tuple[str, ...]:
-    return tuple(_BLOCKER_LABELS.get(code, code.replace("_", " ").title()) for code in codes)
+    labels: list[str] = []
+    for code in codes:
+        if code is None:
+            continue
+        label = _BLOCKER_LABELS.get(code)
+        labels.append(label if label is not None else code.replace("_", " ").title())
+    return tuple(labels)
 
 
 def _dataset_rows(package, report):
@@ -97,8 +103,7 @@ def _relationship_rows(package, report):
     if package is None or report is None:
         return ()
     approved = {
-        (item.owner_dataset_id, item.field_name): item
-        for item in package.relationships
+        (item.owner_dataset_id, item.field_name): item for item in package.relationships
     }
     return tuple(
         {
@@ -185,11 +190,15 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
 
         workspace_state = context.queries.get(workspace_id)
         if workspace_state.source_mode is not SourceMode.ODOO:
-            return RedirectResponse(f"/workspaces/{workspace_id}/sources", status_code=303)
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/sources", status_code=303
+            )
         try:
             selection, schema = _current_evidence(context, workspace_id)
         except WorkspaceError:
-            return RedirectResponse(f"/workspaces/{workspace_id}/sources", status_code=303)
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/sources", status_code=303
+            )
         if not workspace_state.transfer_review_approved(
             source_selection_hash=selection.content_hash,
             source_schema_hash=schema.content_hash,
@@ -216,7 +225,9 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
             selection, schema = _current_evidence(context, workspace_id)
         except WorkspaceError as error:
             _flash(request, str(error))
-            return RedirectResponse(f"/workspaces/{workspace_id}/sources", status_code=303)
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/sources", status_code=303
+            )
         try:
             expected_revision = _revision(form)
             if expected_revision != workspace_state.revision:
@@ -348,7 +359,7 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
             request,
             (
                 "Read-only destination preflight passed. No Odoo data was changed."
-                if workspace_state.transfer_preflight_report.ready
+                if report.ready
                 else "Destination preflight found drift. No Odoo data was changed."
             ),
         )

@@ -37,9 +37,22 @@ from ..domain.cutover.models import (
 )
 from ..domain.data_version.models import DataVersionPurpose, DataVersionState
 from ..domain.errors import ReadinessError
-from ..domain.reconciliation import ReconciliationRunStatus
+from ..domain.reconciliation import ReconciliationRun, ReconciliationRunStatus
 from ..domain.run.models import MigrationRunPurpose
 from ..domain.serialization import content_hash
+from .data_version.service import DataVersionService
+from .preflight_service import PreflightService
+from .project.service import MigrationProjectService
+from .recipe_compilation_service import RecipeAuthoringMappingRepository
+from .run.ports import RunCutoverPlanRepository, RunPlanningRepository
+from .workspace.execution.reconciliation import (
+    ReconciliationExecutionRepository,
+    ReconciliationService,
+)
+from .workspace.preparation.readiness_ports import (
+    PreflightQualityRepository,
+    PreflightStagingRepository,
+)
 
 
 class IntegratedQualificationEvidenceReader(Protocol):
@@ -53,7 +66,7 @@ class IntegratedQualificationEvidenceReader(Protocol):
         tuple[CutoverQualificationIssue, ...],
     ]: ...
 
-    def reconciliation_current(self, workspace_id: str): ...
+    def reconciliation_current(self, workspace_id: str) -> ReconciliationRun | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,12 +112,12 @@ class WorkspaceIntegratedQualificationEvidenceReader:
     def __init__(
         self,
         *,
-        mappings,
-        staging,
-        quality,
-        preflight,
-        execution,
-        reconciliation,
+        mappings: RecipeAuthoringMappingRepository,
+        staging: PreflightStagingRepository,
+        quality: PreflightQualityRepository,
+        preflight: PreflightService,
+        execution: ReconciliationExecutionRepository,
+        reconciliation: ReconciliationService,
     ) -> None:
         self.mappings = mappings
         self.staging = staging
@@ -113,7 +126,7 @@ class WorkspaceIntegratedQualificationEvidenceReader:
         self.execution = execution
         self.reconciliation = reconciliation
 
-    def reconciliation_current(self, workspace_id: str):
+    def reconciliation_current(self, workspace_id: str) -> ReconciliationRun | None:
         return self.reconciliation.current(workspace_id)
 
     def read(
@@ -405,10 +418,10 @@ class CutoverPlanService:
     def __init__(
         self,
         *,
-        projects,
-        data_versions,
-        run_planning,
-        repository,
+        projects: MigrationProjectService,
+        data_versions: DataVersionService,
+        run_planning: RunPlanningRepository,
+        repository: RunCutoverPlanRepository,
         evidence_reader: IntegratedQualificationEvidenceReader,
         authorization: AuthorizationPolicy,
     ) -> None:

@@ -41,8 +41,7 @@ class CorrectionRepository:
             self.foundation.registry_path
         ) as connection:
             row = connection.execute(
-                "SELECT * FROM correction_run_binding "
-                "WHERE completed_workspace_id = ?",
+                "SELECT * FROM correction_run_binding WHERE completed_workspace_id = ?",
                 [completed_workspace_id],
             ).fetchone()
             columns = (
@@ -66,8 +65,7 @@ class CorrectionRepository:
             self.foundation.registry_path
         ) as connection:
             row = connection.execute(
-                "SELECT * FROM correction_run_binding "
-                "WHERE successor_workspace_id = ?",
+                "SELECT * FROM correction_run_binding WHERE successor_workspace_id = ?",
                 [successor_workspace_id],
             ).fetchone()
             columns = (
@@ -107,8 +105,7 @@ class CorrectionRepository:
         mapping_hash = require_hash(mapping_hash, "mapping_hash")
         with self.foundation._registry_transactions.transaction() as connection:
             row = connection.execute(
-                "SELECT * FROM correction_run_binding "
-                "WHERE successor_workspace_id = ?",
+                "SELECT * FROM correction_run_binding WHERE successor_workspace_id = ?",
                 [workspace_id],
             ).fetchone()
             if row is None:
@@ -327,8 +324,7 @@ class CorrectionRepository:
             )
             if current.successor_migration_run_id is not None:
                 if (
-                    current.successor_migration_run_id
-                    != successor_migration_run_id
+                    current.successor_migration_run_id != successor_migration_run_id
                     or current.successor_workspace_id != successor_workspace_id
                 ):
                     raise MigrationConflictError(
@@ -641,8 +637,7 @@ class CorrectionRepository:
             if (
                 binding_matches
                 and lineage is not None
-                and tuple(str(item) for item in lineage[::2])
-                == ("COMPLETED", "CLOSED")
+                and tuple(str(item) for item in lineage[::2]) == ("COMPLETED", "CLOSED")
             ):
                 return current
             if (
@@ -717,8 +712,7 @@ class CorrectionRepository:
 
     def _read_binding(self, connection, completed_workspace_id: str):
         row = connection.execute(
-            "SELECT * FROM correction_run_binding "
-            "WHERE completed_workspace_id = ?",
+            "SELECT * FROM correction_run_binding WHERE completed_workspace_id = ?",
             [completed_workspace_id],
         ).fetchone()
         if row is None:
@@ -739,6 +733,9 @@ class CorrectionRepository:
                 artifact_hash=str(value[f"{prefix}_artifact_hash"]),
             )
 
+        optimistic_revision = value["optimistic_revision"]
+        if type(optimistic_revision) is not int:
+            raise CorrectionOriginError("Correction revision is invalid")
         return CorrectionBinding(
             correction_binding_id=str(value["correction_binding_id"]),
             project_id=str(value["project_id"]),
@@ -779,7 +776,10 @@ class CorrectionRepository:
             ),
             current_plan=reference("current_plan"),
             current_confirmation=reference("current_confirmation"),
-            optimistic_revision=int(value["optimistic_revision"]),
+            optimistic_revision=require_revision(
+                optimistic_revision,
+                "optimistic_revision",
+            ),
             created_at=datetime.fromisoformat(str(value["created_at"])),
             updated_at=datetime.fromisoformat(str(value["updated_at"])),
         )
@@ -790,8 +790,7 @@ class CorrectionRepository:
             left.correction_binding_id == right.correction_binding_id
             and left.project_id == right.project_id
             and left.data_version_id == right.data_version_id
-            and left.completed_migration_run_id
-            == right.completed_migration_run_id
+            and left.completed_migration_run_id == right.completed_migration_run_id
             and left.completed_workspace_id == right.completed_workspace_id
             and left.origin == right.origin
             and left.target_index == right.target_index

@@ -124,7 +124,7 @@ from ..composition.target_readers import (
     _selected_local_profile,
 )
 from ..context import SchemaReadSession, WebContext
-from ..forms import _revision, _secure_form, _text
+from ..forms import _revision, _secure_form, _text, _texts
 from ..presenters.common import _flash, _render
 from ..presenters.navigation import build_odoo_capture_workspace_navigation
 from ..presenters.odoo_source_scope import build_related_data_scope_view
@@ -234,10 +234,7 @@ class _IncrementalRelatedSchemaSession:
             )
         return replace(
             self.snapshot,
-            models={
-                model: self.snapshot.models[model]
-                for model in sorted(requested)
-            },
+            models={model: self.snapshot.models[model] for model in sorted(requested)},
             create_defaults={
                 model: self.snapshot.create_defaults[model]
                 for model in sorted(requested)
@@ -304,8 +301,7 @@ class _IncrementalRelatedSchemaSession:
             )
             if (
                 current_credential is None
-                or current_credential.binding_hash
-                != self.credential_binding_hash
+                or current_credential.binding_hash != self.credential_binding_hash
             ):
                 raise WorkspaceStateError(
                     "Odoo read access changed while Impodo was checking linked "
@@ -451,14 +447,10 @@ def _publish_guided_capture_plans(
         workspace_state.workspace_id,
         actor=actor,
         expected_revision=workspace_state.revision,
-        permitted_models=tuple(
-            sorted(relationship_scope.required_capture_models)
-        ),
+        permitted_models=tuple(sorted(relationship_scope.required_capture_models)),
         relationship_decisions=relationship_scope.decisions,
         relationship_root_models=relationship_scope.root_models,
-        relationship_explicit_actions=(
-            relationship_scope.explicit_actions_by_model
-        ),
+        relationship_explicit_actions=(relationship_scope.explicit_actions_by_model),
         schema_catalog=schema,
         capture_selections=capture_selections,
         expected_model_catalog_content_hash=model_catalog.content_hash,
@@ -655,7 +647,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 dataset_name=_text(form, "dataset_name"),
                 model=_text(form, "model"),
-                field_names=tuple(form.getlist("field_names")),
+                field_names=_texts(form, "field_names"),
                 include_archived=bool(_text(form, "include_archived")),
                 page_size=_text(form, "page_size"),
                 filter_field=_text(form, "filter_field"),
@@ -671,10 +663,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 if schema is not None
                 else ()
             )
-            relationship_scope = (
-                context.queries.get_current_odoo_relationship_scope(
-                    workspace_id
-                )
+            relationship_scope = context.queries.get_current_odoo_relationship_scope(
+                workspace_id
             )
             if schema is not None and relationship_scope is not None:
                 proposal = propose_guided_odoo_capture_plans(
@@ -684,17 +674,11 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 )
                 if proposal.issues:
                     next_issue = next(
-                        (
-                            issue
-                            for issue in proposal.issues
-                            if issue.model is not None
-                        ),
+                        (issue for issue in proposal.issues if issue.model is not None),
                         proposal.issues[0],
                     )
                     return selection, next_issue, (), 0
-                model_catalog = context.queries.get_odoo_model_catalog(
-                    workspace_id
-                )
+                model_catalog = context.queries.get_odoo_model_catalog(workspace_id)
                 if model_catalog is None:
                     raise WorkspaceError(
                         "Refresh the available Odoo record types before "
@@ -726,9 +710,12 @@ def build_sources_router(context: WebContext) -> APIRouter:
             return selection, None, missing_models, 0
 
         try:
-            selection, next_issue, missing_models, generated_count = (
-                await run_local_operation(save_selection)
-            )
+            (
+                selection,
+                next_issue,
+                missing_models,
+                generated_count,
+            ) = await run_local_operation(save_selection)
         except (WorkspaceError, WorkspaceStateError) as error:
             error_message = str(error)
 
@@ -761,8 +748,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             next_model = missing_models[0]
             _flash(
                 request,
-                f"Saved {selection.model}. Next, save a plan for "
-                f"{next_model.label}.",
+                f"Saved {selection.model}. Next, save a plan for {next_model.label}.",
             )
             return RedirectResponse(
                 f"/workspaces/{workspace_id}/sources?model={next_model.name}"
@@ -814,9 +800,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
         actor = request_identity(request, context.identity_resolver).actor
 
-        def submitted_actions() -> dict[
-            str, OdooRelationshipCaptureAction
-        ]:
+        def submitted_actions() -> dict[str, OdooRelationshipCaptureAction]:
             submitted: dict[str, OdooRelationshipCaptureAction] = {}
             for raw in form.getlist("related_actions"):
                 model, separator, raw_action = str(raw).partition("::")
@@ -843,10 +827,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 return set(current_scope.root_models)
             # Contract v1 inferred roots from the prior graph. Persist that
             # best available evidence when it is upgraded.
-            return (
-                set(workspace_state.intended_models)
-                - current_scope.included_models
-            )
+            return set(workspace_state.intended_models) - current_scope.included_models
 
         def deliberate_overrides(
             submitted: dict[str, OdooRelationshipCaptureAction],
@@ -867,9 +848,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 root_models=root_models,
                 current_scope=current_scope,
             )
-            exception_models = (
-                set(recommended.conflicting_models)
-                | set(effective.conflicting_models)
+            exception_models = set(recommended.conflicting_models) | set(
+                effective.conflicting_models
             )
             desired = dict(carried)
             selectable = {
@@ -944,12 +924,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 schema_models,
                 include_selected=True,
             )
-            frontier_suggestions = (
-                relationship_expansion_suggestions_for_decisions(
-                    all_suggestions,
-                    frontier_decisions,
-                    root_models=roots,
-                )
+            frontier_suggestions = relationship_expansion_suggestions_for_decisions(
+                all_suggestions,
+                frontier_decisions,
+                root_models=roots,
             )
             selectable = {
                 item.relation_model
@@ -1012,7 +990,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
             included = {
                 item.relation_model
                 for item in decisions
-                if item.action in {
+                if item.action
+                in {
                     OdooRelationshipCaptureAction.CAPTURE_LINKED,
                     OdooRelationshipCaptureAction.PRESERVE_LINKED,
                     OdooRelationshipCaptureAction.MATCH_EXISTING,
@@ -1039,8 +1018,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             ) = await run_local_operation(initial_state)
             explicit_actions = (
                 current_scope.explicit_actions
-                if current_scope is not None
-                and current_scope.contract_version >= 6
+                if current_scope is not None and current_scope.contract_version >= 6
                 else {}
             )
             if current_schema is not None:
@@ -1090,10 +1068,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     intended_models=tuple(sorted(candidate_models)),
                 )
                 new_record_types = (
-                    len(
-                        candidate_models
-                        - set(incremental_session.captured_models)
-                    )
+                    len(candidate_models - set(incremental_session.captured_models))
                     if incremental_session is not None
                     else None
                 )
@@ -1105,20 +1080,16 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     new_record_types=new_record_types,
                 ):
                     if incremental_session is None:
-                        prepared_schema = (
-                            await _prepare_related_schema_candidate(
-                                context,
-                                staged_state,
-                                model_catalog,
-                                actor=actor,
-                            )
+                        prepared_schema = await _prepare_related_schema_candidate(
+                            context,
+                            staged_state,
+                            model_catalog,
+                            actor=actor,
                         )
                         staged_models = prepared_schema.models
                     else:
-                        staged_models = (
-                            await incremental_session.prepare_models(
-                                staged_state
-                            )
+                        staged_models = await incremental_session.prepare_models(
+                            staged_state
                         )
                 (
                     final_decisions,
@@ -1126,15 +1097,13 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     explicit_actions,
                     final_selectable,
                     final_conflicting_models,
-                ) = (
-                    decisions_for_models(
-                        staged_models,
-                        current_scope=current_scope,
-                        roots=root_models,
-                        available=available_models,
-                        explicit_actions=explicit_actions,
-                        frontier_decisions=frontier_decisions,
-                    )
+                ) = decisions_for_models(
+                    staged_models,
+                    current_scope=current_scope,
+                    roots=root_models,
+                    available=available_models,
+                    explicit_actions=explicit_actions,
+                    frontier_decisions=frontier_decisions,
                 )
                 frontier_decisions = final_decisions
                 if chosen_models == candidate_models:
@@ -1162,9 +1131,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     total_record_types=len(candidate_models),
                     new_record_types=0,
                 ):
-                    prepared_schema = await incremental_session.finalize(
-                        final_state
-                    )
+                    prepared_schema = await incremental_session.finalize(final_state)
             assert prepared_schema is not None
             staged_scope = OdooRelationshipScope.create(
                 scope_id=(current_scope.scope_id if current_scope else str(uuid4())),
@@ -1202,15 +1169,13 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     current_scope is not None
                     and current_scope.contract_version >= 6
                     and current_scope.decisions == tuple(final_decisions)
-                    and current_scope.root_models
-                    == tuple(sorted(root_models))
+                    and current_scope.root_models == tuple(sorted(root_models))
                     and current_scope.explicit_actions_by_model
                     == tuple(sorted(explicit_actions.items()))
                 )
                 schema_unchanged = bool(
                     current_schema is not None
-                    and current_schema.content_hash
-                    == prepared_schema.content_hash
+                    and current_schema.content_hash == prepared_schema.content_hash
                     and current_schema.connection_target_hash
                     == prepared_schema.connection_target_hash
                     and current_schema.read_principal_hash
@@ -1221,8 +1186,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     == prepared_schema.read_context_hash
                 )
                 if not (
-                    workspace_state.intended_models
-                    == tuple(sorted(candidate_models))
+                    workspace_state.intended_models == tuple(sorted(candidate_models))
                     and relationship_scope_unchanged
                     and schema_unchanged
                 ):
@@ -1243,6 +1207,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                         ),
                     )
             else:
+
                 def publish_complete_capture_plan():
                     return _publish_guided_capture_plans(
                         context,
@@ -1254,8 +1219,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
                         actor=actor,
                     )
 
-                _saved_workspace_state, capture_selections = (
-                    await run_local_operation(publish_complete_capture_plan)
+                _saved_workspace_state, capture_selections = await run_local_operation(
+                    publish_complete_capture_plan
                 )
                 generated_plan_count = len(capture_selections)
         except (
@@ -1282,10 +1247,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         if not relationship_review.complete:
             if relationship_review.unavailable:
                 count = len(
-                    {
-                        item.relation_model
-                        for item in relationship_review.unavailable
-                    }
+                    {item.relation_model for item in relationship_review.unavailable}
                 )
                 _flash(
                     request,
@@ -1362,10 +1324,16 @@ def build_sources_router(context: WebContext) -> APIRouter:
         _secure_form(
             request,
             form,
-            {"csrf_token", "selection_id", "selection_hash", "confirm_linked_relationships"},
+            {
+                "csrf_token",
+                "selection_id",
+                "selection_hash",
+                "confirm_linked_relationships",
+            },
         )
         actor = request_identity(request, context.identity_resolver).actor
         try:
+
             def prepare_assessment():
                 workspace_state = context.queries.get(workspace_id)
                 workspace = context.migration_workspaces.get(
@@ -1384,13 +1352,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 )
                 selections = prepared.selections
                 schema = prepared.schema
-                if (
-                    any(
-                        item.capture_role is OdooCaptureRole.LINKED_ONLY
-                        for item in selections
-                    )
-                    and not _text(form, "confirm_linked_relationships")
-                ):
+                if any(
+                    item.capture_role is OdooCaptureRole.LINKED_ONLY
+                    for item in selections
+                ) and not _text(form, "confirm_linked_relationships"):
                     raise WorkspaceError(
                         "Review and confirm the selected relationship fields "
                         "before checking linked records"
@@ -1583,9 +1548,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             {"csrf_token", "selection_id", "selection_hash", "confirm_capture"},
         )
         actor = request_identity(request, context.identity_resolver).actor
-        assessment_evidence = request.session.get(
-            _ODOO_CAPTURE_ASSESSMENT_SESSION_KEY
-        )
+        assessment_evidence = request.session.get(_ODOO_CAPTURE_ASSESSMENT_SESSION_KEY)
 
         def prepare_capture():
             """Validate locally and release database owners before enqueueing."""
@@ -1610,26 +1573,19 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 workspace_id
             )
             schema = context.queries.get_odoo_schema_catalog(workspace_id)
-            relationship_scope = (
-                context.queries.get_current_odoo_relationship_scope(
-                    workspace_id
-                )
+            relationship_scope = context.queries.get_current_odoo_relationship_scope(
+                workspace_id
             )
             required_models = (
                 relationship_scope.required_capture_models
                 if relationship_scope is not None
-                else frozenset(
-                    item.name for item in (schema.models if schema else ())
-                )
+                else frozenset(item.name for item in (schema.models if schema else ()))
             )
             if (
                 not selections
                 or schema is None
-                or {item.model for item in selections}
-                != required_models
-                or not required_models.issubset(
-                    item.name for item in schema.models
-                )
+                or {item.model for item in selections} != required_models
+                or not required_models.issubset(item.name for item in schema.models)
             ):
                 raise WorkspaceError(
                     "Save a capture plan for every selected Odoo record type "
@@ -1662,9 +1618,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 raise WorkspaceError(
                     "Save a read-only Odoo API key before freezing source records."
                 )
-            if (
-                schema.read_credential_binding_hash != credential.binding_hash
-            ):
+            if schema.read_credential_binding_hash != credential.binding_hash:
                 raise WorkspaceError(
                     "The Odoo read credential changed. Refresh the record types "
                     "and fields before freezing records."
@@ -1699,8 +1653,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             if (
                 not isinstance(assessment_evidence, dict)
                 or assessment_evidence.get("workspace_id") != workspace_id
-                or assessment_evidence.get("selection_hash")
-                != selection_set_hash
+                or assessment_evidence.get("selection_hash") != selection_set_hash
                 or isinstance(assessment_evidence.get("matching_rows"), bool)
                 or not isinstance(assessment_evidence.get("matching_rows"), int)
                 or not 0
@@ -1721,8 +1674,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     or isinstance(item.get("matching_rows"), bool)
                     or not isinstance(item.get("matching_rows"), int)
                     or item["matching_rows"] < 0
-                    or item["matching_rows"]
-                    > selections[index].max_rows
+                    or item["matching_rows"] > selections[index].max_rows
                     or item.get("page_size") != selections[index].page_size
                     for index, item in enumerate(evidence_items or ())
                 )
@@ -1791,7 +1743,10 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 )
 
             return await run_page_read(render_error)
-        _flash(request, "Odoo capture started. The previous frozen version remains current until this one is complete.")
+        _flash(
+            request,
+            "Odoo capture started. The previous frozen version remains current until this one is complete.",
+        )
         return RedirectResponse(
             _odoo_capture_progress_url(workspace_id, job.job_id),
             status_code=303,
@@ -1948,9 +1903,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     workspace_id,
                     file_id,
                     selected_table_keys=selected,
-                    warnings_acknowledged=bool(
-                        _text(form, "warnings_acknowledged")
-                    ),
+                    warnings_acknowledged=bool(_text(form, "warnings_acknowledged")),
                     actor=actor,
                 )
                 _flash(request, f"Confirmed {refreshed.display_name}.")
@@ -2194,21 +2147,15 @@ def _render_odoo_capture_selection(
     models = tuple(schema.models) if schema is not None else ()
     model_labels_by_name = {item.name: item.label for item in models}
     selected_models = {item.name for item in models}
-    model_catalog = context.queries.get_odoo_model_catalog(
-        workspace_state.workspace_id
-    )
+    model_catalog = context.queries.get_odoo_model_catalog(workspace_state.workspace_id)
     model_catalog_labels = {
         item.name: item.label
-        for item in (
-            model_catalog.models if model_catalog is not None else ()
-        )
+        for item in (model_catalog.models if model_catalog is not None else ())
     }
     relationship_root_labels = tuple(
         model_catalog_labels.get(model, model)
         for model in (
-            relationship_scope.root_models
-            if relationship_scope is not None
-            else ()
+            relationship_scope.root_models if relationship_scope is not None else ()
         )
     )
     related_data_suggestions = relationship_expansion_suggestions(
@@ -2223,9 +2170,7 @@ def _render_odoo_capture_selection(
         related_data_suggestions,
         model_labels={
             item.name: item.label
-            for item in (
-                model_catalog.models if model_catalog is not None else ()
-            )
+            for item in (model_catalog.models if model_catalog is not None else ())
         },
         selected_models=(
             relationship_scope.included_models
@@ -2234,9 +2179,7 @@ def _render_odoo_capture_selection(
         ),
         available_models=frozenset(
             item.name
-            for item in (
-                model_catalog.models if model_catalog is not None else ()
-            )
+            for item in (model_catalog.models if model_catalog is not None else ())
         ),
         relationship_scope=relationship_scope,
     )
@@ -2255,16 +2198,16 @@ def _render_odoo_capture_selection(
         guided_capture_issues = guided_capture_proposal.issues
         guided_capture_drafts = guided_capture_proposal.drafts
     guided_capture_issue_by_model = {
-        item.model: item
-        for item in guided_capture_issues
-        if item.model is not None
+        item.model: item for item in guided_capture_issues if item.model is not None
     }
     linked_models = {
-        item.model for item in current_selections
+        item.model
+        for item in current_selections
         if item.capture_role is OdooCaptureRole.LINKED_ONLY
     }
     root_models = {
-        item.model for item in current_selections
+        item.model
+        for item in current_selections
         if item.capture_role is OdooCaptureRole.ROOT
     }
     presentation_root_models = (
@@ -2273,18 +2216,19 @@ def _render_odoo_capture_selection(
         else frozenset(workspace_state.intended_models) | frozenset(root_models)
     )
     root_capture_selections = tuple(
-        item for item in current_selections
-        if item.capture_role is OdooCaptureRole.ROOT
+        item for item in current_selections if item.capture_role is OdooCaptureRole.ROOT
     )
     linked_capture_selections = tuple(
-        item for item in current_selections
+        item
+        for item in current_selections
         if item.capture_role is OdooCaptureRole.LINKED_ONLY
     )
     reviewed_relationships = (
         {
             item.identity
             for item in relationship_scope.decisions
-            if item.action in {
+            if item.action
+            in {
                 OdooRelationshipCaptureAction.CAPTURE_LINKED,
                 OdooRelationshipCaptureAction.PRESERVE_LINKED,
                 OdooRelationshipCaptureAction.MATCH_EXISTING,
@@ -2314,9 +2258,7 @@ def _render_odoo_capture_selection(
         (model, field)
         for model in models
         for field in model.fields
-        if is_odoo_capture_relationship_field(
-            field, selected_models=selected_models
-        )
+        if is_odoo_capture_relationship_field(field, selected_models=selected_models)
         and (
             reviewed_relationships is None
             or (
@@ -2325,7 +2267,8 @@ def _render_odoo_capture_selection(
                     or (
                         (
                             model.name not in reference_models
-                            or field.name in identity_scope_fields_by_model.get(
+                            or field.name
+                            in identity_scope_fields_by_model.get(
                                 model.name,
                                 frozenset(),
                             )
@@ -2333,7 +2276,8 @@ def _render_odoo_capture_selection(
                         and (
                             model.name not in create_if_missing_models
                             or field.required
-                            or field.name in identity_scope_fields_by_model.get(
+                            or field.name
+                            in identity_scope_fields_by_model.get(
                                 model.name,
                                 frozenset(),
                             )
@@ -2358,11 +2302,13 @@ def _render_odoo_capture_selection(
     requested_model = request.query_params.get("model", "").strip()
     named_issue_model_names = frozenset(guided_capture_issue_by_model)
     default_issue_model = next(
-        (
-            item.name for item in models
-            if item.name in named_issue_model_names
-        ),
+        (item.name for item in models if item.name in named_issue_model_names),
         "",
+    )
+    fallback_model_name = (
+        current_selections[0].model
+        if current_selections
+        else (models[0].name if models else "")
     )
     selected_model = next(
         (
@@ -2374,16 +2320,13 @@ def _render_odoo_capture_selection(
                 or default_issue_model
                 or next(
                     (
-                        item.model for item in current_selections
+                        item.model
+                        for item in current_selections
                         if item.capture_role is OdooCaptureRole.ROOT
                     ),
                     "",
                 )
-                or (
-                    current_selections[0].model
-                    if current_selections
-                    else models[0].name
-                )
+                or fallback_model_name
             )
         ),
         models[0] if models else None,
@@ -2405,17 +2348,26 @@ def _render_odoo_capture_selection(
         )
     )
     filter_fields = tuple(
-        field for field in fields
+        field
+        for field in fields
         if is_odoo_capture_filter_field(field) and field.name != "active"
     )
     selected_field_names = (
-        frozenset(current.field_names)
-        if current is not None and current.model == selected_model.name
+        (
+            frozenset(current.field_names)
+            if current is not None
+            and selected_model is not None
+            and current.model == selected_model.name
+            else frozenset()
+        )
+        if selected_model is not None
         else frozenset()
-    ) if selected_model is not None else frozenset()
+    )
     dataset_name_default = (
         current.dataset_name
-        if current is not None and current.model == selected_model.name
+        if current is not None
+        and selected_model is not None
+        and current.model == selected_model.name
         else (
             f"odoo_{selected_model.name.replace('.', '_')}"[:63]
             if selected_model is not None
@@ -2430,8 +2382,10 @@ def _render_odoo_capture_selection(
         )
         protected_plan_errors = (
             context.odoo_source_capture.review_current_plans(
-                workspace_state.workspace_id, actor=actor,
-                workspace_state=workspace_state, schema=schema,
+                workspace_state.workspace_id,
+                actor=actor,
+                workspace_state=workspace_state,
+                schema=schema,
                 selections=current_selections,
             )
             if has_protected_plans
@@ -2460,12 +2414,12 @@ def _render_odoo_capture_selection(
     required_models = {item.name for item in models}
     plans_complete = bool(required_models) and set(current_by_model) == required_models
     selection_set_hash = (
-        odoo_capture_selection_set_hash(current_selections)
-        if plans_complete
-        else ""
+        odoo_capture_selection_set_hash(current_selections) if plans_complete else ""
     )
     read_credential_status = get_target_credential_status(
-        context.secret_store, workspace_state, TargetCredentialRole.READ,
+        context.secret_store,
+        workspace_state,
+        TargetCredentialRole.READ,
     )
     read_credential_present = read_credential_status.available
     if read_credential_status.support_error is not None and error is None:
@@ -2492,9 +2446,7 @@ def _render_odoo_capture_selection(
     )
     edit_capture_plan = request.query_params.get("edit", "").strip() == "1"
     show_capture_plan_editor = bool(
-        not plans_complete
-        or capture_plan_errors
-        or edit_capture_plan
+        not plans_complete or capture_plan_errors or edit_capture_plan
     )
     all_model_names = frozenset(item.name for item in models)
     explicitly_edited_model = (
@@ -2507,17 +2459,11 @@ def _render_odoo_capture_selection(
             named_issue_model_names | frozenset(capture_plan_errors)
         ) & all_model_names
         if explicitly_edited_model:
-            capture_editor_model_names |= frozenset(
-                {explicitly_edited_model}
-            )
+            capture_editor_model_names |= frozenset({explicitly_edited_model})
     elif capture_plan_errors:
-        capture_editor_model_names = (
-            frozenset(capture_plan_errors) & all_model_names
-        )
+        capture_editor_model_names = frozenset(capture_plan_errors) & all_model_names
         if explicitly_edited_model:
-            capture_editor_model_names |= frozenset(
-                {explicitly_edited_model}
-            )
+            capture_editor_model_names |= frozenset({explicitly_edited_model})
     elif plans_complete and edit_capture_plan:
         capture_editor_model_names = frozenset(
             {requested_model}
@@ -2527,12 +2473,14 @@ def _render_odoo_capture_selection(
     else:
         capture_editor_model_names = all_model_names
     capture_editor_root_models = tuple(
-        item for item in models
+        item
+        for item in models
         if item.name in capture_editor_model_names
         and item.name in presentation_root_models
     )
     capture_editor_linked_models = tuple(
-        item for item in models
+        item
+        for item in models
         if item.name in capture_editor_model_names
         and item.name not in presentation_root_models
     )
@@ -2540,15 +2488,16 @@ def _render_odoo_capture_selection(
         item.name for item in capture_editor_linked_models
     )
     saved_root_models = tuple(
-        item for item in models
+        item
+        for item in models
         if item.name in current_by_model
         and current_by_model[item.name].capture_role is OdooCaptureRole.ROOT
     )
     saved_linked_models = tuple(
-        item for item in models
+        item
+        for item in models
         if item.name in current_by_model
-        and current_by_model[item.name].capture_role
-        is OdooCaptureRole.LINKED_ONLY
+        and current_by_model[item.name].capture_role is OdooCaptureRole.LINKED_ONLY
     )
     current_manifests = context.odoo_provenance.current_manifests(
         workspace_state.workspace_id,
@@ -2602,9 +2551,7 @@ def _render_odoo_capture_selection(
         current_plan_error=current_plan_error,
         current_manifest=current_manifest,
         current_manifests=current_manifests,
-        current_manifest_ids=frozenset(
-            item.manifest_id for item in current_manifests
-        ),
+        current_manifest_ids=frozenset(item.manifest_id for item in current_manifests),
         capture_history=capture_history,
         read_credential_present=read_credential_present,
         read_credential_matches_schema=read_credential_matches_schema,
@@ -2642,8 +2589,7 @@ def _display_capture_policy(schema):
     if schema is None:
         return CURRENT_ODOO_SOURCE_POLICY
     return (
-        odoo_source_policy_from_hash(schema.policy_hash)
-        or CURRENT_ODOO_SOURCE_POLICY
+        odoo_source_policy_from_hash(schema.policy_hash) or CURRENT_ODOO_SOURCE_POLICY
     )
 
 

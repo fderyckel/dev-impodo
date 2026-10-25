@@ -1,10 +1,10 @@
-"""Name the dependencies available to every local browser route.
+"""Name the dependencies available to the shared browser routes.
 
-:func:`impodo.web.composition.local_app.create_local_app` constructs
-``WebContext`` once and
-passes it to each router builder. Routes use the typed services and closed
-reader callables here rather than constructing repositories or connectors.
-The context contains no migration state of its own.
+:func:`impodo.web.composition.application_graph.build_web_context` constructs
+``WebContext`` once from the shared application graph and deployment-selected
+runtime adapters. Routes use the typed services and closed reader callables
+here rather than constructing repositories or connectors. The context
+contains no migration state of its own.
 
 Target reads, the tightly scoped load writer, and the post-write read-back
 reader remain separate boundaries.
@@ -17,17 +17,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from impodo.adapters.odoo.local_reader import (
-    LocalOdooMetadataReader,
-)
-from impodo.adapters.odoo.local_stack import LocalStackService
-from impodo.adapters.protected_destination_create_fields import (
-    ProtectedDestinationCreateFieldStore,
-)
 from impodo.application.data_version.inspection import SourceInspectionService
 from impodo.application.data_version.intake import SourceIntakeService
+from impodo.application.destination_matching_service import (
+    DestinationCreateFieldStore,
+)
 from impodo.application.project.ports import ScopedMigrationProjectQuery
 from impodo.application.shared.artifacts import WorkspaceArtifactStore
 from impodo.application.shared.jobs import JobDispatcher
@@ -53,7 +49,11 @@ from impodo.domain.shared.models import (
     OdooWriteIdentity,
     TargetFingerprint,
 )
-from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateService
+from impodo.domain.workspace.workbench import (
+    WorkspaceState,
+    WorkspaceStateError,
+    WorkspaceStateService,
+)
 from impodo.web.composition.incompatible_project_storage import (
     UnavailableProjectSummary,
 )
@@ -125,6 +125,10 @@ from ..application.workspace_data_version_source_service import (
 from .remote_connection import RemoteConnectionStatusService
 from .request_identity import RequestIdentityResolver
 
+if TYPE_CHECKING:
+    from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
+    from impodo.adapters.odoo.local_stack import LocalStackService
+
 ConnectionTester = Callable[[WorkspaceState, str], TargetFingerprint]
 
 ReadIdentityProbe = Callable[
@@ -189,6 +193,14 @@ OdooSourceCaptureFactory = Callable[[WorkspaceState, str], OdooSourceCapturePort
 
 
 @dataclass(slots=True)
+class LocalTargetRuntime:
+    """Hold adapters that exist only when this deployment supports local Odoo."""
+
+    stack: LocalStackService
+    metadata_reader: LocalOdooMetadataReader
+
+
+@dataclass(slots=True)
 class LifecycleRouteContext:
     """Expose the one launch boundary used by lifecycle routes."""
 
@@ -205,16 +217,31 @@ class QualityRouteContext:
     transformation_impacts: TransformationImpactService
 
 
+class CorrectionRouteContext(Protocol):
+    """Expose only the services and target seams used by correction routes."""
+
+    identity_resolver: RequestIdentityResolver
+    queries: BrowserQueryService
+    workspace_states: WorkspaceStateService
+    corrections: CorrectionWorkflowService
+    correction_jobs: CorrectionJobManager
+    secret_store: SecretStore
+    write_identity_probe: WriteIdentityProbe
+    write_executor_factory: OdooWriteExecutorFactory
+    readback_reader_factory: OdooReadbackReaderFactory
+
+
 @dataclass(slots=True)
 class WebContext:
-    """Share one assembled set of local services and boundary callables.
+    """Share one assembled set of services and boundary callables.
 
     Service fields expose browser use cases; ``queries`` provides read-only
     projections; target callables isolate read and practical write I/O; and
-    Authorization, artifacts, jobs, secrets, and local-stack services provide
-    cross-cutting boundaries. Request actors are deliberately absent and must
-    be resolved through ``identity_resolver``. The object is mutable only so
-    composition roots and tests can replace explicitly injectable runtime seams.
+    authorization, artifacts, jobs, secrets, and deployment runtime services
+    provide cross-cutting boundaries. Request actors are deliberately absent
+    and must be resolved through ``identity_resolver``. The object is mutable
+    only so composition roots and tests can replace explicitly injectable
+    runtime seams.
     """
 
     queries: BrowserQueryService
@@ -272,12 +299,11 @@ class WebContext:
     odoo_capture_publication: OdooCapturePublicationService
     odoo_capture_jobs: OdooCaptureJobManager | None
     odoo_provenance: OdooProvenanceService
-    destination_create_fields: ProtectedDestinationCreateFieldStore
+    destination_create_fields: DestinationCreateFieldStore
     artifacts: WorkspaceArtifactStore
     authorization: AuthorizationPolicy
     jobs: JobDispatcher
     secret_store: SecretStore
-    launch_token: str
     connection_tester: ConnectionTester
     read_identity_probe: ReadIdentityProbe
     write_identity_probe: WriteIdentityProbe
@@ -289,15 +315,45 @@ class WebContext:
     source_capture_factory: OdooSourceCaptureFactory
     write_executor_factory: OdooWriteExecutorFactory
     readback_reader_factory: OdooReadbackReaderFactory
-    local_stack: LocalStackService
-    local_odoo_reader: LocalOdooMetadataReader
+    local_target: LocalTargetRuntime | None
     odoo_connection_tests: OdooConnectionTestService
     remote_connections: RemoteConnectionStatusService
 
-    def lifecycle_routes(self) -> LifecycleRouteContext:
-        """Return the narrow dependency surface for lifecycle routes."""
+    @property
+    def local_stack(self) -> LocalStackService:
+        """Return the local-stack adapter when this deployment provides one."""
 
-        return LifecycleRouteContext(launch_token=self.launch_token)
+        if self.local_target is None:
+            raise WorkspaceStateError(
+                "This Impodo deployment does not provide local Odoo controls"
+            )
+        return self.local_target.stack
+
+    @local_stack.setter
+    def local_stack(self, service: LocalStackService) -> None:
+        if self.local_target is None:
+            raise WorkspaceStateError(
+                "This Impodo deployment does not provide local Odoo controls"
+            )
+        self.local_target.stack = service
+
+    @property
+    def local_odoo_reader(self) -> LocalOdooMetadataReader:
+        """Return the local metadata adapter when this deployment provides one."""
+
+        if self.local_target is None:
+            raise WorkspaceStateError(
+                "This Impodo deployment does not provide local Odoo reads"
+            )
+        return self.local_target.metadata_reader
+
+    @local_odoo_reader.setter
+    def local_odoo_reader(self, reader: LocalOdooMetadataReader) -> None:
+        if self.local_target is None:
+            raise WorkspaceStateError(
+                "This Impodo deployment does not provide local Odoo reads"
+            )
+        self.local_target.metadata_reader = reader
 
     def quality_routes(self) -> QualityRouteContext:
         """Return the narrow dependency surface for mapping-quality routes."""
