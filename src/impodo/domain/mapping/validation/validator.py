@@ -863,11 +863,14 @@ class MappingSemanticValidator:
             schema_catalog.odoo_version,
             OdooOperation.COMPARE,
         )
-        current_reference_policy_hash = (
-            reference_policy_hash(version_decision.version.major)
-            if version_decision.allowed
-            else None
-        )
+        if version_decision.allowed:
+            odoo_major_version = version_decision.version.major
+            assert odoo_major_version is not None
+            current_reference_policy_hash = reference_policy_hash(
+                odoo_major_version
+            )
+        else:
+            current_reference_policy_hash = None
         return MappingValidationResult(
             mapping_content_hash=definition.content_hash,
             source_selection_hash=definition.source_selection_hash,

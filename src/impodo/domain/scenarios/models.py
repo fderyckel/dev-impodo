@@ -474,7 +474,7 @@ class ScenarioExpectations(StrictScenarioModel):
 class ScenarioDefinition(StrictScenarioModel):
     """Bind one complete, safe, and deterministically hashable scenario."""
 
-    contract_version: Literal[SCENARIO_CONTRACT_VERSION]
+    contract_version: Literal[1]
     scenario_id: str = Field(min_length=1, max_length=100)
     purpose: ScenarioPurpose
     source: ScenarioSource

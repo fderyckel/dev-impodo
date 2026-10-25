@@ -8,7 +8,6 @@ from unittest.mock import Mock
 
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.shared.tenancy import AuthenticationMethod, PrincipalKind
-from impodo.web.composition.local_app import LocalWebContext
 from impodo.web.composition.local_identity import (
     LOCAL_ORGANIZATION_ID,
     LocalRequestIdentityResolver,
@@ -73,7 +72,6 @@ class RequestIdentityCompositionTests(unittest.TestCase):
 
     def test_shared_web_context_has_no_process_global_actor(self) -> None:
         self.assertNotIn("actor", WebContext.__dataclass_fields__)
-        self.assertIn("actor", LocalWebContext.__dataclass_fields__)
 
 
 if __name__ == "__main__":

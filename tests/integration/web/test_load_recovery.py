@@ -1,9 +1,9 @@
 """Exercise explicit prepared-data recovery without repeating a saved load."""
 
 import asyncio
-from contextlib import contextmanager, ExitStack
-from dataclasses import replace
 import re
+from contextlib import ExitStack, contextmanager
+from dataclasses import replace
 from threading import Event
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
@@ -13,10 +13,19 @@ from impodo.web.target_credentials import (
     target_write_credential_id,
 )
 from tests.support.browser_scenarios import (
-    ExecutionRowStatus, ExecutionRunStatus, OdooReadIdentity, OdooWriteIdentity,
-    POST_HEADERS, ProjectSetupBrowserTestCase, SimpleNamespace,
-    TargetCredentialRole, _wait_for_load, patch, store_target_credential,
+    POST_HEADERS,
+    ExecutionRowStatus,
+    ExecutionRunStatus,
+    OdooReadIdentity,
+    OdooWriteIdentity,
+    ProjectSetupBrowserTestCase,
+    SimpleNamespace,
+    TargetCredentialRole,
+    _wait_for_load,
+    patch,
+    store_target_credential,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
@@ -25,7 +34,7 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
         self.context = context = self.app.state.context
         workspace = self.workspaces.create(name="Interrupted product load", source_system="Other")
         self.workspace = context.workspace_states.update_target(
-            workspace.workspace_id, actor=context.actor,
+            workspace.workspace_id, actor=resolve_local_actor(context),
             expected_revision=workspace.revision, odoo_connection_mode="REMOTE",
             odoo_base_url="https://odoo.example.test", odoo_database="migration",
             intended_applications=("Contacts",), intended_models=(),

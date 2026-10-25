@@ -218,6 +218,10 @@ class TestRunFreshDataUseCase:
             if item.logical_parameter_id not in normalized:
                 continue
             value = normalized[item.logical_parameter_id]
+            if not isinstance(value, (str, int)):
+                raise MigrationFoundationError(
+                    "A normalized Recipe parameter has an invalid stored value"
+                )
             for recipe_id in item.recipe_ids:
                 saved_values.append(
                     RecipeRunParameterValue(

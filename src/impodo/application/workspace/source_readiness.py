@@ -22,11 +22,20 @@ class SourceStageIssue(StrEnum):
 class SourceReadinessFacts(Protocol):
     """Expose only the bounded facts used by the source-stage gate."""
 
-    source_selection_hash: str
-    schema_present: bool
-    schema_attention: bool
-    schema_models: tuple[str, ...]
-    capture_models: tuple[str, ...]
+    @property
+    def source_selection_hash(self) -> str: ...
+
+    @property
+    def schema_present(self) -> bool: ...
+
+    @property
+    def schema_attention(self) -> bool: ...
+
+    @property
+    def schema_models(self) -> tuple[str, ...]: ...
+
+    @property
+    def capture_models(self) -> tuple[str, ...]: ...
 
 
 @dataclass(frozen=True, slots=True)

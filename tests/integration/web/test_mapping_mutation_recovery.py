@@ -5,11 +5,11 @@ from __future__ import annotations
 from uuid import uuid4
 
 from impodo.domain.mapping.mutations import MappingMutationAction
-
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     ProjectSetupBrowserTestCase,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class MappingMutationRecoveryBrowserTests(ProjectSetupBrowserTestCase):
@@ -127,7 +127,7 @@ class MappingMutationRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             request_hash="0" * 64,
             submitted_working_draft_version=1,
             submitted_mapping_revision_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         pending = self.client.get(
             f"/workspaces/{workspace_id}/mapping/mutation-receipts/"

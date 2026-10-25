@@ -4,14 +4,17 @@ from dataclasses import replace
 from unittest import TestCase
 from unittest.mock import patch
 
-from impodo.domain.run.contracts import RecipeApplicationStatus
-from impodo.domain.project.foundation import MigrationConflictError
-from impodo.domain.serialization import content_hash
 from impodo.application.workspace.preparation.job_models import PreparationJobStatus
-from impodo.web.composition.preparation_job_manager import PreparationJobManager, _run_preparation_worker
-from impodo.web.run_commands import _preparation_workspace
-from impodo.web.run_commands import publish_preparation_progress
+from impodo.domain.project.foundation import MigrationConflictError
+from impodo.domain.run.contracts import RecipeApplicationStatus
+from impodo.domain.serialization import content_hash
+from impodo.web.composition.preparation_job_manager import (
+    PreparationJobManager,
+    _run_preparation_worker,
+)
+from impodo.web.run_commands import _preparation_workspace, publish_preparation_progress
 from tests.integration.web import test_fresh_data_controls as fixtures
+from tests.support.identity import resolve_local_actor
 
 
 class _WithoutTerminalEvents:
@@ -49,7 +52,7 @@ class RecipePreparationRecoveryBrowserTests(TestCase):
 
     def test_lost_worker_result_and_registry_notification_resume_without_repreparing(self):
         application = self.ready_recipe()
-        context, actor = self.context, self.context.actor
+        context, actor = self.context, resolve_local_actor(self.context)
         manager = PreparationJobManager(self.root)
         self.addCleanup(manager.shutdown)
         context.preparation_jobs = manager

@@ -142,6 +142,11 @@ def build_odoo_comparison_publication(
         snapshot,
     )
     origins = _origin_by_ordinal(origin_batches, expected_count=manifest.row_count)
+    captured_schema = frozen.captured_schema
+    if captured_schema is None:
+        raise ReadinessError(
+            "The protected Odoo comparison is missing its captured schema"
+        )
     prepared = tuple(sorted(frozen.prepared.records, key=lambda item: item.source_row))
     if any(item.dataset != dataset.name for item in prepared):
         raise ReadinessError(
@@ -167,12 +172,13 @@ def build_odoo_comparison_publication(
         record_ids,
     )
     version_decision = assess_odoo_operation(
-        frozen.captured_schema.odoo_version,
+        captured_schema.odoo_version,
         OdooOperation.COMPARE,
     )
+    odoo_major_version = version_decision.version.major
     current_reference_policy_hash = (
-        reference_policy_hash(version_decision.version.major)
-        if version_decision.allowed
+        reference_policy_hash(odoo_major_version)
+        if version_decision.allowed and odoo_major_version is not None
         else None
     )
     metadata, records = reader(
@@ -196,7 +202,7 @@ def build_odoo_comparison_publication(
         has_record_requests=bool(record_requests),
     )
 
-    captured_fields = _captured_fields(frozen.captured_schema, binding.model)
+    captured_fields = _captured_fields(captured_schema, binding.model)
     live_fields = metadata.models.get(binding.model)
     schema_changed = live_fields is None or any(
         not _same_write_field(captured_fields.get(name), live_fields.fields.get(name))

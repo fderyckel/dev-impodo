@@ -205,11 +205,11 @@ class TransferPreflightService:
         relationships: list[TransferPreflightRelationship] = []
         for item in package.relationships:
             fresh = fresh_relations.get((item.owner_dataset_id, item.field_name))
-            blockers: set[str] = set()
+            relationship_blockers: set[str] = set()
             if fresh is None:
-                blockers.add("DESTINATION_RELATIONSHIP_SCOPE_DRIFT")
+                relationship_blockers.add("DESTINATION_RELATIONSHIP_SCOPE_DRIFT")
             else:
-                blockers.update(fresh.blocking_reasons)
+                relationship_blockers.update(fresh.blocking_reasons)
                 if (
                     fresh.model != item.owner_model
                     or fresh.related_dataset_id != item.related_dataset_id
@@ -220,14 +220,16 @@ class TransferPreflightService:
                     or fresh.inverse_field != item.inverse_field
                     or fresh.required != item.required
                 ):
-                    blockers.add("DESTINATION_RELATIONSHIP_SCOPE_DRIFT")
+                    relationship_blockers.add("DESTINATION_RELATIONSHIP_SCOPE_DRIFT")
                 if (
                     fresh.source_link_count != item.source_link_count
                     or fresh.destination_reused_link_count
                     != item.destination_reused_link_count
                     or fresh.incoming_link_count != item.incoming_link_count
                 ):
-                    blockers.add("DESTINATION_RELATIONSHIP_RESOLUTION_DRIFT")
+                    relationship_blockers.add(
+                        "DESTINATION_RELATIONSHIP_RESOLUTION_DRIFT"
+                    )
             relationships.append(
                 TransferPreflightRelationship(
                     owner_dataset_id=item.owner_dataset_id,
@@ -250,7 +252,7 @@ class TransferPreflightService:
                     observed_incoming_link_count=(
                         fresh.incoming_link_count if fresh else 0
                     ),
-                    blocker_codes=tuple(sorted(blockers)),
+                    blocker_codes=tuple(sorted(relationship_blockers)),
                 )
             )
 

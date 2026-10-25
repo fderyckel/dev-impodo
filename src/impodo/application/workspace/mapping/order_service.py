@@ -665,11 +665,14 @@ class MatchingOrderService:
             schema.odoo_version,
             OdooOperation.COMPARE,
         )
-        current_reference_policy_hash = (
-            reference_policy_hash(version_decision.version.major)
-            if version_decision.allowed
-            else None
-        )
+        if version_decision.allowed:
+            odoo_major_version = version_decision.version.major
+            assert odoo_major_version is not None
+            current_reference_policy_hash = reference_policy_hash(
+                odoo_major_version
+            )
+        else:
+            current_reference_policy_hash = None
         requirements = PreflightRequirementPlan(
             metadata_requests=metadata_requests,
             record_requests=tuple(record_requests),
@@ -1169,15 +1172,18 @@ class MatchingOrderService:
                 return unchecked(
                     RelationshipHealthNotCheckableReason.RELATED_IDENTITY_UNAVAILABLE
                 )
+        source_keys = self._source_keys
+        if source_keys is None:
+            raise RuntimeError("Matching-order source-key reader is not configured")
         try:
-            raw_source = self._source_keys.source_included_key_tuples(
+            raw_source = source_keys.source_included_key_tuples(
                 workspace_id,
                 owner.dataset_id,
                 source_columns,
                 owner.row_inclusion,
             )
             raw_incoming = (
-                self._source_keys.source_included_key_tuples(
+                source_keys.source_included_key_tuples(
                     workspace_id,
                     dependency.dataset_id,
                     incoming_columns,
@@ -1309,8 +1315,11 @@ class MatchingOrderService:
                     MatchingIdentityNotCheckableReason.UNSUPPORTED_TARGET_FIELD
                 ),
             )
+        source_key_reader = self._source_keys
+        if source_key_reader is None:
+            raise RuntimeError("Matching-order source-key reader is not configured")
         try:
-            source_keys = self._source_keys.source_identity_key_tuples(
+            source_keys = source_key_reader.source_identity_key_tuples(
                 workspace_id,
                 dataset.dataset_id,
                 source_columns,

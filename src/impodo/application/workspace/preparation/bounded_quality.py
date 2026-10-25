@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections import deque
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import Protocol, cast, overload
@@ -23,6 +23,7 @@ from impodo.domain.preparation.quality import (
     QualityIssue,
     QualityOutcomePolicy,
     QualityRowResult,
+    QualityRule,
     QualityRuleFamily,
     QualityRuleSet,
     QualityRuleSource,
@@ -68,15 +69,38 @@ class _IndexedPreparationRows(Protocol):
         self,
         connection: object,
         batch_size: int,
-    ) -> Iterator[tuple[object, ...]]: ...
+    ) -> Iterator[Sequence[Sequence[object]]]: ...
 
     def iter_accounting_index_batches(
         self,
         connection: object,
         batch_size: int,
-    ) -> Iterator[tuple[object, ...]]: ...
+    ) -> Iterator[Sequence[Sequence[object]]]: ...
 
     def contains_row_id(self, row_id: str) -> bool: ...
+
+
+class _EncodedBatchReader(Protocol):
+    def __call__(
+        self,
+        connection: object,
+        batch_size: int,
+    ) -> Iterator[Sequence[Sequence[object]]]: ...
+
+
+class _QualityIndexBuilder(Protocol):
+    def __call__(
+        self,
+        physical_rows: Mapping[str, tuple[int, ...]],
+    ) -> Mapping[str, object] | None: ...
+
+
+class _RelationshipFindingReader(Protocol):
+    def __call__(
+        self,
+        unsafe_row_ids: Sequence[str],
+        propagating_datasets: Sequence[str],
+    ) -> Iterable[Sequence[object]]: ...
 
 
 class _CleanQualityRows(Sequence[QualityRowResult]):
@@ -114,7 +138,8 @@ class _CleanQualityRows(Sequence[QualityRowResult]):
             for start in range(0, len(self), batch_size):
                 yield self[start : start + batch_size]
             return
-        for batch in encoded_batches(connection, batch_size):
+        batch_reader = cast(_EncodedBatchReader, encoded_batches)
+        for batch in batch_reader(connection, batch_size):
             yield tuple(
                 clean_quality_row_result(
                     CanonicalRow.from_dict(json.loads(str(row_json)))
@@ -172,7 +197,8 @@ class _BoundedQualityRows(Sequence[QualityRowResult]):
             for start in range(0, len(self), batch_size):
                 yield self[start : start + batch_size]
             return
-        for batch in encoded_batches(connection, batch_size):
+        batch_reader = cast(_EncodedBatchReader, encoded_batches)
+        for batch in batch_reader(connection, batch_size):
             yield tuple(
                 self._result(CanonicalRow.from_dict(json.loads(str(row_json))))
                 for *_metadata, row_json in batch
@@ -230,7 +256,8 @@ class _DirectSourceAccounting(Sequence[SourceAccountingEntry]):
             for start in range(0, len(self), batch_size):
                 yield self[start : start + batch_size]
             return
-        for batch in encoded_batches(connection, batch_size):
+        batch_reader = cast(_EncodedBatchReader, encoded_batches)
+        for batch in batch_reader(connection, batch_size):
             yield tuple(
                 self._entry(CanonicalRow.from_dict(json.loads(str(row_json))))
                 for *_metadata, row_json in batch
@@ -421,6 +448,37 @@ class _DirectEligibleRowIds(AbstractSet[str]):
         return row_id not in self._excluded
 
 
+def _indexed_integer(value: object) -> int:
+    """Return an exact integer from the validated bounded-quality index."""
+
+    if type(value) is not int:
+        raise BoundedQualityUnsupported
+    return value
+
+
+def _indexed_optional_integer(value: object) -> int | None:
+    if value is None:
+        return None
+    return _indexed_integer(value)
+
+
+def _indexed_rows(
+    index: Mapping[str, object],
+    key: str,
+) -> tuple[Sequence[object], ...]:
+    """Return a validated row collection from the bounded-quality index."""
+
+    value = index.get(key, ())
+    if not isinstance(value, (list, tuple)):
+        raise BoundedQualityUnsupported
+    rows: list[Sequence[object]] = []
+    for row in value:
+        if not isinstance(row, (list, tuple)):
+            raise BoundedQualityUnsupported
+        rows.append(row)
+    return tuple(rows)
+
+
 def build_bounded_quality_run(
     *,
     workspace_state: WorkspaceState,
@@ -479,7 +537,8 @@ def build_bounded_quality_run(
     # Other stored sequences retain the authoritative compatibility route.
     index_builder = getattr(staging.rows, "bounded_quality_index", None)
     if callable(index_builder):
-        index = index_builder(physical_rows)
+        build_index = cast(_QualityIndexBuilder, index_builder)
+        index = build_index(physical_rows)
         if index is not None:
             if needs_identity_groups and not callable(getattr(staging.rows, "bounded_identity_group_findings", None)):
                 raise BoundedQualityUnsupported
@@ -632,7 +691,7 @@ def build_bounded_quality_run(
         issue_map[issue.issue_id] = issue
     staging_issues_by_coordinate: dict[
         tuple[str, int],
-        list[object],
+        list[CanonicalIssue],
     ] = {}
     for item in staging.issues:
         if item.dataset and item.source_row is not None:
@@ -828,12 +887,12 @@ def _build_indexed_quality_run(
 ) -> StoredQualityRun:
     """Build default-plus-exception evidence from set-validated row facts."""
 
-    row_count = int(index["row_count"])
+    row_count = _indexed_integer(index["row_count"])
     raw_counts = index["disposition_counts"]
     if not isinstance(raw_counts, Mapping):
         raise BoundedQualityUnsupported
     disposition_counts = {
-        StagingDisposition(str(key)): int(value)
+        StagingDisposition(str(key)): _indexed_integer(value)
         for key, value in raw_counts.items()
     }
     rules_by_family = {
@@ -858,13 +917,13 @@ def _build_indexed_quality_run(
         row = _IssueRow(
             str(row_id),
             str(dataset),
-            int(source_row),
+            _indexed_integer(source_row),
             StagingDisposition(str(disposition)),
         )
         metadata = (
             row,
             str(physical_dataset_id),
-            int(physical_source_row),
+            _indexed_integer(physical_source_row),
         )
         existing = row_metadata.setdefault(row.row_id, metadata)
         if existing != metadata:
@@ -875,13 +934,13 @@ def _build_indexed_quality_run(
             raise BoundedQualityUnsupported
         return row
 
-    for raw in index.get("exception_rows", ()):
+    for raw in _indexed_rows(index, "exception_rows"):
         _ordinal, row_id, dataset, source_row, disposition, physical_id, physical_row = raw
         register(
             row_id, dataset, source_row, disposition, physical_id, physical_row
         )
 
-    for raw in index.get("issue_rows", ()):
+    for raw in _indexed_rows(index, "issue_rows"):
         (
             _ordinal,
             row_id,
@@ -920,7 +979,7 @@ def _build_indexed_quality_run(
         issue_map[issue.issue_id] = issue
         row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
-    for raw in index.get("collisions", ()):
+    for raw in _indexed_rows(index, "collisions"):
         (
             _ordinal,
             row_id,
@@ -944,7 +1003,7 @@ def _build_indexed_quality_run(
             rule,
             row,
             "POST_TRANSFORM_IDENTITY_COLLISION",
-            f"{int(identity_count)} prepared records would use the same Odoo match. All were set aside for review.",
+            f"{_indexed_integer(identity_count)} prepared records would use the same Odoo match. All were set aside for review.",
             (),
             policy=rule.outcome,
         )
@@ -994,6 +1053,10 @@ def _build_indexed_quality_run(
     )
     relationship_finder = getattr(staging.rows, finder_name, None)
     if callable(relationship_finder):
+        read_relationship_findings = cast(
+            _RelationshipFindingReader,
+            relationship_finder,
+        )
         attached_relationship_causes: set[
             tuple[str, str, str, str]
         ] = set()
@@ -1025,7 +1088,7 @@ def _build_indexed_quality_run(
                 and rule.outcome is not QualityOutcomePolicy.WARNING
             )
         )
-        for raw in relationship_finder(
+        for raw in read_relationship_findings(
             initially_unsafe,
             propagating_datasets,
         ):
@@ -1093,11 +1156,7 @@ def _build_indexed_quality_run(
                 linked_dataset=str(linked_dataset),
                 affected_field=str(affected_field),
                 related_dataset=related_dataset,
-                related_source_row=(
-                    int(related_source_row)
-                    if related_source_row is not None
-                    else None
-                ),
+                related_source_row=_indexed_optional_integer(related_source_row),
             )
             issue = _quality_issue(
                 workspace_state,
@@ -1228,7 +1287,7 @@ def _attach_relationship_findings(
     *,
     workspace_state: WorkspaceState,
     staging: StoredCanonicalStagingRun,
-    rules_by_family: Mapping[tuple[str, QualityRuleFamily], object],
+    rules_by_family: Mapping[tuple[str, QualityRuleFamily], QualityRule],
     issue_map: dict[str, QualityIssue],
     row_issue_ids: dict[str, set[str]],
     source_index: Mapping[tuple[str, bytes], str | tuple[str, ...]],
@@ -1257,7 +1316,7 @@ def _attach_relationship_findings(
         str, list[tuple[str, str, str]]
     ] = {}
     unresolved_dependents: dict[str, list[tuple[str, str, str]]] = {}
-    relationship_rule_by_row: dict[str, object] = {}
+    relationship_rule_by_row: dict[str, QualityRule] = {}
     for row in staging.rows:
         if (row.dataset, row.source_row) in duplicate_coordinates:
             continue

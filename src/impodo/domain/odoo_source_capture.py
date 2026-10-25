@@ -701,7 +701,11 @@ def plan_odoo_source_capture(
     )
     if selection.filter_policy is not OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS:
         active = fields.get("active")
-        if not is_odoo_capture_filter_field(active) or active.type != "boolean":
+        if (
+            active is None
+            or not is_odoo_capture_filter_field(active)
+            or active.type != "boolean"
+        ):
             raise OdooSourceCaptureConfigurationError(
                 "Active/archive capture requires an eligible active field"
             )
@@ -820,7 +824,11 @@ def is_odoo_capture_value_field(field: SchemaField | None) -> bool:
 def is_odoo_capture_filter_field(field: SchemaField | None) -> bool:
     """Return whether a capturable value may also bound record membership."""
 
-    return bool(is_odoo_capture_value_field(field) and field.searchable is True)
+    return bool(
+        field is not None
+        and is_odoo_capture_value_field(field)
+        and field.searchable is True
+    )
 
 
 def is_odoo_capture_relationship_field(

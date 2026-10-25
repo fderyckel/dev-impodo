@@ -1,30 +1,22 @@
 from __future__ import annotations
 
+import json
+import unittest
 from dataclasses import replace
 from datetime import datetime, timezone
-import json
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
 
 from impodo.adapters.odoo.connectors import Json2ReadConnector
-from impodo.domain.odoo.contracts import (
-    MetadataRequest,
-    MetadataSnapshot,
-    RecordRequest,
-    RecordSnapshot,
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
+from impodo.application.run.odoo_requirements import (
+    OdooCheckRelationshipRequirement,
+    OdooCheckSupportingRequirement,
 )
-from impodo.domain.shared.models import (
-    FieldMetadata,
-    ModelMetadata,
-    OdooReadIdentity,
-    TargetFingerprint,
-    TargetRecord,
-    target_identity_hash,
+from impodo.domain.execution.planner import (
+    PreflightRequirementPlan,
+    ReferenceReadRequirement,
 )
-from impodo.domain.shared.access import LOCAL_ACTOR
-from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode
-from impodo.domain.execution.planner import PreflightRequirementPlan, ReferenceReadRequirement
 from impodo.domain.mapping.contracts import (
     CategoricalCoveragePolicy,
     DatasetMapping,
@@ -34,24 +26,21 @@ from impodo.domain.mapping.contracts import (
     RelationshipResolver,
     ResolverOrigin,
 )
-from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
-from impodo.web.target_credentials import (
-    TargetCredentialRole,
-    store_target_credential,
+from impodo.domain.odoo.contracts import (
+    MetadataRequest,
+    MetadataSnapshot,
+    RecordRequest,
+    RecordSnapshot,
 )
-from impodo.web.composition.target_readers import (
-    _PreparedSupportingLookup,
-    _capture_mapping_supporting_values,
-    _capture_recipe_supporting_values,
-    _ensure_targeted_supporting_read_complete,
-    _open_schema_read_session,
-    _read_readiness_snapshots,
-    _read_supporting_lookup_snapshots,
-    _relationship_value_choices,
-)
-from impodo.application.run.odoo_requirements import (
-    OdooCheckRelationshipRequirement,
-    OdooCheckSupportingRequirement,
+from impodo.domain.schema.governance import BusinessKeyDefinition
+from impodo.domain.shared.access import LOCAL_ACTOR
+from impodo.domain.shared.models import (
+    FieldMetadata,
+    ModelMetadata,
+    OdooReadIdentity,
+    TargetFingerprint,
+    TargetRecord,
+    target_identity_hash,
 )
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
@@ -62,8 +51,22 @@ from impodo.domain.workspace.contracts import (
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import StandardReferenceFieldContract
 from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
-from impodo.domain.schema.governance import BusinessKeyDefinition
-
+from impodo.domain.workspace.workbench import OdooConnectionMode, WorkspaceState
+from impodo.web.composition.target_readers import (
+    _capture_mapping_supporting_values,
+    _capture_recipe_supporting_values,
+    _ensure_targeted_supporting_read_complete,
+    _open_schema_read_session,
+    _PreparedSupportingLookup,
+    _read_readiness_snapshots,
+    _read_supporting_lookup_snapshots,
+    _relationship_value_choices,
+)
+from impodo.web.target_credentials import (
+    TargetCredentialRole,
+    store_target_credential,
+)
+from tests.support.identity import resolve_local_actor
 
 HASH = "sha256:" + "1" * 64
 
@@ -880,7 +883,7 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
             workspace,
             schema,
             requirements,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
 
         self.assertEqual(len(calls), 1)
@@ -1121,7 +1124,7 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
             workspace,
             schema,
             datasets,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
 
         self.assertEqual(len(calls), 1)
@@ -1240,7 +1243,7 @@ class ScopedRelationshipChoiceTests(unittest.TestCase):
                     key_id="calendar-within-company", model="resource.calendar",
                     key_fields=("name",), scope_fields=("company_id",),
                 ),
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             )
         self.assertFalse(reused)
         self.assertEqual(ambiguous, ())

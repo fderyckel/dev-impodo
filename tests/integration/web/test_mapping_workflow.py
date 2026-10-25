@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from io import BytesIO
-from openpyxl import load_workbook
 from time import sleep
 from types import SimpleNamespace
 from uuid import uuid4
+
+from openpyxl import load_workbook
 
 from impodo.domain.mapping.contracts import (
     RelationshipValueSource,
@@ -30,9 +31,10 @@ from impodo.domain.workspace.supporting_lookups import (
 )
 from impodo.web.target_credentials import (
     TargetCredentialRole,
+)
+from impodo.web.target_credentials import (
     get_target_credential as actual_get_target_credential,
 )
-
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     CategoricalCoveragePolicy,
@@ -63,6 +65,7 @@ from tests.support.browser_scenarios import (
     replace,
     target_identity_hash,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
@@ -100,7 +103,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             pending_receipt = context.mapping_workspace.get_mutation_receipt(
                 workspace_id,
                 operation_id,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             )
             self.assertIsNotNone(pending_receipt)
             self.assertEqual(pending_receipt.state.value, "PENDING")
@@ -180,11 +183,11 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         receipt = context.mapping_workspace.get_mutation_receipt(
             workspace_id,
             operation_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         snapshot, _confirmation = context.row_inclusion_reviews.current(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertIsNotNone(receipt)
         self.assertIsNotNone(snapshot)
@@ -315,7 +318,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("select Check matches again", receipt.json()["detail"])
         snapshot, _confirmation = context.row_inclusion_reviews.current(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertIsNone(snapshot)
 
@@ -372,7 +375,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             ),
             expected_parent_version=None,
             expected_working_draft_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         legacy_revision = replace(
             revision,
@@ -411,7 +414,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         workspace = context.migration_workspaces.get(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         with patch.object(
             context.recipe_publication.compiler.mappings,
@@ -452,7 +455,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             ),
             expected_parent_version=None,
             expected_working_draft_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
 
@@ -636,7 +639,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 ),
             ),
             expected_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         calls = []
 
@@ -1470,7 +1473,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 ),
             ),
             ambiguous_values=(),
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         unavailable = save()
         self.assertEqual(unavailable.status_code, 422, unavailable.text)
@@ -1748,7 +1751,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             read_credential_binding_hash=schema.read_credential_binding_hash,
             read_principal_hash=schema.read_principal_hash,
             read_context_hash=schema.read_context_hash,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertIsNotNone(lookup)
         context.supporting_lookups.capture(
@@ -1766,7 +1769,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             captured_at=lookup.captured_at,
             choices=lookup.choices,
             ambiguous_values=lookup.ambiguous_values,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
 
         saved = self.client.post(
@@ -1876,7 +1879,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 ),
             ),
             expected_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(initial.version, 1)
 

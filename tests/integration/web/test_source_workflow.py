@@ -57,6 +57,7 @@ from tests.support.browser_scenarios import (
     timezone,
     uuid4,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
@@ -168,21 +169,21 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         workspace_state = context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             permitted_models=("x.root",),
         )
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             workspace_state.workspace_id,
             selected_schema,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         model_catalog = OdooModelCatalog(
             workspace_id=workspace_state.workspace_id,
             connection_target_hash=selected_schema.connection_target_hash,
             policy_hash=selected_schema.policy_hash,
             captured_at=datetime.now(timezone.utc),
-            captured_by=context.actor.identity.display_name,
+            captured_by=resolve_local_actor(context).identity.display_name,
             connection_mode=selected_schema.connection_mode,
             database=selected_schema.database,
             odoo_version=selected_schema.odoo_version,
@@ -206,7 +207,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context.schema_workspace.schemas.save_odoo_model_catalog(
             workspace_state.workspace_id,
             model_catalog,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         return workspace_state, selected_schema, model_catalog
 
@@ -227,7 +228,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         saved_state = context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             permitted_models=("x.root", "res.company"),
             relationship_decisions=decisions,
@@ -269,7 +270,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         workspace_state = context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             permitted_models=("product.template",),
         )
@@ -364,12 +365,12 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context.schema_workspace.schemas.save_odoo_model_catalog(
             workspace_state.workspace_id,
             model_catalog,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             workspace_state.workspace_id,
             root_schema,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         store_target_credential(
             self.secrets,
@@ -390,11 +391,11 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         predecessor_state, _schema = self._frozen_odoo_source_workspace()
         predecessor_workspace = context.migration_workspaces.get(
             predecessor_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         predecessor_data = context.data_versions.get(
             predecessor_workspace.data_version_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         warning_page = self.client.get(
             f"/workspaces/{predecessor_state.workspace_id}/target"
@@ -438,11 +439,11 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         successor_workspace = context.migration_workspaces.get(
             successor_workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         successor_data = context.data_versions.get(
             successor_workspace.data_version_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         successor_package = (
             context.data_version_source_projection.packages.repository
@@ -491,7 +492,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         predecessor_state, _schema = self._frozen_odoo_source_workspace()
         predecessor_workspace = context.migration_workspaces.get(
             predecessor_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         invalid_restart = self._post(
             f"/projects/{predecessor_workspace.project_id}/odoo-source-restarts/"
@@ -501,11 +502,11 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(invalid_restart.status_code, 404)
         predecessor_data = context.data_versions.get(
             predecessor_workspace.data_version_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         changed_state = context.workspace_states.update_target(
             predecessor_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=predecessor_state.revision,
             odoo_connection_mode="REMOTE",
             odoo_base_url="https://changed-before-fix.example.test",
@@ -525,7 +526,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             changed_state,
             TargetCredentialRole.READ,
             credential,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         captured = self._post(
             f"/workspaces/{changed_state.workspace_id}/schema/capture",
@@ -570,11 +571,11 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         ).group(1)
         successor_workspace = context.migration_workspaces.get(
             successor_workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         successor_data = context.data_versions.get(
             successor_workspace.data_version_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertIs(predecessor_data.state, DataVersionState.FROZEN)
         self.assertIs(successor_data.state, DataVersionState.DRAFT)
@@ -613,14 +614,14 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context.odoo_capture_publication.publish(
             workspace_id,
             _BrowserOdooCaptureGateway(workspace_state, schema),
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertTrue(context.navigation.get_source_readiness(workspace_id).ready)
 
         current = context.queries.get(workspace_id)
         context.workspace_states.update_schema_scope(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=current.revision,
             permitted_models=("res.partner", "uom.uom"),
         )
@@ -639,7 +640,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             workspace_id,
             expanded_schema,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         partial_plan = self._post(
             f"/workspaces/{workspace_id}/sources/odoo-selection",
@@ -715,7 +716,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         kept = context.intake.accept(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             display_name="customers.csv",
             stream=BytesIO(b"code,name\nC1,Kept\n"),
@@ -723,7 +724,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         current = context.queries.get(workspace_state.workspace_id)
         wrong = context.intake.accept(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=current.revision,
             display_name="wrong.csv",
             stream=BytesIO(b"code,name\nBAD,Wrong\n"),
@@ -754,7 +755,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         current = context.queries.get(workspace_state.workspace_id)
         registered = context.workspace_states.register(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=current.revision,
         )
 
@@ -843,11 +844,11 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                     workspace_state.workspace_id,
                 ),
                 created_at=now,
-                created_by=context.actor.identity.display_name,
+                created_by=resolve_local_actor(context).identity.display_name,
                 datasets=(),
                 content_hash="sha256:" + "a" * 64,
             ),
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         blocked = self._post(
             f"/workspaces/{workspace_state.workspace_id}/files/{kept.file_id}/remove",
@@ -1063,7 +1064,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             workspace_state.workspace_id,
             selected_schema,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         context.sources.define_odoo_capture_selection(
             workspace_state.workspace_id,
@@ -1072,7 +1073,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             field_names=("name",),
             include_archived=False,
             page_size=100,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         context.sources.define_odoo_capture_selection(
             workspace_state.workspace_id,
@@ -1082,7 +1083,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             include_archived=False,
             page_size=100,
             linked_only=True,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         before_state = context.queries.get(workspace_state.workspace_id)
         before_scope = context.queries.get_current_odoo_relationship_scope(
@@ -1351,14 +1352,14 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         workspace_state = context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             permitted_models=("x.root",),
         )
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             workspace_state.workspace_id,
             root_schema,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         model_catalog = SimpleNamespace(
             content_hash=context.queries.get_odoo_model_catalog(
@@ -1435,7 +1436,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             context.schema_workspace.schemas.save_odoo_schema_catalog(
                 saved_state.workspace_id,
                 selected_schema,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             )
             return selected_schema
 
@@ -1520,7 +1521,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             context.schema_workspace.schemas.save_odoo_schema_catalog(
                 saved_state.workspace_id,
                 selected_schema,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             )
             return selected_schema
 
@@ -1684,7 +1685,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         workspace_state = context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             permitted_models=("product.template",),
         )
@@ -1937,7 +1938,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         selected_schema = replace(schema, models=(product, owner))
         workspace_state = context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             permitted_models=("product.template", "x.owner"),
         )
@@ -2013,7 +2014,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         workspace_state = context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             permitted_models=("product.template",),
         )
@@ -2175,7 +2176,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         workspace_state = context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             permitted_models=("x.root",),
         )
@@ -2746,7 +2747,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         workspace_state = context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             permitted_models=("x.root",),
         )
@@ -2858,12 +2859,12 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context.schema_workspace.schemas.save_odoo_model_catalog(
             workspace_state.workspace_id,
             model_catalog,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             workspace_state.workspace_id,
             root_schema,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         store_target_credential(
             self.secrets,
@@ -2884,7 +2885,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             field_names=("name",),
             include_archived=False,
             page_size=100,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(
             context.queries.get_current_odoo_capture_selections(
@@ -3073,7 +3074,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         workspace_state = context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             permitted_models=("product.category", "product.template"),
         )
@@ -3132,7 +3133,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             decisions=decisions,
             root_models=("product.template",),
             recorded_at=datetime.now(timezone.utc),
-            recorded_by=context.actor.identity.display_name,
+            recorded_by=resolve_local_actor(context).identity.display_name,
         )
 
         with (
@@ -3183,7 +3184,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             workspace_state.workspace_id,
             schema,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
 
         with collect_duckdb_request_timings() as selection_timings:
@@ -3218,7 +3219,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         workspace_state = context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             permitted_models=("product.template", "product.category"),
         )
@@ -3329,12 +3330,12 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             workspace_state.workspace_id,
             schema,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         current_state = context.queries.get(workspace_state.workspace_id)
         context.workspace_states.update_schema_scope(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=current_state.revision,
             permitted_models=current_state.intended_models,
             relationship_decisions=relationship_scope_decisions(
@@ -3585,7 +3586,7 @@ class SourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             context.sources.sources.save_source_catalogs(
                 workspace_id,
                 saved_catalogs,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             )
         self.assertEqual(context.queries.get_source_selection(workspace_id), saved_selection)
         self.assertEqual(context.queries.get_source_catalogs(workspace_id), saved_catalogs)

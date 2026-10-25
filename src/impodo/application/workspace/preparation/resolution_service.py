@@ -124,6 +124,7 @@ class ResolutionStagingRepository(Protocol):
 class ResolutionSummary(Protocol):
     run_id: str
     staging_run_id: str
+    staging_content_hash: str
     status: str
     lifecycle_version: int
     effective_content_hash: str | None

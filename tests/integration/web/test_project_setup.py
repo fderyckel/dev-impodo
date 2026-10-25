@@ -10,6 +10,7 @@ from tests.support.browser_scenarios import (
     WorkspaceStatus,
     _created_workspace_id,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
@@ -37,7 +38,7 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
         workspace_id = _created_workspace_id(self.app, created)
         data_project_id = self.app.state.context.migration_workspaces.get(
             workspace_id,
-            actor=self.app.state.context.actor,
+            actor=resolve_local_actor(self.app.state.context),
         ).project_id
         self.assertEqual(
             created.headers["location"],
@@ -74,7 +75,7 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         data_project_id = context.migration_workspaces.get(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         ).project_id
 
         files_page = self.client.get(f"/workspaces/{workspace_id}/files")
@@ -147,7 +148,7 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         data_project_id = context.migration_workspaces.get(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         ).project_id
 
         project_list = self.client.get("/projects")

@@ -9,6 +9,7 @@ from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.shared.models import OdooReadIdentity
 from impodo.web.target_credentials import target_read_credential_id
 from tests.integration.web import test_fresh_data_controls as fixtures
+from tests.support.identity import resolve_local_actor
 from tests.support.recipe_lifecycle import metadata_for_schema, prepare_test_application
 
 
@@ -29,7 +30,7 @@ class RecipeComparisonRecoveryBrowserTests(TestCase):
         self.assertEqual(accepted.status_code, 303, accepted.text)
         application = self.fixture._activate_with_real_compiler(prepare=False)
         workspace_id = application.workspace_id
-        context, actor = self.context, self.context.actor
+        context, actor = self.context, resolve_local_actor(self.context)
         prepare_test_application(self, context, application, self.fixture.fixture.root)
         run_url = f"/projects/{application.project_id}/runs/{application.migration_run_id}"
         run_page = self.client.get(run_url)
@@ -75,7 +76,7 @@ class RecipeComparisonRecoveryBrowserTests(TestCase):
 
         owner = context.target_credential_workspace(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertNotEqual(owner.workspace_id, workspace_id)
         context.secret_store.delete(target_read_credential_id(owner))

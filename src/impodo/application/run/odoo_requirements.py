@@ -14,8 +14,11 @@ from .fresh_data_values import recipe_definition
 
 
 class SelectedRunSetup(Protocol):
-    project_id: str
-    selected_revisions: tuple[RecipeRevisionSelection, ...]
+    @property
+    def project_id(self) -> str: ...
+
+    @property
+    def selected_revisions(self) -> tuple[RecipeRevisionSelection, ...]: ...
 
 
 class RunSetupSelectionReader(Protocol):
@@ -166,7 +169,10 @@ class RunOdooRequirementsUseCase:
                 raise RecipeError("The selected Recipe version has changed")
             definition = recipe_definition(revision.envelope)
             recipe_name = revision.recipe.display_name
-            contract = dict(definition.get("odoo_target_contract", {}))
+            raw_contract = definition.get("odoo_target_contract", {})
+            if not isinstance(raw_contract, Mapping):
+                raise RecipeError("The selected Recipe target contract is invalid")
+            contract = dict(raw_contract)
             for model in contract.get("models", ()):  # type: ignore[union-attr]
                 model_definition = dict(model)
                 model_name = str(model_definition.get("model", "")).strip()

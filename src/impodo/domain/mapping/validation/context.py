@@ -20,60 +20,115 @@ from ..contracts import DatasetMapping, MappingDefinition
 class SourceColumnView(Protocol):
     """Minimal frozen-column shape required by semantic validation."""
 
-    stable_key: str
-    candidate_type: str
+    @property
+    def stable_key(self) -> str: ...
+
+    @property
+    def source_name(self) -> str: ...
+
+    @property
+    def candidate_type(self) -> str: ...
 
 
 class SourceDatasetView(Protocol):
     """Minimal frozen-dataset shape required by semantic validation."""
 
-    dataset_id: str
-    name: str
-    source: SourceBinding
-    origin: SourceOriginKind
-    columns: Sequence[SourceColumnView]
+    @property
+    def dataset_id(self) -> str: ...
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def source(self) -> SourceBinding: ...
+
+    @property
+    def origin(self) -> SourceOriginKind: ...
+
+    @property
+    def columns(self) -> Sequence[SourceColumnView]: ...
 
 
 class SourceSelectionView(Protocol):
     """Minimal complete source-selection shape required by validation."""
 
-    content_hash: str
-    datasets: Sequence[SourceDatasetView]
+    @property
+    def content_hash(self) -> str: ...
+
+    @property
+    def datasets(self) -> Sequence[SourceDatasetView]: ...
 
 
 class SchemaFieldView(Protocol):
     """Minimal captured-field metadata used by mapping validators."""
 
-    name: str
-    type: str
-    required: bool
-    readonly: bool
-    relation: str | None
-    relation_field: str | None
-    selection: Sequence[tuple[str, str]]
-    stored: bool | None
-    computed: bool | None
-    related: bool | None
-    translated: bool | None
-    company_dependent: bool | None
-    digits: tuple[int, int] | None
-    create_default_present: bool
-    create_default_value: bool | int | float | str | None
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def type(self) -> str: ...
+
+    @property
+    def required(self) -> bool: ...
+
+    @property
+    def readonly(self) -> bool: ...
+
+    @property
+    def relation(self) -> str | None: ...
+
+    @property
+    def relation_field(self) -> str | None: ...
+
+    @property
+    def selection(self) -> Sequence[tuple[str, str]]: ...
+
+    @property
+    def stored(self) -> bool | None: ...
+
+    @property
+    def computed(self) -> bool | None: ...
+
+    @property
+    def related(self) -> bool | None: ...
+
+    @property
+    def translated(self) -> bool | None: ...
+
+    @property
+    def company_dependent(self) -> bool | None: ...
+
+    @property
+    def digits(self) -> tuple[int, int] | None: ...
+
+    @property
+    def create_default_present(self) -> bool: ...
+
+    @property
+    def create_default_value(self) -> bool | int | float | str | None: ...
 
 
 class SchemaModelView(Protocol):
     """Minimal captured-model metadata used by mapping validators."""
 
-    name: str
-    fields: Sequence[SchemaFieldView]
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def fields(self) -> Sequence[SchemaFieldView]: ...
 
 
 class SchemaCatalogView(Protocol):
     """Minimal target-bound schema catalog used by mapping validators."""
 
-    content_hash: str
-    odoo_version: str
-    models: Sequence[SchemaModelView]
+    @property
+    def content_hash(self) -> str: ...
+
+    @property
+    def odoo_version(self) -> str: ...
+
+    @property
+    def models(self) -> Sequence[SchemaModelView]: ...
 
 
 BusinessKeySignature = tuple[str, tuple[str, ...], tuple[str, ...]]

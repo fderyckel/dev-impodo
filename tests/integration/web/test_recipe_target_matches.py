@@ -5,15 +5,21 @@ from time import monotonic, sleep
 from unittest import TestCase
 from uuid import uuid4
 
-from impodo.domain.mapping.contracts import CategoricalCoveragePolicy, ValueMapping
 from impodo.application.run.recipe_run_jobs import (
     RecipeRunJobManager,
     RecipeRunJobStatus,
 )
+from impodo.domain.mapping.contracts import CategoricalCoveragePolicy, ValueMapping
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.serialization import content_hash
-from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField, SchemaModel, SchemaOrigin
+from impodo.domain.workspace.contracts import (
+    OdooSchemaCatalog,
+    SchemaField,
+    SchemaModel,
+    SchemaOrigin,
+)
 from tests.integration.web import test_fresh_data_controls as fixtures
+from tests.support.identity import resolve_local_actor
 
 
 class RecipeTargetMatchBrowserTests(TestCase):
@@ -53,7 +59,7 @@ class RecipeTargetMatchBrowserTests(TestCase):
             "warnings_acknowledged": "1", "control_0": "125.50",
         }, headers={"Origin": "http://testserver"}, follow_redirects=False)
         self.assertEqual(accepted.status_code, 303, accepted.text)
-        setup, actor = self.fixture.setup, self.context.actor
+        setup, actor = self.fixture.setup, resolve_local_actor(self.context)
         state = self.context.workspace_states.repository.get(setup.setup_workspace.workspace_id)
         self.context.workspace_states.update_target(
             state.workspace_id, actor=actor, expected_revision=state.revision, odoo_connection_mode="REMOTE",
@@ -102,7 +108,7 @@ class RecipeTargetMatchBrowserTests(TestCase):
         self.assertIn("1 value needs a match", page.text)
         self.assertNotIn("Open full field matcher", page.text)
         self.assertNotIn('name="control_expected_', page.text)
-        review = self.context.recipe_target_matches.build_review(self.application, actor=self.context.actor)
+        review = self.context.recipe_target_matches.build_review(self.application, actor=resolve_local_actor(self.context))
         row = review.fields[0].review_rows[0]
         before = self.context.queries.get_mapping_working_draft(self.application.workspace_id)
         form = self.form(page)
@@ -133,7 +139,7 @@ class RecipeTargetMatchBrowserTests(TestCase):
         self.assertEqual(language.categorical_policy, CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH)
         self.assertEqual(language.value_mappings, (ValueMapping("French", "fr_FR"), ValueMapping("en", "en")))
         self.assertEqual(mapping.definition.datasets[0].control_expectations[0].expected_total, "125.50")
-        self.context.preparation.prepare(application.workspace_id, actor=self.context.actor)
+        self.context.preparation.prepare(application.workspace_id, actor=resolve_local_actor(self.context))
         staging = self.context.preparation.staging.get_current_staging_summary(application.workspace_id)
         self.assertTrue(staging.control_totals[0].passed)
         self.assertEqual(staging.control_totals[0].expected_total, "125.50")

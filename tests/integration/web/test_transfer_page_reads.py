@@ -23,6 +23,7 @@ from impodo.web.target_credentials import (
     store_target_credential,
 )
 from tests.support.browser_scenarios import ProjectSetupBrowserTestCase
+from tests.support.identity import resolve_local_actor
 
 
 class TransferPageReadTests(ProjectSetupBrowserTestCase):
@@ -35,7 +36,7 @@ class TransferPageReadTests(ProjectSetupBrowserTestCase):
         frozen, _schema = self._frozen_odoo_source_workspace()
         configured = context.workspace_states.configure_transfer_destination(
             frozen.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=frozen.revision,
             odoo_connection_mode=OdooConnectionMode.REMOTE,
             odoo_base_url="https://destination.example.test",
@@ -50,7 +51,7 @@ class TransferPageReadTests(ProjectSetupBrowserTestCase):
         )
         verified = context.workspace_states.verify_transfer_destination(
             frozen.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=configured.revision,
             target_hash=transfer_destination_identity_hash(configured),
             credential_binding_hash=credential.binding_hash,

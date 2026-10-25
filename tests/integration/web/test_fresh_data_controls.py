@@ -1,8 +1,8 @@
 """Exercise the authenticated Fresh data form with the real Recipe compiler."""
 
+import re
 from dataclasses import replace
 from datetime import UTC, datetime
-import re
 from unittest import TestCase
 from uuid import uuid4
 
@@ -11,10 +11,16 @@ from impodo.domain.data_version.models import DataVersionState
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.models import OdooReadIdentity, target_identity_hash
+from impodo.domain.workspace.contracts import (
+    OdooSchemaCatalog,
+    SchemaField,
+    SchemaModel,
+    SchemaOrigin,
+)
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
-from tests.support.recipe_lifecycle import metadata_for_schema
-from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaOrigin, SchemaModel, SchemaField
 from tests.application.run import test_integrated_recipe_runs as fixtures
+from tests.support.identity import resolve_local_actor
+from tests.support.recipe_lifecycle import metadata_for_schema
 
 
 def field(page, name):
@@ -40,7 +46,7 @@ class FreshDataControlBrowserTests(TestCase):
         }, headers={"Origin": "http://testserver"}, follow_redirects=False)
         self.assertEqual(created.status_code, 303)
         project_id = created.headers["location"].rsplit("/", 1)[-1]
-        context, actor = self.context, self.context.actor
+        context, actor = self.context, resolve_local_actor(self.context)
         workspace = context.migration_workspaces.list_for_project(project_id, actor=actor)[0]
         data_version = context.data_versions.get(workspace.data_version_id, actor=actor)
         now = datetime.now(UTC)
@@ -154,7 +160,7 @@ class FreshDataControlBrowserTests(TestCase):
         missing = self.client.post(url + "/accept", data=form, headers={"Origin": "http://testserver"})
         self.assertEqual(missing.status_code, 422)
         self.assertIn("Enter Opening balance total", missing.text)
-        self.assertEqual(self.context.data_versions.get(self.setup.data_version.data_version_id, actor=self.context.actor).state, DataVersionState.DRAFT)
+        self.assertEqual(self.context.data_versions.get(self.setup.data_version.data_version_id, actor=resolve_local_actor(self.context)).state, DataVersionState.DRAFT)
         invalid = self.client.post(url + "/accept", data={**form, "control_0": "NaN"}, headers={"Origin": "http://testserver"})
         self.assertEqual(invalid.status_code, 422)
         self.assertIn("must be a finite number", invalid.text)
@@ -167,7 +173,7 @@ class FreshDataControlBrowserTests(TestCase):
         self._activate_with_real_compiler()
 
     def _activate_with_real_compiler(self, *, prepare=True):
-        context, setup, actor = self.context, self.setup, self.context.actor
+        context, setup, actor = self.context, self.setup, resolve_local_actor(self.context)
         state = context.workspace_states.repository.get(setup.setup_workspace.workspace_id)
         context.workspace_states.update_target(state.workspace_id, actor=actor, expected_revision=state.revision,
             odoo_connection_mode="REMOTE", odoo_base_url="https://fictional.example.test", odoo_database="fictional_test",

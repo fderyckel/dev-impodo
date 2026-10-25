@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
-from pathlib import Path
 import re
 import shutil
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -14,7 +12,8 @@ from fastapi.testclient import TestClient
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.web.app import create_local_app
 from impodo.web.presenters.concepts import CONCEPTS, CONCEPTS_BY_SLUG
-
+from tests.support.identity import resolve_local_actor
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 TEMPLATES = ROOT / "src" / "impodo" / "web" / "templates"
@@ -136,7 +135,7 @@ class ConceptHelpBrowserTests(unittest.TestCase):
         context = self.app.state.context
         for number in range(2):
             context.migration_projects.create(
-                actor=context.actor,
+                actor=resolve_local_actor(context),
                 display_name=f"Fictional migration {number + 1}",
                 migration_purpose="Verify concept help uses one list query",
                 source_system_identity="Fictional ERP",
@@ -160,7 +159,7 @@ class ConceptHelpBrowserTests(unittest.TestCase):
         self._launch()
         context = self.app.state.context
         bundle = context.project_authoring.create(
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             display_name="Fictional customer migration",
             source_mode="FILE",
             creation_request_id=str(uuid4()),

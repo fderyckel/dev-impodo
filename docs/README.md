@@ -166,6 +166,9 @@ setup, CLI, release, and acceptance procedures live under
 - [Developer examples and edge cases](developer/reference/examples-and-edge-cases.md)
   — CLI runs, profile patterns, prepared records, classifications, issue codes,
   and connector cases.
+- [Python code quality](developer/reference/python-code-quality.md) — pinned
+  Ruff and Basedpyright ownership, baseline policy, local gate, CI enforcement,
+  and safe remediation rules for developers and coding agents.
 - [Acceptance and test strategy](testing/acceptance.md) — test layers, golden
   slice, determinism checks, and acceptance traceability.
 - [Windows relationship execution qualification](testing/relationship-execution-windows-2026-09-28.md)

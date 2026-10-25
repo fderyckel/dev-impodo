@@ -77,9 +77,11 @@ def validated_xlsx_table_bounds(cell_range: str) -> tuple[int, int, int, int]:
         )
     except (TypeError, ValueError) as error:
         raise SourceLoadError("range is invalid") from error
-    bounds = (minimum_column, header_row, maximum_column, maximum_row)
     if (
-        not all(isinstance(value, int) for value in bounds)
+        not isinstance(minimum_column, int)
+        or not isinstance(header_row, int)
+        or not isinstance(maximum_column, int)
+        or not isinstance(maximum_row, int)
         or minimum_column < 1
         or header_row < 1
         or maximum_column < minimum_column
@@ -517,6 +519,8 @@ def _open_xlsx_rows(
             data_rows = 0
             for cells in iterator:
                 row_number = cells[0].row if cells else header_row + data_rows + 1
+                if row_number is None:
+                    raise SourceLoadError("source row number is unavailable")
                 _reject_unsafe_cells(
                     cells,
                     source_label,

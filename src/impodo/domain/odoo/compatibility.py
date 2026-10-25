@@ -194,7 +194,9 @@ def same_odoo_major(left: str, right: str) -> bool:
 def _recognize_string(raw: object) -> OdooVersion:
     if raw is None or raw == "" or raw == "unknown":
         return OdooVersion(raw if isinstance(raw, str) else "", problem=OdooVersionProblem.UNKNOWN)
-    match = _VERSION.fullmatch(raw) if isinstance(raw, str) and len(raw) <= 256 else None
+    if not isinstance(raw, str):
+        return OdooVersion(str(raw), problem=OdooVersionProblem.MALFORMED)
+    match = _VERSION.fullmatch(raw) if len(raw) <= 256 else None
     if match is None:
         return OdooVersion(str(raw), problem=OdooVersionProblem.MALFORMED)
     return OdooVersion(
@@ -230,6 +232,9 @@ def _structured_version_string(info: object) -> str | None:
         return None
     rendered = f"{major}.{minor}{_STAGE_LABELS[stage]}{serial or ''}{suffix}"
     parsed = _recognize_string(rendered)
-    if parsed.problem is not None or parsed.release_stage.value != stage:
+    if parsed.problem is not None:
+        return None
+    assert parsed.release_stage is not None
+    if parsed.release_stage.value != stage:
         return None
     return rendered

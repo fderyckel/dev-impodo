@@ -1,27 +1,34 @@
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
-from collections.abc import Callable
 import csv
+import json
+import os
+import platform
+import sys
+import tempfile
+import tracemalloc
+import unittest
+from collections.abc import Callable
 from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from hashlib import sha256
-from importlib.metadata import PackageNotFoundError, version as package_version
-import json
-import os
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
-import platform
-import sys
-from time import perf_counter, process_time, sleep
-import tempfile
 from threading import Event, Thread
-import tracemalloc
-import unittest
+from time import perf_counter, process_time, sleep
 from unittest.mock import patch
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from impodo.adapters.polars_transformation import PolarsTransformationAdapter
+from impodo.application.data_version import source_files as source_files_module
+from impodo.application.data_version.inspection import (
+    SourceColumnProfile,
+    SourceFileCatalog,
+    SourceTableCatalog,
+)
+from impodo.application.data_version.intake import CHUNK_BYTES, MAX_SOURCE_BYTES
 from impodo.application.workspace.preparation import (
     bounded_normalization as bounded_normalization_module,
 )
@@ -35,9 +42,12 @@ from impodo.application.workspace.preparation import (
     preparation_service as preparation_module,
 )
 from impodo.application.workspace.preparation import quality_service as quality_module
-from impodo.adapters.polars_transformation import PolarsTransformationAdapter
 from impodo.application.workspace.preparation.bounded_preparation import (
     BOUNDED_SOURCE_BATCH_SIZE,
+)
+from impodo.application.workspace.preparation.job_models import (
+    PreparationJobStatus,
+    PreparationWorkspace,
 )
 from impodo.application.workspace.preparation.preparation_capability import (
     compile_preparation_capability,
@@ -71,31 +81,6 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
 )
 from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
-from impodo.domain.resolution import (
-    FuzzyComparisonField,
-    ResolutionPolicy,
-    ResolutionRule,
-    SimilarityAlgorithm,
-)
-from impodo.domain.staging.scale import (
-    COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
-)
-from impodo.domain.staging import evaluator as evaluator_module
-from impodo.domain.staging import canonical_projection as canonical_projection_module
-from impodo.domain.staging.preparation_session import PreparedCanonicalProjection
-from impodo.application.data_version.inspection import (
-    SourceColumnProfile,
-    SourceFileCatalog,
-    SourceTableCatalog,
-)
-from impodo.application.data_version.intake import CHUNK_BYTES, MAX_SOURCE_BYTES
-from impodo.domain.workspace.workbench import (
-    OdooConnectionMode,
-    SourceFile,
-)
-from impodo.domain.shared.models import target_identity_hash
-
-from impodo.application.data_version import source_files as source_files_module
 from impodo.domain.preparation import source as preparation_source_module
 from impodo.domain.preparation.normalization import (
     NormalizationCandidate,
@@ -111,9 +96,20 @@ from impodo.domain.preparation.quality import (
     default_quality_ruleset,
     evaluate_quality,
 )
-from impodo.application.workspace.preparation.job_models import PreparationJobStatus, PreparationWorkspace
 from impodo.domain.recipe.value_rules import ScalarTransformPolicy
-from impodo.web.app import create_local_app
+from impodo.domain.resolution import (
+    FuzzyComparisonField,
+    ResolutionPolicy,
+    ResolutionRule,
+    SimilarityAlgorithm,
+)
+from impodo.domain.shared.models import target_identity_hash
+from impodo.domain.staging import canonical_projection as canonical_projection_module
+from impodo.domain.staging import evaluator as evaluator_module
+from impodo.domain.staging.preparation_session import PreparedCanonicalProjection
+from impodo.domain.staging.scale import (
+    COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+)
 from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
@@ -121,7 +117,13 @@ from impodo.domain.workspace.contracts import (
     SchemaModel,
     SchemaOrigin,
 )
-
+from impodo.domain.workspace.workbench import (
+    OdooConnectionMode,
+    SourceFile,
+)
+from impodo.web.app import create_local_app
+from tests.support.identity import resolve_local_actor
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 COLUMNAR_TRANSFORMATIONS = PolarsTransformationAdapter()
@@ -672,7 +674,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 stack.enter_context(active_patch)
             normalization = self.context.preparation.prepare(
                 workspace_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
             )
         elapsed = perf_counter() - started
         cpu_seconds = process_time() - cpu_started
@@ -1232,7 +1234,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 reference_bundle,
                 self.context.preparation.sessions,
                 COLUMNAR_TRANSFORMATIONS,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
                 source_snapshots=source_snapshots,
             )
         elapsed = perf_counter() - started
@@ -1308,17 +1310,17 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         assert manager is not None
         migration_workspace = self.context.migration_workspaces.get(
             workspace_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         workspace = PreparationWorkspace.from_context(
             migration_workspace,
             self.context.data_versions.get(
                 migration_workspace.data_version_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
             ),
             self.context.migration_runs.get(
                 migration_workspace.migration_run_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
             ),
         )
         parent_process = psutil.Process()
@@ -1329,7 +1331,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 workspace_id,
                 workspace_state.name,
                 sum(item.row_count for item in selection.datasets),
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
                 workspace=workspace,
             )
             started = perf_counter()
@@ -1606,7 +1608,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
         with _stable_foundation_ids():
             authoring = self.context.project_authoring.create(
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
                 display_name="96k related Product/BOM preparation benchmark",
                 source_mode="FILE",
                 creation_request_id=str(_benchmark_uuid("related-project-create")),
@@ -1662,7 +1664,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
             workspace_state = self.context.workspace_states.add_source_file(
                 workspace_state.workspace_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
                 expected_revision=workspace_state.revision,
                 source_file=source,
             )
@@ -1680,7 +1682,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
         targeted_workspace_state = self.context.workspace_states.update_target(
             workspace_state.workspace_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
             expected_revision=workspace_state.revision,
             odoo_connection_mode=OdooConnectionMode.LOCAL.value,
             odoo_base_url="http://127.0.0.1:8069",
@@ -1691,13 +1693,13 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         registered_workspace_state = self.context.workspace_states.register(
             targeted_workspace_state.workspace_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
             expected_revision=targeted_workspace_state.revision,
         )
         self.context.sources.sources.save_source_catalogs(
             registered_workspace_state.workspace_id,
             tuple(catalogs),
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         for source in sources:
             self.context.sources.confirm_source(
@@ -1705,7 +1707,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 source.file_id,
                 selected_table_keys=("csv",),
                 warnings_acknowledged=False,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
             )
         selection = self.context.sources.freeze_selection(
             registered_workspace_state.workspace_id,
@@ -1713,12 +1715,12 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 (sources[0].file_id, "csv"): dataset_names[0],
                 (sources[1].file_id, "csv"): dataset_names[1],
             },
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         self.context.data_version_source_projection.accept_file_selection(
             registered_workspace_state.workspace_id,
             selection,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         datasets = {item.name: item for item in selection.datasets}
         products = datasets[dataset_names[0]]
@@ -1876,7 +1878,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             parent_version=None,
             definition=definition,
             created_at=benchmark_now,
-            created_by=self.context.actor.identity.display_name,
+            created_by=resolve_local_actor(self.context).identity.display_name,
         )
         mapping_repository = self.context.mapping_workspace.mappings
         mapping_repository.save_mapping_revision(
@@ -1892,9 +1894,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 base_mapping_version=revision.version,
                 definition=definition,
                 updated_at=benchmark_now,
-                updated_by=self.context.actor.identity.display_name,
+                updated_by=resolve_local_actor(self.context).identity.display_name,
             ),
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         mapping_repository.save_mapping_submission(
             registered_workspace_state.workspace_id,
@@ -1906,9 +1908,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 validation_hash=validation.validation_hash,
                 warning_acknowledgements=(),
                 submitted_at=benchmark_now,
-                submitted_by=self.context.actor.identity.display_name,
+                submitted_by=resolve_local_actor(self.context).identity.display_name,
             ),
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         fixture_digest = sha256()
         for source in sources:
@@ -1931,7 +1933,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
         with _stable_foundation_ids():
             authoring = self.context.project_authoring.create(
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
                 display_name="100k complete preparation benchmark",
                 source_mode="FILE",
                 creation_request_id=str(_benchmark_uuid("project-create")),
@@ -1974,14 +1976,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         workspace_state = self.context.workspace_states.add_source_file(
             workspace_state.workspace_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
             expected_revision=workspace_state.revision,
             source_file=source,
         )
         now = benchmark_now
         targeted_workspace_state = self.context.workspace_states.update_target(
             workspace_state.workspace_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
             expected_revision=workspace_state.revision,
             odoo_connection_mode=OdooConnectionMode.LOCAL.value,
             odoo_base_url="http://127.0.0.1:8069",
@@ -1991,7 +1993,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         registered_workspace_state = self.context.workspace_states.register(
             targeted_workspace_state.workspace_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
             expected_revision=targeted_workspace_state.revision,
         )
 
@@ -2004,26 +2006,26 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         self.context.sources.sources.save_source_catalogs(
             registered_workspace_state.workspace_id,
             (catalog,),
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         self.context.sources.confirm_source(
             registered_workspace_state.workspace_id,
             source.file_id,
             selected_table_keys=("csv",),
             warnings_acknowledged=False,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         selection = self.context.sources.freeze_selection(
             registered_workspace_state.workspace_id,
             dataset_names={
                 (source.file_id, "csv"): (_dataset_name(PREPARATION_SCALE_WORKLOAD))
             },
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         self.context.data_version_source_projection.accept_file_selection(
             registered_workspace_state.workspace_id,
             selection,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         dataset = selection.datasets[0]
         columns = dataset.columns
@@ -2138,7 +2140,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             parent_version=None,
             definition=definition,
             created_at=now,
-            created_by=self.context.actor.identity.display_name,
+            created_by=resolve_local_actor(self.context).identity.display_name,
         )
         self.context.schema_workspace.schemas.save_odoo_schema_catalog(
             registered_workspace_state.workspace_id,
@@ -2146,7 +2148,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 workspace_id=registered_workspace_state.workspace_id,
                 policy_hash=ODOO_SOURCE_POLICY_HASH,
                 captured_at=now,
-                captured_by=self.context.actor.identity.display_name,
+                captured_by=resolve_local_actor(self.context).identity.display_name,
                 connection_mode=registered_workspace_state.odoo_connection_mode.value,
                 database=registered_workspace_state.odoo_database,
                 odoo_version="19.0",
@@ -2187,7 +2189,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     database=registered_workspace_state.odoo_database,
                 ),
             ),
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         mapping_repository = self.context.mapping_workspace.mappings
         mapping_repository.save_mapping_revision(
@@ -2203,9 +2205,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 base_mapping_version=revision.version,
                 definition=definition,
                 updated_at=now,
-                updated_by=self.context.actor.identity.display_name,
+                updated_by=resolve_local_actor(self.context).identity.display_name,
             ),
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         mapping_repository.save_mapping_submission(
             registered_workspace_state.workspace_id,
@@ -2217,9 +2219,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 validation_hash=validation.validation_hash,
                 warning_acknowledgements=(),
                 submitted_at=now,
-                submitted_by=self.context.actor.identity.display_name,
+                submitted_by=resolve_local_actor(self.context).identity.display_name,
             ),
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         return registered_workspace_state.workspace_id, stored.sha256, stored.size_bytes
 
@@ -2279,7 +2281,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 )
                 for family in CoverageFamily
             ),
-            approved_by=self.context.actor.identity,
+            approved_by=resolve_local_actor(self.context).identity,
             approved_at=now,
         )
         reference_entries = tuple(
@@ -2340,18 +2342,18 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             workspace_id,
             scope,
             expected_parent_version=None,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         advanced.save_reference_bundle(
             workspace_id,
             bundle,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         advanced.save_resolution_policy(
             workspace_id,
             policy,
             expected_parent_version=None,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         base = default_quality_ruleset(
             workspace_id=workspace_id,
@@ -2409,7 +2411,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         self.context.quality.publish_ruleset(
             workspace_id,
             ruleset,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
 
 
@@ -2477,18 +2479,20 @@ class BoundedPreparationParityTests(unittest.TestCase):
             return current
 
         with patch.object(quality_module, "build_bounded_quality_run", compare_quality_routes):
-            self.context.preparation.prepare(workspace_id, actor=self.context.actor)
+            self.context.preparation.prepare(workspace_id, actor=resolve_local_actor(self.context))
         self.assertEqual(len(calls), 1)
 
     def test_mixed_dataset_storage_recovers_without_materialized_fallback(self) -> None:
         """Retry a failed mixed run and preserve the complete quality evidence."""
 
-        from impodo.domain.compiler.columnar_transformation import (
-            ColumnarFallbackReason, ColumnarOperationKind, ColumnarSupport,
-        )
         from impodo.application.workspace.preparation import preparation_capability
         from impodo.application.workspace.preparation.bounded_quality import (
             BoundedQualityUnsupported,
+        )
+        from impodo.domain.compiler.columnar_transformation import (
+            ColumnarFallbackReason,
+            ColumnarOperationKind,
+            ColumnarSupport,
         )
 
         workspace_id, _, _ = (
@@ -2546,7 +2550,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 patch.object(quality_module, "build_bounded_quality_run", side_effect=BoundedQualityUnsupported),
                 self.assertRaisesRegex(ReadinessError, "Whole-run fallback is disabled"),
             ):
-                service.prepare(workspace_id, actor=self.context.actor)
+                service.prepare(workspace_id, actor=resolve_local_actor(self.context))
             self.assertIsNone(service.quality.current_summary(workspace_id))
             with service.staging._connect(database_path) as connection:
                 self.assertEqual(
@@ -2554,8 +2558,8 @@ class BoundedPreparationParityTests(unittest.TestCase):
                     [("FAILED",)],
                 )
 
-            result = service.prepare(workspace_id, actor=self.context.actor)
-            repeated = service.prepare(workspace_id, actor=self.context.actor)
+            result = service.prepare(workspace_id, actor=resolve_local_actor(self.context))
+            repeated = service.prepare(workspace_id, actor=resolve_local_actor(self.context))
 
         staging = service.staging.get_current_staging_summary(workspace_id)
         ruleset = service.quality.current_ruleset(workspace_id)
@@ -2733,7 +2737,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         ):
             self.context.preparation.prepare(
                 workspace_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
             )
         self.assertEqual(
             sum(quality_transport_batches["quality_rows"]),
@@ -2906,7 +2910,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
 
         repeated = self.context.preparation.prepare(
             workspace_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         repeated_staging = self.context.preparation.staging.get_current_staging_summary(
             workspace_id
@@ -2970,7 +2974,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         ):
             self.context.preparation.prepare(
                 workspace_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
             )
 
         database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -3008,7 +3012,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         ):
             self.context.preparation.prepare(
                 workspace_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
             )
 
         database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -3071,7 +3075,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         ):
             summary = self.context.preparation.prepare(
                 workspace_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
             )
 
         staging = self.context.preparation.staging.get_current_staging_summary(
@@ -3111,7 +3115,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         ):
             self.context.preparation.prepare(
                 workspace_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
             )
 
         database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -3156,7 +3160,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         ):
             self.context.preparation.prepare(
                 workspace_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
             )
 
         database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -3202,7 +3206,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         ):
             self.context.preparation.prepare(
                 workspace_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
             )
 
         database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -3257,7 +3261,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         ):
             summary = self.context.preparation.prepare(
                 workspace_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
             )
 
         database_path = self.context.preparation.staging.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -3305,7 +3309,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         )
         self.context.preparation.prepare(
             workspace_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         current = self.context.preparation.staging.get_current_staging_summary(
             workspace_id
@@ -3324,7 +3328,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ):
                 self.context.preparation.prepare(
                     workspace_id,
-                    actor=self.context.actor,
+                    actor=resolve_local_actor(self.context),
                 )
 
         unchanged = self.context.preparation.staging.get_current_staging_summary(
@@ -3366,7 +3370,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ):
                 self.context.preparation.prepare(
                     workspace_id,
-                    actor=self.context.actor,
+                    actor=resolve_local_actor(self.context),
                 )
 
         self.assertIsNone(

@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import argparse
-from decimal import Decimal
 import json
-from pathlib import Path
 import sys
+from decimal import Decimal
+from pathlib import Path
 from time import perf_counter
 from unittest.mock import patch
 
 import psutil
 
+from tests.support.identity import resolve_local_actor
+
 if sys.platform != "win32":
     import resource
 
+from impodo.adapters.artifacts.reporting import WORKBOOK_NAME, write_review_workbook
 from impodo.application import preflight_service as preflight_module
 from impodo.application.preflight_service import (
     EXECUTION_SNAPSHOT_NAME,
@@ -29,7 +32,6 @@ from impodo.domain.shared.models import (
     TargetRecord,
     target_identity_hash,
 )
-from impodo.adapters.artifacts.reporting import WORKBOOK_NAME, write_review_workbook
 from impodo.web.app import create_local_app
 
 
@@ -217,7 +219,7 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
         report = context.preflight.compare(
             workspace_id,
             reader=timed("read_snapshot", read_snapshot),
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
     elapsed = perf_counter() - started
     if sys.platform == "win32":

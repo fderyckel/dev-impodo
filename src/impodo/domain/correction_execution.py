@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 from uuid import UUID, uuid5
 
 from impodo.domain.correction import (
@@ -54,6 +54,12 @@ class CorrectionExecutionField:
             raise CorrectionPlanError(
                 "Correction execution value is not canonically serializable"
             ) from error
+
+
+class _GroupedCorrectionRecord(TypedDict):
+    row_id: str
+    target_binding_hash: str
+    fields: list[CorrectionExecutionField]
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,7 +189,7 @@ class CorrectionExecutionSnapshot:
             )
         grouped: dict[
             tuple[str, int, str, int],
-            dict[str, object],
+            _GroupedCorrectionRecord,
         ] = {}
         for item in plan.fields:
             key = (
@@ -208,7 +214,6 @@ class CorrectionExecutionSnapshot:
                     "Correction execution target lineage is ambiguous"
                 )
             fields = group["fields"]
-            assert isinstance(fields, list)
             fields.append(
                 CorrectionExecutionField(
                     target_field=item.target_field,
@@ -227,7 +232,7 @@ class CorrectionExecutionSnapshot:
                 target_binding_hash=str(grouped[key]["target_binding_hash"]),
                 fields=tuple(
                     sorted(
-                        grouped[key]["fields"],  # type: ignore[arg-type]
+                        grouped[key]["fields"],
                         key=lambda item: item.target_field,
                     )
                 ),

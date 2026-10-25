@@ -2,29 +2,42 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import os
-from time import perf_counter
 import unittest
+from dataclasses import replace
+from time import perf_counter
 from unittest.mock import patch
 
 import duckdb
 
 from impodo.adapters.duckdb import preparation_identity_group_quality as group_adapter
-from impodo.adapters.duckdb.preparation_identity_group_quality import _materialize_unsafe_group_rows
+from impodo.adapters.duckdb.preparation_identity_group_quality import (
+    _materialize_unsafe_group_rows,
+)
 from impodo.application.workspace.preparation import (
     normalization_service as normalization_module,
+)
+from impodo.application.workspace.preparation import (
     preparation_capability as capability_module,
+)
+from impodo.application.workspace.preparation import (
     quality_service as quality_module,
 )
-from impodo.application.workspace.preparation.bounded_quality import BoundedQualityUnsupported
+from impodo.application.workspace.preparation.bounded_quality import (
+    BoundedQualityUnsupported,
+)
 from impodo.domain.errors import ReadinessError
 from impodo.domain.mapping.contracts import (
-    IdentityComponentMapping, ReferenceKeyMapping, RelationshipMapping,
-    RelationshipResolver, ResolverOrigin, ValueMapping,
+    IdentityComponentMapping,
+    ReferenceKeyMapping,
+    RelationshipMapping,
+    RelationshipResolver,
+    ResolverOrigin,
+    ValueMapping,
 )
 from impodo.domain.preparation.quality import evaluate_quality
 from tests.performance import test_preparation_scale as fixtures
+from tests.support.identity import resolve_local_actor
 
 
 class PreparationIdentityGroupTests(unittest.TestCase):
@@ -133,10 +146,10 @@ class PreparationIdentityGroupTests(unittest.TestCase):
                 patch.object(quality_module, "build_bounded_quality_run", side_effect=BoundedQualityUnsupported),
                 self.assertRaisesRegex(ReadinessError, "Whole-run fallback is disabled"),
             ):
-                service.prepare(workspace_id, actor=self.context.actor)
+                service.prepare(workspace_id, actor=resolve_local_actor(self.context))
             self.assertIsNone(service.quality.current_summary(workspace_id))
-            result = service.prepare(workspace_id, actor=self.context.actor)
-            repeated = service.prepare(workspace_id, actor=self.context.actor)
+            result = service.prepare(workspace_id, actor=resolve_local_actor(self.context))
+            repeated = service.prepare(workspace_id, actor=resolve_local_actor(self.context))
         elapsed = perf_counter() - started
 
         staging = service.staging.get_current_staging_summary(workspace_id)

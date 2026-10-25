@@ -128,13 +128,17 @@ class ProductionRunValuesUseCase:
             revision=1 if expected_revision is None else expected_revision + 1,
             parameters=normalized.parameters, controls=normalized.controls, updated_by=actor.identity, updated_at=utc_now(),
         )
-        return self._repository.replace_run_values(values, expected_revision=expected_revision,
+        repository = self._repository
+        assert repository is not None
+        return repository.replace_run_values(values, expected_revision=expected_revision,
             expected_binding_hash=binding.content_hash, actor=actor)
 
     def activation_values(self, binding, review, parameters, controls) -> FreshDataActivationValues:
         """Use saved delivery answers and reject an activation-time replacement."""
 
-        saved = self._repository.get_run_values(binding.migration_run_id)
+        repository = self._repository
+        assert repository is not None
+        saved = repository.get_run_values(binding.migration_run_id)
         if saved is None:
             return self.normalize(review, parameters, controls)
         normalized = self.normalize(review, saved.by_recipe if parameters is None else parameters,

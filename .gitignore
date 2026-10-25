@@ -43,7 +43,6 @@ var/
 /.agents/
 /.codex/
 /.codex-*/
-/AGENTS.md
 
 # Local Git worktrees
 # Keep disposable worktrees under .local-worktrees/ (or the existing .tmp/),

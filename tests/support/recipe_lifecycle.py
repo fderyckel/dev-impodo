@@ -3,15 +3,30 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
-from impodo.domain.shared.models import FieldMetadata, ModelMetadata, OdooReadIdentity, OdooWriteIdentity, TargetFingerprint
-from impodo.domain.execution.odoo_readback import ReadbackRecord, ExternalIdBinding
-from impodo.domain.serialization import content_hash
-from impodo.web.run_commands import publish_compared_application, publish_reconciled_application
-from impodo.web.run_commands import publish_preparation_progress, start_next_preparation
-from impodo.web.composition.preparation_job_manager import PreparationJobManager
 from impodo.application.workspace.preparation.job_models import PreparationJobStatus
-from impodo.web.target_credentials import TargetCredentialRole, get_target_credential, store_target_credential
+from impodo.domain.execution.odoo_readback import ExternalIdBinding, ReadbackRecord
+from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
+from impodo.domain.serialization import content_hash
+from impodo.domain.shared.models import (
+    FieldMetadata,
+    ModelMetadata,
+    OdooReadIdentity,
+    OdooWriteIdentity,
+    TargetFingerprint,
+)
+from impodo.web.composition.preparation_job_manager import PreparationJobManager
+from impodo.web.run_commands import (
+    publish_compared_application,
+    publish_preparation_progress,
+    publish_reconciled_application,
+    start_next_preparation,
+)
+from impodo.web.target_credentials import (
+    TargetCredentialRole,
+    get_target_credential,
+    store_target_credential,
+)
+from tests.support.identity import resolve_local_actor
 
 
 def metadata_for_schema(schema, requested=None):
@@ -92,7 +107,7 @@ def prepare_test_application(case, context, application, root):
     job = start_next_preparation(
         context,
         application.migration_run_id,
-        actor=context.actor,
+        actor=resolve_local_actor(context),
     )
     worker = manager._workers[job.job_id]
     worker.supervisor.join(timeout=60)
@@ -105,7 +120,7 @@ def prepare_test_application(case, context, application, root):
 def complete_application(case, context, application, *, expected_total, write_identity=None):
     """Approve, compare, execute and verify persisted evidence without replacing services."""
 
-    workspace_id, actor = application.workspace_id, context.actor
+    workspace_id, actor = application.workspace_id, resolve_local_actor(context)
     state = context.workspace_states.repository.get(workspace_id)
     owner = context.target_credential_workspace(
         workspace_id,

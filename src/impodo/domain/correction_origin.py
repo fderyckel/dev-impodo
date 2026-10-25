@@ -96,12 +96,16 @@ class CorrectionTargetIndexEntry:
         cls,
         payload: Mapping[str, object],
     ) -> CorrectionTargetIndexEntry:
+        source_row = payload.get("source_row")
+        odoo_id = payload.get("odoo_id")
+        if type(source_row) is not int or type(odoo_id) is not int:
+            raise CorrectionOriginError("Correction target identity is invalid")
         return cls(
             dataset=str(payload["dataset"]),
-            source_row=int(payload["source_row"]),
+            source_row=source_row,
             row_id=str(payload["row_id"]),
             target_model=str(payload["target_model"]),
-            odoo_id=int(payload["odoo_id"]),
+            odoo_id=odoo_id,
             completed_disposition=str(payload["completed_disposition"]),
             target_binding_hash=str(payload["target_binding_hash"]),
         )
@@ -371,9 +375,15 @@ class CorrectionOriginManifest:
 
     @classmethod
     def create(cls, **values: object) -> CorrectionOriginManifest:
+        raw_artifacts = values.pop("prepared_artifacts")
+        if not isinstance(raw_artifacts, (list, tuple)) or any(
+            not isinstance(item, CorrectionPreparedArtifact)
+            for item in raw_artifacts
+        ):
+            raise CorrectionOriginError("Correction prepared artifacts are invalid")
         prepared = tuple(
             sorted(
-                values.pop("prepared_artifacts"),  # type: ignore[arg-type]
+                raw_artifacts,
                 key=lambda item: item.dataset_id,
             )
         )

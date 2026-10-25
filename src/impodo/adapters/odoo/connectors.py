@@ -492,9 +492,10 @@ class Json2ReadConnector:
                     payload.get("version", "unknown"),
                     **({"version_info": payload["version_info"]} if "version_info" in payload else {}),
                 )
-                if observed.problem not in {None, OdooVersionProblem.UNKNOWN}:
+                problem = observed.problem
+                if problem is not None and problem is not OdooVersionProblem.UNKNOWN:
                     raise ConnectorError(
-                        f"Odoo version evidence is invalid ({observed.problem.value}); "
+                        f"Odoo version evidence is invalid ({problem.value}); "
                         f"reported version: {observed.raw!r}; "
                         f"version_info: {payload.get('version_info')!r}"
                     )
@@ -1460,7 +1461,9 @@ def _content_hash(value: Mapping[str, Any]) -> str:
 def _many2one_id(value: Any) -> int:
     """Parse only the identifier portion of one JSON-2 many2one value."""
 
-    candidate = value[0] if isinstance(value, (list, tuple)) and value else value
+    candidate: Any = (
+        value[0] if isinstance(value, (list, tuple)) and value else value
+    )
     if isinstance(candidate, bool):
         raise TypeError("boolean is not a valid Odoo identifier")
     identifier = int(candidate)

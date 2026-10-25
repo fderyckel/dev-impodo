@@ -1,13 +1,13 @@
 """Verify that stale model discovery can recover without replacing reviewed work."""
 
-from dataclasses import replace
-from types import SimpleNamespace
 import asyncio
 import unittest
+from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from impodo.domain.odoo.contracts import ConnectorTransportError
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.domain.odoo.contracts import ConnectorTransportError
 from impodo.domain.workspace.errors import OdooModelCatalogRefreshRequired
 from impodo.web.routers.schema import (
     _capture_selected_schema_sync,
@@ -20,6 +20,7 @@ from tests.support.browser_scenarios import (
     _browser_model_catalog,
     _browser_schema,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class SchemaCaptureRecoveryTests(ProjectSetupBrowserTestCase):
@@ -39,7 +40,7 @@ class SchemaCaptureRecoveryTests(ProjectSetupBrowserTestCase):
             read_identity=self.identity_probe(
                 self.workspace, self.credential.secret, self.workspace.intended_models,
             ),
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         self.discover_models()
         self.read_identity_calls.clear()
@@ -54,7 +55,7 @@ class SchemaCaptureRecoveryTests(ProjectSetupBrowserTestCase):
                 self.identity_probe(self.workspace, self.credential.secret, ("ir.model",)),
                 **identity_changes,
             ),
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
 
     def capture(self):
@@ -226,6 +227,6 @@ class SelectedSchemaCaptureTests(unittest.TestCase):
                 save.assert_called_with(
                     workspace.workspace_id, "fresh-fields",
                     read_credential_binding_hash="fresh-binding",
-                    read_identity="fresh-identity", actor=context.actor,
+                    read_identity="fresh-identity", actor=resolve_local_actor(context),
                 )
                 getattr(context.schema_workspace, other).assert_not_called()

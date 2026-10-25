@@ -7,11 +7,11 @@ from impodo.domain.correction import (
     CorrectionPlanSummary,
     CorrectionPlanSummaryGroup,
 )
-
 from tests.support.browser_scenarios import (
     ProjectSetupBrowserTestCase,
     _created_workspace_id,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class _CorrectionViews:
@@ -46,11 +46,11 @@ class CorrectionBrowserTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         workspace = context.migration_workspaces.get(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         closed = context.migration_workspaces.close(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace.optimistic_revision,
         )
         return closed

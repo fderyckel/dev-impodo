@@ -47,6 +47,12 @@ belongs or which dependencies it may introduce.
 
 `web/composition/local_app.py` composes these Project-first boundaries,
 including the current Production coordinator.
+`web/composition/service_graph.py` builds the deployment-neutral Project
+foundation, source and Recipe authoring, Match data, Recipe application, and
+preparation services from repository, authorization, artifact, and
+transformation ports. The local composition currently supplies DuckDB-backed
+repositories, governed filesystem artifacts, workspace-scoped access, and the
+Polars transformation adapter.
 `web/composition/http_app.py` installs the common route set around that
 assembled graph, while `web/app.py` preserves the historical local import.
 The local composition does not restore the superseded Recipe-root list,
@@ -66,7 +72,7 @@ services.
 | DuckDB stores and forward-only schema handling | `adapters/duckdb` and `adapters/duckdb/schema` |
 | Artifact, protected-evidence, job, Odoo, scenario, and columnar implementations | `adapters/artifacts`, `adapters/protected_evidence`, `adapters/jobs`, `adapters/odoo`, and `adapters/scenarios`, plus named integration facades directly below `adapters` |
 | Request handling and view construction | `web/routers` and `web/presenters` |
-| Concrete runtime construction | `web/composition/local_app.py`, focused modules below `web/composition`, and `web/capability_builders.py`; `web/app.py` is only a compatibility entry point |
+| Concrete runtime construction | `web/composition/local_app.py` chooses local adapters; `web/composition/service_graph.py` wires deployment-neutral Project foundation, authoring, Recipe application, and preparation services; other focused modules below `web/composition` and `web/capability_builders.py` own bounded construction; `web/app.py` is only a compatibility entry point |
 | Privacy-safe local diagnostics and process recovery | `web/diagnostics.py` builds bounded evidence and redacted bundles, including process-local child logs when a shared file is locked; `web/server_supervisor.py` owns same-port child restart and the circuit breaker; `web/launcher.py` secures and binds the local runtime; `web/routers/lifecycle.py`, `web/static/server-recovery.js`, and `web/static/operation-state.js` own authenticated recovery and operation-aware liveness |
 | Safe formula authoring feedback | `domain/recipe/value_rules.py` owns parsing; `web/mapping_formula_authoring.py` projects formula-free issues for the mapping route and browser |
 | Reuse arithmetic preparation work | `domain/recipe/value_rules.py` compiles safe arithmetic into bounded Python instructions; `domain/staging/evaluator.py` binds them once per dataset, and `domain/mapping/scalar_values.py` supplies only referenced formula inputs |

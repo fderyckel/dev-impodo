@@ -152,15 +152,15 @@ class TestRunActivationUseCase:
             )
             if item.name in required_reference_names
         )
-        run_reference_bundle = (
-            MigrationRunReferenceBundle.capture(
+        if captured_reference_datasets:
+            assert target_reference_bundle is not None
+            run_reference_bundle = MigrationRunReferenceBundle.capture(
                 run_id,
                 target_reference_bundle,
                 captured_reference_datasets,
             )
-            if captured_reference_datasets
-            else None
-        )
+        else:
+            run_reference_bundle = None
         required_models = {item.model for item in review.model_requirements}
         run_target_schema = MigrationRunTargetSchema.capture(
             run_id,
@@ -415,15 +415,15 @@ class TestRunActivationUseCase:
             )
             if item.name in required_reference_names
         )
-        run_reference_bundle = (
-            MigrationRunReferenceBundle.capture(
+        if captured_reference_datasets:
+            assert target_reference_bundle is not None
+            run_reference_bundle = MigrationRunReferenceBundle.capture(
                 run.migration_run_id,
                 target_reference_bundle,
                 captured_reference_datasets,
             )
-            if captured_reference_datasets
-            else None
-        )
+        else:
+            run_reference_bundle = None
         run_target_schema = MigrationRunTargetSchema.capture(
             run.migration_run_id,
             target_schema,

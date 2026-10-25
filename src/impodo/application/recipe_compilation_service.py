@@ -1310,7 +1310,7 @@ class RecipeCompiler:
             )
             standard = (
                 model_reference_decisions[0].contract
-                if reviewed_reference_only
+                if reviewed_reference_only and model_reference_decisions
                 else None
             )
             if model is None and not reference_only:

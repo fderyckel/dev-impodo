@@ -117,6 +117,9 @@ class TestRunSetupBinding:
 
     @classmethod
     def from_dict(cls, value: dict[str, object]) -> TestRunSetupBinding:
+        contract_version = value.get("contract_version")
+        if type(contract_version) is not int:
+            raise ValueError("Test run setup contract is invalid")
         selections = tuple(
             RecipeRevisionSelection(
                 recipe_id=str(item["recipe_id"]),
@@ -147,7 +150,7 @@ class TestRunSetupBinding:
             setup_workspace_id=str(value["setup_workspace_id"]),
             selected_revisions=selections,
             dependencies=dependencies,
-            state=str(value["state"]),
+            state=TestRunSetupState(str(value["state"])),
             target_binding_id=(
                 str(value["target_binding_id"])
                 if value.get("target_binding_id")
@@ -159,7 +162,7 @@ class TestRunSetupBinding:
                 if value.get("activated_at")
                 else None
             ),
-            contract_version=int(value["contract_version"]),
+            contract_version=contract_version,
         )
         claimed = value.get("content_hash")
         if claimed is not None and claimed != result.content_hash:

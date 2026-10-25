@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from io import BytesIO
+
 from openpyxl import load_workbook
 
 from impodo.domain.mapping.contracts import (
     RelationshipValueSource,
     UnsupportedMappingContractError,
 )
-
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     CategoricalCoveragePolicy,
@@ -40,6 +40,7 @@ from tests.support.browser_scenarios import (
     replace,
     target_identity_hash,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
@@ -81,7 +82,7 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
             datasets=(mapping,),
             expected_parent_version=None,
             expected_working_draft_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
         self.assertEqual(
@@ -165,7 +166,7 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
             ),
             expected_parent_version=None,
             expected_working_draft_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
 
@@ -329,7 +330,7 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
             ),
             expected_parent_version=None,
             expected_working_draft_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
         mapping_script = self.client.get("/static/mapping-editor.js")
@@ -404,7 +405,7 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
             ),
             expected_parent_version=None,
             expected_working_draft_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
 
@@ -480,7 +481,7 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
             ),
             expected_parent_version=None,
             expected_working_draft_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
         schema_before = context.queries.get_odoo_schema_catalog(workspace_id)
@@ -638,7 +639,7 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
             ),
             expected_parent_version=None,
             expected_working_draft_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
 
@@ -708,7 +709,7 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
             ),
             expected_parent_version=None,
             expected_working_draft_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
         schema_before = context.queries.get_odoo_schema_catalog(workspace_id)
@@ -844,7 +845,7 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
             ),
             expected_parent_version=None,
             expected_working_draft_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(validation.status, MappingValidationStatus.INVALID)
 

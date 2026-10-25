@@ -328,6 +328,7 @@ def write_mapping_review_workbook(
 
     workbook = Workbook()
     overview = workbook.active
+    assert overview is not None
     overview.title = "Matching overview"
     attention = workbook.create_sheet("Needs attention")
     field_matches = workbook.create_sheet("Field matches")
@@ -466,8 +467,8 @@ def _dataset_field_reviews(
     for field_name in sorted(
         relevant,
         key=lambda name: (
-            fields_by_name.get(name).label.casefold()
-            if fields_by_name.get(name) is not None
+            field.label.casefold()
+            if (field := fields_by_name.get(name)) is not None
             else name.casefold()
         ),
     ):
@@ -1050,13 +1051,10 @@ def _write_value_coverage(
             source_columns = ", ".join(
                 labels.get(key, key) for key in result.source_column_keys
             )
-            protected_source = bool(
-                source is not None and source.origin is SourceOriginKind.ODOO
-            )
             origin = (
                 recipe_label or "Current Stage 3 mapping"
             )
-            if protected_source:
+            if source is not None and source.origin is SourceOriginKind.ODOO:
                 rows.append(
                     (
                         "Protected",

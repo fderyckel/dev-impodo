@@ -246,8 +246,11 @@ def load_current_mapping_supporting_references(
         schema.odoo_version,
         OdooOperation.COMPARE,
     )
+    recognized_major_version = version_decision.version.major
     odoo_major_version = (
-        version_decision.version.major if version_decision.allowed else -1
+        recognized_major_version
+        if version_decision.allowed and recognized_major_version is not None
+        else -1
     )
     current_policy_hash = reference_policy_hash(odoo_major_version)
     if current_policy_hash is None:

@@ -977,18 +977,18 @@ def _uncovered_values(
         CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH,
         CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
     }:
-        mappings = (
-            item.scalar.value_mappings
-            if item.scalar is not None
-            else item.relationship.resolver.value_mappings  # type: ignore[union-attr]
-        )
+        if item.scalar is not None:
+            mappings = item.scalar.value_mappings
+        else:
+            assert item.relationship is not None
+            mappings = item.relationship.resolver.value_mappings
         covered = {mapping.source_value for mapping in mappings}
-        uncovered = tuple(
+        uncovered_values = tuple(
             values
             for values in sorted(raw_counts)
             if len(values) != 1 or values[0] not in covered
         )
-        return (*uncovered, *_fallback_uncovered(item))
+        return (*uncovered_values, *_fallback_uncovered(item))
     if item.policy is CategoricalCoveragePolicy.EXACT_BUSINESS_KEY:
         return ()
     assert item.scalar is not None

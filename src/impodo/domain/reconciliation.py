@@ -63,21 +63,26 @@ class ReconciliationRow:
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> ReconciliationRow:
+        source_row = payload.get("source_row")
+        odoo_id = payload.get("odoo_id")
+        differing_fields = payload.get("differing_fields", ())
+        if type(source_row) is not int:
+            raise ValueError("Reconciliation source row is invalid")
+        if odoo_id is not None and type(odoo_id) is not int:
+            raise ValueError("Reconciliation Odoo ID is invalid")
+        if not isinstance(differing_fields, (list, tuple)):
+            raise TypeError("Reconciliation differing fields are invalid")
         return cls(
             row_id=str(payload["row_id"]),
             dataset=str(payload["dataset"]),
-            source_row=int(payload["source_row"]),
+            source_row=source_row,
             target_model=str(payload["target_model"]),
             operation=str(payload["operation"]),
             execution_status=str(payload["execution_status"]),
             status=ReconciliationRowStatus(str(payload["status"])),
-            odoo_id=(
-                int(payload["odoo_id"])
-                if payload.get("odoo_id") is not None
-                else None
-            ),
+            odoo_id=odoo_id,
             differing_fields=tuple(
-                str(item) for item in payload.get("differing_fields", ())
+                str(item) for item in differing_fields
             ),
             message=str(payload.get("message", "")),
             retry_safe=bool(payload.get("retry_safe", False)),

@@ -21,9 +21,13 @@ class OdooCaptureFilterStore(Protocol):
     ) -> str:
         """Return the encrypted artifact hash for a new selection version."""
 
+        ...
+
     def read(
         self,
         project_id: str,
         selection: OdooCaptureSelection,
     ) -> tuple[OdooCaptureFilterClause, ...]:
         """Fail closed if the bound artifact is missing or changed."""
+
+        ...

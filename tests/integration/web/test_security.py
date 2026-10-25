@@ -11,12 +11,12 @@ from impodo.domain.shared.tenancy import (
     ProjectVisibilityScope,
     RequestOrganizationScope,
 )
-
 from tests.support.browser_scenarios import (
     LocalBrowserSecurityTestCase,
     _csrf,
     uuid4,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class LocalBrowserSecurityTests(LocalBrowserSecurityTestCase):
@@ -70,7 +70,7 @@ class LocalBrowserSecurityTests(LocalBrowserSecurityTestCase):
         self.assertEqual(launched.status_code, 303)
         context = self.app.state.context
         project = context.migration_projects.create(
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             display_name="Hidden customer migration",
             migration_purpose="Verify opaque Project access",
             source_system_identity="Fictional ERP",
@@ -141,7 +141,7 @@ class LocalBrowserSecurityTests(LocalBrowserSecurityTestCase):
         )
         context = self.app.state.context
         project = context.migration_projects.create(
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             display_name="Read-only customer migration",
             migration_purpose="Verify mutation authorization order",
             source_system_identity="Fictional ERP",

@@ -78,19 +78,42 @@ _ODOO_19_CREATE_HOOKS = {
 }
 
 
-class CreateFieldView(Protocol):
-    """Minimal field evidence used by workspace and Recipe compatibility."""
+class CreateFieldShape(Protocol):
+    """Read-only field shape shared by captured and governed contracts."""
 
-    name: str
-    type: str
-    required: bool
-    readonly: bool
-    relation: str | None
-    computed: bool | None
-    related: bool | None
-    company_dependent: bool | None
-    create_default_present: bool
-    create_default_value: bool | int | float | str | None
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def type(self) -> str: ...
+
+    @property
+    def required(self) -> bool: ...
+
+    @property
+    def readonly(self) -> bool: ...
+
+    @property
+    def relation(self) -> str | None: ...
+
+    @property
+    def computed(self) -> bool | None: ...
+
+    @property
+    def related(self) -> bool | None: ...
+
+    @property
+    def company_dependent(self) -> bool | None: ...
+
+
+class CreateFieldView(CreateFieldShape, Protocol):
+    """Field shape plus captured create-default evidence."""
+
+    @property
+    def create_default_present(self) -> bool: ...
+
+    @property
+    def create_default_value(self) -> bool | int | float | str | None: ...
 
 
 class CreateFieldCoverage(StrEnum):
@@ -187,7 +210,7 @@ def evaluate_create_field(
 
 
 def is_odoo_create_hook_field(
-    field: CreateFieldView,
+    field: CreateFieldShape,
     *,
     target_model: str | None,
     odoo_version: str | None,
@@ -229,7 +252,7 @@ def required_create_hook_inputs(
 
 
 def is_odoo_managed_candidate(
-    field: CreateFieldView,
+    field: CreateFieldShape,
     *,
     target_model: str | None = None,
     odoo_version: str | None = None,
@@ -248,7 +271,7 @@ def is_odoo_managed_candidate(
     )
 
 
-def supports_create_default_capture(field: CreateFieldView) -> bool:
+def supports_create_default_capture(field: CreateFieldShape) -> bool:
     """Return whether one field can receive bounded ``default_get`` evidence.
 
     A Many2one default is safe here because Impodo never copies its numeric ID
@@ -263,7 +286,7 @@ def supports_create_default_capture(field: CreateFieldView) -> bool:
     )
 
 
-def supports_fixed_create_value(field: CreateFieldView) -> bool:
+def supports_fixed_create_value(field: CreateFieldShape) -> bool:
     """Return whether a required field has a generic typed fixed-value editor."""
 
     return bool(

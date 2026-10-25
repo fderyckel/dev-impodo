@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol
@@ -92,7 +92,7 @@ class OdooCaptureRelationshipScopeReader(Protocol):
 
 
 class OdooSourceCaptureSession(Protocol):
-    def pages(self): ...
+    def pages(self) -> Iterable[OdooCapturePage]: ...
 
     @property
     def matching_rows(self) -> int: ...

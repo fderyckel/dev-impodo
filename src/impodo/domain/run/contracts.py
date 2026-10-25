@@ -128,8 +128,13 @@ class MigrationRunReferenceBundle:
             raise MigrationRunPlanningError(
                 "Stored MigrationRun reference evidence has an invalid shape"
             )
+        contract_version = payload["contract_version"]
+        if type(contract_version) is not int:
+            raise MigrationRunPlanningError(
+                "Stored MigrationRun reference evidence contract is invalid"
+            )
         result = cls(
-            contract_version=int(payload["contract_version"]),
+            contract_version=contract_version,
             migration_run_id=str(payload["migration_run_id"]),
             source_workspace_id=str(payload["source_workspace_id"]),
             source_bundle_hash=str(payload["source_bundle_hash"]),

@@ -156,16 +156,18 @@ Keep persisted formats and semantic hashes stable during structural changes.
 
 Provide one documented local command that runs the same selected checks as
 continuous integration. Pin new development tools and configuration in the
-repository. The initial command should compose existing checks before adding
-new tooling. Tool selection and CI wiring are implementation work under this
-proposal; they are not configured by this document.
+repository. The current
+[Python quality gate](../developer/reference/python-code-quality.md) pins Ruff
+and Basedpyright, prevents new lint and type debt in `src/impodo`, and runs the
+same command locally and in continuous integration. The remaining rows retain
+the broader checks that this proposal still needs to compose.
 
 | Check | Proposed enforcement |
 | --- | --- |
 | Existing dependency direction, runtime cycles, composition ownership, and import inventory. | Require passing results before merge. Review deliberate inventory changes with their code changes. |
 | Existing documentation links, workflow ownership, and code-documentation checks. | Require passing results for affected changes and retain repository-wide checks in CI. |
-| Formatting and a small set of correctness lint rules. | Introduce a pinned formatter and linter, initially for the extracted modules. Separate mechanical formatting from behavior changes and expand coverage incrementally. |
-| Static typing. | Check new ports and extracted execution modules first, including their boundary contracts. Expand the checked module set without adding blanket ignores to obtain a green result. |
+| Formatting and correctness lint rules. | Ruff now enforces its pinned lint rules across `src/impodo`. Repository-wide formatting remains deferred so a mechanical rewrite stays separate from behavior changes. |
+| Static typing. | Basedpyright now checks `src/impodo` in Standard mode. Its committed baseline records existing debt; new diagnostics fail, and reviewed changes reduce the baseline without blanket ignores. |
 | New imports of another module's private symbols and obvious runtime patching. | Add focused static checks with small, explicit exceptions for reviewed cases. Static detection supports code review; it cannot prove the absence of all dynamic mutation. |
 | Focused behavior, adapter, and bounded-I/O tests. | Require the tests relevant to the changed responsibility. Run broader regression suites for changes to shared execution, persistence, or composition. |
 | Complete tests and supported-platform qualification. | Keep full discovery in release validation and run it in merge CI where practical. Keep opt-in live Odoo checks separate and report whether they ran. |

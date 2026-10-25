@@ -57,11 +57,20 @@ class StandardReferenceFieldContract:
 class CapturedReferenceFieldView(Protocol):
     """Describe the captured-field attributes needed by the shared policy."""
 
-    name: str
-    type: str
-    required: bool
-    readonly: bool
-    relation: str | None
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def type(self) -> str: ...
+
+    @property
+    def required(self) -> bool: ...
+
+    @property
+    def readonly(self) -> bool: ...
+
+    @property
+    def relation(self) -> str | None: ...
 
 
 @dataclass(frozen=True, slots=True)

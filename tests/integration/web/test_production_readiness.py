@@ -8,18 +8,25 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
+from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.run.contracts import MigrationRunPlanningError
 from impodo.domain.run.production import ProductionRunError
-from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.serialization import content_hash
-from impodo.domain.shared.models import OdooWriteIdentity
-from impodo.web.app import create_local_app
-from impodo.web.run_commands import _assert_recipe_application_can_prepare, _preparation_workspace
+from impodo.domain.shared.models import (
+    OdooReadIdentity,
+    OdooWriteIdentity,
+    target_identity_hash,
+)
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.web.app import create_local_app
+from impodo.web.run_commands import (
+    _assert_recipe_application_can_prepare,
+    _preparation_workspace,
+)
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
-from tests.support.recipe_lifecycle import complete_application, metadata_for_schema
-from impodo.domain.shared.models import OdooReadIdentity, target_identity_hash
 from tests.integration.web import test_fresh_data_controls as fresh_data
+from tests.support.identity import resolve_local_actor
+from tests.support.recipe_lifecycle import complete_application, metadata_for_schema
 
 field = fresh_data.field
 
@@ -43,7 +50,7 @@ class ProductionReadinessBrowserTests(TestCase):
         }, headers=self.headers, follow_redirects=False)
         self.assertEqual(accepted.status_code, 303, accepted.text)
         test_application = self.fixture._activate_with_real_compiler()
-        context, actor = self.context, self.context.actor
+        context, actor = self.context, resolve_local_actor(self.context)
         project_id, test_run_id = test_application.project_id, test_application.migration_run_id
         complete_application(self, context, test_application, expected_total="125.50")
         review = context.cutover_plans.review(project_id, test_run_id, actor=actor)
@@ -136,7 +143,7 @@ class ProductionReadinessBrowserTests(TestCase):
         saved = self.client.post(self.fresh_url + "/accept", data={**form, "control_0": "200.00"},
                                  headers=self.headers, follow_redirects=False)
         self.assertEqual(saved.status_code, 303, saved.text)
-        self.assertEqual(self.context.data_versions.get(self.binding.data_version_id, actor=self.context.actor).state.value, "DRAFT")
+        self.assertEqual(self.context.data_versions.get(self.binding.data_version_id, actor=resolve_local_actor(self.context)).state.value, "DRAFT")
         page = self.client.get(self.fresh_url)
         self.assertIn('value="200.00"', page.text)
         self.assertEqual(field(page, "parameter_revision"), "1")
@@ -165,7 +172,7 @@ class ProductionReadinessBrowserTests(TestCase):
         with self.assertRaisesRegex(MigrationFoundationError, "accepted with this fresh data"):
             context.run_setups.replace_values(self.binding, {},
                 supplied_controls={test_application.recipe_id: {"control:balances.amount": "999"}},
-                expected_revision=saved.revision, actor=context.actor)
+                expected_revision=saved.revision, actor=resolve_local_actor(context))
         with patch.object(context.run_planning, "target_evidence_from_workspace", return_value=(self.schema, None)), \
                 patch.object(context, "write_identity_probe", return_value=self.identity) as probe:
             _, form = self.activation_form()
@@ -187,7 +194,7 @@ class ProductionReadinessBrowserTests(TestCase):
             self.assertIn("Finish Production setup", interrupted.text)
             self.assertNotIn("Production Recipe work areas were created", interrupted.text)
             probe.assert_called_once()
-            operation = context.production_runs.activation_operation(self.run_id, actor=context.actor)
+            operation = context.production_runs.activation_operation(self.run_id, actor=resolve_local_actor(context))
             self.assertNotEqual(operation.state.value, "COMMITTED")
             self.assertEqual(operation.detail["activation_inputs"]["controls"][test_application.recipe_id], {"control:balances.amount": "200.00"})
             self.assertNotIn("fictional-production-write", str(operation.detail))
@@ -207,14 +214,14 @@ class ProductionReadinessBrowserTests(TestCase):
                     _preparation_workspace(
                         context,
                         application.workspace_id,
-                        actor=context.actor,
+                        actor=resolve_local_actor(context),
                     ),
-                    actor=context.actor,
+                    actor=resolve_local_actor(context),
                 )
             with self.assertRaisesRegex(ProductionRunError, "Finish Production setup"):
                 context.production_runs.assert_execution_authority(application.workspace_id,
                     read_identity=None, read_credential_generation="", expected_read_credential_generation="",
-                    write_identity=None, write_credential_generation="", actor=context.actor)
+                    write_identity=None, write_credential_generation="", actor=resolve_local_actor(context))
 
         # Persistent artifact encryption keys survive restart; session Odoo keys do not.
         restarted_secrets = MemorySecretStore()
@@ -237,7 +244,7 @@ class ProductionReadinessBrowserTests(TestCase):
                 headers=self.headers, follow_redirects=False)
             self.assertEqual(resumed.status_code, 303, resumed.text)
             self.assertEqual(resumed.headers["location"], self.run_url)
-            completed = resumed_context.production_runs.activation_operation(self.run_id, actor=resumed_context.actor)
+            completed = resumed_context.production_runs.activation_operation(self.run_id, actor=resolve_local_actor(resumed_context))
             self.assertEqual(completed.operation_id, operation.operation_id)
             self.assertEqual(completed.state.value, "COMMITTED")
             current = resumed_context.run_planning.repository.get_bundle(self.run_id)
@@ -254,7 +261,7 @@ class ProductionReadinessBrowserTests(TestCase):
             replay = client.post(self.url + "/resume", data={"csrf_token": field(ready, "csrf_token")},
                 headers=self.headers, follow_redirects=False)
             self.assertEqual(replay.status_code, 303)
-            resumed_context.preparation.prepare(application.workspace_id, actor=resumed_context.actor)
+            resumed_context.preparation.prepare(application.workspace_id, actor=resolve_local_actor(resumed_context))
             staging = resumed_context.preparation.staging.get_current_staging_summary(application.workspace_id)
             self.assertTrue(staging.control_totals[0].passed)
             self.assertEqual(staging.control_totals[0].expected_total, "200.00")

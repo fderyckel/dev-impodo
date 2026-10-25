@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
-from typing import Protocol
+from typing import Protocol, TypedDict
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from impodo.domain.source_binding import DerivedSourceBinding, require_file_source
@@ -60,18 +60,46 @@ _SUPPORTED_ALL_BLANK_MODES = frozenset(
 )
 
 
+class SourceColumnProfileView(Protocol):
+    """Minimum detected-column evidence needed by portable preview logic."""
+
+    @property
+    def ordinal(self) -> int: ...
+
+    @property
+    def distinct_count(self) -> int: ...
+
+    @property
+    def distinct_count_is_exact(self) -> bool: ...
+
+
 class SourceTableCatalogView(Protocol):
     """Minimum detected-table evidence needed by portable preview logic."""
 
-    table_key: str
+    @property
+    def table_key(self) -> str: ...
+
+    @property
+    def row_count(self) -> int: ...
+
+    @property
+    def columns(self) -> tuple[SourceColumnProfileView, ...]: ...
+
+    @property
+    def preview_rows(self) -> tuple[tuple[str | None, ...], ...]: ...
 
 
 class SourceFileCatalogView(Protocol):
     """Minimum immutable catalogue evidence needed by portable preview logic."""
 
-    file_id: str
-    source_sha256: str
-    tables: tuple[SourceTableCatalogView, ...]
+    @property
+    def file_id(self) -> str: ...
+
+    @property
+    def source_sha256(self) -> str: ...
+
+    @property
+    def tables(self) -> tuple[SourceTableCatalogView, ...]: ...
 
     @property
     def content_hash(self) -> str: ...
@@ -413,19 +441,32 @@ class SavedExactJoinReview:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> SavedExactJoinReview:
+        raw_snapshots = payload.get("input_snapshots", ())
+        if not isinstance(raw_snapshots, (list, tuple)):
+            raise TypeError("Saved join-review snapshots must be a sequence")
+        snapshots = []
+        for raw_snapshot in raw_snapshots:
+            snapshot = _string_keyed_mapping(
+                raw_snapshot,
+                "Saved join-review snapshot",
+            )
+            snapshots.append(
+                ExactJoinInputSnapshotEvidence(
+                    dataset_id=str(snapshot["dataset_id"]),
+                    logical_hash=str(snapshot["logical_hash"]),
+                    parquet_sha256=str(snapshot["parquet_sha256"]),
+                )
+            )
+        review = _string_keyed_mapping(
+            payload["review"],
+            "Saved exact-join review",
+        )
         return cls(
             rule_id=str(payload["rule_id"]),
             rule_hash=str(payload["rule_hash"]),
             source_selection_hash=str(payload["source_selection_hash"]),
-            input_snapshots=tuple(
-                ExactJoinInputSnapshotEvidence(
-                    dataset_id=str(item["dataset_id"]),
-                    logical_hash=str(item["logical_hash"]),
-                    parquet_sha256=str(item["parquet_sha256"]),
-                )
-                for item in payload.get("input_snapshots", ())
-            ),
-            review=ExactJoinReview.from_dict(dict(payload["review"])),
+            input_snapshots=tuple(snapshots),
+            review=ExactJoinReview.from_dict(review),
         )
 
 
@@ -670,6 +711,22 @@ class _LookupValueGrouping:
     groups: tuple[_LookupValueGroup, ...]
 
 
+class _HierarchyPreviewEntry(TypedDict):
+    """Mutable aggregate for one hierarchy path in a bounded preview."""
+
+    name: str
+    aliases: set[str]
+    count: int
+
+
+class _LookupValueEntry(TypedDict):
+    """Mutable aggregate for one lookup path during exact grouping."""
+
+    name: str
+    aliases: set[str]
+    source_rows: set[int]
+
+
 @dataclass(frozen=True, slots=True)
 class RelatedParentSample:
     """One parent group shown as bounded, human-readable evidence."""
@@ -860,7 +917,7 @@ def _preview_hierarchical_entities(
         if item.stable_key in rule.source_level_column_keys
     }
     ordered_columns = tuple(columns[key] for key in rule.source_level_column_keys)
-    accumulated: dict[tuple[str, ...], dict[str, object]] = {}
+    accumulated: dict[tuple[str, ...], _HierarchyPreviewEntry] = {}
     outcome_counts: dict[str, int] = {}
     for row in table.preview_rows:
         evaluation = evaluate_hierarchy_path(
@@ -885,14 +942,12 @@ def _preview_hierarchical_entities(
                     "count": 0,
                 },
             )
-            aliases = entry["aliases"]
-            assert isinstance(aliases, set)
-            aliases.add(_display_path(display_path, "/"))
-            entry["count"] = int(entry["count"]) + 1
+            entry["aliases"].add(_display_path(display_path, "/"))
+            entry["count"] += 1
 
     candidates: list[DerivedEntityCandidate] = []
     for key_path, entry in accumulated.items():
-        aliases = tuple(sorted(str(item) for item in entry["aliases"]))
+        aliases = tuple(sorted(entry["aliases"]))
         entity_id, external_id = _identifiers(rule, key_path)
         parent_path = key_path[:-1]
         candidates.append(
@@ -905,7 +960,7 @@ def _preview_hierarchical_entities(
                     _identifiers(rule, parent_path)[0] if parent_path else None
                 ),
                 aliases=aliases,
-                sampled_source_row_count=int(entry["count"]),
+                sampled_source_row_count=entry["count"],
                 requires_alias_review=len(aliases) > 1,
             )
         )
@@ -1574,7 +1629,7 @@ def _group_lookup_values(
 ) -> _LookupValueGrouping:
     """Group source values once for exact review and later materialization."""
 
-    accumulated: dict[tuple[str, ...], dict[str, object]] = {}
+    accumulated: dict[tuple[str, ...], _LookupValueEntry] = {}
     leaf_paths: set[tuple[str, ...]] = set()
     source_row_count = 0
     linked_source_rows = 0
@@ -1603,19 +1658,17 @@ def _group_lookup_values(
                     "source_rows": set(),
                 },
             )
-            aliases = entry["aliases"]
-            assert isinstance(aliases, set)
-            aliases.add(_display_path(display_path, rule.parent_separator))
-            contributing_rows = entry["source_rows"]
-            assert isinstance(contributing_rows, set)
-            contributing_rows.add(source_row)
+            entry["aliases"].add(
+                _display_path(display_path, rule.parent_separator)
+            )
+            entry["source_rows"].add(source_row)
 
     groups = tuple(
         _LookupValueGroup(
             key_path=key_path,
             name=str(entry["name"]),
-            aliases=tuple(sorted(str(item) for item in entry["aliases"])),
-            source_rows=tuple(sorted(int(item) for item in entry["source_rows"])),
+            aliases=tuple(sorted(entry["aliases"])),
+            source_rows=tuple(sorted(entry["source_rows"])),
         )
         for key_path, entry in sorted(
             accumulated.items(),
@@ -1823,24 +1876,112 @@ def _rule_payload(
     }
 
 
+def _string_keyed_mapping(value: object, label: str) -> dict[str, object]:
+    """Return one portable mapping after validating its JSON object shape."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{label} must be an object")
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise TypeError(f"{label} keys must be strings")
+        result[key] = item
+    return result
+
+
+def _required_string(values: Mapping[str, object], key: str) -> str:
+    value = values[key]
+    if not isinstance(value, str):
+        raise TypeError(f"Source-preparation field {key!r} must be text")
+    return value
+
+
+def _optional_string(values: Mapping[str, object], key: str) -> str | None:
+    value = values.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError(f"Source-preparation field {key!r} must be text or null")
+    return value
+
+
+def _string_sequence(values: Mapping[str, object], key: str) -> tuple[str, ...]:
+    raw_values = values[key]
+    if not isinstance(raw_values, (list, tuple)):
+        raise TypeError(f"Source-preparation field {key!r} must be a sequence")
+    if not all(isinstance(item, str) for item in raw_values):
+        raise TypeError(f"Source-preparation field {key!r} must contain text")
+    return tuple(item for item in raw_values if isinstance(item, str))
+
+
+def _hierarchy_policy(value: object, label: str) -> HierarchyValuePolicy:
+    values = _string_keyed_mapping(value, label)
+    return HierarchyValuePolicy(
+        mode=_required_string(values, "mode"),
+        value=_optional_string(values, "value"),
+    )
+
+
 def _rule_from_payload(payload: dict[str, object]) -> SourcePreparationRule:
     values = dict(payload)
     kind = str(values.pop("kind"))
     if kind == "lookup":
-        return DerivedEntityRule(**values)
+        return DerivedEntityRule(
+            rule_id=_required_string(values, "rule_id"),
+            output_dataset_name=_required_string(values, "output_dataset_name"),
+            source_dataset_id=_required_string(values, "source_dataset_id"),
+            source_column_key=_required_string(values, "source_column_key"),
+            target_model=_required_string(values, "target_model"),
+            target_name_field=_required_string(values, "target_name_field"),
+            external_id_namespace=_required_string(
+                values,
+                "external_id_namespace",
+            ),
+            parent_separator=_optional_string(values, "parent_separator"),
+            blank_policy=str(values.get("blank_policy", "block")),
+        )
     if kind == "hierarchical_lookup":
-        values["source_level_column_keys"] = tuple(
-            str(item) for item in values.get("source_level_column_keys", ())
+        return HierarchicalLookupRule(
+            rule_id=_required_string(values, "rule_id"),
+            output_dataset_name=_required_string(values, "output_dataset_name"),
+            source_dataset_id=_required_string(values, "source_dataset_id"),
+            source_level_column_keys=_string_sequence(
+                values,
+                "source_level_column_keys",
+            ),
+            target_model=_required_string(values, "target_model"),
+            target_name_field=_required_string(values, "target_name_field"),
+            external_id_namespace=_required_string(
+                values,
+                "external_id_namespace",
+            ),
+            missing_parent=_hierarchy_policy(
+                values["missing_parent"],
+                "Missing-parent policy",
+            ),
+            missing_leaf=str(values.get("missing_leaf", "use_deepest")),
+            all_blank=_hierarchy_policy(
+                values["all_blank"],
+                "All-blank policy",
+            ),
         )
-        values["missing_parent"] = HierarchyValuePolicy(
-            **dict(values.get("missing_parent", {}))
-        )
-        values["all_blank"] = HierarchyValuePolicy(
-            **dict(values.get("all_blank", {}))
-        )
-        return HierarchicalLookupRule(**values)
     if kind == "parent_child":
-        return RelatedDatasetRule(**values)
+        return RelatedDatasetRule(
+            rule_id=_required_string(values, "rule_id"),
+            source_dataset_id=_required_string(values, "source_dataset_id"),
+            parent_dataset_name=_required_string(values, "parent_dataset_name"),
+            child_dataset_name=_required_string(values, "child_dataset_name"),
+            parent_key_column_key=_required_string(
+                values,
+                "parent_key_column_key",
+            ),
+            child_key_column_key=_required_string(
+                values,
+                "child_key_column_key",
+            ),
+            scope_column_key=_optional_string(values, "scope_column_key"),
+            blank_policy=str(values.get("blank_policy", "block")),
+        )
     if kind == "exact_join":
         values["kind"] = values.pop("join_kind", "LEFT")
         return ExactJoinRule.from_dict(values)

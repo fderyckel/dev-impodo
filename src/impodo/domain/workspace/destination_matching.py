@@ -1545,6 +1545,12 @@ def choose_destination_create_field_provider(
         raise ValueError("Choose a current required field for new records")
     candidate: DestinationCreateReferenceCandidate | None = None
     incoming_candidate: DestinationCreateIncomingReferenceCandidate | None = None
+    selected_reference_choice_hash: str | None = None
+    selected_incoming_reference_choice_hash: str | None = None
+    related_model: str | None = None
+    related_identity_fields: tuple[str, ...] = ()
+    source_dataset_id: str | None = None
+    source_reference_requires_create: bool | None = None
     if provider_kind == "fixed_value":
         if not _valid_fixed_create_value(current, fixed_value):
             raise ValueError("Enter a valid value for the current destination field")
@@ -1574,6 +1580,9 @@ def choose_destination_create_field_provider(
         source_field_name = None
         protected_value = candidate.odoo_id
         display_value = candidate.display_value
+        selected_reference_choice_hash = candidate.choice_hash
+        related_model = candidate.related_model
+        related_identity_fields = candidate.identity_fields
         reason = (
             "Use this reviewed destination record only when Impodo creates a new record."
         )
@@ -1593,6 +1602,11 @@ def choose_destination_create_field_provider(
             f"{incoming_candidate.source_dataset_name}: "
             f"{incoming_candidate.display_value}"
         )
+        selected_incoming_reference_choice_hash = incoming_candidate.choice_hash
+        related_model = incoming_candidate.related_model
+        related_identity_fields = incoming_candidate.identity_fields
+        source_dataset_id = incoming_candidate.source_dataset_id
+        source_reference_requires_create = incoming_candidate.requires_create
         reason = (
             "Use this reviewed source record only when Impodo creates a new record."
         )
@@ -1606,16 +1620,8 @@ def choose_destination_create_field_provider(
             "provider": provider_kind,
             "value": protected_value,
             "source_field": source_field_name,
-            "reference_choice": (
-                candidate.choice_hash
-                if provider_kind == "existing_reference"
-                else None
-            ),
-            "incoming_reference_choice": (
-                incoming_candidate.choice_hash
-                if provider_kind == "incoming_reference"
-                else None
-            ),
+            "reference_choice": selected_reference_choice_hash,
+            "incoming_reference_choice": selected_incoming_reference_choice_hash,
         }
     )
     decision = DestinationCreateFieldDecision(
@@ -1632,34 +1638,10 @@ def choose_destination_create_field_provider(
         value_hash=value_hash,
         reviewed=True,
         source_field_name=source_field_name,
-        related_model=(
-            (
-                candidate.related_model
-                if provider_kind == "existing_reference"
-                else incoming_candidate.related_model
-            )
-            if provider_kind in {"existing_reference", "incoming_reference"}
-            else None
-        ),
-        related_identity_fields=(
-            (
-                candidate.identity_fields
-                if provider_kind == "existing_reference"
-                else incoming_candidate.identity_fields
-            )
-            if provider_kind in {"existing_reference", "incoming_reference"}
-            else ()
-        ),
-        source_dataset_id=(
-            incoming_candidate.source_dataset_id
-            if provider_kind == "incoming_reference"
-            else None
-        ),
-        source_reference_requires_create=(
-            incoming_candidate.requires_create
-            if provider_kind == "incoming_reference"
-            else None
-        ),
+        related_model=related_model,
+        related_identity_fields=related_identity_fields,
+        source_dataset_id=source_dataset_id,
+        source_reference_requires_create=source_reference_requires_create,
     )
     protected = replace(
         current,
@@ -1668,11 +1650,7 @@ def choose_destination_create_field_provider(
         value_hash=value_hash,
         provider_kind=provider_kind,
         source_field_name=source_field_name,
-        incoming_reference_choice_hash=(
-            incoming_candidate.choice_hash
-            if provider_kind == "incoming_reference"
-            else None
-        ),
+        incoming_reference_choice_hash=selected_incoming_reference_choice_hash,
     )
     decisions_by_key = {item.key: item for item in plan.create_field_decisions}
     decisions_by_key[key] = decision

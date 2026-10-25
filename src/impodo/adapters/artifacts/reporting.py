@@ -277,6 +277,7 @@ def _build_workbook(
 
     workbook = Workbook()
     overview = workbook.active
+    assert overview is not None
     overview.title = "Review overview"
     sheets = {
         name: workbook.create_sheet(name)

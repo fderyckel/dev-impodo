@@ -17,7 +17,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
-from typing import Any
+from typing import Any, Protocol
 
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.mapping.contracts import DatasetMapping, ResolverOrigin
@@ -33,6 +33,7 @@ from impodo.domain.shared.models import (
     canonical_json_bytes,
     portable_value,
 )
+from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.workspace.workbench import WorkspaceState
 
 QUALITY_CONTRACT_VERSION = 3
@@ -68,6 +69,22 @@ def incoming_identity_group_fields(dataset: DatasetMapping) -> tuple[str, ...]:
 
 class QualityError(ValueError):
     """Raised when quality evidence cannot be evaluated or reconciled safely."""
+
+
+class _QualityIssueRow(Protocol):
+    """Minimum prepared-row evidence required to classify one quality issue."""
+
+    @property
+    def row_id(self) -> str: ...
+
+    @property
+    def dataset(self) -> str: ...
+
+    @property
+    def source_row(self) -> int: ...
+
+    @property
+    def disposition(self) -> StagingDisposition: ...
 
 
 class QualityRuleFamily(StrEnum):
@@ -1082,7 +1099,7 @@ def retention_context_hash(workspace_state: WorkspaceState) -> str:
 def evaluate_quality(
     *,
     workspace_state: WorkspaceState,
-    staging: CanonicalStagingRun,
+    staging: CanonicalStagingRun | StoredCanonicalStagingRun,
     physical_rows: Mapping[str, tuple[int, ...]],
     ruleset: QualityRuleSet,
     published_staging_content_hash: str | None = None,
@@ -1638,7 +1655,7 @@ def evaluate_quality(
 def _quality_issue(
     workspace_state: WorkspaceState,
     rule: QualityRule,
-    row: CanonicalRow,
+    row: _QualityIssueRow,
     reason_code: str,
     message: str,
     fields: Iterable[str],
@@ -1695,7 +1712,10 @@ def _setup_issue(
     )
 
 
-def _effective_disposition(row: CanonicalRow, issues: Iterable[QualityIssue]) -> QualityDisposition:
+def _effective_disposition(
+    row: _QualityIssueRow,
+    issues: Iterable[QualityIssue],
+) -> QualityDisposition:
     items = tuple(issues)
     policies = {item.policy for item in items}
     if QualityOutcomePolicy.BLOCK in policies:
@@ -1771,8 +1791,10 @@ def _business_rule_failed(rule: QualityRule, row: CanonicalRow) -> tuple[bool, s
     if rule.family is QualityRuleFamily.ORDERED_COMPARISON:
         if len(values) != 2 or not all(present):
             return False, ""
+        left, right = values
+        assert left is not None and right is not None
         try:
-            return values[0] > values[1], "The first selected value must not be greater than the second."
+            return left > right, "The first selected value must not be greater than the second."
         except TypeError:
             return True, "The selected values cannot be compared safely."
     if rule.family is QualityRuleFamily.EQUALITY:

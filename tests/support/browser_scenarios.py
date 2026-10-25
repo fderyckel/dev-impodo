@@ -2,59 +2,29 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, replace
-
-from contextlib import contextmanager
-
-from datetime import date, datetime, timedelta, timezone
-
-from html import unescape
-
-from io import BytesIO
-
 import json
-
 import multiprocessing
-
-from pathlib import Path
-
 import re
-
 import tempfile
-
 import time
-
-from types import SimpleNamespace
-
 import unittest
-
+from contextlib import contextmanager
+from dataclasses import asdict, replace
+from datetime import date, datetime, timedelta, timezone
+from html import unescape
+from io import BytesIO
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-
 from urllib.parse import parse_qs, urlsplit
-
 from uuid import uuid4
 
 import duckdb
-
 from fastapi.testclient import TestClient
-
 from openpyxl import Workbook
-
 from openpyxl.worksheet.table import Table
 
-from impodo.domain.shared.access import Actor, ActorIdentity, Capability
-
-from impodo.domain.odoo.contracts import (
-    ConnectorAuthenticationError,
-    ConnectorAuthorizationError,
-    ConnectorError,
-    ConnectorTransportError,
-    MetadataSnapshot,
-    RecordSnapshot,
-)
-
 from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
-
 from impodo.adapters.odoo.local_stack import (
     LocalStackCheck,
     LocalStackService,
@@ -62,13 +32,39 @@ from impodo.adapters.odoo.local_stack import (
     LocalStackStatus,
     ReadinessLevel,
 )
-
-from impodo.domain.schema.governance import (
-    BusinessKeyDefinition,
-    BusinessKeyStatus,
-    SchemaGovernance,
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
+from impodo.application.data_version.inspection import (
+    CATALOG_CONTRACT_VERSION,
+    SourceColumnProfile,
+    SourceFileCatalog,
+    SourceTableCatalog,
 )
-
+from impodo.application.data_version.source_packages import (
+    DataVersionSourcePackage,
+    SourcePackageCatalog,
+    SourcePackageConfiguration,
+    SourcePackageDataset,
+    SourcePackageFile,
+    SourcePackageOrigin,
+    SourcePackageState,
+    source_column_contract_hash,
+)
+from impodo.application.odoo_connection_service import OdooConnectionTestService
+from impodo.application.odoo_read_failures import (
+    OdooReadCredentialMissingError,
+    OdooReadFailureCode,
+    OdooReadWorkflowError,
+)
+from impodo.application.preflight_service import MANIFEST_NAME
+from impodo.application.shared.secrets import SecretStoreError
+from impodo.application.workspace.execution.load_jobs import LoadJobResult
+from impodo.application.workspace.preparation.job_models import (
+    PreparationJobStatus,
+    PreparationWorkspace,
+)
+from impodo.domain.execution.models import ExecutionRowStatus, ExecutionRunStatus
+from impodo.domain.execution.odoo_readback import ReadbackRecord
+from impodo.domain.execution.planner import PreflightRequirementPlan
 from impodo.domain.mapping.contracts import (
     CategoricalCoveragePolicy,
     DatasetMapping,
@@ -83,60 +79,37 @@ from impodo.domain.mapping.contracts import (
     TargetFieldHandling,
     ValueMapping,
 )
-
 from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
     mapping_issue_fingerprint,
 )
-
-from impodo.domain.source_binding import FileSourceBinding
-
-from impodo.domain.source_snapshot import (
-    SourceSnapshot,
-    SourceSnapshotColumn,
-    SourceSnapshotSchema,
+from impodo.domain.odoo.contracts import (
+    ConnectorAuthenticationError,
+    ConnectorAuthorizationError,
+    ConnectorError,
+    ConnectorTransportError,
+    MetadataSnapshot,
+    RecordSnapshot,
 )
-
-from impodo.application.data_version.source_packages import (
-    DataVersionSourcePackage,
-    SourcePackageCatalog,
-    SourcePackageConfiguration,
-    SourcePackageDataset,
-    SourcePackageFile,
-    SourcePackageOrigin,
-    SourcePackageState,
-    source_column_contract_hash,
-)
-
-from impodo.application.data_version.inspection import (
-    CATALOG_CONTRACT_VERSION,
-    SourceColumnProfile,
-    SourceFileCatalog,
-    SourceTableCatalog,
-)
-
-from impodo.domain.execution.models import ExecutionRowStatus, ExecutionRunStatus
-
+from impodo.domain.odoo_comparison import OdooComparisonOutcome
 from impodo.domain.odoo_source_capture import (
     OdooCaptureAccounting,
     OdooCapturePage,
     OdooCaptureValueColumn,
 )
-
-from impodo.domain.odoo_comparison import OdooComparisonOutcome
-
-from impodo.application.preflight_service import MANIFEST_NAME
-
-from impodo.application.odoo_connection_service import OdooConnectionTestService
-
-from impodo.application.workspace.execution.load_jobs import LoadJobResult
-
-from impodo.application.odoo_read_failures import (
-    OdooReadCredentialMissingError,
-    OdooReadFailureCode,
-    OdooReadWorkflowError,
+from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
+from impodo.domain.preparation.quality import (
+    QualityOutcomePolicy,
+    QualityOwnerRole,
+    QualityRuleFamily,
 )
-
+from impodo.domain.preparation.staging_contracts import CanonicalControlTotal
+from impodo.domain.schema.governance import (
+    BusinessKeyDefinition,
+    BusinessKeyStatus,
+    SchemaGovernance,
+)
+from impodo.domain.shared.access import Actor, ActorIdentity, Capability
 from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
@@ -145,52 +118,19 @@ from impodo.domain.shared.models import (
     ProtectedOdooReadContext,
     TargetFingerprint,
     TargetRecord,
+    canonical_json_text,
     target_identity_hash,
 )
-
-from impodo.domain.shared.models import canonical_json_text
-
-from impodo.domain.execution.odoo_readback import ReadbackRecord
-
-from impodo.domain.workspace.workbench import (
-    OdooConnectionMode,
-    SourceMode,
-    WorkspaceStatus,
+from impodo.domain.source_binding import FileSourceBinding
+from impodo.domain.source_snapshot import (
+    SourceSnapshot,
+    SourceSnapshotColumn,
+    SourceSnapshotSchema,
 )
-
-from impodo.application.workspace.preparation.job_models import PreparationJobStatus, PreparationWorkspace
-
-from impodo.domain.execution.planner import PreflightRequirementPlan
-
-from impodo.domain.preparation.quality import (
-    QualityOutcomePolicy,
-    QualityOwnerRole,
-    QualityRuleFamily,
-)
-
 from impodo.domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
 )
-
-from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
-
-from impodo.application.shared.secrets import SecretStoreError
-
-from impodo.domain.preparation.staging_contracts import CanonicalControlTotal
-
-from impodo.web.app import create_local_app
-
-from impodo.web.target_credentials import (
-    TargetCredentialRole,
-    get_target_credential,
-    store_target_credential,
-)
-
-from impodo.web.composition.target_readers import _source_value_choices
-
-from impodo.domain.workspace.errors import WorkspaceError
-
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
     OdooModelSummary,
@@ -202,8 +142,23 @@ from impodo.domain.workspace.contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
-
-from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import (
+    OdooConnectionMode,
+    SourceMode,
+    WorkspaceStatus,
+)
+from impodo.web.app import create_local_app
+from impodo.web.composition.target_readers import _source_value_choices
+from impodo.web.target_credentials import (
+    TargetCredentialRole,
+    get_target_credential,
+    store_target_credential,
+)
+from tests.support.identity import (
+    MutableLocalRequestIdentityResolver,
+    resolve_local_actor,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -248,7 +203,7 @@ def _register_workspace_through_services(
     if current.source_mode is SourceMode.FILE and not current.source_files:
         context.intake.accept(
             current.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=current.revision,
             display_name="browser-fixture.csv",
             stream=BytesIO(b"code,name\nP001,Example\n"),
@@ -257,7 +212,7 @@ def _register_workspace_through_services(
     if connection_mode is not None:
         current = context.workspace_states.update_target(
             current.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=current.revision,
             odoo_connection_mode=connection_mode.value,
             odoo_base_url=base_url,
@@ -268,7 +223,7 @@ def _register_workspace_through_services(
     if current.status is WorkspaceStatus.DRAFT:
         return context.workspace_states.register(
             current.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=current.revision,
         )
     return current
@@ -380,7 +335,7 @@ def _created_workspace_id(app, response) -> str:
         raise AssertionError("Project creation returned an unexpected location")
     workspaces = app.state.context.migration_workspaces.list_for_project(
         parts[1],
-        actor=app.state.context.actor,
+        actor=resolve_local_actor(app.state.context),
     )
     if len(workspaces) != 1:
         raise AssertionError("New Project did not create one authoring workspace")
@@ -389,7 +344,7 @@ def _created_workspace_id(app, response) -> str:
 def _workspace_data_version_id(context, workspace_id: str) -> str:
     return context.migration_workspaces.get(
         workspace_id,
-        actor=context.actor,
+        actor=resolve_local_actor(context),
     ).data_version_id
 
 class ProjectWorkspaceBuilder:
@@ -406,7 +361,7 @@ class ProjectWorkspaceBuilder:
         source_mode: str = "FILE",
     ):
         return self._context.project_authoring.create(
-            actor=self._context.actor,
+            actor=resolve_local_actor(self._context),
             display_name=name,
             source_mode=source_mode,
             creation_request_id=str(uuid4()),
@@ -832,6 +787,7 @@ class LocalStackBrowserTestCase(unittest.TestCase):
             lambda workspace_state, _profile: _browser_schema(workspace_state).fingerprint
         )
         self.project_root = Path(self.temporary.name) / "impodo-data"
+        self.identity_resolver = MutableLocalRequestIdentityResolver()
         self.app = create_local_app(
             self.project_root,
             launch_token="launch-secret",
@@ -839,6 +795,7 @@ class LocalStackBrowserTestCase(unittest.TestCase):
             secret_store=MemorySecretStore(),
             local_stack_service=local_stack,
             local_odoo_reader=self.local_odoo_reader,
+            request_identity_resolver=self.identity_resolver,
         )
         self.workspaces = ProjectWorkspaceBuilder(self.app.state.context)
         self.client = TestClient(self.app)
@@ -866,14 +823,14 @@ class LocalStackBrowserTestCase(unittest.TestCase):
         workspace_state = context.queries.get(self.workspace_id)
         context.intake.accept(
             self.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             display_name="local-readiness.csv",
             stream=BytesIO(b"code,name\nP001,Example\n"),
         )
         registered = context.workspace_states.register(
             self.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=context.queries.get(self.workspace_id).revision,
         )
         self.workspace_revision = registered.revision
@@ -1024,14 +981,14 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         workspace_state = context.queries.get(workspace_id)
         context.intake.accept(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             display_name="target-test.csv",
             stream=BytesIO(b"code,name\nP001,Example\n"),
         )
         return context.workspace_states.register(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=context.queries.get(workspace_id).revision,
         )
 
@@ -1075,7 +1032,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
             workspace_id=workspace_state.workspace_id,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=now,
-            captured_by=context.actor.identity.display_name,
+            captured_by=resolve_local_actor(context).identity.display_name,
             connection_mode=workspace_state.odoo_connection_mode.value,
             database=workspace_state.odoo_database,
             odoo_version=snapshot.fingerprint.odoo_version,
@@ -1123,7 +1080,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
             connection_target_hash=snapshot.fingerprint.target_hash,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=now,
-            captured_by=context.actor.identity.display_name,
+            captured_by=resolve_local_actor(context).identity.display_name,
             connection_mode=workspace_state.odoo_connection_mode.value,
             database=workspace_state.odoo_database,
             odoo_version=snapshot.fingerprint.odoo_version,
@@ -1144,12 +1101,12 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         context.schema_workspace.schemas.save_odoo_model_catalog(
             workspace_state.workspace_id,
             model_catalog,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             workspace_state.workspace_id,
             schema,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         return workspace_state, schema
 
@@ -1174,14 +1131,14 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         publication = context.odoo_capture_publication.publish(
             workspace_id,
             _BrowserOdooCaptureGateway(workspace_state, schema),
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         context.data_version_source_projection.accept_odoo_capture(
             workspace_id,
             publication.source_selection,
             publication.source_snapshots,
             publication.manifests,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         return context.queries.get(workspace_id), schema
 
@@ -1252,11 +1209,11 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         )
         migration_workspace = context.migration_workspaces.get(
             registered.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         data_version = context.data_versions.get(
             migration_workspace.data_version_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         package_service = context.data_version_source_projection.packages
         current_package = package_service.repository.get_source_package(
@@ -1375,7 +1332,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
                         "selected_table_keys": ["contacts"],
                         "warnings_acknowledged": False,
                         "confirmed_at": now.isoformat(),
-                        "confirmed_by": context.actor.identity.display_name,
+                        "confirmed_by": resolve_local_actor(context).identity.display_name,
                     },
                 ),
             ),
@@ -1384,19 +1341,19 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         )
         saved_package = package_service.replace_draft(
             draft_package,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_package_revision=current_package.revision,
         )
         package_service.freeze(
             data_version.data_version_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_data_version_revision=data_version.optimistic_revision,
             expected_package_revision=saved_package.revision,
             operation_id=str(uuid4()),
         )
         context.data_version_source_projection.projections.materialize(
             registered.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             dataset_ids=(dataset.dataset_id,),
             expected_workspace_revision=(
                 migration_workspace.optimistic_revision
@@ -1408,14 +1365,14 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
             version=1,
             data_version_id=data_version.data_version_id,
             created_at=now,
-            created_by=context.actor.identity.display_name,
+            created_by=resolve_local_actor(context).identity.display_name,
             datasets=(dataset,),
             content_hash="sha256:" + "3" * 64,
         )
         context.sources.sources.save_source_selection(
             registered.workspace_id,
             selection,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         fields = (
             SchemaField(
@@ -1492,7 +1449,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
             workspace_id=registered.workspace_id,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=now,
-            captured_by=context.actor.identity.display_name,
+            captured_by=resolve_local_actor(context).identity.display_name,
             connection_mode=registered.odoo_connection_mode.value,
             database=registered.odoo_database,
             odoo_version="19.0",
@@ -1508,7 +1465,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             registered.workspace_id,
             schema,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         business_key = BusinessKeyDefinition(
             key_id=f"{target_model}:ref",
@@ -1525,12 +1482,12 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
             permitted_models=(target_model,),
             business_keys=(business_key,),
             recorded_at=now,
-            recorded_by=context.actor.identity.display_name,
+            recorded_by=resolve_local_actor(context).identity.display_name,
         )
         context.schema_workspace.schemas.save_schema_governance(
             registered.workspace_id,
             governance,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         return registered.workspace_id, dataset, business_key
 

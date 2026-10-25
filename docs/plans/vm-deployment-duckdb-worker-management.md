@@ -593,6 +593,14 @@ denominator deployment.
 - Implement the local adapters first against the new ports so current local
   behavior remains the executable compatibility baseline.
 
+**Current implementation note, 2026-10-25.** The local and fail-closed server
+entry points now share an actor-free route context and common HTTP installer.
+Deployment-neutral builders now wire the Project foundation and the complete
+source and Recipe authoring, Match data, Recipe application, preparation, and
+final-review service groups from injected ports. Run, execution, job,
+artifact, target, and final context groups remain in the local composition,
+and all PostgreSQL server adapters are still planned.
+
 **Exit gate.** Local Impodo starts through the explicit local composition and
 passes its focused workflow suites. Architecture tests reject direct adapter
 dependencies and scattered deployment-mode branching.

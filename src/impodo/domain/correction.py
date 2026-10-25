@@ -235,12 +235,16 @@ class CorrectionPlanField:
 
     @classmethod
     def from_protected_dict(cls, payload: Mapping[str, object]) -> CorrectionPlanField:
+        source_row = payload.get("source_row")
+        odoo_id = payload.get("odoo_id")
+        if type(source_row) is not int or type(odoo_id) is not int:
+            raise CorrectionPlanError("Correction plan target identity is invalid")
         return cls(
             dataset=str(payload["dataset"]),
-            source_row=int(payload["source_row"]),
+            source_row=source_row,
             row_id=str(payload["row_id"]),
             target_model=str(payload["target_model"]),
-            odoo_id=int(payload["odoo_id"]),
+            odoo_id=odoo_id,
             completed_disposition=str(payload["completed_disposition"]),
             target_binding_hash=str(payload["target_binding_hash"]),
             target_field=str(payload["target_field"]),

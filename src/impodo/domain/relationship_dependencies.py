@@ -214,6 +214,8 @@ def _identity_groups(dataset: object) -> tuple[tuple[object, ...], tuple[object,
     scope = getattr(target_identity, "scope", None)
     if scope is None:
         scope = getattr(dataset, "target_scope", ())
+    if not isinstance(components, Iterable) or not isinstance(scope, Iterable):
+        raise TypeError("dataset identity groups must be iterable")
     return tuple(components), tuple(scope)
 
 

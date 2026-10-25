@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -443,6 +443,8 @@ def _require_dataclass_fields(
     contract: type[object],
     label: str,
 ) -> None:
+    if not is_dataclass(contract):
+        raise TypeError("Readiness report contract must be a dataclass")
     expected = {item.name for item in dataclass_fields(contract)}
     if not isinstance(payload, dict) or set(payload) != expected:
         raise ValueError(f"Stored {label} does not match the current contract")

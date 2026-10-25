@@ -25,6 +25,7 @@ from tests.support.browser_scenarios import (
     ScalarFieldMapping,
     ScalarValueSource,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
@@ -59,7 +60,7 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
                 ),
             ),
             expected_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(initial.version, 1)
 
@@ -399,7 +400,7 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
                 ),
             ),
             expected_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         entries = [
             ["csrf_token", self.csrf],
@@ -520,7 +521,7 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
                 ),
             ),
             expected_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(initial.version, 1)
 

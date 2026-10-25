@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 
 from impodo.web.app import create_local_app
-
 from tests.performance import test_preparation_scale as preparation_scale
-
+from tests.support.identity import resolve_local_actor
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 PREFLIGHT_SCALE_ROWS = int(os.environ.get("IMPODO_PREFLIGHT_SCALE_ROWS", "25000"))
@@ -57,7 +55,7 @@ class DurablePreflightScaleTests(unittest.TestCase):
                     mapped_field_count=3,
                 )
             )
-            context.preparation.prepare(workspace_id, actor=context.actor)
+            context.preparation.prepare(workspace_id, actor=resolve_local_actor(context))
             review = context.normalization.current_review(workspace_id)
             assert review is not None
             summary, evaluation, _dry_run = review
@@ -70,20 +68,20 @@ class DurablePreflightScaleTests(unittest.TestCase):
                     group.group_id,
                     approve=True,
                     expected_version=summary.lifecycle_version,
-                    actor=context.actor,
+                    actor=resolve_local_actor(context),
                 )
             summary = context.normalization.approve(
                 workspace_id,
                 summary.run_id,
                 expected_version=summary.lifecycle_version,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             )
             self.assertTrue(summary.frozen)
 
             workspace = context.workspace_states.repository.get(workspace_id)
             workspace_root = context.migration_workspaces.get(
                 workspace_id,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             )
             for source in workspace.source_files:
                 artifacts.delete_source(

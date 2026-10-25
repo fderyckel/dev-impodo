@@ -195,7 +195,10 @@ class EncodedSourceCell:
         """Restore and validate one physical kind/text pair."""
 
         try:
-            kind = SourceCellKind(int(payload["kind"]))
+            raw_kind = payload["kind"]
+            if type(raw_kind) is not int:
+                raise TypeError("Encoded source cell kind must be an integer")
+            kind = SourceCellKind(raw_kind)
         except (KeyError, TypeError, ValueError) as error:
             raise SourceSnapshotContractError(
                 "Invalid encoded source cell kind"
@@ -342,6 +345,9 @@ class SourceSnapshotSchema:
                 "Source row physical type is not canonical"
             )
         try:
+            contract_version = payload["contract_version"]
+            if type(contract_version) is not int:
+                raise TypeError("Source snapshot contract version must be an integer")
             for item in raw_columns:
                 if not isinstance(item, dict):
                     raise TypeError
@@ -364,7 +370,7 @@ class SourceSnapshotSchema:
                 for item in raw_columns
             )
             return cls(
-                contract_version=int(payload["contract_version"]),
+                contract_version=contract_version,
                 source_row_column=str(payload["source_row_column"]),
                 columns=columns,
             )

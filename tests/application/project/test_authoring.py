@@ -66,6 +66,7 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.workbench import WorkspaceStateService
 from impodo.web.app import create_local_app
+from tests.support.identity import resolve_local_actor
 from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
@@ -786,13 +787,13 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
             overview.text,
         )
         summaries = self.app.state.context.migration_projects.list(
-            actor=self.app.state.context.actor
+            actor=resolve_local_actor(self.app.state.context)
         )
         self.assertEqual(len(summaries), 1)
         self.assertEqual(summaries[0].recipe_count, 0)
         workspaces = self.app.state.context.migration_workspaces.list_for_project(
             summaries[0].project_id,
-            actor=self.app.state.context.actor,
+            actor=resolve_local_actor(self.app.state.context),
         )
         self.assertEqual(len(workspaces), 1)
         workspace_page = self.client.get(
@@ -810,7 +811,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
     def test_browser_publishes_and_opens_a_project_recipe(self) -> None:
         context = self.app.state.context
         created = context.project_authoring.create(
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             display_name="Reusable customer migration",
             source_mode="FILE",
             creation_request_id=str(uuid4()),
@@ -828,7 +829,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
             ),
             expected_revision=current.optimistic_revision,
             event_type="TEST_DATA_VERSION_FROZEN",
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         context.recipe_publication.compiler = FixedCompiler()
 
@@ -858,7 +859,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
 
         recipes = context.recipes.list(
             created.project.project_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertEqual(len(recipes), 1)
         recipe = recipes[0]
@@ -884,7 +885,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         self.assertIn("Recipe v1", detail.text)
 
         other = context.project_authoring.create(
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             display_name="Other migration",
             source_mode="FILE",
             creation_request_id=str(uuid4()),
@@ -906,7 +907,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
     def test_project_list_survives_a_clean_application_restart(self) -> None:
         context = self.app.state.context
         created = context.project_authoring.create(
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             display_name="Restart-safe Project",
             source_mode="FILE",
             creation_request_id=str(uuid4()),
@@ -935,7 +936,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         self.assertEqual(
             restarted_app.state.context.migration_projects.get(
                 created.project.project_id,
-                actor=restarted_app.state.context.actor,
+                actor=resolve_local_actor(restarted_app.state.context),
             ).project_id,
             created.project.project_id,
         )
@@ -943,7 +944,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
     def test_project_entry_shows_and_confirms_permanent_deletion(self) -> None:
         context = self.app.state.context
         created = context.project_authoring.create(
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             display_name="Project to delete",
             source_mode="FILE",
             creation_request_id=str(uuid4()),
@@ -994,7 +995,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         context = self.app.state.context
         for number in range(5):
             context.migration_projects.create(
-                actor=context.actor,
+                actor=resolve_local_actor(context),
                 display_name=f"Project {number + 1}",
                 migration_purpose="Verify the bounded Project list",
                 source_system_identity="Fictional ERP",
@@ -1010,7 +1011,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         )
 
         context.migration_projects.create(
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             display_name="Project 6",
             migration_purpose="Verify the bounded Project list",
             source_system_identity="Fictional ERP",
@@ -1038,7 +1039,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
     def test_file_acceptance_freezes_data_version_and_projects_references(self) -> None:
         context = self.app.state.context
         bundle = context.project_authoring.create(
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             display_name="Customer source ownership",
             source_mode="FILE",
             creation_request_id=str(uuid4()),
@@ -1050,14 +1051,14 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         ):
             source_file = context.intake.accept(
                 workspace_id,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
                 expected_revision=bundle.workspace_state.revision,
                 display_name="customers.csv",
                 stream=BytesIO(b"code,name\nC001,Acme\n"),
             )
         context.workspace_states.register(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=context.queries.get(workspace_id).revision,
         )
         with patch(
@@ -1068,28 +1069,28 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
                 options=options,
             ),
         ):
-            context.inspections.inspect_project(workspace_id, actor=context.actor)
+            context.inspections.inspect_project(workspace_id, actor=resolve_local_actor(context))
         context.sources.confirm_source(
             workspace_id,
             source_file.file_id,
             selected_table_keys=("csv",),
             warnings_acknowledged=False,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         selection = context.sources.freeze_selection(
             workspace_id,
             dataset_names={(source_file.file_id, "csv"): "customers"},
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         projection = context.data_version_source_projection.accept_file_selection(
             workspace_id,
             selection,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
 
         data_version = context.data_versions.get(
             bundle.data_version.data_version_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertIs(data_version.state, DataVersionState.FROZEN)
         package = context.data_version_source_projection.packages.repository.get_source_package(
@@ -1124,7 +1125,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
                 context.data_version_source_projection.finalize_file_selection(
                     workspace_id,
                     dataset_names=names,
-                    actor=context.actor,
+                    actor=resolve_local_actor(context),
                 )
             )
         self.assertEqual(repeated, projection)
@@ -1140,7 +1141,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
             context.data_version_source_projection.finalize_file_selection(
                 workspace_id,
                 dataset_names={(source_file.file_id, "csv"): "renamed_customers"},
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             )
         self.assertEqual(
             context.sources.sources.get_source_selection(workspace_id),
@@ -1154,7 +1155,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
             context.data_version_source_projection.accept_file_selection(
                 workspace_id,
                 replace(selection, content_hash="sha256:" + "f" * 64),
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             )
         self.assertEqual(
             context.data_version_source_projection.projections.repository
@@ -1165,7 +1166,7 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
     def test_odoo_acceptance_freezes_the_same_data_version_boundary(self) -> None:
         context = self.app.state.context
         bundle = context.project_authoring.create(
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             display_name="Odoo source ownership",
             source_mode="ODOO",
             creation_request_id=str(uuid4()),
@@ -1310,11 +1311,11 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
             selection,
             (snapshot, uom_snapshot),
             (manifest, uom_manifest),
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         data_version = context.data_versions.get(
             bundle.data_version.data_version_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         package = (
             context.data_version_source_projection.packages.repository

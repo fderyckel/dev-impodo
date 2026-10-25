@@ -145,6 +145,9 @@ class PreparedCanonicalProjection:
         raw_field_sources = payload.get("field_sources", {})
         if not isinstance(raw_field_sources, Mapping):
             raise TypeError("Prepared canonical field sources are invalid")
+        contract_version = payload.get("contract_version")
+        if type(contract_version) is not int:
+            raise ValueError("Prepared canonical projection is invalid")
         return cls(
             dataset_id=str(payload["dataset_id"]),
             dataset=str(payload["dataset"]),
@@ -159,7 +162,7 @@ class PreparedCanonicalProjection:
             },
             program=program,
             set_based_projection=bool(payload.get("set_based_projection", False)),
-            contract_version=payload.get("contract_version"),
+            contract_version=contract_version,
         )
 
 
@@ -187,6 +190,14 @@ class StoredCanonicalStagingRun:
     evaluator_version: int
     contract_version: int
     validated_content_hash: str | None = None
+
+    @property
+    def content_hash(self) -> str:
+        """Expose the validated publication hash without materializing rows."""
+
+        if self.validated_content_hash is None:
+            raise ValueError("Stored canonical staging hash is unavailable")
+        return self.validated_content_hash
 
 
 def transformation_impact_to_portable_dict(

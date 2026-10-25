@@ -291,15 +291,15 @@ def _strong_components(
         if start in assigned:
             continue
         members: set[str] = set()
-        stack = [start]
+        component_stack = [start]
         assigned.add(start)
-        while stack:
-            row_id = stack.pop()
+        while component_stack:
+            row_id = component_stack.pop()
             members.add(row_id)
             for dependency in reversed(reverse[row_id]):
                 if dependency not in assigned:
                     assigned.add(dependency)
-                    stack.append(dependency)
+                    component_stack.append(dependency)
         components.append(frozenset(members))
     return tuple(
         sorted(components, key=lambda item: min(rank[row_id] for row_id in item))

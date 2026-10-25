@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.workspace.business_keys import BUSINESS_KEY_POLICY_VERSION
-
 from tests.support.browser_scenarios import (
+    POST_HEADERS,
     CanonicalControlTotal,
     DatasetMapping,
     IdentityComponentMapping,
     MagicMock,
     MappingTargetMode,
     MappingValidationStatus,
-    POST_HEADERS,
     Path,
     PreparationJobStatus,
     PreparationWorkspace,
@@ -36,6 +35,7 @@ from tests.support.browser_scenarios import (
     unescape,
     uuid4,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
@@ -117,14 +117,14 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             datasets=(mapping,),
             expected_parent_version=None,
             expected_working_draft_version=None,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         submission = context.mapping_workspace.submit_current(
             workspace_id,
             datasets=(mapping,),
             expected_version=revision.version,
             expected_working_draft_version=1,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         self.assertNotEqual(validation.status, MappingValidationStatus.INVALID)
         self.assertIsNotNone(submission)
@@ -316,7 +316,7 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 ),
                 expected_parent_version=None,
                 expected_working_draft_version=None,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             )
         )
         self.assertNotEqual(
@@ -466,7 +466,7 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 ),
                 expected_parent_version=None,
                 expected_working_draft_version=None,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             )
         )
         self.assertNotEqual(validation.status, MappingValidationStatus.INVALID)
@@ -739,17 +739,17 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         assert selection is not None
         migration_workspace = context.migration_workspaces.get(
             workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         workspace = PreparationWorkspace.from_context(
             migration_workspace,
             context.data_versions.get(
                 migration_workspace.data_version_id,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             ),
             context.migration_runs.get(
                 migration_workspace.migration_run_id,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             ),
         )
         self.assertEqual(workspace.migration_run_purpose.value, "AUTHORING")
@@ -781,7 +781,7 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 workspace_id,
                 workspace_state.name,
                 sum(item.row_count for item in selection.datasets),
-                actor=context.actor,
+                actor=resolve_local_actor(context),
                 workspace=workspace,
             )
             progress_url = (

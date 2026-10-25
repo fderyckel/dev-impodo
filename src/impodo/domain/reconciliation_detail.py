@@ -73,14 +73,18 @@ class ReconciliationFieldDifference:
             if not isinstance(raw_digits, list) or len(raw_digits) != 2:
                 raise ValueError("Reconciliation target precision is invalid")
             digits = (int(raw_digits[0]), int(raw_digits[1]))
+        source_row = payload.get("source_row")
+        odoo_id = payload.get("odoo_id")
+        if type(source_row) is not int or type(odoo_id) is not int:
+            raise ValueError("Reconciliation target identity is invalid")
         return cls(
             row_id=str(payload["row_id"]),
             dataset=str(payload["dataset"]),
-            source_row=int(payload["source_row"]),
+            source_row=source_row,
             source_trace_id=str(payload["source_trace_id"]),
             target_model=str(payload["target_model"]),
             operation=str(payload["operation"]),
-            odoo_id=int(payload["odoo_id"]),
+            odoo_id=odoo_id,
             field=str(payload["field"]),
             expected_value=restore_portable_value(payload.get("expected_value")),
             observed_value=restore_portable_value(payload.get("observed_value")),

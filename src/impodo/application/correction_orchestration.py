@@ -99,6 +99,7 @@ class CorrectionBinding:
                 "Correction successor run and workspace must be bound together"
             )
         if self.successor_migration_run_id is not None:
+            assert self.successor_workspace_id is not None
             require_uuid(
                 self.successor_migration_run_id,
                 "successor_migration_run_id",

@@ -16,9 +16,9 @@ See ``docs/architecture/python-code-map.md`` and
 from __future__ import annotations
 
 import secrets
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
@@ -35,10 +35,6 @@ from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
 from impodo.adapters.odoo.local_stack import LocalStackService
 from impodo.application.data_version.inspection import SourceInspectionService
 from impodo.application.data_version.intake import SourceIntakeService
-from impodo.application.data_version.source_packages import (
-    DataVersionSourcePackageService,
-    WorkspaceSourceProjectionService,
-)
 from impodo.application.shared.artifacts import GovernedArtifactStores
 from impodo.application.shared.build_contract import (
     PROCESS_BUILD_CONTRACT,
@@ -46,15 +42,11 @@ from impodo.application.shared.build_contract import (
 )
 from impodo.application.shared.jobs import JobDispatcher
 from impodo.application.shared.secrets import SecretStore, SecretStoreError
-from impodo.application.workspace.access import (
-    WorkspaceAccessService,
-)
 from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
 from impodo.application.workspace.navigation import WorkspaceNavigationQueryService
 from impodo.application.workspace.views import WorkspaceOwnerViewService
 from impodo.domain.correction_origin import CorrectionOriginError
 from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
-from impodo.domain.run.setup import MigrationRunTargetSetupService
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import (
     LOCAL_ACTOR,
@@ -65,7 +57,6 @@ from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     WorkspaceState,
     WorkspaceStateError,
-    WorkspaceStateService,
 )
 from impodo.web.composition.incompatible_project_storage import (
     prepare_incompatible_project_storage,
@@ -176,11 +167,7 @@ from ...application.cutover_plan_service import (
     CutoverPlanService,
     WorkspaceIntegratedQualificationEvidenceReader,
 )
-from ...application.data_version.service import DataVersionService
 from ...application.fallout_workbook_service import FalloutWorkbookService
-from ...application.migration_project_authoring_service import (
-    MigrationProjectAuthoringService,
-)
 from ...application.odoo_capture_job_service import OdooCaptureJobManager
 from ...application.odoo_capture_publication_service import (
     OdooCapturePublicationService,
@@ -188,15 +175,8 @@ from ...application.odoo_capture_publication_service import (
 from ...application.odoo_connection_service import OdooConnectionTestService
 from ...application.odoo_provenance_service import OdooProvenanceService
 from ...application.odoo_source_capture_service import OdooSourceCaptureService
-from ...application.odoo_source_restart_service import OdooSourceRestartService
 from ...application.preflight_jobs import PreflightJobManager
-from ...application.preflight_service import PreflightService
 from ...application.production_cutover_service import ProductionCutoverService
-from ...application.project.service import MigrationProjectService
-from ...application.recipe.service import RecipeService
-from ...application.recipe_application_service import RecipeApplicationService
-from ...application.recipe_compilation_service import RecipeCompiler
-from ...application.recipe_publication_service import RecipePublicationService
 from ...application.reconciliation_evidence_service import (
     ReconciliationEvidenceService,
 )
@@ -204,42 +184,15 @@ from ...application.run.planning_service import (
     MigrationRunPlanningService,
 )
 from ...application.run.recipe_run_jobs import RecipeRunJobManager
-from ...application.run.service import MigrationRunService
 from ...application.run.setup_service import RunSetupService
 from ...application.run.target_matches import RecipeTargetMatchService
 from ...application.run.test_setup_service import TestRunSetupService
-from ...application.schema_workspace_service import SchemaWorkspaceService
-from ...application.source_workspace_service import SourceWorkspaceService
 from ...application.supporting_lookup_service import SupportingLookupService
 from ...application.transfer_execution_service import TransferExecutionService
 from ...application.workspace.execution.load_jobs import LoadJobManager
 from ...application.workspace.execution.reconciliation import ReconciliationService
 from ...application.workspace.execution.service import ExecutionService
-from ...application.workspace.mapping.categorical_coverage import (
-    CategoricalCoverageService,
-)
-from ...application.workspace.mapping.numeric_precision_coverage import (
-    NumericPrecisionCoverageService,
-)
-from ...application.workspace.mapping.order_service import MatchingOrderService
-from ...application.workspace.mapping.row_inclusion_review import (
-    RowInclusionReviewService,
-)
-from ...application.workspace.mapping.service import MappingWorkspaceService
-from ...application.workspace.mapping.transformation_impact import (
-    TransformationImpactService,
-)
-from ...application.workspace.preparation.normalization_service import (
-    NormalizationService,
-)
-from ...application.workspace.preparation.preparation_service import PreparationService
-from ...application.workspace.preparation.quality_service import QualityService
 from ...application.workspace.preparation.recovery import PreparationRecoveryService
-from ...application.workspace.preparation.resolution_service import ResolutionService
-from ...application.workspace.service import MigrationWorkspaceService
-from ...application.workspace_data_version_source_service import (
-    WorkspaceDataVersionSourceService,
-)
 from ...application.workspace_source_projection import (
     WorkspaceMappingSourceProjection,
 )
@@ -281,22 +234,16 @@ from .local_identity import (
     LOCAL_ORGANIZATION_ID,
     LocalRequestIdentityResolver,
 )
+from .service_graph import (
+    AuthoringSchemaPorts,
+    PreparationResolutionPorts,
+    build_authoring_service_graph,
+    build_foundation_service_graph,
+    build_preparation_service_graph,
+)
 
 DEFAULT_BROWSER_DATABASE_LOCK_WAIT_SECONDS = 2.0
 CLIENT_CLOSED_REQUEST_STATUS_CODE = 499
-
-
-@dataclass(slots=True)
-class LocalWebContext(WebContext):
-    """Keep the implicit local actor out of the shared route context contract.
-
-    Local integration fixtures and direct local automation still use this
-    compatibility field while browser requests resolve identity through
-    ``identity_resolver``. The server composition must use ``WebContext`` and
-    cannot inherit this local-only shortcut.
-    """
-
-    actor: Actor
 
 
 def create_local_app(
@@ -443,10 +390,21 @@ def create_local_app(
         secret_store=secret_store,
     )
     resolved_authorization = protected_runs.authorization
-    workspace_access = WorkspaceAccessService(
+    foundation_services = build_foundation_service_graph(
         foundation_repository,
+        workspace_state_repository,
         resolved_authorization,
     )
+    workspace_access = foundation_services.workspace_access
+    workspace_states = foundation_services.workspace_states
+    migration_projects = foundation_services.migration_projects
+    data_versions = foundation_services.data_versions
+    migration_runs = foundation_services.migration_runs
+    migration_run_target_setup = foundation_services.migration_run_target_setup
+    migration_workspaces = foundation_services.migration_workspaces
+    source_packages = foundation_services.source_packages
+    project_authoring = foundation_services.project_authoring
+    odoo_source_restarts = foundation_services.odoo_source_restarts
     request_workspace_access = LocalScopedWorkspaceAccessQuery(
         workspace_access,
         organization_id=LOCAL_ORGANIZATION_ID,
@@ -500,146 +458,43 @@ def create_local_app(
         artifacts,
         workspace_access,
     )
-    workspace_states = WorkspaceStateService(
-        workspace_state_repository,
-        workspace_access,
-    )
-    migration_projects = MigrationProjectService(
-        foundation_repository,
-        resolved_authorization,
-    )
-    data_versions = DataVersionService(
-        foundation_repository,
-        resolved_authorization,
-    )
-    migration_runs = MigrationRunService(
-        foundation_repository,
-        resolved_authorization,
-    )
-    migration_run_target_setup = MigrationRunTargetSetupService(
-        foundation_repository,
-        resolved_authorization,
-    )
-    migration_workspaces = MigrationWorkspaceService(
-        foundation_repository,
-        resolved_authorization,
-    )
-    source_packages = DataVersionSourcePackageService(
-        foundation_repository,
-        resolved_authorization,
-    )
-    project_authoring = MigrationProjectAuthoringService(
-        migration_projects,
-        data_versions,
-        migration_runs,
-        migration_workspaces,
-        source_packages,
-        workspace_states,
-    )
-    odoo_source_restarts = OdooSourceRestartService(
-        projects=migration_projects,
-        data_versions=data_versions,
-        runs=migration_runs,
-        workspaces=migration_workspaces,
-        source_packages=source_packages,
-        workspace_states=workspace_states,
-    )
-    recipe_compiler = RecipeCompiler(
-        workspace_mapping_sources,
-        mapping_repository,
-        schema_repository,
-        quality_repository,
-        derived_entity_repository,
-        advanced_coverage_repository,
-        recipe_compilation_repository,
-        supporting_references=supporting_lookup_repository,
-    )
-    recipes = RecipeService(
-        recipe_repository,
-        resolved_authorization,
-    )
-    recipe_publication = RecipePublicationService(
-        recipe_repository,
-        recipe_compiler,
-        resolved_authorization,
-    )
-    sources = SourceWorkspaceService(
-        workspace_state_repository,
-        source_repository,
-        workspace_access,
-        artifacts,
-        schemas=schema_repository,
-        capture_filters=odoo_capture_filters,
-    )
-    data_version_source_projection = WorkspaceDataVersionSourceService(
-        workspace_states,
-        source_repository,
-        data_versions,
-        migration_workspaces,
-        source_packages,
-        WorkspaceSourceProjectionService(
-            foundation_repository,
-            resolved_authorization,
-        ),
-        sources,
-    )
-    categorical_coverage = CategoricalCoverageService(
-        source_repository,
-        artifacts,
-    )
-    numeric_precision_coverage = NumericPrecisionCoverageService(
-        source_repository,
-        artifacts,
-    )
-    schema_workspace = SchemaWorkspaceService(
-        workspace_state_repository,
-        source_repository,
-        schema_repository,
-        workspace_access,
-    )
     recipe_application_state = RecipeQualitySeedRepository(database)
-    mapping_workspace = MappingWorkspaceService(
-        workspace_mapping_sources,
-        schema_repository,
-        mapping_repository,
-        workspace_access,
-        categorical_coverage=categorical_coverage,
-        numeric_precision_coverage=numeric_precision_coverage,
+    authoring_services = build_authoring_service_graph(
+        foundation=foundation_services,
+        foundation_repository=foundation_repository,
+        authorization=resolved_authorization,
+        workspaces=workspace_state_repository,
+        sources=source_repository,
+        mapping_sources=workspace_mapping_sources,
+        schemas=cast(AuthoringSchemaPorts, schema_repository),
+        mappings=mapping_repository,
+        quality=quality_repository,
+        derived_entities=derived_entity_repository,
+        references=advanced_coverage_repository,
+        recipe_parameters=recipe_compilation_repository,
         supporting_lookups=supporting_lookup_repository,
         downstream_invalidator=correction_repository,
         recipe_applications=recipe_application_state,
-        row_inclusion_confirmations=row_inclusion_review_repository,
+        row_inclusion=row_inclusion_review_repository,
+        matching_order=matching_order_repository,
+        transformation_impacts=transformation_impact_repository,
+        recipes=recipe_repository,
+        artifacts=artifacts,
+        capture_filters=odoo_capture_filters,
     )
-    transformation_impacts = TransformationImpactService(
-        workspace_state_repository,
-        mapping_repository,
-        source_repository,
-        derived_entity_repository,
-        transformation_impact_repository,
-        artifacts,
-        workspace_access,
+    recipes = authoring_services.recipes
+    recipe_publication = authoring_services.recipe_publication
+    sources = authoring_services.source_workspace
+    data_version_source_projection = (
+        authoring_services.data_version_source_projection
     )
-    row_inclusion_reviews = RowInclusionReviewService(
-        transformation_impacts,
-        row_inclusion_review_repository,
-        workspace_access,
-    )
-    matching_order = MatchingOrderService(
-        matching_order_repository,
-        workspace_access,
-        categorical_coverage,
-    )
-    recipe_application_service = RecipeApplicationService(
-        sources=workspace_mapping_sources,
-        schemas=schema_repository,
-        schema_workspace=schema_workspace,
-        references=advanced_coverage_repository,
-        preparation=derived_entity_repository,
-        mappings=mapping_workspace,
-        categorical=categorical_coverage,
-        application_state=recipe_application_state,
-        row_inclusion_reviews=row_inclusion_reviews,
-    )
+    categorical_coverage = authoring_services.categorical_coverage
+    schema_workspace = authoring_services.schema_workspace
+    mapping_workspace = authoring_services.mapping_workspace
+    transformation_impacts = authoring_services.transformation_impacts
+    row_inclusion_reviews = authoring_services.row_inclusion_reviews
+    matching_order = authoring_services.matching_order
+    recipe_application_service = authoring_services.recipe_application
     run_planning = MigrationRunPlanningService(
         projects=migration_projects,
         data_versions=data_versions,
@@ -647,10 +502,7 @@ def create_local_app(
         repository=run_planning_repository,
         test_run_values=test_run_repository,
         source_packages=source_packages,
-        source_projections=WorkspaceSourceProjectionService(
-            foundation_repository,
-            resolved_authorization,
-        ),
+        source_projections=authoring_services.source_projections,
         workspace_states=workspace_states,
         compiler=recipe_application_service,
         cutover_plans=cutover_plan_repository,
@@ -682,47 +534,32 @@ def create_local_app(
     )
     run_setups = RunSetupService(test_runs=test_runs, production_runs=production_runs,
         runs=migration_runs, recipes=recipes, authorization=resolved_authorization)
-    quality = QualityService(
-        mapping_repository,
-        source_repository,
-        quality_repository,
+    preparation_services = build_preparation_service_graph(
+        workspaces=workspace_state_repository,
+        sources=source_repository,
+        derived_entities=derived_entity_repository,
+        mappings=mapping_repository,
+        staging=staging_repository,
+        sessions=preparation_session_repository,
+        artifacts=artifacts,
+        authorization=workspace_access,
+        quality_repository=quality_repository,
+        normalization_repository=normalization_repository,
+        resolution_repository=cast(
+            PreparationResolutionPorts,
+            advanced_coverage_repository,
+        ),
+        preflight_repository=preflight_repository,
+        schemas=schema_repository,
+        columnar_transformations=PolarsTransformationAdapter(),
+        odoo_provenance=odoo_provenance_service,
         recipe_quality=recipe_application_state,
     )
-    normalization = NormalizationService(
-        normalization_repository,
-        workspace_access,
-    )
-    resolution = ResolutionService(advanced_coverage_repository, staging_repository)
-    preparation = PreparationService(
-        workspace_state_repository,
-        source_repository,
-        derived_entity_repository,
-        mapping_repository,
-        staging_repository,
-        preparation_session_repository,
-        artifacts,
-        workspace_access,
-        quality,
-        normalization,
-        PolarsTransformationAdapter(),
-        resolution,
-        odoo_provenance=odoo_provenance_service,
-        schemas=schema_repository,
-    )
-    preflight = PreflightService(
-        staging_repository,
-        quality_repository,
-        normalization_repository,
-        mapping_repository,
-        workspace_state_repository,
-        source_repository,
-        preflight_repository,
-        artifacts,
-        workspace_access,
-        advanced_coverage_repository,
-        schema_repository,
-        odoo_provenance_service,
-    )
+    quality = preparation_services.quality
+    normalization = preparation_services.normalization
+    resolution = preparation_services.resolution
+    preparation = preparation_services.preparation
+    preflight = preparation_services.preflight
 
     def current_read_credential_binding(
         workspace_state: WorkspaceState,
@@ -1040,7 +877,7 @@ def create_local_app(
     resolved_identity_resolver = (
         request_identity_resolver or LocalRequestIdentityResolver(actor)
     )
-    context = LocalWebContext(
+    context = WebContext(
         queries=BrowserQueryService(
             workspace_state_repository,
             source_repository,
@@ -1137,7 +974,6 @@ def create_local_app(
         odoo_provenance=odoo_provenance_service,
         destination_create_fields=destination_create_fields,
         artifacts=artifacts,
-        actor=actor,
         authorization=resolved_authorization,
         jobs=job_dispatcher or InlineJobDispatcher(),
         secret_store=resolved_secret_store,

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from impodo.domain.workspace.business_keys import BUSINESS_KEY_POLICY_VERSION
-
 from tests.support.browser_scenarios import (
+    POST_HEADERS,
     OdooConnectionMode,
     OdooWriteIdentity,
-    POST_HEADERS,
     Path,
     ProjectSetupBrowserTestCase,
     ReadbackRecord,
@@ -32,6 +31,7 @@ from tests.support.browser_scenarios import (
     unescape,
     urlsplit,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
@@ -49,7 +49,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         workspace_id = _created_workspace_id(self.app, created)
         data_project_id = self.app.state.context.migration_workspaces.get(
             workspace_id,
-            actor=self.app.state.context.actor,
+            actor=resolve_local_actor(self.app.state.context),
         ).project_id
         self.assertEqual(
             created.headers["location"],
@@ -1398,7 +1398,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         )
         workspace = self.app.state.context.migration_workspaces.get(
             workspace_id,
-            actor=self.app.state.context.actor,
+            actor=resolve_local_actor(self.app.state.context),
         )
         package = (
             self.app.state.context.data_version_source_projection.packages.repository
@@ -1604,7 +1604,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
 
         load_preview = self.app.state.context.execution.current_preview(
             workspace_id,
-            actor=self.app.state.context.actor,
+            actor=resolve_local_actor(self.app.state.context),
         )
         assert load_preview is not None
         final_review = self.client.get(f"/workspaces/{workspace_id}/summary")

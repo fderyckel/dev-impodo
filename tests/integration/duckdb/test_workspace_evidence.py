@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
-from io import BytesIO
 import json
-from pathlib import Path
 import shutil
 import unittest
+from io import BytesIO
+from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -16,9 +14,10 @@ import duckdb
 
 from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.domain.project.foundation import MigrationStorageCompatibilityError
-from impodo.web.app import create_local_app
 from impodo.domain.workspace.contracts import SourceSelection
-
+from impodo.web.app import create_local_app
+from tests.support.identity import resolve_local_actor
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 
@@ -85,7 +84,7 @@ class WorkspaceEvidenceStorageTests(unittest.TestCase):
         )
         context = app.state.context
         bundle = context.project_authoring.create(
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             display_name="Exact lineage",
             source_mode="FILE",
             creation_request_id=str(uuid4()),

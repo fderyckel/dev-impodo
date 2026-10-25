@@ -35,7 +35,8 @@ class _ValueBinding:
             if self.source == "identity"
             else record.target_scope
         )
-        return values[int(self.position)]
+        assert self.position is not None
+        return values[self.position]
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,10 +219,14 @@ def _value_bindings(dataset: DatasetSpec) -> tuple[_ValueBinding, ...]:
         field: _ValueBinding(field=field, source="scalar")
         for field in dataset.fields
     }
-    for source, components in (
+    identity_groups: tuple[
+        tuple[Literal["identity", "scope"], Iterable[Any]],
+        ...,
+    ] = (
         ("identity", dataset.target_identity.components),
         ("scope", dataset.target_identity.scope),
-    ):
+    )
+    for source, components in identity_groups:
         position = 0
         for component in components:
             if component.resolve is None:

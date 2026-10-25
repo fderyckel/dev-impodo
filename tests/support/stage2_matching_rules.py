@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from impodo.domain.shared.models import UniqueConstraintMetadata
 from impodo.domain.workspace.business_keys import BUSINESS_KEY_POLICY_VERSION
 from impodo.domain.workspace.contracts import SchemaField, SchemaModel
+from tests.support.identity import resolve_local_actor
 
 
 def representative_stage2_models() -> tuple[SchemaModel, ...]:
@@ -83,7 +84,7 @@ def install_stage2_schema(
     context.schema_workspace.schemas.save_odoo_schema_catalog(
         workspace_id,
         schema,
-        actor=context.actor,
+        actor=resolve_local_actor(context),
     )
     return schema
 

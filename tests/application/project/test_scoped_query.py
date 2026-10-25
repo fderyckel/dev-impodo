@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-import unittest
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -12,7 +12,7 @@ from impodo.adapters.duckdb.scoped_project_query import (
     LocalScopedMigrationProjectQuery,
 )
 from impodo.domain.project.foundation import MigrationNotFoundError
-from impodo.domain.shared.access import Capability, LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR, Capability
 from impodo.domain.shared.tenancy import (
     AuthorizationReceipt,
     OrganizationId,
@@ -23,7 +23,6 @@ from impodo.web.composition.local_identity import (
     LOCAL_ORGANIZATION_ID,
     LocalRequestIdentityResolver,
 )
-
 
 NOW = datetime(2026, 10, 23, 9, 0, tzinfo=timezone.utc)
 

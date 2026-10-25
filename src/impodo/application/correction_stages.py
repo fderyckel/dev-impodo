@@ -267,14 +267,14 @@ def _native_programs(revision, selection):
         revision.definition,
         selection,
     )
-    if any(
-        item.support is not ColumnarSupport.SUPPORTED or item.program is None
-        for item in decisions
-    ):
-        raise CorrectionOriginError(
-            "Correction review requires the native Polars preparation path"
-        )
-    return {item.dataset_id: item.program for item in decisions}
+    programs = {}
+    for item in decisions:
+        if item.support is not ColumnarSupport.SUPPORTED or item.program is None:
+            raise CorrectionOriginError(
+                "Correction review requires the native Polars preparation path"
+            )
+        programs[item.dataset_id] = item.program
+    return programs
 
 
 __all__ = [

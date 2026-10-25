@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from tests.support.browser_scenarios import (
+    POST_HEADERS,
     Actor,
     ActorIdentity,
     Capability,
     ConnectorError,
     LocalStackBrowserTestCase,
-    POST_HEADERS,
 )
 
 
@@ -243,7 +243,7 @@ class LocalStackBrowserTests(LocalStackBrowserTestCase):
     def test_stop_requires_its_explicit_capability(self) -> None:
         self._select_and_start_stack()
         process = self.started_processes[0]
-        self.app.state.context.actor = Actor(
+        self.identity_resolver.actor = Actor(
             identity=ActorIdentity(
                 issuer="https://identity.example.test",
                 subject_id="stack-starter",
@@ -379,7 +379,7 @@ class LocalStackBrowserTests(LocalStackBrowserTestCase):
         self.local_odoo_reader.get_target_fingerprint.assert_not_called()
 
     def test_local_assistant_requires_its_explicit_capability(self) -> None:
-        self.app.state.context.actor = Actor(
+        self.identity_resolver.actor = Actor(
             identity=ActorIdentity(
                 issuer="https://identity.example.test",
                 subject_id="target-editor",
@@ -408,7 +408,7 @@ class LocalStackBrowserTests(LocalStackBrowserTestCase):
             data={"csrf_token": self.csrf},
             headers=POST_HEADERS,
         )
-        self.app.state.context.actor = Actor(
+        self.identity_resolver.actor = Actor(
             identity=ActorIdentity(
                 issuer="https://identity.example.test",
                 subject_id="stack-inspector",

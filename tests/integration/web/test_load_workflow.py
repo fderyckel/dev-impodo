@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 
 from tests.support.browser_scenarios import (
+    POST_HEADERS,
     Capability,
     ExecutionRowStatus,
     ExecutionRunStatus,
     LoadJobResult,
     OdooReadIdentity,
     OdooWriteIdentity,
-    POST_HEADERS,
     ProjectSetupBrowserTestCase,
     SimpleNamespace,
     TargetCredentialRole,
@@ -19,6 +19,7 @@ from tests.support.browser_scenarios import (
     patch,
     store_target_credential,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
@@ -297,7 +298,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         workspace_state = context.workspace_states.update_target(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             odoo_connection_mode="REMOTE",
             odoo_base_url="https://odoo.example.test",
@@ -376,7 +377,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         workspace_state = context.workspace_states.update_target(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             odoo_connection_mode="REMOTE",
             odoo_base_url="https://odoo.example.test",
@@ -534,7 +535,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         workspace_state = context.workspace_states.update_target(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             odoo_connection_mode="REMOTE",
             odoo_base_url="https://odoo.example.test",
@@ -553,10 +554,10 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             total_rows=3,
             relationship_total_rows=1,
             load_group_count=2,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             access_context=context.workspace_access.resolve(
                 workspace_state.workspace_id,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
                 capability=Capability.EXPORT_PLAN_EXECUTE,
             ),
             work=lambda _access, _writing, _verifying: LoadJobResult(
@@ -593,7 +594,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         workspace_state = context.workspace_states.update_target(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=workspace_state.revision,
             odoo_connection_mode="REMOTE",
             odoo_base_url="https://odoo.example.test",
@@ -660,7 +661,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         preview_reads_outside_event_loop = []
 
         def current_preview(_workspace_id, *, actor):
-            self.assertEqual(actor, context.actor)
+            self.assertEqual(actor, resolve_local_actor(context))
             try:
                 asyncio.get_running_loop()
             except RuntimeError:

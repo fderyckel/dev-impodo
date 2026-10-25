@@ -452,7 +452,11 @@ def _validate_resolver(
     version_decision = assess_odoo_operation(
         context.schema_catalog.odoo_version, OdooOperation.COMPARE,
     )
-    odoo_major_version = version_decision.version.major if version_decision.allowed else -1
+    if version_decision.allowed:
+        odoo_major_version = version_decision.version.major
+        assert odoo_major_version is not None
+    else:
+        odoo_major_version = -1
     reference_decision = authorize_governed_reference(
         GovernedReferenceRequest(
             parent_model=dataset.target_model,

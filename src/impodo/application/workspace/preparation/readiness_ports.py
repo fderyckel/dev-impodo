@@ -54,6 +54,7 @@ from impodo.domain.staging.preparation_session import (
     StoredCanonicalStagingRun,
 )
 from impodo.domain.staging.transformation_impact import (
+    TransformationImpactCounts,
     TransformationImpactReport,
     TransformationImpactRow,
 )
@@ -145,6 +146,35 @@ class PreparationStagingRepository(Protocol):
         ...
 
 
+class NativeControlTotalView(Protocol):
+    """Expose one precomputed native control total without adapter coupling."""
+
+    @property
+    def target_field(self) -> str: ...
+
+    @property
+    def actual_total(self) -> str: ...
+
+    @property
+    def included_rows(self) -> int: ...
+
+    @property
+    def empty_rows(self) -> int: ...
+
+
+class NativePreparedProjectionView(Protocol):
+    """Expose manifest-sized facts returned by a native prepared projection."""
+
+    @property
+    def row_count(self) -> int: ...
+
+    @property
+    def impact_counts(self) -> TransformationImpactCounts: ...
+
+    @property
+    def control_totals(self) -> tuple[NativeControlTotalView, ...]: ...
+
+
 class PreparationSessionRepository(Protocol):
     """Store unpublished bounded batches until canonical publication succeeds."""
 
@@ -184,7 +214,7 @@ class PreparationSessionRepository(Protocol):
         projection: PreparedCanonicalProjection,
         path: object,
         control_fields: tuple[str, ...] = (),
-    ) -> object | None:
+    ) -> NativePreparedProjectionView | None:
         """Bind a native prepared projection to its unpublished session."""
         ...
 

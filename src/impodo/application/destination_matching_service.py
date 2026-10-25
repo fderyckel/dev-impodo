@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from math import isfinite
-from typing import Protocol
+from typing import Protocol, TypeGuard
 from uuid import uuid4
 
 from impodo.domain.execution.planner import MAX_KEYS_PER_RECORD_REQUEST
@@ -173,7 +173,7 @@ class _PreparedModel:
     key_field_label: str
     source_row_count: int
     source_counts: Counter[str]
-    source_query_values: tuple[tuple[str, ...], ...]
+    source_query_values: tuple[tuple[bool | int | float | str, ...], ...]
     source_identity_values: tuple[tuple[bool | int | float | str, ...], ...]
     source_fields: tuple[SchemaField, ...]
     destination_managed_fields: tuple[str, ...]
@@ -292,7 +292,7 @@ def _destination_record_requests(
 
 def _exact_identity_domain(
     fields: tuple[str, ...],
-    values: Sequence[tuple[str, ...]],
+    values: Sequence[tuple[bool | int | float | str, ...]],
 ) -> tuple[object, ...]:
     """Return one exact Odoo domain for at most one governed key chunk."""
 
@@ -423,22 +423,25 @@ class DestinationMatchingService:
                     f"Choose one to three distinct matching fields for {dataset.name}"
                 )
             columns_by_key = {item.stable_key: item for item in dataset.columns}
-            source_columns = tuple(columns_by_key.get(key) for key in source_column_keys)
-            if any(column is None for column in source_columns):
+            source_columns = tuple(
+                column
+                for key in source_column_keys
+                if (column := columns_by_key.get(key)) is not None
+            )
+            if len(source_columns) != len(source_column_keys):
                 raise WorkspaceError(
                     f"Choose a current matching field for {dataset.name}"
                 )
             fields_by_name = {item.name: item for item in source_model.fields}
             key_fields = tuple(
-                fields_by_name.get(column.source_name) for column in source_columns
+                field
+                for column in source_columns
+                if (field := fields_by_name.get(column.source_name)) is not None
             )
             if (
-                key_fields[0] is None
+                len(key_fields) != len(source_columns)
                 or key_fields[0].type not in _TEXT_KEY_TYPES
-                or any(
-                    field is None or field.type not in _TEXT_KEY_TYPES | {"integer"}
-                    for field in key_fields
-                )
+                or any(field.type not in _TEXT_KEY_TYPES | {"integer"} for field in key_fields)
             ):
                 raise WorkspaceError(
                     f"Choose a text first matching field and scalar components for {dataset.name}"
@@ -1235,11 +1238,16 @@ def _create_field_defaults(
     for field in model.fields.values():
         if not field.required:
             continue
-        default = defaults.get(field.name)
-        has_default = (
-            field.name in defaults
-            and _usable_create_default(field.type, default)
+        raw_default = defaults.get(field.name)
+        default = (
+            raw_default
+            if (
+                field.name in defaults
+                and _usable_create_default(raw_default, field.type)
+            )
+            else None
         )
+        has_default = default is not None
         view = SchemaField(
             name=field.name,
             label=field.label or field.name,
@@ -1253,7 +1261,7 @@ def _create_field_defaults(
             related=field.related,
             company_dependent=field.company_dependent,
             create_default_present=has_default,
-            create_default_value=default if has_default else None,
+            create_default_value=default,
         )
         assessment = evaluate_create_field(
             view,
@@ -1594,7 +1602,10 @@ def _create_default_display_value(field: SchemaField) -> str:
     return str(value)
 
 
-def _usable_create_default(field_type: str, value: object) -> bool:
+def _usable_create_default(
+    value: object,
+    field_type: str,
+) -> TypeGuard[bool | int | float | str]:
     if value is None:
         return False
     if field_type == "boolean":

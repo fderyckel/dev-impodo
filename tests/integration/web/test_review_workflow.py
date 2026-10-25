@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-from threading import Event
 import time
+from threading import Event
 
 from impodo.application.preflight_jobs import PreflightJobManager
-
 from tests.support.browser_scenarios import (
+    POST_HEADERS,
     ConnectorAuthenticationError,
     ConnectorTransportError,
     OdooReadFailureCode,
     OdooReadWorkflowError,
-    POST_HEADERS,
     PreflightRequirementPlan,
     ProjectSetupBrowserTestCase,
     SecretStoreError,
     SimpleNamespace,
     patch,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
@@ -33,7 +33,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         release = Event()
 
         def compare(_workspace_id, *, reader, actor, progress):
-            self.assertEqual(actor, context.actor)
+            self.assertEqual(actor, resolve_local_actor(context))
             self.assertIsNotNone(reader)
             progress("READING")
             started.set()
@@ -214,7 +214,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         workspace_state, schema = self._registered_remote_schema_workspace()
 
         def compare_with_reader(_project_id, *, reader, actor):
-            self.assertEqual(actor, context.actor)
+            self.assertEqual(actor, resolve_local_actor(context))
             return reader(
                 PreflightRequirementPlan((), (), (), source_record_count=0)
             )

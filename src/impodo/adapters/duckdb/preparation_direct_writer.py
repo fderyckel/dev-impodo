@@ -1074,10 +1074,12 @@ class PreparationDirectWriter:
     ) -> None:
         if not values:
             return
-        overlay_rows: list[list[object]] = []
+        overlay_rows: list[tuple[object, ...]] = []
         for ordinal, _disposition, row_text, finalized in values:
             if not bool(finalized):
                 continue
+            if type(ordinal) is not int:
+                raise WorkspaceError("Stored direct preparation ordinal is invalid")
             try:
                 row = CanonicalRow.from_dict(json.loads(str(row_text)))
             except (TypeError, ValueError) as error:
@@ -1092,12 +1094,12 @@ class PreparationDirectWriter:
             if len(duplicate_issues) != 1:
                 raise WorkspaceError("Direct duplicate issue evidence is invalid")
             overlay_rows.append(
-                [
+                (
                     run_id,
-                    int(ordinal),
+                    ordinal,
                     0,
                     _canonical_json(duplicate_issues[0].to_portable_dict()),
-                ]
+                )
             )
         database_path = (
             self.workspace_directory(workspace_id) / "workspace-engine.duckdb"

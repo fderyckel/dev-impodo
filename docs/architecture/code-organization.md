@@ -239,7 +239,10 @@ Browser delivery follows these boundaries:
 - `web/routers` validates transport input and calls application use cases.
 - `web/presenters` turns application results into explicit view data.
 - `web/composition` constructs concrete stores, Odoo adapters, job runtimes,
-  and command-line entry points.
+  and command-line entry points. Its `service_graph.py` module wires the
+  Project foundation and preparation application services from injected ports
+  without choosing DuckDB, PostgreSQL, an artifact provider, or a columnar
+  transformation adapter.
 - `web/templates` contains server-rendered pages and shared fragments. The
   Mapping entry page composes named partials below `templates/mapping`.
 - `web/static/app.js` contains only shared browser behavior. Page workflows

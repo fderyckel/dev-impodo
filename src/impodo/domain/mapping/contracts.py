@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from dataclasses import fields as dataclass_fields
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
@@ -1666,6 +1666,8 @@ def _resolver_from_dict(
 
 
 def _contract_fields(contract_type: type[object]) -> set[str]:
+    if not is_dataclass(contract_type):
+        raise TypeError("Mapping contract type must be a dataclass")
     return {item.name for item in dataclass_fields(contract_type)}
 
 

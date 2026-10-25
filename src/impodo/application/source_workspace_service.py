@@ -300,9 +300,10 @@ class SourceWorkspaceService:
             schema.odoo_version,
             OdooOperation.CAPTURE_SOURCE,
         )
+        odoo_major_version = version_decision.version.major
         expected_policy_hash = (
-            odoo_source_policy_hash(version_decision.version.major)
-            if version_decision.allowed
+            odoo_source_policy_hash(odoo_major_version)
+            if version_decision.allowed and odoo_major_version is not None
             else None
         )
         if not (
@@ -528,9 +529,10 @@ class SourceWorkspaceService:
             schema.odoo_version,
             OdooOperation.CAPTURE_SOURCE,
         )
+        odoo_major_version = version_decision.version.major
         expected_policy_hash = (
-            odoo_source_policy_hash(version_decision.version.major)
-            if version_decision.allowed
+            odoo_source_policy_hash(odoo_major_version)
+            if version_decision.allowed and odoo_major_version is not None
             else None
         )
         if not (

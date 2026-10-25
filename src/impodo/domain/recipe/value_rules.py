@@ -577,7 +577,9 @@ class CompiledArithmeticFormula:
         for instruction in self.instructions:
             operation = instruction.operation
             if operation == "source":
-                stack.append(prepared[instruction.argument])
+                source_name = instruction.argument
+                assert isinstance(source_name, str)
+                stack.append(prepared[source_name])
             elif operation == "constant":
                 stack.append(instruction.argument)
             elif operation == "positive":

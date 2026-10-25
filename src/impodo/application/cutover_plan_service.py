@@ -655,8 +655,10 @@ class CutoverPlanService:
             return committed
         review = self.review(project_id, migration_run_id, actor=actor)
         project = self.projects.get(project_id, actor=actor)
+        integrated_payload = review.integrated_payload
         if (
             not review.can_qualify
+            or integrated_payload is None
             or review.integrated_evidence_hash != expected_evidence_hash
             or project.optimistic_revision != expected_workspace_revision
         ):
@@ -668,9 +670,9 @@ class CutoverPlanService:
             migration_run_id=migration_run_id,
             application_evidence=review.evidence,
             target_binding_hash=str(
-                review.integrated_payload["target_binding_hash"]
+                integrated_payload["target_binding_hash"]
             ),
-            integrated_payload=dict(review.integrated_payload),
+            integrated_payload=dict(integrated_payload),
             expected_workspace_revision=expected_workspace_revision,
             operation_id=operation_id,
             actor=actor,

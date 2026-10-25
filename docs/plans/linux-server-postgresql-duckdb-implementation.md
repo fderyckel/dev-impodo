@@ -54,8 +54,8 @@ server behavior.
 
 | Current seam or limitation | Delivery consequence |
 | --- | --- |
-| [`create_local_app`](../../src/impodo/web/composition/local_app.py) constructs the local service graph. [`web/app.py`](../../src/impodo/web/app.py) is a temporary compatibility import, while [`http_app.py`](../../src/impodo/web/composition/http_app.py) installs the shared route set without choosing deployment security. | Continue splitting the large local builder into responsibility-named service builders before connecting server adapters. |
-| [`WebContext`](../../src/impodo/web/context.py) contains authorization, repositories, job managers, target factories, local-stack services, and many workflow services, but no actor. [`LocalWebContext`](../../src/impodo/web/composition/local_app.py) temporarily retains the implicit actor for local fixtures and direct automation. | Keep request identity explicit and remove the local-only compatibility field after fixtures resolve the local identity. |
+| [`create_local_app`](../../src/impodo/web/composition/local_app.py) constructs the local service graph. [`web/app.py`](../../src/impodo/web/app.py) is a compatibility import, while [`http_app.py`](../../src/impodo/web/composition/http_app.py) installs the shared route set without choosing deployment security. [`service_graph.py`](../../src/impodo/web/composition/service_graph.py) now builds the deployment-neutral Project foundation, authoring, Recipe application, and preparation service groups from injected ports. | Continue moving responsibility-named run, execution, job, artifact, and target groups out of the large local builder before connecting server adapters. |
+| [`WebContext`](../../src/impodo/web/context.py) contains authorization, repositories, job managers, target factories, local-stack services, and many workflow services, but no actor. Local fixtures and direct automation now resolve the implicit actor through the same authenticated local identity seam as browser requests. | Keep that request-scoped boundary. Do not restore a local or server actor field on the application context. |
 | [`LOCAL_ACTOR`](../../src/impodo/domain/shared/access.py) owns every current capability, and `Actor.has` treats `PROJECT_ADMIN` as a universal bypass. | Keep that trust model local. The server must resolve scoped grants and must not reuse the universal bypass. |
 | [`MigrationProjectService.list`](../../src/impodo/application/project/service.py) checks `project.view` once and then returns every Project summary from its repository. | Add an authorization-aware visibility query before exposing a multi-Organization catalogue. |
 | [`MigrationFoundationDatabase`](../../src/impodo/adapters/duckdb/migration_foundation_database.py) and [`MigrationFoundationRepository`](../../src/impodo/adapters/duckdb/migration_foundation_repository.py) own the current registry. Its schema mixes lifecycle, catalogue, operation, and migration-evidence concerns. | Classify facts before implementing PostgreSQL. Do not migrate whole tables merely because they currently share one file. |
@@ -114,7 +114,7 @@ src/impodo/
 `-- web/
     |-- composition/
     |   |-- http_app.py             deployment-neutral HTTP installation
-    |   |-- common.py               planned focused service builders
+    |   |-- service_graph.py        deployment-neutral service groups
     |   |-- local_app.py            local composition
     |   `-- server_app.py           shared-server composition
     |-- routers/admin/              planned server administration routes
@@ -369,14 +369,45 @@ lifecycle router, signed local session, and loopback transport security, so a
 future server composition can inject different authentication and transport
 security without copying routes.
 
-The shared `WebContext` no longer stores an actor. A local-only
-`LocalWebContext` temporarily exposes the implicit local actor to existing
-fixtures and direct local automation; browser requests still resolve their
-actor through the request identity. The fail-closed server entry now requires
-an explicit `ServerAdapterBundle` that names identity, authorization, scoped
-Project and Workspace access, operation journal, lease, job, artifact, and
-secret ports. Server startup remains disabled even when those ports are
-supplied until the shared service builders can consume them.
+The sixth increment migrates local fixtures and direct automation to resolve
+the implicit actor through `LocalRequestIdentityResolver`. Authorization
+tests use one mutable test resolver so middleware and routes receive the same
+identity for a request. The local-only `LocalWebContext` compatibility
+subclass has been removed, and both deployments now share the actor-free
+`WebContext` contract.
+
+The sixth increment also adds `build_foundation_service_graph`. It constructs
+Project, Data version, migration-run, run-target, migration-workspace, source-
+package, Project-authoring, Odoo-source-restart, Workspace-state, and
+Workspace-access services from deployment-neutral repository and
+authorization ports. The local composition injects the existing DuckDB-backed
+repository. A future server composition can inject the accepted PostgreSQL
+control-plane adapters without copying that application-service wiring.
+
+The seventh increment adds `build_preparation_service_graph`. It constructs
+the quality, normalization, duplicate-resolution, preparation, and final-
+review services from explicit application ports. The local composition still
+chooses the DuckDB repositories, governed artifact stores, workspace access
+service, and Polars transformation adapter. This keeps the detailed migration
+data plane common to local and server deployments without allowing the shared
+builder to choose a storage technology or open a database.
+
+The eighth increment adds `build_authoring_service_graph`. It constructs the
+source workspace and DataVersion projection, Recipe compilation, publication
+and application, schema governance, Match data, categorical and numeric
+coverage, transformation-impact, row-inclusion, and matching-order services
+from explicit ports. The local composition still constructs and injects every
+DuckDB repository, protected filter store, governed artifact store, and local
+authorization adapter. One source-projection service is now reused by source
+finalization and run planning instead of being constructed twice. This is a
+composition-only change: it neither moves detailed data to PostgreSQL nor
+enables the server entry point.
+
+The fail-closed server entry still requires an explicit `ServerAdapterBundle`
+that names identity, authorization, scoped Project and Workspace access,
+operation journal, lease, job, artifact, and secret ports. Server startup
+remains disabled even when those ports are supplied because the remaining
+service groups and server adapters do not exist yet.
 
 The local Project-list route retains one physical registry connection inside
 one `run_page_read` scope. A controlled fresh-Project overview measured two
@@ -397,12 +428,48 @@ These figures are controlled fixture evidence, not a live deployment latency
 result. The fourth increment did not add DuckDB connections or schema checks;
 the focused transfer page-read ceilings remain green.
 
-Shared request and worker paths no longer read a global actor, and the shared
-`WebContext` cannot carry one. The local compatibility subclass still keeps
-the implicit actor for fixtures, and the service graph remains one large local
-builder rather than focused deployment-neutral builders. Therefore work
-packages 1.1, 1.2, and 1.4 remain in progress. No PostgreSQL adapter, server
-session, Organization administration page, or Linux runtime has been added.
+Shared request, worker, fixture, and direct-automation paths no longer read a
+global actor, and `WebContext` cannot carry one. Work package 1.2 is complete.
+The foundation, authoring, and preparation builders advance work package 1.1,
+but run setup, execution, job, artifact, target, and final context assembly
+remain inside the large local builder. Work packages 1.1 and 1.4 therefore
+remain in progress.
+No PostgreSQL adapter, server session, Organization administration page, or
+Linux runtime has been added.
+
+Focused verification for the sixth increment covers request identity, the
+foundation-service wiring, local-stack authorization, Project setup, security,
+architecture dependency rules, and transfer page-read ceilings. The selected
+batch ran 24 tests without increasing the existing page-read limits. Three
+additional local-stack authorization tests passed after moving their mutable
+identity to the resolver seam. A separate 27-test batch passed the request-
+identity, service-builder, canonical-ownership, and Project-authoring direct-
+automation cases. These are controlled test results, not live server
+performance evidence.
+
+Focused verification for the seventh increment covers the two service-graph
+wiring cases and 46 preparation-readiness, final-review, and preparation-
+browser cases. The browser batch includes the existing physical-connection
+ceiling for the transformation-impact page. The restricted Windows run first
+hit the known disposable `.tmp` ACL limitation; the same tests passed under
+the established fixture permission. These are controlled test results, not
+live server performance evidence.
+
+Focused verification for the eighth increment covers the three service-graph
+wiring cases, five architecture cases, eight documentation cases, and four
+representative source, Match-data, mapping-default, and mapping-catalog browser
+cases. The mapping-catalog case retains the existing eight-connection ceiling.
+The combined browser modules exceeded a five-minute verification window, and
+the complete source-workflow module exceeded four minutes, so neither broad
+run produced pass-or-fail evidence. These are controlled fixture results, not
+live server or PostgreSQL performance evidence.
+
+The complete local-stack browser module is not yet green. Two recovery cases
+register a file-source Workspace without checking its source file first. The
+current journey gate sends both requests to **Source inspection**, while the
+tests still expect the older comparison dialog or database-mismatch response.
+This fixture and navigation expectation must be reconciled separately; the
+three local-stack capability cases that exercise request identity pass.
 
 Focused verification for the fourth increment covers the architecture rule,
 request-scoped preparation and load job contracts, execution and navigation

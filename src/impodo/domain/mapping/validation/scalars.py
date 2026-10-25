@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from impodo.domain.data_version.metadata import TYPE_COMPATIBILITY
 from impodo.domain.recipe.value_rules import (
@@ -428,7 +428,11 @@ def _validate_scalar(
                         target_field=field_mapping.target_field,
                     )
                 )
-    column = columns.get(field_mapping.source_column_key)
+    column = (
+        columns.get(field_mapping.source_column_key)
+        if field_mapping.source_column_key is not None
+        else None
+    )
     expected_candidate = {
         "boolean": "boolean",
         "integer": "integer",
@@ -487,7 +491,7 @@ def _validate_selection_rules(
     dataset: DatasetMapping,
     field_mapping: ScalarFieldMapping,
     target_type: str,
-    selection: tuple[tuple[str, str], ...],
+    selection: Sequence[tuple[str, str]],
     path: str,
     columns: Mapping[str, SourceColumnView],
     issues: list[MappingValidationIssue],

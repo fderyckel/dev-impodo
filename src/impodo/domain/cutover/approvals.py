@@ -83,7 +83,9 @@ class ApprovalEvidence:
     def from_dict(cls, payload: Mapping[str, object]) -> ApprovalEvidence:
         """Reconstruct validated evidence from a portable decision payload."""
 
-        actor_payload = dict(payload["approved_by"])
+        actor_payload = payload.get("approved_by")
+        if not isinstance(actor_payload, Mapping):
+            raise TypeError("Approval actor identity is invalid")
         return cls(
             approved_by=ActorIdentity(
                 issuer=str(actor_payload["issuer"]),

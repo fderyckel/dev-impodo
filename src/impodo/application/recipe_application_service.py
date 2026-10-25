@@ -67,6 +67,27 @@ class RecipeMaterialization:
     completed: bool = True
 
 
+def _portable_mapping(value: object, label: str) -> dict[str, object]:
+    """Return one validated JSON object from a Recipe definition."""
+
+    if not isinstance(value, Mapping):
+        raise RecipeApplicationError(f"{label} must be an object")
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise RecipeApplicationError(f"{label} keys must be text")
+        result[key] = item
+    return result
+
+
+def _portable_sequence(value: object, label: str) -> tuple[object, ...]:
+    """Return one validated JSON array from a Recipe definition."""
+
+    if not isinstance(value, (list, tuple)):
+        raise RecipeApplicationError(f"{label} must be a sequence")
+    return tuple(value)
+
+
 class RecipeApplicationService(RecipeApplicationCompiler):
     """Assess and materialize one exact Project-scoped Recipe application.
 
@@ -129,12 +150,14 @@ class RecipeApplicationService(RecipeApplicationCompiler):
         normalized_parameters: Mapping[str, object] = {}
         normalized_controls: Mapping[str, str] = {}
         try:
+            parameter_definitions = _portable_mapping(
+                definition.get("parameter_definitions", {}),
+                "Recipe parameter definitions",
+            )
             normalized_parameters = self._parameter_values(
-                tuple(
-                    dict(definition.get("parameter_definitions", {})).get(
-                        "parameters",
-                        (),
-                    )
+                _portable_sequence(
+                    parameter_definitions.get("parameters", ()),
+                    "Recipe parameters",
                 ),
                 parameter_values,
             )
@@ -148,12 +171,14 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                 )
             )
         try:
+            control_definitions = _portable_mapping(
+                definition.get("control_definitions", {}),
+                "Recipe control definitions",
+            )
             normalized_controls = self._control_values(
-                tuple(
-                    dict(definition.get("control_definitions", {})).get(
-                        "controls",
-                        (),
-                    )
+                _portable_sequence(
+                    control_definitions.get("controls", ()),
+                    "Recipe controls",
                 ),
                 control_values,
             )
@@ -514,10 +539,25 @@ class RecipeApplicationService(RecipeApplicationCompiler):
     def requirements(definition: Mapping[str, object]) -> tuple[OdooModelRequirement, ...]:
         """Return one bounded per-Recipe target requirement projection."""
 
-        contract = dict(definition.get("odoo_target_contract", {}))
+        contract = _portable_mapping(
+            definition.get("odoo_target_contract", {}),
+            "Recipe Odoo target contract",
+        )
         requirements = []
-        for model in contract.get("models", ()):
-            fields = tuple(sorted(str(item["name"]) for item in model.get("fields", ())))
+        for raw_model in _portable_sequence(
+            contract.get("models", ()),
+            "Recipe target models",
+        ):
+            model = _portable_mapping(raw_model, "Recipe target model")
+            fields = tuple(
+                sorted(
+                    str(_portable_mapping(item, "Recipe target field")["name"])
+                    for item in _portable_sequence(
+                        model.get("fields", ()),
+                        "Recipe target fields",
+                    )
+                )
+            )
             if fields:
                 requirements.append(
                     OdooModelRequirement(model=str(model["model"]), fields=fields)
@@ -530,13 +570,21 @@ class RecipeApplicationService(RecipeApplicationCompiler):
     ) -> tuple[tuple[str, str], ...]:
         """Return conservative first-release model and field ownership claims."""
 
-        contract = dict(definition.get("odoo_target_contract", {}))
+        contract = _portable_mapping(
+            definition.get("odoo_target_contract", {}),
+            "Recipe Odoo target contract",
+        )
+        approved_fields = _portable_mapping(
+            contract.get("approved_write_fields", {}),
+            "Recipe approved write fields",
+        )
         claims = {
             (str(model), str(field))
-            for model, fields in dict(
-                contract.get("approved_write_fields", {})
-            ).items()
-            for field in fields
+            for model, fields in approved_fields.items()
+            for field in _portable_sequence(
+                fields,
+                f"Recipe approved fields for {model}",
+            )
         }
         return tuple(sorted(claims))
 
@@ -552,34 +600,71 @@ class RecipeApplicationService(RecipeApplicationCompiler):
         """
 
         result = deepcopy(dict(definition))
-        preparation = dict(result.get("source_preparation", {}))
-        rules = list(preparation.get("rules", ()))
+        preparation = _portable_mapping(
+            result.get("source_preparation", {}),
+            "Recipe source preparation",
+        )
+        rules = _portable_sequence(
+            preparation.get("rules", ()),
+            "Recipe source-preparation rules",
+        )
         remaining = []
         for raw_rule in rules:
-            rule = dict(raw_rule)
+            rule = _portable_mapping(raw_rule, "Recipe source-preparation rule")
             if str(rule.get("operation", "")) != "NORMALIZE_TEXT":
                 remaining.append(raw_rule)
                 continue
-            inputs = tuple(str(item) for item in rule.get("input_column_ids", ()))
+            inputs = tuple(
+                str(item)
+                for item in _portable_sequence(
+                    rule.get("input_column_ids", ()),
+                    "Recipe preparation inputs",
+                )
+            )
             output = str(rule.get("output_logical_column_id", ""))
             if len(inputs) != 1 or not output:
                 raise RecipeApplicationError(
                     "Reusable text preparation needs one input and one output"
                 )
-            parameters = dict(rule.get("parameters", {}))
+            parameters = _portable_mapping(
+                rule.get("parameters", {}),
+                "Recipe preparation parameters",
+            )
             allowed = {"trim", "collapse_whitespace", "empty_as_null", "case_mode"}
             if not set(parameters).issubset(allowed):
                 raise RecipeApplicationError(
                     "Reusable text preparation contains an unsupported option"
                 )
             uses = 0
-            for dataset in dict(result.get("mapping", {})).get("datasets", ()):
-                for field in dataset.get("fields", ()):
-                    provider = dict(field.get("provider", {}))
+            mapping = _portable_mapping(
+                result.get("mapping", {}),
+                "Recipe mapping",
+            )
+            datasets = []
+            for raw_dataset in _portable_sequence(
+                mapping.get("datasets", ()),
+                "Recipe mapping datasets",
+            ):
+                dataset = _portable_mapping(raw_dataset, "Recipe mapping dataset")
+                fields = []
+                for raw_field in _portable_sequence(
+                    dataset.get("fields", ()),
+                    "Recipe mapping fields",
+                ):
+                    field = _portable_mapping(raw_field, "Recipe mapping field")
+                    provider = _portable_mapping(
+                        field.get("provider", {}),
+                        "Recipe field provider",
+                    )
                     source_ids = tuple(
-                        str(item) for item in provider.get("source_column_ids", ())
+                        str(item)
+                        for item in _portable_sequence(
+                            provider.get("source_column_ids", ()),
+                            "Recipe provider source columns",
+                        )
                     )
                     if output not in source_ids:
+                        fields.append(field)
                         continue
                     if provider.get("kind") != "SOURCE" or source_ids != (output,):
                         raise RecipeApplicationError(
@@ -587,7 +672,10 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                         )
                     provider["source_column_ids"] = [inputs[0]]
                     field["provider"] = provider
-                    transform = dict(field.get("transform", {}))
+                    transform = _portable_mapping(
+                        field.get("transform", {}),
+                        "Recipe field transformation",
+                    )
                     for key, value in parameters.items():
                         if key in transform and transform[key] != value:
                             raise RecipeApplicationError(
@@ -596,6 +684,11 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                         transform[key] = value
                     field["transform"] = transform
                     uses += 1
+                    fields.append(field)
+                dataset["fields"] = fields
+                datasets.append(dataset)
+            mapping["datasets"] = datasets
+            result["mapping"] = mapping
             if uses == 0:
                 raise RecipeApplicationError(
                     "Reusable text preparation output is not used by the mapping"
@@ -610,14 +703,23 @@ class RecipeApplicationService(RecipeApplicationCompiler):
     ) -> tuple[ReferenceRequirement, ...]:
         """Return exact reference datasets required by one Recipe."""
 
-        contract = dict(definition.get("reference_dependencies", {}))
+        contract = _portable_mapping(
+            definition.get("reference_dependencies", {}),
+            "Recipe reference dependencies",
+        )
         return tuple(
             sorted(
                 ReferenceRequirement(
-                    name=str(item["name"]),
-                    content_hash=str(item["content_hash"]),
+                    name=str(reference["name"]),
+                    content_hash=str(reference["content_hash"]),
                 )
-                for item in contract.get("references", ())
+                for item in _portable_sequence(
+                    contract.get("references", ()),
+                    "Recipe references",
+                )
+                for reference in (
+                    _portable_mapping(item, "Recipe reference"),
+                )
             )
         )
 

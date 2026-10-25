@@ -15,6 +15,7 @@ from tests.support.browser_scenarios import (
     _register_workspace_through_services,
     _workspace_data_version_id,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class StageTwoSupportingModelBrowserTests(ProjectSetupBrowserTestCase):
@@ -45,11 +46,11 @@ class StageTwoSupportingModelBrowserTests(ProjectSetupBrowserTestCase):
                     workspace.workspace_id,
                 ),
                 created_at=now,
-                created_by=context.actor.identity.display_name,
+                created_by=resolve_local_actor(context).identity.display_name,
                 datasets=(),
                 content_hash="sha256:" + "a" * 64,
             ),
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         model_snapshot = _browser_model_catalog(workspace)
         model_snapshot = replace(
@@ -66,7 +67,7 @@ class StageTwoSupportingModelBrowserTests(ProjectSetupBrowserTestCase):
             workspace.workspace_id,
             model_snapshot,
             read_credential_binding_hash=credential_hash,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         context.schema_workspace.capture(
             workspace.workspace_id,
@@ -101,7 +102,7 @@ class StageTwoSupportingModelBrowserTests(ProjectSetupBrowserTestCase):
                 },
             ),
             read_credential_binding_hash=credential_hash,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
 
         page = self.client.get(f"/workspaces/{workspace.workspace_id}/schema")

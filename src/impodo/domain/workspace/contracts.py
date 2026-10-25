@@ -519,6 +519,13 @@ def _schema_model_from_payload(value: object) -> SchemaModel:
 def _schema_field_from_payload(value: object) -> SchemaField:
     if not isinstance(value, dict):
         raise TypeError("Stored Odoo schema field is invalid")
+    raw_digits = value.get("digits")
+    if raw_digits is None:
+        digits = None
+    elif isinstance(raw_digits, (list, tuple)) and len(raw_digits) == 2:
+        digits = (int(raw_digits[0]), int(raw_digits[1]))
+    else:
+        raise TypeError("Stored Odoo schema field precision is invalid")
     return SchemaField(
         name=str(value["name"]),
         label=str(value["label"]),
@@ -537,11 +544,7 @@ def _schema_field_from_payload(value: object) -> SchemaField:
         searchable=_optional_bool(value.get("searchable")),
         sortable=_optional_bool(value.get("sortable")),
         exportable=_optional_bool(value.get("exportable")),
-        digits=(
-            tuple(int(item) for item in value["digits"])
-            if value.get("digits") is not None
-            else None
-        ),
+        digits=digits,
         currency_field=(
             str(value["currency_field"])
             if value.get("currency_field") is not None

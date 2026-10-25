@@ -64,32 +64,16 @@ routes, services, implementation status, performance risks, and focused tests.
 
 ## Python code quality ownership
 
-Ruff and Basedpyright are complementary checks. Ruff owns Python code hygiene,
-including imports, modernization, and non-type lint rules. Basedpyright owns
-annotation correctness, type compatibility, narrowing, and interface
-conformance. Python runtime behavior, accepted contracts, and focused tests
-remain authoritative when a static suggestion could change program semantics.
+The [Python code quality reference](reference/python-code-quality.md) defines
+the ownership boundary between Ruff, Basedpyright, runtime contracts, and
+focused tests. It also defines the baseline policy, narrow exception rules,
+and deliberate tool-upgrade process.
 
-When both tools report the same line, satisfy both diagnostics when possible.
-If a duplicate needs one owner, keep the Ruff diagnostic for code hygiene and
-the Basedpyright diagnostic for type reasoning. Disable only the specific
-duplicate in the non-owning tool, and record the reason beside its repository
-configuration. Do not add blanket file or package exclusions to make a check
-green.
-
-Run the current checks from the repository root:
+Run the pinned repository quality gate from the repository root:
 
 ```powershell
-uvx ruff check src\impodo
-uvx basedpyright
+uv run --frozen --group quality python scripts/check_python_quality.py
 ```
-
-Basedpyright runs in Standard mode. The committed
-`.basedpyright/baseline.json` records diagnostics that existed when the check
-was introduced, so normal runs report new diagnostics without requiring an
-unrelated whole-repository repair. Run `uvx basedpyright --writebaseline` only
-when deliberately accepting new baseline entries; normal runs remove resolved
-entries automatically.
 
 ## Cross-stage references
 

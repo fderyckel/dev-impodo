@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from impodo.application.run.recipe_run_jobs import RecipeRunJobPhase
 from impodo.web.routers.schema import _perform_run_odoo_check
 from impodo.web.run_urls import RunSetupKind
+from tests.support.identity import resolve_local_actor
 
 
 class RecipeRunOdooProgressTests(TestCase):
@@ -73,7 +74,7 @@ class RecipeRunOdooProgressTests(TestCase):
                 RunSetupKind.TEST,
                 expected_workspace_revision=7,
                 operation_id="operation-1",
-                actor=context.actor,
+                actor=resolve_local_actor(context),
                 report=reports.append,
             )
 

@@ -228,10 +228,13 @@ def parse_source_condition_value(value: Any, value_type: str) -> Any:
         return int(text, 10)
     if value_type == "decimal":
         parsed = Decimal(text)
+        parts = parsed.as_tuple()
+        if not isinstance(parts.exponent, int):
+            raise ValueError("Decimal comparison exceeds 38 digits or 12 places")
         if (
             not parsed.is_finite()
-            or len(parsed.as_tuple().digits) > 38
-            or max(-parsed.as_tuple().exponent, 0) > 12
+            or len(parts.digits) > 38
+            or max(-parts.exponent, 0) > 12
         ):
             raise ValueError("Decimal comparison exceeds 38 digits or 12 places")
         return parsed

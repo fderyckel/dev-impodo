@@ -45,6 +45,12 @@ release = [
   "setuptools==83.0.0",
 ]
 
+[dependency-groups]
+quality = [
+  "basedpyright==1.40.2",
+  "ruff==0.17.2",
+]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 include-package-data = true
@@ -64,3 +70,6 @@ include = ["src/impodo"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 baselineFile = ".basedpyright/baseline.json"
+
+[tool.ruff]
+target-version = "py312"

@@ -22,7 +22,9 @@ def normalize_control_total(value: object, *, label: str) -> str:
         raise RecipeApplicationError(f"{label} must be a number") from error
     if not number.is_finite():
         raise RecipeApplicationError(f"{label} must be a finite number")
-    if abs(number.adjusted()) > 1000 or abs(number.as_tuple().exponent) > 1000:
+    exponent = number.as_tuple().exponent
+    assert isinstance(exponent, int)
+    if abs(number.adjusted()) > 1000 or abs(exponent) > 1000:
         raise RecipeApplicationError(f"{label} is too large or too precise")
     return format(number, "f")
 

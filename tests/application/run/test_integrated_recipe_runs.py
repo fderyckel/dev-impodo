@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
 import json
 import re
 import shutil
@@ -17,9 +15,6 @@ from uuid import UUID, uuid4, uuid5
 
 from fastapi.testclient import TestClient
 
-from tests.support.database_probe import StatementCountingConnection
-
-from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
 from impodo.adapters.duckdb.cutover_plan_repository import CutoverPlanRepository
 from impodo.adapters.duckdb.migration_foundation_database import (
     MigrationFoundationDatabase,
@@ -41,42 +36,18 @@ from impodo.adapters.duckdb.run_aware_schema_repository import (
     RunAwareSchemaRepository,
 )
 from impodo.adapters.duckdb.test_run_repository import TestRunRepository
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.adapters.protected_project_evidence_store import (
     ProtectedProjectEvidenceStore,
 )
 from impodo.adapters.protected_recipe_store import ProtectedRecipeStore
-from impodo.application.workspace.mapping.service import MappingWorkspaceService
-from impodo.application.migration_project_authoring_service import (
-    MigrationProjectAuthoringService,
+from impodo.application.data_version.inspection import (
+    CATALOG_CONTRACT_VERSION,
+    SourceColumnProfile,
+    SourceFileCatalog,
+    SourceTableCatalog,
 )
-from impodo.application.run.planning_service import (
-    MigrationRunPlanningService,
-)
-from impodo.application.run.application_recovery import (
-    RunApplicationRecoveryUseCase,
-)
-from impodo.application.recipe_application_service import (
-    RecipeApplicationAssessment,
-    RecipeApplicationService,
-    RecipeMaterialization,
-)
-from impodo.application.recipe_compilation_service import CompiledRecipeDefinition
-from impodo.application.recipe_publication_service import (
-    RecipePublicationService,
-)
-from impodo.application.run.fresh_data_matching import (
-    FreshDataInputRequirement,
-    FreshDataMatchStatus,
-    FreshDataParameterRequirement,
-    FreshDataRecipeRequirement,
-)
-from impodo.application.run.test_setup_service import (
-    TestRunSetupService,
-)
-from impodo.application.run.fresh_data_values import (
-    build_fresh_data_run_value_plan,
-)
-from impodo.domain.odoo.contracts import MetadataSnapshot
+from impodo.application.data_version.service import DataVersionService
 from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
     DataVersionSourcePackageService,
@@ -89,38 +60,63 @@ from impodo.application.data_version.source_packages import (
     WorkspaceSourceProjectionService,
     source_column_contract_hash,
 )
-from impodo.domain.data_version.models import (
-    DataVersionPurpose,
-    DataVersionState,
+from impodo.application.migration_project_authoring_service import (
+    MigrationProjectAuthoringService,
 )
-from impodo.application.data_version.service import DataVersionService
+from impodo.application.project.service import MigrationProjectService
+from impodo.application.recipe.service import RecipeService
+from impodo.application.recipe_application_service import (
+    RecipeApplicationAssessment,
+    RecipeApplicationService,
+    RecipeMaterialization,
+)
+from impodo.application.recipe_compilation_service import CompiledRecipeDefinition
+from impodo.application.recipe_publication_service import (
+    RecipePublicationService,
+)
+from impodo.application.run.application_recovery import (
+    RunApplicationRecoveryUseCase,
+)
+from impodo.application.run.fresh_data_matching import (
+    FreshDataInputRequirement,
+    FreshDataMatchStatus,
+    FreshDataParameterRequirement,
+    FreshDataRecipeRequirement,
+)
+from impodo.application.run.fresh_data_values import (
+    build_fresh_data_run_value_plan,
+)
+from impodo.application.run.planning_service import (
+    MigrationRunPlanningService,
+)
+from impodo.application.run.service import MigrationRunService
+from impodo.application.run.test_setup_service import (
+    TestRunSetupService,
+)
+from impodo.application.workspace.mapping.service import MappingWorkspaceService
+from impodo.application.workspace.preparation.job_models import PreparationJobStatus
+from impodo.application.workspace.service import MigrationWorkspaceService
 from impodo.domain.coverage import (
     ReferenceBundle,
     ReferenceDataSet,
     ReferenceEntry,
     ReferenceValueKind,
 )
+from impodo.domain.data_version.models import (
+    DataVersionPurpose,
+    DataVersionState,
+)
 from impodo.domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
 from impodo.domain.mapping.validation.evidence import MappingValidationIssue
-from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.recipe_parameters import EXPORT_AS_OF_PARAMETER_ID
-from impodo.domain.recipe_applications import RecipeControlValues
-from impodo.domain.schema.governance import SchemaGovernance
-from impodo.domain.serialization import content_hash
-from impodo.domain.source_binding import FileSourceBinding
-from impodo.application.data_version.inspection import (
-    CATALOG_CONTRACT_VERSION,
-    SourceColumnProfile,
-    SourceFileCatalog,
-    SourceTableCatalog,
-)
+from impodo.domain.odoo.contracts import MetadataSnapshot
 from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
     MigrationOperationState,
     utc_now,
 )
-from impodo.application.project.service import MigrationProjectService
+from impodo.domain.recipe_applications import RecipeControlValues
+from impodo.domain.recipe_parameters import EXPORT_AS_OF_PARAMETER_ID
 from impodo.domain.run.contracts import (
     MigrationRunPlanIssue,
     MigrationRunPlanIssueLevel,
@@ -134,10 +130,10 @@ from impodo.domain.run.models import (
     MigrationRunPurpose,
     MigrationRunState,
 )
-from impodo.application.run.service import MigrationRunService
 from impodo.domain.run.test_setup import TestRunSetupState
-from impodo.application.workspace.service import MigrationWorkspaceService
-from impodo.application.workspace.preparation.job_models import PreparationJobStatus
+from impodo.domain.schema.governance import SchemaGovernance
+from impodo.domain.serialization import content_hash
+from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
 from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
@@ -145,9 +141,19 @@ from impodo.domain.shared.models import (
     TargetFingerprint,
     target_identity_hash,
 )
-from impodo.application.recipe.service import RecipeService
+from impodo.domain.source_binding import FileSourceBinding
+from impodo.domain.workspace.contracts import (
+    OdooSchemaCatalog,
+    SchemaField,
+    SchemaModel,
+    SchemaOrigin,
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+)
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
-from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
+from impodo.domain.workspace.workbench import WorkspaceStateService
 from impodo.web.app import create_local_app
 from impodo.web.routers.mapping import (
     _confirmed_recipe_mapping_destination,
@@ -160,16 +166,9 @@ from impodo.web.target_credentials import (
     TargetCredentialRole,
     get_target_credential,
 )
-from impodo.domain.workspace.contracts import (
-    OdooSchemaCatalog,
-    SchemaField,
-    SchemaModel,
-    SchemaOrigin,
-    SourceDataset,
-    SourceDatasetColumn,
-    SourceSelection,
-)
-from impodo.domain.workspace.workbench import WorkspaceStateService
+from tests.support.database_probe import StatementCountingConnection
+from tests.support.identity import resolve_local_actor
+from tests.support.paths import REPOSITORY_ROOT
 from tests.support.workspace_access import workspace_access_service
 
 ROOT = REPOSITORY_ROOT
@@ -3374,7 +3373,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         context = self.app.state.context
         workspace = context.migration_workspaces.list_for_project(
             project_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )[0]
         authoring_page = self.client.get(
             f"/workspaces/{workspace.workspace_id}/files"
@@ -3392,7 +3391,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         self.assertNotIn("Recipe run", authoring_page.text)
         data_version = context.data_versions.get(
             workspace.data_version_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         context.data_versions.repository.save_data_version(
             replace(
@@ -3404,7 +3403,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             ),
             expected_revision=data_version.optimistic_revision,
             event_type="TEST_DATA_VERSION_FROZEN",
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         publication = context.recipes.repository.publish_recipe(
             project_id=project_id,
@@ -3475,7 +3474,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             compilation_provenance={},
             operation_id=str(uuid4()),
             request_hash=content_hash({"request": "browser Recipe"}),
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
 
         recipe_planning = self.client.get(f"/projects/{project_id}/test-runs/new")
@@ -3653,7 +3652,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(registered.status_code, 303, registered.text)
-        setup_binding = context.test_runs.get(setup_run_id, actor=context.actor)
+        setup_binding = context.test_runs.get(setup_run_id, actor=resolve_local_actor(context))
         setup_workspace_id = setup_binding.setup_workspace_id
         self.assertEqual(registered.headers["location"], setup_location)
 
@@ -3724,7 +3723,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         setup_state = context.workspace_states.repository.get(setup_workspace_id)
         context.workspace_states.update_target(
             setup_workspace_id,
-            actor=context.actor,
+            actor=resolve_local_actor(context),
             expected_revision=setup_state.revision,
             odoo_connection_mode="REMOTE",
             odoo_base_url="https://test-odoo.example.test",
@@ -3732,7 +3731,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             intended_applications=(),
             intended_models=context.test_runs.required_models_for_workspace(
                 setup_workspace_id,
-                actor=context.actor,
+                actor=resolve_local_actor(context),
             ),
         )
         odoo_page = self.client.get(odoo_url)
@@ -3902,7 +3901,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             credential.binding_hash,
         )
 
-        saved_setup_binding = context.test_runs.get(setup_run_id, actor=context.actor)
+        saved_setup_binding = context.test_runs.get(setup_run_id, actor=resolve_local_actor(context))
         active_binding_view = replace(
             saved_setup_binding, state=TestRunSetupState.ACTIVE,
             target_binding_id=str(uuid4()), activated_at=datetime.now(timezone.utc),

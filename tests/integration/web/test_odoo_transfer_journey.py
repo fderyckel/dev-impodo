@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import replace
 from datetime import timedelta
-import re
 from unittest.mock import patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
@@ -17,11 +17,12 @@ from impodo.domain.workspace.workbench import SourceMode, WorkspaceStatus
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     ProjectSetupBrowserTestCase,
-    _BrowserOdooCaptureGateway,
     _browser_schema,
+    _BrowserOdooCaptureGateway,
     _created_workspace_id,
     _wait_for_odoo_capture,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
@@ -45,7 +46,7 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         workspace_id = _created_workspace_id(self.app, created)
         data_project_id = self.app.state.context.migration_workspaces.get(
             workspace_id,
-            actor=self.app.state.context.actor,
+            actor=resolve_local_actor(self.app.state.context),
         ).project_id
         self.assertEqual(
             created.headers["location"],
@@ -764,7 +765,7 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         matched_state = (
             self.app.state.context.workspace_states.save_destination_match_plan(
                 workspace_id,
-                actor=self.app.state.context.actor,
+                actor=resolve_local_actor(self.app.state.context),
                 expected_revision=matched_state.revision,
                 plan=plan_with_destination_managed_field,
             )
@@ -787,7 +788,7 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         )
         matched_state = self.app.state.context.workspace_states.save_destination_match_plan(
             workspace_id,
-            actor=self.app.state.context.actor,
+            actor=resolve_local_actor(self.app.state.context),
             expected_revision=matched_state.revision,
             plan=plan_with_missing_field,
         )
@@ -1002,7 +1003,7 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
         normalization = self.app.state.context.preparation.prepare(
             workspace_id,
-            actor=self.app.state.context.actor,
+            actor=resolve_local_actor(self.app.state.context),
         )
         self.assertEqual(
             normalization.eligible_record_count,
@@ -1109,7 +1110,7 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         protected_comparison = (
             self.app.state.context.preflight.current_odoo_comparison(
                 workspace_id,
-                actor=self.app.state.context.actor,
+                actor=resolve_local_actor(self.app.state.context),
             )
         )
         self.assertIsNotNone(protected_comparison)
@@ -1184,7 +1185,7 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(blocked_report.blocked_count, 1)
         blocked_artifact = self.app.state.context.preflight.current_odoo_comparison(
             workspace_id,
-            actor=self.app.state.context.actor,
+            actor=resolve_local_actor(self.app.state.context),
         )
         self.assertIsNotNone(blocked_artifact)
         assert blocked_artifact is not None
@@ -1199,7 +1200,7 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
             self.app.state.context.odoo_capture_publication.publish(
                 workspace_id,
                 refresh_gateway,
-                actor=self.app.state.context.actor,
+                actor=resolve_local_actor(self.app.state.context),
             )
         )
         self.assertNotEqual(
@@ -1221,6 +1222,6 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIsNone(
             self.app.state.context.preflight.current_odoo_comparison(
                 workspace_id,
-                actor=self.app.state.context.actor,
+                actor=resolve_local_actor(self.app.state.context),
             )
         )

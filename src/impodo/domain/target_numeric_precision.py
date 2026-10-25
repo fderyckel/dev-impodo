@@ -35,6 +35,7 @@ def required_decimal_places(value: Decimal) -> int:
     parts = value.as_tuple()
     if not any(parts.digits):
         return 0
+    assert isinstance(parts.exponent, int)
     trailing_zeros = 0
     for digit in reversed(parts.digits):
         if digit != 0:

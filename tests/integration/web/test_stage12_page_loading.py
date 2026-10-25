@@ -2,17 +2,23 @@
 
 import asyncio
 from contextlib import contextmanager
-from unittest.mock import patch
 from dataclasses import replace
+from unittest.mock import patch
 from uuid import uuid4
 
-from impodo.adapters.duckdb.foundation_source_package_reader import FoundationSourcePackageReader
+from impodo.adapters.duckdb.foundation_source_package_reader import (
+    FoundationSourcePackageReader,
+)
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
-from impodo.adapters.duckdb.unit_of_work import DuckDbConnectionFactory, retain_databases_for_operation
-from tests.support.browser_scenarios import ProjectSetupBrowserTestCase
+from impodo.adapters.duckdb.unit_of_work import (
+    DuckDbConnectionFactory,
+    retain_databases_for_operation,
+)
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.workspace.workbench import OdooConnectionMode
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
+from tests.support.browser_scenarios import ProjectSetupBrowserTestCase
+from tests.support.identity import resolve_local_actor
 
 
 class _QueryCounter:
@@ -138,7 +144,7 @@ class Stage12PageLoadingTests(ProjectSetupBrowserTestCase):
                         target_model="res.partner", target_name_field="name",
                         external_id_namespace=f"lookup_{index}", parent_separator=None,
                         blank_policy="block", expected_parent_version=None if index == 0 else index,
-                        actor=context.actor,
+                        actor=resolve_local_actor(context),
                     )
             saved = count
             counts = [0]

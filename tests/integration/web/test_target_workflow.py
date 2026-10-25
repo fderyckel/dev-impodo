@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from tests.support.browser_scenarios import (
+    POST_HEADERS,
     ConnectorAuthenticationError,
     ConnectorAuthorizationError,
     ConnectorError,
     ConnectorTransportError,
     LocalStackService,
     OdooConnectionMode,
-    POST_HEADERS,
     Path,
     ProjectSetupBrowserTestCase,
     SchemaOrigin,
@@ -26,6 +26,7 @@ from tests.support.browser_scenarios import (
     timezone,
     uuid4,
 )
+from tests.support.identity import resolve_local_actor
 
 
 class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
@@ -48,11 +49,11 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 version=1,
                 data_version_id=_workspace_data_version_id(context, workspace_id),
                 created_at=now,
-                created_by=context.actor.identity.display_name,
+                created_by=resolve_local_actor(context).identity.display_name,
                 datasets=(),
                 content_hash="sha256:" + "d" * 64,
             ),
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
 
         derived = self.client.get(f"/workspaces/{workspace_id}/derived-entities")
@@ -270,11 +271,11 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                     workspace_id,
                 ),
                 created_at=datetime.now(timezone.utc),
-                created_by=context.actor.identity.display_name,
+                created_by=resolve_local_actor(context).identity.display_name,
                 datasets=(),
                 content_hash="sha256:" + "d" * 64,
             ),
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         hierarchy_page = self.client.get(
             f"/workspaces/{workspace_id}/derived-entities"
@@ -634,11 +635,11 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                     registered.workspace_id,
                 ),
                 created_at=now,
-                created_by=context.actor.identity.display_name,
+                created_by=resolve_local_actor(context).identity.display_name,
                 datasets=(),
                 content_hash="sha256:" + "a" * 64,
             ),
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
 
         drafted = self._post(
@@ -688,11 +689,11 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                     registered.workspace_id,
                 ),
                 created_at=now,
-                created_by=context.actor.identity.display_name,
+                created_by=resolve_local_actor(context).identity.display_name,
                 datasets=(),
                 content_hash="sha256:" + "b" * 64,
             ),
-            actor=context.actor,
+            actor=resolve_local_actor(context),
         )
         unconfigured_page = self.client.get(
             f"/workspaces/{registered.workspace_id}/schema"

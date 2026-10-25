@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
-from io import BytesIO
-from pathlib import Path
 import shutil
 import unittest
+from io import BytesIO
+from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -15,9 +13,10 @@ import duckdb
 
 from impodo.domain.run.setup import OdooConnectionMode
 from impodo.domain.workspace.models import MigrationWorkspaceSetupState
-from impodo.web.app import create_local_app
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceStatus
-
+from impodo.web.app import create_local_app
+from tests.support.identity import resolve_local_actor
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 
@@ -29,7 +28,7 @@ class CanonicalOwnershipTests(unittest.TestCase):
         self.app = create_local_app(self.root)
         self.context = self.app.state.context
         self.bundle = self.context.project_authoring.create(
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
             display_name="Thailand customer rollout",
             source_mode=SourceMode.FILE,
             creation_request_id=str(uuid4()),
@@ -48,7 +47,7 @@ class CanonicalOwnershipTests(unittest.TestCase):
         with patch("impodo.application.data_version.intake.validate_source_file_isolated"):
             self.context.intake.accept(
                 workspace_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
                 expected_revision=current.revision,
                 display_name="customers.csv",
                 stream=BytesIO(b"code,name\nC1,Customer One\n"),
@@ -90,7 +89,7 @@ class CanonicalOwnershipTests(unittest.TestCase):
         with patch("impodo.application.data_version.intake.validate_source_file_isolated"):
             self.context.intake.accept(
                 workspace_id,
-                actor=self.context.actor,
+                actor=resolve_local_actor(self.context),
                 expected_revision=current.revision,
                 display_name="customers.csv",
                 stream=BytesIO(b"code,name\nC1,Customer One\n"),
@@ -98,13 +97,13 @@ class CanonicalOwnershipTests(unittest.TestCase):
         current = self.context.queries.get(workspace_id)
         registered = self.context.workspace_states.register(
             workspace_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
             expected_revision=current.revision,
         )
 
         root = self.context.migration_workspaces.get(
             workspace_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         self.assertEqual(root.setup_state, MigrationWorkspaceSetupState.READY)
         self.assertIsNotNone(root.setup_completed_at)
@@ -119,7 +118,7 @@ class CanonicalOwnershipTests(unittest.TestCase):
         first = self.context.queries.get(first_id)
         self.context.workspace_states.update_target(
             first_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
             expected_revision=first.revision,
             odoo_connection_mode=OdooConnectionMode.REMOTE.value,
             odoo_base_url="https://odoo.example.test",
@@ -129,11 +128,11 @@ class CanonicalOwnershipTests(unittest.TestCase):
 
         project = self.context.migration_projects.get(
             self.bundle.project.project_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
         )
         second_root = self.context.migration_workspaces.create(
             project.project_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
             expected_workspace_revision=project.optimistic_revision,
             data_version_id=self.bundle.data_version.data_version_id,
             migration_run_id=self.bundle.run.migration_run_id,
@@ -141,7 +140,7 @@ class CanonicalOwnershipTests(unittest.TestCase):
         )
         self.context.workspace_states.provision_migration_workspace(
             second_root.workspace_id,
-            actor=self.context.actor,
+            actor=resolve_local_actor(self.context),
             name=second_root.display_name,
             source_system=project.source_system_identity,
             source_mode=SourceMode.FILE,
