@@ -13,10 +13,12 @@ from starlette.concurrency import run_in_threadpool
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.shared.access import Actor
 
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..request_identity import request_identity
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRole,
@@ -38,7 +40,14 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
     )
     async def new_production_run_form(request: Request, project_id: str):
         require_session(request)
-        return await run_in_threadpool(_render_new, request, context, project_id)
+        actor = request_identity(request, context.identity_resolver).actor
+        return await run_in_threadpool(
+            _render_new,
+            request,
+            context,
+            project_id,
+            actor=actor,
+        )
 
     @router.post("/projects/{project_id}/production-runs/new")
     async def new_production_run(request: Request, project_id: str):
@@ -55,6 +64,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 "operation_id",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             bundle = await run_in_threadpool(context.production_runs.start_setup,
                 project_id,
@@ -65,13 +75,14 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 label=_text(form, "label"),
                 export_as_of=_text(form, "export_as_of"),
                 operation_id=_text(form, "operation_id"),
-                actor=context.actor,
+                actor=actor,
             )
         except (MigrationFoundationError, TypeError, ValueError) as error:
             return _render_new(
                 request,
                 context,
                 project_id,
+                actor=actor,
                 error=str(error),
                 status_code=422,
                 label=_text(form, "label"),
@@ -97,11 +108,13 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
         migration_run_id: str,
     ):
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         return await run_in_threadpool(_render_activation,
             request,
             context,
             project_id,
             migration_run_id,
+            actor=actor,
         )
 
     @router.post(
@@ -114,7 +127,14 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
     ):
         form = await request.form()
         require_session(request)
-        view = await run_in_threadpool(_activation_view, context, project_id, migration_run_id)
+        actor = request_identity(request, context.identity_resolver).actor
+        view = await run_in_threadpool(
+            _activation_view,
+            context,
+            project_id,
+            migration_run_id,
+            actor=actor,
+        )
         allowed = {
             "csrf_token",
             "expected_workspace_revision",
@@ -142,7 +162,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 context.run_planning.target_evidence_from_workspace,
                     project_id,
                     setup_state.workspace_id,
-                    actor=context.actor,
+                    actor=actor,
             )
             read_credential = get_target_credential(
                 context.secret_store,
@@ -189,7 +209,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                     setup_state,
                     TargetCredentialRole.WRITE,
                     write_credential,
-                    actor=context.actor,
+                    actor=actor,
                 )
             else:
                 write_credential = current_write
@@ -207,7 +227,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 parameter_values=values.parameters,
                 control_values=values.controls,
                 operation_id=_text(form, "operation_id"),
-                actor=context.actor,
+                actor=actor,
             )
         except (
             ConnectorError,
@@ -221,6 +241,7 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
                 context,
                 project_id,
                 migration_run_id,
+                actor=actor,
                 error=str(error),
                 status_code=422,
                 operation_id=_text(form, "operation_id"),
@@ -238,13 +259,22 @@ def build_production_runs_router(context: WebContext) -> APIRouter:
     async def resume_production_activation(request: Request, project_id: str, migration_run_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             await run_in_threadpool(
-                context.production_runs.resume_activation, project_id, migration_run_id, actor=context.actor,
+                context.production_runs.resume_activation,
+                project_id,
+                migration_run_id,
+                actor=actor,
             )
         except (MigrationFoundationError, ValueError) as error:
             return await run_in_threadpool(
-                _render_activation, request, context, project_id, migration_run_id,
+                _render_activation,
+                request,
+                context,
+                project_id,
+                migration_run_id,
+                actor=actor,
                 error=str(error), status_code=422,
             )
         _flash(request, "Production setup is complete. Continue with fresh review and load.")
@@ -258,13 +288,14 @@ def _render_new(
     context,
     project_id,
     *,
+    actor: Actor,
     error=None,
     status_code=200,
     label="Production rollout",
     export_as_of=None,
     operation_id=None,
 ):
-    project = context.migration_projects.get(project_id, actor=context.actor)
+    project = context.migration_projects.get(project_id, actor=actor)
     selection = context.cutover_plans.repository.current_selection(project_id)
     qualification = (
         context.cutover_plans.repository.get_qualification(
@@ -297,11 +328,12 @@ def _render_activation(
     project_id,
     migration_run_id,
     *,
+    actor: Actor,
     error=None,
     status_code=200,
     operation_id=None,
 ):
-    view = _activation_view(context, project_id, migration_run_id)
+    view = _activation_view(context, project_id, migration_run_id, actor=actor)
     return _render(
         request,
         "project_production_activation.html",
@@ -313,26 +345,34 @@ def _render_activation(
     )
 
 
-def _activation_view(context, project_id, migration_run_id):
-    project = context.migration_projects.get(project_id, actor=context.actor)
+def _activation_view(context, project_id, migration_run_id, *, actor: Actor):
+    project = context.migration_projects.get(project_id, actor=actor)
     binding = context.production_runs.production_runs.get(migration_run_id)
     if binding.project_id != project_id:
         raise MigrationFoundationError(
             "Production run does not belong to this Project"
         )
-    run = context.migration_runs.get(migration_run_id, actor=context.actor)
-    data_version = context.data_versions.get(binding.data_version_id, actor=context.actor)
+    run = context.migration_runs.get(migration_run_id, actor=actor)
+    data_version = context.data_versions.get(binding.data_version_id, actor=actor)
     setup_workspace = context.migration_workspaces.get(
         binding.setup_workspace_id,
-        actor=context.actor,
+        actor=actor,
     )
     setup_state = context.workspace_states.repository.get(binding.setup_workspace_id)
     plan = context.cutover_plans.repository.get_revision(
         binding.cutover_plan_id,
         binding.cutover_plan_revision,
     )
-    value_review = context.production_runs.values.review(binding, plan, data_version, actor=context.actor)
-    operation = context.production_runs.activation_operation(migration_run_id, actor=context.actor)
+    value_review = context.production_runs.values.review(
+        binding,
+        plan,
+        data_version,
+        actor=actor,
+    )
+    operation = context.production_runs.activation_operation(
+        migration_run_id,
+        actor=actor,
+    )
     activation_pending = operation is not None and operation.state.value != "COMMITTED"
     read_status = get_target_credential_status(
         context.secret_store,
@@ -350,7 +390,7 @@ def _activation_view(context, project_id, migration_run_id):
         context.run_planning.target_evidence_from_workspace(
             project_id,
             setup_workspace.workspace_id,
-            actor=context.actor,
+            actor=actor,
         )
     except MigrationFoundationError as error:
         target_error = str(error)

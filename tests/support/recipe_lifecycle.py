@@ -79,11 +79,21 @@ def prepare_test_application(case, context, application, root):
     manager = PreparationJobManager(root)
     case.addCleanup(manager.shutdown)
     context.preparation_jobs = manager
-    manager.set_result_reader(lambda job: context.preparation_recovery.current(
-        job.workspace_id, job.workspace.mapping_content_hash, actor=context.actor,
+    manager.set_result_reader(lambda job, actor: context.preparation_recovery.current(
+        job.workspace_id, job.workspace.mapping_content_hash, actor=actor,
     ))
-    manager.set_status_listener(lambda job: publish_preparation_progress(context, job))
-    job = start_next_preparation(context, application.migration_run_id)
+    manager.set_status_listener(
+        lambda job, actor: publish_preparation_progress(
+            context,
+            job,
+            actor=actor,
+        )
+    )
+    job = start_next_preparation(
+        context,
+        application.migration_run_id,
+        actor=context.actor,
+    )
     worker = manager._workers[job.job_id]
     worker.supervisor.join(timeout=60)
     case.assertFalse(worker.supervisor.is_alive(), "The preparation worker did not finish")
@@ -97,7 +107,11 @@ def complete_application(case, context, application, *, expected_total, write_id
 
     workspace_id, actor = application.workspace_id, context.actor
     state = context.workspace_states.repository.get(workspace_id)
-    owner = context.target_credential_workspace(workspace_id, workspace_state=state)
+    owner = context.target_credential_workspace(
+        workspace_id,
+        workspace_state=state,
+        actor=actor,
+    )
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
     read = get_target_credential(context.secret_store, owner, TargetCredentialRole.READ)
     if read is None:
@@ -131,8 +145,13 @@ def complete_application(case, context, application, *, expected_total, write_id
     report = context.preflight.compare(workspace_id, reader=empty_target, actor=actor)
     case.assertEqual(report.status, "READY")
     case.assertEqual(report.create_count, 2)
-    publish_compared_application(context, application.application_id, application.migration_run_id)
-    preview = context.execution.current_preview(workspace_id)
+    publish_compared_application(
+        context,
+        application.application_id,
+        application.migration_run_id,
+        actor=actor,
+    )
+    preview = context.execution.current_preview(workspace_id, actor=actor)
     snapshot = preview.snapshot
     read_identity = OdooReadIdentity(target_hash=snapshot.target_hash, principal_hash=snapshot.read_principal_hash,
         permission_hash=snapshot.read_permission_hash, context_hash=snapshot.read_context_hash,
@@ -157,5 +176,10 @@ def complete_application(case, context, application, *, expected_total, write_id
         reader=adapter, actor=actor, write_identity=write_identity, write_credential_binding_hash=write_generation)
     case.assertEqual(reconciliation.status.value, "VERIFIED", reconciliation.rows)
     case.assertEqual(reconciliation.verified_count, 2)
-    publish_reconciled_application(context, application.application_id, application.migration_run_id)
+    publish_reconciled_application(
+        context,
+        application.application_id,
+        application.migration_run_id,
+        actor=actor,
+    )
     return execution, reconciliation

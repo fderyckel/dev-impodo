@@ -251,7 +251,9 @@ class PreparationJobRegistryTests(unittest.TestCase):
             WorkspaceError,
             "Review the current Odoo defaults",
         ):
-            _assert_recipe_application_can_prepare(context, workspace)
+            _assert_recipe_application_can_prepare(
+                context, workspace, actor=LOCAL_ACTOR,
+            )
 
         application.status = RecipeApplicationStatus.READY
         repository.list_issues = lambda current_id: (
@@ -260,7 +262,9 @@ class PreparationJobRegistryTests(unittest.TestCase):
                 level=SimpleNamespace(value="INFORMATION"),
             ),
         )
-        accepted = _assert_recipe_application_can_prepare(context, workspace)
+        accepted = _assert_recipe_application_can_prepare(
+            context, workspace, actor=LOCAL_ACTOR,
+        )
         self.assertEqual(accepted.mapping_content_hash, application.mapping_content_hash)
 
         earlier = SimpleNamespace(
@@ -274,9 +278,13 @@ class PreparationJobRegistryTests(unittest.TestCase):
             requirement_plan=SimpleNamespace(application_order=("earlier-recipe", "recipe")),
         )
         with self.assertRaisesRegex(WorkspaceError, "Finish and verify the earlier Recipe"):
-            _assert_recipe_application_can_prepare(context, workspace)
+            _assert_recipe_application_can_prepare(
+                context, workspace, actor=LOCAL_ACTOR,
+            )
         earlier.status = RecipeApplicationStatus.RECONCILED
-        accepted = _assert_recipe_application_can_prepare(context, workspace)
+        accepted = _assert_recipe_application_can_prepare(
+            context, workspace, actor=LOCAL_ACTOR,
+        )
         self.assertEqual(accepted.mapping_content_hash, application.mapping_content_hash)
 
 
@@ -317,7 +325,11 @@ class PreparationWorkspaceProjectionTests(unittest.TestCase):
             "from_context",
             return_value=base,
         ):
-            result = _preparation_workspace(context, base.workspace_id)
+        result = _preparation_workspace(
+            context,
+            base.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
 
         self.assertEqual(result.source_package_hash, projection.package_hash)
         self.assertEqual(
@@ -537,6 +549,7 @@ class PreparationJobSchedulingTests(unittest.TestCase):
                     500,
                     500,
                 ),
+                LOCAL_ACTOR,
             )
 
             self.assertFalse(terminal)

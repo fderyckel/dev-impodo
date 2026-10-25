@@ -27,6 +27,7 @@ from impodo.domain.execution.models import (
     ExecutionRunStatus,
 )
 from impodo.domain.project.foundation import MigrationIdentifierConfusionError
+from impodo.domain.shared.access import Actor
 
 
 class LoadJobNotFoundError(LookupError):
@@ -60,19 +61,19 @@ class LoadJobManager:
     def __init__(
         self,
         *,
-        status_listener: Callable[[LoadJob], None] | None = None,
+        status_listener: Callable[[LoadJob, Actor], None] | None = None,
     ) -> None:
         self._lock = RLock()
         self._condition = Condition(self._lock)
         self._jobs: dict[str, LoadJob] = {}
-        self._pending: deque[tuple[str, LoadWork]] = deque()
+        self._pending: deque[tuple[str, Actor, LoadWork]] = deque()
         self._stopping = False
         self._worker: Thread | None = None
         self._status_listener = status_listener
 
     def set_status_listener(
         self,
-        listener: Callable[[LoadJob], None] | None,
+        listener: Callable[[LoadJob, Actor], None] | None,
     ) -> None:
         """Publish coarse run progress after governed load state changes."""
 
@@ -91,6 +92,7 @@ class LoadJobManager:
         load_group_count: int = 0,
         recovery_run: ExecutionRun | None = None,
         access_context: WorkspaceAccessContext,
+        actor: Actor,
         work: LoadWork,
     ) -> LoadJob:
         """Create one load attempt or return the workspace's active attempt."""
@@ -154,7 +156,7 @@ class LoadJobManager:
                     message="Checking saved Odoo results before resuming",
                 )
             self._jobs[job.job_id] = job
-            self._pending.append((job.job_id, work))
+            self._pending.append((job.job_id, actor, work))
             if self._worker is None:
                 self._worker = Thread(
                     target=self._work,
@@ -220,7 +222,7 @@ class LoadJobManager:
             self._stopping = True
             pending = tuple(self._pending)
             self._pending.clear()
-            for job_id, _work in pending:
+            for job_id, _actor, _work in pending:
                 self._finish_failed(
                     job_id,
                     "Impodo stopped before this queued load began. No Odoo records "
@@ -237,10 +239,10 @@ class LoadJobManager:
                     self._condition.wait()
                 if self._stopping:
                     return
-                job_id, work = self._pending.popleft()
+                job_id, actor, work = self._pending.popleft()
                 started = self._mark_running(job_id)
                 access_context = self._jobs[job_id].access_context
-            self._notify(started)
+            self._notify(started, actor)
             try:
                 with bind_workspace_access_context(access_context):
                     result = work(
@@ -257,7 +259,7 @@ class LoadJobManager:
             else:
                 with self._lock:
                     finished = self._finish_succeeded(job_id, result)
-            self._notify(finished)
+            self._notify(finished, actor)
 
     def _mark_running(self, job_id: str) -> LoadJob:
         job = self._jobs[job_id]
@@ -280,13 +282,13 @@ class LoadJobManager:
             )
         )
 
-    def _notify(self, job: LoadJob) -> None:
+    def _notify(self, job: LoadJob, actor: Actor) -> None:
         """Keep a summary failure from changing the recorded Odoo outcome."""
 
         if self._status_listener is None:
             return
         try:
-            self._status_listener(job)
+            self._status_listener(job, actor)
         except Exception:
             logging.getLogger(__name__).exception(
                 "Could not publish Recipe load progress"

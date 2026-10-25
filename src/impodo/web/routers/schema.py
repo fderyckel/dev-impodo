@@ -714,8 +714,9 @@ def build_schema_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         workspace_state = context.queries.get(workspace_id)
+        actor = request_identity(request, context.identity_resolver).actor
         try:
-            _require_local_stack_access(context, workspace_state)
+            _require_local_stack_access(context, workspace_state, actor=actor)
             selected = await run_in_threadpool(context.local_stack.pick_config)
             if selected is None:
                 _flash(request, "No local Odoo setup was selected.")

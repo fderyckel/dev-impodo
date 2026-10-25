@@ -22,6 +22,7 @@ from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..request_identity import request_identity
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRemovalReason,
@@ -135,6 +136,7 @@ def build_transfer_destination_router(context: WebContext) -> APIRouter:
                 "read_api_key_storage",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         current = context.queries.get(workspace_id)
         if (
             current.source_mode is not SourceMode.ODOO
@@ -149,7 +151,7 @@ def build_transfer_destination_router(context: WebContext) -> APIRouter:
             previous_target_hash = transfer_destination_identity_hash(current)
             workspace_state = context.workspace_states.configure_transfer_destination(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=_revision(form),
                 odoo_connection_mode=_text(form, "odoo_connection_mode"),
                 odoo_base_url=_text(form, "odoo_base_url"),
@@ -170,7 +172,7 @@ def build_transfer_destination_router(context: WebContext) -> APIRouter:
                         context.workspace_states,
                         current,
                         (receipt,),
-                        actor=context.actor,
+                        actor=actor,
                     )
                 context.remote_connections.clear(
                     workspace_id,
@@ -191,7 +193,7 @@ def build_transfer_destination_router(context: WebContext) -> APIRouter:
                     workspace_state,
                     TargetCredentialRole.DESTINATION_TRANSFER,
                     credential,
-                    actor=context.actor,
+                    actor=actor,
                 )
             else:
                 credential = get_target_credential(
@@ -224,7 +226,7 @@ def build_transfer_destination_router(context: WebContext) -> APIRouter:
                 )
             workspace_state = context.workspace_states.verify_transfer_destination(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=workspace_state.revision,
                 target_hash=result.connection.identity_hash,
                 credential_binding_hash=credential.binding_hash,

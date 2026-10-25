@@ -13,6 +13,7 @@ from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form
 from ..presenters.common import _flash, _render
+from ..request_identity import request_identity
 from ..security import require_session
 
 
@@ -143,6 +144,7 @@ def build_transfer_order_router(context: WebContext) -> APIRouter:
     async def build_transfer_order(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision"})
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         try:
             selection, schema = _current_evidence(context, workspace_id)
@@ -168,7 +170,7 @@ def build_transfer_order_router(context: WebContext) -> APIRouter:
             plan = service.build(
                 workspace_state,
                 match_plan,
-                recorded_by=context.actor.identity.display_name,
+                recorded_by=actor.identity.display_name,
                 relationship_scope=(
                     context.queries.get_current_odoo_relationship_scope(
                         workspace_id
@@ -177,7 +179,7 @@ def build_transfer_order_router(context: WebContext) -> APIRouter:
             )
             workspace_state = context.workspace_states.save_transfer_order_plan(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=expected_revision,
                 plan=plan,
             )

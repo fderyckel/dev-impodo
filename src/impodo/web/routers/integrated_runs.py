@@ -29,6 +29,7 @@ from impodo.domain.run.contracts import (
     RecipeApplicationStatus,
     RecipeDependency,
 )
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
 
 from ...domain.recipe.models import RecipeError
@@ -38,6 +39,7 @@ from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.navigation import build_recipe_run_navigation
 from ..presenters.schema import _render_schema
+from ..request_identity import request_identity
 from ..run_commands import recover_run_preparation, start_next_preparation
 from ..run_review import build_integrated_run_review
 from ..security import require_session
@@ -54,7 +56,13 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
     )
     async def new_test_run_form(request: Request, project_id: str):
         require_session(request)
-        return _render_test_run_form(request, context, project_id)
+        actor = request_identity(request, context.identity_resolver).actor
+        return _render_test_run_form(
+            request,
+            context,
+            project_id,
+            actor=actor,
+        )
 
     @router.post("/projects/{project_id}/test-runs/new")
     async def new_test_run(request: Request, project_id: str):
@@ -74,6 +82,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         )
         selected_values = tuple(str(item) for item in form.getlist("recipe_revision"))
         dependency_values = tuple(str(item) for item in form.getlist("dependency"))
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             selected = tuple(
                 (recipe_id, int(version))
@@ -100,7 +109,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 label=_text(form, "label"),
                 export_as_of=_text(form, "export_as_of"),
                 operation_id=_text(form, "operation_id"),
-                actor=context.actor,
+                actor=actor,
             )
         except (
             MigrationFoundationError,
@@ -112,6 +121,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 request,
                 context,
                 project_id,
+                actor=actor,
                 error=str(error),
                 status_code=422,
                 selected_values=selected_values,
@@ -140,8 +150,9 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         migration_run_id: str,
     ):
         require_session(request)
-        project = context.migration_projects.get(project_id, actor=context.actor)
-        run = context.migration_runs.get(migration_run_id, actor=context.actor)
+        actor = request_identity(request, context.identity_resolver).actor
+        project = context.migration_projects.get(project_id, actor=actor)
+        run = context.migration_runs.get(migration_run_id, actor=actor)
         if run.project_id != project.project_id:
             return HTMLResponse("MigrationRun not found", status_code=404)
         if run.purpose.value == "TEST" and run.target_binding_id is None:
@@ -156,14 +167,21 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             )
         if run.purpose is MigrationRunPurpose.PRODUCTION:
             activation = await run_in_threadpool(
-                context.production_runs.activation_operation, migration_run_id, actor=context.actor,
+                context.production_runs.activation_operation,
+                migration_run_id,
+                actor=actor,
             )
             if activation is None or activation.state.value != "COMMITTED":
                 return RedirectResponse(
                     f"/projects/{project_id}/production-runs/{migration_run_id}/activate", status_code=303,
                 )
         try:
-            await run_in_threadpool(recover_run_preparation, context, migration_run_id)
+            await run_in_threadpool(
+                recover_run_preparation,
+                context,
+                migration_run_id,
+                actor=actor,
+            )
         except WorkspaceError as error:
             _flash(request, str(error))
         bundle = context.run_planning.repository.get_bundle(migration_run_id)
@@ -175,7 +193,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 (item.recipe_id, item.recipe_revision)
                 for item in bundle.applications
             ),
-            actor=context.actor,
+            actor=actor,
         )
         recipes = {
             recipe_id: item.recipe
@@ -248,6 +266,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         """Show exact verified defaults before one grouped confirmation."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         application = context.run_planning.repository.get_application(
             application_id
         )
@@ -298,7 +317,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 "No verified Odoo defaults are waiting for review",
                 status_code=422,
             )
-        recipe = context.recipes.get(application.recipe_id, actor=context.actor)
+        recipe = context.recipes.get(application.recipe_id, actor=actor)
         return _render(
             request,
             "project_recipe_odoo_defaults.html",
@@ -323,6 +342,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
+        actor = request_identity(request, context.identity_resolver).actor
         application = context.run_planning.repository.get_application(
             application_id
         )
@@ -335,7 +355,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             await run_in_threadpool(
                 context.run_planning.confirm_application_odoo_defaults,
                 application_id,
-                actor=context.actor,
+                actor=actor,
             )
         except (MigrationRunPlanningError, WorkspaceError) as error:
             _flash(request, str(error))
@@ -364,6 +384,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         """Show only target-specific Selection and Many2one decisions."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         application = _run_application(
             context,
             project_id,
@@ -386,6 +407,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                     migration_run_id,
                     application_id,
                     report,
+                    actor=actor,
                 ),
             )
             _flash(
@@ -405,6 +427,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             migration_run_id,
             application_id,
             prepared_review,
+            actor=actor,
         )
 
     @router.post(
@@ -420,6 +443,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         """Save focused decisions, validate, and confirm the application mapping."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         application = _run_application(
             context,
             project_id,
@@ -441,7 +465,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 expected_working_draft_version=int(_text(form, "expected_working_draft_version")),
                 expected_definition_hash=_text(form, "expected_definition_hash"),
                 expected_evidence_hash=_text(form, "expected_evidence_hash"),
-                actor=context.actor,
+                actor=actor,
             )
         except (MigrationRunPlanningError, WorkspaceError, ValueError) as error:
             return await run_in_threadpool(
@@ -451,6 +475,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 project_id,
                 migration_run_id,
                 application_id,
+                actor=actor,
                 error=str(error),
                 status_code=422,
                 submitted=None if isinstance(error, TargetMatchReviewChanged) else submitted,
@@ -465,6 +490,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                     start_next_preparation,
                     context,
                     migration_run_id,
+                    actor=actor,
                 )
             except WorkspaceError as error:
                 _flash(
@@ -485,8 +511,9 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         """Poll the registry and job snapshots without opening child stores."""
 
         require_session(request)
-        project = context.migration_projects.get(project_id, actor=context.actor)
-        run = context.migration_runs.get(migration_run_id, actor=context.actor)
+        actor = request_identity(request, context.identity_resolver).actor
+        project = context.migration_projects.get(project_id, actor=actor)
+        run = context.migration_runs.get(migration_run_id, actor=actor)
         if run.project_id != project.project_id or run.target_binding_id is None:
             return JSONResponse({"detail": "MigrationRun not found"}, status_code=404)
         bundle = context.run_planning.repository.get_bundle(migration_run_id)
@@ -526,8 +553,9 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
-        project = context.migration_projects.get(project_id, actor=context.actor)
-        run = context.migration_runs.get(migration_run_id, actor=context.actor)
+        actor = request_identity(request, context.identity_resolver).actor
+        project = context.migration_projects.get(project_id, actor=actor)
+        run = context.migration_runs.get(migration_run_id, actor=actor)
         if run.project_id != project.project_id:
             return HTMLResponse("MigrationRun not found", status_code=404)
         try:
@@ -535,6 +563,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 start_next_preparation,
                 context,
                 migration_run_id,
+                actor=actor,
             )
         except WorkspaceError as error:
             _flash(request, str(error))
@@ -560,13 +589,16 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         """Enter one application through the run-owned review-and-load step."""
 
         require_session(request)
-        project = context.migration_projects.get(project_id, actor=context.actor)
-        run = context.migration_runs.get(migration_run_id, actor=context.actor)
+        actor = request_identity(request, context.identity_resolver).actor
+        project = context.migration_projects.get(project_id, actor=actor)
+        run = context.migration_runs.get(migration_run_id, actor=actor)
         if run.project_id != project.project_id:
             return HTMLResponse("MigrationRun not found", status_code=404)
         if run.purpose is MigrationRunPurpose.PRODUCTION:
             activation = await run_in_threadpool(
-                context.production_runs.activation_operation, migration_run_id, actor=context.actor,
+                context.production_runs.activation_operation,
+                migration_run_id,
+                actor=actor,
             )
             if activation is None or activation.state.value != "COMMITTED":
                 return RedirectResponse(
@@ -598,7 +630,12 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 status_code=303,
             )
         try:
-            await run_in_threadpool(recover_run_preparation, context, migration_run_id)
+            await run_in_threadpool(
+                recover_run_preparation,
+                context,
+                migration_run_id,
+                actor=actor,
+            )
             application = context.run_planning.repository.get_application(application_id)
         except WorkspaceError as error:
             _flash(request, str(error))
@@ -647,27 +684,34 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         """Return target recovery to the run's one shared setup workspace."""
 
         require_session(request)
-        project = context.migration_projects.get(project_id, actor=context.actor)
-        run = context.migration_runs.get(migration_run_id, actor=context.actor)
+        actor = request_identity(request, context.identity_resolver).actor
+        project = context.migration_projects.get(project_id, actor=actor)
+        run = context.migration_runs.get(migration_run_id, actor=actor)
         if run.project_id != project.project_id:
             return HTMLResponse("MigrationRun not found", status_code=404)
         if run.purpose not in {MigrationRunPurpose.TEST, MigrationRunPurpose.PRODUCTION}:
             return HTMLResponse("Recipe run not found", status_code=404)
-        binding = context.run_setups.get(migration_run_id, actor=context.actor)
+        binding = context.run_setups.get(migration_run_id, actor=actor)
         if run.purpose is MigrationRunPurpose.PRODUCTION:
-            operation = context.production_runs.activation_operation(migration_run_id, actor=context.actor)
+            operation = context.production_runs.activation_operation(
+                migration_run_id,
+                actor=actor,
+            )
             if operation is not None:
                 return RedirectResponse(
                     f"/projects/{project_id}/production-runs/{migration_run_id}/activate", status_code=303,
                 )
-        data_version = context.data_versions.get(binding.data_version_id, actor=context.actor)
-        _, values = context.run_setups.fresh_data_details(binding, actor=context.actor)
+        data_version = context.data_versions.get(binding.data_version_id, actor=actor)
+        _, values = context.run_setups.fresh_data_details(binding, actor=actor)
         if data_version.state.value != "FROZEN" or not values.ready_to_continue:
             return RedirectResponse(
                 f"/projects/{project_id}/{'test-runs' if run.purpose is MigrationRunPurpose.TEST else 'production-runs'}/{migration_run_id}/fresh-data",
                 status_code=303,
             )
-        setup_workspace = context.migration_workspaces.get(binding.setup_workspace_id, actor=context.actor)
+        setup_workspace = context.migration_workspaces.get(
+            binding.setup_workspace_id,
+            actor=actor,
+        )
         setup_state = context.workspace_states.repository.get(
             setup_workspace.workspace_id
         )
@@ -694,6 +738,7 @@ def _render_test_run_form(
     context: WebContext,
     project_id: str,
     *,
+    actor: Actor,
     error: str | None = None,
     status_code: int = 200,
     selected_values: tuple[str, ...] = (),
@@ -702,8 +747,8 @@ def _render_test_run_form(
     export_as_of: str | None = None,
     operation_id: str | None = None,
 ):
-    project = context.migration_projects.get(project_id, actor=context.actor)
-    recipes = context.recipes.list(project_id, actor=context.actor)
+    project = context.migration_projects.get(project_id, actor=actor)
+    recipes = context.recipes.list(project_id, actor=actor)
     return _render(
         request,
         "project_test_run_new.html",
@@ -771,6 +816,7 @@ def _render_application_target_matches(
     application_id: str,
     prepared_review=None,
     *,
+    actor: Actor,
     error: str | None = None,
     status_code: int = 200,
     submitted: dict[str, str] | None = None,
@@ -787,12 +833,14 @@ def _render_application_target_matches(
     try:
         if review is None or submitted is not None:
             review = context.recipe_target_matches.build_review(
-                application, actor=context.actor, submitted=submitted,
+                application,
+                actor=actor,
+                submitted=submitted,
             )
     except WorkspaceError as review_error:
         error = error or str(review_error)
         status_code = 422
-    recipe = context.recipes.get(application.recipe_id, actor=context.actor)
+    recipe = context.recipes.get(application.recipe_id, actor=actor)
     workspace_state = context.queries.get(application.workspace_id)
     return _render(
         request,
@@ -813,6 +861,8 @@ def _prepare_target_match_review(
     migration_run_id: str,
     application_id: str,
     report,
+    *,
+    actor: Actor,
 ) -> RecipeRunJobResult:
     """Prepare one target-value page outside the browser request."""
 
@@ -838,7 +888,7 @@ def _prepare_target_match_review(
     )
     review = context.recipe_target_matches.prepare_review(
         application,
-        actor=context.actor,
+        actor=actor,
     )
     field_count = len(review.fields)
     report(

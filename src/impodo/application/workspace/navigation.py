@@ -14,6 +14,7 @@ from impodo.application.workspace.source_readiness import (
     SourceStageReadiness,
     assess_source_stage_readiness,
 )
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.workbench import WorkspaceState
 
 
@@ -139,7 +140,12 @@ class WorkspaceNavigationQueryService:
         self.preparation_jobs = preparation_jobs
         self.load_jobs = load_jobs
 
-    def get(self, workspace_state: WorkspaceState) -> WorkspaceNavigationFacts:
+    def get(
+        self,
+        workspace_state: WorkspaceState,
+        *,
+        actor: Actor,
+    ) -> WorkspaceNavigationFacts:
         """Enrich already-read workbench state with live job and load facts.
 
         Compatibility callers that already hold ``WorkspaceState`` use this
@@ -147,9 +153,14 @@ class WorkspaceNavigationQueryService:
         and facts come from one repository snapshot.
         """
         facts = self.repository.get(workspace_state.workspace_id)
-        return self._with_runtime_facts(facts, workspace_state)
+        return self._with_runtime_facts(facts, workspace_state, actor=actor)
 
-    def get_for_workspace(self, workspace_id: str) -> WorkspaceNavigationSnapshot:
+    def get_for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+    ) -> WorkspaceNavigationSnapshot:
         """Read Overview state and navigation facts through one connection."""
 
         snapshot = self.repository.get_snapshot(workspace_id)
@@ -158,6 +169,7 @@ class WorkspaceNavigationQueryService:
             facts=self._with_runtime_facts(
                 snapshot.facts,
                 snapshot.workspace_state,
+                actor=actor,
             ),
         )
 
@@ -174,6 +186,8 @@ class WorkspaceNavigationQueryService:
         self,
         facts: WorkspaceNavigationFacts,
         workspace_state: WorkspaceState,
+        *,
+        actor: Actor,
     ) -> WorkspaceNavigationFacts:
         preparation_job = (
             self.preparation_jobs.active(workspace_state.workspace_id)
@@ -189,6 +203,7 @@ class WorkspaceNavigationQueryService:
             self.execution.navigation_preview(
                 facts.execution_state,
                 workspace_state=workspace_state,
+                actor=actor,
             )
             if facts.execution_state is not None
             else None

@@ -17,6 +17,7 @@ from impodo.domain.execution.models import (
     ExecutionRunStatus,
 )
 from impodo.domain.project.foundation import MigrationIdentifierConfusionError
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.application.workspace.execution.job_models import LoadJobStatus, LoadPhase
 from impodo.application.workspace.access import WorkspaceAccessContext
 
@@ -123,6 +124,7 @@ class LoadJobManagerTests(unittest.TestCase):
                 target_environment="Production",
                 total_rows=1,
                 access_context=_access_context(),
+                actor=LOCAL_ACTOR,
                 work=lambda _access, _writing, _verifying: LoadJobResult(
                     execution_run_id="never",
                     verification_complete=False,
@@ -134,7 +136,9 @@ class LoadJobManagerTests(unittest.TestCase):
 
     def test_reports_only_saved_execution_outcomes_and_verification_state(self) -> None:
         published = []
-        manager = LoadJobManager(status_listener=published.append)
+        manager = LoadJobManager(
+            status_listener=lambda job, _actor: published.append(job)
+        )
 
         def work(access_context, report_writing, report_verifying):
             self.assertEqual(access_context, _access_context())
@@ -157,6 +161,7 @@ class LoadJobManagerTests(unittest.TestCase):
             relationship_total_rows=1,
             load_group_count=2,
             access_context=_access_context(),
+            actor=LOCAL_ACTOR,
             work=work,
         )
         finished = _wait_for_terminal(manager, queued.job_id)
@@ -216,6 +221,7 @@ class LoadJobManagerTests(unittest.TestCase):
             relationship_total_rows=1,
             load_group_count=2,
             access_context=_access_context(),
+            actor=LOCAL_ACTOR,
             work=work,
         )
         self.assertTrue(relationship_phase.wait(1))
@@ -268,6 +274,7 @@ class LoadJobManagerTests(unittest.TestCase):
             load_group_count=2,
             recovery_run=saved,
             access_context=_access_context(),
+            actor=LOCAL_ACTOR,
             work=work,
         )
         self.assertTrue(started.wait(1))
@@ -328,6 +335,7 @@ class LoadJobManagerTests(unittest.TestCase):
             relationship_total_rows=1,
             load_group_count=2,
             access_context=_access_context(),
+            actor=LOCAL_ACTOR,
             work=work,
         )
         self.assertTrue(writing_phase.wait(1))
@@ -360,6 +368,7 @@ class LoadJobManagerTests(unittest.TestCase):
             target_environment="Test",
             total_rows=3,
             access_context=_access_context(),
+            actor=LOCAL_ACTOR,
             work=work,
         )
         self.assertTrue(started.wait(1))
@@ -375,6 +384,7 @@ class LoadJobManagerTests(unittest.TestCase):
                     _access_context(),
                     data_version_id="30000000-0000-4000-8000-000000000002",
                 ),
+                actor=LOCAL_ACTOR,
                 work=work,
             )
         duplicate = manager.enqueue(
@@ -385,6 +395,7 @@ class LoadJobManagerTests(unittest.TestCase):
             target_environment="Test",
             total_rows=3,
             access_context=_access_context(),
+            actor=LOCAL_ACTOR,
             work=work,
         )
         release.set()
@@ -407,6 +418,7 @@ class LoadJobManagerTests(unittest.TestCase):
             target_environment="Test",
             total_rows=3,
             access_context=_access_context(),
+            actor=LOCAL_ACTOR,
             work=work,
         )
         failed = _wait_for_terminal(manager, queued.job_id)

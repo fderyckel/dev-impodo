@@ -1,15 +1,15 @@
 ---
 audience: developer
 kind: plan
-status: in-progress
+status: current
 ---
 
 # Compose source tables into one logical Odoo dataset
 
 ## Status, reader, and outcome
 
-**Status:** In progress, 2026-10-23. Slices 0 through 4 are implemented and
-verified. Only the separately approved measured scale follow-up remains open.
+**Status:** Complete, 2026-10-24. All approved slices are implemented and
+verified. The supported scale remains unchanged.
 
 | Slice | Status |
 | --- | --- |
@@ -18,7 +18,7 @@ verified. Only the separately approved measured scale follow-up remains open.
 | 2: Guided browser workflow | Complete. Source data owns the guided exact-join review and save workflow. |
 | 3: Recipe round trip | Complete. Publication and fresh application retain the join chain and dataset-use decisions by logical identity. |
 | 4: Related-grain qualification | Complete. BoM headers, lines, and operations retain separate grains; header and partial-line joins use the same generic contract as customer enrichment. |
-| 5: Measured scale follow-up | Not started. |
+| 5: Measured scale follow-up | Complete. Three fresh-process narrow and wide runs preserve exact results and database-lifetime ceilings. No evaluator change or limit increase was justified. |
 
 This plan is for product, domain, application, browser, and test maintainers.
 It defines a model-neutral way to combine several accepted physical source
@@ -446,13 +446,21 @@ routes, so this slice adds no new route or database-lifetime boundary.
 
 ### Slice 5: measured scale follow-up
 
-- Record preview and save request timings, connection counts, schema checks,
-  memory, row widths, and exact fixture hashes.
-- Optimize only the measured bottleneck under the existing evidence contract.
-- Requalify the browser limit separately before increasing it.
+- A reproducible benchmark records preview and save request timings,
+  connection counts, schema checks, memory, row widths, and exact fixture
+  hashes for narrow and wide inputs.
+- Three fresh-process runs per case preserve the declared base grain, complete
+  persisted review, and zero-Odoo-request boundary.
+- Every preview uses six DuckDB connections and ten schema checks. Every save
+  uses six connections and six schema checks. No lock retry occurs.
+- The current evaluator is not the dominant request cost, so this slice makes
+  no production optimization and does not change an admission limit.
 
-Exit gate: exact-result parity and database-lifetime assertions pass, and any
-new supported scale has reproducible worker and browser evidence.
+The exit gate passed. The
+[qualification report](../testing/source-composition-scale-2026-10-24.md)
+records the method, medians, application-build identity, exact fixture hashes,
+and qualification limits. Any future supported-scale increase still requires
+separate reproducible worker and browser evidence.
 
 ## Test placement
 
@@ -497,9 +505,8 @@ one-to-many relationships. It does not change Odoo write ownership, bypass
 final review, increase a row limit without qualification, or add shared-server
 PostgreSQL persistence.
 
-## Next implementation slice requiring approval
+## Follow-up boundary
 
-Slice 5 records representative preview and save timings, DuckDB connection and
-schema-check counts, memory, row widths, and fixture hashes. It requires a
-separate green light before changing evaluator implementation or supported
-limits.
+This plan is complete. A set-based evaluator or higher browser admission limit
+is separate work. It requires a new diagnosis, explicit approval, exact-result
+parity, and reproducible qualification at the proposed boundary.

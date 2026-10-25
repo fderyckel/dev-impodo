@@ -25,6 +25,7 @@ from impodo.domain.workspace.workbench import WorkspaceStateError
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..request_identity import request_identity
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRole,
@@ -49,10 +50,11 @@ def build_corrections_router(context: WebContext) -> APIRouter:
     async def start_correction(request: Request, completed_workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "request_id"})
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             context.corrections.start(
                 completed_workspace_id,
-                actor=context.actor,
+                actor=actor,
                 request_id=_text(form, "request_id"),
             )
         except (AuthorizationError, CorrectionOriginError, ValueError) as error:
@@ -85,6 +87,7 @@ def build_corrections_router(context: WebContext) -> APIRouter:
                 "remember_read_api_key",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         active = context.correction_jobs.active(completed_workspace_id)
         if active is not None:
             return RedirectResponse(
@@ -94,7 +97,7 @@ def build_corrections_router(context: WebContext) -> APIRouter:
         try:
             view = context.corrections.get(
                 completed_workspace_id,
-                actor=context.actor,
+                actor=actor,
             )
             if view is None or view.successor_workspace_id is None:
                 raise CorrectionOriginError("Start the correction first")
@@ -124,7 +127,7 @@ def build_corrections_router(context: WebContext) -> APIRouter:
                     successor_state,
                     TargetCredentialRole.READ,
                     credential,
-                    actor=context.actor,
+                    actor=actor,
                 )
             review_request_id = _text(form, "review_request_id")
 
@@ -132,7 +135,7 @@ def build_corrections_router(context: WebContext) -> APIRouter:
                 progress(15, "Checking the corrected rules")
                 review, plan, _binding = context.corrections.review(
                     completed_workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     review_request_id=review_request_id,
                 )
                 progress(90, "Preparing the compact correction review")
@@ -189,6 +192,7 @@ def build_corrections_router(context: WebContext) -> APIRouter:
                 "remember_write_api_key",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         active = context.correction_jobs.active(completed_workspace_id)
         if active is not None:
             return RedirectResponse(
@@ -202,7 +206,7 @@ def build_corrections_router(context: WebContext) -> APIRouter:
                 )
             view = context.corrections.get(
                 completed_workspace_id,
-                actor=context.actor,
+                actor=actor,
             )
             plan = context.corrections.current_plan(completed_workspace_id)
             if view is None or view.successor_workspace_id is None or plan is None:
@@ -233,7 +237,7 @@ def build_corrections_router(context: WebContext) -> APIRouter:
                     successor_state,
                     TargetCredentialRole.WRITE,
                     credential,
-                    actor=context.actor,
+                    actor=actor,
                 )
             if credential is None:
                 raise SecretStoreError(
@@ -254,7 +258,7 @@ def build_corrections_router(context: WebContext) -> APIRouter:
                     confirmation_id=confirmation_id,
                     write_credential_binding_hash=credential.binding_hash,
                     write_identity=identity,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 progress(30, "Rechecking Odoo before the first change")
                 confirmation = context.corrections.current_confirmation(
@@ -291,7 +295,7 @@ def build_corrections_router(context: WebContext) -> APIRouter:
                     write_identity=current_identity,
                     reader=reader,
                     writer=writer,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 progress(95, "Checking the correction outcome")
                 summary = plan.public_summary()
@@ -369,9 +373,10 @@ def _render_correction(
     error: str | None = None,
     status_code: int = 200,
 ):
+    actor = request_identity(request, context.identity_resolver).actor
     view = context.corrections.get(
         completed_workspace_id,
-        actor=context.actor,
+        actor=actor,
     )
     if view is None:
         return HTMLResponse("Completed load is not eligible for correction", status_code=404)

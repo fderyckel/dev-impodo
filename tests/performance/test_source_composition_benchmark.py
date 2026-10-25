@@ -19,10 +19,17 @@ def _request_evidence(*, connections: int, schema_checks: int) -> dict[str, obje
 def _run_evidence(rows: int) -> dict[str, object]:
     fixture = build_fixture(rows, 2).evidence()
     return {
+        "application_build_id": "sha256:" + "0" * 64,
         "fixture": fixture,
         "semantic_review": {
             "actual_output_rows": rows,
             "findings": [],
+        },
+        "semantic_output": {
+            "rows": rows,
+            "columns": 4,
+            "values_sha256": "sha256:" + "1" * 64,
+            "lineage_sha256": "sha256:" + "2" * 64,
         },
         "odoo_calls": {
             "connection": 0,
@@ -42,8 +49,14 @@ class SourceCompositionBenchmarkTests(unittest.TestCase):
         wide = build_fixture(25, 22)
 
         self.assertEqual(first, second)
-        self.assertEqual(first.evidence()["left_sha256"], second.evidence()["left_sha256"])
-        self.assertNotEqual(first.evidence()["left_sha256"], wide.evidence()["left_sha256"])
+        self.assertEqual(
+            first.evidence()["left_sha256"],
+            second.evidence()["left_sha256"],
+        )
+        self.assertNotEqual(
+            first.evidence()["left_sha256"],
+            wide.evidence()["left_sha256"],
+        )
         self.assertEqual(first.evidence()["columns_per_input"], 4)
         self.assertEqual(wide.evidence()["columns_per_input"], 24)
         self.assertEqual(wide.evidence()["projected_output_columns"], 44)

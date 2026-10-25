@@ -772,7 +772,10 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         service, journal = self._service(precision_snapshot)
 
-        preview = service.current_preview(precision_snapshot.workspace_id)
+        preview = service.current_preview(
+            precision_snapshot.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
 
         assert preview is not None
         self.assertFalse(preview.can_load)
@@ -1329,7 +1332,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         service, journal = self._service(snapshot)
 
-        preview = service.current_preview(snapshot.workspace_id)
+        preview = service.current_preview(snapshot.workspace_id, actor=LOCAL_ACTOR)
         assert preview is not None
         self.assertTrue(preview.can_complete_without_load)
 
@@ -1360,9 +1363,11 @@ class ExecutionServiceTests(unittest.TestCase):
             snapshot,
             mode=OdooConnectionMode.REMOTE,
         )
-        service.current_read_credential_binding = lambda _project: "sha256:" + "9" * 64
+        service.current_read_credential_binding = (
+            lambda _project, _actor: "sha256:" + "9" * 64
+        )
 
-        preview = service.current_preview(snapshot.workspace_id)
+        preview = service.current_preview(snapshot.workspace_id, actor=LOCAL_ACTOR)
 
         assert preview is not None
         self.assertFalse(preview.can_load)
@@ -1388,7 +1393,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         service.require_remote_read_identity = True
         service.require_remote_write_identity = True
-        service.current_read_credential_binding = lambda _project: (
+        service.current_read_credential_binding = lambda _project, _actor: (
             snapshot.read_credential_binding_hash
         )
         scope = execution_api_scope(snapshot)
@@ -1496,7 +1501,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         service, _journal = self._service(stale)
 
-        preview = service.current_preview(stale.workspace_id)
+        preview = service.current_preview(stale.workspace_id, actor=LOCAL_ACTOR)
 
         self.assertIsNotNone(preview)
         assert preview is not None
@@ -2026,7 +2031,10 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         executor = _Executor(execution_api_scope(relationship_snapshot).semantic_hash)
 
-        preview = service.current_preview(relationship_snapshot.workspace_id)
+        preview = service.current_preview(
+            relationship_snapshot.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
 
         assert preview is not None
         self.assertTrue(preview.can_load, preview.scope_error)
@@ -2090,7 +2098,10 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         executor = _Executor(execution_api_scope(relationship_snapshot).semantic_hash)
 
-        preview = service.current_preview(relationship_snapshot.workspace_id)
+        preview = service.current_preview(
+            relationship_snapshot.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
 
         assert preview is not None
         self.assertTrue(preview.can_load, preview.scope_error)
@@ -2148,7 +2159,10 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         executor = _Executor(execution_api_scope(relationship_snapshot).semantic_hash)
 
-        preview = service.current_preview(relationship_snapshot.workspace_id)
+        preview = service.current_preview(
+            relationship_snapshot.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
 
         assert preview is not None
         self.assertTrue(preview.can_load, preview.scope_error)
@@ -2422,7 +2436,10 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         executor = _Executor(execution_api_scope(remote_snapshot).semantic_hash)
 
-        preview = service.current_preview(remote_snapshot.workspace_id)
+        preview = service.current_preview(
+            remote_snapshot.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
 
         assert preview is not None
         self.assertTrue(preview.can_load, preview.scope_error)
@@ -2586,7 +2603,10 @@ class ExecutionServiceTests(unittest.TestCase):
             mode=OdooConnectionMode.REMOTE,
         )
 
-        preview = service.current_preview(relationship_snapshot.workspace_id)
+        preview = service.current_preview(
+            relationship_snapshot.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
 
         assert preview is not None
         self.assertFalse(preview.can_load)
@@ -2655,7 +2675,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         executor = _Executor(execution_api_scope(snapshot).semantic_hash)
 
-        preview = service.current_preview(snapshot.workspace_id)
+        preview = service.current_preview(snapshot.workspace_id, actor=LOCAL_ACTOR)
 
         assert preview is not None
         self.assertTrue(preview.can_load, preview.scope_error)
@@ -2722,7 +2742,10 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         executor = _Executor(execution_api_scope(update_snapshot).semantic_hash)
 
-        preview = service.current_preview(update_snapshot.workspace_id)
+        preview = service.current_preview(
+            update_snapshot.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
 
         assert preview is not None
         self.assertTrue(preview.can_load, preview.scope_error)
@@ -2865,7 +2888,7 @@ class ExecutionServiceTests(unittest.TestCase):
             },
         )
 
-        preview = service.current_preview(snapshot.workspace_id)
+        preview = service.current_preview(snapshot.workspace_id, actor=LOCAL_ACTOR)
 
         assert preview is not None
         self.assertTrue(preview.can_load, preview.scope_error)
@@ -3016,7 +3039,7 @@ class ExecutionServiceTests(unittest.TestCase):
             mode=OdooConnectionMode.REMOTE,
         )
 
-        preview = service.current_preview(snapshot.workspace_id)
+        preview = service.current_preview(snapshot.workspace_id, actor=LOCAL_ACTOR)
 
         assert preview is not None
         self.assertFalse(preview.can_load)
@@ -3029,7 +3052,7 @@ class ExecutionServiceTests(unittest.TestCase):
             mode=OdooConnectionMode.REMOTE,
         )
         executor = _Executor(execution_api_scope(snapshot).semantic_hash)
-        preview = service.current_preview(snapshot.workspace_id)
+        preview = service.current_preview(snapshot.workspace_id, actor=LOCAL_ACTOR)
 
         self.assertIsNotNone(preview)
         assert preview is not None
@@ -3122,7 +3145,7 @@ class ExecutionServiceTests(unittest.TestCase):
             mode=OdooConnectionMode.REMOTE,
         )
 
-        preview = service.current_preview(snapshot.workspace_id)
+        preview = service.current_preview(snapshot.workspace_id, actor=LOCAL_ACTOR)
 
         self.assertIsNotNone(preview)
         assert preview is not None
@@ -3163,7 +3186,7 @@ class ExecutionServiceTests(unittest.TestCase):
         service, journal = self._service(snapshot)
         executor = _Executor(execution_api_scope(snapshot).semantic_hash)
 
-        preview = service.current_preview(snapshot.workspace_id)
+        preview = service.current_preview(snapshot.workspace_id, actor=LOCAL_ACTOR)
 
         assert preview is not None
         self.assertFalse(preview.can_load)

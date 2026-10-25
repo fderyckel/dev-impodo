@@ -31,6 +31,7 @@ from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form
 from ..presenters.common import _flash, _render
+from ..request_identity import request_identity
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRole,
@@ -209,6 +210,7 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
     async def run_transfer_preflight(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision"})
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         try:
             selection, schema = _current_evidence(context, workspace_id)
@@ -262,7 +264,7 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
                 protected = await run_in_threadpool(
                     context.odoo_provenance.read_current_origins,
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     dataset_id=dataset.dataset_id,
                 )
                 if protected is not None:
@@ -286,7 +288,7 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
                 credential_binding_hash=credential.binding_hash,
                 read_identity=identity,
                 reader=context.destination_match_reader,
-                recorded_by=context.actor.identity.display_name,
+                recorded_by=actor.identity.display_name,
                 source_origins=source_origins,
                 excluded_source_rows={
                     item.dataset_id: item.excluded_source_row_numbers
@@ -298,7 +300,7 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
             if approved_match.create_field_evidence_id is not None:
                 protected_access = context.workspace_access.resolve(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     capability=Capability.PROTECTED_EVIDENCE_READ,
                 )
                 approved_evidence = await run_in_threadpool(
@@ -317,11 +319,11 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
                 approval,
                 approved_match,
                 fresh_match,
-                recorded_by=context.actor.identity,
+                recorded_by=actor.identity,
             )
             workspace_state = context.workspace_states.save_transfer_preflight_report(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=expected_revision,
                 report=report,
             )

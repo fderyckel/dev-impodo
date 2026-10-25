@@ -18,7 +18,7 @@ from impodo.application.workspace.source_readiness import (
 from impodo.domain.compiler.browser_mapping_compiler import browser_mapping_labels
 from impodo.domain.errors import ReadinessError
 from impodo.domain.preflight.deferred_scope import DeferredScopeEvidenceError
-from impodo.domain.shared.access import AuthorizationError, Capability
+from impodo.domain.shared.access import Actor, AuthorizationError, Capability
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     SourceMode,
@@ -50,6 +50,7 @@ from ..constants import (
 )
 from ..context import WebContext
 from ..forms import _positive_query_int
+from ..request_identity import request_identity
 from ..source_stage_gate import source_stage_message, source_stage_url
 from ..target_credentials import (
     TargetCredentialRole,
@@ -300,13 +301,17 @@ def _render_summary(
     comparison_failure: OdooReadFailure | None = None,
     status_code: int = 200,
 ):
+    actor = request_identity(request, context.identity_resolver).actor
     summary_started = perf_counter()
     context_started = summary_started
     session_error = request.session.pop("summary_error", None)
     if error is None and isinstance(session_error, str):
         error = session_error
     navigation_started = perf_counter()
-    navigation_snapshot = context.navigation.get_for_workspace(workspace_id)
+    navigation_snapshot = context.navigation.get_for_workspace(
+        workspace_id,
+        actor=actor,
+    )
     navigation_read_ms = (perf_counter() - navigation_started) * 1000
     workspace_state = navigation_snapshot.workspace_state
     source_stage_readiness = assess_source_stage_readiness(
@@ -323,6 +328,7 @@ def _render_summary(
     credential_owner = context.target_credential_workspace(
         workspace_id,
         workspace_state=workspace_state,
+        actor=actor,
     )
     read_credential_status = get_target_credential_status(
         context.secret_store,
@@ -461,7 +467,7 @@ def _render_summary(
         if missing_parent_groups:
             allow_missing_parent_draft = (
                 context.workspace_views.get(
-                    workspace_id, actor=context.actor
+                    workspace_id, actor=actor
                 ).migration_project.data_classification.value != "RESTRICTED"
             )
             mapped_datasets = {
@@ -1053,11 +1059,13 @@ def _summary_page_size(value: str | None) -> int:
 def _require_local_stack_access(
     context: WebContext,
     workspace_state: WorkspaceState,
+    *,
+    actor: Actor,
 ) -> None:
     try:
         context.workspace_access.resolve(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=actor,
             capability=Capability.LOCAL_STACK_INSPECT,
         )
     except AuthorizationError as error:
@@ -1077,12 +1085,14 @@ def _require_local_stack_access(
 def _require_local_stack_start(
     context: WebContext,
     workspace_state: WorkspaceState,
+    *,
+    actor: Actor,
 ) -> None:
-    _require_local_stack_access(context, workspace_state)
+    _require_local_stack_access(context, workspace_state, actor=actor)
     try:
         context.workspace_access.resolve(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=actor,
             capability=Capability.LOCAL_STACK_START,
         )
     except AuthorizationError as error:
@@ -1095,12 +1105,14 @@ def _require_local_stack_start(
 def _require_local_stack_stop(
     context: WebContext,
     workspace_state: WorkspaceState,
+    *,
+    actor: Actor,
 ) -> None:
-    _require_local_stack_access(context, workspace_state)
+    _require_local_stack_access(context, workspace_state, actor=actor)
     try:
         context.workspace_access.resolve(
             workspace_state.workspace_id,
-            actor=context.actor,
+            actor=actor,
             capability=Capability.LOCAL_STACK_STOP,
         )
     except AuthorizationError as error:

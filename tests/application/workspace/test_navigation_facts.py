@@ -86,12 +86,13 @@ class WorkspaceNavigationQueryServiceTests(unittest.TestCase):
             load_jobs=load_jobs,
         )
 
-        result = service.get(workspace)
+        result = service.get(workspace, actor=LOCAL_ACTOR)
 
         repository.get.assert_called_once_with(workspace.workspace_id)
         execution.navigation_preview.assert_called_once_with(
             state,
             workspace_state=workspace,
+            actor=LOCAL_ACTOR,
         )
         self.assertIs(result.execution_preview, preview)
         self.assertEqual(result.active_preparation_job_id, "prepare-1")
@@ -247,7 +248,11 @@ class ExecutionNavigationPreviewTests(unittest.TestCase):
             CapabilityAuthorizationPolicy(),
         )
 
-        preview = service.navigation_preview(state, workspace_state=workspace)
+        preview = service.navigation_preview(
+            state,
+            workspace_state=workspace,
+            actor=LOCAL_ACTOR,
+        )
 
         self.assertTrue(preview.can_load)
         self.assertEqual(preview.write_count, 2)
@@ -267,6 +272,7 @@ class ExecutionNavigationPreviewTests(unittest.TestCase):
         stale = service.navigation_preview(
             state,
             workspace_state=changed_workspace,
+            actor=LOCAL_ACTOR,
         )
         self.assertFalse(stale.can_load)
         self.assertIn("target changed", stale.scope_error)

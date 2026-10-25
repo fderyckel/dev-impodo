@@ -506,6 +506,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     context,
                     state,
                     requirements,
+                    actor=actor,
                 ),
             )
         except WorkspaceError as error:

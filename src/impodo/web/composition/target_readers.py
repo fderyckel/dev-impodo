@@ -459,6 +459,8 @@ def _current_preflight_supporting_references(
     workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
     requirements: PreflightRequirementPlan,
+    *,
+    actor: Actor,
 ) -> tuple[SupportingLookupSnapshot, ...]:
     """Load exact current evidence for related models outside primary scope."""
 
@@ -479,7 +481,7 @@ def _current_preflight_supporting_references(
             read_credential_binding_hash=schema.read_credential_binding_hash,
             read_principal_hash=schema.read_principal_hash,
             read_context_hash=schema.read_context_hash,
-            actor=context.actor,
+            actor=actor,
             reference_policy_hash=requirements.reference_policy_hash,
         )
         if snapshot is not None:
@@ -748,6 +750,7 @@ def _read_readiness_snapshots(
     workspace_state: WorkspaceState,
     requirements: PreflightRequirementPlan,
     *,
+    actor: Actor,
     verified_read_identity: OdooReadIdentity | None = None,
 ) -> tuple[MetadataSnapshot, RecordSnapshot]:
     """Read one consistent snapshot using the project's configured boundary.
@@ -766,6 +769,7 @@ def _read_readiness_snapshots(
             context,
             workspace_state,
             requirements,
+            actor=actor,
             verified_read_identity=verified_read_identity,
         )
 
@@ -781,6 +785,7 @@ def _read_readiness_snapshots(
         workspace_state,
         schema,
         requirements,
+        actor=actor,
     )
     supplemental_models = _authorized_supplemental_models(
         schema,
@@ -836,7 +841,10 @@ def _read_readiness_snapshots(
         return metadata, records
     credential = get_target_credential(
         context.secret_store,
-        context.target_credential_workspace(workspace_state.workspace_id),
+        context.target_credential_workspace(
+            workspace_state.workspace_id,
+            actor=actor,
+        ),
         TargetCredentialRole.READ,
     )
     if credential is None:
@@ -934,6 +942,7 @@ def _read_pinned_odoo_snapshots(
     workspace_state: WorkspaceState,
     requirements: PreflightRequirementPlan,
     *,
+    actor: Actor,
     verified_read_identity: OdooReadIdentity | None = None,
 ) -> tuple[MetadataSnapshot, RecordSnapshot]:
     """Use the exact capture credential and context for pinned-ID comparison."""
@@ -943,7 +952,10 @@ def _read_pinned_odoo_snapshots(
 
     credential = get_target_credential(
         context.secret_store,
-        context.target_credential_workspace(workspace_state.workspace_id),
+        context.target_credential_workspace(
+            workspace_state.workspace_id,
+            actor=actor,
+        ),
         TargetCredentialRole.READ,
     )
     if credential is None:
@@ -1282,6 +1294,7 @@ def _relationship_value_choices(
         context,
         workspace_state,
         schema,
+        actor=actor,
         relation_model=field.relation,
         requested_fields=requested_fields,
     )
@@ -1678,6 +1691,7 @@ def _capture_supporting_values(
         context,
         workspace_state,
         schema,
+        actor=actor,
         grouped_requests=grouped_requests,
         record_requests=record_requests,
     )
@@ -1945,6 +1959,7 @@ def _read_supporting_lookup_batches(
     workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
     *,
+    actor: Actor,
     grouped_requests: tuple[tuple[str, tuple[str, ...]], ...],
     record_requests: tuple[RecordRequest, ...] | None = None,
 ) -> tuple[MetadataSnapshot, RecordSnapshot, _SupportingLookupAccess]:
@@ -2007,7 +2022,10 @@ def _read_supporting_lookup_batches(
 
     credential = get_target_credential(
         context.secret_store,
-        context.target_credential_workspace(workspace_state.workspace_id),
+        context.target_credential_workspace(
+            workspace_state.workspace_id,
+            actor=actor,
+        ),
         TargetCredentialRole.READ,
     )
     if credential is None:
@@ -2063,6 +2081,7 @@ def _read_supporting_lookup_snapshots(
     workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
     *,
+    actor: Actor,
     relation_model: str,
     requested_fields: tuple[str, ...],
 ) -> tuple[
@@ -2076,6 +2095,7 @@ def _read_supporting_lookup_snapshots(
         context,
         workspace_state,
         schema,
+        actor=actor,
         grouped_requests=((relation_model, requested_fields),),
     )
 

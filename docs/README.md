@@ -171,6 +171,9 @@ setup, CLI, release, and acceptance procedures live under
 - [Windows relationship execution qualification](testing/relationship-execution-windows-2026-09-28.md)
   records current-boundary Product and Bill of Materials measurements,
   determinism, recovery, exact read-back, and authenticated visual evidence.
+- [Source-table composition scale qualification](testing/source-composition-scale-2026-10-24.md)
+  records exact-join preview and save timing, memory, deterministic fixtures,
+  database ownership, and the decision to retain current admission limits.
 - [Odoo dual-support Phase 2 policy](testing/odoo-compatibility-phase2.md)
   records shared version decisions, preserved Odoo 19 behavior, and verification.
 - [Odoo dual-support Phase 3 reads](testing/odoo-compatibility-phase3.md)

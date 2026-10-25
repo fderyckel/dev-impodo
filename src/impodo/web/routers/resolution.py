@@ -17,6 +17,7 @@ from ...domain.errors import ReadinessError
 from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash, _render
+from ..request_identity import request_identity
 from ..run_commands import enqueue_preparation
 from ..security import require_session
 
@@ -69,6 +70,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "run_id", "lifecycle_version", "reason"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             await run_in_threadpool(
                 context.resolution.decide_pair,
@@ -77,7 +79,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
                 candidate_id,
                 same_record=same_record,
                 expected_lifecycle_version=int(str(form["lifecycle_version"])),
-                actor=context.actor,
+                actor=actor,
                 reason=str(form["reason"]),
             )
         except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
@@ -128,6 +130,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
                 "reason",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             await run_in_threadpool(
                 context.resolution.select_survivor_field,
@@ -138,7 +141,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
                 tuple(sorted(str(form["row_ids"]).split(","))),
                 selected_row_id=str(form["selected_row_id"]),
                 expected_lifecycle_version=int(str(form["lifecycle_version"])),
-                actor=context.actor,
+                actor=actor,
                 reason=str(form["reason"]),
             )
         except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
@@ -166,6 +169,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
                 "reason",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             await run_in_threadpool(
                 context.resolution.correct_survivor_field,
@@ -176,7 +180,7 @@ def build_resolution_router(context: WebContext) -> APIRouter:
                 tuple(sorted(str(form["row_ids"]).split(","))),
                 replacement_text=str(form["replacement_value"]),
                 expected_lifecycle_version=int(str(form["lifecycle_version"])),
-                actor=context.actor,
+                actor=actor,
                 reason=str(form["reason"]),
             )
         except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
@@ -192,15 +196,18 @@ def build_resolution_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "run_id", "lifecycle_version"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             await run_in_threadpool(
                 context.resolution.approve,
                 workspace_id,
                 str(form["run_id"]),
                 expected_lifecycle_version=int(str(form["lifecycle_version"])),
-                actor=context.actor,
+                actor=actor,
             )
-            job = await run_in_threadpool(enqueue_preparation, context, workspace_id)
+            job = await run_in_threadpool(
+                enqueue_preparation, context, workspace_id, actor=actor,
+            )
         except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
             return render(request, workspace_id, error=str(error), status_code=422)
         _flash(request, "Duplicate review approved. Preparation is continuing.")

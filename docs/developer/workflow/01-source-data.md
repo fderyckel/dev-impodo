@@ -603,6 +603,14 @@ The current derived or materialized preparation path has a lower row limit
 than exact direct mappings; keep that limit visible rather than silently
 falling back to unbounded Python work.
 
+The 2026-10-24 controlled qualification runs 2,000 rows per input through
+three fresh processes for both narrow and wide shapes. Preview consistently
+uses six DuckDB connections and ten schema checks. Save consistently uses six
+connections and six schema checks. Exact results, persisted complete review,
+and zero Odoo requests remain stable. The measurements do not justify changing
+the evaluator or the 25,000-row and 200-column admission limits. See the
+[source-composition scale report](../../testing/source-composition-scale-2026-10-24.md).
+
 ## Verification
 
 `capture_hierarchy_tutorial_screenshots.py::capture` creates an isolated
@@ -636,6 +644,7 @@ change an operator workspace.
 - [`tests/integration/web/test_exact_join_workflow.py`](../../../tests/integration/web/test_exact_join_workflow.py)
 - [`tests/integration/web/test_bom_source_composition.py`](../../../tests/integration/web/test_bom_source_composition.py)
 - [`tests/domain/recipe/test_bom_source_composition.py`](../../../tests/domain/recipe/test_bom_source_composition.py)
+- [`tests/performance/test_source_composition_benchmark.py`](../../../tests/performance/test_source_composition_benchmark.py)
 - [`tests/integration/web/test_source_workflow.py`](../../../tests/integration/web/test_source_workflow.py)
 - [`tests/integration/web/test_stage12_page_loading.py`](../../../tests/integration/web/test_stage12_page_loading.py)
 - [`tests/integration/duckdb/test_schema_structure.py`](../../../tests/integration/duckdb/test_schema_structure.py)
@@ -654,6 +663,8 @@ cancellation, lineage, and both navigation variants.
 - [Page-loading optimization evidence](../../testing/stage12-page-loading-2026-10-07.md)
 - [Shared page-read measurements](../../testing/stage12-shared-page-reads-2026-10-07.md)
 - [Shared page-read audit helper](../../testing/evidence/stage12-shared-page-reads-2026-10-07/audit.py)
+- [Source-composition scale qualification](../../testing/source-composition-scale-2026-10-24.md)
+- [Source-composition benchmark](../../../scripts/benchmark_source_composition.py)
 - [User guide: Source data](../../user/workflow/01-source-data.md)
 - [Project lifecycle contract](../contracts/project-lifecycle.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)

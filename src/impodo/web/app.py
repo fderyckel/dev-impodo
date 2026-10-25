@@ -761,10 +761,14 @@ def create_local_app(
         odoo_provenance_service,
     )
 
-    def current_read_credential_binding(workspace_state: WorkspaceState) -> str:
+    def current_read_credential_binding(
+        workspace_state: WorkspaceState,
+        actor: Actor,
+    ) -> str:
         credential_owner = context.target_credential_workspace(
             workspace_state.workspace_id,
             workspace_state=workspace_state,
+            actor=actor,
         )
         if credential_owner.odoo_connection_mode is OdooConnectionMode.LOCAL:
             return local_read_credential_binding_hash(credential_owner)
@@ -1200,16 +1204,18 @@ def create_local_app(
     )
     if preparation_jobs is not None:
         preparation_jobs.set_result_reader(
-            lambda job: context.preparation_recovery.current(
-                job.workspace_id, job.workspace.mapping_content_hash, actor=context.actor,
+            lambda job, actor: context.preparation_recovery.current(
+                job.workspace_id, job.workspace.mapping_content_hash, actor=actor,
             )
         )
         preparation_jobs.set_status_listener(
-            lambda job: publish_preparation_progress(context, job)
+            lambda job, actor: publish_preparation_progress(
+                context, job, actor=actor,
+            )
         )
     if load_jobs is not None:
         load_jobs.set_status_listener(
-            lambda job: publish_load_progress(context, job)
+            lambda job, actor: publish_load_progress(context, job, actor=actor)
         )
 
     package_dir = Path(__file__).resolve().parent

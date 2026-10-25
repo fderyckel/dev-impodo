@@ -40,12 +40,11 @@ def enqueue_preparation(
     context: WebContext,
     workspace_id: str,
     *,
-    actor: Actor | None = None,
+    actor: Actor,
     retry_job_id: str | None = None,
 ) -> PreparationJob:
     """Resume current published work or start one mapping-bound attempt."""
 
-    resolved_actor = actor or context.actor
     manager = context.preparation_jobs
     if manager is None:
         raise WorkspaceError("Background preparation is unavailable")
@@ -61,19 +60,19 @@ def enqueue_preparation(
         raise WorkspaceError(
             "Freeze the current source version before preparing data"
         )
-    workspace = _preparation_workspace(context, workspace_id, actor=resolved_actor)
+    workspace = _preparation_workspace(context, workspace_id, actor=actor)
     if workspace.recipe_application_id is not None:
         restored = recover_run_preparation(
             context,
             workspace.migration_run_id,
-            actor=resolved_actor,
+            actor=actor,
         )
         if restored is not None and restored.workspace_id == workspace_id:
             return restored
     workspace = _assert_recipe_application_can_prepare(
         context,
         workspace,
-        actor=resolved_actor,
+        actor=actor,
     )
     workspace = _with_target_float_precision(context, workspace)
     total_rows = _preparation_row_count(context, workspace_id)
@@ -84,10 +83,10 @@ def enqueue_preparation(
             _migration_project_name(
                 context,
                 workspace.project_id,
-                actor=resolved_actor,
+                actor=actor,
             ),
             total_rows,
-            actor=resolved_actor,
+            actor=actor,
             workspace=workspace,
         )
     return manager.enqueue(
@@ -95,10 +94,10 @@ def enqueue_preparation(
         _migration_project_name(
             context,
             workspace.project_id,
-            actor=resolved_actor,
+            actor=actor,
         ),
         total_rows,
-        actor=resolved_actor,
+        actor=actor,
         workspace=workspace,
     )
 
@@ -142,11 +141,10 @@ def _assert_recipe_application_can_prepare(
     context: WebContext,
     workspace: PreparationWorkspace,
     *,
-    actor: Actor | None = None,
+    actor: Actor,
 ) -> PreparationWorkspace:
     """Keep preparation behind the run's remaining Recipe reviews."""
 
-    resolved_actor = actor or context.actor
     application_id = workspace.recipe_application_id
     if application_id is None:
         return workspace
@@ -157,7 +155,7 @@ def _assert_recipe_application_can_prepare(
     if bundle.run.purpose is MigrationRunPurpose.PRODUCTION:
         operation = context.production_runs.activation_operation(
             workspace.migration_run_id,
-            actor=resolved_actor,
+            actor=actor,
         )
         if operation is None or operation.state.value != "COMMITTED":
             raise WorkspaceError("Finish Production setup before preparing its work areas")
@@ -208,23 +206,22 @@ def _preparation_workspace(
     context: WebContext,
     workspace_id: str,
     *,
-    actor: Actor | None = None,
+    actor: Actor,
 ) -> PreparationWorkspace:
     """Resolve one open workspace and its Project-owned DataVersion."""
 
-    resolved_actor = actor or context.actor
     try:
         workspace = context.migration_workspaces.get(
             workspace_id,
-            actor=resolved_actor,
+            actor=actor,
         )
         data_version = context.data_versions.get(
             workspace.data_version_id,
-            actor=resolved_actor,
+            actor=actor,
         )
         run = context.migration_runs.get(
             workspace.migration_run_id,
-            actor=resolved_actor,
+            actor=actor,
         )
         prepared_workspace = PreparationWorkspace.from_context(
             workspace,
@@ -267,11 +264,10 @@ def start_next_preparation(
     context: WebContext,
     migration_run_id: str,
     *,
-    actor: Actor | None = None,
+    actor: Actor,
 ) -> PreparationJob:
     """Start only the first unresolved Test application in saved order."""
 
-    resolved_actor = actor or context.actor
     if context.preparation_jobs is None:
         raise WorkspaceError("Background preparation is unavailable")
     bundle = context.run_planning.repository.get_bundle(migration_run_id)
@@ -317,7 +313,7 @@ def start_next_preparation(
     return enqueue_preparation(
         context,
         next_application.workspace_id,
-        actor=resolved_actor,
+        actor=actor,
     )
 
 
@@ -325,11 +321,10 @@ def recover_run_preparation(
     context: WebContext,
     migration_run_id: str,
     *,
-    actor: Actor | None = None,
+    actor: Actor,
 ) -> PreparationJob | None:
     """Inspect only the current Recipe when entering or resuming a run."""
 
-    resolved_actor = actor or context.actor
     manager = context.preparation_jobs
     if manager is None:
         return None
@@ -358,7 +353,7 @@ def recover_run_preparation(
     result = context.preparation_recovery.current(
         application.workspace_id,
         application.mapping_content_hash,
-        actor=resolved_actor,
+        actor=actor,
     )
     if result is None:
         return None
@@ -366,29 +361,31 @@ def recover_run_preparation(
         _preparation_workspace(
             context,
             application.workspace_id,
-            actor=resolved_actor,
+            actor=actor,
         ),
         mapping_content_hash=application.mapping_content_hash,
     )
     restored = manager.restore_result(
         workspace,
         result,
-        actor=resolved_actor,
+        actor=actor,
         migration_project_name=_migration_project_name(
             context,
             application.project_id,
-            actor=resolved_actor,
+            actor=actor,
         ),
         expected_job_id=observed.job_id if observed else None,
     )
     if restored is not None:
-        publish_preparation_progress(context, restored)
+        publish_preparation_progress(context, restored, actor=actor)
     return restored
 
 
 def publish_preparation_progress(
     context: WebContext,
     job: PreparationJob,
+    *,
+    actor: Actor,
 ) -> None:
     """Copy a worker milestone into the run registry."""
 
@@ -435,10 +432,16 @@ def publish_preparation_progress(
         expected_statuses=expected,
         status=target,
         expected_mapping_content_hash=getattr(job.workspace, "mapping_content_hash", None),
+        actor=actor,
     )
 
 
-def publish_load_progress(context: WebContext, job: LoadJob) -> None:
+def publish_load_progress(
+    context: WebContext,
+    job: LoadJob,
+    *,
+    actor: Actor,
+) -> None:
     """Copy a confirmed-load milestone into the run registry."""
 
     application_id = job.access_context.recipe_application_id
@@ -479,9 +482,12 @@ def publish_load_progress(context: WebContext, job: LoadJob) -> None:
         application_id,
         expected_statuses=expected,
         status=target,
+        actor=actor,
     )
     if updated.status is RecipeApplicationStatus.RECONCILED:
-        _try_start_after_reconciliation(context, updated.migration_run_id)
+        _try_start_after_reconciliation(
+            context, updated.migration_run_id, actor=actor,
+        )
 
 
 _APPLICATION_PROGRESS_ORDER = {
@@ -502,6 +508,7 @@ def _transition_application_progress(
     expected_statuses: tuple[RecipeApplicationStatus, ...],
     status: RecipeApplicationStatus,
     expected_mapping_content_hash: str | None = None,
+    actor: Actor,
 ) -> RunRecipeApplication:
     """Publish one milestone without reversing held or later progress."""
 
@@ -512,7 +519,7 @@ def _transition_application_progress(
             application_id,
             expected_statuses=expected_statuses,
             status=status,
-            actor=context.actor,
+            actor=actor,
             **binding,
         )
     except MigrationConflictError:
@@ -534,6 +541,8 @@ def publish_compared_application(
     context: WebContext,
     application_id: str,
     migration_run_id: str,
+    *,
+    actor: Actor,
 ) -> None:
     """Record that current prepared data was checked against the run target."""
 
@@ -551,7 +560,7 @@ def publish_compared_application(
             RecipeApplicationStatus.COMPARED,
         ),
         status=RecipeApplicationStatus.COMPARED,
-        actor=context.actor,
+        actor=actor,
     )
 
 
@@ -559,6 +568,8 @@ def publish_reconciled_application(
     context: WebContext,
     application_id: str,
     migration_run_id: str,
+    *,
+    actor: Actor,
 ) -> None:
     """Unlock the next Recipe only after a clean verified read-back."""
 
@@ -577,17 +588,19 @@ def publish_reconciled_application(
             RecipeApplicationStatus.EXECUTED,
         ),
         status=RecipeApplicationStatus.RECONCILED,
-        actor=context.actor,
+        actor=actor,
     )
-    _try_start_after_reconciliation(context, migration_run_id)
+    _try_start_after_reconciliation(context, migration_run_id, actor=actor)
 
 
 def _try_start_after_reconciliation(
     context: WebContext,
     migration_run_id: str,
+    *,
+    actor: Actor,
 ) -> None:
     try:
-        start_next_preparation(context, migration_run_id)
+        start_next_preparation(context, migration_run_id, actor=actor)
     except WorkspaceError:
         # The run page retains the exact next action. A completed run or a
         # current-data decision is an expected reason not to enqueue.

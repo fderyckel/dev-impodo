@@ -16,6 +16,7 @@ from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash
 from ..presenters.summary import _render_normalization
+from ..request_identity import request_identity
 from ..security import require_session
 
 _REVIEW_STATUSES = frozenset(
@@ -66,6 +67,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "run_id", "lifecycle_version"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             await run_in_threadpool(
                 context.normalization.decide_group,
@@ -74,7 +76,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 group_id,
                 approve=True,
                 expected_version=int(str(form["lifecycle_version"])),
-                actor=context.actor,
+                actor=actor,
             )
         except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
             return _render_normalization(
@@ -98,13 +100,14 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "run_id", "lifecycle_version"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             await run_in_threadpool(
                 context.normalization.reopen_review,
                 workspace_id,
                 str(form["run_id"]),
                 expected_version=int(str(form["lifecycle_version"])),
-                actor=context.actor,
+                actor=actor,
                 reason="Reopened by the data manager after a sent-back change.",
             )
         except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
@@ -135,6 +138,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "run_id", "lifecycle_version", "reason"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             reason = str(form["reason"]).strip()
             if not reason:
@@ -148,7 +152,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 group_id,
                 approve=False,
                 expected_version=int(str(form["lifecycle_version"])),
-                actor=context.actor,
+                actor=actor,
                 reason=reason,
             )
         except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
@@ -173,13 +177,14 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "run_id", "lifecycle_version"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             await run_in_threadpool(
                 context.normalization.approve,
                 workspace_id,
                 str(form["run_id"]),
                 expected_version=int(str(form["lifecycle_version"])),
-                actor=context.actor,
+                actor=actor,
             )
         except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
             return _render_normalization(

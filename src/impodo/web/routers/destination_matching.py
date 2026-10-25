@@ -25,7 +25,7 @@ from impodo.domain.odoo_source_scope import (
     RelatedDataHandling,
     propose_related_odoo_data,
 )
-from impodo.domain.shared.access import Capability
+from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.workspace.destination_matching import (
     DESTINATION_HANDLINGS,
@@ -46,6 +46,7 @@ from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form
 from ..presenters.common import _flash, _render
+from ..request_identity import request_identity
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRole,
@@ -277,6 +278,7 @@ def _render_matching(
     selection,
     schema,
     *,
+    actor: Actor,
     error: str | None = None,
     status_code: int = 200,
 ):
@@ -334,7 +336,7 @@ def _render_matching(
         try:
             access = context.workspace_access.resolve(
                 workspace_state.workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.PROTECTED_EVIDENCE_READ,
             )
             protected = context.destination_create_fields.read(
@@ -448,6 +450,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
     ):
         """Read and render Destination matching in one bounded worker scope."""
 
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         if (
             workspace_state.source_mode is not SourceMode.ODOO
@@ -470,6 +473,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             workspace_state,
             selection,
             schema,
+            actor=actor,
         )
 
     @router.post("/workspaces/{workspace_id}/destination-matching")
@@ -486,6 +490,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 "destination_handling",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         if (
             workspace_state.source_mode is not SourceMode.ODOO
@@ -551,7 +556,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 protected = await run_in_threadpool(
                     context.odoo_provenance.read_current_origins,
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     dataset_id=dataset.dataset_id,
                 )
                 if protected is not None:
@@ -566,7 +571,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 credential_binding_hash=credential.binding_hash,
                 read_identity=identity,
                 reader=context.destination_match_reader,
-                recorded_by=context.actor.identity.display_name,
+                recorded_by=actor.identity.display_name,
                 source_origins=source_origins,
                 excluded_source_rows=exclusions,
                 relationship_scope=(
@@ -581,7 +586,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 if previous.create_field_evidence_id is not None:
                     access = context.workspace_access.resolve(
                         workspace_id,
-                        actor=context.actor,
+                        actor=actor,
                         capability=Capability.PROTECTED_EVIDENCE_MANAGE,
                     )
                     previous_evidence = await run_in_threadpool(
@@ -597,7 +602,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             if plan.create_field_evidence is not None and access is None:
                 access = context.workspace_access.resolve(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     capability=Capability.PROTECTED_EVIDENCE_MANAGE,
                 )
             plan = await run_in_threadpool(
@@ -607,7 +612,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             )
             workspace_state = context.workspace_states.save_destination_match_plan(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=expected_revision,
                 plan=plan,
             )
@@ -624,6 +629,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 context.queries.get(workspace_id),
                 selection,
                 schema,
+                actor=actor,
                 error=str(error),
                 status_code=422,
             )
@@ -656,6 +662,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "revision", "match_plan_hash", "default_field"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         try:
             selection, schema = _matching_evidence(context, workspace_id)
@@ -688,7 +695,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 selected.add((model, field_name))
             access = context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.PROTECTED_EVIDENCE_MANAGE,
             )
             evidence = await run_in_threadpool(
@@ -705,7 +712,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             )
             workspace_state = context.workspace_states.save_destination_match_plan(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=expected_revision,
                 plan=confirmed,
             )
@@ -716,6 +723,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 context.queries.get(workspace_id),
                 selection,
                 schema,
+                actor=actor,
                 error=str(error),
                 status_code=422,
             )
@@ -740,6 +748,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 "reference_choice", "incoming_reference_choice",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         try:
             selection, schema = _matching_evidence(context, workspace_id)
@@ -770,7 +779,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             provider = str(form.get("provider", ""))
             access = context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.PROTECTED_EVIDENCE_MANAGE,
             )
             evidence = await run_in_threadpool(
@@ -823,7 +832,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             )
             context.workspace_states.save_destination_match_plan(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=expected_revision,
                 plan=chosen,
             )
@@ -834,6 +843,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 context.queries.get(workspace_id),
                 selection,
                 schema,
+                actor=actor,
                 error=str(error),
                 status_code=422,
             )
@@ -857,6 +867,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 "field_action",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         try:
             selection, schema = _matching_evidence(context, workspace_id)
@@ -897,7 +908,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             )
             context.workspace_states.save_destination_match_plan(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=expected_revision,
                 plan=updated,
             )
@@ -908,6 +919,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 context.queries.get(workspace_id),
                 selection,
                 schema,
+                actor=actor,
                 error=str(error),
                 status_code=422,
             )
@@ -939,6 +951,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 "record_action",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         try:
             selection, schema = _matching_evidence(context, workspace_id)
@@ -1028,7 +1041,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 protected = await run_in_threadpool(
                     context.odoo_provenance.read_current_origins,
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     dataset_id=dataset.dataset_id,
                 )
                 if protected is not None:
@@ -1043,7 +1056,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 credential_binding_hash=credential.binding_hash,
                 read_identity=identity,
                 reader=context.destination_match_reader,
-                recorded_by=context.actor.identity.display_name,
+                recorded_by=actor.identity.display_name,
                 source_origins=source_origins,
                 excluded_source_rows=exclusions,
             )
@@ -1052,7 +1065,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             if previous.create_field_evidence_id is not None:
                 access = context.workspace_access.resolve(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     capability=Capability.PROTECTED_EVIDENCE_MANAGE,
                 )
                 previous_evidence = await run_in_threadpool(
@@ -1068,7 +1081,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             if plan.create_field_evidence is not None and access is None:
                 access = context.workspace_access.resolve(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     capability=Capability.PROTECTED_EVIDENCE_MANAGE,
                 )
             plan = await run_in_threadpool(
@@ -1078,7 +1091,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             )
             context.workspace_states.save_destination_match_plan(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=expected_revision,
                 plan=plan,
             )
@@ -1096,6 +1109,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 context.queries.get(workspace_id),
                 selection,
                 schema,
+                actor=actor,
                 error=str(error),
                 status_code=422,
             )

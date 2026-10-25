@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from impodo.application.data_version.inspection import SourceInspectionError
 from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     SourceMode,
@@ -42,12 +43,14 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
         """Show the exact Recipe-owned source needs for this delivery."""
 
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         return await run_page_read(
             _render_fresh_data,
             request,
             context,
             project_id,
             migration_run_id,
+            actor=actor,
             run_kind=run_kind,
         )
 
@@ -64,12 +67,14 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "source_file"})
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             view = await run_page_read(
                 _fresh_data_view,
                 context,
                 project_id,
                 migration_run_id,
+                actor=actor,
                 run_kind=run_kind,
             )
             _require_editable_fresh_files(view)
@@ -77,7 +82,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 context,
                 view["setup_workspace"].workspace_id,
                 form,
-                actor=request_identity(request, context.identity_resolver).actor,
+                actor=actor,
             )
         except WorkspaceStateError as error:
             return await run_page_read(
@@ -86,6 +91,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 context,
                 project_id,
                 migration_run_id,
+                actor=actor,
                 error=str(error),
                 status_code=422,
                 run_kind=run_kind,
@@ -115,12 +121,14 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision"})
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             view = await run_page_read(
                 _fresh_data_view,
                 context,
                 project_id,
                 migration_run_id,
+                actor=actor,
                 run_kind=run_kind,
             )
             _require_editable_fresh_files(view)
@@ -128,7 +136,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 context,
                 view["setup_workspace"].workspace_id,
                 file_id,
-                actor=request_identity(request, context.identity_resolver).actor,
+                actor=actor,
                 expected_revision=_revision(form),
             )
         except WorkspaceStateError as error:
@@ -138,6 +146,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 context,
                 project_id,
                 migration_run_id,
+                actor=actor,
                 error=str(error),
                 status_code=422,
                 run_kind=run_kind,
@@ -161,6 +170,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision"})
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             expected_revision = _revision(form)
             view = await run_page_read(
@@ -168,6 +178,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 context,
                 project_id,
                 migration_run_id,
+                actor=actor,
                 run_kind=run_kind,
             )
             _require_editable_fresh_files(view)
@@ -177,12 +188,12 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 if workspace.status is WorkspaceStatus.DRAFT:
                     workspace = context.workspace_states.register(
                         view["setup_workspace"].workspace_id,
-                        actor=context.actor,
+                        actor=actor,
                         expected_revision=expected_revision,
                     )
                 return context.inspections.inspect_project(
                     workspace.workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
 
             catalogs = await run_local_operation(register_and_inspect)
@@ -193,6 +204,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 context,
                 project_id,
                 migration_run_id,
+                actor=actor,
                 error=str(error),
                 problems=error.problems,
                 status_code=422,
@@ -205,6 +217,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 context,
                 project_id,
                 migration_run_id,
+                actor=actor,
                 error=str(error),
                 status_code=422,
                 run_kind=run_kind,
@@ -232,11 +245,13 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
         """Accept the exact current logical-to-physical table matches."""
 
         form = await request.form()
+        actor = request_identity(request, context.identity_resolver).actor
         initial_view = await run_page_read(
             _fresh_data_view,
             context,
             project_id,
             migration_run_id,
+            actor=actor,
             run_kind=run_kind,
         )
         initial_plan = initial_view["match_plan"]
@@ -287,7 +302,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                     submitted_run_values,
                     supplied_controls=submitted_controls,
                     expected_revision=expected_parameter_revision,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 _flash(
                     request,
@@ -352,7 +367,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                     submitted_run_values,
                     supplied_controls=submitted_controls,
                     expected_revision=expected_parameter_revision,
-                    actor=context.actor,
+                    actor=actor,
                 )
             if view["accepted"]:
                 _flash(request, "Saved the details for this run.")
@@ -372,17 +387,17 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                                 tables_by_file.get(source_file.file_id, ())
                             ),
                             warnings_acknowledged=warnings_acknowledged,
-                            actor=context.actor,
+                            actor=actor,
                         )
                     current_selection = context.sources.freeze_selection(
                         view["setup_workspace"].workspace_id,
                         dataset_names=dataset_names,
-                        actor=context.actor,
+                        actor=actor,
                     )
                 context.data_version_source_projection.accept_file_selection(
                     view["setup_workspace"].workspace_id,
                     current_selection,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 return current_selection
 
@@ -394,6 +409,7 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
                 context,
                 project_id,
                 migration_run_id,
+                actor=actor,
                 error=str(error),
                 status_code=422,
                 match_overrides=overrides,
@@ -419,6 +435,7 @@ def _render_fresh_data(
     project_id: str,
     migration_run_id: str,
     *,
+    actor: Actor,
     run_kind: RunSetupKind,
     error: str | None = None,
     problems: tuple[str, ...] = (),
@@ -431,6 +448,7 @@ def _render_fresh_data(
         context,
         project_id,
         migration_run_id,
+        actor=actor,
         match_overrides=match_overrides,
         parameter_overrides=parameter_overrides,
         control_overrides=control_overrides,
@@ -466,30 +484,34 @@ def _fresh_data_view(
     project_id,
     migration_run_id,
     *,
+    actor: Actor,
     run_kind: RunSetupKind,
     match_overrides=None,
     parameter_overrides=None,
     control_overrides=None,
 ):
-    project = context.migration_projects.get(project_id, actor=context.actor)
-    binding = context.run_setups.get(migration_run_id, actor=context.actor)
+    project = context.migration_projects.get(project_id, actor=actor)
+    binding = context.run_setups.get(migration_run_id, actor=actor)
     if binding.project_id != project.project_id:
         raise HTTPException(status_code=404, detail="Recipe run not found")
-    run = context.migration_runs.get(migration_run_id, actor=context.actor)
+    run = context.migration_runs.get(migration_run_id, actor=actor)
     if run.purpose.value != run_kind.purpose:
         raise HTTPException(status_code=404, detail="Recipe run not found")
     data_version = context.data_versions.get(
         binding.data_version_id,
-        actor=context.actor,
+        actor=actor,
     )
     setup_workspace = context.migration_workspaces.get(
         binding.setup_workspace_id,
-        actor=context.actor,
+        actor=actor,
     )
     setup_state = context.workspace_states.repository.get(
         binding.setup_workspace_id
     )
-    requirements, run_value_plan = context.run_setups.fresh_data_details(binding, actor=context.actor)
+    requirements, run_value_plan = context.run_setups.fresh_data_details(
+        binding,
+        actor=actor,
+    )
     if parameter_overrides is not None or control_overrides is not None:
         run_value_plan = replace(
             run_value_plan,

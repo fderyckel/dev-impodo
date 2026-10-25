@@ -22,6 +22,7 @@ from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash, _render
 from ..presenters.navigation import build_preparation_workspace_navigation
+from ..request_identity import request_identity
 from ..run_commands import (
     _assert_recipe_application_can_prepare,
     _preparation_workspace,
@@ -39,6 +40,7 @@ def build_preparation_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/prepare", response_class=HTMLResponse)
     async def prepare_workspace_data(request: Request, workspace_id: str):
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         source_redirect = await source_stage_redirect(request, context, workspace_id)
         if source_redirect is not None:
             return source_redirect
@@ -53,8 +55,10 @@ def build_preparation_router(context: WebContext) -> APIRouter:
                 status_code=303,
             )
         try:
-            workspace = _preparation_workspace(context, workspace_id)
-            workspace = _assert_recipe_application_can_prepare(context, workspace)
+            workspace = _preparation_workspace(context, workspace_id, actor=actor)
+            workspace = _assert_recipe_application_can_prepare(
+                context, workspace, actor=actor,
+            )
         except WorkspaceError as error:
             request.session["summary_error"] = str(error)
             return RedirectResponse(
@@ -100,8 +104,11 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         source_redirect = await source_stage_redirect(request, context, workspace_id)
         if source_redirect is not None:
             return source_redirect
+        actor = request_identity(request, context.identity_resolver).actor
         try:
-            job = await run_in_threadpool(enqueue_preparation, context, workspace_id)
+            job = await run_in_threadpool(
+                enqueue_preparation, context, workspace_id, actor=actor,
+            )
         except WorkspaceError as error:
             request.session["summary_error"] = str(error)
             return RedirectResponse(
@@ -143,9 +150,14 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         source_redirect = await source_stage_redirect(request, context, workspace_id)
         if source_redirect is not None:
             return source_redirect
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             job = await run_in_threadpool(
-                enqueue_preparation, context, workspace_id, retry_job_id=job_id,
+                enqueue_preparation,
+                context,
+                workspace_id,
+                actor=actor,
+                retry_job_id=job_id,
             )
         except PreparationJobNotFoundError as error:
             raise HTTPException(status_code=404, detail="Preparation job not found") from error

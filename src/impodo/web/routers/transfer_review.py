@@ -22,6 +22,7 @@ from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..request_identity import request_identity
 from ..security import require_session
 
 
@@ -154,6 +155,7 @@ def build_transfer_review_router(context: WebContext) -> APIRouter:
                 for item in (match_plan.model_matches if match_plan else ())
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             selection, schema = _current_evidence(context, workspace_id)
         except WorkspaceError as error:
@@ -184,7 +186,7 @@ def build_transfer_review_router(context: WebContext) -> APIRouter:
             }
             access = context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.PROJECT_EDIT,
             )
             package = service.build(
@@ -193,12 +195,12 @@ def build_transfer_review_router(context: WebContext) -> APIRouter:
                 order_plan,
                 run_id=access.migration_run_id,
                 data_version_id=access.data_version_id,
-                built_by=context.actor.identity,
+                built_by=actor.identity,
                 model_policies=model_policies,
             )
             workspace_state = context.workspace_states.save_transfer_review_package(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=expected_revision,
                 package=package,
             )
@@ -225,6 +227,7 @@ def build_transfer_review_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "revision", "confirmation", "reason"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         try:
             selection, schema = _current_evidence(context, workspace_id)
@@ -256,13 +259,13 @@ def build_transfer_review_router(context: WebContext) -> APIRouter:
             approval = TransferReviewApproval.approve(
                 package,
                 approval_id=str(uuid4()),
-                actor=context.actor,
+                actor=actor,
                 approved_at=datetime.now(UTC),
                 reason=reason,
             )
             workspace_state = context.workspace_states.approve_transfer_review(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=expected_revision,
                 approval=approval,
             )

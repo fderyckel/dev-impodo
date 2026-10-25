@@ -49,12 +49,16 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/overview", response_class=HTMLResponse)
     async def workspace_overview(request: Request, workspace_id: str):
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         queued_at = perf_counter()
 
         def render_overview():
             queue_wait_ms = (perf_counter() - queued_at) * 1000
             navigation_started = perf_counter()
-            snapshot = context.navigation.get_for_workspace(workspace_id)
+            snapshot = context.navigation.get_for_workspace(
+                workspace_id,
+                actor=actor,
+            )
             navigation_read_ms = (perf_counter() - navigation_started) * 1000
             workspace = snapshot.workspace_state
             if workspace.status is not WorkspaceStatus.REGISTERED:

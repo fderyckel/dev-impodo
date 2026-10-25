@@ -13,6 +13,7 @@ from ..forms import _secure_form, _text
 from ..presenters.common import _flash
 from ..presenters.mapping_impact import _mapping_return_url
 from ..presenters.mapping_view import _manager_quality_rules_from_form
+from ..request_identity import request_identity
 from ..security import require_session
 
 
@@ -41,6 +42,7 @@ def build_quality_router(context: QualityRouteContext) -> APIRouter:
             )
         }
         _secure_form(request, form, allowed)
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             dataset_id = _text(form, "quality_dataset_id")
             configuration = context.quality.configuration(workspace_id, dataset_id)
@@ -55,7 +57,7 @@ def build_quality_router(context: QualityRouteContext) -> APIRouter:
             context.quality.save_manager_rules(
                 configuration,
                 manager_rules,
-                actor=context.actor,
+                actor=actor,
             )
         except (ValueError, WorkspaceError) as error:
             request.session["mapping_error"] = str(error)

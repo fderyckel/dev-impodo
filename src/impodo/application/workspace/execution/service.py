@@ -70,7 +70,7 @@ MAX_VISIBLE_BLOCKER_GROUPS = 5
 MAX_VISIBLE_BLOCKER_DATASETS = 3
 MAX_PROGRESS_ROWS_BETWEEN_UPDATES = 25
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
-ReadCredentialBindingProvider = Callable[[WorkspaceState], str]
+ReadCredentialBindingProvider = Callable[[WorkspaceState, Actor], str]
 
 
 def _targeted_recovery_row_ids(
@@ -443,7 +443,12 @@ class ExecutionService:
         self.require_remote_write_identity = require_remote_write_identity
         self.current_read_credential_binding = current_read_credential_binding
 
-    def current_preview(self, workspace_id: str) -> ExecutionPreview | None:
+    def current_preview(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+    ) -> ExecutionPreview | None:
         """Build full load-review evidence for one workspace.
 
         Called by load-review routes, transfer execution, resume, and
@@ -456,7 +461,7 @@ class ExecutionService:
             return None
         workspace_state = self.workspaces.get(workspace_id)
         current_read_credential_binding = (
-            self.current_read_credential_binding(workspace_state)
+            self.current_read_credential_binding(workspace_state, actor)
             if self.current_read_credential_binding is not None
             else None
         )
@@ -507,6 +512,7 @@ class ExecutionService:
         state: ExecutionNavigationState,
         *,
         workspace_state: WorkspaceState,
+        actor: Actor,
     ) -> ExecutionNavigationPreview:
         """Validate a bounded projection against the current target context."""
 
@@ -533,7 +539,7 @@ class ExecutionService:
             scope_error = "The reviewed load shape needs attention"
         elif workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE:
             current_binding = (
-                self.current_read_credential_binding(workspace_state)
+                self.current_read_credential_binding(workspace_state, actor)
                 if self.current_read_credential_binding is not None
                 else None
             )
@@ -585,7 +591,7 @@ class ExecutionService:
         workspace = self.workspaces.get(workspace_id)
         if workspace.source_mode is SourceMode.ODOO:
             raise WorkspaceError("Use the transfer recovery action for an Odoo-to-Odoo load")
-        preview = self.current_preview(workspace_id)
+        preview = self.current_preview(workspace_id, actor=actor)
         run = self.journal.get_current_run(workspace_id)
         if (
             preview is None or preview.snapshot.semantic_hash != expected_snapshot_hash
@@ -671,7 +677,7 @@ class ExecutionService:
                 "Use the confirmed transfer route for an Odoo-to-Odoo load."
             )
         create_batch_rows = validated_create_batch_rows(batch_rows)
-        preview = self.current_preview(workspace_id)
+        preview = self.current_preview(workspace_id, actor=actor)
         if preview is None:
             raise WorkspaceError("Compare the prepared data with Odoo first")
         snapshot = preview.snapshot
@@ -2078,7 +2084,7 @@ class ExecutionService:
             raise WorkspaceError(
                 "Use the transfer outcome to complete an Odoo-to-Odoo load."
             )
-        preview = self.current_preview(workspace_id)
+        preview = self.current_preview(workspace_id, actor=actor)
         if preview is None:
             raise WorkspaceError("Compare the prepared data with Odoo first")
         snapshot = preview.snapshot

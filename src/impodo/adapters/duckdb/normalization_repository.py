@@ -8,7 +8,7 @@ approval freezes the exact eligible-dataset hash for final review.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import (
     UTC,
     datetime,
@@ -21,6 +21,7 @@ from impodo.domain.cutover.governance import DryRun
 from impodo.domain.preparation.normalization import (
     NORMALIZATION_CONTRACT_VERSION,
     NORMALIZATION_EVALUATOR_VERSION,
+    NormalizationEffect,
     NormalizationEvaluation,
     NormalizationOutcome,
     NormalizationReviewGroup,
@@ -64,6 +65,53 @@ _NORMALIZATION_GROUP_JSON_STRUCTURE = """[{
     "requires_decision":"BOOLEAN",
     "group_json":"VARCHAR"
 }]"""
+
+
+def _normalization_effect_rows(
+    batch: Sequence[NormalizationEffect],
+    *,
+    start: int,
+    hasher: CanonicalJsonObjectHasher,
+) -> Iterator[Mapping[str, object]]:
+    """Yield one bounded effect batch in canonical ordinal order."""
+
+    for offset, item in enumerate(batch):
+        item_json = _canonical_json(item.to_portable_dict())
+        hasher.add_encoded_array_item(item_json)
+        yield {
+            "ordinal": start + offset,
+            "effect_id": item.effect_id,
+            "group_id": item.group_id,
+            "row_id": item.row_id,
+            "dataset": item.dataset,
+            "source_row": item.source_row,
+            "target_field": item.target_field,
+            "eligible": item.eligible,
+            "effect_json": item_json,
+        }
+
+
+def _normalization_group_rows(
+    batch: Sequence[NormalizationReviewGroup],
+    *,
+    start: int,
+    hasher: CanonicalJsonObjectHasher,
+) -> Iterator[Mapping[str, object]]:
+    """Yield one bounded review-group batch in canonical ordinal order."""
+
+    for offset, item in enumerate(batch):
+        item_json = _canonical_json(item.to_portable_dict())
+        hasher.add_encoded_array_item(item_json)
+        yield {
+            "ordinal": start + offset,
+            "group_id": item.group_id,
+            "kind": item.kind.value,
+            "outcome": item.outcome.value,
+            "dataset": item.dataset,
+            "target_field": item.target_field,
+            "requires_decision": item.requires_decision,
+            "group_json": item_json,
+        }
 
 
 class NormalizationRepository(DuckDbRepository):
@@ -735,25 +783,14 @@ class NormalizationRepository(DuckDbRepository):
                 NORMALIZATION_ROW_BATCH_SIZE,
             ):
                 batch = evaluation.effects[start : start + NORMALIZATION_ROW_BATCH_SIZE]
-                def transport_rows():
-                    for offset, item in enumerate(batch):
-                        item_json = _canonical_json(item.to_portable_dict())
-                        hasher.add_encoded_array_item(item_json)
-                        yield {
-                            "ordinal": start + offset,
-                            "effect_id": item.effect_id,
-                            "group_id": item.group_id,
-                            "row_id": item.row_id,
-                            "dataset": item.dataset,
-                            "source_row": item.source_row,
-                            "target_field": item.target_field,
-                            "eligible": item.eligible,
-                            "effect_json": item_json,
-                        }
 
                 inserted_effects = 0
                 for encoded_batch in iter_encoded_json_batches(
-                    transport_rows(),
+                    _normalization_effect_rows(
+                        batch,
+                        start=start,
+                        hasher=hasher,
+                    ),
                     max_rows=NORMALIZATION_ROW_BATCH_SIZE,
                     max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
                 ):
@@ -791,24 +828,14 @@ class NormalizationRepository(DuckDbRepository):
         hasher.start_array("groups")
         for start in range(0, len(evaluation.groups), NORMALIZATION_ROW_BATCH_SIZE):
             batch = evaluation.groups[start : start + NORMALIZATION_ROW_BATCH_SIZE]
-            def transport_rows():
-                for offset, item in enumerate(batch):
-                    item_json = _canonical_json(item.to_portable_dict())
-                    hasher.add_encoded_array_item(item_json)
-                    yield {
-                        "ordinal": start + offset,
-                        "group_id": item.group_id,
-                        "kind": item.kind.value,
-                        "outcome": item.outcome.value,
-                        "dataset": item.dataset,
-                        "target_field": item.target_field,
-                        "requires_decision": item.requires_decision,
-                        "group_json": item_json,
-                    }
 
             inserted_groups = 0
             for encoded_batch in iter_encoded_json_batches(
-                transport_rows(),
+                _normalization_group_rows(
+                    batch,
+                    start=start,
+                    hasher=hasher,
+                ),
                 max_rows=NORMALIZATION_ROW_BATCH_SIZE,
                 max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
             ):

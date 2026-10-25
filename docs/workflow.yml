@@ -154,6 +154,7 @@ stages:
       - src/impodo/domain/structural.py::review_exact_join
       - scripts/capture_hierarchy_tutorial_screenshots.py::capture
       - scripts/capture_exact_join_screenshot.py::capture
+      - scripts/benchmark_source_composition.py::main
       - src/impodo/application/data_version/source_worker.py::validate_source_file_isolated
       - src/impodo/web/source_file_commands.py::accept_source_uploads
       - src/impodo/web/source_file_commands.py::remove_source_file
@@ -177,6 +178,7 @@ stages:
       - tests/integration/web/test_exact_join_workflow.py
       - tests/integration/web/test_bom_source_composition.py
       - tests/domain/recipe/test_bom_source_composition.py
+      - tests/performance/test_source_composition_benchmark.py
       - tests/domain/recipe/test_source_composition_round_trip.py
       - tests/integration/web/test_source_workflow.py
       - tests/integration/web/test_stage12_page_loading.py
@@ -188,6 +190,7 @@ stages:
     references:
       - docs/user/guides/related-tables.md
       - docs/plans/source-table-composition.md
+      - docs/testing/source-composition-scale-2026-10-24.md
       - docs/plans/stage-1-and-2-page-loading.md
       - docs/testing/stage12-page-loading-2026-10-07.md
       - docs/testing/stage12-shared-page-reads-2026-10-07.md

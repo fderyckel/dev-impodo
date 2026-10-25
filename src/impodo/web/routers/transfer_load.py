@@ -31,7 +31,7 @@ from impodo.domain.execution.models import (
 )
 from impodo.domain.execution.odoo_readback import OdooReadbackError
 from impodo.domain.odoo.contracts import ConnectorError
-from impodo.domain.shared.access import AuthorizationError, Capability
+from impodo.domain.shared.access import Actor, AuthorizationError, Capability
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.workspace.destination_matching import (
     carry_destination_create_field_reviews,
@@ -46,6 +46,7 @@ from impodo.domain.workspace.workbench import (
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..request_identity import request_identity
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRole,
@@ -165,6 +166,8 @@ def _verify_transfer_result(
     credential,
     scope,
     run,
+    *,
+    actor: Actor,
 ) -> bool:
     """Attempt final read-back without hiding a durable execution result."""
 
@@ -183,12 +186,13 @@ def _verify_transfer_result(
             workspace_id,
             expected_execution_run_id=run.run_id,
             reader=reader,
-            actor=context.actor,
+            actor=actor,
             write_identity=verification_identity,
             write_credential_binding_hash=credential.binding_hash,
             protected_values=_protected_create_values(
                 context,
                 context.queries.get(workspace_id),
+                actor=actor,
             ),
         )
     except (
@@ -203,7 +207,12 @@ def _verify_transfer_result(
     return not (verification.unknown_count or verification.fallout_count)
 
 
-def _protected_create_values(context: WebContext, workspace) -> dict[str, object]:
+def _protected_create_values(
+    context: WebContext,
+    workspace,
+    *,
+    actor: Actor,
+) -> dict[str, object]:
     """Open exact create-only values only at the write/read-back boundary."""
 
     plan = workspace.destination_match_plan
@@ -211,7 +220,7 @@ def _protected_create_values(context: WebContext, workspace) -> dict[str, object
         return {}
     access = context.workspace_access.resolve(
         workspace.workspace_id,
-        actor=context.actor,
+        actor=actor,
         capability=Capability.PROTECTED_EVIDENCE_READ,
     )
     evidence = context.destination_create_fields.read(access.project_id, plan)
@@ -353,6 +362,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
     async def prepare_transfer_load(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "preflight_hash"})
+        actor = request_identity(request, context.identity_resolver).actor
         workspace = context.queries.get(workspace_id)
         try:
             selection, schema = _current_evidence(context, workspace_id)
@@ -408,7 +418,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 protected = await run_in_threadpool(
                     context.odoo_provenance.read_current_origins,
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     dataset_id=dataset.dataset_id,
                 )
                 if protected is not None:
@@ -439,7 +449,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 credential_binding_hash=credential.binding_hash,
                 read_identity=identity,
                 reader=final_reader,
-                recorded_by=context.actor.identity.display_name,
+                recorded_by=actor.identity.display_name,
                 source_origins=source_origins,
                 excluded_source_rows={
                     item.dataset_id: item.excluded_source_row_numbers
@@ -451,7 +461,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
             if approved_match.create_field_evidence_id is not None:
                 protected_access = context.workspace_access.resolve(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     capability=Capability.PROTECTED_EVIDENCE_READ,
                 )
                 approved_evidence = await run_in_threadpool(
@@ -470,11 +480,11 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 approval,
                 approved_match,
                 fresh_match,
-                recorded_by=context.actor.identity,
+                recorded_by=actor.identity,
             )
             workspace = context.workspace_states.save_transfer_preflight_report(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 expected_revision=expected_revision,
                 report=fresh_report,
             )
@@ -498,7 +508,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 fresh_report,
                 fresh_match,
                 captured_records[0],
-                actor=context.actor,
+                actor=actor,
             )
             await run_in_threadpool(
                 context.transfer_execution.stage,
@@ -577,6 +587,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 "batch_rows",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         workspace = context.queries.get(workspace_id)
         active = _manager(context).active(workspace_id)
         if active is not None:
@@ -618,7 +629,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
             batch_rows = validated_create_batch_rows(_text(form, "batch_rows"))
             access_context = context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.EXPORT_PLAN_EXECUTE,
             )
             models = _destination_models(selection)
@@ -626,7 +637,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
             target_server = _target_server(workspace.destination_odoo_base_url)
             project_name = context.workspace_views.get(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
             ).migration_project.display_name
 
             def run_load(authorized_workspace, report_writing, report_verifying):
@@ -683,12 +694,14 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     current_snapshot,
                     expected_preflight_hash=report.content_hash,
                     executor=executor,
-                    actor=context.actor,
+                    actor=actor,
                     batch_rows=batch_rows,
                     read_identity=read_identity,
                     credential_binding_hash=credential.binding_hash,
                     write_identity=write_identity,
-                    protected_values=_protected_create_values(context, current),
+                    protected_values=_protected_create_values(
+                        context, current, actor=actor,
+                    ),
                     progress=report_writing,
                 )
                 report_verifying(run)
@@ -699,6 +712,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     credential,
                     scope,
                     run,
+                    actor=actor,
                 )
                 return LoadJobResult(
                     execution_run_id=run.run_id,
@@ -719,6 +733,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 ),
                 load_group_count=len(snapshot.relationship_plan.components),
                 access_context=access_context,
+                actor=actor,
                 work=run_load,
             )
         except (
@@ -823,6 +838,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 "preflight_hash",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         workspace = context.queries.get(workspace_id)
         active = _manager(context).active(workspace_id)
         if active is not None:
@@ -872,7 +888,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 )
             access_context = context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.EXPORT_PLAN_EXECUTE,
             )
             models = _destination_models(selection)
@@ -880,7 +896,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
             target_server = _target_server(workspace.destination_odoo_base_url)
             project_name = context.workspace_views.get(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
             ).migration_project.display_name
 
             def run_recovery(authorized_workspace, report_writing, report_verifying):
@@ -940,10 +956,12 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     workspace_id,
                     expected_execution_run_id=current_run.run_id,
                     reader=reader,
-                    actor=context.actor,
+                    actor=actor,
                     write_identity=write_identity,
                     write_credential_binding_hash=credential.binding_hash,
-                    protected_values=_protected_create_values(context, current),
+                    protected_values=_protected_create_values(
+                        context, current, actor=actor,
+                    ),
                 )
                 executor = context.write_executor_factory(
                     destination,
@@ -957,11 +975,13 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     expected_execution_run_id=current_run.run_id,
                     expected_preflight_hash=current_report.content_hash,
                     executor=executor,
-                    actor=context.actor,
+                    actor=actor,
                     read_identity=read_identity,
                     credential_binding_hash=credential.binding_hash,
                     write_identity=write_identity,
-                    protected_values=_protected_create_values(context, current),
+                    protected_values=_protected_create_values(
+                        context, current, actor=actor,
+                    ),
                     progress=report_writing,
                 )
                 report_verifying(resumed)
@@ -972,6 +992,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     credential,
                     scope,
                     resumed,
+                    actor=actor,
                 )
                 return LoadJobResult(
                     execution_run_id=resumed.run_id,
@@ -992,6 +1013,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 ),
                 load_group_count=len(snapshot.relationship_plan.components),
                 access_context=access_context,
+                actor=actor,
                 work=run_recovery,
             )
         except (
@@ -1027,6 +1049,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
     async def reconcile_transfer_load(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "execution_run_id"})
+        actor = request_identity(request, context.identity_resolver).actor
         workspace = context.queries.get(workspace_id)
         try:
             run = context.execution.current_transfer_run(workspace_id)
@@ -1066,10 +1089,12 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 expected_execution_run_id=run.run_id,
                 reader=reader,
-                actor=context.actor,
+                actor=actor,
                 write_identity=identity,
                 write_credential_binding_hash=credential.binding_hash,
-                protected_values=_protected_create_values(context, workspace),
+                protected_values=_protected_create_values(
+                    context, workspace, actor=actor,
+                ),
             )
         except (
             AuthorizationError,

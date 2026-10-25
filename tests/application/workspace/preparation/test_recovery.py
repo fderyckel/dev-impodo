@@ -42,7 +42,7 @@ class PreparationResultRecoveryTests(TestCase):
     def exited_worker(self, job, *, terminal=None):
         process = Mock(is_alive=Mock(return_value=False))
         events = Mock(get_nowait=Mock(side_effect=[terminal, Empty()] if terminal else Empty()))
-        self.manager._supervise(job.job_id, process, events)
+        self.manager._supervise(job.job_id, process, events, LOCAL_ACTOR)
         process.join.assert_called_once()
         events.close.assert_called_once()
         return self.manager.get(self.workspace.workspace_id, job.job_id)
@@ -134,7 +134,12 @@ class PreparationResultRecoveryTests(TestCase):
              patch("impodo.web.run_commands._preparation_row_count", return_value=10), \
              patch("impodo.web.run_commands._migration_project_name", return_value="Customers"), \
              patch.object(self.manager, "_start"):
-            retried = enqueue_preparation(context, self.workspace.workspace_id, retry_job_id=previous.job_id)
+            retried = enqueue_preparation(
+                context,
+                self.workspace.workspace_id,
+                actor=LOCAL_ACTOR,
+                retry_job_id=previous.job_id,
+            )
         self.assertNotEqual(retried.job_id, previous.job_id)
         self.assertEqual(retried.workspace.mapping_content_hash, self.workspace.mapping_content_hash)
 
@@ -155,13 +160,20 @@ class PreparationResultRecoveryTests(TestCase):
                 WorkspaceError,
                 "Complete every Odoo capture plan",
             ):
-                enqueue_preparation(context, self.workspace.workspace_id)
+                enqueue_preparation(
+                    context, self.workspace.workspace_id, actor=LOCAL_ACTOR,
+                )
         workspace.assert_not_called()
 
     def test_unknown_retry_does_not_read_or_restore_saved_work(self):
         with patch("impodo.web.run_commands.recover_run_preparation") as recovery:
             with self.assertRaises(PreparationJobNotFoundError):
-                enqueue_preparation(NS(preparation_jobs=self.manager), self.workspace.workspace_id, retry_job_id="missing")
+                enqueue_preparation(
+                    NS(preparation_jobs=self.manager),
+                    self.workspace.workspace_id,
+                    actor=LOCAL_ACTOR,
+                    retry_job_id="missing",
+                )
         recovery.assert_not_called()
 
 
@@ -182,7 +194,7 @@ class RunRecoveryBoundaryTests(TestCase):
 
     def test_missing_session_reads_only_the_first_unverified_recipe(self):
         context = self.context()
-        recover_run_preparation(context, "run")
+        recover_run_preparation(context, "run", actor=LOCAL_ACTOR)
         context.preparation_recovery.current.assert_called_once_with("workspace", "mapping", actor=LOCAL_ACTOR)
 
     def test_active_or_later_progress_does_not_open_workspace_evidence(self):
@@ -192,22 +204,24 @@ class RunRecoveryBoundaryTests(TestCase):
         for status, job in cases:
             with self.subTest(status=status):
                 context = self.context(status=status, job=job)
-                recover_run_preparation(context, "run")
+                recover_run_preparation(context, "run", actor=LOCAL_ACTOR)
                 context.preparation_recovery.current.assert_not_called()
 
     def test_retained_failure_is_not_silently_replaced_by_older_success(self):
         context = self.context(job=NS(active=False, status=PreparationJobStatus.FAILED, failure_code="BAD_SOURCE"))
-        recover_run_preparation(context, "run")
+        recover_run_preparation(context, "run", actor=LOCAL_ACTOR)
         context.preparation_recovery.current.assert_not_called()
 
     def test_load_progress_prevents_preparation_recovery(self):
         context = self.context()
         context.load_jobs = Mock(latest_many=Mock(return_value={"workspace": NS(active=True)}))
-        recover_run_preparation(context, "run")
+        recover_run_preparation(context, "run", actor=LOCAL_ACTOR)
         context.preparation_recovery.current.assert_not_called()
 
     def test_terminal_snapshot_is_rechecked_after_duplicate_review_changes(self):
         context = self.context(job=NS(active=False, status=PreparationJobStatus.REVIEW_REQUIRED))
-        self.assertIsNone(recover_run_preparation(context, "run"))
+        self.assertIsNone(
+            recover_run_preparation(context, "run", actor=LOCAL_ACTOR)
+        )
         context.preparation_recovery.current.assert_called_once()
         context.preparation_jobs.restore_result.assert_not_called()

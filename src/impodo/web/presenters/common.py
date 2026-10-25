@@ -15,6 +15,7 @@ from impodo.domain.workspace.workbench import (
 )
 
 from ..context import WebContext
+from ..request_identity import request_identity
 from ..target_credentials import (
     TargetCredentialRole,
     get_target_credential_status,
@@ -42,6 +43,7 @@ def _render(
     supplied_navigation_read_ms = context.pop("_navigation_read_ms", None)
     supplied_read_credential_status = context.pop("_read_credential_status", None)
     application = request.app.state.context
+    actor = request_identity(request, application.identity_resolver).actor
     prompt_error = request.session.pop("read_credential_error", None)
     if (
         isinstance(workspace_state, WorkspaceState)
@@ -51,12 +53,13 @@ def _render(
         credential_owner = application.target_credential_workspace(
             workspace_state.workspace_id,
             workspace_state=workspace_state,
+            actor=actor,
         )
         access = getattr(request.state, "workspace_access_context", None)
         if access is None or access.workspace_id != workspace_state.workspace_id:
             access = application.workspace_access.resolve(
                 workspace_state.workspace_id,
-                actor=application.actor,
+                actor=actor,
                 capability=Capability.PROJECT_VIEW,
             )
         # Reuse only the exact owner and target already checked by this renderer.
@@ -101,7 +104,7 @@ def _render(
         started = perf_counter()
         workspace_view = application.workspace_views.get(
             workspace_state.workspace_id,
-            actor=application.actor,
+            actor=actor,
         )
         timings["owner_read"] = (perf_counter() - started) * 1000
     if (
@@ -111,7 +114,10 @@ def _render(
         assert workspace_view is not None
         if supplied_navigation_facts is None:
             started = perf_counter()
-            navigation_facts = application.navigation.get(workspace_state)
+            navigation_facts = application.navigation.get(
+                workspace_state,
+                actor=actor,
+            )
             timings["navigation_read"] = (perf_counter() - started) * 1000
         else:
             navigation_facts = supplied_navigation_facts

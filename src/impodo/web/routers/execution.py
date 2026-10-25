@@ -30,7 +30,7 @@ from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.project.foundation import MigrationConflictError
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.domain.run.production import ProductionRunError
-from impodo.domain.shared.access import AuthorizationError, Capability
+from impodo.domain.shared.access import Actor, AuthorizationError, Capability
 from impodo.domain.shared.models import (
     OdooReadIdentity,
     OdooWriteIdentity,
@@ -59,6 +59,7 @@ from ..diagnostics import LocalDiagnosticRecorder
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.navigation import build_load_workspace_navigation
+from ..request_identity import request_identity
 from ..run_commands import publish_reconciled_application
 from ..security import require_session
 from ..target_credentials import (
@@ -134,6 +135,8 @@ async def _probe_current_read_identity(
     context: WebContext,
     workspace_state: WorkspaceState,
     preview: ExecutionPreview,
+    *,
+    actor: Actor,
 ) -> tuple[OdooReadIdentity | None, str, str | None]:
     """Re-probe the exact comparison credential before any remote write."""
 
@@ -142,6 +145,7 @@ async def _probe_current_read_identity(
     credential_owner = context.target_credential_workspace(
         workspace_state.workspace_id,
         workspace_state=workspace_state,
+        actor=actor,
     )
     credential = get_target_credential(
         context.secret_store,
@@ -344,15 +348,17 @@ def _diagnostic_load_stage(
 def _load_job_display_context(
     context: WebContext,
     workspace_id: str,
+    *,
+    actor: Actor,
 ) -> tuple[str, str]:
-    workspace = context.migration_workspaces.get(workspace_id, actor=context.actor)
+    workspace = context.migration_workspaces.get(workspace_id, actor=actor)
     data_version = context.data_versions.get(
         workspace.data_version_id,
-        actor=context.actor,
+        actor=actor,
     )
     migration_project = context.migration_projects.get(
         workspace.project_id,
-        actor=context.actor,
+        actor=actor,
     )
     environment = {
         "PRODUCTION": "Production",
@@ -379,13 +385,15 @@ def build_execution_router(
         error: str | None = None,
         status_code: int = 200,
     ):
+        actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         credential_owner = context.target_credential_workspace(
             workspace_id,
             workspace_state=workspace_state,
+            actor=actor,
         )
         if preview is None:
-            preview = context.execution.current_preview(workspace_id)
+            preview = context.execution.current_preview(workspace_id, actor=actor)
         if preview is None:
             return RedirectResponse(
                 f"/workspaces/{workspace_id}/summary",
@@ -426,7 +434,7 @@ def build_execution_router(
                 try:
                     detail = context.reconciliation.current_detail(
                         workspace_id,
-                        actor=context.actor,
+                        actor=actor,
                     )
                 except WorkspaceError:
                     fallout_detail_available = False
@@ -486,7 +494,7 @@ def build_execution_router(
         ):
             access_context = context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.EXPORT_PLAN_EXECUTE,
             )
             correction_is_expected = (
@@ -498,7 +506,7 @@ def build_execution_router(
                 try:
                     correction_view = context.corrections.get(
                         workspace_id,
-                        actor=context.actor,
+                        actor=actor,
                     )
                 except (CorrectionOriginError, WorkspaceError) as error:
                     failure_code = getattr(
@@ -640,6 +648,7 @@ def build_execution_router(
     )
     async def confirm_load(request: Request, workspace_id: str):
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         active_job = _manager(context).active(workspace_id)
         if active_job is not None:
             return RedirectResponse(
@@ -676,7 +685,7 @@ def build_execution_router(
         try:
             context.cutover_plans.assert_application_can_execute(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
             )
         except MigrationConflictError as error:
             _flash(request, str(error))
@@ -707,7 +716,7 @@ def build_execution_router(
         return await run_page_read(render_outcome, request, workspace_id)
 
     def render_outcome(request: Request, workspace_id: str):
-        preview = context.execution.current_preview(workspace_id)
+        preview = context.execution.current_preview(workspace_id, actor=actor)
         if preview is None:
             return RedirectResponse(
                 f"/workspaces/{workspace_id}/summary",
@@ -731,11 +740,12 @@ def build_execution_router(
     )
     async def load_progress(request: Request, workspace_id: str, job_id: str):
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         job = _get_job(context, workspace_id, job_id)
-        workspace = context.migration_workspaces.get(workspace_id, actor=context.actor)
+        workspace = context.migration_workspaces.get(workspace_id, actor=actor)
         data_version = context.data_versions.get(
             workspace.data_version_id,
-            actor=context.actor,
+            actor=actor,
         )
         workspace_state = SimpleNamespace(
             workspace_id=job.workspace_id,
@@ -785,6 +795,7 @@ def build_execution_router(
                 "remember_write_api_key",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         request.session.pop(_LOAD_RECOVERY_CHECK_SESSION_KEY, None)
         active_job = _manager(context).active(workspace_id)
         if active_job is not None:
@@ -798,14 +809,14 @@ def build_execution_router(
                 workspace_state = context.queries.get(workspace_id)
                 context.workspace_access.resolve(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     capability=Capability.EXPORT_PLAN_EXECUTE,
                 )
                 context.cutover_plans.assert_application_can_execute(
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
-                preview = context.execution.current_preview(workspace_id)
+                preview = context.execution.current_preview(workspace_id, actor=actor)
                 if preview is None or preview.scope_error:
                     raise WorkspaceError(
                         preview.scope_error
@@ -826,6 +837,7 @@ def build_execution_router(
                 credential_owner = context.target_credential_workspace(
                     workspace_id,
                     workspace_state=workspace_state,
+                    actor=actor,
                 )
                 read_credential = None
                 if workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE:
@@ -923,7 +935,7 @@ def build_execution_router(
                 ),
                 write_identity=write_identity,
                 write_credential_generation=write_credential.binding_hash,
-                actor=context.actor,
+                actor=actor,
             )
             reader = context.readback_reader_factory(
                 workspace_state,
@@ -935,7 +947,7 @@ def build_execution_router(
                 workspace_id,
                 expected_execution_run_id=run.run_id,
                 reader=reader,
-                actor=context.actor,
+                actor=actor,
                 targeted=True,
                 write_identity=write_identity,
                 write_credential_binding_hash=write_binding,
@@ -945,7 +957,7 @@ def build_execution_router(
                 workspace_id,
                 expected_execution_run_id=run.run_id,
                 recovery=recovery,
-                actor=context.actor,
+                actor=actor,
                 write_identity=write_identity,
                 write_credential_binding_hash=write_binding,
             )
@@ -960,7 +972,7 @@ def build_execution_router(
                         workspace_state,
                         committed,
                         original_binding_hash=run.write_credential_binding_hash,
-                        actor=context.actor,
+                        actor=actor,
                     )
                     return committed
 
@@ -1025,6 +1037,7 @@ def build_execution_router(
                 "remember_api_key",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         with _diagnostic_load_stage(
             diagnostic_recorder,
             "submission_context",
@@ -1043,6 +1056,7 @@ def build_execution_router(
                 context.target_credential_workspace,
                 workspace_id,
                 workspace_state=workspace_state,
+                actor=actor,
             )
         try:
             with _diagnostic_load_stage(
@@ -1052,13 +1066,13 @@ def build_execution_router(
                 access_context = await run_in_threadpool(
                     context.workspace_access.resolve,
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                     capability=Capability.EXPORT_PLAN_EXECUTE,
                 )
                 await run_in_threadpool(
                     context.cutover_plans.assert_application_can_execute,
                     workspace_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
             batch_rows = (
                 None if recovering
@@ -1186,7 +1200,10 @@ def build_execution_router(
                         "The authorized workspace changed before the load began"
                     )
                 if recovering or prior_run_id:
-                    current_preview = context.execution.current_preview(workspace_id)
+                    current_preview = context.execution.current_preview(
+                        workspace_id,
+                        actor=actor,
+                    )
                     current_state = context.queries.get(workspace_id)
                     current_credential = get_target_credential(
                         context.secret_store,
@@ -1215,7 +1232,7 @@ def build_execution_router(
                             "before recovery began"
                         )
                     context.cutover_plans.assert_application_can_execute(
-                        workspace_id, actor=context.actor,
+                        workspace_id, actor=actor,
                     )
                 with _diagnostic_load_stage(
                     diagnostic_recorder,
@@ -1251,7 +1268,7 @@ def build_execution_router(
                             workspace_state,
                             TargetCredentialRole.WRITE,
                             write_credential,
-                            actor=context.actor,
+                            actor=actor,
                         )
                     if write_credential is None:
                         raise SecretStoreError(
@@ -1272,7 +1289,7 @@ def build_execution_router(
                         ),
                         write_identity=write_identity,
                         write_credential_generation=write_credential.binding_hash,
-                        actor=context.actor,
+                        actor=actor,
                     )
                 if prior_run_id:
                     with _diagnostic_load_stage(diagnostic_recorder, "close_prior_interrupted_load"):
@@ -1284,7 +1301,7 @@ def build_execution_router(
                             read_credential_binding_hash=read_credential_binding_hash,
                             write_identity=write_identity,
                             write_credential_binding_hash=write_credential.binding_hash,
-                            actor=context.actor,
+                            actor=actor,
                         )
                 if recovering:
                     with _diagnostic_load_stage(diagnostic_recorder, "recovery_readback"):
@@ -1295,7 +1312,7 @@ def build_execution_router(
                             workspace_id,
                             expected_execution_run_id=recovery_run_id,
                             reader=recovery_reader,
-                            actor=context.actor,
+                            actor=actor,
                             targeted=True,
                             write_identity=write_identity,
                             write_credential_binding_hash=(
@@ -1315,7 +1332,7 @@ def build_execution_router(
                             expected_execution_run_id=recovery_run_id,
                             recovery=recovery,
                             executor=executor,
-                            actor=context.actor,
+                            actor=actor,
                             write_identity=write_identity,
                             write_credential_binding_hash=(
                                 write_credential.binding_hash
@@ -1328,7 +1345,7 @@ def build_execution_router(
                             workspace_id,
                             expected_snapshot_hash=snapshot_hash,
                             executor=executor,
-                            actor=context.actor,
+                            actor=actor,
                             batch_rows=batch_rows,
                             read_identity=read_identity,
                             read_credential_binding_hash=read_credential_binding_hash,
@@ -1357,7 +1374,7 @@ def build_execution_router(
                             workspace_id,
                             expected_execution_run_id=run.run_id,
                             reader=reader,
-                            actor=context.actor,
+                            actor=actor,
                             write_identity=readback_identity,
                             write_credential_binding_hash=(
                                 write_credential.binding_hash
@@ -1387,6 +1404,7 @@ def build_execution_router(
                         completion_warning = _publish_completed_correction_origin(
                             context,
                             workspace_id,
+                            actor=actor,
                             diagnostic_recorder=diagnostic_recorder,
                         )
                 return LoadJobResult(
@@ -1405,6 +1423,7 @@ def build_execution_router(
                     _load_job_display_context,
                     context,
                     workspace_id,
+                    actor=actor,
                 )
                 job = _manager(context).enqueue(
                     workspace_id,
@@ -1425,6 +1444,7 @@ def build_execution_router(
                     ),
                     recovery_run=preview.current_run if recovering else None,
                     access_context=access_context,
+                    actor=actor,
                     work=run_load,
                 )
                 if recovering:
@@ -1467,6 +1487,7 @@ def build_execution_router(
                 "remember_api_key",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         active_job = _manager(context).active(workspace_id)
         if active_job is not None:
             return RedirectResponse(
@@ -1477,11 +1498,12 @@ def build_execution_router(
         credential_owner = context.target_credential_workspace(
             workspace_id,
             workspace_state=workspace_state,
+            actor=actor,
         )
         try:
             access_context = context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.EXPORT_PLAN_EXECUTE,
             )
             preview = await run_in_threadpool(
@@ -1530,7 +1552,7 @@ def build_execution_router(
                     workspace_state,
                     TargetCredentialRole.WRITE,
                     write_credential,
-                    actor=context.actor,
+                    actor=actor,
                 )
             reader = context.readback_reader_factory(
                 workspace_state,
@@ -1547,7 +1569,7 @@ def build_execution_router(
                 workspace_id,
                 expected_execution_run_id=_text(form, "execution_run_id"),
                 reader=reader,
-                actor=context.actor,
+                actor=actor,
                 write_identity=write_identity,
                 write_credential_binding_hash=(
                     write_credential.binding_hash if write_identity is not None else ""
@@ -1579,6 +1601,7 @@ def build_execution_router(
                 context,
                 access_context.recipe_application_id,
                 access_context.migration_run_id,
+                actor=actor,
             )
         elif (
             not report.unknown_count
@@ -1590,6 +1613,7 @@ def build_execution_router(
                 _publish_completed_correction_origin,
                 context,
                 workspace_id,
+                actor=actor,
                 diagnostic_recorder=diagnostic_recorder,
             )
             if completion_warning is not None:
@@ -1607,11 +1631,12 @@ def build_execution_router(
     @router.get("/workspaces/{workspace_id}/load/fallout.xlsx")
     async def download_fallout_workbook(request: Request, workspace_id: str):
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             generated = await run_in_threadpool(
                 context.fallout_workbooks.generate,
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
             )
         except (WorkspaceError, OSError, ValueError) as error:
             return Response(str(error), status_code=409, media_type="text/plain")
@@ -1932,6 +1957,7 @@ def _publish_completed_correction_origin(
     context: WebContext,
     workspace_id: str,
     *,
+    actor: Actor,
     diagnostic_recorder: LocalDiagnosticRecorder | None = None,
 ) -> LoadCompletionWarning | None:
     """Do not misreport a verified Odoo load if finalization needs recovery."""
@@ -1940,7 +1966,7 @@ def _publish_completed_correction_origin(
     try:
         context.corrections.publish_completed_load(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
         )
     except (CorrectionOriginError, WorkspaceError) as error:
         failure_code = getattr(

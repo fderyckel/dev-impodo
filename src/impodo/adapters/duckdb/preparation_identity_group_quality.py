@@ -10,6 +10,7 @@ every attempt, so historical runs need no storage migration or in-place repair.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator, Mapping, Sequence
 from hashlib import sha256
 
 from impodo.domain.preparation.quality import quality_dependency_reference_contexts
@@ -24,6 +25,43 @@ from .native_prepared_projection import projected_hybrid_dependency_rows_sql
 from .serialization import iter_encoded_json_batches
 
 _EDGE_STRUCTURE = '[{"child":"BIGINT","parent_dataset":"VARCHAR","identity_hash":"VARCHAR","identity_group":"BOOLEAN","target_field":"VARCHAR"}]'
+
+
+def _group_edge_rows(
+    batch: Sequence[tuple[int, object, object, object]],
+) -> Iterator[Mapping[str, object]]:
+    """Yield bounded identity-group edges without retaining the source page."""
+
+    for ordinal, identity_json, scope_json, references_json in batch:
+        identity = restore_portable_value(json.loads(str(identity_json)))
+        scope = restore_portable_value(json.loads(str(scope_json)))
+        references = restore_portable_value(json.loads(str(references_json)))
+        for (
+            reference,
+            identity_group,
+            target_field,
+        ) in quality_dependency_reference_contexts(
+            identity,
+            scope,
+            references,
+        ):
+            if not reference.dataset:
+                continue
+            yield {
+                "child": int(ordinal),
+                "parent_dataset": reference.dataset,
+                "identity_group": identity_group,
+                "target_field": target_field,
+                "identity_hash": "sha256:"
+                + sha256(
+                    canonical_json_bytes(
+                        {
+                            "dataset": reference.dataset,
+                            "source_identity": portable_value(reference.key),
+                        }
+                    )
+                ).hexdigest(),
+            }
 
 
 def _materialize_unsafe_group_rows(connection, session_id, unsafe_row_ids) -> None:
@@ -88,29 +126,9 @@ def _project_group_edges(connection, session_id: str) -> None:
     """Build complete symbolic facts from bounded identity and link projections."""
 
     for batch in _iter_group_projection_batches(connection, session_id):
-        def edges():
-            for ordinal, identity_json, scope_json, references_json in batch:
-                identity = restore_portable_value(json.loads(str(identity_json)))
-                scope = restore_portable_value(json.loads(str(scope_json)))
-                references = restore_portable_value(json.loads(str(references_json)))
-                for reference, identity_group, target_field in quality_dependency_reference_contexts(
-                    identity,
-                    scope,
-                    references,
-                ):
-                    if not reference.dataset:
-                        continue
-                    yield {
-                        "child": int(ordinal), "parent_dataset": reference.dataset,
-                        "identity_group": identity_group,
-                        "target_field": target_field,
-                        "identity_hash": "sha256:" + sha256(canonical_json_bytes({
-                            "dataset": reference.dataset,
-                            "source_identity": portable_value(reference.key),
-                        })).hexdigest(),
-                    }
         for encoded in iter_encoded_json_batches(
-            edges(), max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+            _group_edge_rows(batch),
+            max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
             max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
         ):
             connection.execute(

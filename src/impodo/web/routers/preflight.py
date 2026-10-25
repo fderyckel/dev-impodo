@@ -34,7 +34,7 @@ from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.workspace.access import bind_workspace_access_context
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.project.foundation import MigrationFoundationError
-from impodo.domain.shared.access import Capability
+from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.errors import WorkspaceDatabaseBusyError, WorkspaceError
 from impodo.domain.workspace.workbench import OdooConnectionMode, WorkspaceStateError
 from impodo.web.composition.target_readers import (
@@ -65,6 +65,7 @@ from ..presenters.common import _flash, _render
 from ..presenters.comparison_recovery import comparison_recovery_view
 from ..presenters.navigation import build_preflight_workspace_navigation
 from ..presenters.summary import _render_summary
+from ..request_identity import request_identity
 from ..run_commands import (
     publish_compared_application,
     publish_reconciled_application,
@@ -93,7 +94,13 @@ def _read_key_persistence(form) -> bool:
     )
 
 
-def _rebind_remote_read_access(context: WebContext, workspace_state, credential):
+def _rebind_remote_read_access(
+    context: WebContext,
+    workspace_state,
+    credential,
+    *,
+    actor: Actor,
+):
     """Verify and rebind a replacement key without recapturing semantic state."""
 
     if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
@@ -114,7 +121,7 @@ def _rebind_remote_read_access(context: WebContext, workspace_state, credential)
             snapshot,
             read_credential_binding_hash=credential.binding_hash,
             read_identity=identity,
-            actor=context.actor,
+            actor=actor,
         )
     except WorkspaceDatabaseBusyError:
         raise
@@ -164,9 +171,11 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             {"csrf_token", "read_api_key", "read_api_key_storage"},
         )
         workspace_state = context.queries.get(workspace_id)
+        actor = request_identity(request, context.identity_resolver).actor
         credential_owner = context.target_credential_workspace(
             workspace_id,
             workspace_state=workspace_state,
+            actor=actor,
         )
         verified_read_identity = None
         completed_without_load = False
@@ -178,13 +187,14 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 context,
                 workspace_state,
                 requirements,
+                actor=actor,
                 verified_read_identity=verified_read_identity,
             )
 
         try:
             access_context = context.workspace_access.resolve(
                 workspace_id,
-                actor=context.actor,
+                actor=actor,
                 capability=Capability.PREFLIGHT_RUN,
             )
             submitted_key = _text(form, "read_api_key")
@@ -209,7 +219,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     workspace_state,
                     TargetCredentialRole.READ,
                     credential,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 context.remote_connections.clear(workspace_id)
             else:
@@ -227,11 +237,12 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                             context,
                             workspace_state,
                             credential,
+                            actor=actor,
                         )
                     report = context.preflight.compare(
                         workspace_id,
                         reader=reader,
-                        actor=context.actor,
+                        actor=actor,
                         progress=lambda phase: report_progress(
                             PreflightPhase(phase)
                         ),
@@ -240,15 +251,19 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     preview = None
                     run = None
                     if access_context.recipe_application_id is not None:
-                        preview = context.execution.current_preview(workspace_id)
+                        preview = context.execution.current_preview(
+                            workspace_id,
+                            actor=actor,
+                        )
                         run = context.migration_runs.get(
                             access_context.migration_run_id,
-                            actor=context.actor,
+                            actor=actor,
                         )
                         publish_compared_application(
                             context,
                             access_context.recipe_application_id,
                             access_context.migration_run_id,
+                            actor=actor,
                         )
                     if (
                         access_context.recipe_application_id is not None
@@ -260,7 +275,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                         completed = context.execution.complete_no_changes(
                             workspace_id,
                             expected_snapshot_hash=preview.snapshot.semantic_hash,
-                            actor=context.actor,
+                            actor=actor,
                         )
                         readback = context.readback_reader_factory(
                             workspace_state,
@@ -271,7 +286,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                             workspace_id,
                             expected_execution_run_id=completed.run_id,
                             reader=readback,
-                            actor=context.actor,
+                            actor=actor,
                         )
                         if (
                             not verification.unknown_count
@@ -281,6 +296,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                                 context,
                                 access_context.recipe_application_id,
                                 access_context.migration_run_id,
+                                actor=actor,
                             )
                             completed_without_load = True
                     if completed_without_load:
@@ -332,12 +348,13 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     context,
                     workspace_state,
                     credential,
+                    actor=actor,
                 )
             report = await run_in_threadpool(
                 context.preflight.compare,
                 workspace_id,
                 reader=reader,
-                actor=context.actor,
+                actor=actor,
             )
             if access_context.recipe_application_id is not None:
                 preview = await run_in_threadpool(
@@ -346,13 +363,14 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 )
                 run = context.migration_runs.get(
                     access_context.migration_run_id,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 await run_in_threadpool(
                     publish_compared_application,
                     context,
                     access_context.recipe_application_id,
                     access_context.migration_run_id,
+                    actor=actor,
                 )
             if (
                 access_context.recipe_application_id is not None
@@ -365,7 +383,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     context.execution.complete_no_changes,
                     workspace_id,
                     expected_snapshot_hash=preview.snapshot.semantic_hash,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 readback = context.readback_reader_factory(
                     workspace_state,
@@ -377,7 +395,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     workspace_id,
                     expected_execution_run_id=completed.run_id,
                     reader=readback,
-                    actor=context.actor,
+                    actor=actor,
                 )
                 if not verification.unknown_count and not verification.fallout_count:
                     await run_in_threadpool(
@@ -385,6 +403,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                         context,
                         access_context.recipe_application_id,
                         access_context.migration_run_id,
+                        actor=actor,
                     )
                     completed_without_load = True
         except LocalOdooRecoveryRequired as error:
@@ -495,9 +514,10 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     )
     async def review_deferred_groups(request: Request, workspace_id: str):
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         context.workspace_access.resolve(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
             capability=Capability.PROTECTED_EVIDENCE_READ,
         )
         try:
@@ -542,9 +562,10 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     async def preview_deferred_groups(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "issue_id"})
+        actor = request_identity(request, context.identity_resolver).actor
         context.workspace_access.resolve(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
             capability=Capability.PROTECTED_EVIDENCE_READ,
         )
         selected = tuple(str(item) for item in form.getlist("issue_id"))
@@ -590,9 +611,10 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "issue_id", "comparison_id", "preview_hash"},
         )
+        actor = request_identity(request, context.identity_resolver).actor
         context.workspace_access.resolve(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
             capability=Capability.PREFLIGHT_RUN,
         )
         selected = tuple(str(item) for item in form.getlist("issue_id"))
@@ -615,7 +637,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 context.preflight.accept_deferred_scope,
                 workspace_id,
                 selected_issue_ids=selected,
-                actor=context.actor,
+                actor=actor,
             )
         except (
             ArtifactStoreError,
@@ -651,9 +673,10 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/summary/manifest")
     async def download_readiness_manifest(request: Request, workspace_id: str):
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         context.workspace_access.resolve(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
             capability=Capability.PROTECTED_EVIDENCE_READ,
         )
         report = context.preflight.current_report(workspace_id)
@@ -685,9 +708,10 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     async def generate_readiness_package(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
+        actor = request_identity(request, context.identity_resolver).actor
         access_context = context.workspace_access.resolve(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
             capability=Capability.PROTECTED_EVIDENCE_MANAGE,
         )
         report = context.preflight.current_report(workspace_id)
@@ -823,9 +847,10 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/summary/workbook")
     async def download_readiness_workbook(request: Request, workspace_id: str):
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         context.workspace_access.resolve(
             workspace_id,
-            actor=context.actor,
+            actor=actor,
             capability=Capability.PROTECTED_EVIDENCE_READ,
         )
         report = context.preflight.current_report(workspace_id)

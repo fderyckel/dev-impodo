@@ -8,10 +8,12 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.shared.access import Actor
 
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..request_identity import request_identity
 from ..security import require_session
 
 
@@ -30,11 +32,13 @@ def build_cutover_plans_router(context: WebContext) -> APIRouter:
         migration_run_id: str,
     ):
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
         return _render_qualification(
             request,
             context,
             project_id,
             migration_run_id,
+            actor=actor,
         )
 
     @router.post(
@@ -56,6 +60,7 @@ def build_cutover_plans_router(context: WebContext) -> APIRouter:
                 "expected_evidence_hash",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             context.cutover_plans.qualify(
                 project_id,
@@ -65,7 +70,7 @@ def build_cutover_plans_router(context: WebContext) -> APIRouter:
                 ),
                 expected_evidence_hash=_text(form, "expected_evidence_hash"),
                 operation_id=_text(form, "operation_id"),
-                actor=context.actor,
+                actor=actor,
             )
         except (MigrationFoundationError, TypeError, ValueError) as error:
             return _render_qualification(
@@ -73,6 +78,7 @@ def build_cutover_plans_router(context: WebContext) -> APIRouter:
                 context,
                 project_id,
                 migration_run_id,
+                actor=actor,
                 error=str(error),
                 status_code=422,
             )
@@ -101,6 +107,7 @@ def build_cutover_plans_router(context: WebContext) -> APIRouter:
                 "qualification_id",
             },
         )
+        actor = request_identity(request, context.identity_resolver).actor
         try:
             context.cutover_plans.select(
                 project_id,
@@ -109,7 +116,7 @@ def build_cutover_plans_router(context: WebContext) -> APIRouter:
                     _text(form, "expected_workspace_revision")
                 ),
                 operation_id=_text(form, "operation_id"),
-                actor=context.actor,
+                actor=actor,
             )
         except (MigrationFoundationError, TypeError, ValueError) as error:
             return _render_qualification(
@@ -117,6 +124,7 @@ def build_cutover_plans_router(context: WebContext) -> APIRouter:
                 context,
                 project_id,
                 migration_run_id,
+                actor=actor,
                 error=str(error),
                 status_code=422,
             )
@@ -138,19 +146,20 @@ def _render_qualification(
     project_id: str,
     migration_run_id: str,
     *,
+    actor: Actor,
     error: str | None = None,
     status_code: int = 200,
 ):
-    project = context.migration_projects.get(project_id, actor=context.actor)
+    project = context.migration_projects.get(project_id, actor=actor)
     review = context.cutover_plans.review(
         project_id,
         migration_run_id,
-        actor=context.actor,
+        actor=actor,
     )
-    current = context.migration_projects.get(project_id, actor=context.actor)
+    current = context.migration_projects.get(project_id, actor=actor)
     recipes = {
         item.recipe_id: item
-        for item in context.recipes.list(project_id, actor=context.actor)
+        for item in context.recipes.list(project_id, actor=actor)
     }
     evidence = {item.application_id: item for item in review.evidence}
     issues = {

@@ -57,6 +57,7 @@ class _RunningWorker:
     events: Any
     cancel: Any
     supervisor: Thread
+    actor: Actor
 
 
 class PreparationJobManager:
@@ -69,7 +70,7 @@ class PreparationJobManager:
         process_context: BaseContext | None = None,
         max_workers: int = 1,
         build_contract: ApplicationBuildContract = PROCESS_BUILD_CONTRACT,
-        status_listener: Callable[[PreparationJob], None] | None = None,
+        status_listener: Callable[[PreparationJob, Actor], None] | None = None,
         diagnostic_recorder: LocalDiagnosticRecorder | None = None,
     ) -> None:
         import multiprocessing
@@ -85,18 +86,23 @@ class PreparationJobManager:
         self._workers: dict[str, _RunningWorker] = {}
         self._pending: dict[str, tuple[PreparationJob, Actor]] = {}
         self._status_listener = status_listener
-        self._result_reader: Callable[[PreparationJob], RecoveredPreparation | None] | None = None
+        self._result_reader: (
+            Callable[[PreparationJob, Actor], RecoveredPreparation | None] | None
+        ) = None
         self._diagnostic_recorder = diagnostic_recorder
 
     def set_status_listener(
         self,
-        listener: Callable[[PreparationJob], None] | None,
+        listener: Callable[[PreparationJob, Actor], None] | None,
     ) -> None:
         """Publish coarse run progress without coupling it to worker evidence."""
 
         self._status_listener = listener
 
-    def set_result_reader(self, reader: Callable[[PreparationJob], RecoveredPreparation | None]) -> None:
+    def set_result_reader(
+        self,
+        reader: Callable[[PreparationJob, Actor], RecoveredPreparation | None],
+    ) -> None:
         """Read committed evidence only after a child exits without its result."""
 
         self._result_reader = reader
@@ -213,9 +219,10 @@ class PreparationJobManager:
             if worker is not None:
                 worker.cancel.set()
                 return job
-            if self._pending.pop(job_id, None) is not None:
+            pending = self._pending.pop(job_id, None)
+            if pending is not None:
                 stopped = self.registry.mark_cancelled(job_id)
-                self._notify(stopped)
+                self._notify(stopped, pending[1])
                 self._schedule_locked()
                 return stopped
         return job
@@ -333,11 +340,11 @@ class PreparationJobManager:
         )
         supervisor = Thread(
             target=self._supervise,
-            args=(job.job_id, process, events),
+            args=(job.job_id, process, events, actor),
             name=f"impodo-preparation-supervisor-{job.job_id[:8]}",
             daemon=True,
         )
-        worker = _RunningWorker(process, events, cancel, supervisor)
+        worker = _RunningWorker(process, events, cancel, supervisor, actor)
         with self._lock:
             self._workers[job.job_id] = worker
         try:
@@ -351,11 +358,18 @@ class PreparationJobManager:
                     job.job_id,
                     "WORKER_START_FAILED",
                     "Impodo could not start preparation. Try again.",
-                )
+                ),
+                actor,
             )
             raise
 
-    def _supervise(self, job_id: str, process: Any, events: Any) -> None:
+    def _supervise(
+        self,
+        job_id: str,
+        process: Any,
+        events: Any,
+        actor: Actor,
+    ) -> None:
         terminal_received = False
         try:
             while process.is_alive():
@@ -363,45 +377,57 @@ class PreparationJobManager:
                     event = events.get(timeout=0.25)
                 except Empty:
                     continue
-                terminal_received = self._handle_event(job_id, event) or terminal_received
+                terminal_received = (
+                    self._handle_event(job_id, event, actor) or terminal_received
+                )
             process.join()
             while True:
                 try:
                     event = events.get_nowait()
                 except Empty:
                     break
-                terminal_received = self._handle_event(job_id, event) or terminal_received
+                terminal_received = (
+                    self._handle_event(job_id, event, actor) or terminal_received
+                )
             if not terminal_received:
                 current = self.registry.get_by_id(job_id)
                 if current.active:
                     recovered = None
                     if self._result_reader is not None:
                         try:
-                            recovered = self._result_reader(current)
+                            recovered = self._result_reader(current, actor)
                             if recovered is not None and recovered.mapping_content_hash != current.workspace.mapping_content_hash:
                                 raise PreparationJobStateError("Saved preparation belongs to another mapping")
                         except Exception:
                             recovered = None
                             logging.getLogger(__name__).exception("Could not recover saved preparation after worker exit")
                     if recovered is not None:
-                        self._notify(self._finish_recovered(job_id, recovered))
+                        self._notify(self._finish_recovered(job_id, recovered), actor)
                     else:
-                        self._notify(self.registry.mark_failed(
-                            job_id,
-                            "WORKER_EXITED",
-                            "Preparation stopped unexpectedly. Your previous saved "
-                            "evidence remains available. Return to the run to check it before trying again.",
-                        ))
+                        self._notify(
+                            self.registry.mark_failed(
+                                job_id,
+                                "WORKER_EXITED",
+                                "Preparation stopped unexpectedly. Your previous saved "
+                                "evidence remains available. Return to the run to check it before trying again.",
+                            ),
+                            actor,
+                        )
         finally:
             events.close()
             with self._lock:
                 self._workers.pop(job_id, None)
                 self._schedule_locked()
 
-    def _handle_event(self, job_id: str, event: tuple[Any, ...]) -> bool:
+    def _handle_event(
+        self,
+        job_id: str,
+        event: tuple[Any, ...],
+        actor: Actor,
+    ) -> bool:
         kind = str(event[0])
         if kind == "started":
-            self._notify(self.registry.mark_running(job_id))
+            self._notify(self.registry.mark_running(job_id), actor)
             return False
         if kind == "progress":
             self.registry.update_progress(
@@ -416,17 +442,18 @@ class PreparationJobManager:
             self._record_timing_event(event)
             return False
         if kind == "succeeded":
-            self._notify(self.registry.mark_succeeded(job_id, str(event[1])))
+            self._notify(self.registry.mark_succeeded(job_id, str(event[1])), actor)
             return True
         if kind == "review_required":
-            self._notify(self.registry.mark_review_required(job_id))
+            self._notify(self.registry.mark_review_required(job_id), actor)
             return True
         if kind == "cancelled":
-            self._notify(self.registry.mark_cancelled(job_id))
+            self._notify(self.registry.mark_cancelled(job_id), actor)
             return True
         if kind == "failed":
             self._notify(
-                self.registry.mark_failed(job_id, str(event[1]), str(event[2]))
+                self.registry.mark_failed(job_id, str(event[1]), str(event[2])),
+                actor,
             )
             return True
         return False
@@ -451,13 +478,13 @@ class PreparationJobManager:
                 "Could not record preparation timing diagnostics"
             )
 
-    def _notify(self, job: PreparationJob) -> None:
+    def _notify(self, job: PreparationJob, actor: Actor) -> None:
         """Keep a projection failure from changing preparation truth."""
 
         if self._status_listener is None:
             return
         try:
-            self._status_listener(job)
+            self._status_listener(job, actor)
         except Exception:
             logging.getLogger(__name__).exception(
                 "Could not publish Recipe preparation progress"

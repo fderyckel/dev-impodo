@@ -199,7 +199,7 @@ class LifecycleRouteContext:
 class QualityRouteContext:
     """Expose only the services used to edit mapping quality checks."""
 
-    actor: Actor
+    identity_resolver: RequestIdentityResolver
     queries: BrowserQueryService
     quality: QualityService
     transformation_impacts: TransformationImpactService
@@ -303,7 +303,7 @@ class WebContext:
         """Return the narrow dependency surface for mapping-quality routes."""
 
         return QualityRouteContext(
-            actor=self.actor,
+            identity_resolver=self.identity_resolver,
             queries=self.queries,
             quality=self.quality,
             transformation_impacts=self.transformation_impacts,
@@ -314,7 +314,7 @@ class WebContext:
         workspace_id: str,
         *,
         workspace_state: WorkspaceState | None = None,
-        actor: Actor | None = None,
+        actor: Actor,
     ) -> WorkspaceState:
         """Project current target details onto the shared credential owner."""
 
@@ -323,14 +323,13 @@ class WebContext:
             raise MigrationIdentifierConfusionError(
                 "The target credential request changed workspace identity"
             )
-        resolved_actor = actor or self.actor
         test_owner_id = self.test_runs.credential_workspace_id(
             workspace_id,
-            actor=resolved_actor,
+            actor=actor,
         )
         owner_id = self.production_runs.credential_workspace_id(
             test_owner_id,
-            actor=resolved_actor,
+            actor=actor,
         )
         if owner_id == current.workspace_id:
             return current

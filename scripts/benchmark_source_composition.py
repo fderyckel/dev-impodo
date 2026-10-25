@@ -29,16 +29,23 @@ from unittest.mock import patch
 import psutil
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE_ROOT = Path(
+    os.environ.get("IMPODO_SOURCE_COMPOSITION_SOURCE_ROOT", ROOT / "src")
+).resolve()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 import impodo.application.workspace.derived_entities as derived_application
+from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
+from impodo.domain.shared.models import canonical_json_bytes
+from impodo.domain.structural import execute_structural_rules
 from impodo.web.diagnostics import parse_server_timing
 from impodo.web.exact_join_forms import (
     available_exact_join_selection,
     exact_join_projection_candidates,
 )
+from impodo.web.presenters.schema import _dataset_choices
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     ProjectSetupBrowserTestCase,
@@ -141,19 +148,32 @@ def main() -> int:
 def _run_parent(rows_per_input: int, runs: int) -> dict[str, object]:
     cases: dict[str, object] = {}
     for case in CASES:
-        case_runs = [
-            _spawn_child(case, rows_per_input) for _run_number in range(1, runs + 1)
-        ]
+        case_runs = []
+        for run_number in range(1, runs + 1):
+            print(
+                f"Measuring {case} source composition, run {run_number}/{runs}",
+                file=sys.stderr,
+                flush=True,
+            )
+            case_runs.append(_spawn_child(case, rows_per_input))
         cases[case] = {
             "runs": case_runs,
             "summary": _case_summary(case_runs),
         }
     gates = _validate(cases, rows_per_input)
+    application_build_ids = {
+        run["application_build_id"]
+        for case in cases.values()
+        for run in case["runs"]
+    }
+    if len(application_build_ids) != 1:
+        raise RuntimeError("Measured processes did not use one application build")
     return {
         "result_schema_version": 1,
         "captured_at": datetime.now(UTC).isoformat(),
         "revision": _revision(),
         "worktree_dirty": _worktree_dirty(),
+        "application_build_id": application_build_ids.pop(),
         "environment": {
             "platform": platform.platform(),
             "python": platform.python_version(),
@@ -175,7 +195,7 @@ def _run_parent(rows_per_input: int, runs: int) -> dict[str, object]:
 
 def _spawn_child(case: str, rows_per_input: int) -> dict[str, object]:
     environment = os.environ.copy()
-    source_path = str(ROOT / "src")
+    source_path = str(SOURCE_ROOT)
     environment["PYTHONPATH"] = (
         source_path
         if not environment.get("PYTHONPATH")
@@ -253,6 +273,13 @@ def _run_child(case: str, rows_per_input: int) -> dict[str, object]:
         if plan is None or len(plan.join_reviews) != 1:
             raise RuntimeError("Saved join review was not persisted")
         review = plan.join_reviews[0].review.to_dict()
+        semantic_output = _semantic_output(
+            harness,
+            workspace_id,
+            selection,
+            plan,
+            by_name,
+        )
         semantic_review = {
             key: value
             for key, value in review.items()
@@ -260,11 +287,13 @@ def _run_child(case: str, rows_per_input: int) -> dict[str, object]:
         }
         return {
             "case": case,
+            "application_build_id": PROCESS_BUILD_CONTRACT.application_build_id,
             "fixture": fixture.evidence(),
             "rows_per_input": rows_per_input,
             "preview": preview,
             "save": saved,
             "semantic_review": semantic_review,
+            "semantic_output": semantic_output,
             "persisted_output_table_hash": review["output_table_hash"],
             "persisted_lineage_hash": review["lineage_hash"],
             "odoo_calls": {
@@ -278,20 +307,76 @@ def _run_child(case: str, rows_per_input: int) -> dict[str, object]:
         harness.tearDown()
 
 
+def _semantic_output(harness, workspace_id, selection, plan, by_name):
+    """Hash values and physical lineage without random workspace identities."""
+
+    tables, _snapshots = harness.app.state.context.derived_entities._load_join_tables(
+        workspace_id,
+        selection,
+    )
+    execution = execute_structural_rules(
+        selection=selection,
+        loaded_tables=tables,
+        rules=plan.rules,
+    )
+    if len(execution.outputs) != 1:
+        raise RuntimeError("Qualification expected one structural output")
+    output = execution.outputs[0]
+    values = [
+        [row.values.get(header) for header in output.table.headers]
+        for row in output.table.rows
+    ]
+    roles = {
+        by_name["left_accounts"].dataset_id: "left",
+        by_name["right_details"].dataset_id: "right",
+    }
+    lineage = [
+        {
+            "output_row": row_number,
+            "sources": {
+                roles[dataset_id]: list(source_rows)
+                for dataset_id, source_rows in sorted(
+                    sources.items(),
+                    key=lambda item: roles[item[0]],
+                )
+            },
+        }
+        for row_number, sources in sorted(output.lineage.items())
+    ]
+    return {
+        "rows": len(values),
+        "columns": len(output.table.headers),
+        "values_sha256": "sha256:" + sha256(canonical_json_bytes(values)).hexdigest(),
+        "lineage_sha256": (
+            "sha256:" + sha256(canonical_json_bytes(lineage)).hexdigest()
+        ),
+    }
+
+
 def build_fixture(rows: int, payload_columns_per_side: int) -> Fixture:
     left_payload = tuple(f"Left{index:02}" for index in range(payload_columns_per_side))
-    right_payload = tuple(f"Right{index:02}" for index in range(payload_columns_per_side))
+    right_payload = tuple(
+        f"Right{index:02}" for index in range(payload_columns_per_side)
+    )
     left_lines = [",".join(("Partition", "Party", *left_payload))]
     right_lines = [",".join(("Partition", "RecId", *right_payload))]
     for index in range(1, rows + 1):
         left_lines.append(
             ",".join(
-                ("part-1", str(index), *(_value("L", column, index) for column in left_payload))
+                (
+                    "part-1",
+                    str(index),
+                    *(_value("L", column, index) for column in left_payload),
+                )
             )
         )
         right_lines.append(
             ",".join(
-                ("part-1", str(index), *(_value("R", column, index) for column in right_payload))
+                (
+                    "part-1",
+                    str(index),
+                    *(_value("R", column, index) for column in right_payload),
+                )
             )
         )
     return Fixture(
@@ -331,11 +416,17 @@ def _freeze_fixture(harness: _BrowserHarness, fixture: Fixture):
         follow_redirects=False,
     )
     if uploaded.status_code != 303:
-        raise RuntimeError(f"Upload failed: {uploaded.text[:500]}")
+        message = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", uploaded.text))
+        raise RuntimeError(
+            f"Upload failed ({uploaded.status_code}): {message[:1_000]}"
+        )
     context = harness.app.state.context
     registered = harness._post(
         f"/workspaces/{workspace_id}/register",
-        {"csrf_token": harness.csrf, "revision": str(context.queries.get(workspace_id).revision)},
+        {
+            "csrf_token": harness.csrf,
+            "revision": str(context.queries.get(workspace_id).revision),
+        },
     )
     if registered.status_code != 303:
         raise RuntimeError(f"Register failed: {registered.text[:500]}")
@@ -355,10 +446,22 @@ def _freeze_fixture(harness: _BrowserHarness, fixture: Fixture):
             follow_redirects=False,
         )
         if confirmed.status_code != 303:
-            raise RuntimeError(f"Configure failed: {confirmed.text[:500]}")
+            message = re.sub(
+                r"\s+",
+                " ",
+                re.sub(r"<[^>]+>", " ", confirmed.text),
+            )
+            raise RuntimeError(
+                f"Configure failed ({confirmed.status_code}): {message[:1_000]}"
+            )
+    choices = _dataset_choices(context, workspace_id)
     names = {
-        index: "left_accounts" if catalog.display_name == "left.csv" else "right_details"
-        for index, catalog in enumerate(catalogs)
+        index: (
+            "left_accounts"
+            if choice["file_name"] == "left.csv"
+            else "right_details"
+        )
+        for index, choice in enumerate(choices)
     }
     frozen = harness.client.post(
         f"/workspaces/{workspace_id}/datasets/freeze",
@@ -370,7 +473,10 @@ def _freeze_fixture(harness: _BrowserHarness, fixture: Fixture):
         follow_redirects=False,
     )
     if frozen.status_code != 303:
-        raise RuntimeError(f"Freeze failed: {frozen.text[:500]}")
+        message = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", frozen.text))
+        raise RuntimeError(
+            f"Freeze failed ({frozen.status_code}): {message[:1_000]}"
+        )
     selection = context.queries.get_source_selection(workspace_id)
     if selection is None:
         raise RuntimeError("Frozen source selection is missing")
@@ -462,7 +568,10 @@ def _measure_request(request) -> tuple[dict[str, object], object]:
         patch.object(
             derived_application,
             "load_source_snapshot_table",
-            timed("source_snapshot_load", derived_application.load_source_snapshot_table),
+            timed(
+                "source_snapshot_load",
+                derived_application.load_source_snapshot_table,
+            ),
         ),
         patch.object(
             derived_application,
@@ -496,7 +605,9 @@ def _measure_request(request) -> tuple[dict[str, object], object]:
                 **{key: round(value, 3) for key, value in sorted(phases.items())},
                 "other_request_work": round(max(0.0, wall_ms - measured), 3),
             },
-            "server_timings_ms": parse_server_timing(response.headers.get("server-timing", "")),
+            "server_timings_ms": parse_server_timing(
+                response.headers.get("server-timing", "")
+            ),
             "database": {
                 "connect_ms": round(database_timings.connect_ms, 3),
                 "schema_ms": round(database_timings.schema_ms, 3),
@@ -516,7 +627,10 @@ def _case_summary(runs: list[dict[str, object]]) -> dict[str, object]:
         request_runs = [run[request_name] for run in runs]
         assert all(isinstance(item, dict) for item in request_runs)
         summary[request_name] = {
-            metric: round(statistics.median(float(item[metric]) for item in request_runs), 3)
+            metric: round(
+                statistics.median(float(item[metric]) for item in request_runs),
+                3,
+            )
             for metric in ("wall_ms", "cpu_ms", "peak_rss_delta_mib", "response_bytes")
         }
         phase_names = sorted(
@@ -543,25 +657,39 @@ def _validate(cases: dict[str, object], rows_per_input: int) -> dict[str, object
             for run in runs
         }
         semantics = {json.dumps(run["semantic_review"], sort_keys=True) for run in runs}
+        semantic_outputs = {
+            json.dumps(run["semantic_output"], sort_keys=True) for run in runs
+        }
         if len(fixture_hashes) != 1:
             raise RuntimeError(f"{case} fixture hashes drifted across fresh processes")
         if len(semantics) != 1:
             raise RuntimeError(f"{case} join semantics drifted across fresh processes")
+        if len(semantic_outputs) != 1:
+            raise RuntimeError(
+                f"{case} output values or physical lineage drifted across fresh processes"
+            )
         for run in runs:
             review = run["semantic_review"]
             if review["actual_output_rows"] != rows_per_input or review["findings"]:
                 raise RuntimeError(f"{case} did not preserve the declared join grain")
             if any(run["odoo_calls"].values()):
-                raise RuntimeError(f"{case} contacted Odoo during local source composition")
+                raise RuntimeError(
+                    f"{case} contacted Odoo during local source composition"
+                )
             for request_name in ("preview", "save"):
                 database = run[request_name]["database"]
                 if not 0 < database["connection_count"] <= CONNECTION_CEILING:
-                    raise RuntimeError(f"{case} {request_name} exceeded connection ownership")
+                    raise RuntimeError(
+                        f"{case} {request_name} exceeded connection ownership"
+                    )
                 if database["schema_check_count"] > SCHEMA_CHECK_CEILING:
-                    raise RuntimeError(f"{case} {request_name} exceeded schema ownership")
+                    raise RuntimeError(
+                        f"{case} {request_name} exceeded schema ownership"
+                    )
     return {
         "deterministic_fixture_hashes": "passed",
         "exact_result_parity_across_fresh_processes": "passed",
+        "normalized_output_and_lineage_parity": "passed",
         "persisted_complete_review": "passed",
         "database_lifetime_ceilings": "passed",
         "zero_odoo_requests": "passed",

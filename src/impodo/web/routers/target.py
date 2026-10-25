@@ -350,10 +350,11 @@ def build_target_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "return_to"})
         workspace_state = context.queries.get(workspace_id)
+        actor = request_identity(request, context.identity_resolver).actor
         return_to = _LOCAL_STACK_RETURN_TARGET
         try:
             return_to = _local_stack_return_to(form)
-            _require_local_stack_access(context, workspace_state)
+            _require_local_stack_access(context, workspace_state, actor=actor)
             selected = context.local_stack.pick_config()
             if selected is None:
                 _flash(request, "No local Odoo setup was selected.")
@@ -387,10 +388,11 @@ def build_target_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "return_to"})
         workspace_state = context.queries.get(workspace_id)
+        actor = request_identity(request, context.identity_resolver).actor
         return_to = _LOCAL_STACK_RETURN_TARGET
         try:
             return_to = _local_stack_return_to(form)
-            _require_local_stack_access(context, workspace_state)
+            _require_local_stack_access(context, workspace_state, actor=actor)
             status = await run_in_threadpool(
                 context.local_stack.refresh,
                 workspace_id,
@@ -423,10 +425,11 @@ def build_target_router(context: WebContext) -> APIRouter:
             {"csrf_token", "confirm_start", "return_to"},
         )
         workspace_state = context.queries.get(workspace_id)
+        actor = request_identity(request, context.identity_resolver).actor
         return_to = _LOCAL_STACK_RETURN_TARGET
         try:
             return_to = _local_stack_return_to(form)
-            _require_local_stack_start(context, workspace_state)
+            _require_local_stack_start(context, workspace_state, actor=actor)
             if _text(form, "confirm_start") != "1":
                 raise LocalStackError(
                     "Confirm the detected paths before starting the local stack."
@@ -464,6 +467,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             {"csrf_token", "confirm_control", "action", "return_to"},
         )
         workspace_state = context.queries.get(workspace_id)
+        actor = request_identity(request, context.identity_resolver).actor
         return_to = _LOCAL_STACK_RETURN_TARGET
         action = _text(form, "action")
         try:
@@ -473,12 +477,12 @@ def build_target_router(context: WebContext) -> APIRouter:
                     "Confirm control of the Impodo-managed services first."
                 )
             if action == "stop":
-                _require_local_stack_stop(context, workspace_state)
+                _require_local_stack_stop(context, workspace_state, actor=actor)
                 await run_in_threadpool(context.local_stack.stop, workspace_id)
                 message = "The local Odoo services started by Impodo were stopped."
             elif action == "restart":
-                _require_local_stack_stop(context, workspace_state)
-                _require_local_stack_start(context, workspace_state)
+                _require_local_stack_stop(context, workspace_state, actor=actor)
+                _require_local_stack_start(context, workspace_state, actor=actor)
                 status = await run_in_threadpool(
                     context.local_stack.restart,
                     workspace_id,
