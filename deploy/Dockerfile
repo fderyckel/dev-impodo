@@ -48,4 +48,3 @@ WORKDIR /opt/impodo
 
 ENTRYPOINT ["impodo-server"]
 CMD ["web"]
-

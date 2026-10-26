@@ -64,4 +64,3 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 __all__ = ["CONFIGURATION_ERROR_EXIT", "build_parser", "main"]
-
