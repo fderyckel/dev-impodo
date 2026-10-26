@@ -647,12 +647,14 @@ adapters or enable server startup.
 passes its focused workflow suites. Architecture tests reject direct adapter
 dependencies and scattered deployment-mode branching.
 
-**Current exit-audit result, 2026-10-25.** The Odoo-source and fake-server
-composition checks pass. The complete architecture suite passes 66 of 68 cases;
-the remaining failures require splitting the oversized shared workflow style
-sheet and historical source-workflow test module. Phase 1 remains open until
-those maintainability limits pass, so the Linux container phase has not been
-formally opened.
+**Current exit-audit result, 2026-10-26.** The Odoo-source and fake-server
+composition checks pass. The Phase 1 architecture exit audit passed all 72
+cases. The shared workflow stylesheet and the four focused source-workflow
+test modules are below their enforced reviewability limits. That
+maintainability gate is closed. The two local-stack recovery fixtures now
+complete source inspection and table acceptance before testing recovery, and
+the two stale Recipe-run scenarios now respect the run-owned **Review and
+load** navigation. Phase 1 is closed and the Linux container phase is open.
 
 ### Phase 2 - Deliver the Linux container baseline
 
@@ -667,6 +669,17 @@ behavior.
 - Prove non-root execution, persistent mounts, private networking, health,
   readiness, controlled shutdown, and restart behavior.
 - Keep Odoo transport disabled in the empty deployment rehearsal.
+
+**Current implementation status, 2026-10-26.** The first production-image
+increment is present. One pinned, multi-stage Debian Bookworm image installs
+the non-editable package from `uv.lock`, runs as fixed user and group `10001`,
+keeps its application tree read-only, and names its writable artifact,
+runtime, and temporary paths. One fail-closed `impodo-server` entry point
+selects web, worker, migration, and administration roles without importing the
+local launcher. Docker is unavailable on the current verification host, so
+the image build, scan, and Linux-host rehearsal remain open. The complete
+repository suite now passes all 76 architecture cases, including the four
+container-contract cases.
 
 **Exit gate.** A clean supported Linux host can build or pull the pinned image,
 start the stack, pass HTTPS health checks, restart it, and prove that both

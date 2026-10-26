@@ -317,7 +317,7 @@ def _build_workbook(
         ],
         attention_rows
         or [
-            [
+            (
                 "Ready",
                 "",
                 "",
@@ -329,7 +329,7 @@ def _build_workbook(
                 "",
                 0,
                 "",
-            ]
+            )
         ],
         _COLORS["warning"],
     )
@@ -500,14 +500,14 @@ def _write_review_overview(
             f"{first_action.recommended_action}"
         )
 
-    summary_rows = [
-        ["Outcome", "Records"],
-        ["Will create", counts["CREATE"]],
-        ["Will update", counts["UPDATE"]],
-        ["No change", counts["UNCHANGED"]],
-        ["Needs attention", counts["AMBIGUOUS"]],
-        ["Cannot proceed", counts["BLOCKED"]],
-    ]
+    summary_rows: tuple[tuple[Any, ...], ...] = (
+        ("Outcome", "Records"),
+        ("Will create", counts["CREATE"]),
+        ("Will update", counts["UPDATE"]),
+        ("No change", counts["UNCHANGED"]),
+        ("Needs attention", counts["AMBIGUOUS"]),
+        ("Cannot proceed", counts["BLOCKED"]),
+    )
     for row_index, values in enumerate(summary_rows, start=4):
         for column_index, value in enumerate(values, start=1):
             sheet.cell(row=row_index, column=column_index, value=value)
@@ -549,29 +549,29 @@ def _write_review_overview(
             if deferred_preview.ready_with_records_set_aside
             else "Cannot proceed"
         )
-        decision_rows = [
-            ["Reviewed load scope", ""],
-            ["Status", review_status],
-            ["Prepared", deferred_preview.prepared_record_count],
-            ["Already set aside", deferred_preview.already_set_aside_count],
-            ["Newly set aside", deferred_preview.newly_set_aside_count],
-            ["Ready to write", deferred_preview.remaining_write_count],
-            [
+        decision_rows: tuple[tuple[Any, ...], ...] = (
+            ("Reviewed load scope", ""),
+            ("Status", review_status),
+            ("Prepared", deferred_preview.prepared_record_count),
+            ("Already set aside", deferred_preview.already_set_aside_count),
+            ("Newly set aside", deferred_preview.newly_set_aside_count),
+            ("Ready to write", deferred_preview.remaining_write_count),
+            (
                 "Still blocked",
                 deferred_preview.remaining_problem_record_count
                 + deferred_preview.remaining_run_issue_count,
-            ],
-        ]
+            ),
+        )
     else:
-        decision_rows = [
-            ["Review decision", ""],
-            ["Status", review_status],
-            ["Must fix items", must_fix_count],
-            ["Review items", review_count],
-            ["Next action", next_action],
-            ["Target", target_label],
-            ["Checked against Odoo", target.get("snapshot_timestamp")],
-        ]
+        decision_rows = (
+            ("Review decision", ""),
+            ("Status", review_status),
+            ("Must fix items", must_fix_count),
+            ("Review items", review_count),
+            ("Next action", next_action),
+            ("Target", target_label),
+            ("Checked against Odoo", target.get("snapshot_timestamp")),
+        )
     for row_index, values in enumerate(decision_rows, start=4):
         sheet.cell(row=row_index, column=4, value=values[0])
         sheet.cell(row=row_index, column=5, value=_safe_cell(values[1]))
@@ -599,42 +599,42 @@ def _write_review_overview(
         sheet["E8"].alignment = Alignment(vertical="top", wrap_text=True)
         sheet.row_dimensions[8].height = 44
 
-    preparation_rows = [
-        ["Prepared value feedback", "Cells", "Meaning"],
-        [
+    preparation_rows: tuple[tuple[Any, ...], ...] = (
+        ("Prepared value feedback", "Cells", "Meaning"),
+        (
             ReviewWorkbookCellStatus.CHANGED.value,
             feedback_counts.get(ReviewWorkbookCellStatus.CHANGED.value, 0),
             "Impodo transformed the source value.",
-        ],
-        [
+        ),
+        (
             ReviewWorkbookCellStatus.ADDED.value,
             feedback_counts.get(ReviewWorkbookCellStatus.ADDED.value, 0),
             "Impodo supplied a value through a prepared rule.",
-        ],
-        [
+        ),
+        (
             ReviewWorkbookCellStatus.REVIEW_RECOMMENDED.value,
             feedback_counts.get(
                 ReviewWorkbookCellStatus.REVIEW_RECOMMENDED.value,
                 0,
             ),
             "Review the field warning in Impodo.",
-        ],
-        [
+        ),
+        (
             ReviewWorkbookCellStatus.NEEDS_ATTENTION.value,
             feedback_counts.get(ReviewWorkbookCellStatus.NEEDS_ATTENTION.value, 0),
             "Resolve the field problem in Impodo.",
-        ],
-        [
+        ),
+        (
             ReviewWorkbookCellStatus.EMPTY_ALLOWED.value,
             feedback_counts.get(ReviewWorkbookCellStatus.EMPTY_ALLOWED.value, 0),
             "The blank has no current blocker.",
-        ],
-        [
+        ),
+        (
             ReviewWorkbookCellStatus.AS_PROVIDED.value,
             feedback_counts.get(ReviewWorkbookCellStatus.AS_PROVIDED.value, 0),
             "Impodo retained the prepared value.",
-        ],
-    ]
+        ),
+    )
     for row_index, values in enumerate(preparation_rows, start=11):
         for column_index, value in enumerate(values, start=1):
             sheet.cell(row=row_index, column=column_index, value=value)
@@ -1172,9 +1172,9 @@ def _record_value_columns(
                 or (trace_id, str(issue.get("field") or "")) not in cell_effects
             )
         )
-    pairs = sorted(pairs)
+    ordered_pairs = sorted(pairs)
     base_labels = [
-        _target_field_label(model, field, evidence) for model, field in pairs
+        _target_field_label(model, field, evidence) for model, field in ordered_pairs
     ]
     duplicate_labels = {
         label.casefold()
@@ -1182,7 +1182,7 @@ def _record_value_columns(
         if sum(item.casefold() == label.casefold() for item in base_labels) > 1
     }
     columns = []
-    for (model, field), label in zip(pairs, base_labels, strict=True):
+    for (model, field), label in zip(ordered_pairs, base_labels, strict=True):
         if label.casefold() in duplicate_labels:
             label = f"{label} ({_model_label(model, evidence)})"
         columns.append((model, field, label))

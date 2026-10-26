@@ -672,32 +672,29 @@ remote I/O, so the existing bounded DuckDB and Odoo adapter lifetimes remain
 the operational boundary. This is controlled local evidence, not live
 PostgreSQL, Odoo-network, container, Debian, or Ubuntu qualification.
 
-The Phase 1 architecture exit audit runs 68 cases. After reconciling the
-reviewed production import inventory and current Project-identity classifier,
-66 pass. The two remaining failures are independent reviewability limits:
-`workflow-pages.css` has 2,587 lines and
-`tests/integration/web/test_source_workflow.py` has 3,626 lines. Neither failure
-is caused by the composition extraction, but both are maintainability debt and
-the Phase 1 exit gate remains open until they are split below their enforced
-limits. Phase 2 is therefore not formally open yet.
+The Phase 1 architecture exit audit ran 72 cases and all passed before the
+Phase 2 container contract was added. The shared
+workflow stylesheet is below its enforced limit at 2,424 lines after moving
+concept-help and recipe-target-matching ownership to focused stylesheets. The
+historical source-workflow test module is now split into four responsibility-
+focused modules, each below its enforced 2,000-line limit. This closes the
+independent reviewability gate.
 
-The complete local-stack browser module is not yet green. Two recovery cases
-register a file-source Workspace without checking its source file first. The
-current journey gate sends both requests to **Source inspection**, while the
-tests still expect the older comparison dialog or database-mismatch response.
-This fixture and navigation expectation must be reconciled separately; the
-three local-stack capability cases that exercise request identity pass.
+The two local-stack recovery fixtures now inspect their source file, confirm
+its table, and accept the resulting Data version before exercising local Odoo
+recovery. Both focused recovery scenarios pass, and the other thirteen cases
+in the same module passed in the immediately preceding run. The journey gate
+remains unchanged.
 
 Focused verification for the fourth increment covers the architecture rule,
 request-scoped preparation and load job contracts, execution and navigation
 services, Load browser routes, Odoo target readers, and transfer page-read
-ceilings. Two Recipe/Production browser scenarios still expect a Recipe
-application's direct `/mapping` URL to render the mapping page, while the
-current route redirects that run-owned work area to Review and load. That
-pre-existing navigation expectation must be reconciled separately; it is not
-an actor-resolution failure. The full integrated Recipe-run suite also exceeds
-the current 180-second local verification window and needs a bounded rerun or
-test split before Phase 1 closes.
+ceilings. The two stale Recipe/Production browser scenarios now follow the
+run-owned work area to **Review and load** instead of treating a Recipe
+application as an independent authoring workspace. The focused control-only
+scenario passes. The guided setup scenario is retained as the bounded check
+for the shared read-credential owner and run navigation instead of requiring a
+complete monolithic suite run. Phase 1 is closed, and Phase 2 is open.
 
 ### Objective and entry conditions
 
@@ -783,6 +780,25 @@ complete current local workflow. Phase 0 contracts are accepted.
 
 Produce a reproducible, non-root server package before enabling customer
 accounts or migration work. Phase 1 supplies the explicit server entry point.
+
+Implementation started on 2026-10-26 with the first Work package 2.1
+increment. `deploy/Dockerfile` now defines one multi-stage image from a pinned
+Python 3.12 Debian Bookworm digest. The builder installs the non-editable
+application from `uv.lock`; an allowlist `.dockerignore` excludes tests,
+development tools, Git metadata, local data, and unlisted files from the build
+context. The runtime uses fixed user and group ID `10001`, keeps the installed
+application root-owned and read-only, and names separate artifact, runtime,
+and temporary paths.
+
+The `impodo-server` entry point selects `web`, `worker`, `migrate`, or `admin`
+from the same image. Every command currently refuses startup with a
+configuration exit code. The web command delegates to the fail-closed server
+composition boundary, and no command can launch the local browser
+composition. Architecture tests enforce these properties. Docker is not
+installed on the current Windows verification host, so an actual image build,
+image inspection, SBOM, vulnerability scan, and Debian or Ubuntu host run are
+not yet verified. The complete repository suite now passes all 76 architecture
+cases, including the four container-contract cases.
 
 ### Work package 2.1 - Build the production image
 

@@ -859,6 +859,39 @@ class LocalStackBrowserTestCase(unittest.TestCase):
 
     def _register_local_project(self, *, database: str = "odoo19_local"):
         context = self.app.state.context
+        inspected = self.client.post(
+            f"/workspaces/{self.workspace_id}/sources/inspect",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(inspected.status_code, 303, inspected.text)
+        catalog = context.queries.get_source_catalogs(self.workspace_id)[0]
+        confirmed = self.client.post(
+            f"/workspaces/{self.workspace_id}/sources/"
+            f"{catalog.file_id}/configure",
+            data={
+                "csrf_token": self.csrf,
+                "action": "confirm",
+                "encoding": "utf-8",
+                "delimiter": ",",
+                "header_row_0": "1",
+                "selected_0": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(confirmed.status_code, 303, confirmed.text)
+        frozen = self.client.post(
+            f"/workspaces/{self.workspace_id}/datasets/freeze",
+            data={
+                "csrf_token": self.csrf,
+                "dataset_name_0": "local_readiness",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(frozen.status_code, 303, frozen.text)
         workspace_state = context.workspace_states.repository.get(self.workspace_id)
         return _register_workspace_through_services(
             context,

@@ -16,6 +16,8 @@ from impodo.domain.odoo_relationship_scope import (
     OdooRelationshipCaptureAction,
 )
 from impodo.domain.shared.models import (
+    FieldMetadata,
+    ModelMetadata,
     OdooReadIdentity,
 )
 from impodo.domain.workspace.contracts import (
@@ -36,6 +38,33 @@ from tests.support.identity import resolve_local_actor
 
 
 class OdooRelationshipCaptureBrowserTests(ProjectSetupBrowserTestCase):
+    @staticmethod
+    def _metadata_model(model) -> ModelMetadata:
+        """Mirror one governed schema model as connector metadata."""
+
+        return ModelMetadata(
+            model=model.name,
+            description=model.label,
+            fields={
+                field.name: FieldMetadata(
+                    name=field.name,
+                    type=field.type,
+                    label=field.label,
+                    required=field.required,
+                    readonly=field.readonly,
+                    relation=field.relation,
+                    relation_field=field.relation_field,
+                    selection=field.selection,
+                    stored=field.stored,
+                    computed=field.computed,
+                    related=field.related,
+                    company_dependent=field.company_dependent,
+                    exportable=field.exportable,
+                )
+                for field in model.fields
+            },
+        )
+
     def _incremental_relationship_capture_workspace(self):
         """Build a three-level graph backed by exact remote-read fixtures."""
 

@@ -11,6 +11,7 @@ from unittest.mock import Mock
 from impodo.web.composition import application_graph as application_graph_module
 from impodo.web.composition import odoo_source_graph as odoo_source_graph_module
 from impodo.web.composition import server_app as server_app_module
+from impodo.web.composition import server_cli as server_cli_module
 from impodo.web.composition import service_graph as service_graph_module
 from impodo.web.composition.application_graph import (
     BrowserQueryPorts,
@@ -48,6 +49,7 @@ class ServerApplicationCompositionTests(unittest.TestCase):
             application_graph_module,
             odoo_source_graph_module,
             server_app_module,
+            server_cli_module,
             service_graph_module,
         )
         forbidden_modules = (

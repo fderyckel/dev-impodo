@@ -1053,38 +1053,38 @@ class CutoverPlanRepository:
                 revision.created_at.isoformat(),
             ],
         )
-        for item in revision.selected_revisions:
+        for selection in revision.selected_revisions:
             connection.execute(
                 "INSERT INTO cutover_plan_recipe VALUES (?, ?, ?, ?, ?)",
                 [
                     revision.cutover_plan_id,
                     revision.version,
-                    item.recipe_id,
-                    item.recipe_revision,
-                    item.semantic_hash,
+                    selection.recipe_id,
+                    selection.recipe_revision,
+                    selection.semantic_hash,
                 ],
             )
-        for item in revision.dependencies:
+        for dependency in revision.dependencies:
             connection.execute(
                 "INSERT INTO cutover_dependency VALUES (?, ?, ?, ?, ?, ?)",
                 [
                     revision.cutover_plan_id,
                     revision.version,
-                    item.before_recipe_id,
-                    item.after_recipe_id,
-                    item.kind,
-                    item.reason,
+                    dependency.before_recipe_id,
+                    dependency.after_recipe_id,
+                    dependency.kind,
+                    dependency.reason,
                 ],
             )
-        for item in revision.write_ownership:
+        for ownership in revision.write_ownership:
             connection.execute(
                 "INSERT INTO cutover_write_ownership VALUES (?, ?, ?, ?, ?)",
                 [
                     revision.cutover_plan_id,
                     revision.version,
-                    item.recipe_id,
-                    item.model,
-                    item.field,
+                    ownership.recipe_id,
+                    ownership.model,
+                    ownership.field,
                 ],
             )
 

@@ -20,10 +20,6 @@ from impodo.domain.odoo_relationship_scope import (
     relationship_scope_decisions,
 )
 from impodo.domain.odoo_source_scope import propose_related_odoo_data
-from impodo.domain.shared.models import (
-    FieldMetadata,
-    ModelMetadata,
-)
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
     OdooModelSummary,
@@ -214,33 +210,6 @@ class OdooRelationshipReviewBrowserTests(ProjectSetupBrowserTestCase):
             relationship_root_models=("x.root",),
         )
         return saved_state, decisions
-
-    @staticmethod
-    def _metadata_model(model) -> ModelMetadata:
-        """Mirror one governed schema model as connector metadata."""
-
-        return ModelMetadata(
-            model=model.name,
-            description=model.label,
-            fields={
-                field.name: FieldMetadata(
-                    name=field.name,
-                    type=field.type,
-                    label=field.label,
-                    required=field.required,
-                    readonly=field.readonly,
-                    relation=field.relation,
-                    relation_field=field.relation_field,
-                    selection=field.selection,
-                    stored=field.stored,
-                    computed=field.computed,
-                    related=field.related,
-                    company_dependent=field.company_dependent,
-                    exportable=field.exportable,
-                )
-                for field in model.fields
-            },
-        )
 
     def test_odoo_source_page_proposes_related_business_scope(self) -> None:
         workspace_state, schema = self._registered_remote_schema_workspace()

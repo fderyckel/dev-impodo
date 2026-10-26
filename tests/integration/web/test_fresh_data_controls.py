@@ -205,10 +205,15 @@ class FreshDataControlBrowserTests(TestCase):
         self.assertEqual(application.status, RecipeApplicationStatus.READY, context.run_planning.repository.list_issues(application.application_id))
         mapping = context.mapping_workspace.mappings.get_mapping_revision(application.workspace_id)
         self.assertEqual(mapping.definition.datasets[0].control_expectations[0].expected_total, "125.50")
-        page = self.client.get(f"/workspaces/{application.workspace_id}/mapping")
-        self.assertEqual(page.status_code, 200, page.text)
-        self.assertIn("Accepted control totals", page.text)
-        self.assertNotIn('name="control_expected_0_0"', page.text)
+        mapping_redirect = self.client.get(
+            f"/workspaces/{application.workspace_id}/mapping",
+            follow_redirects=False,
+        )
+        self.assertEqual(mapping_redirect.status_code, 303)
+        run_review = self.client.get(mapping_redirect.headers["location"])
+        self.assertEqual(run_review.status_code, 200, run_review.text)
+        self.assertIn("Review and load", run_review.text)
+        self.assertIn("uses saved Recipe rules", run_review.text)
         if not prepare:
             return application
         context.preparation.prepare(application.workspace_id, actor=actor)

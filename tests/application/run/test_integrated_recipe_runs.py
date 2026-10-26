@@ -2655,26 +2655,29 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             self.assertEqual(launched.status_code, 303)
             application = activated.applications[0]
             mapping_url = f"/workspaces/{application.workspace_id}/mapping"
-
-            mapping_page = browser.get(mapping_url)
-
-            self.assertEqual(mapping_page.status_code, 200, mapping_page.text)
-            self.assertNotIn("Workspace not found", mapping_page.text)
+            run_url = (
+                f"/projects/{project.project_id}/runs/"
+                f"{setup.run.migration_run_id}"
+            )
+            run_review = browser.get(mapping_url)
+            self.assertEqual(run_review.status_code, 200, run_review.text)
+            self.assertIn("Review and load", run_review.text)
+            self.assertIn("uses saved Recipe rules", run_review.text)
             quick_key_url = (
                 f"/projects/{project.project_id}/workspaces/"
-                f"{application.workspace_id}/target/read-credential/quick"
+                f"{setup.setup_workspace.workspace_id}/target/"
+                "read-credential/quick"
             )
-            self.assertIn(f'action="{quick_key_url}"', mapping_page.text)
             saved = browser.post(
                 quick_key_url,
                 data={
                     "csrf_token": re.search(
                         r'name="csrf_token" value="([^"]+)"',
-                        mapping_page.text,
+                        run_review.text,
                     ).group(1),
                     "read_api_key": "application-read-key",
                     "read_api_key_storage": "session",
-                    "return_to": mapping_url,
+                    "return_to": run_url,
                 },
                 headers={
                     "Origin": "http://testserver",
@@ -2682,8 +2685,7 @@ class IntegratedRecipeRunTests(unittest.TestCase):
                 },
             )
             self.assertEqual(saved.status_code, 200, saved.text)
-            self.assertEqual(saved.json()["return_to"], mapping_url)
-            self.assertEqual(browser.get(mapping_url).status_code, 200)
+            self.assertEqual(saved.json()["return_to"], run_url)
 
         setup_state = self.workspace_states.repository.get(
             setup.setup_workspace.workspace_id

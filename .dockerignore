@@ -1,0 +1,10 @@
+**
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!src/
+!src/**
+!deploy/
+!deploy/Dockerfile
+
