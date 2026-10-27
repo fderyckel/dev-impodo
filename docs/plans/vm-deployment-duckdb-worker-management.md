@@ -678,8 +678,93 @@ runtime, and temporary paths. One fail-closed `impodo-server` entry point
 selects web, worker, migration, and administration roles without importing the
 local launcher. Docker is unavailable on the current verification host, so
 the image build, scan, and Linux-host rehearsal remain open. The complete
-repository suite now passes all 76 architecture cases, including the four
+repository suite now passes all 78 architecture cases, including the four
 container-contract cases.
+
+The second increment adds a typed configuration boundary before every server
+role. It accepts non-secret public URL, trusted-proxy, PostgreSQL DSN-file,
+storage-root, secret-provider, capacity, log-level, and Odoo-egress settings;
+unknown production settings and raw secret-bearing alternatives fail closed.
+Odoo access stays disabled unless an exact destination policy is supplied.
+A separate storage policy requires private UID/GID `10001` writable roots and
+persistent artifact storage, and an immutable lifecycle admits work only after
+configuration, storage, PostgreSQL, and schema checks pass. Public liveness and
+readiness values reveal no customer or dependency details.
+
+The current wheel contains the server command, lifecycle, active-work, Linux
+web, and Uvicorn modules as well as its templates and static assets. A fresh
+Python 3.12 installation imports the process modules, constructs the trusted
+proxy configuration, and makes the unconfigured `web` command fail with the
+expected configuration exit code.
+
+The third increment adds an isolated ASGI control application with only
+generic, non-cached liveness and readiness routes. It also adds an atomic
+lifecycle owner and a Linux observer that parses mount facts, checks ownership
+and mode, and performs a temporary write probe before the existing policy can
+accept a storage root. The routes perform no local database work. Windows
+fixtures verify the route and parser behavior, but do not represent a Linux
+container run.
+
+The fourth increment adds a deployment-neutral runtime coordinator that runs
+the storage, PostgreSQL, and schema proofs in order before it admits work. It
+reports a bounded startup stage instead of copying a database or adapter error.
+It withdraws readiness before an explicit safe-checkpoint waiter runs, and a
+controlled checkpoint failure leaves the process draining for a retry. Linux
+composition binds the real mount observer without inventing dependency
+fallbacks. The ASGI lifespan runs synchronous startup and drain work outside
+the event-loop thread, so the health routes remain in-memory operations and do
+not open DuckDB or PostgreSQL connections.
+
+The fifth increment adds a locked Psycopg 3 binary dependency and a concrete
+Linux file-secret reader. PostgreSQL and proxy-secret references must be direct
+children of the configured root. Descriptor-relative no-follow reads accept
+only bounded, root-owned, service-group-readable, private regular files and do
+not retain or log their values.
+
+The Linux composition now binds one short-lived PostgreSQL startup inspector.
+It uses an autocommit, default-read-only session with bounded connect,
+statement, and lock timeouts; proves reachability; and then requires the exact
+`impodo-control-v1` version `1` contract in
+`impodo_control.schema_contract`. The same connection performs both checks and
+closes before readiness. Missing, old, new, duplicate, or unreadable schema
+state fails closed without returning connection detail.
+
+The sixth increment implements the private migration command with a separate
+privileged DSN. Runtime processes reject the migration setting, and the
+migration process rejects runtime, public URL, storage, worker, and Odoo
+settings. The runtime connection assumes the fixed `impodo_runtime` PostgreSQL
+role. The migration connection assumes the fixed `impodo_migrator` role, so
+DDL authority is not part of the web credential.
+
+One read-write migration transaction acquires an exclusive transaction-level
+advisory lock before it inspects or changes the schema. A durable ledger stores
+each version, name, and immutable statement checksum. The runner accepts only
+the exact known prefix, applies the remaining suffix in order, creates the
+version `1` schema contract, grants the runtime role read-only contract access,
+and commits the schema, ledger, and grants together. A repeat run is a no-op;
+an altered or future history is refused. Safe exit classes distinguish a
+retryable unavailable database from incompatible history or failed execution.
+
+The seventh increment replaces the injected checkpoint callback with one
+process-owned active-work gate. The runtime opens admission only after startup
+proofs pass. Pure ASGI middleware holds one lease through each full non-health
+HTTP or WebSocket scope. A stop signal closes admission and withdraws readiness
+before Uvicorn drains transports; lifespan waits outside the event loop for
+the remaining leases under the deadline established when drain began. Health
+routes stay available, while new application work receives a generic refusal.
+
+The `web` command now runs one production Uvicorn worker with explicit bind,
+trusted-proxy, logging, and shutdown settings. It still serves only health and
+lifecycle behavior. The shared Project and migration workflow graph remains
+fail closed until its PostgreSQL adapters are complete. Injected Windows tests
+prove signal ordering and full-response lease ownership, but do not constitute
+a live Linux process test.
+
+PostgreSQL volume validation, the external secret-provider adapter,
+database-role provisioning, Compose topology, image scan, and Debian and
+Ubuntu rehearsals remain open for the Docker-capable machine. The migration
+behavior is covered by injected Windows tests but has not yet run against a
+live PostgreSQL server.
 
 **Exit gate.** A clean supported Linux host can build or pull the pinned image,
 start the stack, pass HTTPS health checks, restart it, and prove that both

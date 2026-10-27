@@ -23,6 +23,7 @@ from impodo.domain.structural import ExactJoinRule
 from impodo.domain.workspace.derived_entities import (
     HierarchicalLookupRule,
     RelatedDatasetRule,
+    SourceDatasetUse,
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateError
@@ -45,6 +46,22 @@ from ..presenters.common import _flash
 from ..presenters.schema import _render_derived_entities
 from ..request_identity import request_identity
 from ..security import require_session
+
+
+def _related_source_dataset_use(value: str) -> SourceDatasetUse:
+    """Parse the two valid physical-input choices shown by the split wizard."""
+
+    try:
+        use = SourceDatasetUse(value or SourceDatasetUse.PREPARATION_ONLY)
+    except ValueError as error:
+        raise ValueError(
+            "Choose whether the original table should remain in Match data"
+        ) from error
+    if not use.is_preparation_input:
+        raise ValueError(
+            "A separated-table input must be Preparation only or Map and prepare"
+        )
+    return use
 
 
 def build_derived_entities_router(context: WebContext) -> APIRouter:
@@ -528,33 +545,45 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             "scope_column_key",
             "child_key_column_key",
             "blank_policy",
+            "source_dataset_use",
         }
         _secure_form(request, form, fields)
-        try:
-            rule, preview = context.derived_entities.preview_related_split(
-                workspace_id,
-                source_dataset_id=_text(form, "source_dataset_id"),
-                parent_dataset_name=_text(form, "parent_dataset_name"),
-                child_dataset_name=_text(form, "child_dataset_name"),
-                parent_key_column_key=_text(form, "parent_key_column_key"),
-                scope_column_key=_text(form, "scope_column_key") or None,
-                child_key_column_key=_text(form, "child_key_column_key"),
-                blank_policy=_text(form, "blank_policy"),
-            )
-        except (WorkspaceError, ValueError) as error:
-            return _render_derived_entities(
-                request,
-                context,
-                workspace_id,
-                error=str(error),
-                status_code=422,
-            )
-        return _render_derived_entities(
-            request,
-            context,
-            workspace_id,
-            pending_related={"rule": rule, "preview": preview},
-        )
+
+        def review_related_split():
+            try:
+                source_dataset_use = _related_source_dataset_use(
+                    _text(form, "source_dataset_use")
+                )
+                rule, preview = context.derived_entities.preview_related_split(
+                    workspace_id,
+                    source_dataset_id=_text(form, "source_dataset_id"),
+                    parent_dataset_name=_text(form, "parent_dataset_name"),
+                    child_dataset_name=_text(form, "child_dataset_name"),
+                    parent_key_column_key=_text(form, "parent_key_column_key"),
+                    scope_column_key=_text(form, "scope_column_key") or None,
+                    child_key_column_key=_text(form, "child_key_column_key"),
+                    blank_policy=_text(form, "blank_policy"),
+                )
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    pending_related={
+                        "rule": rule,
+                        "preview": preview,
+                        "source_dataset_use": source_dataset_use.value,
+                    },
+                )
+            except (WorkspaceError, ValueError) as error:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error=str(error),
+                    status_code=422,
+                )
+
+        return await run_local_operation(review_related_split)
 
     @router.post("/workspaces/{workspace_id}/derived-entities/related/save")
     async def save_workspace_related_datasets(
@@ -572,32 +601,43 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             "scope_column_key",
             "child_key_column_key",
             "blank_policy",
+            "source_dataset_use",
         }
         _secure_form(request, form, fields)
         actor = request_identity(request, context.identity_resolver).actor
-        try:
-            _plan, rule = context.derived_entities.save_related_split(
-                workspace_id,
-                source_dataset_id=_text(form, "source_dataset_id"),
-                parent_dataset_name=_text(form, "parent_dataset_name"),
-                child_dataset_name=_text(form, "child_dataset_name"),
-                parent_key_column_key=_text(form, "parent_key_column_key"),
-                scope_column_key=_text(form, "scope_column_key") or None,
-                child_key_column_key=_text(form, "child_key_column_key"),
-                blank_policy=_text(form, "blank_policy"),
-                expected_parent_version=_optional_int(
-                    _text(form, "expected_parent_version")
-                ),
-                actor=actor,
-            )
-        except (WorkspaceError, ValueError) as error:
-            return _render_derived_entities(
-                request,
-                context,
-                workspace_id,
-                error=str(error),
-                status_code=422,
-            )
+
+        def save_related_split():
+            try:
+                return context.derived_entities.save_related_split(
+                    workspace_id,
+                    source_dataset_id=_text(form, "source_dataset_id"),
+                    parent_dataset_name=_text(form, "parent_dataset_name"),
+                    child_dataset_name=_text(form, "child_dataset_name"),
+                    parent_key_column_key=_text(form, "parent_key_column_key"),
+                    scope_column_key=_text(form, "scope_column_key") or None,
+                    child_key_column_key=_text(form, "child_key_column_key"),
+                    blank_policy=_text(form, "blank_policy"),
+                    expected_parent_version=_optional_int(
+                        _text(form, "expected_parent_version")
+                    ),
+                    actor=actor,
+                    source_dataset_use=_related_source_dataset_use(
+                        _text(form, "source_dataset_use")
+                    ),
+                )
+            except (WorkspaceError, ValueError) as error:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error=str(error),
+                    status_code=422,
+                )
+
+        outcome = await run_local_operation(save_related_split)
+        if isinstance(outcome, HTMLResponse):
+            return outcome
+        _plan, rule = outcome
         _flash(
             request,
             (

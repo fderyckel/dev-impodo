@@ -10,8 +10,22 @@ from unittest.mock import Mock
 
 from impodo.web.composition import application_graph as application_graph_module
 from impodo.web.composition import odoo_source_graph as odoo_source_graph_module
+from impodo.web.composition import server_active_work as server_active_work_module
 from impodo.web.composition import server_app as server_app_module
 from impodo.web.composition import server_cli as server_cli_module
+from impodo.web.composition import server_config as server_config_module
+from impodo.web.composition import server_control_app as server_control_app_module
+from impodo.web.composition import (
+    server_linux_migration as server_linux_migration_module,
+)
+from impodo.web.composition import server_linux_web as server_linux_web_module
+from impodo.web.composition import server_linux_storage as server_linux_storage_module
+from impodo.web.composition import server_lifecycle as server_lifecycle_module
+from impodo.web.composition import server_linux_runtime as server_linux_runtime_module
+from impodo.web.composition import server_runtime as server_runtime_module
+from impodo.web.composition import server_runtime_app as server_runtime_app_module
+from impodo.web.composition import server_storage as server_storage_module
+from impodo.web.composition import server_uvicorn as server_uvicorn_module
 from impodo.web.composition import service_graph as service_graph_module
 from impodo.web.composition.application_graph import (
     BrowserQueryPorts,
@@ -48,8 +62,18 @@ class ServerApplicationCompositionTests(unittest.TestCase):
         modules = (
             application_graph_module,
             odoo_source_graph_module,
+            server_active_work_module,
             server_app_module,
             server_cli_module,
+            server_config_module,
+            server_control_app_module,
+            server_linux_web_module,
+            server_linux_storage_module,
+            server_lifecycle_module,
+            server_runtime_module,
+            server_runtime_app_module,
+            server_storage_module,
+            server_uvicorn_module,
             service_graph_module,
         )
         forbidden_modules = (
@@ -104,6 +128,43 @@ class ServerApplicationCompositionTests(unittest.TestCase):
             imported_modules,
         )
         self.assertTrue(forbidden_symbols.isdisjoint(imported_symbols))
+
+    def test_linux_runtime_imports_only_approved_server_adapters(self) -> None:
+        tree = ast.parse(inspect.getsource(server_linux_runtime_module))
+        adapter_imports = {
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and node.module.startswith("impodo.adapters")
+        }
+
+        self.assertEqual(
+            adapter_imports,
+            {
+                "impodo.adapters.postgresql.startup",
+                "impodo.adapters.secrets.linux_files",
+            },
+        )
+
+    def test_linux_migration_imports_only_approved_server_adapters(self) -> None:
+        tree = ast.parse(inspect.getsource(server_linux_migration_module))
+        adapter_imports = {
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and node.module.startswith("impodo.adapters")
+        }
+
+        self.assertEqual(
+            adapter_imports,
+            {
+                "impodo.adapters.postgresql.migrations",
+                "impodo.adapters.postgresql.startup",
+                "impodo.adapters.secrets.linux_files",
+            },
+        )
 
     def test_fake_server_ports_assemble_the_complete_application_graph(self) -> None:
         authorization = _fake("authorization")

@@ -127,6 +127,9 @@ stages:
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_lookup
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_join
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.save_join
+      - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_related_split
+      - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.save_related_split
+      - src/impodo/domain/workspace/derived_entities.py::source_dataset_uses_for_authoring
       - src/impodo/web/exact_join_forms.py::resolve_exact_join_request
       - src/impodo/web/exact_join_forms.py::exact_join_dataset_uses
       - src/impodo/application/odoo_source_capture_service.py::OdooSourceCaptureService.review_current_plans
@@ -176,6 +179,7 @@ stages:
       - tests/application/workspace/test_derived_entities.py
       - tests/application/workspace/test_exact_join_authoring.py
       - tests/integration/web/test_exact_join_workflow.py
+      - tests/integration/web/test_related_split_workflow.py
       - tests/integration/web/test_generic_source_composition.py
       - tests/integration/web/test_bom_source_composition.py
       - tests/domain/recipe/test_bom_source_composition.py
@@ -195,6 +199,7 @@ stages:
       - docs/user/guides/related-tables.md
       - docs/plans/source-table-composition.md
       - docs/testing/source-composition-scale-2026-10-24.md
+      - docs/testing/odoo20-local-community-canary-2026-10-08.md
       - docs/plans/stage-1-and-2-page-loading.md
       - docs/testing/stage12-page-loading-2026-10-07.md
       - docs/testing/stage12-shared-page-reads-2026-10-07.md

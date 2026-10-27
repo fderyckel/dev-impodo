@@ -35,7 +35,7 @@ from impodo.domain.workspace.contracts import (
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     SourceDatasetUse,
-    preparation_input_dataset_ids,
+    source_dataset_uses_for_authoring,
     validate_source_dataset_uses,
 )
 
@@ -324,18 +324,7 @@ def exact_join_dataset_uses(
     """Build a complete physical policy from visible input choices."""
 
     physical_ids = {dataset.dataset_id for dataset in selection.datasets}
-    if plan and plan.dataset_uses:
-        uses = validate_source_dataset_uses(selection, plan)
-    else:
-        prior_inputs = preparation_input_dataset_ids(plan.rules if plan else ())
-        uses = {
-            dataset_id: (
-                SourceDatasetUse.MAP_AND_PREPARE
-                if dataset_id in prior_inputs
-                else SourceDatasetUse.MAP_DIRECTLY
-            )
-            for dataset_id in physical_ids
-        }
+    uses = source_dataset_uses_for_authoring(selection, plan)
 
     for dataset_id, raw_use in (
         (request.left_dataset_id, submission.left_dataset_use),

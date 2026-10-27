@@ -64,8 +64,10 @@ server behavior.
 | Preparation, source capture, preflight, Recipe runs, loads, and corrections use several process-local managers and the in-process [`SerialJobRunner`](../../src/impodo/application/shared/serial_job_runner.py). | Migrate one job family at a time onto a common durable protocol while preserving action-specific safety. |
 | Architecture tests already enforce inward dependencies and adapter construction, and [`test_hosting_contracts.py`](../../tests/architecture/test_hosting_contracts.py) covers initial actor, artifact, job, and approval seams. | Expand these tests as server contracts become executable. Do not replace them with container-only end-to-end coverage. |
 
-No Dockerfile, Compose server topology, PostgreSQL control-plane repository,
-Organization dashboard, or corporate sign-in implementation is current.
+At the initial baseline, no Dockerfile, Compose server topology, PostgreSQL
+control-plane repository, Organization dashboard, or corporate sign-in
+implementation existed. The dated implementation status sections below
+supersede that baseline as each bounded increment lands.
 
 ## Non-negotiable implementation rules
 
@@ -791,14 +793,150 @@ application root-owned and read-only, and names separate artifact, runtime,
 and temporary paths.
 
 The `impodo-server` entry point selects `web`, `worker`, `migrate`, or `admin`
-from the same image. Every command currently refuses startup with a
-configuration exit code. The web command delegates to the fail-closed server
-composition boundary, and no command can launch the local browser
-composition. Architecture tests enforce these properties. Docker is not
-installed on the current Windows verification host, so an actual image build,
-image inspection, SBOM, vulnerability scan, and Debian or Ubuntu host run are
-not yet verified. The complete repository suite now passes all 76 architecture
-cases, including the four container-contract cases.
+from the same image. The web role now runs a production Uvicorn process that
+serves only the lifecycle application. The migration role runs the private
+PostgreSQL migration command. Worker and administration roles still refuse
+startup with a configuration exit code, and no command can launch the local
+browser composition. Docker is not installed on the current Windows
+verification host, so an actual image build, image inspection, SBOM,
+vulnerability scan, and Debian or Ubuntu host run are not yet verified.
+
+The second Phase 2 increment defines one typed, immutable configuration
+contract shared by every image role. It separates the public HTTPS origin,
+exact trusted-proxy networks, the web bind address and port, a bounded drain
+timeout, a PostgreSQL DSN *file reference*, artifact, runtime and temporary
+roots, a file or external secret provider, bounded worker capacity, log level,
+and an explicit Odoo egress mode. The parser
+rejects unknown `IMPODO_` production settings, raw database-DSN variables,
+invalid or overlapping paths, unbounded proxy trust, and secret references
+below writable data roots. Odoo egress defaults to an explicit disabled mode;
+enabled modes require exact destinations, and proxy credentials are accepted
+only by file reference.
+
+The same increment adds a platform-neutral mount-policy validator. The
+artifact root must be observed as persistent, while every writable root must
+exist, be a directory, be owned by UID and GID `10001`, deny world access, and
+be writable. PostgreSQL's service-owned data volume remains a Compose and
+host-rehearsal responsibility because it must not be mounted into the Impodo
+process. An immutable lifecycle model admits new work only after
+configuration, artifact, runtime, PostgreSQL, and schema checks pass; draining
+immediately withdraws readiness. Its public liveness and readiness payloads
+expose no dependency, Organization, Project, target, or secret detail.
+
+The current production wheel builds successfully, contains the server
+configuration, storage, lifecycle, active-work, Linux web, and Uvicorn modules
+plus the required web templates and static assets, and publishes the
+`impodo-server` console entry point. A fresh Python 3.12 installation imports
+those process modules, constructs the trusted-proxy Uvicorn configuration, and
+returns configuration exit code `78` when the web role has no settings.
+
+The third Phase 2 increment adds an isolated ASGI control application. It
+exposes only `GET /health/live` and `GET /health/ready`; documentation,
+OpenAPI, migration, Project, and administration routes are absent. Liveness
+does not inspect dependencies. Readiness returns HTTP `503` until the atomic
+process lifecycle admits new work, then returns HTTP `200`, and immediately
+returns `503` again when drain begins. Both responses disable caching and
+contain only a generic status.
+
+The Linux storage observer now parses `/proc/self/mountinfo`, selects the
+effective containing mount, distinguishes overlay and memory-backed storage
+from explicit persistent mounts, reads ownership and mode without following a
+root symlink, and performs a create, flush, and remove write probe. It produces
+the platform-neutral observations consumed by the existing storage policy.
+Windows tests use injected filesystem facts and representative Linux mount
+records; they do not claim that the observer has run inside the container.
+
+The fourth Phase 2 increment adds one deployment-neutral runtime coordinator.
+It validates the observed storage policy before it calls explicit PostgreSQL
+and schema probes, and it admits work only after every proof succeeds in that
+order. A bounded probe failure stops startup and reports only its stage; the
+underlying adapter message is not copied into the operational error. The
+coordinator withdraws readiness before it calls an explicit safe-checkpoint
+waiter. If that waiter reports a controlled failure, the process remains in
+the draining phase so an operator or process supervisor can retry rather than
+recording a false clean stop.
+
+A Linux composition binds the real mount observer to that coordinator without
+supplying dependency or checkpoint fallbacks. A separate ASGI lifespan
+runs the synchronous startup and drain operations in a worker thread, while
+the liveness and readiness routes continue to read only in-memory lifecycle
+state. Windows fixtures prove ordering, failure privacy, readiness withdrawal,
+retryable drain behavior, and lifespan integration.
+
+The fifth Phase 2 increment locks Psycopg 3 with its self-contained binary
+distribution and adds the concrete file-secret and PostgreSQL startup
+adapters. A file secret must be one direct child of the configured secret
+root. The reader opens the root and child through descriptor-relative,
+no-follow Linux operations; requires root ownership, service group `10001`,
+private root permissions, one regular non-hard-linked file readable by its
+owner and service group, at most 8 KiB, and exactly one trimmed UTF-8 line; and
+closes both descriptors without retaining or logging the value. Configuration
+also rejects PostgreSQL and proxy-secret references outside that direct-child
+boundary.
+
+Startup resolves the PostgreSQL DSN only when the proof runs, opens exactly
+one autocommit connection, assumes the fixed `impodo_runtime` database role,
+and closes it before startup completes. The session has a five-second connect
+timeout, read-only default transactions, a five-second statement timeout, and
+a one-second lock timeout. It proves the runtime role and reachability, then
+requires exactly one `control` row in
+`impodo_control.schema_contract` with generation `impodo-control-v1` and
+version `1`. Missing, older, newer, duplicate, or unreadable contract state
+fails closed without exposing a DSN or server error. The liveness and readiness
+routes still read only in-memory lifecycle state and never open a database.
+
+The sixth Phase 2 increment implements the private `impodo-server migrate`
+command. The command uses a separate, role-specific configuration that accepts
+only `IMPODO_POSTGRES_MIGRATION_DSN_FILE` and its secret-provider settings. The
+runtime parser rejects that privileged setting, while the migration parser
+rejects public URL, artifact, worker, Odoo, and runtime-DSN settings. A Compose
+migration service can therefore mount the migration credential without making
+it available to the web or worker process.
+
+The migration connection assumes the fixed `impodo_migrator` database role
+and owns one read-write transaction. Before any schema change, it acquires one
+exclusive transaction-level PostgreSQL advisory lock. It bootstraps the
+`impodo_control.schema_migration` ledger, verifies that every applied version,
+name, and SHA-256 checksum is the exact known prefix, and applies only the
+remaining immutable migrations in order. Migration `1` creates the schema
+contract and grants the `impodo_runtime` role only schema usage and contract
+read access. The migration row, contract, and grants commit atomically; a
+statement failure rolls them all back. A repeat run performs no migration, and
+an altered, missing-prefix, or future history fails closed instead of being
+rewritten.
+
+Connect, lock, statement, and idle-transaction timeouts bound the command.
+Operator output contains only current and applied version numbers. Retryable
+availability, incompatible history, configuration, and execution failures use
+separate process exit classes without exposing a DSN or PostgreSQL error. The
+implementation is fixture-tested on Windows, but has not run against a live
+PostgreSQL service or inside the Linux image.
+
+The seventh Phase 2 increment implements the process-local active-work
+checkpoint and production Uvicorn binding. The runtime opens work admission
+only after every startup proof passes. A pure ASGI middleware then retains one
+lease until each complete non-health HTTP or WebSocket scope returns. Health
+routes remain available during drain, while every new application scope
+receives a generic refusal after admission closes.
+
+The Uvicorn signal handler closes admission and withdraws readiness before it
+starts transport shutdown. The same monotonic deadline bounds Uvicorn's
+graceful request wait and the later active-work checkpoint, so lifespan does
+not create a fresh full drain interval after a signal. Lifespan performs the
+remaining checkpoint wait outside the event-loop thread. The process uses one
+Uvicorn worker, disables access and server-header output, and accepts proxy
+headers only from the configured exact trusted networks. The bind address,
+unprivileged port, and drain timeout are typed required settings.
+
+The production web command now runs this lifecycle-only application. It does
+not mount Project, migration, administration, or shared workflow routes; the
+separate fail-closed server application graph remains the boundary for that
+future composition. Injected Windows tests prove configuration, signal order,
+new-work refusal, full-response lease ownership, and command composition.
+
+The external secret-provider adapter, Compose topology, role provisioning,
+PostgreSQL volume validation, and a real Linux container and PostgreSQL run
+remain open.
 
 ### Work package 2.1 - Build the production image
 
@@ -843,6 +981,16 @@ temporary directory with the web process.
 - Keep development, container rehearsal, on-premises, and cloud examples
   separate. An example must contain only fictional values and secret names.
 
+Current status: separate typed runtime and migration configuration contracts
+are implemented. Each rejects settings owned by the other process role, so the
+web process cannot accept the privileged migration DSN reference. The
+platform-neutral Impodo-root policy and Linux mount observer have
+fixture-tested mount parsing, ownership, mode, and write-probe behavior. The
+Linux file-secret adapter validates a root-owned, service-group-readable,
+direct-child secret through no-follow descriptors. Real container execution,
+PostgreSQL service-volume validation, external secret-provider support, role
+provisioning, and separate fictional deployment examples remain open.
+
 ### Work package 2.4 - Add lifecycle endpoints and commands
 
 - A liveness endpoint reports only that the process loop is responsive.
@@ -855,6 +1003,20 @@ temporary directory with the web process.
   forward migration once.
 - Administrative commands bootstrap later phases without exposing a public
   setup route.
+
+Current status: the atomic lifecycle owner, readiness blockers, generic public
+payloads, controlled transition rules, and isolated ASGI health routes are
+implemented. The runtime coordinator orders storage, PostgreSQL, and schema
+proofs before accepting work. A process-owned gate admits each non-health ASGI
+scope and retains its lease through the full response. Signal handling closes
+that gate and withdraws readiness before Uvicorn drains transports. Lifespan
+then waits outside the event-loop thread for any remaining lease, using the
+deadline established when drain began. The health routes perform no DuckDB or
+PostgreSQL work. A concrete one-session Psycopg inspector proves bounded
+runtime-role reachability and exact schema generation before readiness. The
+private migration command applies a checksum-validated forward suffix in one
+transaction under an exclusive advisory lock. Later control-plane migrations,
+the shared application graph, and administrative implementations remain open.
 
 ### Work package 2.5 - Qualify Debian and Ubuntu hosts
 

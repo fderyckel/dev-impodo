@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -33,8 +34,10 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
+    RelatedDatasetRule,
     SourceDatasetUse,
     SourceDatasetUsePolicy,
+    related_dataset_links,
 )
 
 
@@ -344,6 +347,96 @@ class RecipeSourceCompositionRoundTripTests(unittest.TestCase):
                 loaded_tables=tables,
                 rules=(fresh_rule,),
             )
+
+    def test_related_split_and_retained_input_use_round_trip(self) -> None:
+        stock = _dataset(
+            "authoring-stock",
+            "stock_rows",
+            "stock-a",
+            (("Item", "item"), ("Batch", "batch"), ("Quantity", "quantity")),
+        )
+        authoring = _selection(stock, marker="stock-selection")
+        rule = RelatedDatasetRule(
+            rule_id=str(uuid4()),
+            source_dataset_id=stock.dataset_id,
+            parent_dataset_name="product_lots",
+            child_dataset_name="lotted_stock_rows",
+            parent_key_column_key="batch",
+            child_key_column_key="item",
+        )
+        plan = DerivedEntityPlan(
+            plan_id=str(uuid4()),
+            version=1,
+            workspace_id="authoring-workspace",
+            source_selection_hash=authoring.content_hash,
+            rules=(rule,),
+            updated_at=datetime.now(UTC),
+            updated_by=LOCAL_ACTOR.identity.display_name,
+            dataset_uses=(
+                SourceDatasetUsePolicy(
+                    stock.dataset_id,
+                    SourceDatasetUse.MAP_AND_PREPARE,
+                ),
+            ),
+        )
+        link = related_dataset_links(plan)[0]
+        effective_datasets = (
+            stock,
+            replace(
+                stock,
+                dataset_id=link.parent_dataset_id,
+                name=rule.parent_dataset_name,
+                columns=(stock.columns[1],),
+            ),
+            replace(
+                stock,
+                dataset_id=link.child_dataset_id,
+                name=rule.child_dataset_name,
+            ),
+        )
+        compiler = object.__new__(RecipeCompiler)
+        _datasets, dataset_ids, columns = compiler._source_identity(
+            effective_datasets
+        )
+        portable = compiler._preparation(
+            plan,
+            dataset_ids,
+            columns,
+            effective_datasets,
+        )
+
+        fresh_stock = _dataset(
+            "fresh-stock",
+            "stock_rows",
+            "stock-b",
+            (
+                ("Item", "fresh-item"),
+                ("Batch", "fresh-batch"),
+                ("Quantity", "fresh-quantity"),
+            ),
+            table_key="stock-2027.csv",
+        )
+        fresh = _selection(fresh_stock, marker="fresh-stock-selection")
+        rebuilt = _materialize(
+            portable,
+            fresh,
+            _fresh_bindings(authoring, fresh, dataset_ids, columns),
+        )
+
+        self.assertEqual(
+            rebuilt.dataset_uses,
+            (
+                SourceDatasetUsePolicy(
+                    fresh_stock.dataset_id,
+                    SourceDatasetUse.MAP_AND_PREPARE,
+                ),
+            ),
+        )
+        rebuilt_rule = rebuilt.rules[0]
+        assert isinstance(rebuilt_rule, RelatedDatasetRule)
+        self.assertEqual(rebuilt_rule.source_dataset_id, fresh_stock.dataset_id)
+        self.assertEqual(rebuilt_rule.parent_key_column_key, "fresh-batch")
+        self.assertEqual(rebuilt_rule.child_key_column_key, "fresh-item")
 
     def test_join_chain_rebinds_a_prior_logical_output(self) -> None:
         first = _customer_rule(self.accounts, self.parties)

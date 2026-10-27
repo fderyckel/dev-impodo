@@ -1638,11 +1638,20 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
 
     def test_stock_recipe_declares_fresh_parameters_and_quantity_control(self):
         project_id = str(uuid4())
+        lots = _dataset(
+            "Lots",
+            (
+                ("product_code", "string"),
+                ("lot_number", "string"),
+            ),
+            "b",
+        )
         stock = _dataset(
             "Stock Levels",
             (
                 ("product_code", "string"),
                 ("warehouse_code", "string"),
+                ("lot_number", "string"),
                 ("quantity", "decimal"),
             ),
             "c",
@@ -1653,15 +1662,45 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
             project_id,
             datetime.now(UTC),
             "Data manager",
-            (stock,),
+            (lots, stock),
             "sha256:" + "c" * 64,
         )
-        mapping = DatasetMapping(
+        lot_mapping = DatasetMapping(
+            dataset_id=lots.dataset_id,
+            target_model="stock.lot",
+            source_identity_column_keys=(
+                _column(lots, "product_code"),
+                _column(lots, "lot_number"),
+            ),
+            target_identity=(
+                IdentityComponentMapping(
+                    (_column(lots, "product_code"),),
+                    ("product_id",),
+                    resolver=RelationshipResolver(
+                        origin=ResolverOrigin.TARGET_CATALOG,
+                        model="product.product",
+                        key_mappings=(
+                            ReferenceKeyMapping(
+                                _column(lots, "product_code"),
+                                "default_code",
+                            ),
+                        ),
+                    ),
+                ),
+                IdentityComponentMapping(
+                    (_column(lots, "lot_number"),),
+                    ("name",),
+                ),
+            ),
+            approved_write_fields=("name", "product_id"),
+        )
+        stock_mapping = DatasetMapping(
             dataset_id=stock.dataset_id,
             target_model="stock.quant",
             source_identity_column_keys=(
                 _column(stock, "product_code"),
                 _column(stock, "warehouse_code"),
+                _column(stock, "lot_number"),
             ),
             target_identity=(
                 IdentityComponentMapping(
@@ -1692,21 +1731,70 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                         ),
                     ),
                 ),
+                IdentityComponentMapping(
+                    (
+                        _column(stock, "product_code"),
+                        _column(stock, "lot_number"),
+                    ),
+                    ("lot_id",),
+                    resolver=RelationshipResolver(
+                        origin=ResolverOrigin.DATASET,
+                        dataset_id=lots.dataset_id,
+                        key_mappings=(
+                            ReferenceKeyMapping(
+                                _column(stock, "product_code"),
+                                "product_id",
+                            ),
+                            ReferenceKeyMapping(
+                                _column(stock, "lot_number"),
+                                "name",
+                            ),
+                        ),
+                    ),
+                ),
             ),
             fields=(
                 ScalarFieldMapping(
-                    "inventory_quantity",
+                    "inventory_quantity_auto_apply",
                     _column(stock, "quantity"),
                     value_type="decimal",
                     required=True,
                 ),
             ),
-            approved_write_fields=("inventory_quantity",),
+            relationships=(
+                RelationshipMapping(
+                    "lot_id",
+                    "many2one",
+                    (
+                        _column(stock, "product_code"),
+                        _column(stock, "lot_number"),
+                    ),
+                    RelationshipResolver(
+                        origin=ResolverOrigin.DATASET,
+                        dataset_id=lots.dataset_id,
+                        key_mappings=(
+                            ReferenceKeyMapping(
+                                _column(stock, "product_code"),
+                                "product_id",
+                            ),
+                            ReferenceKeyMapping(
+                                _column(stock, "lot_number"),
+                                "name",
+                            ),
+                        ),
+                    ),
+                    required=True,
+                ),
+            ),
+            approved_write_fields=(
+                "inventory_quantity_auto_apply",
+                "lot_id",
+            ),
             control_definitions=(
                 BusinessControlDefinition(
                     control_id="stock-quantity",
                     name="Expected stock quantity",
-                    target_field="inventory_quantity",
+                    target_field="inventory_quantity_auto_apply",
                     unit="units",
                 ),
             ),
@@ -1715,7 +1803,7 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
         recipe = _publish(
             base_selection=selection,
             mapping_selection=selection,
-            mappings=(mapping,),
+            mappings=(lot_mapping, stock_mapping),
             models=(
                 SchemaModel(
                     "stock.quant",
@@ -1723,7 +1811,21 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                     (
                         _field("product_id", "many2one", relation="product.product"),
                         _field("location_id", "many2one", relation="stock.location"),
-                        _field("inventory_quantity", "float"),
+                        _field("lot_id", "many2one", relation="stock.lot"),
+                        _field("inventory_quantity_auto_apply", "float"),
+                    ),
+                ),
+                SchemaModel(
+                    "stock.lot",
+                    "Lot/Serial Number",
+                    (
+                        _field("name", required=True),
+                        _field(
+                            "product_id",
+                            "many2one",
+                            relation="product.product",
+                            required=True,
+                        ),
                     ),
                 ),
                 SchemaModel("product.product", "Product", (_field("default_code"),)),
@@ -1734,11 +1836,28 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
                 ),
             ),
             business_keys=(
-                _key("stock.quant", "product_id", "location_id"),
+                _key("stock.quant", "product_id", "location_id", "lot_id"),
+                _key("stock.lot", "product_id", "name"),
                 _key("product.product", "default_code"),
                 _key("stock.location", "x_warehouse_code"),
             ),
             parameters=(RecipeParameterDefinition("warehouse", "Warehouse", "string"),),
+        )
+
+        by_model = {
+            item["target_model"]: item for item in recipe["mapping"]["datasets"]
+        }
+        quant_recipe = by_model["stock.quant"]
+        self.assertEqual(
+            {item["target_field"] for item in quant_recipe["fields"]},
+            {"inventory_quantity_auto_apply"},
+        )
+        self.assertEqual(
+            {
+                (item["target_field"], item["target_dataset_id"])
+                for item in quant_recipe["relationships"]
+            },
+            {("lot_id", "dataset:lots")},
         )
 
         parameter_ids = {

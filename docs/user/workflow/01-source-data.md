@@ -65,6 +65,12 @@ Select **Add related table to Match data** only when that result is correct.
 The original source table stays unchanged, and this action does not create or
 change Odoo records.
 
+For **Create two related tables**, the original table is hidden from **Match
+data** by default. Choose **Yes - also keep the original table** only when
+different rows from that one table need a separate mapping. Then use **Rows to
+use** in **Match data** to keep those row populations disjoint. The accepted
+source remains unchanged whichever choice you make.
+
 Some related-table choices need the list of record types from your Odoo
 destination. If only the read-only key is missing, select **Enter key and show
 Odoo record types**. Impodo saves the key for this destination, loads the list,
@@ -249,12 +255,12 @@ The exact files, rows, hashes, and frozen snapshots belong only to this data
 version. A saved Recipe retains the reusable source shape and logical
 table and column bindings, not the source records.
 
-When a Recipe contains a combined table, it also retains the ordered exact
-join rules and whether each physical input was used only for preparation or
-also mapped directly. A later Test delivery may use different file names, but
-it must supply one unambiguous compatible table for every physical input. The
-fresh preparation checks the current rows again and stops if the added side is
-no longer unique or a required match is missing.
+When a Recipe contains combined or separated tables, it also retains the
+ordered preparation rules and whether each physical input was used only for
+preparation or also mapped directly. A later Test delivery may use different
+file names, but it must supply one unambiguous compatible table for every
+physical input. The fresh preparation checks the current rows again and stops
+if a saved rule is no longer satisfied.
 
 Every later data version must therefore start clean and accept its complete
 replacement delivery again. An integrated Test run can select different

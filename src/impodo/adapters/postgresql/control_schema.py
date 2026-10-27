@@ -1,0 +1,13 @@
+"""Name the PostgreSQL control schema and its least-privilege roles."""
+
+POSTGRESQL_CONTROL_SCHEMA_GENERATION = "impodo-control-v1"
+POSTGRESQL_CONTROL_SCHEMA_VERSION = 1
+POSTGRESQL_MIGRATION_ROLE = "impodo_migrator"
+POSTGRESQL_RUNTIME_ROLE = "impodo_runtime"
+
+__all__ = [
+    "POSTGRESQL_CONTROL_SCHEMA_GENERATION",
+    "POSTGRESQL_CONTROL_SCHEMA_VERSION",
+    "POSTGRESQL_MIGRATION_ROLE",
+    "POSTGRESQL_RUNTIME_ROLE",
+]

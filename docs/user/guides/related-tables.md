@@ -265,7 +265,8 @@ Choose:
   group value can occur in different contexts;
 - **Which field identifies each row within its group?**; and
 - whether missing required identity information stops preparation or is set
-  aside for review.
+  aside for review; and
+- whether the original table should also remain available in **Match data**.
 
 Select **Preview the related tables**. Check the group count, retained source
 rows, blank identities, duplicate row identifiers, normalization notices, and
@@ -281,8 +282,21 @@ For example, a bill-of-materials export might use:
 | Row identifier | Line sequence |
 
 Select **Create these separate tables** only when the preview groups the source
-rows correctly. The original source table remains unchanged for review, while
-the two generated tables become the tables used in **Match data**.
+rows correctly. Keep the default **No - use only the two resulting tables**
+when every accepted row belongs in the generated parent and child tables.
+
+Choose **Yes - also keep the original table** only when different row
+populations in one accepted table need separate mappings. All three tables then
+appear in **Match data**. Use **Rows to use** on the original and generated
+tables so one source row is not loaded through two mappings. For example, the
+generated child can use rows where a grouping value is present while the
+original table uses rows where that value is blank. This is a general dataset
+choice; it does not depend on a particular Odoo model.
+
+In both cases, the accepted physical table remains unchanged as evidence. A
+saved Recipe retains the split, the original-table choice, and the logical
+row filters, so a later data user applies the reviewed workflow instead of
+rebuilding it for every delivery.
 
 ![Current parent-and-child table form for information repeated across source rows.](../../images/user/07-related-parent-child.png)
 
@@ -291,6 +305,11 @@ the two generated tables become the tables used in **Match data**.
 Map both generated tables to their own Odoo models and business keys. The
 one-row-per-group identity uses the grouping value plus any additional
 separation. The retained-row identity adds the row identifier.
+
+When the original table also remains available, give it a complete identity
+for the rows it maps. Do not remove a nullable grouping field from an identity
+if doing so makes distinct source rows collapse onto the same destination
+record. Partition the row populations explicitly instead.
 
 An Odoo one2many list is owned by its child model's inverse many2one. Map the
 child table's many2one relationship to the incoming parent table. Do not map or

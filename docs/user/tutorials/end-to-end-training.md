@@ -271,6 +271,7 @@ Choose **Several rows describe the same record** for bom_source_rows and enter:
 | Which field groups rows together? | BOM Reference |
 | Which field identifies each row within its group? | Line No |
 | If required information is missing | Stop and ask |
+| Should Match data also show the original table? | No - use only the two resulting tables |
 
 Preview the grouping. The expanded training result is three BoM headers and
 eight retained component rows. Select **Create these separate tables**.

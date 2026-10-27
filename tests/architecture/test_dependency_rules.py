@@ -22,6 +22,8 @@ FORBIDDEN_IMPORTS = {
 ADAPTER_CONSTRUCTION_MODULES = frozenset(
     {
         "impodo.web.composition.local_app",
+        "impodo.web.composition.server_linux_migration",
+        "impodo.web.composition.server_linux_runtime",
         "impodo.web.capability_builders",
         "impodo.web.composition.cli",
         "impodo.web.composition.preparation_worker",
@@ -224,8 +226,7 @@ class ArchitectureDependencyRuleTests(unittest.TestCase):
             local_actor_imports,
             (),
             "New shared code must receive request identity instead of importing "
-            "LOCAL_ACTOR:\n"
-            + "\n".join(local_actor_imports),
+            "LOCAL_ACTOR:\n" + "\n".join(local_actor_imports),
         )
 
         server_adapter_imports = _server_adapter_import_violations(modules)

@@ -1277,6 +1277,50 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
             (dataset.columns[1].stable_key, dataset.columns[0].stable_key),
         )
         self.assertEqual(rule.parent_dataset_name, "product_categories")
+        self.assertEqual(
+            plan.dataset_uses,
+            (
+                SourceDatasetUsePolicy(
+                    dataset.dataset_id,
+                    SourceDatasetUse.PREPARATION_ONLY,
+                ),
+            ),
+        )
+
+    def test_related_split_can_keep_physical_source_for_separate_row_sets(
+        self,
+    ) -> None:
+        dataset = self.selection.datasets[0]
+
+        plan, _rule = self.service.save_related_split(
+            self.workspace_state.workspace_id,
+            source_dataset_id=dataset.dataset_id,
+            parent_dataset_name="product_lots",
+            child_dataset_name="lotted_stock_rows",
+            parent_key_column_key=dataset.columns[1].stable_key,
+            child_key_column_key=dataset.columns[0].stable_key,
+            scope_column_key=None,
+            blank_policy="block",
+            expected_parent_version=None,
+            actor=LOCAL_ACTOR,
+            source_dataset_use=SourceDatasetUse.MAP_AND_PREPARE,
+        )
+
+        effective = mapping_source_selection(self.selection, plan, (self.catalog,))
+
+        self.assertEqual(
+            tuple(item.name for item in effective.datasets),
+            ("products", "product_lots", "lotted_stock_rows"),
+        )
+        self.assertEqual(
+            plan.dataset_uses,
+            (
+                SourceDatasetUsePolicy(
+                    dataset.dataset_id,
+                    SourceDatasetUse.MAP_AND_PREPARE,
+                ),
+            ),
+        )
 
     def test_interrupted_plan_save_rolls_back_and_can_be_retried(self) -> None:
         plan = DerivedEntityPlan(

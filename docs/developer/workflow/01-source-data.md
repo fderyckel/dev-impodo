@@ -98,6 +98,24 @@ physical selection. The saved plan remains hash-bound and the existing atomic
 repository save invalidates current mapping and prepared evidence. Version 4
 and 5 plans retain their previous mapping inputs.
 
+The parent/child split wizard records the same generic use contract. Its
+default is `preparation_only`, which preserves the established behavior where
+the two generated datasets replace the physical input in **Match data**. The
+data manager can select `map_and_prepare` when disjoint row populations from
+the same accepted table need separate mappings. `source_dataset_uses_for_authoring`
+materializes a complete deterministic policy and preserves the effective
+mapping behavior of older plans that did not yet store explicit policies.
+`save_related_split` rejects `map_directly` because a saved split necessarily
+uses its physical input for preparation. There is no Odoo-model branch and no
+nullable-identity exception.
+
+The related preview and save routes run their validation, service work, and
+error rendering in one `run_local_operation` callback. The focused browser
+fixture proves that the service runs outside the event loop, the saved policy
+keeps the original plus both logical datasets visible, and preview and save
+stay within 12 DuckDB connections and 10 schema checks. These are controlled
+fixture ceilings, not live latency evidence.
+
 `DerivedEntityWorkspaceService.preview_join` now accepts one model-neutral
 `ExactJoinRequest`. It loads every verified physical snapshot once, evaluates
 the existing dependency-ordered structural chain, and uses
@@ -481,6 +499,7 @@ form token.
 | Derived downstream source gate | [`assess_source_stage_readiness`](../../../src/impodo/application/workspace/source_readiness.py) |
 | Odoo capture jobs | [`OdooCaptureJobManager`](../../../src/impodo/application/odoo_capture_job_service.py) |
 | Related-dataset plans | [`DerivedEntityWorkspaceService`](../../../src/impodo/application/workspace/derived_entities.py) |
+| Related split and physical-input choice | [`DerivedEntityWorkspaceService.save_related_split`](../../../src/impodo/application/workspace/derived_entities.py) and [`source_dataset_uses_for_authoring`](../../../src/impodo/domain/workspace/derived_entities.py) |
 | Exact-join form resolution | [`exact_join_forms.py`](../../../src/impodo/web/exact_join_forms.py) |
 | Complete exact-join review | [`review_exact_join`](../../../src/impodo/domain/structural.py) |
 | Complete one-field result review | [`review_derived_entities`](../../../src/impodo/domain/workspace/derived_entities.py) |
@@ -615,7 +634,8 @@ the evaluator or the 25,000-row and 200-column admission limits. See the
 
 `capture_hierarchy_tutorial_screenshots.py::capture` creates an isolated
 fictional Product workspace and captures the current authenticated Stage 1
-one-field result review, hierarchy form, and hierarchy preview in Edge. It
+one-field result review, related-split choice, hierarchy form, and hierarchy
+preview in Edge. It
 exercises complete, missing-parent, missing-leaf, and all-blank paths without
 reading or changing an operator workspace.
 
@@ -643,6 +663,7 @@ operator workspace.
 - [`tests/application/workspace/test_derived_entities.py`](../../../tests/application/workspace/test_derived_entities.py)
 - [`tests/application/workspace/test_exact_join_authoring.py`](../../../tests/application/workspace/test_exact_join_authoring.py)
 - [`tests/integration/web/test_exact_join_workflow.py`](../../../tests/integration/web/test_exact_join_workflow.py)
+- [`tests/integration/web/test_related_split_workflow.py`](../../../tests/integration/web/test_related_split_workflow.py)
 - [`tests/integration/web/test_generic_source_composition.py`](../../../tests/integration/web/test_generic_source_composition.py)
 - [`tests/integration/web/test_bom_source_composition.py`](../../../tests/integration/web/test_bom_source_composition.py)
 - [`tests/domain/recipe/test_bom_source_composition.py`](../../../tests/domain/recipe/test_bom_source_composition.py)
@@ -669,6 +690,7 @@ cancellation, lineage, and both navigation variants.
 - [Shared page-read measurements](../../testing/stage12-shared-page-reads-2026-10-07.md)
 - [Shared page-read audit helper](../../testing/evidence/stage12-shared-page-reads-2026-10-07/audit.py)
 - [Source-composition scale qualification](../../testing/source-composition-scale-2026-10-24.md)
+- [Odoo 20 local Community and stock-lot canaries](../../testing/odoo20-local-community-canary-2026-10-08.md)
 - [Source-composition benchmark](../../../scripts/benchmark_source_composition.py)
 - [User guide: Source data](../../user/workflow/01-source-data.md)
 - [Project lifecycle contract](../contracts/project-lifecycle.md)

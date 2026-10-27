@@ -21,7 +21,7 @@ CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "Basedpyright",
-        ("basedpyright",),
+        ("basedpyright", "--pythonpath", sys.executable),
     ),
     (
         "Python compilation",

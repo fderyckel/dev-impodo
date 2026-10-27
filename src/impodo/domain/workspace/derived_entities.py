@@ -1209,6 +1209,39 @@ def validate_source_dataset_uses(
     return uses
 
 
+def source_dataset_uses_for_authoring(
+    selection: SourceSelection,
+    plan: DerivedEntityPlan | None,
+) -> dict[str, SourceDatasetUse]:
+    """Return explicit editable uses while preserving legacy plan behavior."""
+
+    if plan is not None and plan.dataset_uses:
+        return validate_source_dataset_uses(selection, plan)
+
+    uses = {
+        dataset.dataset_id: SourceDatasetUse.MAP_DIRECTLY
+        for dataset in selection.datasets
+    }
+    if plan is None:
+        return uses
+
+    physical_ids = set(uses)
+    for dataset_id in preparation_input_dataset_ids(plan.rules).intersection(
+        physical_ids
+    ):
+        uses[dataset_id] = SourceDatasetUse.MAP_AND_PREPARE
+    for rule in plan.rules:
+        if (
+            isinstance(rule, RelatedDatasetRule)
+            and rule.source_dataset_id in physical_ids
+        ):
+            # Before explicit use evidence existed, a related split replaced its
+            # physical input in Match data. Preserve that behavior when a later
+            # edit first materializes the complete policy.
+            uses[rule.source_dataset_id] = SourceDatasetUse.PREPARATION_ONLY
+    return uses
+
+
 def validate_saved_exact_join_reviews(
     selection: SourceSelection,
     plan: DerivedEntityPlan | None,

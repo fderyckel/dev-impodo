@@ -22,6 +22,7 @@ dependencies = [
   "openpyxl>=3.1,<4",
   "polars==1.43.2",
   "psutil>=6,<8",
+  "psycopg[binary]>=3.3,<4",
   "pydantic>=2.8,<3",
   "python-multipart>=0.0.20,<1",
   "PyYAML>=6.0,<7",

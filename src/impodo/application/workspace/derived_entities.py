@@ -66,6 +66,7 @@ from impodo.domain.workspace.derived_entities import (
     preview_related_datasets,
     reconcile_source_dataset_uses,
     review_derived_entities,
+    source_dataset_uses_for_authoring,
     validate_source_dataset_uses,
 )
 from impodo.domain.workspace.errors import WorkspaceError
@@ -892,6 +893,9 @@ class DerivedEntityWorkspaceService:
         blank_policy: str,
         expected_parent_version: int | None,
         actor: Actor,
+        source_dataset_use: SourceDatasetUse | str = (
+            SourceDatasetUse.PREPARATION_ONLY
+        ),
     ) -> tuple[DerivedEntityPlan, RelatedDatasetRule]:
         """Persist one reviewed parent/child split as an immutable plan revision."""
 
@@ -926,7 +930,24 @@ class DerivedEntityWorkspaceService:
         )
         self._validate_related_rule_availability(rule, selection, current)
 
+        try:
+            selected_use = SourceDatasetUse(source_dataset_use)
+        except ValueError as error:
+            raise WorkspaceError(
+                "Choose whether the original table should remain in Match data"
+            ) from error
+        if not selected_use.is_preparation_input:
+            raise WorkspaceError(
+                "A separated-table input must be Preparation only or Map and prepare"
+            )
+
         rules = (*(current.rules if current else ()), rule)
+        uses = source_dataset_uses_for_authoring(selection, current)
+        uses[source_dataset_id] = selected_use
+        policies = tuple(
+            SourceDatasetUsePolicy(dataset.dataset_id, uses[dataset.dataset_id])
+            for dataset in selection.datasets
+        )
         plan = DerivedEntityPlan(
             plan_id=current.plan_id if current else str(uuid4()),
             version=(current.version + 1 if current else 1),
@@ -935,12 +956,10 @@ class DerivedEntityWorkspaceService:
             rules=rules,
             updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
-            dataset_uses=reconcile_source_dataset_uses(
-                current.dataset_uses if current else (),
-                rules,
-            ),
+            dataset_uses=policies,
             join_reviews=current.join_reviews if current else (),
         )
+        validate_source_dataset_uses(selection, plan)
         self.derived_entities.save_derived_entity_plan(
             workspace_id,
             plan,

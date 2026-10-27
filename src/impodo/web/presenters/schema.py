@@ -32,6 +32,7 @@ from impodo.domain.workspace.derived_entities import (
     DerivedEntityRule,
     HierarchicalLookupRule,
     RelatedDatasetRule,
+    source_dataset_uses_for_authoring,
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceState
@@ -250,6 +251,11 @@ def _render_derived_entities(
     rule_views: list[dict[str, object]] = []
     related_rule_views: list[dict[str, object]] = []
     split_sources: set[str] = set()
+    source_uses = (
+        source_dataset_uses_for_authoring(selection, plan)
+        if selection is not None
+        else {}
+    )
     previewable_rules = tuple(
         rule
         for rule in (plan.rules if plan else ())
@@ -274,6 +280,16 @@ def _render_derived_entities(
                 "rule": rule,
                 "preview": result.preview,
                 "preview_error": result.error,
+                "source_use": (
+                    source_uses.get(rule.source_dataset_id)
+                    if isinstance(rule, RelatedDatasetRule)
+                    else None
+                ),
+                "source_use_label": (
+                    source_use_label(source_uses.get(rule.source_dataset_id))
+                    if isinstance(rule, RelatedDatasetRule)
+                    else None
+                ),
             }
         )
         if isinstance(rule, RelatedDatasetRule):

@@ -2,7 +2,7 @@
 
 Run this helper from the repository root with Playwright available. It creates
 only fictional product data, serves the current authenticated application on
-an ephemeral loopback port, and writes nine 1440 by 1024 PNG files under
+an ephemeral loopback port, and writes ten 1440 by 1024 PNG files under
 ``docs/images/user``.
 """
 
@@ -60,6 +60,7 @@ from tests.support.browser_scenarios import (
     TargetRecord,
     _browser_model_catalog,
 )
+from tests.support.identity import resolve_local_actor
 
 
 DEFAULT_OUTPUT_DIRECTORY = REPOSITORY_ROOT / "docs" / "images" / "user"
@@ -376,7 +377,7 @@ def _configure_product_schema(
     include_category: bool,
 ) -> None:
     context = fixture.app.state.context
-    actor = context.actor
+    actor = resolve_local_actor(context)
     workspace_state = context.queries.get(workspace_id)
     existing_schema = context.queries.get_odoo_schema_catalog(workspace_id)
     if existing_schema is None:
@@ -589,7 +590,12 @@ def _show_decision(page, locator, *, offset: int = 120) -> None:
     page.evaluate(f"window.scrollBy(0, -{offset})")
 
 
-def capture(output_directory: Path, *, browser_channel: str) -> None:
+def capture(
+    output_directory: Path,
+    *,
+    browser_channel: str,
+    related_only: bool = False,
+) -> None:
     try:
         from playwright.sync_api import expect, sync_playwright
     except ModuleNotFoundError as error:  # pragma: no cover - operator guidance
@@ -686,10 +692,42 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
             expect(lookup_preview).to_be_visible()
             expect(lookup_preview).to_contain_text("Source rows checked")
             expect(lookup_preview).to_contain_text(
-                "does not create or change records in Odoo"
+                "The original products table stays unchanged"
             )
             _show_decision(page, lookup_preview, offset=80)
             _capture(page, output_directory / "06-related-lookup.png")
+
+            page.goto(
+                f"{base_url}/workspaces/{workspace_id}/derived-entities",
+                wait_until="networkidle",
+            )
+            related = page.locator("#create-related-datasets")
+            related.evaluate("element => { element.open = true; }")
+            expect(related).to_have_attribute("open", "")
+            related_form = related.locator(
+                'form[action$="/derived-entities/related/preview"]'
+            )
+            related_form.locator('input[name="parent_dataset_name"]').fill(
+                "product_families"
+            )
+            related_form.locator('input[name="child_dataset_name"]').fill(
+                "product_rows"
+            )
+            related_form.locator(
+                'select[name="parent_key_column_key"]'
+            ).select_option(dataset.columns[1].stable_key)
+            related_form.locator(
+                'select[name="child_key_column_key"]'
+            ).select_option(dataset.columns[0].stable_key)
+            source_use = related_form.locator('select[name="source_dataset_use"]')
+            expect(source_use).to_have_value("preparation_only")
+            source_use.scroll_into_view_if_needed()
+            page.evaluate("window.scrollBy(0, -180)")
+            _capture(page, output_directory / "07-related-parent-child.png")
+            if related_only:
+                browser_context.close()
+                browser.close()
+                return
 
             _configure_product_schema(
                 fixture,
@@ -869,10 +907,16 @@ def main() -> None:
         default="msedge",
         help="Installed Chromium channel for Playwright. Defaults to msedge.",
     )
+    parser.add_argument(
+        "--related-only",
+        action="store_true",
+        help="Capture only the related parent-and-child form.",
+    )
     arguments = parser.parse_args()
     capture(
         arguments.output_directory.resolve(),
         browser_channel=arguments.browser_channel,
+        related_only=arguments.related_only,
     )
 
 

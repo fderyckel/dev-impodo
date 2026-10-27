@@ -425,6 +425,7 @@
           <input type="hidden" name="scope_column_key" value="{{ pending_rule.scope_column_key or '' }}">
           <input type="hidden" name="child_key_column_key" value="{{ pending_rule.child_key_column_key }}">
           <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
+          <input type="hidden" name="source_dataset_use" value="{{ pending_related.source_dataset_use }}">
           <div class="actions">
             <button class="button secondary" type="button" data-derived-entity-target="related-source-{{ pending_rule.source_dataset_id }}">Change selections</button>
             <button class="button primary" type="submit">Create these separate tables</button>
@@ -461,6 +462,7 @@
           <div><dt>Additional separation</dt><dd>{{ rule.scope_column_key or "Not used" }}</dd></div>
           <div><dt>Row identifier</dt><dd>{{ rule.child_key_column_key }}</dd></div>
           <div><dt>If information is missing</dt><dd>{% if rule.blank_policy == 'quarantine' %}Set rows aside{% else %}Stop and ask{% endif %}</dd></div>
+          <div><dt>Original table</dt><dd>{% if view.source_use_label == 'Map and prepare' %}Also available in Match data{% else %}Hidden from Match data{% endif %}</dd></div>
         </div>
         {% if view.preview_error %}
           <div class="notice error">{{ view.preview_error }}</div>
@@ -552,6 +554,21 @@
                       <small>Choose whether Impodo should stop for correction or set the affected rows aside.</small>
                     </label>
                   </div>
+                </div>
+              </div>
+
+              <div class="guided-step">
+                <span class="step-number">3</span>
+                <div>
+                  <h3>Choose whether to keep the original table</h3>
+                  <label>
+                    Should Match data also show the original table?
+                    <select name="source_dataset_use" required>
+                      <option value="preparation_only"{% if not pending_related or pending_related.rule.source_dataset_id != dataset.dataset_id or pending_related.source_dataset_use == 'preparation_only' %} selected{% endif %}>No - use only the two resulting tables</option>
+                      <option value="map_and_prepare"{% if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id and pending_related.source_dataset_use == 'map_and_prepare' %} selected{% endif %}>Yes - also keep the original table</option>
+                    </select>
+                    <small>Keep the default unless different rows from this same table need their own mapping. You can then use Rows to use in Match data to separate those rows.</small>
+                  </label>
                 </div>
               </div>
 
