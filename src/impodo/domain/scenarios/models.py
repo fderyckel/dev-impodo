@@ -6,7 +6,7 @@ after this complete definition passes. The first executable slice supports a
 profile-driven file source; Recipe and bounded Odoo-source definitions are
 retained in the same contract for later product-owned orchestration.
 
-See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
+See ``docs/plans/08-end-to-end-trial-and-scenario-qualification.md`` and
 ``tests/domain/scenarios/test_models.py``.
 """
 

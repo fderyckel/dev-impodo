@@ -1002,6 +1002,51 @@ class QualityRunSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class QualityCauseCount:
+    """Complete-run record count for one persisted quality cause."""
+
+    dataset: str
+    reason_code: str
+    message: str
+    affected_fields: tuple[str, ...]
+    affected_record_count: int
+
+    def __post_init__(self) -> None:
+        if not self.dataset or not self.reason_code or not self.message:
+            raise ValueError("Quality cause counts require a table and cause")
+        if self.affected_fields != tuple(sorted(set(self.affected_fields))):
+            raise ValueError("Quality cause fields must be unique and ordered")
+        if self.affected_record_count < 1:
+            raise ValueError("Quality cause counts must include a record")
+
+    def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize the bounded projection without row-level evidence."""
+
+        return {
+            "dataset": self.dataset,
+            "reason_code": self.reason_code,
+            "message": self.message,
+            "affected_fields": list(self.affected_fields),
+            "affected_record_count": self.affected_record_count,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> QualityCauseCount:
+        """Restore one validated count from persisted derived evidence."""
+
+        fields = payload["affected_fields"]
+        if not isinstance(fields, list):
+            raise TypeError("Quality cause fields must be a list")
+        return cls(
+            dataset=str(payload["dataset"]),
+            reason_code=str(payload["reason_code"]),
+            message=str(payload["message"]),
+            affected_fields=tuple(str(item) for item in fields),
+            affected_record_count=int(payload["affected_record_count"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class QualityReviewItem:
     """One reviewable row with its resolved issue records and edit route."""
 
@@ -1018,6 +1063,7 @@ class QualityReviewPage:
     matching_count: int
     page: int
     page_count: int
+    run_cause_counts: tuple[QualityCauseCount, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

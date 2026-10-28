@@ -8,7 +8,7 @@ normal recovery/read-back path; it cannot silently start from the beginning.
 These files are protected run evidence and can contain numeric Odoo receipts.
 They are deliberately separate from the compact scenario result.
 
-See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
+See ``docs/plans/08-end-to-end-trial-and-scenario-qualification.md`` and
 ``tests/integration/scenarios/test_execution_evidence.py``.
 """
 

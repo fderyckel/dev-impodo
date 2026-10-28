@@ -22,6 +22,7 @@ from impodo.domain.structural import (
     ExactJoinRule,
     GroupAggregateRule,
     UnionAllRule,
+    structural_mapping_selection,
 )
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
@@ -409,9 +410,22 @@ class RecipeCompiler:
     ) -> CompiledRecipeDefinition:
         """Translate verified authoring evidence into delivery-independent fields."""
 
+        structural_rules = tuple(
+            rule
+            for rule in (preparation.rules if preparation else ())
+            if isinstance(rule, (ExactJoinRule, UnionAllRule, GroupAggregateRule))
+        )
+        structural_selection = structural_mapping_selection(
+            base_selection,
+            structural_rules,
+        )
         combined_by_id = {
             item.dataset_id: item
-            for item in (*base_selection.datasets, *selection.datasets)
+            for item in (
+                *base_selection.datasets,
+                *structural_selection.datasets,
+                *selection.datasets,
+            )
         }
         datasets, dataset_ids, columns = self._source_identity(
             tuple(combined_by_id.values())

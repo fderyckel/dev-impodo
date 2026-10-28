@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, replace
 from datetime import datetime
+from enum import StrEnum
 from hashlib import sha256
 from pathlib import PurePosixPath
 
@@ -18,6 +19,37 @@ class StaleLeaseError(RuntimeError):
 
 class ReceiptMismatchError(RuntimeError):
     """Raised when a projection is paired with substituted data-plane evidence."""
+
+
+class IdempotencyConflictError(ValueError):
+    """Raised when one Organization reuses a key for different semantic work."""
+
+
+class OperationNotFoundError(LookupError):
+    """Raised when an Organization-scoped operation does not exist."""
+
+
+class OperationStateConflictError(RuntimeError):
+    """Raised when recovery cannot change a terminal or newer operation."""
+
+
+class CrossStoreOperationState(StrEnum):
+    """Durable control-plane state for one cross-store operation."""
+
+    RESERVED = "RESERVED"
+    DATA_COMMITTED = "DATA_COMMITTED"
+    PROJECTED = "PROJECTED"
+    INTERRUPTED = "INTERRUPTED"
+    MANUAL_REVIEW = "MANUAL_REVIEW"
+
+
+class RecoveryDisposition(StrEnum):
+    """Bounded reason for a terminal recovery decision."""
+
+    NO_COMMITTED_RECEIPT = "NO_COMMITTED_RECEIPT"
+    RECEIPT_MISMATCH = "RECEIPT_MISMATCH"
+    ARTIFACT_MISMATCH = "ARTIFACT_MISMATCH"
+    PROJECTION_MISMATCH = "PROJECTION_MISMATCH"
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,13 +127,25 @@ class OperationRequest:
         """Reject reuse of one key for different semantic work."""
 
         if self.idempotency_scope != other.idempotency_scope:
-            raise ValueError("operation requests do not share an idempotency scope")
+            raise IdempotencyConflictError(
+                "operation requests do not share an idempotency scope"
+            )
         if (
             self.project_id != other.project_id
             or self.operation_kind != other.operation_kind
             or self.semantic_input_hash != other.semantic_input_hash
         ):
-            raise ValueError("idempotency key was reused for different semantic input")
+            raise IdempotencyConflictError(
+                "idempotency key was reused for different semantic input"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class OperationReservation:
+    """Say whether one semantic reservation was newly created or replayed."""
+
+    request: OperationRequest
+    created: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,6 +327,39 @@ class DataPlaneOperationReceipt:
         ).encode("utf-8")
         return "sha256:" + sha256(encoded).hexdigest()
 
+    def require_operation(self, request: OperationRequest) -> None:
+        """Reject data evidence for another operation or semantic request."""
+
+        if (
+            self.operation_id != request.operation_id
+            or self.organization_id != request.organization_id
+            or self.project_id != request.project_id
+            or self.operation_kind != request.operation_kind
+            or self.semantic_input_hash != request.semantic_input_hash
+        ):
+            raise ReceiptMismatchError(
+                "data-plane receipt does not match the reserved operation"
+            )
+
+    def require_lease(self, lease: WorkspaceLease) -> None:
+        """Reject evidence committed without the exact active Workspace lease."""
+
+        fencing_token = self.fencing_token
+        if (
+            self.workspace_id != lease.workspace_id
+            or self.organization_id != lease.organization_id
+            or self.project_id != lease.project_id
+            or fencing_token is None
+            or fencing_token != lease.fencing_token
+        ):
+            raise ReceiptMismatchError(
+                "data-plane receipt does not match the Workspace lease"
+            )
+        lease.require_fencing_token(
+            fencing_token,
+            at=self.committed_at,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ControlPlaneProjectionReceipt:
@@ -290,13 +367,15 @@ class ControlPlaneProjectionReceipt:
 
     projection_receipt_id: str
     operation_id: str
+    organization_id: OrganizationId
+    project_id: str
     data_plane_receipt_hash: str
     projection_hash: str
     projection_revision: int
     projected_at: datetime
 
     def __post_init__(self) -> None:
-        for name in ("projection_receipt_id", "operation_id"):
+        for name in ("projection_receipt_id", "operation_id", "project_id"):
             object.__setattr__(
                 self,
                 name,
@@ -323,6 +402,8 @@ class ControlPlaneProjectionReceipt:
         return cls(
             projection_receipt_id=projection_receipt_id,
             operation_id=receipt.operation_id,
+            organization_id=receipt.organization_id,
+            project_id=receipt.project_id,
             data_plane_receipt_hash=receipt.semantic_hash,
             projection_hash=projection_hash,
             projection_revision=projection_revision,
@@ -337,11 +418,63 @@ class ControlPlaneProjectionReceipt:
 
         if (
             receipt.operation_id != self.operation_id
+            or receipt.organization_id != self.organization_id
+            or receipt.project_id != self.project_id
             or receipt.semantic_hash != self.data_plane_receipt_hash
         ):
             raise ReceiptMismatchError(
                 "control-plane projection does not match the data-plane receipt"
             )
+
+
+@dataclass(frozen=True, slots=True)
+class CrossStoreOperationSnapshot:
+    """Exact durable operation state and its immutable receipt evidence."""
+
+    request: OperationRequest
+    state: CrossStoreOperationState
+    data_plane_receipt: DataPlaneOperationReceipt | None = None
+    projection_receipt: ControlPlaneProjectionReceipt | None = None
+    interrupted_at: datetime | None = None
+    recovery_disposition: RecoveryDisposition | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "state", CrossStoreOperationState(self.state))
+        if self.data_plane_receipt is not None:
+            self.data_plane_receipt.require_operation(self.request)
+        if self.projection_receipt is not None:
+            if self.data_plane_receipt is None:
+                raise ValueError("projection receipt requires data-plane evidence")
+            self.projection_receipt.require_data_plane_receipt(self.data_plane_receipt)
+        has_data = self.data_plane_receipt is not None
+        has_projection = self.projection_receipt is not None
+        if self.state is CrossStoreOperationState.RESERVED and (
+            has_data or has_projection
+        ):
+            raise ValueError("reserved operation cannot contain receipts")
+        if self.state is CrossStoreOperationState.DATA_COMMITTED and (
+            not has_data or has_projection
+        ):
+            raise ValueError("data-committed operation requires one data receipt")
+        if self.state is CrossStoreOperationState.PROJECTED and not (
+            has_data and has_projection
+        ):
+            raise ValueError("projected operation requires both receipts")
+        terminal = self.state in {
+            CrossStoreOperationState.INTERRUPTED,
+            CrossStoreOperationState.MANUAL_REVIEW,
+        }
+        if terminal:
+            if self.interrupted_at is None or self.recovery_disposition is None:
+                raise ValueError("terminal recovery state requires its disposition")
+            _aware(self.interrupted_at, "interrupted_at")
+            object.__setattr__(
+                self,
+                "recovery_disposition",
+                RecoveryDisposition(self.recovery_disposition),
+            )
+        elif self.interrupted_at is not None or self.recovery_disposition is not None:
+            raise ValueError("non-terminal operation cannot contain recovery state")
 
 
 @dataclass(frozen=True, slots=True)

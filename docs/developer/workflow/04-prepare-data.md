@@ -50,6 +50,17 @@ the last reached percentage, and the spinner and active actions disappear.
 mapping, writes bounded staging batches, publishes quality/accounting evidence,
 and records the preparation session.
 
+Quality publication also derives the complete-run cause counts after the
+batched issue rows have been stored. `QualityRepository` performs one set-based
+`COUNT(DISTINCT row_id)` aggregation inside the publication transaction and
+stores only the compact result in `quality_evidence_projection`. The projection
+keeps the dataset, stable reason, message, affected fields, and affected-record
+count. It contains no source value. The preparation owner therefore does the
+full issue scan once; browser pages do not repeat it or load every issue into
+Python. A current browser read asks for the projection through the existing
+bounded quality-page query. Historical runs without the new projection use one
+set-based fallback query on the same retained DuckDB owner and are not rewritten.
+
 Each direct dataset may use either a prepared-value projection or stored
 canonical JSON. `PreparationQualityIndex._bounded_quality_index` accepts both
 formats in the same run. It rejects a dataset whose rows mix those formats,
@@ -216,7 +227,7 @@ This is Python execution, so compiler diagnostics continue to report
 comparisons, and modulo retain the safe AST evaluator. Invalid formulas retain
 row-level failures. The arithmetic instructions do not use binary floating
 point or fix Decimal precision to a native storage scale. See the
-[implementation diagnostics](../../plans/preparation-efficiency-and-storage.md)
+[implementation diagnostics](../../plans/11-preparation-efficiency-and-storage.md)
 for the local measurement and remaining native qualification.
 
 Compiler support does not by itself admit a run to the high-volume route.
@@ -228,7 +239,7 @@ routes pending scale qualification, 50,000 for one low-cardinality
 single-column lookup-derived table without advanced quality or reference data,
 and 25,000 for other derived or materialized routes.
 Extending qualification belongs to the
-[remaining scale work](../../plans/remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
+[remaining scale work](../../plans/00-remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
 
 ## Code references
 
@@ -244,6 +255,7 @@ Extending qualification belongs to the
 | Process build contract | [`ApplicationBuildContract`](../../../src/impodo/application/shared/build_contract.py) |
 | Project-only worker wiring | [`create_preparation_worker`](../../../src/impodo/web/composition/preparation_worker.py) |
 | Quality publication | [`QualityService`](../../../src/impodo/application/workspace/preparation/quality_service.py) |
+| Complete-run quality causes | [`QualityCauseCount`](../../../src/impodo/domain/preparation/quality.py) and [`_read_complete_quality_cause_counts`](../../../src/impodo/adapters/duckdb/quality_repository.py) |
 | Quality indexes across direct datasets | [`PreparationQualityIndex`](../../../src/impodo/adapters/duckdb/preparation_quality_index.py) |
 | Actionable relationship reason builder | [`_relationship_issue_details`](../../../src/impodo/domain/preparation/quality.py) |
 | Admission and dataset route diagnostics | [`compile_preparation_capability`](../../../src/impodo/application/workspace/preparation/preparation_capability.py) |
@@ -339,6 +351,12 @@ relationship materialization must use bounded batches with measured memory.
 Review database writes for repeated single-row `execute` calls and source-row
 loops for hidden conversions. New paths must preserve deterministic hash and
 lineage parity before being called an optimization.
+
+The cause projection adds no browser database owner or schema check. Focused
+tests require one physical connection and one schema check for a real
+quality-page read inside `retain_databases_for_read`. The summary route also
+proves that its quality read runs off the event loop and remains within the
+existing eight-connection request ceiling.
 
 ## Verification
 

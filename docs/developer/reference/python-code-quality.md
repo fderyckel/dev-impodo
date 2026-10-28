@@ -9,9 +9,10 @@ status: current
 Impodo uses a focused Python gate while code is being changed and one complete
 repository gate before delivery. The Python gate rejects every Ruff or
 Basedpyright diagnostic in the checked source. The repository gate also
-enforces architecture, test organization, static-asset ownership, and
-documentation rules. Neither gate authorizes a static-analysis fix to change
-business behavior.
+reports the current architecture inventory and enforces architectural
+invariants, test organization, static-asset ownership, and documentation
+rules. Neither gate authorizes a static-analysis fix to change business
+behavior.
 
 ## Sources of authority
 
@@ -26,7 +27,6 @@ Each quality artifact owns one decision:
 | `.github/workflows/python-quality.yml` | Runs the portable repository gate on Linux, macOS, and Windows. |
 | `.github/workflows/*-quality.yml` | Runs host-specific tests only on the platform that owns them. |
 | GitHub branch protection | Must require the stable `Python quality / quality` check before merge. |
-| `AGENTS.md` | Tells coding agents how to apply the policy safely. |
 
 Ruff and Basedpyright are complementary:
 
@@ -69,10 +69,13 @@ Before committing, pushing, or handing off any repository change, run:
 uv run --frozen --group quality python scripts/check_repository_quality.py
 ```
 
-The command runs the Python quality gate, verifies the reviewed architecture
+The command runs the Python quality gate, prints the current architecture
 inventory, discovers every architecture test, checks repository documentation,
-and checks Python code documentation. The architecture suite includes the
-test-module and static-asset reviewability limits.
+and checks Python code documentation. Module counts, import counts, and graph
+digests provide review information without blocking an intentional structural
+change. The architecture tests still reject unclassified modules, forbidden
+dependencies, runtime cycles, and violations of the test-module and
+static-asset reviewability limits.
 
 Any failure blocks delivery even when it appears pre-existing, unrelated to
 the current change, or owned by another concurrent agent. Report the exact

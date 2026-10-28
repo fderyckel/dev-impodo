@@ -43,10 +43,12 @@ current report or the complete new report, never a partial current report.
 Tests may disable the manager and exercise the synchronous compatibility path.
 Both paths call the same comparison service and publication transaction.
 
-The summary presenter groups the quality findings on the current review page
-by reason, message, and friendly field label. It labels each group as a direct
-finding or an inherited dependency and states that the counts are page-scoped.
-The row table renders every issue instead of collapsing the record to its first
+Quality publication stores complete-run cause counts by dataset, reason,
+message, and affected field. The summary presenter resolves friendly field
+labels and merges equivalent display groups without rereading row-level issues.
+It labels each group as a direct finding or an inherited dependency. The cause
+summary remains complete when the row table is filtered or paged. The row table
+still renders every saved issue instead of collapsing the record to its first
 issue. Stable reason and rule identifiers remain under **Support details**.
 
 `PreflightService` freezes the input bindings, plans metadata and record
@@ -170,6 +172,7 @@ defined by the [reviewed deferred record groups contract](../contracts/deferred-
 | Role | Code |
 | --- | --- |
 | Comparison orchestration | [`PreflightService`](../../../src/impodo/application/preflight_service.py) |
+| Persisted complete-run quality causes | [`QualityRepository`](../../../src/impodo/adapters/duckdb/quality_repository.py) |
 | Prepared-quality cause presentation | [`_quality_cause_groups`](../../../src/impodo/web/presenters/summary.py) |
 | Compact execution projection | [`navigation.py`](../../../src/impodo/application/workspace/execution/navigation.py) and [`PreflightRepository`](../../../src/impodo/adapters/duckdb/preflight_repository.py) |
 | Bounded shared navigation | [`WorkspaceNavigationQueryService`](../../../src/impodo/application/workspace/navigation.py) and [`WorkspaceNavigationRepository`](../../../src/impodo/adapters/duckdb/navigation_repository.py) |

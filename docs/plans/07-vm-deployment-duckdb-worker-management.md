@@ -2,7 +2,9 @@
 
 ## Status and decision
 
-**Status:** Approved target architecture; Phases 0 and 1 are complete. Phase 2
+**Status:** Companion target architecture for the seventh-ranked
+[shared-server implementation](07-linux-server-postgresql-duckdb-implementation.md),
+not a separate implementation stream. Phases 0 and 1 are complete. Phase 2
 supported-host qualification remains open, while the local Phase 3 persistence
 trial started on 2026-10-28. The local empty-stack Compose rehearsal passed on
 2026-10-27. Clean Debian and Ubuntu
@@ -17,7 +19,7 @@ application; the health-only container rehearsal is not a shared multi-user
 release.
 
 The
-[shared server detailed phased implementation plan](linux-server-postgresql-duckdb-implementation.md)
+[shared server detailed phased implementation plan](07-linux-server-postgresql-duckdb-implementation.md)
 turns this architecture into ordered work packages, proposed code boundaries,
 persistence changes, verification requirements, and phase exit gates.
 The Phase 0
@@ -781,7 +783,7 @@ root-owned DSN file. Static contract tests cover the topology, role separation,
 runtime restrictions, and fictional-secret generation.
 
 The
-[2026-10-27 local rehearsal](2026-10-27-local-empty-server-container-rehearsal.md)
+[2026-10-27 local rehearsal](91-2026-10-27-local-empty-server-container-rehearsal.md)
 resolved and built the topology on Docker Desktop for Apple silicon. It
 verified live PostgreSQL role creation and migration, TLS health, repeated
 migration no-ops, drain and recovery, non-root read-only application roles,
@@ -815,12 +817,13 @@ durable without moving migration processing into PostgreSQL.
 - Add contract suites that run the same repository, artifact, authorization,
   and job behaviors against the applicable local and server adapters.
 
-**Current local trial.** Immutable migration `2` advances the
-`impodo-control-v1` contract to version `2` and creates empty Organization and
-Organization-scoped Project catalogue tables. Runtime access is limited to
-select, insert, and update. The first Project catalogue repository contract and
-Psycopg adapter now perform Organization-scoped create, get, visible list,
-rename, lifecycle projection, revision checks, and soft-deletion transitions.
+**Current local trial.** Immutable migrations `2` and `3` advance the
+`impodo-control-v1` contract to version `3`. They create Organization and
+Organization-scoped Project catalogue, operation, receipt, and Workspace lease
+tables. Runtime access does not include delete, and immutable receipts do not
+permit update. The Project catalogue adapter performs Organization-scoped
+create, get, visible list, rename, lifecycle projection, revision checks, and
+soft-deletion transitions.
 A deployment-neutral service verifies Organization and principal scope,
 capability, receipt expiry, and Project visibility before it makes one
 repository call; denied Project access is opaque and opens no session. The
@@ -830,8 +833,15 @@ independent sessions. This structural evidence supports retaining short-lived
 connections until traffic measurements justify a pool. The service is not
 wired into a server browser because server identity and request-scope
 construction are not implemented. Optional row-level security, the remaining
-control-plane groups, cross-store operation protocol, customer accounts, and
-administration remain planned.
+control-plane groups, customer accounts, and administration remain planned.
+The first cross-store persistence increment now provides semantic operation
+reservation, exact receipt binding, and fenced Workspace lease ownership. The
+second increment provides a deployment-neutral coordinator that never repeats
+data-plane work on replay, durable interruption and manual-review decisions,
+an artifact-verification port, exact projection finalization, and portable
+failure injection at all seven named boundaries. Concrete DuckDB command
+adapters, the shared-server artifact verifier and projection updater, and live
+failure injection across those implementations remain planned.
 
 **Exit gate.** PostgreSQL loss or application restart cannot manufacture a
 successful data-plane result. A data-plane commit can be reconciled without

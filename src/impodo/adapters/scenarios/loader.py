@@ -5,7 +5,7 @@ properties before domain validation and resolves fixture, profile, and target
 projection paths inside the scenario directory. Validation never contacts
 Odoo and never creates Project state.
 
-See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
+See ``docs/plans/08-end-to-end-trial-and-scenario-qualification.md`` and
 ``tests/integration/scenarios/test_loader.py``.
 """
 

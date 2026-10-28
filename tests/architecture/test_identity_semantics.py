@@ -63,6 +63,7 @@ TRUE_PROJECT_ID_TYPES = frozenset(
         "domain/project/foundation.py::MigrationOperationIntent",
         "domain/run/production.py::ProductionRunBinding",
         "domain/run/production_values.py::ProductionRunValues",
+        "domain/shared/coordination.py::ControlPlaneProjectionReceipt",
         "domain/shared/coordination.py::DataPlaneOperationReceipt",
         "domain/shared/coordination.py::OperationRequest",
         "domain/shared/coordination.py::WorkspaceLease",

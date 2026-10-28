@@ -2,11 +2,11 @@
 
 ## Status and remaining scope
 
-**Status:** Priority 1 reliability work. Background comparison, event-loop
-containment, one-pass full-preview counts, compact navigation evidence, and
-operation-aware liveness are implemented. Durable comparison attempts, the
-remaining detailed compact load preview, and measured publication
-qualification remain open as of 2026-10-28.
+**Status:** Ranked third in the cross-plan implementation order as of
+2026-10-28. Background comparison, event-loop containment, one-pass
+full-preview counts, compact navigation evidence, and operation-aware liveness
+are implemented. Durable comparison attempts, the remaining detailed compact
+load preview, and measured publication qualification remain open.
 
 Current behavior belongs to the [Final review developer workflow](../developer/workflow/05-final-review.md),
 [Load into Odoo](../developer/workflow/06-load-into-odoo.md), and

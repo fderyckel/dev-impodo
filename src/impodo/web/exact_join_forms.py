@@ -7,13 +7,18 @@ The application service still owns the complete-data review and atomic save.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TypedDict
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from starlette.datastructures import FormData
 
-from impodo.application.workspace.derived_entities import ExactJoinRequest
+from impodo.application.workspace.derived_entities import (
+    ExactJoinGroupAddition,
+    ExactJoinGroupProjection,
+    ExactJoinGroupRequest,
+    ExactJoinRequest,
+)
 from impodo.domain.structural import (
     MAX_STRUCTURAL_COLUMNS,
     ExactJoinReview,
@@ -60,6 +65,34 @@ EXACT_JOIN_FORM_FIELDS = {
         for side in ("left", "right", "type")
     },
 }
+_MAX_GROUP_DATASET_CANDIDATES = 100
+EXACT_JOIN_GROUP_FORM_FIELDS = {
+    "csrf_token",
+    "expected_parent_version",
+    "group_id",
+    "output_dataset_name",
+    "primary_dataset_id",
+    "group_addition",
+    "group_projection",
+    "group_projection_name",
+    *{
+        f"primary_key_{part}_{index}"
+        for index in range(1, 6)
+        for part in ("field", "type")
+    },
+    *{
+        field
+        for dataset_index in range(_MAX_GROUP_DATASET_CANDIDATES)
+        for field in (
+            f"group_addition_kind_{dataset_index}",
+            f"group_addition_require_all_{dataset_index}",
+            *(
+                f"group_addition_key_{dataset_index}_{key_index}"
+                for key_index in range(1, 6)
+            ),
+        )
+    },
+}
 _JOIN_VALUE_TYPES = frozenset(
     {"string", "integer", "decimal", "boolean", "date", "datetime"}
 )
@@ -77,6 +110,8 @@ class SavedExactJoinView(TypedDict):
     left_use: SourceDatasetUse | None
     right_use: SourceDatasetUse | None
     step: int
+    inputs: tuple[SourceDataset, ...]
+    grouped: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +128,30 @@ class ExactJoinFormSubmission:
     require_all_right_rows: bool
     left_dataset_use: str
     right_dataset_use: str
+    projection_indexes: tuple[int, ...]
+    projection_names: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExactJoinGroupAdditionSubmission:
+    """Retain one indexed added-table row from the grouped browser form."""
+
+    dataset_index: int
+    key_column_keys: tuple[str, ...]
+    kind: str
+    require_all_rows: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ExactJoinGroupFormSubmission:
+    """Retain a bounded grouped form without trusting its dataset indexes."""
+
+    expected_parent_version: int | None
+    group_id: str
+    output_dataset_name: str
+    primary_dataset_id: str
+    primary_key_rows: tuple[tuple[str, str], ...]
+    additions: tuple[ExactJoinGroupAdditionSubmission, ...]
     projection_indexes: tuple[int, ...]
     projection_names: tuple[str, ...]
 
@@ -163,6 +222,96 @@ def parse_exact_join_form(form: FormData) -> ExactJoinFormSubmission:
     )
 
 
+def parse_exact_join_group_form(form: FormData) -> ExactJoinGroupFormSubmission:
+    """Parse one complete multi-table form outside the local database scope."""
+
+    raw_version = _text(form, "expected_parent_version")
+    try:
+        expected_parent_version = int(raw_version) if raw_version else None
+    except ValueError as error:
+        raise ValueError("The source-preparation version is invalid") from error
+    group_id = _text(form, "group_id") or str(uuid4())
+    try:
+        group_id = str(UUID(group_id))
+    except (ValueError, TypeError, AttributeError) as error:
+        raise ValueError("The combination review identifier is invalid") from error
+
+    raw_additions = tuple(form.getlist("group_addition"))
+    if not all(isinstance(value, str) for value in raw_additions):
+        raise ValueError("The selected added tables are invalid")
+    try:
+        addition_indexes = tuple(int(str(value)) for value in raw_additions)
+    except ValueError as error:
+        raise ValueError("The selected added tables are invalid") from error
+    if (
+        not addition_indexes
+        or len(addition_indexes) > 9
+        or len(set(addition_indexes)) != len(addition_indexes)
+        or any(
+            index < 0 or index >= _MAX_GROUP_DATASET_CANDIDATES
+            for index in addition_indexes
+        )
+    ):
+        raise ValueError("Choose between one and nine added tables")
+
+    raw_projections = tuple(form.getlist("group_projection"))
+    if not all(isinstance(value, str) for value in raw_projections):
+        raise ValueError("The selected output fields are invalid")
+    try:
+        projection_indexes = tuple(int(str(value)) for value in raw_projections)
+    except ValueError as error:
+        raise ValueError("The selected output fields are invalid") from error
+    if (
+        len(projection_indexes) > _MAX_PROJECTION_CANDIDATES
+        or len(set(projection_indexes)) != len(projection_indexes)
+        or any(
+            index < 0 or index >= _MAX_PROJECTION_CANDIDATES
+            for index in projection_indexes
+        )
+    ):
+        raise ValueError("The selected output fields are invalid")
+    projection_names = tuple(
+        value if isinstance(value, str) else ""
+        for value in form.getlist("group_projection_name")
+    )
+    if len(projection_names) > _MAX_PROJECTION_CANDIDATES:
+        raise ValueError("This source contains too many fields for browser review")
+
+    return ExactJoinGroupFormSubmission(
+        expected_parent_version=expected_parent_version,
+        group_id=group_id,
+        output_dataset_name=_text(form, "output_dataset_name"),
+        primary_dataset_id=_text(form, "primary_dataset_id"),
+        primary_key_rows=tuple(
+            (
+                _text(form, f"primary_key_field_{index}"),
+                _text(form, f"primary_key_type_{index}") or "string",
+            )
+            for index in range(1, 6)
+        ),
+        additions=tuple(
+            ExactJoinGroupAdditionSubmission(
+                dataset_index=index,
+                key_column_keys=tuple(
+                    _text(form, f"group_addition_key_{index}_{key_index}")
+                    for key_index in range(1, 6)
+                ),
+                kind=(
+                    _text(form, f"group_addition_kind_{index}")
+                    or JoinKind.LEFT.value
+                ),
+                require_all_rows=_checked(
+                    form,
+                    f"group_addition_require_all_{index}",
+                ),
+            )
+            for index in addition_indexes
+        ),
+        projection_indexes=projection_indexes,
+        projection_names=projection_names,
+    )
+
+
 def available_exact_join_selection(
     selection: SourceSelection,
     plan: DerivedEntityPlan | None,
@@ -174,7 +323,22 @@ def available_exact_join_selection(
         for rule in (plan.rules if plan else ())
         if isinstance(rule, (ExactJoinRule, UnionAllRule, GroupAggregateRule))
     )
-    return structural_mapping_selection(selection, structural_rules)
+    available = structural_mapping_selection(selection, structural_rules)
+    hidden_ids = {
+        structural_dataset_id(rule)
+        for rule in structural_rules
+        if isinstance(rule, ExactJoinRule) and not rule.map_output
+    }
+    if not hidden_ids:
+        return available
+    return replace(
+        available,
+        datasets=tuple(
+            dataset
+            for dataset in available.datasets
+            if dataset.dataset_id not in hidden_ids
+        ),
+    )
 
 
 def exact_join_projection_candidates(
@@ -214,6 +378,151 @@ def default_exact_join_form(
         right_dataset_use=SourceDatasetUse.PREPARATION_ONLY.value,
         projection_indexes=(),
         projection_names=tuple(column.source_name for _dataset, column in candidates),
+    )
+
+
+def exact_join_group_projection_candidates(
+    selection: SourceSelection,
+) -> tuple[tuple[SourceDataset, SourceDatasetColumn], ...]:
+    """Return bounded physical-field candidates for the grouped normal path."""
+
+    if len(selection.datasets) > _MAX_GROUP_DATASET_CANDIDATES:
+        raise ValueError(
+            "This source contains too many tables for grouped browser review"
+        )
+    return exact_join_projection_candidates(selection)
+
+
+def default_exact_join_group_form(
+    selection: SourceSelection,
+    plan: DerivedEntityPlan | None,
+) -> ExactJoinGroupFormSubmission:
+    """Build safe grouped-form defaults for one current frozen selection."""
+
+    candidates = exact_join_group_projection_candidates(selection)
+    name_counts: dict[str, int] = {}
+    for _dataset, column in candidates:
+        name_counts[column.source_name] = name_counts.get(column.source_name, 0) + 1
+    projection_names = tuple(
+        (
+            f"{dataset.name} {column.source_name}"
+            if name_counts[column.source_name] > 1
+            else column.source_name
+        )
+        for dataset, column in candidates
+    )
+    return ExactJoinGroupFormSubmission(
+        expected_parent_version=plan.version if plan else None,
+        group_id=str(uuid4()),
+        output_dataset_name="",
+        primary_dataset_id=(
+            selection.datasets[0].dataset_id if selection.datasets else ""
+        ),
+        primary_key_rows=tuple(("", "string") for _index in range(5)),
+        additions=(),
+        projection_indexes=tuple(range(len(candidates))),
+        projection_names=projection_names,
+    )
+
+
+def resolve_exact_join_group_request(
+    submission: ExactJoinGroupFormSubmission,
+    selection: SourceSelection,
+) -> ExactJoinGroupRequest:
+    """Resolve posted indexes and fields only against frozen physical metadata."""
+
+    datasets = {item.dataset_id: item for item in selection.datasets}
+    primary = datasets.get(submission.primary_dataset_id)
+    if primary is None:
+        raise ValueError("Choose a current physical primary table")
+    primary_columns = {item.stable_key for item in primary.columns}
+    primary_keys: list[str] = []
+    key_types: list[str] = []
+    saw_blank = False
+    for raw_key, value_type in submission.primary_key_rows:
+        if not raw_key:
+            saw_blank = True
+            continue
+        if saw_blank:
+            raise ValueError("Use the shared key rows in order without gaps")
+        key = _resolved_column_key(raw_key, primary.dataset_id)
+        if key not in primary_columns:
+            raise ValueError("Choose primary key fields from the primary table")
+        if value_type not in _JOIN_VALUE_TYPES:
+            raise ValueError("Choose a supported shared-key type")
+        primary_keys.append(key)
+        key_types.append(value_type)
+    if not primary_keys:
+        raise ValueError("Choose at least one primary key field")
+
+    additions: list[ExactJoinGroupAddition] = []
+    for addition in submission.additions:
+        if addition.dataset_index >= len(selection.datasets):
+            raise ValueError("Reload the page before choosing added tables")
+        dataset = selection.datasets[addition.dataset_index]
+        if dataset.dataset_id == primary.dataset_id:
+            raise ValueError("The primary table cannot also be an added table")
+        columns = {item.stable_key for item in dataset.columns}
+        resolved_keys: list[str] = []
+        for key_index in range(len(primary_keys)):
+            raw_key = addition.key_column_keys[key_index]
+            if not raw_key:
+                raise ValueError(
+                    f"Confirm every shared key field for {dataset.name}"
+                )
+            key = _resolved_column_key(raw_key, dataset.dataset_id)
+            if key not in columns:
+                raise ValueError(
+                    "Choose added-table key fields from the matching table"
+                )
+            resolved_keys.append(key)
+        try:
+            kind = JoinKind(addition.kind)
+        except ValueError as error:
+            raise ValueError("Choose optional or required enrichment") from error
+        additions.append(
+            ExactJoinGroupAddition(
+                dataset_id=dataset.dataset_id,
+                key_column_keys=tuple(resolved_keys),
+                kind=kind,
+                require_all_rows=addition.require_all_rows,
+            )
+        )
+
+    candidates = exact_join_group_projection_candidates(selection)
+    if len(submission.projection_names) != len(candidates):
+        raise ValueError("Reload the page before choosing output fields")
+    participant_ids = {
+        primary.dataset_id,
+        *(item.dataset_id for item in additions),
+    }
+    projections: list[ExactJoinGroupProjection] = []
+    for index in submission.projection_indexes:
+        if index >= len(candidates):
+            raise ValueError("Reload the page before choosing output fields")
+        dataset, column = candidates[index]
+        if dataset.dataset_id not in participant_ids:
+            continue
+        output_name = submission.projection_names[index].strip()
+        if not output_name:
+            raise ValueError("Give every selected output field a name")
+        projections.append(
+            ExactJoinGroupProjection(
+                source_dataset_id=dataset.dataset_id,
+                source_column_key=column.stable_key,
+                output_name=output_name,
+            )
+        )
+    if not projections:
+        raise ValueError("Choose at least one output field")
+    return ExactJoinGroupRequest(
+        group_id=submission.group_id,
+        output_dataset_name=submission.output_dataset_name,
+        primary_dataset_id=primary.dataset_id,
+        primary_key_column_keys=tuple(primary_keys),
+        key_value_types=tuple(key_types),
+        additions=tuple(additions),
+        projections=tuple(projections),
     )
 
 
@@ -357,16 +666,43 @@ def saved_exact_join_views(
     reviews = {evidence.rule_id: evidence.review for evidence in plan.join_reviews}
     uses = validate_source_dataset_uses(selection, plan)
     physical_ids = {dataset.dataset_id for dataset in selection.datasets}
+    hidden_by_output = {
+        structural_dataset_id(rule): rule
+        for rule in plan.rules
+        if isinstance(rule, ExactJoinRule) and not rule.map_output
+    }
+
+    def input_datasets(rule: ExactJoinRule) -> tuple[SourceDataset, ...]:
+        result: list[SourceDataset] = []
+
+        def add(dataset_id: str) -> None:
+            hidden = hidden_by_output.get(dataset_id)
+            if hidden is None:
+                dataset = datasets[dataset_id]
+                if dataset.dataset_id not in {
+                    item.dataset_id for item in result
+                }:
+                    result.append(dataset)
+                return
+            add(hidden.left_dataset_id)
+            add(hidden.right_dataset_id)
+
+        add(rule.left_dataset_id)
+        add(rule.right_dataset_id)
+        return tuple(result)
+
     result: list[SavedExactJoinView] = []
     structural_step = 0
     for rule in plan.rules:
         if not isinstance(rule, (ExactJoinRule, UnionAllRule, GroupAggregateRule)):
             continue
         structural_step += 1
-        if not isinstance(rule, ExactJoinRule):
+        if not isinstance(rule, ExactJoinRule) or not rule.map_output:
             continue
-        left = datasets[rule.left_dataset_id]
-        right = datasets[rule.right_dataset_id]
+        inputs = input_datasets(rule)
+        grouped = rule.left_dataset_id in hidden_by_output or rule.right_dataset_id in hidden_by_output
+        left = inputs[0] if grouped else datasets[rule.left_dataset_id]
+        right = inputs[-1] if grouped else datasets[rule.right_dataset_id]
         output = datasets[structural_dataset_id(rule)]
         result.append(
             {
@@ -382,6 +718,8 @@ def saved_exact_join_views(
                     uses[right.dataset_id] if right.dataset_id in physical_ids else None
                 ),
                 "step": structural_step,
+                "inputs": inputs,
+                "grouped": grouped,
             }
         )
     return tuple(result)

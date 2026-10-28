@@ -77,10 +77,12 @@ jobs:
 
       - name: Run server integration contracts
         run: >-
-          uv run --frozen --group quality python -m unittest
+          uv run --frozen --group quality --extra test python -m unittest
           tests.integration.postgresql.test_startup
           tests.integration.postgresql.test_migrations
+          tests.integration.postgresql.test_coordination
           tests.integration.postgresql.test_project_catalogue
+          tests.application.test_cross_store_coordination
           tests.integration.web.test_server_runtime_contract
           tests.integration.web.test_server_runtime_coordination
           tests.integration.web.test_server_migration_command

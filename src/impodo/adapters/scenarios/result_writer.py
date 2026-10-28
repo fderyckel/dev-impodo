@@ -1,6 +1,6 @@
 """Publish compact scenario results with an atomic file replacement.
 
-See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
+See ``docs/plans/08-end-to-end-trial-and-scenario-qualification.md`` and
 ``tests/integration/scenarios/test_result_writer.py``.
 """
 

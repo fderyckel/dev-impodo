@@ -36,8 +36,11 @@ from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..exact_join_forms import (
     EXACT_JOIN_FORM_FIELDS,
+    EXACT_JOIN_GROUP_FORM_FIELDS,
     exact_join_dataset_uses,
     parse_exact_join_form,
+    parse_exact_join_group_form,
+    resolve_exact_join_group_request,
     resolve_exact_join_request,
     source_use_label,
 )
@@ -333,6 +336,152 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 )
 
         return await run_local_operation(review_join)
+
+    @router.post("/workspaces/{workspace_id}/derived-entities/join-group/preview")
+    async def preview_workspace_exact_join_group(
+        request: Request,
+        workspace_id: str,
+    ):
+        """Review one primary table and every selected enrichment together."""
+
+        form = await request.form()
+        _secure_form(request, form, EXACT_JOIN_GROUP_FORM_FIELDS)
+        try:
+            submission = parse_exact_join_group_form(form)
+        except ValueError as error:
+            return await run_local_operation(
+                _render_derived_entities,
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=422,
+            )
+
+        def review_join_group():
+            try:
+                selection = context.queries.get_source_selection(workspace_id)
+                if selection is None:
+                    raise WorkspaceError(
+                        "Freeze source datasets before combining tables"
+                    )
+                plan = context.queries.get_derived_entity_plan(workspace_id)
+                group_request = resolve_exact_join_group_request(
+                    submission,
+                    selection,
+                )
+                preview = context.derived_entities.preview_join_group(
+                    workspace_id,
+                    group_request,
+                )
+                datasets = {
+                    item.dataset_id: item for item in selection.datasets
+                }
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    pending_join_group={
+                        "primary": datasets[group_request.primary_dataset_id],
+                        "rows": tuple(
+                            {
+                                "added": datasets[addition.dataset_id],
+                                "rule": rule,
+                                "review": review,
+                            }
+                            for addition, rule, review in zip(
+                                group_request.additions,
+                                preview.rules,
+                                preview.reviews,
+                                strict=True,
+                            )
+                        ),
+                        "preview": preview,
+                        "expected_parent_version": (
+                            plan.version if plan is not None else None
+                        ),
+                    },
+                    join_group_form=submission,
+                )
+            except (WorkspaceError, ValueError) as error:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error=str(error),
+                    status_code=422,
+                    join_group_form=submission,
+                )
+
+        return await run_local_operation(review_join_group)
+
+    @router.post("/workspaces/{workspace_id}/derived-entities/join-group/save")
+    async def save_workspace_exact_join_group(
+        request: Request,
+        workspace_id: str,
+    ):
+        """Recheck and atomically save one complete multi-table combination."""
+
+        form = await request.form()
+        _secure_form(request, form, EXACT_JOIN_GROUP_FORM_FIELDS)
+        actor = request_identity(request, context.identity_resolver).actor
+        try:
+            submission = parse_exact_join_group_form(form)
+        except ValueError as error:
+            return await run_local_operation(
+                _render_derived_entities,
+                request,
+                context,
+                workspace_id,
+                error=str(error),
+                status_code=422,
+            )
+
+        def save_join_group():
+            try:
+                selection = context.queries.get_source_selection(workspace_id)
+                if selection is None:
+                    raise WorkspaceError(
+                        "Freeze source datasets before combining tables"
+                    )
+                group_request = resolve_exact_join_group_request(
+                    submission,
+                    selection,
+                )
+                return context.derived_entities.save_join_group(
+                    workspace_id,
+                    group_request,
+                    expected_parent_version=submission.expected_parent_version,
+                    actor=actor,
+                )
+            except (WorkspaceError, ValueError) as error:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error=str(error),
+                    status_code=422,
+                    join_group_form=submission,
+                )
+
+        outcome = await run_local_operation(save_join_group)
+        if isinstance(outcome, HTMLResponse):
+            return outcome
+        _plan, preview = outcome
+        _flash(
+            request,
+            (
+                f"Created the combined table {preview.final_rule.output_dataset_name} "
+                f"from {len(preview.rules) + 1} source tables."
+            ),
+        )
+        return RedirectResponse(
+            (
+                f"/workspaces/{workspace_id}/derived-entities"
+                f"#join-rule-{preview.final_rule.rule_id}"
+            ),
+            status_code=303,
+        )
 
     @router.post("/workspaces/{workspace_id}/derived-entities/join/save")
     async def save_workspace_exact_join(request: Request, workspace_id: str):

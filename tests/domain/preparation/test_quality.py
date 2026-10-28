@@ -17,6 +17,8 @@ from uuid import uuid4
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.shared.models import Issue, LogicalReference, PreparedRecord
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.adapters.duckdb.unit_of_work import retain_databases_for_read
 from impodo.adapters.duckdb.derived_entity_repository import (
     DerivedEntityRepository,
 )
@@ -1579,6 +1581,82 @@ class QualityStoreTests(unittest.TestCase):
         self.assertEqual(second.page, 2)
         self.assertEqual(len(second.items), 1)
         self.assertEqual(second.items[0].row.source_row, 52)
+
+    def test_quality_review_reads_persisted_complete_run_cause_counts(self) -> None:
+        rows = tuple(
+            replace(
+                _canonical_row(
+                    "invalid",
+                    source_row,
+                    source_identity=(f"C{source_row:03d}",),
+                    target_identity=(f"C{source_row:03d}",),
+                ),
+                row_id=f"sha256:{source_row:064x}",
+                disposition=StagingDisposition.BLOCKED,
+                issues=(
+                    CanonicalIssue(
+                        code="SOURCE_TYPE_INVALID",
+                        message="The prepared number is invalid.",
+                        severity="error",
+                        dataset="contacts",
+                        source_row=source_row,
+                        field="amount",
+                    ),
+                ),
+            )
+            for source_row in range(2, 5)
+        )
+        staging_run = _staging(self.workspace_state.workspace_id, rows)
+        staging = self.staging.publish_canonical_staging(
+            self.workspace_state.workspace_id,
+            staging_run,
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        ruleset = default_quality_ruleset(
+            workspace_id=self.workspace_state.workspace_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+        )
+        self.quality.publish_quality_ruleset(
+            self.workspace_state.workspace_id,
+            ruleset,
+            actor=LOCAL_ACTOR,
+        )
+        run = evaluate_quality(
+            workspace_state=self.workspace_state,
+            staging=staging_run,
+            physical_rows={"dataset:contacts": (2, 3, 4)},
+            ruleset=ruleset,
+        )
+        published = self.quality.publish_quality_run(
+            self.workspace_state.workspace_id,
+            run,
+            staging_run_id=staging.run_id,
+            actor=LOCAL_ACTOR,
+        )
+
+        with collect_duckdb_request_timings() as timings:
+            with retain_databases_for_read():
+                page = self.quality.get_quality_review_page(
+                    self.workspace_state.workspace_id,
+                    published.run_id,
+                    status="quarantined",
+                    page=1,
+                    page_size=1,
+                    include_run_cause_counts=True,
+                )
+
+        self.assertEqual(len(page.items), 1)
+        self.assertEqual(page.matching_count, 3)
+        self.assertEqual(len(page.run_cause_counts), 1)
+        cause = page.run_cause_counts[0]
+        self.assertEqual(cause.reason_code, "SOURCE_TYPE_INVALID")
+        self.assertEqual(cause.affected_fields, ("amount",))
+        self.assertEqual(cause.affected_record_count, 3)
+        self.assertEqual(timings.connection_count, 1)
+        self.assertEqual(timings.schema_check_count, 1)
 
     def test_failed_quality_batch_preserves_previous_current_run(self) -> None:
         row = _canonical_row("5", 2)

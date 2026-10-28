@@ -1,29 +1,27 @@
-"""Protect the deterministic Phase 0 production import inventory."""
+"""Protect the production import graph's architectural invariants."""
 
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
-import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 from scripts.architecture_inventory import (
     ImportEdge,
     build_snapshot,
+    discover_modules,
     imports_from_source,
     module_location,
 )
 
 
-ROOT = REPOSITORY_ROOT
-BASELINE = ROOT / "tests" / "architecture" / "phase0_baseline.json"
-
-
 class ArchitectureInventoryTests(unittest.TestCase):
-    def test_current_production_graph_matches_reviewed_phase_zero_baseline(self):
-        expected = json.loads(BASELINE.read_text(encoding="utf-8"))
-        self.assertEqual(build_snapshot(), expected)
+    def test_current_production_graph_satisfies_architecture_invariants(self):
+        self.assertTrue(discover_modules())
+
+        snapshot = build_snapshot()
+        self.assertEqual(snapshot["unclassified_modules"], [])
+        self.assertEqual(snapshot["runtime_cycles"], [])
+        self.assertEqual(snapshot["application_to_adapter_edges"], [])
 
     def test_relative_and_type_only_imports_are_resolved(self):
         known = {

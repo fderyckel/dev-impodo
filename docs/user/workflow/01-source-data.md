@@ -35,20 +35,21 @@ first complete the eligible-field capture described in
    several business realities or several tables contain partial views of the
    same reality.
 
-Choose **Combine columns from multiple tables** when two frozen tables describe
-the same business record. Name the logical output, choose the base and added
-datasets, pair one to five exact typed keys, and select the output fields. The
-base dataset defines what one output row represents. Include company,
+Choose **Several tables describe the same records** when one primary frozen
+table and up to nine added tables describe the same business record. Name the
+logical output, choose the primary table, define one to five exact typed key
+fields once, and confirm the corresponding fields for every added table. The
+primary table defines what one output row represents. Include company,
 partition, or another scope field when an identifier is not globally unique.
 
-Select **Review complete join**. Impodo checks every accepted row and reports
-matched and unmatched base rows, unused added rows, blank or invalid keys,
-repeated keys, and expected versus actual output rows. Select **Save combined
-table** only when the base grain is preserved. You can keep both physical
-inputs as **Preparation only** so their immutable evidence and lineage remain
-available while only the logical output enters **Match data**.
-
-![A complete review combines two fictional customer tables while preserving one output row per customer account.](../../images/user/06d-customer-combination.png)
+Select **Review complete combination**. Impodo checks every accepted row and
+shows one reconciliation row for each added table: matched and unmatched
+primary rows, unused added rows, invalid keys, repeated keys, and final output
+rows. Select **Save combined table** only when the primary grain is preserved.
+The physical inputs default to preparation-only, private intermediate tables
+do not create separate mapping work, and only the final logical output enters
+**Match data**. Use **Advanced: combine two tables** when an explicit pairwise
+structural step is needed.
 
 For a BoM delivery, combine partial header tables only at the header grain and
 partial line tables only at the complete line grain. Keep repeating operations
@@ -322,4 +323,4 @@ it, and verify the destination result.
 
 - [End-to-end training tutorial](../tutorials/end-to-end-training.md)
 - [Developer implementation: Source data](../../developer/workflow/01-source-data.md)
-- [Planned same-database guarded Odoo-source updates](../../plans/remaining-work.md#4-complete-guarded-odoo-source-updates)
+- [Planned same-database guarded Odoo-source updates](../../plans/00-remaining-work.md#4-complete-guarded-odoo-source-updates)

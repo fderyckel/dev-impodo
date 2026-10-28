@@ -357,7 +357,7 @@ read-only capability, batched requests, invalidation, and both source modes.
 
 ## Related documentation
 
-- [Workflow responsiveness qualification](../../plans/responsive-workflow-liveness-and-navigation.md)
+- [Workflow responsiveness qualification](../../plans/09-responsive-workflow-liveness-and-navigation.md)
 - [User guide: Odoo data](../../user/workflow/02-odoo-data.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
 - [Platform support and testing](../reference/platform-support-and-testing.md)

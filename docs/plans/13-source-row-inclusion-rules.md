@@ -2,7 +2,7 @@
 
 ## Status and remaining scope
 
-**Status:** Priority 3 visual and documentation qualification, reconciled
+**Status:** Ranked thirteenth in the cross-plan implementation order as of
 2026-10-28. Guided row inclusion, bounded preparation, complete accounting,
 Recipe reuse, and run review are implemented. Native columnar parity is
 long-term deferred unless measurement makes the Python fallback a release

@@ -77,7 +77,7 @@ uv run --frozen --group quality python scripts/check_python_quality.py
 
 ## Cross-stage references
 
-- [Workflow responsiveness qualification](../plans/responsive-workflow-liveness-and-navigation.md)
+- [Workflow responsiveness qualification](../plans/09-responsive-workflow-liveness-and-navigation.md)
 - [Architecture overview](../architecture/overview.md)
 - [Code organization](../architecture/code-organization.md)
 - [Local browser database operation scopes](../architecture/code-organization.md#local-browser-database-operation-scopes)

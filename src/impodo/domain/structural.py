@@ -99,6 +99,10 @@ class ExactJoinRule:
     projections: tuple[StructuralProjection, ...]
     kind: JoinKind = JoinKind.LEFT
     require_all_right_rows: bool = True
+    require_unique_left: bool = False
+    map_output: bool = True
+    group_id: str | None = None
+    group_step: int | None = None
 
     def __post_init__(self) -> None:
         _uuid(self.rule_id, "join rule ID")
@@ -110,13 +114,23 @@ class ExactJoinRule:
         if not 1 <= len(self.keys) <= MAX_STRUCTURAL_KEYS:
             raise ValueError("Joins require one to five exact keys")
         object.__setattr__(self, "kind", JoinKind(self.kind))
+        if not isinstance(self.require_unique_left, bool):
+            raise TypeError("Join base-key uniqueness must be a Boolean")
+        if not isinstance(self.map_output, bool):
+            raise TypeError("Join output visibility must be a Boolean")
+        if (self.group_id is None) != (self.group_step is None):
+            raise ValueError("Join group identifier and step must be provided together")
+        if self.group_id is not None:
+            _uuid(self.group_id, "join group ID")
+            if self.group_step is None or self.group_step < 1:
+                raise ValueError("Join group step is invalid")
         _validate_output(self.output_columns, self.projections)
         allowed = {self.left_dataset_id, self.right_dataset_id}
         if any(item.source_dataset_id not in allowed for item in self.projections):
             raise ValueError("Join projection references another dataset")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "rule_id": self.rule_id,
             "output_dataset_name": self.output_dataset_name,
             "left_dataset_id": self.left_dataset_id,
@@ -127,6 +141,9 @@ class ExactJoinRule:
             "kind": self.kind.value,
             "require_all_right_rows": self.require_all_right_rows,
         }
+        if self.require_unique_left:
+            payload["require_unique_left"] = True
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> ExactJoinRule:
@@ -146,6 +163,18 @@ class ExactJoinRule:
             ),
             kind=JoinKind(str(payload.get("kind", "LEFT"))),
             require_all_right_rows=bool(payload.get("require_all_right_rows", True)),
+            require_unique_left=bool(payload.get("require_unique_left", False)),
+            map_output=bool(payload.get("map_output", True)),
+            group_id=(
+                str(payload["group_id"])
+                if payload.get("group_id") is not None
+                else None
+            ),
+            group_step=(
+                int(payload["group_step"])
+                if payload.get("group_step") is not None
+                else None
+            ),
         )
 
 
@@ -742,6 +771,8 @@ def review_exact_join(
         findings.append("Join key is invalid on right-side rows")
     if duplicate_right:
         findings.append("Join right-side keys are not unique")
+    if rule.require_unique_left and duplicate_left:
+        findings.append("Join base keys are not unique")
     if rule.kind is JoinKind.INNER and unmatched_left:
         findings.append("Inner join has unmatched left rows")
     if rule.require_all_right_rows and unmatched_right:

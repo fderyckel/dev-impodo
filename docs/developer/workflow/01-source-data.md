@@ -132,20 +132,30 @@ of trusting browser-supplied counts. It checks the expected parent version and
 then asks `DerivedEntityRepository.save_derived_entity_plan` to append the
 revision in one transaction. Contract v7 stores the rule hash, physical
 snapshot identities, complete counts, protected examples, output-table hash,
-and lineage hash. A failed repository transaction leaves the prior current
-pointer unchanged, so the same semantic request can be reviewed and retried.
-Removing one structural rule removes only its saved join review. The service
-blocks removal when a later structural rule consumes its output, so the data
-manager must remove the dependent step first.
+and lineage hash. Contract v8 additionally stores exact-join group identity,
+group step, primary-key uniqueness, and whether an output is map-visible. A
+failed repository transaction leaves the prior current pointer unchanged, so
+the same semantic request can be reviewed and retried.
 
-The current browser adds **Combine columns from multiple tables** to the same
-Source data page. `exact_join_forms.py` parses the bounded repeated form fields,
-then resolves every dataset, key, projected field, and dataset-use choice
-against the current selection and dependency-ordered structural outputs. It
-never trusts a posted source identity or review count. The browser supports one
-to five typed key pairs, required or optional enrichment, an explicit unused
-added-row policy, explicit output selection and renaming, and **Preparation
-only** or **Map and prepare** for each physical input.
+`ExactJoinGroupRequest` binds one physical primary table, one to nine physical
+added tables, one to five shared typed key parts, and the final projections.
+`preview_join_group` compiles it to deterministic exact-join steps, loads each
+physical snapshot once, reviews every added table against the primary grain,
+and executes the valid complete chain once for output and physical-lineage
+hashes. `save_join_group` repeats that work and stores every rule, review,
+dataset-use decision, and output-use decision in one optimistic plan revision.
+Intermediate steps carry private primary-key columns only as needed and set
+`map_output=False`; the final step alone sets `map_output=True`. Removing the
+final group output removes its private ancestors and saved reviews in one
+revision. Removal remains blocked when a rule outside the group consumes an
+output being removed.
+
+The normal browser choice is **Several tables describe the same records**.
+`exact_join_forms.py` parses the bounded primary-key, added-table, completeness,
+and projection matrices, then resolves every posted index, dataset, and field
+against the current physical selection. It never trusts a posted source
+identity, type, count, hash, or lineage value. The prior pairwise editor remains
+under **Advanced: combine two tables** for explicit structural chains.
 
 `POST /workspaces/{workspace_id}/derived-entities/join/preview` performs the
 complete review and renders the counts and protected examples. `POST
@@ -154,6 +164,14 @@ uses the preview's stable rule identifier and optimistic parent version. Each
 command, including its validation-error render, runs inside one
 `run_local_operation` callback. It performs zero Odoo calls. The normal page
 continues to use one `run_page_read` projection.
+
+`POST /workspaces/{workspace_id}/derived-entities/join-group/preview` reviews
+the complete group and returns one reconciliation row per added table. `POST
+/workspaces/{workspace_id}/derived-entities/join-group/save` repeats the same
+bounded review and performs one repository save. The authenticated four-file
+customer fixture holds preview and save to 12 DuckDB connections and 10 schema
+checks, exposes only `customers_complete` to mapping, and performs zero Odoo
+calls.
 
 Saved cards distinguish physical inputs from the mapped logical output and
 show whether each input remains visible in **Match data**. The fictional
@@ -180,12 +198,14 @@ consumers. Source composition itself contains no `mrp.bom`,
 `mrp.bom.line`, `mrp.routing.workcenter`, or `res.partner` decision; those
 model names belong only to the later mapping definitions.
 
-Recipe publication now converts each physical preparation input, join key,
-projected column, structural output, and dataset-use decision to a logical
-identity. It requires only the physical columns that define the saved
-preparation and mapping meaning. Authoring rule UUIDs, physical dataset IDs,
-rows, paths, snapshot identities, accepted counts, output hashes, and lineage
-hashes remain outside the semantic Recipe.
+Recipe publication converts each physical preparation input, join key,
+projected column, structural output, dataset-use decision, group step, and
+output-use policy to logical meaning. The compiler includes private structural
+outputs while assigning portable identities even though those datasets are
+absent from the effective mapping selection. It requires only the physical
+columns that define the saved preparation and mapping meaning. Authoring rule
+UUIDs, physical dataset IDs, rows, paths, snapshot identities, accepted counts,
+output hashes, and lineage hashes remain outside the semantic Recipe.
 
 Fresh application binds every physical input, including preparation-only
 tables, from the accepted Test data version. It creates deterministic
@@ -525,6 +545,9 @@ one atomic source version.
 Related-dataset and exact-join rules are versioned workspace-owned evidence.
 An accepted exact join stores its complete reconciliation and the hashes of
 every physical snapshot, output table, and lineage projection beside the rule.
+A grouped exact join also stores its group step and output-use policy; private
+intermediate outputs remain executable Recipe inputs but never become mapping
+datasets.
 
 ## Completion and navigation
 
@@ -684,7 +707,7 @@ cancellation, lineage, and both navigation variants.
 ## Related documentation
 
 - [ADR-016: Generic Odoo relationship decisions and profiles](../../decisions/README.md#adr-016--odoo-relationship-scope-combines-generic-decisions-with-profiles)
-- [Workflow responsiveness qualification](../../plans/responsive-workflow-liveness-and-navigation.md)
+- [Workflow responsiveness qualification](../../plans/09-responsive-workflow-liveness-and-navigation.md)
 - [Platform support and testing](../reference/platform-support-and-testing.md)
 - [Source-composition benchmark](../../../scripts/benchmark_source_composition.py)
 - [User guide: Source data](../../user/workflow/01-source-data.md)

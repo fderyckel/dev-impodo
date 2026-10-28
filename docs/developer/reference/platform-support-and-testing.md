@@ -86,4 +86,4 @@ discovery rooted at its `tests/platform/<platform>/` directory.
 
 - [Python code quality](python-code-quality.md)
 - [Code organization](../../architecture/code-organization.md)
-- [Linux server implementation plan](../../plans/linux-server-postgresql-duckdb-implementation.md)
+- [Linux server implementation plan](../../plans/07-linux-server-postgresql-duckdb-implementation.md)

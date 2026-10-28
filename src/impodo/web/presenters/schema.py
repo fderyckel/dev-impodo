@@ -45,8 +45,11 @@ from ..constants import (
 from ..context import WebContext
 from ..exact_join_forms import (
     ExactJoinFormSubmission,
+    ExactJoinGroupFormSubmission,
     available_exact_join_selection,
     default_exact_join_form,
+    default_exact_join_group_form,
+    exact_join_group_projection_candidates,
     exact_join_projection_candidates,
     saved_exact_join_views,
     source_use_label,
@@ -219,6 +222,8 @@ def _render_derived_entities(
     pending_lookup: dict[str, object] | None = None,
     pending_hierarchy: dict[str, object] | None = None,
     pending_join: dict[str, object] | None = None,
+    pending_join_group: dict[str, object] | None = None,
+    join_group_form: ExactJoinGroupFormSubmission | None = None,
     join_form: ExactJoinFormSubmission | None = None,
 ):
     source_page = context.queries.get_source_page(workspace_id)
@@ -311,8 +316,53 @@ def _render_derived_entities(
         for dataset in (selection.datasets if selection else ())
     )
     join_dataset_views: tuple[dict[str, object], ...] = ()
+    join_group_dataset_views: tuple[dict[str, object], ...] = ()
     join_rule_views: tuple[dict[str, object], ...] = ()
     if selection is not None:
+        active_group_form = join_group_form or default_exact_join_group_form(
+            selection,
+            plan,
+        )
+        group_additions = {
+            item.dataset_index: item for item in active_group_form.additions
+        }
+        group_selected_projections = set(active_group_form.projection_indexes)
+        group_projection_names = tuple(active_group_form.projection_names)
+        group_candidates = exact_join_group_projection_candidates(selection)
+        group_candidate_index = 0
+        group_dataset_views: list[dict[str, object]] = []
+        for dataset_index, dataset in enumerate(selection.datasets):
+            columns = []
+            for column in dataset.columns:
+                output_name = (
+                    group_projection_names[group_candidate_index]
+                    if group_candidate_index < len(group_projection_names)
+                    else column.source_name
+                )
+                columns.append(
+                    {
+                        "column": column,
+                        "projection_index": group_candidate_index,
+                        "selected": (
+                            group_candidate_index in group_selected_projections
+                        ),
+                        "output_name": output_name,
+                    }
+                )
+                group_candidate_index += 1
+            group_dataset_views.append(
+                {
+                    "dataset": dataset,
+                    "dataset_index": dataset_index,
+                    "columns": tuple(columns),
+                    "addition": group_additions.get(dataset_index),
+                }
+            )
+        if group_candidate_index != len(group_candidates):
+            raise RuntimeError("Grouped exact-join browser candidate ordering changed")
+        join_group_dataset_views = tuple(group_dataset_views)
+        join_group_form = active_group_form
+
         available_join_selection = available_exact_join_selection(selection, plan)
         active_join_form = join_form or default_exact_join_form(selection, plan)
         selected_projection_indexes = set(active_join_form.projection_indexes)
@@ -382,6 +432,9 @@ def _render_derived_entities(
         pending_lookup=pending_lookup,
         pending_hierarchy=pending_hierarchy,
         pending_join=pending_join,
+        pending_join_group=pending_join_group,
+        join_group_form=join_group_form,
+        join_group_dataset_views=join_group_dataset_views,
         join_form=join_form,
         join_dataset_views=join_dataset_views,
         join_rule_views=join_rule_views,

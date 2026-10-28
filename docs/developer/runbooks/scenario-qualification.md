@@ -36,7 +36,7 @@ Project, Data version, Recipe application, or workspace records. It also does
 not yet provision or reset Odoo, attest a seed fingerprint independently,
 capture an Odoo source, schedule a catalogue, clean a remote target
 automatically, or drive a real browser. Those remain in the phased
-[end-to-end scenario plan](../../plans/end-to-end-trial-and-scenario-qualification.md).
+[end-to-end scenario plan](../../plans/08-end-to-end-trial-and-scenario-qualification.md).
 
 ## Validate before access
 

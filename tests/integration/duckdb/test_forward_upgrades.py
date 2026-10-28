@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import unittest
 from datetime import UTC, datetime
 from hashlib import sha256
-import json
 from pathlib import Path
-import unittest
 
 import duckdb
 
@@ -50,7 +50,6 @@ from impodo.adapters.duckdb.schema.workspace_engine import (
 from impodo.domain.data_version.models import DataVersion
 from impodo.domain.workspace.models import MigrationWorkspace
 from impodo.domain.workspace.workbench import WorkspaceStateCompatibilityError
-
 
 PROJECT_ID = "10000000-0000-4000-8000-000000000001"
 DATA_VERSION_ID = "20000000-0000-4000-8000-000000000001"
@@ -108,6 +107,8 @@ def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("DROP TABLE IF EXISTS preflight_execution_projection")
     connection.execute("DROP TABLE IF EXISTS odoo_relationship_scope_current")
     connection.execute("DROP TABLE IF EXISTS odoo_relationship_scope_revision")
+    connection.execute("DROP TABLE IF EXISTS cross_store_data_receipt")
+    connection.execute("DROP TABLE IF EXISTS workspace_fence")
     connection.execute("DROP TABLE IF EXISTS test_run_parameter_values")
     connection.execute("DROP TABLE IF EXISTS test_run_setup_binding")
     connection.execute("DROP TABLE schema_migration")
@@ -441,6 +442,11 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         15,
                         16,
                         "workspace-engine-v15-to-v16-odoo-relationship-scope",
+                    ),
+                    (
+                        16,
+                        17,
+                        "workspace-engine-v16-to-v17-cross-store-coordination",
                     ),
                 ],
             )

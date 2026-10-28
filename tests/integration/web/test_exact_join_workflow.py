@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import re
 from unittest.mock import patch
+from uuid import uuid4
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.workspace.derived_entities import SourceDatasetUse
 from impodo.web.exact_join_forms import (
     available_exact_join_selection,
+    exact_join_group_projection_candidates,
     exact_join_projection_candidates,
 )
 from tests.support.browser_scenarios import (
@@ -22,7 +24,7 @@ from tests.support.browser_scenarios import (
 class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
     """Prove the fictional customer workflow through current HTTP routes."""
 
-    def _frozen_customer_workspace(self):
+    def _frozen_customer_workspace(self, *, several_tables: bool = False):
         created = self._post(
             "/projects/new",
             {
@@ -33,36 +35,66 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
             },
         )
         workspace_id = _created_workspace_id(self.app, created)
+        files = [
+            (
+                "source_file",
+                (
+                    "cust02.csv",
+                    (
+                        b"Partition,Party,AccountNum,Company\n"
+                        b"part-1,100,C001,United Caps\n"
+                        b"part-1,200,C002,Fictional Retail\n"
+                    ),
+                    "text/csv",
+                ),
+            ),
+            (
+                "source_file",
+                (
+                    "cust01.csv",
+                    (
+                        b"Partition,RecId,Name,Email\n"
+                        b"part-1,100,United Caps,info@example.test\n"
+                        b"part-1,200,Fictional Retail,buyer@example.test\n"
+                        b"part-1,999,Unused Party,unused@example.test\n"
+                    ),
+                    "text/csv",
+                ),
+            ),
+        ]
+        if several_tables:
+            files.extend(
+                [
+                    (
+                        "source_file",
+                        (
+                            "cust03.csv",
+                            (
+                                b"Partition,Party,City\n"
+                                b"part-1,100,Brussels\n"
+                                b"part-1,200,Ghent\n"
+                            ),
+                            "text/csv",
+                        ),
+                    ),
+                    (
+                        "source_file",
+                        (
+                            "cust04.csv",
+                            (
+                                b"Partition,Party,PaymentTerm\n"
+                                b"part-1,100,30D\n"
+                                b"part-1,200,45D\n"
+                            ),
+                            "text/csv",
+                        ),
+                    ),
+                ]
+            )
         uploaded = self.client.post(
             f"/workspaces/{workspace_id}/files",
             data={"csrf_token": self.csrf, "revision": "1"},
-            files=[
-                (
-                    "source_file",
-                    (
-                        "cust02.csv",
-                        (
-                            b"Partition,Party,AccountNum,Company\n"
-                            b"part-1,100,C001,United Caps\n"
-                            b"part-1,200,C002,Fictional Retail\n"
-                        ),
-                        "text/csv",
-                    ),
-                ),
-                (
-                    "source_file",
-                    (
-                        "cust01.csv",
-                        (
-                            b"Partition,RecId,Name,Email\n"
-                            b"part-1,100,United Caps,info@example.test\n"
-                            b"part-1,200,Fictional Retail,buyer@example.test\n"
-                            b"part-1,999,Unused Party,unused@example.test\n"
-                        ),
-                        "text/csv",
-                    ),
-                ),
-            ],
+            files=files,
             headers=POST_HEADERS,
             follow_redirects=False,
         )
@@ -77,7 +109,7 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertEqual(registered.status_code, 303, registered.text)
         catalogs = context.queries.get_source_catalogs(workspace_id)
-        self.assertEqual(len(catalogs), 2)
+        self.assertEqual(len(catalogs), 4 if several_tables else 2)
         for catalog in catalogs:
             confirmed = self.client.post(
                 f"/workspaces/{workspace_id}/sources/{catalog.file_id}/configure",
@@ -93,12 +125,14 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
                 follow_redirects=False,
             )
             self.assertEqual(confirmed.status_code, 303, confirmed.text)
+        names_by_file = {
+            "cust01.csv": "party_details",
+            "cust02.csv": "customer_accounts",
+            "cust03.csv": "customer_addresses",
+            "cust04.csv": "customer_terms",
+        }
         dataset_names = {
-            index: (
-                "customer_accounts"
-                if catalog.display_name == "cust02.csv"
-                else "party_details"
-            )
+            index: names_by_file[catalog.display_name]
             for index, catalog in enumerate(catalogs)
         }
         frozen = self.client.post(
@@ -117,7 +151,10 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         selection = context.queries.get_source_selection(workspace_id)
         self.assertIsNotNone(selection)
         by_name = {dataset.name: dataset for dataset in selection.datasets}
-        self.assertEqual(set(by_name), {"customer_accounts", "party_details"})
+        expected = {"customer_accounts", "party_details"}
+        if several_tables:
+            expected.update({"customer_addresses", "customer_terms"})
+        self.assertEqual(set(by_name), expected)
         return workspace_id, selection, by_name
 
     @staticmethod
@@ -177,6 +214,82 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         fields["projection_name"] = projection_names
         return fields
 
+    def _join_group_form(
+        self,
+        selection,
+        by_name,
+        *,
+        expected_version="",
+        group_id=None,
+    ):
+        primary = by_name["customer_accounts"]
+        additions = (
+            (by_name["party_details"], "RecId"),
+            (by_name["customer_addresses"], "Party"),
+            (by_name["customer_terms"], "Party"),
+        )
+        indexes = {
+            dataset.dataset_id: index
+            for index, dataset in enumerate(selection.datasets)
+        }
+        fields = {
+            "csrf_token": self.csrf,
+            "expected_parent_version": expected_version,
+            "group_id": group_id or str(uuid4()),
+            "output_dataset_name": "customers_complete",
+            "primary_dataset_id": primary.dataset_id,
+            "primary_key_field_1": (
+                f'{primary.dataset_id}|{self._column(primary, "Partition").stable_key}'
+            ),
+            "primary_key_type_1": "string",
+            "primary_key_field_2": (
+                f'{primary.dataset_id}|{self._column(primary, "Party").stable_key}'
+            ),
+            "primary_key_type_2": "integer",
+            "group_addition": [
+                str(indexes[dataset.dataset_id]) for dataset, _field in additions
+            ],
+        }
+        for key_index in range(3, 6):
+            fields[f"primary_key_field_{key_index}"] = ""
+            fields[f"primary_key_type_{key_index}"] = "string"
+        for dataset, identity_field in additions:
+            dataset_index = indexes[dataset.dataset_id]
+            fields[f"group_addition_key_{dataset_index}_1"] = (
+                f'{dataset.dataset_id}|{self._column(dataset, "Partition").stable_key}'
+            )
+            fields[f"group_addition_key_{dataset_index}_2"] = (
+                f"{dataset.dataset_id}|"
+                f"{self._column(dataset, identity_field).stable_key}"
+            )
+            fields[f"group_addition_kind_{dataset_index}"] = "LEFT"
+            for key_index in range(3, 6):
+                fields[f"group_addition_key_{dataset_index}_{key_index}"] = ""
+
+        selected = {
+            ("customer_accounts", "AccountNum"): "account_number",
+            ("customer_accounts", "Company"): "company",
+            ("party_details", "Name"): "name",
+            ("party_details", "Email"): "email",
+            ("customer_addresses", "City"): "city",
+            ("customer_terms", "PaymentTerm"): "payment_term",
+        }
+        projection_indexes = []
+        projection_names = []
+        for index, (dataset, column) in enumerate(
+            exact_join_group_projection_candidates(selection)
+        ):
+            output_name = selected.get(
+                (dataset.name, column.source_name),
+                column.source_name,
+            )
+            if (dataset.name, column.source_name) in selected:
+                projection_indexes.append(str(index))
+            projection_names.append(output_name)
+        fields["group_projection"] = projection_indexes
+        fields["group_projection_name"] = projection_names
+        return fields
+
     @staticmethod
     def _hidden_value(page: str, action: str, name: str) -> str:
         form = re.search(
@@ -200,7 +313,8 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         workspace_id, selection, by_name = self._frozen_customer_workspace()
         page = self.client.get(f"/workspaces/{workspace_id}/derived-entities")
         self.assertEqual(page.status_code, 200, page.text)
-        self.assertIn("Combine columns from multiple tables", page.text)
+        self.assertIn("Several tables describe the same records", page.text)
+        self.assertIn("Advanced: combine two tables", page.text)
         self.assertIn('data-exact-join-form', page.text)
         self.assertIn('name="key_left_5"', page.text)
         self.assertIn('name="projection_name"', page.text)
@@ -285,6 +399,79 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Preparation only - hidden from Match data", summary.text)
         self.assertIn("Mapped logical dataset", summary.text)
         self.assertIn("Shown in Match data", summary.text)
+        self.assertEqual(self.connection_calls, [])
+        self.assertEqual(self.schema_calls, [])
+        self.assertEqual(self.model_catalog_calls, [])
+        self.assertEqual(self.read_identity_calls, [])
+
+    def test_four_customer_tables_are_reviewed_and_saved_once(self) -> None:
+        workspace_id, selection, by_name = self._frozen_customer_workspace(
+            several_tables=True
+        )
+        form = self._join_group_form(selection, by_name)
+
+        with collect_duckdb_request_timings() as preview_timings:
+            preview = self.client.post(
+                f"/workspaces/{workspace_id}/derived-entities/join-group/preview",
+                data=form,
+                headers=POST_HEADERS,
+            )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertIn("Complete multi-table review", preview.text)
+        self.assertIn("customer_addresses", preview.text)
+        self.assertIn("customer_terms", preview.text)
+        self.assertIn("Only the final combined table enters Match data", preview.text)
+        self.assertLessEqual(preview_timings.connection_count, 12)
+        self.assertLessEqual(preview_timings.schema_check_count, 10)
+
+        action = f"/workspaces/{workspace_id}/derived-entities/join-group/save"
+        group_id = self._hidden_value(preview.text, action, "group_id")
+        expected_version = self._hidden_value(
+            preview.text,
+            action,
+            "expected_parent_version",
+        )
+        save_form = self._join_group_form(
+            selection,
+            by_name,
+            expected_version=expected_version,
+            group_id=group_id,
+        )
+        with collect_duckdb_request_timings() as save_timings:
+            saved = self.client.post(
+                action,
+                data=save_form,
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+        self.assertEqual(saved.status_code, 303, saved.text)
+        self.assertLessEqual(save_timings.connection_count, 12)
+        self.assertLessEqual(save_timings.schema_check_count, 10)
+
+        context = self.app.state.context
+        plan = context.queries.get_derived_entity_plan(workspace_id)
+        self.assertIsNotNone(plan)
+        self.assertEqual(len(plan.rules), 3)
+        self.assertEqual(sum(rule.map_output for rule in plan.rules), 1)
+        self.assertTrue(
+            next(
+                rule
+                for rule in plan.rules
+                if rule.output_dataset_name == "customers_complete"
+            ).map_output
+        )
+        self.assertEqual(len(plan.join_reviews), 3)
+        effective = context.queries.get_mapping_source_selection(workspace_id)
+        self.assertEqual(
+            [(dataset.name, dataset.row_count) for dataset in effective.datasets],
+            [("customers_complete", 2)],
+        )
+
+        summary = self.client.get(saved.headers["location"])
+        self.assertEqual(summary.status_code, 200, summary.text)
+        self.assertIn("3 enrichments - hidden from Match data", summary.text)
+        self.assertNotIn("_join_1_", summary.text)
+        self.assertNotIn("_join_2_", summary.text)
         self.assertEqual(self.connection_calls, [])
         self.assertEqual(self.schema_calls, [])
         self.assertEqual(self.model_catalog_calls, [])

@@ -2,13 +2,23 @@
 
 ## Status and decision
 
-**Status:** Priority 2 product work, reconciled 2026-10-28. The first Stage 2
-slice of Proposals 1 and 2, the direct-identity slice of Proposal 3, the first
-relationship-simulator slice of Proposal 6, and Proposal 9's shared comparison
-and reviewed deferred-record workflow are implemented. Finish Proposal 8's
-root-cause correction routes next, then consider Proposal 10's migration
-intent and load cockpit. Every other change remains proposed unless a section
-explicitly marks it as current behavior.
+**Status:** Ranked first in the cross-plan implementation order and reassessed
+against the current checkout on 2026-10-28. Proposals 1, 2, 3, 4, 5, 6, 7, 8,
+and 10 now have useful implemented foundations, while Proposal 9 is complete.
+The next delivery should combine the remaining work from Proposals 1 and 8
+into one root-cause correction journey. It should then complete the relational
+identity and relationship gaps from Proposals 3 and 6, the source-aware
+supporting-data closure from Proposal 2, and the migration-intent part of
+Proposal 10. Do not build parallel replacements for the implemented default,
+mapping-impact, comparison, or load-recovery flows.
+
+The current supported product remains the local application. The shared-server
+track has completed its contract and composition phases and has started a
+local PostgreSQL persistence trial, but no remote Impodo server is allocated
+or qualified. This workflow plan therefore defines deployment-neutral product
+behavior. It neither waits for the server release nor treats local DuckDB
+access, process-local jobs, or the implicit local operator as shared product
+contracts.
 
 This plan is for the product owner and the developers who own Impodo's
 six-stage Authoring workflow. It proposes how Impodo should help a data manager
@@ -51,11 +61,12 @@ remains explicitly not tested. The first Proposal 6 slice checks saved
 relationship fields but does not yet complete a dataset's resolver-backed
 identity. Final review remains authoritative.
 
-This slice does not yet pair dependencies with accepted source tables, derive
-recursive Recipe or Odoo-source capture closure, authorize supporting reads,
-include optional many-to-one or many-to-many fields without source or Recipe
-intent, prove relationship values, or add the issue summary to global
-navigation.
+The remaining work does not yet pair file-source dependencies with accepted or
+derived source tables, derive Recipe closure, authorize supporting reads,
+include optional many-to-one or many-to-many fields from source or Recipe
+intent, prove relational identity components, or add the issue summary to
+global navigation. The current Odoo-source relationship scope and the direct
+relationship-health slice below now cover parts of the earlier gap.
 
 ### Implemented third slice
 
@@ -92,6 +103,24 @@ workbook retains every omitted record with its direct or inherited reason.
 Exact numeric-precision findings are evaluated against intended writes. The
 preview, acceptance, and workbook do not contact Odoo, and stale comparison or
 preview evidence is rejected.
+
+### Additional current foundations found during reassessment
+
+The current checkout contains more of the intended workflow than the original
+delivery summary recorded:
+
+| Proposal | Current implementation | Remaining decision |
+| --- | --- | --- |
+| **1. Issue register** | Stage 2 uses the shared `WorkflowIssueProjection` and renders cause, owner, preserved work, correction action, and recheck. | Extend the same projection to the other stages and workspace navigation without creating a second issue authority. |
+| **2. Supporting data** | File-source Stage 2 derives direct required relationships and inverse-owned children. The Odoo-source path already stores generic reviewed decisions for each relationship edge and builds guided capture plans. | Reuse that edge evidence. Add accepted or derived source-table intent, optional-field intent, Recipe closure, and explicit supporting-read authorization for file-source authoring. |
+| **3. Identity proof** | Direct scalar identities are checked against included source rows and current target evidence. | Prove relational key and scope components, expose protected duplicate-group review, and forecast update versus unchanged only when complete mapped evidence exists. |
+| **4. Required values** | Authoring can identify required-field blockers, check bounded Odoo defaults, review one or several defaults, save the chosen disposition, and run one complete mapping check. | Consolidate these decisions into one clear checklist. Do not create a second default-capture workflow. |
+| **5. Mapping starter** | Stage 2 matching-rule suggestions, generated-table relationship suggestions, recommended authoring order, scalar catalogue tools, and checked coverage evidence provide several safe starting points. | Add only evidence-backed suggestions that remove a demonstrated operator burden. A broad automatic field mapper is no longer a prerequisite for this plan. |
+| **6. Relationship simulator** | Direct scalar Many2one and Many2many keys, three resolver origins, constant references, parent counts, case-only protection, and inverse One2many guidance are current. | Add protected unresolved-choice review, nested relational keys, and resolver-backed components of the dataset's own identity. |
+| **7. Rule effects** | The optional **Review rule effects** page and matching review workbook already show changed, fallback, blank, invalid, supplied, and unchanged outcomes for the checked revision. | Prefer field-specific links and compact context over duplicating the complete preview inside every field card. |
+| **8. Root-cause repair** | Prepare data now publishes complete-run cause groups with direct or inherited classification and affected-record counts, while preserving paged row-level owner, field, source-row, and correction evidence. The preparation owner calculates the compact projection once during quality publication, so browser paging does not rescan all issue rows. Match data also predicts numeric precision loss from current frozen source-backed rules. | Add parent, child, and sibling impact, open the exact owning decision, join the groups to the cross-stage issue contract, and add a prepared-value precision pass for values that the earlier source-backed scan cannot prove. |
+| **9. Shared comparison** | The single Stage 4-to-Stage 5 comparison and reviewed deferred-record-group workflow are complete. | Preserve this owner; do not add another target scan. |
+| **10. Intent and cockpit** | Load already has dependency groups, bounded blockers, durable row journals, unknown-outcome states, read-back-gated recovery, reconciliation, and progressive relationship status. | Add the explicit business-intent contract and present it together with the existing execution and recovery evidence. |
 
 The impact score measures the benefit to the data manager, not implementation
 cost:
@@ -211,12 +240,12 @@ stages.
 
 | Stage | Current responsibility | Main pressure point |
 | --- | --- | --- |
-| **1. Source data** | The data manager confirms the exact source tables and accepts them as immutable evidence for the Data version. Odoo-source capture can follow selected relationships. | A missing supporting record type or child table can remain unnoticed. The current Odoo-source review confirms relationship fields as a group; individual edge approval and automatic proposals for missing model types are not implemented. |
+| **1. Source data** | The data manager confirms physical and reviewed derived tables as immutable Data version evidence. Odoo-source capture stores a generic decision for each reviewed relationship edge and builds guided plans from those decisions. | File-source business scope and derived-table intent do not yet feed one complete Stage 2 dependency plan, so a supporting incoming table can still be discovered late. |
 | **2. Odoo data** | Impodo captures Odoo 19 models, fields, requirements, selections, relationships, defaults, and optional uniqueness metadata. It now derives direct required supporting relationships and inverse-owned child data, then confirms one matching rule for every selected writable record type. | The first slice does not yet pair optional relationships with accepted source or Recipe intent, authorize arbitrary supporting reads, or prove that current source and target values are populated and unique. |
-| **3. Match data** | The data manager defines row inclusion, record identity, scalar values, transformations, defaults, and relationships. Impodo checks the mapping and can produce a review workbook. | This stage contains the highest number of related decisions. Combined identities expose technical controls, and one-to-many guidance does not take the user directly to the child field that owns the relationship. |
-| **4. Prepare data** | Impodo applies the confirmed mapping to every accepted row, accounts for every row, resolves source duplicates, evaluates incoming relationships, and freezes normalization decisions. | Preparation is intentionally target-independent. It cannot prove that a target-only or Odoo-first relationship exists in the current Odoo database. |
-| **5. Final review** | Impodo reads current Odoo evidence, classifies every eligible prepared row, and produces the final action queue and execution snapshot. | A target-only identity or relationship problem may first become visible here, which sends the data manager back through a long correction loop. |
-| **6. Load into Odoo** | Impodo revalidates the reviewed target scope, writes in dependency order, journals each attempted row, and verifies the result through read-back. | The safety controls are strong, but the data manager must still understand the exact business impact and whether an interrupted action is safe to resume. |
+| **3. Match data** | The data manager defines row inclusion, record identity, scalar values, transformations, defaults, and relationships. Impodo checks direct identity and relationship health, predicts source-backed numeric precision loss, and can show rule effects in a browser review and workbook. | Relational identity components and nested relationship keys still stop at aggregate guidance. Protected unresolved choices and a compact cross-table coverage view remain missing. |
+| **4. Prepare data** | Impodo applies the confirmed mapping to every accepted row, accounts for every row, resolves source duplicates, evaluates incoming relationships, freezes normalization decisions, and groups direct and inherited causes for the current review page. | Cause grouping is page-scoped rather than a complete repair queue. Preparation is intentionally target-independent, and it does not yet check every exact prepared Decimal value against captured capacity. |
+| **5. Final review** | Impodo reads current Odoo evidence, classifies every eligible prepared row, produces the final action queue and execution snapshot, and can retain a reviewed safe remainder. | Indirect identities and relationships that the early checks cannot prove may still first become visible here. Their correction routes are not yet projected into one cross-stage issue journey. |
+| **6. Load into Odoo** | Impodo revalidates the reviewed target scope, writes in dependency order, journals each attempted row, requires read-back before recovery, and verifies the result through reconciliation. | Recovery is already evidence-led. The main remaining gap is an explicit business-intent comparison that catches a technically valid load whose create, update, field, or relationship effects contradict the migration purpose. |
 
 The current boundaries are defined by the paired
 [user workflow](../user/workflow/01-source-data.md) and
@@ -262,6 +291,35 @@ Every delivery in this plan must preserve these rules:
 - The normal browser path uses business labels and one clear next action.
   Technical identifiers and hashes remain under **Support details**.
 
+### Local and shared-server ownership
+
+The same domain and application behavior must support the local desktop and
+the future shared-server compositions. A product improvement in this plan
+should ship locally when it is ready; it must not wait for the server release.
+It must also avoid a local-only contract that the server would later need to
+undo.
+
+- Local page reads continue to use one bounded synchronous database operation.
+  A local command uses one bounded local operation and never introduces a
+  process-wide DuckDB connection cache.
+- A shared-server request authorizes the authenticated Organization and
+  Project before it can resolve detailed evidence. The implicit local actor
+  and its universal capability bypass never become server behavior.
+- PostgreSQL may store only bounded issue counts, stage status, current
+  pointers, job progress, operation identity, and verified receipt hashes.
+  Complete mappings, findings, row identities, prepared values, approvals,
+  comparison detail, and reconciliation evidence remain in DuckDB or protected
+  artifacts.
+- A server page must not reopen a worker-owned DuckDB database. A worker
+  publishes authoritative evidence and a receipt; the application verifies
+  that receipt before it advances the bounded PostgreSQL projection.
+- A long-running server check or mutation uses the durable job, idempotency,
+  lease, fencing, interruption, and receipt contracts. Process-local managers
+  remain a local adapter choice rather than the workflow contract.
+- Shared code receives identity, authorization, query, job, artifact, and
+  secret ports from its composition root. It must not accumulate scattered
+  deployment-mode branches.
+
 ## Proposal 1: Add one cross-stage issue register
 
 **Delivery status:** First projection contract and Stage 2 issue summary
@@ -274,7 +332,8 @@ are proposed.
 ### Process improvement
 
 Each stage should continue to own and store its authoritative evidence. A
-shared presenter should project current findings into one common issue shape:
+shared application projection should present current findings through one
+common issue shape:
 
 - severity and current state;
 - business cause and affected record count;
@@ -286,8 +345,11 @@ shared presenter should project current findings into one common issue shape:
 - the check required after correction.
 
 This projection must not become a second mutable issue database. When the
-authoritative stage evidence changes, the presenter recalculates whether an
-issue is current, resolved, or stale.
+authoritative stage evidence changes, the application recalculates whether an
+issue is current, resolved, or stale. In the server profile, PostgreSQL may
+retain its bounded counts, status, current evidence pointer, and verified
+receipt hash. Detailed issues remain data-plane evidence and are opened only
+through an authorized bounded query.
 
 ### Interface improvement
 
@@ -333,13 +395,20 @@ safety evidence rather than detecting a new class of unsafe write by itself.
   never the only explanation for unavailable navigation.
 - The projection contains no source values, target-bound identifiers, or
   credentials unless an existing protected page already authorizes them.
+- In the shared-server profile, navigation reads a verified bounded projection
+  and never opens a DuckDB database that an active worker owns.
+- PostgreSQL stores only counts, status, current pointers, and receipt hashes.
+  It does not store complete issue messages, row identities, source values, or
+  protected target evidence.
 
 ## Proposal 2: Derive supporting Odoo models from business scope
 
 **Delivery status:** Direct required-relationship and inverse-child derivation
-from the live schema, plus the Stage 2 review UI, are implemented. Source-table
-pairing, optional-field intent, explicit reuse authorization, Recipe closure,
-Odoo-source edge proposals, and value-level proof are proposed.
+from the live schema, plus the Stage 2 review UI, are implemented. The
+Odoo-source path also implements generic per-edge relationship decisions and
+guided capture plans. Source-table pairing, optional-field intent, explicit
+reuse authorization, file-source Recipe closure, and value-level proof remain
+proposed.
 
 **Owning stages:** Source data and Odoo data.  
 **User impact:** **10/10**.
@@ -379,9 +448,12 @@ source data contains a table that should create or update the related records,
 Impodo proposes that incoming table and asks the data manager to confirm its
 business role once.
 
-For Odoo-source capture, the same planner may propose missing related record
-types and individual relationship edges. The user confirms the business
-capture scope; Impodo handles the technical dependency closure behind it.
+For Odoo-source capture, the current generic relationship-scope engine already
+proposes and stores individual relationship-edge decisions. It distinguishes
+full related migration data, identity-and-required-values preservation,
+existing-destination matching, and ignored optional links. The remaining
+file-source planner should consume this reviewed meaning where it applies; it
+must not introduce a second model-wide or Odoo-specific dependency policy.
 
 ### Interface improvement
 
@@ -441,6 +513,9 @@ receives the maximum impact score. A correct dependency plan still needs Stage
 - The dependency walk is bounded, deduplicates cycles and repeated paths, does
   not traverse unrelated optional relationships, and still explains every
   affected business relationship.
+- Existing Odoo-source relationship decisions remain the authority for that
+  capture path. The file-source assistant may reuse their portable meaning but
+  cannot silently replace or widen an accepted edge.
 
 ## Proposal 3: Prove matching identities against current data
 
@@ -516,6 +591,13 @@ the target can change after authoring.
 
 ## Proposal 4: Add a required-values and Odoo-default assistant
 
+**Delivery status:** The bounded Authoring default-recovery path is
+implemented. It finds checked required-field blockers, captures eligible
+defaults for the exact target and company context, lets the data manager
+review one or several values, saves the `odoo_default` disposition, and runs
+one complete mapping check. A unified required-values checklist and equally
+direct source-value or constant correction actions remain proposed.
+
 **Owning stages:** Odoo data and Match data.  
 **User impact:** **8.5/10**.
 
@@ -566,6 +648,13 @@ recover them after a validation blocker.
 - The UI distinguishes **Let Odoo choose** from **Odoo manages this field**.
 
 ## Proposal 5: Provide a safe mapping starter and coverage score
+
+**Delivery status:** Implemented foundations include Stage 2 matching-rule
+suggestions, source-derived relationship suggestions, recommended table order,
+scalar catalogue tools, mapping validation, and current-data coverage checks.
+A single cross-table coverage score and a reviewed bulk starter are not
+implemented. Add them only where the existing focused suggestions leave a
+measured repeated task.
 
 **Owning stage:** Match data.  
 **User impact:** **8/10**.
@@ -709,24 +798,32 @@ receives the maximum impact score.
 
 ## Proposal 7: Show rule effects beside the edited field
 
+**Delivery status:** The checked transformation-impact page and matching review
+workbook are implemented. The remaining interface work is a compact
+field-specific summary and direct link into that existing evidence, not a new
+preview engine or a copy of the complete report in every field card.
+
 **Owning stage:** Match data.  
 **User impact:** **7.5/10**.
 
 ### Process improvement
 
-After the data manager checks a rule, Impodo should reuse the current
-transformation-impact capability to report affected counts, newly blank
-values, invalid results, fallbacks, and representative before-and-after values.
-Saving a draft remains separate from checking it. The preview must bind to the
-exact checked mapping and accepted source evidence.
+After the data manager checks a rule, Impodo should reuse the implemented
+transformation-impact evidence to report affected counts, newly blank values,
+invalid results, fallbacks, and representative before-and-after values. Saving
+a draft remains separate from checking it. The compact summary and complete
+preview must bind to the same exact checked mapping and accepted source
+evidence.
 
-The complete matching review workbook remains available for a durable review.
-The inline preview should remove the need to create and open a workbook for
-each ordinary field correction.
+The current browser review remains the complete interactive view, and the
+matching review workbook remains the durable review. The field card should
+open the relevant current browser evidence instead of starting another
+evaluation.
 
 ### Interface improvement
 
-Place a compact **Effect on current data** panel inside the edited field card:
+Place a compact **Effect on current data** summary inside the edited field card
+and link it to the corresponding rows in **Review rule effects**:
 
 | Source value | Prepared value | Rows | Result |
 | --- | --- | ---: | --- |
@@ -750,31 +847,56 @@ review workbook already provide much of the underlying evidence.
 - Protected Odoo-source business values remain outside portable previews and
   workbooks.
 - Preview evaluation makes no Odoo call.
+- Opening a field summary does not create a second impact snapshot or disagree
+  with the complete current report.
 
 ## Proposal 8: Turn Stage 4 findings into root-cause repair plans
+
+**Delivery status:** Preparation now distinguishes direct and inherited
+findings and publishes affected-record counts across the complete current run.
+The worker calculates the compact projection once after storing quality issues;
+the browser reads it with the existing bounded page query. Row-level owner,
+field, source-row, and correction evidence remains paged. Match data also scans
+current frozen source-backed scalar rules for potential numeric precision loss.
+Parent, child, and sibling impact, exact owning-decision links, integration with
+the cross-stage issue contract, and a prepared-value precision pass remain
+proposed.
 
 **Owning stage:** Prepare data.  
 **User impact:** **9/10**.
 
 ### Process improvement
 
-Impodo should group complete preparation findings by root cause before it lists
-dependent records. For each root cause, it should calculate how many parent,
-child, and sibling records became unsafe because of that cause. It should
-retain the direct or inherited classification, responsible role, source row,
-field label, and owning correction stage.
+Impodo now extends the earlier page-scoped cause summary into one complete-run
+projection before it lists the paged records. Quality publication derives this
+projection with one set-based aggregate and stores no source values in it. The
+next slice should calculate how many parent, child, and sibling records became
+unsafe because of each cause. It should retain the implemented direct or
+inherited classification, responsible role, source row, field label, and owning
+correction stage.
 
-Stage 4 should also compare every exact prepared Decimal value with the
-captured Odoo field's `digits` metadata. This local check reports **Potential
-precision loss** because Stage 4 does not yet know which prepared differences
-will become writes. It must identify the affected dataset, friendly field,
-source rows, prepared decimal scale, captured target capacity, and correction
-routes. It must use Decimal semantics and must not round the value.
+The current Match data scan already predicts numeric precision loss for frozen
+source-backed scalar rules and can direct the user to an explicit rounding
+choice. Stage 4 should complement, not repeat, that scan by comparing every
+exact prepared Decimal value with the captured Odoo field's `digits` metadata.
+This catches generated, related, normalized, or otherwise prepared values that
+the earlier scan cannot prove. The local check reports **Potential precision
+loss** because Stage 4 does not yet know which prepared differences will become
+writes. It must identify the affected dataset, friendly field, source rows,
+prepared decimal scale, captured target capacity, and correction routes. It
+must use Decimal semantics and must not round the value.
 
 The plan remains a projection of frozen quality evidence. Selecting a
 correction action must not edit accepted source data, mapping evidence, or
 prepared rows automatically. After the user corrects the owning input, Impodo
 starts one fresh complete preparation attempt.
+
+The local preparation owner now calculates and publishes the compact cause
+projection in the same quality transaction. In the shared-server profile, the
+data-plane worker must preserve that owner boundary and publish the equivalent
+verified projection with its operation receipt. The browser may read that
+bounded projection or open authorized paged detail after the operation commits;
+it must not reopen the worker-held DuckDB database while work is active.
 
 ### Interface improvement
 
@@ -807,9 +929,8 @@ Actions: Adjust the number rule | Review Odoo field precision
 The user can fix one cause instead of interpreting many consequential errors.
 Current preparation already distinguishes direct findings from inherited
 dependencies; this proposal makes the complete impact and correction route
-actionable. Moving the first Decimal-capacity warning into preparation also
-prevents the data manager from discovering a predictable schema mismatch on
-the Load page.
+actionable. The prepared-value Decimal pass closes the gap left by the earlier
+source-backed warning and still prevents discovery only on the Load page.
 
 ### Acceptance checks
 
@@ -912,6 +1033,13 @@ without weakening the single authoritative comparison.
 
 ## Proposal 10: Add a migration-intent contract and load cockpit
 
+**Delivery status:** The execution cockpit foundations are implemented:
+dependency groups, grouped snapshot blockers, progressive first-pass and
+relationship status, a durable row journal, unknown-outcome handling,
+read-back-gated recovery, resume of the same journal, and final reconciliation.
+The explicit migration-intent contract and one consolidated expected-versus-
+found presentation remain proposed.
+
 **Owning stages:** Final review and Load into Odoo.  
 **User impact:** **9.5/10**.
 
@@ -932,10 +1060,12 @@ row is technically valid. The data manager confirms the intent and observed
 result together. Stage 6 binds that decision to the exact execution snapshot
 and repeats its current freshness and scope checks immediately before writing.
 
-During execution, Impodo should continue to use the durable journal and
-reconciliation result as authority. An interrupted outcome must offer an
-assessment action before any continuation. The cockpit must never describe an
-unknown write outcome as safely retryable.
+During execution, Impodo should continue to use the implemented durable
+journal and reconciliation result as authority. The current **Check recovery**
+and separately confirmed **Resume saved load** boundary remains the recovery
+contract. The cockpit may consolidate those states, but it must never describe
+an unknown write outcome as safely retryable or invent a parallel recovery
+state.
 
 ### Interface improvement
 
@@ -986,21 +1116,18 @@ the highest-risk stage, so it receives a near-maximum score.
 
 | Priority | Proposals | Reason |
 | --- | --- | --- |
-| **1 - delivered** | First slice of 1. Issue register and 2. Supporting-model derivation | Remove hidden Stage 2 Odoo knowledge first and establish the shared issue language. Direct schema discovery and the Stage 2 blocker are implemented. |
-| **2 - delivered in part** | 3. Identity proof | Direct scalar identities are now proved. Relational scope and protected duplicate-group review remain. |
-| **3 - delivered in part** | 6. Relationship simulator | Saved direct-key relationship fields now expose missing and ambiguous parents before preparation or Final review. Nested relational keys, protected unresolved-value review, and resolver-backed dataset identity remain. |
-| **4 - delivered in part** | 8. Root-cause repair plans | Preparation already distinguishes direct and inherited dependency findings. The broader correction-route and potential-precision experience remains. |
-| **5 - delivered** | 9. Shared comparison and reviewed set-aside | One comparison can start after Stage 4 approval; Stage 5 can retain a reviewed safe remainder with exact intended-write precision evidence. |
-| **6** | 10. Migration intent and load cockpit | Bind loading to an explicit business result after the safe technical scope is known. |
-| **7** | 4. Defaults assistant; 5. Mapping starter; 7. Inline rule effects | Reduce setup effort after the identity, relationship, and shared issue contracts are stable. |
+| **1 - next** | 1. Cross-stage issues with 8. Root-cause repair | Complete-run cause counts are now published. Add dependency impact, preserved work, exact correction actions, and required rechecks through one shared issue contract. This remains one journey, not two independent features. |
+| **2** | 3. Relational identity proof with 6. Nested relationship resolution | Extend the existing bounded Stage 3 check to the parent-, company-, and relationship-backed identities that still defer risk until Final review. Add protected unresolved-choice review without exposing keys in ordinary projections. |
+| **3** | 2. Source-aware supporting-data closure | Join accepted physical and derived tables, optional-field intent, Recipe requirements, and reviewed Odoo-source edge meaning into the existing bounded dependency plan. Do not add another relationship-policy engine. |
+| **4** | 10. Migration intent over the current load cockpit | Compare the exact Final review result with explicit business expectations, then present those expectations with the implemented dependency, journal, recovery, and reconciliation states. |
+| **5 - conditional consolidation** | Remaining 4. Required-values summary, 5. Mapping starter, and 7. Field-specific rule effects | Improve the current flows only where user evidence shows repeated work or navigation friction. Reuse the implemented default capture, catalogues, transformation-impact snapshot, and workbook. |
+| **Delivered foundation** | 9. Shared comparison and reviewed set-aside | Preserve one Stage 4-to-Stage 5 comparison and the reviewed safe-remainder contract. No later slice adds another target scan. |
 
-The delivered slices establish the issue vocabulary, direct Stage 2 dependency
-boundary, direct Stage 3 identity proof and relationship checks, and one shared
-Stage 4-to-Stage 5 comparison path.
-
-The shared Stage 4 comparison and reviewed Stage 5 set-aside delivery is now
-complete. The next safety slice should finish Proposal 8's root-cause repair
-routes before Proposal 10 binds the load to migration intent.
+This sequence supersedes the older assumption that Proposals 4, 5, 7, and the
+load cockpit all start from zero. Their current foundations reduce the
+remaining work and let the next slice focus on the most expensive user problem:
+finding one cause, opening the right decision, and knowing what must be checked
+again.
 
 ## End-to-end acceptance scenario
 
@@ -1022,12 +1149,14 @@ Measure, Bills of Materials, and Bill of Material Lines:
    Material Line parent, and Bill of Material Product. The relationship
    simulator finds seven lines without a parent Bill of Material, one missing
    Product, and two ambiguous Category paths. Each blocker names its origin and
-   opens the exact relationship rule.
+   opens the exact relationship rule. The source-backed precision scan also
+   warns that Quantity values need more decimal places than the captured Odoo
+   field can store.
 4. Stage 4 prepares every row. The missing Product sets aside one Bill of
-   Material and its component lines. A Quantity value of `1.237` also receives
-   a potential precision warning because the captured Odoo field supports two
-   decimal places. The root-cause cards show the affected business groups,
-   owners, preserved work, and correction routes.
+   Material and its component lines. The prepared-value pass confirms every
+   affected Quantity value, including any value produced only after
+   transformation or normalization. The root-cause cards show the affected
+   business groups, owners, preserved work, and correction routes.
 5. The data manager starts the shared Odoo comparison from Stage 4. It confirms
    which precision findings affect actual writes before the Load stage can
    unlock. One unrelated Bill of Material remains safe, while the affected
@@ -1064,6 +1193,23 @@ contracts together when their behavior changes:
   intent assessment, and reviewed set-aside scope.
 - [Execution and reconciliation](../developer/contracts/execution-and-reconciliation.md)
   for load confirmation, recovery, and completion.
+- [Server fact ownership](../architecture/server-fact-ownership.md) for the
+  boundary between PostgreSQL control projections and detailed DuckDB or
+  protected evidence.
+
+The local and shared-server compositions must inject different persistence,
+identity, authorization, job, artifact, and secret adapters into the same
+workflow services. A new workflow query must not read the local repository
+directly from shared application code. A new long-running command must expose
+an immutable request and bounded progress contract that the local adapter can
+run in process and the server adapter can execute through durable jobs, leases,
+fencing, and receipts.
+
+For a shared-server delivery, Organization and Project authorization must
+complete before any customer evidence opens. Every bounded PostgreSQL
+projection must be rebuildable from a verified data-plane receipt. A missing
+or mismatched projection requires repair; it must not repeat preparation,
+comparison, or Odoo transport.
 
 Focused verification should extend the owning domain, application, browser,
 artifact, security, accessibility, and performance tests rather than relying
@@ -1078,8 +1224,8 @@ mock-up must not replace authenticated acceptance evidence.
 
 ## Non-goals
 
-- The remaining plan does not yet implement the proposal parts that are not
-  listed under **Implemented first slice**.
+- The remaining plan does not yet implement proposal parts that the
+  reassessment table and delivery-status sections still describe as proposed.
 - It does not authorize automatic approval of matching rules, defaults,
   relationship matches, set-aside groups, migration intent, or Odoo writes.
 - It does not add numeric Odoo database IDs to portable mappings, Recipes,
@@ -1088,9 +1234,14 @@ mock-up must not replace authenticated acceptance evidence.
 - It does not replace Final review with an earlier advisory check.
 - It does not add a second Odoo comparison to the normal Stage 4-to-Stage 5
   journey.
+- It does not make the shared-server profile current, allocate a remote server,
+  move detailed migration evidence into PostgreSQL, or require local users to
+  run PostgreSQL or manage Organizations.
+- It does not fork local and server workflow meaning. Different compositions
+  provide adapters for one application contract.
 - It does not weaken the separate preflight, confirmation, journaling, or
   reconciliation boundaries in the
-  [generic Odoo-to-Odoo migration plan](odoo-to-odoo-migration.md), even though
+  [generic Odoo-to-Odoo migration plan](05-odoo-to-odoo-migration.md), even though
   those pages now appear together inside Stage 6 of the Authoring workflow.
 
 ## Related documentation
@@ -1101,7 +1252,9 @@ mock-up must not replace authenticated acceptance evidence.
 - [Prepare data workflow](../developer/workflow/04-prepare-data.md)
 - [Final review workflow](../developer/workflow/05-final-review.md)
 - [Load into Odoo workflow](../developer/workflow/06-load-into-odoo.md)
-- [Odoo data workflow](../developer/workflow/02-odoo-data.md)
 - [Reviewed deferred record groups contract](../developer/contracts/deferred-record-groups.md)
-- [Match data ordering qualification](smart-match-data-ordering.md)
-- [Workflow responsiveness qualification](responsive-workflow-liveness-and-navigation.md)
+- [Server fact ownership](../architecture/server-fact-ownership.md)
+- [Shared-server implementation](07-linux-server-postgresql-duckdb-implementation.md)
+- [Shared-server target architecture](07-vm-deployment-duckdb-worker-management.md)
+- [Match data ordering qualification](12-smart-match-data-ordering.md)
+- [Workflow responsiveness qualification](09-responsive-workflow-liveness-and-navigation.md)

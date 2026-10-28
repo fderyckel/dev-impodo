@@ -160,6 +160,7 @@ class QualityQueryRepository(Protocol):
         dataset: str,
         page: int,
         page_size: int,
+        include_run_cause_counts: bool = False,
     ) -> QualityReviewPage: ...
     def get_quality_collision_groups(
         self, workspace_id: str, run_id: str, row_ids: tuple[str, ...]
@@ -337,6 +338,7 @@ class BrowserQueryService:
         dataset: str,
         page: int,
         page_size: int,
+        include_run_cause_counts: bool = False,
     ) -> QualityReviewPage:
         return self._quality.get_quality_review_page(
             workspace_id,
@@ -345,6 +347,7 @@ class BrowserQueryService:
             dataset=dataset,
             page=page,
             page_size=page_size,
+            include_run_cause_counts=include_run_cause_counts,
         )
 
     def get_quality_collision_groups(

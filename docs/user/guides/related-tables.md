@@ -6,16 +6,18 @@ Use **Separate combined information** when a denormalized source file contains
 information that should become more than one Odoo record type. Impodo saves
 the rule and keeps the confirmed source unchanged.
 
-The browser supports four shapes:
+The browser supports five shapes:
 
-1. **Combine columns from multiple tables.** Two partial source views become
-   one logical dataset while the base row count stays unchanged.
-2. **One field contains reusable values.** Repeated values become one related
+1. **Several tables describe the same records.** One primary table and up to
+   nine partial source views become one logical dataset in one review.
+2. **Advanced: combine two tables.** Two partial views become one logical
+   dataset when an explicit pairwise structural step is needed.
+3. **One field contains reusable values.** Repeated values become one related
    table, while the original rows remain available for mapping.
-3. **Several fields form a hierarchy.** Two to five ordered source fields
+4. **Several fields form a hierarchy.** Two to five ordered source fields
    become one related hierarchy and one relationship value on the original
    rows.
-4. **Several rows describe the same record.** Impodo creates one table with one
+5. **Several rows describe the same record.** Impodo creates one table with one
    row per group and another table that retains every source row.
 
 These rules currently work with confirmed tables from uploaded files. During
@@ -41,11 +43,12 @@ Open **Source data**, then **Separate combined information**.
 
 ## Combine partial views of the same records
 
-Choose **Combine columns from multiple tables** when two accepted tables each
-contain part of the same business record. This is an exact enrichment, not a
-free-form SQL join. The added dataset may contain zero or one row for a key.
-Repeated added keys block the result because Impodo cannot choose an arbitrary
-row or multiply the base rows safely.
+Choose **Several tables describe the same records** when accepted tables each
+contain part of the same business record. One primary table defines the
+population and grain. Each added table may contribute zero or one row for the
+same key. This is exact enrichment, not a free-form SQL join. Repeated primary
+or added keys block the result because Impodo cannot choose an arbitrary row,
+merge two intended records, or multiply the primary rows safely.
 
 Impodo reviews every row in the complete frozen source selection when that
 selection contains no more than 25,000 rows in total. A combined output may
@@ -53,9 +56,10 @@ contain no more than 200 fields. These boundaries prevent the browser from
 starting unbounded in-memory work; they are not a reason to omit required key
 fields or business columns.
 
-For fictional AX customer exports, the base table might contain `AccountNum`
-and `Party`, while the added table contains the party `RecId`, name, and email.
-Use the complete key required by the source system. For example:
+For fictional AX customer exports, the primary table might contain
+`AccountNum` and `Party`. Separate contact, address, and payment-term tables
+can enrich that same customer population. Use the complete key required by
+the source system. For example:
 
 The customer names in this example make the decision easy to recognize; they
 are not a product rule. The same form lists any confirmed CSV table, Excel
@@ -63,36 +67,42 @@ worksheet, or Excel named table in the current Data version. It creates a
 model-neutral logical dataset, which you map to the appropriate Odoo record
 type later in **Match data**.
 
-| Base field | Added field | Type |
-| --- | --- | --- |
-| `Partition` | `Partition` | Text |
-| `Party` | `RecId` | Whole number |
+| Primary field | Contact field | Address field | Terms field | Type |
+| --- | --- | --- | --- | --- |
+| `Partition` | `Partition` | `Partition` | `Partition` | Text |
+| `Party` | `RecId` | `Party` | `Party` | Whole number |
 
 To build the logical customer table:
 
-1. Enter the **Combined table name**. The base dataset defines what one output
-   row represents.
-2. Choose the **Base dataset** and **Added dataset**.
-3. Pair one to five exact join fields. Include company, partition, or another
-   scope whenever the record identifier is not globally unique.
-4. Choose **Optional - keep an unmatched base row** or **Required - block if a
-   base row has no match**. Require every added row only when the added table
-   is expected to contain no records outside the base population.
-5. Select and name every output field explicitly. Give fields from the two
-   inputs different output names when their names collide.
-6. Choose **Preparation only** when a physical input should support the logical
-   result without requiring its own mapping. Choose **Map and prepare** when
-   the physical table must also enter **Match data**.
-7. Select **Review complete join** and resolve every blocking finding. Select
-   **Save combined table** only when the review says **Complete**.
+1. Enter the **Combined table name** and choose the **Primary table**. One
+   primary row defines one output row.
+2. Choose one to five ordered **Primary fields** for the shared key. Include
+   company, partition, or another scope whenever the identifier is not
+   globally unique.
+3. Select every added table in the matrix. For each one, confirm the matching
+   field for every primary key part.
+4. For each added table, choose whether a missing match is optional or
+   required and whether every added row must be represented.
+5. Select and name the final output fields once. Impodo suggests a
+   table-qualified name when source labels collide.
+6. Select **Review complete combination**. Check one reconciliation row per
+   added table, then select **Save combined table** only when the whole review
+   says **Complete**.
 
-![A complete review combines two fictional customer tables while preserving one output row per customer account.](../../images/user/06d-customer-combination.png)
+The save creates one plan revision. Physical inputs default to **Preparation
+only**, intermediate execution tables stay private, and only the final logical
+dataset enters **Match data**. Impodo retains the complete per-table review and
+row-level physical lineage. The source files do not need to be pre-joined with
+Python or SQL.
 
-The saved summary distinguishes the immutable inputs from the mapped logical
-dataset. Impodo retains row-level physical lineage and the complete review.
-The two source files do not need to be pre-joined with Python or SQL.
+Use **Advanced: combine two tables** only when another structural workflow
+needs one explicit pairwise step or a visible pairwise output. That editor
+retains the prior base/added controls and can still chain visible logical
+outputs.
 
-![The saved summary keeps both physical inputs for preparation and exposes only the logical customer table to Match data.](../../images/user/06e-customer-combination-saved.png)
+![The advanced pairwise review combines two fictional customer tables while preserving one output row per customer account.](../../images/user/06d-customer-combination.png)
+
+![The advanced pairwise saved summary distinguishes its physical inputs from the map-visible logical output.](../../images/user/06e-customer-combination-saved.png)
 
 Do not use this choice to flatten one-to-many data. BoM lines and operations
 normally remain separate logical datasets linked to their header. Two partial
@@ -114,15 +124,15 @@ many-to-one BoM relationship. Impodo then places the header before its lines
 and operations in the dependency order. Do not map the header's one-to-many
 lists or copy repeating line and operation fields onto the header.
 
-A saved Recipe now keeps the exact join chain and each physical input's use by
-logical table and column identity. When you test the Recipe with a newer
-delivery, the file names may change. Impodo accepts one compatible table for
-each required input, rebuilds the same logical output, and again checks every
-row before preparation can complete. A missing or ambiguous table, a missing
-required field, repeated keys on the added side, or unmatched rows in a
-required join stops the application. The Recipe contains the rule and source
-shape, not the Authoring rows, file paths, snapshot identities, or old review
-counts.
+A saved Recipe keeps the complete grouped join, final-output visibility, and
+each physical input's use by logical table and column identity. When you test
+the Recipe with a newer delivery, the file names may change. Impodo accepts one
+compatible table for each required input, rebuilds the private intermediate
+steps and same final logical output, and again checks every row before
+preparation can complete. A missing or ambiguous table, a missing required
+field, repeated primary or added keys, or unmatched rows in a required join
+stops the application. The Recipe contains the rule and source shape, not the
+Authoring rows, file paths, snapshot identities, or old review counts.
 
 ## Build a hierarchy from separate fields
 

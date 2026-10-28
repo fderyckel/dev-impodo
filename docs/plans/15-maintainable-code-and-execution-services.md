@@ -9,10 +9,10 @@ status: active
 ## Decision and intended reader
 
 Continue the delivered repository guardrails and use the execution service as
-the first focused refactor. This is Priority 1 reliability work in the
-[remaining-work roadmap](remaining-work.md#priority-1-close-safety-and-supported-platform-gaps).
-The aim is to make a change easy to locate, review, test, and recover from as
-Impodo grows.
+the first focused refactor. The [remaining-work roadmap](00-remaining-work.md)
+ranks this supporting work fifteenth and requires it to accompany the product
+change that needs the boundary. The aim is to make a change easy to locate,
+review, test, and recover from as Impodo grows.
 
 This plan is for maintainers and contributors deciding how to organize future
 changes. The repository quality commands, pinned Ruff and Basedpyright policy,

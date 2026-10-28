@@ -168,7 +168,7 @@ class PostgreSQLProjectCatalogueLiveTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with psycopg.connect(self.dsn) as connection:
-            connection.execute("TRUNCATE impodo_control.project_catalogue")
+            connection.execute("TRUNCATE impodo_control.project_catalogue CASCADE")
             connection.execute("DELETE FROM impodo_control.organization")
             for organization_id, display_name in (
                 (ORGANIZATION_A, "Fictional organization A"),

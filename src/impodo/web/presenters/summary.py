@@ -20,7 +20,7 @@ from impodo.application.workspace.source_readiness import (
 from impodo.domain.compiler.browser_mapping_compiler import browser_mapping_labels
 from impodo.domain.errors import ReadinessError
 from impodo.domain.preflight.deferred_scope import DeferredScopeEvidenceError
-from impodo.domain.preparation.quality import QualityReviewItem
+from impodo.domain.preparation.quality import QualityCauseCount, QualityReviewItem
 from impodo.domain.shared.access import Actor, AuthorizationError, Capability
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
@@ -188,6 +188,7 @@ def _render_normalization(
             dataset="",
             page=requested_page,
             page_size=NORMALIZATION_GROUPS_PER_PAGE,
+            include_run_cause_counts=True,
         )
     collision_groups = {}
     collision_routes = {}
@@ -208,7 +209,7 @@ def _render_normalization(
             quality_field_labels,
         )
         quality_cause_groups = _quality_cause_groups(
-            set_aside_page.items,
+            set_aside_page.run_cause_counts,
             quality_field_labels,
         )
         collision_items = tuple(
@@ -628,6 +629,7 @@ def _render_summary(
                 default=1,
             ),
             page_size=quality_page_size,
+            include_run_cause_counts=True,
         )
         if quality_page.matching_count:
             quality_row_start = (quality_page.page - 1) * quality_page_size + 1
@@ -645,7 +647,7 @@ def _render_summary(
         quality_field_labels,
     )
     quality_cause_groups = _quality_cause_groups(
-        quality_page.items if quality_page is not None else (),
+        quality_page.run_cause_counts if quality_page is not None else (),
         quality_field_labels,
     )
     summary_quality_page_ms = (perf_counter() - quality_page_started) * 1000
@@ -915,10 +917,10 @@ def _quality_issue_field_label_map(
 
 
 def _quality_cause_groups(
-    items: Sequence[QualityReviewItem],
+    causes: Sequence[QualityCauseCount],
     field_labels: dict[str, dict[str, str]],
 ) -> tuple[_QualityCauseGroupView, ...]:
-    """Group findings on the visible page into direct and inherited causes."""
+    """Present persisted complete-run direct and inherited cause counts."""
 
     titles = {
         "SOURCE_TYPE_INVALID": "Invalid number or value type",
@@ -935,33 +937,32 @@ def _quality_cause_groups(
         "INCOMING_IDENTITY_DEPENDENT_SET_ASIDE",
     }
     grouped: dict[tuple[object, ...], _QualityCauseGroupView] = {}
-    for item in items:
-        scoped = field_labels.get(item.row.dataset, {})
-        for issue in item.issues:
-            fields = tuple(
-                scoped.get(field, field.replace("_", " ").title())
-                for field in issue.affected_fields
-            )
-            key = (issue.reason_code, issue.message, fields)
-            group = grouped.setdefault(
-                key,
-                {
-                    "reason_code": issue.reason_code,
-                    "title": titles.get(
-                        issue.reason_code,
-                        issue.reason_code.replace("_", " ").title(),
-                    ),
-                    "kind": (
-                        "Inherited dependency"
-                        if issue.reason_code in inherited_reasons
-                        else "Direct finding"
-                    ),
-                    "message": issue.message,
-                    "fields": fields,
-                    "count": 0,
-                },
-            )
-            group["count"] += 1
+    for cause in causes:
+        scoped = field_labels.get(cause.dataset, {})
+        fields = tuple(
+            scoped.get(field, field.replace("_", " ").title())
+            for field in cause.affected_fields
+        )
+        key = (cause.reason_code, cause.message, fields)
+        group = grouped.setdefault(
+            key,
+            {
+                "reason_code": cause.reason_code,
+                "title": titles.get(
+                    cause.reason_code,
+                    cause.reason_code.replace("_", " ").title(),
+                ),
+                "kind": (
+                    "Inherited dependency"
+                    if cause.reason_code in inherited_reasons
+                    else "Direct finding"
+                ),
+                "message": cause.message,
+                "fields": fields,
+                "count": 0,
+            },
+        )
+        group["count"] += cause.affected_record_count
     return tuple(
         sorted(
             grouped.values(),

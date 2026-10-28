@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.domain.preparation.quality import (
+    QualityCauseCount,
+    QualityDisposition,
+    QualityIssue,
+    QualityReviewItem,
+    QualityReviewPage,
+    QualityRowResult,
+)
 from impodo.domain.workspace.business_keys import BUSINESS_KEY_POLICY_VERSION
 from tests.support.browser_scenarios import (
     POST_HEADERS,
@@ -91,6 +101,110 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             "total",
         ):
             self.assertIn(f"{phase};dur=", server_timing)
+
+    def test_complete_quality_causes_render_off_loop_with_bounded_opens(
+        self,
+    ) -> None:
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
+            scalar_field_count=0,
+        )
+        context = self.app.state.context
+        staging_run_id = "f0cd6d32-80d9-4e31-9bcb-d316d83cf0b8"
+        staging_hash = "sha256:" + "7" * 64
+        quality_run_id = "e0cd6d32-80d9-4e31-9bcb-d316d83cf0b8"
+        row_id = "sha256:" + "8" * 64
+        staging = MagicMock(
+            total_rows=3,
+            mapping_version=3,
+            run_id=staging_run_id,
+            content_hash=staging_hash,
+            datasets=(),
+        )
+        quality = SimpleNamespace(
+            run_id=quality_run_id,
+            content_hash="sha256:" + "9" * 64,
+            staging_run_id=staging_run_id,
+            staging_content_hash=staging_hash,
+            ruleset_hash="sha256:" + "a" * 64,
+            ready_count=0,
+            review_count=0,
+            quarantined_count=3,
+            excluded_count=0,
+            blocked_count=0,
+            ready_for_package=True,
+        )
+        issue = QualityIssue(
+            issue_id="sha256:" + "b" * 64,
+            rule_id="sha256:" + "c" * 64,
+            family=QualityRuleFamily.BOUNDED_VALUES,
+            reason_code="SOURCE_TYPE_INVALID",
+            message="The prepared number is invalid.",
+            dataset="contacts",
+            row_id=row_id,
+            source_row=2,
+            affected_fields=("amount",),
+            policy=QualityOutcomePolicy.QUARANTINE,
+            owner_role=QualityOwnerRole.DATA_MANAGER,
+            owner_label="Data manager",
+        )
+        quality_page = QualityReviewPage(
+            items=(
+                QualityReviewItem(
+                    row=QualityRowResult(
+                        row_id=row_id,
+                        dataset="contacts",
+                        source_row=2,
+                        record_label="Contact C002",
+                        base_disposition=QualityDisposition.CANDIDATE,
+                        effective_disposition=QualityDisposition.QUARANTINED,
+                        issue_ids=(issue.issue_id,),
+                        requires_review=True,
+                    ),
+                    issues=(issue,),
+                    correction_route="Correct the source and prepare again.",
+                ),
+            ),
+            matching_count=3,
+            page=1,
+            page_count=1,
+            run_cause_counts=(
+                QualityCauseCount(
+                    dataset="contacts",
+                    reason_code=issue.reason_code,
+                    message=issue.message,
+                    affected_fields=issue.affected_fields,
+                    affected_record_count=3,
+                ),
+            ),
+        )
+
+        def read_quality_page(*args, **kwargs):
+            with self.assertRaises(RuntimeError):
+                asyncio.get_running_loop()
+            self.assertEqual(args, (workspace_id, quality_run_id))
+            self.assertTrue(kwargs["include_run_cause_counts"])
+            return quality_page
+
+        with (
+            patch.object(context.preflight, "current_staging", return_value=staging),
+            patch.object(context.preflight, "current_report", return_value=None),
+            patch.object(context.quality, "current_summary", return_value=quality),
+            patch.object(
+                context.queries,
+                "get_quality_review_page",
+                side_effect=read_quality_page,
+            ),
+            collect_duckdb_request_timings() as timings,
+        ):
+            page = self.client.get(f"/workspaces/{workspace_id}/summary")
+
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("Causes across the complete prepared result", page.text)
+        self.assertIn("Invalid number or value type (3)", page.text)
+        self.assertIn("even when this table is filtered or paged", page.text)
+        self.assertGreater(timings.connection_count, 0)
+        self.assertLessEqual(timings.connection_count, 8)
+        self.assertLessEqual(timings.schema_check_count, 12)
 
     def test_prepare_rejects_bad_source_hash_before_publication_and_redirects(
         self,

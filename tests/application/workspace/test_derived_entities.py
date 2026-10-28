@@ -1171,7 +1171,7 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
         )
 
         self.assertEqual(plan.version, 2)
-        self.assertEqual(plan.contract_version, 7)
+        self.assertEqual(plan.contract_version, 8)
         self.assertEqual(
             plan.dataset_uses,
             (

@@ -1,4 +1,4 @@
-"""Application ports for future durable cross-store coordination."""
+"""Application ports for durable cross-store coordination."""
 
 from __future__ import annotations
 
@@ -7,8 +7,11 @@ from typing import Protocol
 
 from impodo.domain.shared.coordination import (
     ControlPlaneProjectionReceipt,
+    CrossStoreOperationSnapshot,
     DataPlaneOperationReceipt,
     OperationRequest,
+    OperationReservation,
+    RecoveryDisposition,
     WorkspaceLease,
 )
 from impodo.domain.shared.tenancy import OrganizationId
@@ -19,6 +22,17 @@ class OperationJournal(Protocol):
 
     def reserve(self, request: OperationRequest) -> OperationRequest:
         """Create or reuse an exact Organization-scoped idempotency reservation."""
+        ...
+
+    def reserve_with_status(
+        self,
+        request: OperationRequest,
+    ) -> OperationReservation:
+        """Create or reuse a reservation and identify an idempotent replay."""
+        ...
+
+    def get(self, request: OperationRequest) -> CrossStoreOperationSnapshot:
+        """Read exact durable state for one Organization-scoped operation."""
         ...
 
     def record_data_plane_receipt(
@@ -33,6 +47,26 @@ class OperationJournal(Protocol):
         receipt: ControlPlaneProjectionReceipt,
     ) -> None:
         """Record that bounded control state projected the exact data receipt."""
+        ...
+
+    def record_interruption(
+        self,
+        request: OperationRequest,
+        *,
+        interrupted_at: datetime,
+        disposition: RecoveryDisposition,
+    ) -> None:
+        """Record that recovery proved no committed data-plane receipt."""
+        ...
+
+    def require_manual_review(
+        self,
+        request: OperationRequest,
+        *,
+        interrupted_at: datetime,
+        disposition: RecoveryDisposition,
+    ) -> None:
+        """Stop automatic recovery for ambiguous or substituted evidence."""
         ...
 
 

@@ -8,6 +8,7 @@ from fastapi import Request
 from jinja2 import ChoiceLoader, DictLoader, Environment, FileSystemLoader
 
 from impodo.domain.preparation.quality import (
+    QualityCauseCount,
     QualityCollisionGroup,
     QualityCollisionMember,
     QualityDisposition,
@@ -116,8 +117,22 @@ class NormalizationSetAsideTests(unittest.TestCase):
         return html, values
 
     def test_set_aside_records_and_all_findings_render_without_change_groups(self) -> None:
+        item = self._item()
         self.context.queries.get_quality_review_page.return_value = QualityReviewPage(
-            items=(self._item(),), matching_count=1, page=1, page_count=1,
+            items=(item,),
+            matching_count=1,
+            page=1,
+            page_count=1,
+            run_cause_counts=tuple(
+                QualityCauseCount(
+                    dataset=issue.dataset,
+                    reason_code=issue.reason_code,
+                    message=issue.message,
+                    affected_fields=issue.affected_fields,
+                    affected_record_count=1,
+                )
+                for issue in item.issues
+            ),
         )
 
         html, values = self._render()
@@ -125,6 +140,7 @@ class NormalizationSetAsideTests(unittest.TestCase):
         self.context.queries.get_quality_review_page.assert_called_once_with(
             "workspace", "quality-bound-to-prepared-run",
             status="quarantined", dataset="", page=1, page_size=50,
+            include_run_cause_counts=True,
         )
         self.assertEqual(values["review_items"], ())
         self.assertIn("data-normalization-set-aside-row", html)
@@ -135,7 +151,8 @@ class NormalizationSetAsideTests(unittest.TestCase):
         self.assertIn("Formula requires numbers.", html)
         self.assertIn("Two records use the same Odoo match.", html)
         self.assertIn("Fields: Amount", html)
-        self.assertIn("Causes in the records shown on this page", html)
+        self.assertIn("Causes across the complete prepared result", html)
+        self.assertIn("even when this table is paged", html)
         self.assertIn("Direct finding", html)
         self.assertIn("this warning did not exclude the record", html)
         self.assertIn("Correct the source value and prepare again.", html)

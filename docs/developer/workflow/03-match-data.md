@@ -603,7 +603,7 @@ validation result for the malformed formula.
 | Role | Code |
 | --- | --- |
 | Mapping lifecycle | [`MappingWorkspaceService`](../../../src/impodo/application/workspace/mapping/service.py) |
-| Six-stage user-support plan | [`six-stage-workflow-user-support.md`](../../plans/six-stage-workflow-user-support.md) |
+| Six-stage user-support plan | [`01-six-stage-workflow-user-support.md`](../../plans/01-six-stage-workflow-user-support.md) |
 | Local Stage 3 ordering recommendation | [`MatchingOrderService`](../../../src/impodo/application/workspace/mapping/order_service.py) |
 | Aggregate identity-health browser projection | [`identity_health.py`](../../../src/impodo/web/presenters/identity_health.py) |
 | Aggregate relationship-health domain | [`relationship_health.py`](../../../src/impodo/domain/relationship_health.py) |
@@ -946,9 +946,9 @@ Run the focused Mapping package with:
 ## Related documentation
 
 - [User guide: Match data](../../user/workflow/03-match-data.md)
-- [Remaining Match data ordering qualification](../../plans/smart-match-data-ordering.md)
+- [Remaining Match data ordering qualification](../../plans/12-smart-match-data-ordering.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
 - [Canonical staging contract](../contracts/canonical-staging.md)
 - [Optional Recipe publication contract](../contracts/recipe-lifecycle.md)
 - [Related-table authoring guide](../../user/guides/related-tables.md)
-- [Row-inclusion visual qualification and native parity](../../plans/source-row-inclusion-rules.md)
+- [Row-inclusion visual qualification and native parity](../../plans/13-source-row-inclusion-rules.md)

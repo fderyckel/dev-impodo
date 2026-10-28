@@ -4,7 +4,7 @@ This adapter never writes to Odoo. It keeps prepared business values in
 process memory and returns only allowlisted counts and hashes to the scenario
 orchestrator.
 
-See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
+See ``docs/plans/08-end-to-end-trial-and-scenario-qualification.md`` and
 ``tests/integration/scenarios/test_profile_workflow.py``.
 """
 

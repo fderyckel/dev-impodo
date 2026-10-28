@@ -22,6 +22,7 @@ from impodo.domain.preparation.quality import (
     QUALITY_CONTRACT_VERSION,
     QUALITY_EVALUATOR_VERSION,
     QUALITY_RULESET_CONTRACT_VERSION,
+    QualityCauseCount,
     QualityCollisionGroup,
     QualityCollisionMember,
     QualityDisposition,
@@ -100,6 +101,77 @@ _SOURCE_ACCOUNTING_LINK_JSON_STRUCTURE = """[{
     "accounting_ordinal":"BIGINT",
     "row_id":"VARCHAR"
 }]"""
+
+
+def _read_complete_quality_cause_counts(
+    connection: duckdb.DuckDBPyConnection,
+    run_id: str,
+) -> tuple[QualityCauseCount, ...]:
+    """Aggregate all row-level causes once inside the owning DuckDB operation."""
+
+    rows = connection.execute(
+        """
+        WITH parsed_issue AS (
+            SELECT dataset, row_id,
+                   json_extract_string(issue_json, '$.reason_code')
+                       AS reason_code,
+                   json_extract_string(issue_json, '$.message') AS message,
+                   CAST(json_extract(issue_json, '$.affected_fields') AS VARCHAR)
+                       AS affected_fields_json
+              FROM quality_issue
+             WHERE run_id = ? AND row_id IS NOT NULL
+        )
+        SELECT dataset, reason_code, message, affected_fields_json,
+               COUNT(DISTINCT row_id) AS affected_record_count
+          FROM parsed_issue
+         GROUP BY dataset, reason_code, message, affected_fields_json
+         ORDER BY affected_record_count DESC, reason_code, message,
+                  dataset, affected_fields_json
+        """,
+        [run_id],
+    ).fetchall()
+    try:
+        return tuple(
+            QualityCauseCount(
+                dataset=str(row[0]),
+                reason_code=str(row[1]),
+                message=str(row[2]),
+                affected_fields=tuple(
+                    str(item) for item in json.loads(str(row[3]))
+                ),
+                affected_record_count=int(row[4]),
+            )
+            for row in rows
+        )
+    except (TypeError, ValueError) as error:
+        raise WorkspaceError(
+            "Stored quality cause evidence is invalid"
+        ) from error
+
+
+def _projected_quality_cause_counts(
+    projection: object,
+) -> tuple[QualityCauseCount, ...] | None:
+    """Read complete-run counts when this quality projection stores them."""
+
+    if not isinstance(projection, dict):
+        raise WorkspaceError("Stored quality projection is invalid")
+    payloads = projection.get("run_cause_counts")
+    if payloads is None:
+        return None
+    if not isinstance(payloads, list) or any(
+        not isinstance(payload, dict) for payload in payloads
+    ):
+        raise WorkspaceError("Stored quality cause projection is invalid")
+    try:
+        return tuple(
+            QualityCauseCount.from_dict(cast(Mapping[str, object], payload))
+            for payload in payloads
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise WorkspaceError(
+            "Stored quality cause projection is invalid"
+        ) from error
 
 
 def _quality_issue_rows(
@@ -585,6 +657,15 @@ class QualityRepository(DuckDbRepository):
                     """,
                     [run_id],
                 ).fetchone()
+                projection_payload = (
+                    json.loads(str(sparse_projection[0]))
+                    if sparse_projection is not None
+                    else None
+                )
+                sparse_storage = isinstance(projection_payload, dict) and bool(
+                    projection_payload.get("row_results")
+                    or projection_payload.get("source_accounting")
+                )
                 if effective_dataset_run_id is None:
                     linked = connection.execute(
                         """
@@ -614,7 +695,7 @@ class QualityRepository(DuckDbRepository):
                     if stored is not None
                     else ()
                 )
-                if sparse_projection is None:
+                if not sparse_storage:
                     complete = (
                         stored_counts
                         == (
@@ -1005,8 +1086,9 @@ class QualityRepository(DuckDbRepository):
         dataset: str = "",
         page: int = 1,
         page_size: int = 100,
+        include_run_cause_counts: bool = False,
     ) -> QualityReviewPage:
-        """Read one bounded quality-review page with three grouped queries."""
+        """Read one bounded page and, when requested, its persisted run causes."""
 
         try:
             canonical_run_id = str(UUID(run_id))
@@ -1054,9 +1136,13 @@ class QualityRepository(DuckDbRepository):
             ).fetchone()
             if current is None:
                 raise WorkspaceError("Quality run was not found")
-            sparse = current[1] is not None and (
-                json.loads(str(current[1])).get("row_results")
-                == "direct-defaults-v1"
+            projection = (
+                json.loads(str(current[1]))
+                if current[1] is not None
+                else None
+            )
+            sparse = isinstance(projection, dict) and (
+                projection.get("row_results") == "direct-defaults-v1"
             )
             if sparse:
                 relation = """
@@ -1138,6 +1224,21 @@ class QualityRepository(DuckDbRepository):
                 for item in quarantine_rows:
                     entry = QuarantineEntry.from_dict(json.loads(str(item[0])))
                     route_by_row.setdefault(entry.row_id, entry.correction_route)
+            run_cause_counts: tuple[QualityCauseCount, ...] = ()
+            if include_run_cause_counts:
+                projected = (
+                    _projected_quality_cause_counts(projection)
+                    if projection is not None
+                    else None
+                )
+                run_cause_counts = (
+                    projected
+                    if projected is not None
+                    else _read_complete_quality_cause_counts(
+                        connection,
+                        canonical_run_id,
+                    )
+                )
             results = tuple(
                 (
                     QualityRowResult.from_dict(json.loads(str(item[7])))
@@ -1170,6 +1271,7 @@ class QualityRepository(DuckDbRepository):
             matching_count=matching_count,
             page=current_page,
             page_count=page_count,
+            run_cause_counts=run_cause_counts,
         )
 
     def get_quality_collision_groups(
@@ -1395,22 +1497,29 @@ class QualityRepository(DuckDbRepository):
             "sparse_projection_contract",
             None,
         )
-        if sparse_rows or sparse_accounting:
-            connection.execute(
-                """
-                INSERT INTO quality_evidence_projection
-                VALUES (?, 1, ?)
-                """,
-                [
-                    run_id,
-                    _canonical_json(
-                        {
-                            "row_results": sparse_rows,
-                            "source_accounting": sparse_accounting,
-                        }
-                    ),
-                ],
-            )
+        run_cause_counts = _read_complete_quality_cause_counts(
+            connection,
+            run_id,
+        )
+        connection.execute(
+            """
+            INSERT INTO quality_evidence_projection
+            VALUES (?, 1, ?)
+            """,
+            [
+                run_id,
+                _canonical_json(
+                    {
+                        "row_results": sparse_rows,
+                        "source_accounting": sparse_accounting,
+                        "run_cause_counts": [
+                            item.to_portable_dict()
+                            for item in run_cause_counts
+                        ],
+                    }
+                ),
+            ],
+        )
         if isinstance(run, StoredQualityRun):
             for batch in run.row_results.iter_batches(
                 connection,

@@ -144,24 +144,24 @@
           {% endif %}
         </div>
       </div>
+      {% if quality_cause_groups %}
+        <div class="notice" data-quality-cause-summary>
+          <strong>Causes across the complete prepared result</strong>
+          <span>Counts cover all prepared records, even when this table is filtered or paged. Direct findings come from the record itself. Inherited dependencies mean a linked record was already set aside.</span>
+          <dl class="summary-list">
+            {% for cause in quality_cause_groups %}
+              <div data-quality-cause="{{ cause.reason_code }}">
+                <dt>{{ cause.title }} ({{ cause.count }})</dt>
+                <dd>
+                  {{ cause.kind }}. {{ cause.message }}
+                  {% if cause.fields %}<small class="row-field">Fields: {{ cause.fields|join(', ') }}</small>{% endif %}
+                </dd>
+              </div>
+            {% endfor %}
+          </dl>
+        </div>
+      {% endif %}
       {% if quality_review_page and quality_review_page.items %}
-        {% if quality_cause_groups %}
-          <div class="notice" data-quality-cause-summary>
-            <strong>Causes in the records shown on this page</strong>
-            <span>Direct findings come from the record itself. Inherited dependencies mean a linked record was already set aside.</span>
-            <dl class="summary-list">
-              {% for cause in quality_cause_groups %}
-                <div data-quality-cause="{{ cause.reason_code }}">
-                  <dt>{{ cause.title }} ({{ cause.count }})</dt>
-                  <dd>
-                    {{ cause.kind }}. {{ cause.message }}
-                    {% if cause.fields %}<small class="row-field">Fields: {{ cause.fields|join(', ') }}</small>{% endif %}
-                  </dd>
-                </div>
-              {% endfor %}
-            </dl>
-          </div>
-        {% endif %}
         <div class="table-scroll">
           <table class="data-table readiness-row-table">
             <thead><tr><th>Table</th><th>Source row</th><th>Record</th><th>What Impodo found</th><th>Owner and next step</th></tr></thead>

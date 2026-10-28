@@ -8,12 +8,14 @@ status: deferred
 
 ## Decision summary
 
-**Status:** Ordinary dual-version support is implemented; the Odoo 20
-Production promotion gate is long-term deferred as of 2026-10-28. Phases 1
-through 3 and normal final Odoo 20 read, write, recovery, and verification are
-current. The 2026-10-08 Contact canaries passed against final Odoo 20
-Enterprise and local Community through the execution journal and automatic
-reconciliation. Same-major Recipe and transfer rules remain enforced.
+**Status:** Ranked fourteenth and conditional in the cross-plan implementation
+order as of 2026-10-28. Ordinary dual-version support is implemented; the Odoo
+20 Production promotion gate remains deferred until product demand activates
+it. Phases 1 through 3 and normal final Odoo 20 read, write, recovery, and
+verification are current. The 2026-10-08 Contact canaries passed against final
+Odoo 20 Enterprise and local Community through the execution journal and
+automatic reconciliation. Same-major Recipe and transfer rules remain
+enforced.
 
 Odoo 20 Production stays blocked until a product decision activates Phase 5
 and the deployment, browser, interrupted-write recovery, Integrated Test,

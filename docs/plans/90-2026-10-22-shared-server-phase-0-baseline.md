@@ -12,7 +12,7 @@ This report records the local Impodo baseline observed on 2026-10-22 before
 shared-server persistence or identity implementation. It is point-in-time
 evidence, not a permanent performance guarantee. The target architecture is in
 the
-[shared-server implementation plan](../plans/linux-server-postgresql-duckdb-implementation.md)
+[shared-server implementation plan](../plans/07-linux-server-postgresql-duckdb-implementation.md)
 and the then-proposed
 [fact-ownership inventory](../architecture/server-fact-ownership.md).
 
@@ -36,8 +36,8 @@ At baseline capture, the worktree already contained the architecture-plan
 documentation being developed for this initiative:
 
 - modified `docs/README.md`;
-- modified `docs/plans/vm-deployment-duckdb-worker-management.md`; and
-- untracked `docs/plans/linux-server-postgresql-duckdb-implementation.md`.
+- modified `docs/plans/07-vm-deployment-duckdb-worker-management.md`; and
+- untracked `docs/plans/07-linux-server-postgresql-duckdb-implementation.md`.
 
 Those files were not treated as product runtime behavior. No unrelated dirty
 file was overwritten.

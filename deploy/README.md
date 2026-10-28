@@ -65,7 +65,7 @@ roles, applies the current migration suffix through schema version `2`, starts
 the lifecycle-only web process, and then starts the loopback TLS proxy. The
 worker remains disabled behind the `worker` profile because its durable
 runtime is not implemented. The
-[2026-10-27 local rehearsal](../docs/plans/2026-10-27-local-empty-server-container-rehearsal.md)
+[2026-10-27 local rehearsal](../docs/plans/91-2026-10-27-local-empty-server-container-rehearsal.md)
 records the first complete result on Docker Desktop for Apple silicon.
 
 ## Verify the local contract

@@ -58,12 +58,12 @@
       <bpmn:incoming>Flow_SRC_08</bpmn:incoming>
       <bpmn:outgoing>Flow_SRC_09</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:exclusiveGateway id="Gateway_RelatedPlan" name="Prepare related datasets?">
+    <bpmn:exclusiveGateway id="Gateway_RelatedPlan" name="Prepare logical datasets?">
       <bpmn:incoming>Flow_SRC_09</bpmn:incoming>
       <bpmn:outgoing>Flow_SRC_10</bpmn:outgoing>
       <bpmn:outgoing>Flow_SRC_10B</bpmn:outgoing>
     </bpmn:exclusiveGateway>
-    <bpmn:userTask id="Task_RelatedPlan" name="Define related datasets">
+    <bpmn:userTask id="Task_RelatedPlan" name="Review and define combined or related datasets">
       <bpmn:incoming>Flow_SRC_10</bpmn:incoming>
       <bpmn:outgoing>Flow_SRC_10C</bpmn:outgoing>
     </bpmn:userTask>

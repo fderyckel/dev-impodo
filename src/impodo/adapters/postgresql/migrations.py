@@ -163,6 +163,152 @@ _GRANT_PROJECT_CATALOGUE_QUERY: LiteralString = (
     "GRANT SELECT, INSERT, UPDATE "
     "ON impodo_control.project_catalogue TO impodo_runtime"
 )
+_CREATE_OPERATION_REQUEST_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.operation_request (\n"
+    "    organization_id varchar(200) NOT NULL,\n"
+    "    operation_id uuid NOT NULL,\n"
+    "    project_id uuid NOT NULL,\n"
+    "    operation_kind varchar(300) NOT NULL "
+    "CHECK (operation_kind <> '' AND operation_kind = btrim(operation_kind)),\n"
+    "    idempotency_key varchar(300) NOT NULL "
+    "CHECK (idempotency_key <> '' AND idempotency_key = btrim(idempotency_key)),\n"
+    "    semantic_input_hash varchar(71) NOT NULL "
+    "CHECK (semantic_input_hash ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    authorization_receipt_id varchar(300) NOT NULL "
+    "CHECK (authorization_receipt_id <> '' "
+    "AND authorization_receipt_id = btrim(authorization_receipt_id)),\n"
+    "    requested_by_issuer varchar(500) NOT NULL "
+    "CHECK (requested_by_issuer <> '' "
+    "AND requested_by_issuer = btrim(requested_by_issuer)),\n"
+    "    requested_by_subject varchar(500) NOT NULL "
+    "CHECK (requested_by_subject <> '' "
+    "AND requested_by_subject = btrim(requested_by_subject)),\n"
+    "    requested_by_display_name varchar(200) NOT NULL "
+    "CHECK (requested_by_display_name <> '' "
+    "AND requested_by_display_name = btrim(requested_by_display_name)),\n"
+    "    state varchar(32) NOT NULL DEFAULT 'RESERVED' "
+    "CHECK (state IN "
+    "('RESERVED', 'DATA_COMMITTED', 'PROJECTED', 'INTERRUPTED', "
+    "'MANUAL_REVIEW')),\n"
+    "    data_plane_receipt_hash varchar(71) "
+    "CHECK (data_plane_receipt_hash ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    requested_at timestamp with time zone NOT NULL,\n"
+    "    updated_at timestamp with time zone NOT NULL "
+    "DEFAULT transaction_timestamp(),\n"
+    "    interrupted_at timestamp with time zone,\n"
+    "    recovery_disposition varchar(1000),\n"
+    "    PRIMARY KEY (organization_id, operation_id),\n"
+    "    UNIQUE (organization_id, idempotency_key),\n"
+    "    FOREIGN KEY (organization_id, project_id) "
+    "REFERENCES impodo_control.project_catalogue "
+    "(organization_id, project_id) ON DELETE RESTRICT,\n"
+    "    CHECK ((state = 'RESERVED' AND data_plane_receipt_hash IS NULL) "
+    "OR (state <> 'RESERVED' AND data_plane_receipt_hash IS NOT NULL) "
+    "OR (state IN ('INTERRUPTED', 'MANUAL_REVIEW'))),\n"
+    "    CHECK ((state IN ('INTERRUPTED', 'MANUAL_REVIEW') "
+    "AND interrupted_at IS NOT NULL AND recovery_disposition IS NOT NULL) "
+    "OR (state NOT IN ('INTERRUPTED', 'MANUAL_REVIEW') "
+    "AND interrupted_at IS NULL AND recovery_disposition IS NULL))\n"
+    ")"
+)
+_CREATE_OPERATION_PROJECT_INDEX_QUERY: LiteralString = (
+    "CREATE INDEX operation_request_organization_project_state_idx\n"
+    "ON impodo_control.operation_request "
+    "(organization_id, project_id, state, requested_at, operation_id)"
+)
+_CREATE_DATA_PLANE_RECEIPT_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.data_plane_receipt (\n"
+    "    organization_id varchar(200) NOT NULL,\n"
+    "    operation_id uuid NOT NULL,\n"
+    "    receipt_id varchar(300) NOT NULL "
+    "CHECK (receipt_id <> '' AND receipt_id = btrim(receipt_id)),\n"
+    "    project_id uuid NOT NULL,\n"
+    "    workspace_id uuid,\n"
+    "    operation_kind varchar(300) NOT NULL "
+    "CHECK (operation_kind <> '' AND operation_kind = btrim(operation_kind)),\n"
+    "    semantic_input_hash varchar(71) NOT NULL "
+    "CHECK (semantic_input_hash ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    fencing_token bigint CHECK (fencing_token > 0),\n"
+    "    evidence_hash varchar(71) NOT NULL "
+    "CHECK (evidence_hash ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    receipt_hash varchar(71) NOT NULL "
+    "CHECK (receipt_hash ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    artifacts jsonb NOT NULL CHECK (jsonb_typeof(artifacts) = 'array'),\n"
+    "    committed_at timestamp with time zone NOT NULL,\n"
+    "    PRIMARY KEY (organization_id, operation_id),\n"
+    "    UNIQUE (organization_id, receipt_id),\n"
+    "    FOREIGN KEY (organization_id, operation_id) "
+    "REFERENCES impodo_control.operation_request "
+    "(organization_id, operation_id) ON DELETE RESTRICT,\n"
+    "    FOREIGN KEY (organization_id, project_id) "
+    "REFERENCES impodo_control.project_catalogue "
+    "(organization_id, project_id) ON DELETE RESTRICT\n"
+    ")"
+)
+_CREATE_PROJECTION_RECEIPT_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.projection_receipt (\n"
+    "    organization_id varchar(200) NOT NULL,\n"
+    "    operation_id uuid NOT NULL,\n"
+    "    projection_receipt_id varchar(300) NOT NULL "
+    "CHECK (projection_receipt_id <> '' "
+    "AND projection_receipt_id = btrim(projection_receipt_id)),\n"
+    "    data_plane_receipt_hash varchar(71) NOT NULL "
+    "CHECK (data_plane_receipt_hash ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    projection_hash varchar(71) NOT NULL "
+    "CHECK (projection_hash ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    projection_revision bigint NOT NULL CHECK (projection_revision > 0),\n"
+    "    projected_at timestamp with time zone NOT NULL,\n"
+    "    PRIMARY KEY (organization_id, operation_id),\n"
+    "    UNIQUE (organization_id, projection_receipt_id),\n"
+    "    FOREIGN KEY (organization_id, operation_id) "
+    "REFERENCES impodo_control.data_plane_receipt "
+    "(organization_id, operation_id) ON DELETE RESTRICT\n"
+    ")"
+)
+_CREATE_WORKSPACE_LEASE_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.workspace_lease (\n"
+    "    organization_id varchar(200) NOT NULL,\n"
+    "    project_id uuid NOT NULL,\n"
+    "    workspace_id uuid NOT NULL,\n"
+    "    lease_id uuid NOT NULL,\n"
+    "    holder_attempt_id uuid NOT NULL,\n"
+    "    fencing_token bigint NOT NULL CHECK (fencing_token > 0),\n"
+    "    acquired_at timestamp with time zone NOT NULL,\n"
+    "    heartbeat_at timestamp with time zone NOT NULL,\n"
+    "    expires_at timestamp with time zone NOT NULL,\n"
+    "    version bigint NOT NULL CHECK (version > 0),\n"
+    "    released_at timestamp with time zone,\n"
+    "    PRIMARY KEY (organization_id, project_id, workspace_id),\n"
+    "    UNIQUE (organization_id, lease_id),\n"
+    "    FOREIGN KEY (organization_id, project_id) "
+    "REFERENCES impodo_control.project_catalogue "
+    "(organization_id, project_id) ON DELETE RESTRICT,\n"
+    "    CHECK (acquired_at <= heartbeat_at AND heartbeat_at < expires_at),\n"
+    "    CHECK (released_at IS NULL OR released_at >= heartbeat_at)\n"
+    ")"
+)
+_CREATE_WORKSPACE_LEASE_EXPIRY_INDEX_QUERY: LiteralString = (
+    "CREATE INDEX workspace_lease_organization_expiry_idx\n"
+    "ON impodo_control.workspace_lease "
+    "(organization_id, project_id, expires_at, workspace_id) "
+    "WHERE released_at IS NULL"
+)
+_GRANT_OPERATION_REQUEST_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT, UPDATE "
+    "ON impodo_control.operation_request TO impodo_runtime"
+)
+_GRANT_DATA_PLANE_RECEIPT_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT "
+    "ON impodo_control.data_plane_receipt TO impodo_runtime"
+)
+_GRANT_PROJECTION_RECEIPT_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT "
+    "ON impodo_control.projection_receipt TO impodo_runtime"
+)
+_GRANT_WORKSPACE_LEASE_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT, UPDATE "
+    "ON impodo_control.workspace_lease TO impodo_runtime"
+)
 _UPDATE_CONTRACT_QUERY: LiteralString = (
     "UPDATE impodo_control.schema_contract\n"
     "SET version = %s, updated_at = transaction_timestamp()\n"
@@ -290,6 +436,27 @@ _MIGRATION_0002_STATEMENTS = (
         ),
     ),
 )
+_MIGRATION_0003_STATEMENTS = (
+    PostgreSQLMigrationStatement(_CREATE_OPERATION_REQUEST_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_OPERATION_PROJECT_INDEX_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_DATA_PLANE_RECEIPT_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_PROJECTION_RECEIPT_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_WORKSPACE_LEASE_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_WORKSPACE_LEASE_EXPIRY_INDEX_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_OPERATION_REQUEST_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_DATA_PLANE_RECEIPT_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_PROJECTION_RECEIPT_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_WORKSPACE_LEASE_QUERY),
+    PostgreSQLMigrationStatement(
+        _UPDATE_CONTRACT_QUERY,
+        (
+            3,
+            "control",
+            "impodo-control-v1",
+            2,
+        ),
+    ),
+)
 
 POSTGRESQL_MIGRATIONS = (
     PostgreSQLMigrationDefinition(
@@ -303,6 +470,12 @@ POSTGRESQL_MIGRATIONS = (
         name="create-organization-and-project-catalogue",
         checksum="8743d8f6094562522a3573d7186ae7b60ec488ceb884e8b4a2775431d36fe2d1",
         statements=_MIGRATION_0002_STATEMENTS,
+    ),
+    PostgreSQLMigrationDefinition(
+        version=3,
+        name="create-operation-receipt-and-lease-coordination",
+        checksum="e7a866832e0a50d4cac2e9b980de0cbb4f2aabe3972c638c880d8b6d233a9175",
+        statements=_MIGRATION_0003_STATEMENTS,
     ),
 )
 

@@ -2,8 +2,8 @@
 
 ## Status and decision
 
-**Status:** Priority 2 plan; remaining lifecycle and qualification work
-reconciled 2026-10-28. The definition contract, CLI, committed Contact canary,
+**Status:** Ranked eighth in the cross-plan implementation order as of
+2026-10-28. The definition contract, CLI, committed Contact canary,
 profile-driven Product and bill-of-material preparation, retained journal and
 reconciliation evidence, and remote HTTPS entry point are implemented. The
 normal Project lifecycle, complete Product and bill-of-material execution,
@@ -618,4 +618,4 @@ Focused implementation verification should include:
 - [Load into Odoo implementation](../developer/workflow/06-load-into-odoo.md)
 - [Remote Odoo 19 acceptance](../developer/runbooks/remote-odoo-acceptance.md)
 - [End-to-end training tutorial](../user/tutorials/end-to-end-training.md)
-- [Impodo remaining work](remaining-work.md)
+- [Impodo remaining work](00-remaining-work.md)

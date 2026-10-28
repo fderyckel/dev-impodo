@@ -75,54 +75,54 @@ local tooling below `.agents/` is intentionally outside that contract.
 
 ## Plans
 
-The [remaining-work roadmap](plans/remaining-work.md) is the authoritative
+The [remaining-work roadmap](plans/00-remaining-work.md) is the authoritative
 priority list. Plans retain only unfinished delivery or qualification work.
 Current behavior lives in architecture, contracts, and paired workflow pages.
 Completed plans are removed after those current owners and links are verified.
 
 The current delivery sequence is:
 
-- [Linux server deployment architecture](plans/vm-deployment-duckdb-worker-management.md)
+- [Linux server deployment architecture](plans/07-vm-deployment-duckdb-worker-management.md)
   defines the approved target, while the
-  [detailed shared-server implementation plan](plans/linux-server-postgresql-duckdb-implementation.md)
+  [detailed shared-server implementation plan](plans/07-linux-server-postgresql-duckdb-implementation.md)
   owns the active Phase 2 Linux container exit gate and the later ordered
   phases.
-- [Generic Odoo-to-Odoo migration](plans/odoo-to-odoo-migration.md) retains
+- [Generic Odoo-to-Odoo migration](plans/05-odoo-to-odoo-migration.md) retains
   Product, bill-of-material, empty-destination, interruption, recovery, and
   measured multi-model qualification beyond the completed Contact vertical.
-- [Final review recovery and performance](plans/responsive-final-review-comparison.md)
+- [Final review recovery and performance](plans/03-responsive-final-review-comparison.md)
   retains durable comparison attempts, compact review completion, and measured
   publication qualification.
-- [Maintainable code and focused execution services](plans/maintainable-code-and-execution-services.md)
+- [Maintainable code and focused execution services](plans/15-maintainable-code-and-execution-services.md)
   retains the execution and reconciliation boundary refactor after the quality
   and dependency guardrails were delivered.
-- [End-to-end trial and scenario qualification](plans/end-to-end-trial-and-scenario-qualification.md)
+- [End-to-end trial and scenario qualification](plans/08-end-to-end-trial-and-scenario-qualification.md)
   retains normal lifecycle integration, Product and bill-of-material coverage,
   browser and remote lanes, recovery, and scheduling.
-- [Six-stage Authoring workflow user support](plans/six-stage-workflow-user-support.md)
+- [Six-stage Authoring workflow user support](plans/01-six-stage-workflow-user-support.md)
   retains root-cause correction, migration intent, and later setup assistance.
-- [Preparation efficiency and storage](plans/preparation-efficiency-and-storage.md)
+- [Preparation efficiency and storage](plans/11-preparation-efficiency-and-storage.md)
   retains bounded correctness work and clean measurements. The 100,000-row
   mixed and related expansion is separately deferred in the roadmap.
 
 Qualification-only follow-up remains in the
-[macOS save](plans/resilient-match-data-saving.md),
-[workflow responsiveness](plans/responsive-workflow-liveness-and-navigation.md),
-[hierarchy-root](plans/hierarchy-root-null-scope-and-load-order.md),
-[Match data ordering](plans/smart-match-data-ordering.md), and
-[row-inclusion](plans/source-row-inclusion-rules.md) plans.
+[macOS save](plans/10-resilient-match-data-saving.md),
+[workflow responsiveness](plans/09-responsive-workflow-liveness-and-navigation.md),
+[hierarchy-root](plans/04-hierarchy-root-null-scope-and-load-order.md),
+[Match data ordering](plans/12-smart-match-data-ordering.md), and
+[row-inclusion](plans/13-source-row-inclusion-rules.md) plans.
 
 Long-term deferred proposals remain in
-[Odoo 19 and Odoo 20 support](plans/odoo-19-and-20-support.md) for the Odoo 20
+[Odoo 19 and Odoo 20 support](plans/14-odoo-19-and-20-support.md) for the Odoo 20
 Production gate and in
-[known-fallout repair](plans/load-fallout-source-cell-workbook.md) for an
+[known-fallout repair](plans/06-load-fallout-source-cell-workbook.md) for an
 exact-record repair writer. Listing either plan does not activate it.
 
 Two dated reports remain beside the active server plans because they directly
 qualify that program: the
-[shared-server Phase 0 baseline](plans/2026-10-22-shared-server-phase-0-baseline.md)
+[shared-server Phase 0 baseline](plans/90-2026-10-22-shared-server-phase-0-baseline.md)
 and the
-[local empty-server container rehearsal](plans/2026-10-27-local-empty-server-container-rehearsal.md).
+[local empty-server container rehearsal](plans/91-2026-10-27-local-empty-server-container-rehearsal.md).
 Other completed delivery detail remains in Git history.
 
 ## Guides, runbooks, and quality

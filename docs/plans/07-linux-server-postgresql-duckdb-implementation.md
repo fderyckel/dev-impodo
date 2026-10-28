@@ -8,10 +8,10 @@ status: current
 
 ## Status, reader, and authority
 
-**Status:** Approved implementation sequence; Phases 0 and 1 are complete.
-Phase 2 supported-host qualification remains open, while the local Phase 3
-persistence trial started on 2026-10-28. The local empty-stack Compose
-rehearsal passed. The image now uses a refreshed pinned
+**Status:** Ranked seventh in the cross-plan implementation order. Phases 0 and
+1 are complete. Phase 2 supported-host qualification remains open, while the
+local Phase 3 persistence trial started on 2026-10-28. The local empty-stack
+Compose rehearsal passed. The image now uses a refreshed pinned
 Bookworm base. Its repeat local scan found no critical vulnerabilities, eight
 high-severity findings, and no fixable critical or high finding. Vulnerability
 acceptance or upstream remediation, the first hosted image-quality run,
@@ -26,7 +26,7 @@ container is qualification infrastructure, not a shared multi-user release.
 
 This document is for maintainers who will implement and review the shared
 server profile. The parent
-[Linux server deployment architecture plan](vm-deployment-duckdb-worker-management.md)
+[Linux server deployment architecture plan](07-vm-deployment-duckdb-worker-management.md)
 defines the product decisions and target boundaries. This document turns those
 decisions into ordered delivery work. If the two plans disagree, update and
 approve the parent architecture decision before changing this delivery plan.
@@ -209,7 +209,7 @@ not qualify it as a server profile.
 
 **Implementation status on 2026-10-23:** Complete. The current baseline is
 recorded in the
-[Phase 0 baseline report](2026-10-22-shared-server-phase-0-baseline.md).
+[Phase 0 baseline report](90-2026-10-22-shared-server-phase-0-baseline.md).
 The accepted
 [server fact-ownership inventory](../architecture/server-fact-ownership.md)
 and portable domain contracts passed their focused review gate. The user's
@@ -972,7 +972,7 @@ Nine focused container-contract tests verify the topology, digest-qualified
 supporting images, role separation, loopback-only publication, disabled worker
 profile, secret references, runtime restrictions, and fictional-secret
 generation, plus the continuous integration image-quality contract. The
-[2026-10-27 local rehearsal](2026-10-27-local-empty-server-container-rehearsal.md)
+[2026-10-27 local rehearsal](91-2026-10-27-local-empty-server-container-rehearsal.md)
 then resolved and built the topology on Docker Desktop for Apple silicon. It
 verified live PostgreSQL role creation and migration, repeated migration
 no-ops, internal TLS health, drain and recovery, container recreation, and
@@ -990,7 +990,7 @@ Python 3.12.16 on Bookworm removed the fixable OpenSSL finding. The rebuilt
 image passed the clean local rehearsal and the repeat scan reported eight high,
 eleven medium, and forty-nine low findings, with no fixable critical or high
 finding. The required-attestation and license policies still failed. The
-[local rehearsal report](2026-10-27-local-empty-server-container-rehearsal.md)
+[local rehearsal report](91-2026-10-27-local-empty-server-container-rehearsal.md)
 records the sanitized findings and remaining qualification work.
 
 The external secret-provider adapter, production database-role provisioning,
@@ -1244,16 +1244,15 @@ Indexes must support Organization-scoped Project lists, Project-scoped job
 lists, fair-scheduler claims, active lease checks, session lookup, expiring
 grants, retention scans, and idempotency lookup without full-table scans.
 
-Current status: immutable migration `2` implements the first trial slice. It
-creates Organization and Project catalogue tables with bounded states, UTC
-timestamps, optimistic revisions, retention bounds, receipt hashes, and a
-database-enforced Organization foreign-key path. Every Project key and index
-starts with `organization_id`. The runtime role receives select, insert, and
-update privileges but no delete privilege. A local rollback-only trial created
-the same Project UUID under two fictional Organizations, observed one scoped
-row per Organization, and left both tables empty. User, authentication,
-authorization persistence, contained catalogue, operation, job, lease, and
-administration groups remain unimplemented.
+Current status: immutable migrations `2` and `3` implement the first local
+trial slices. Migration `2` creates Organization and Project catalogue tables.
+Migration `3` adds Organization-scoped operation requests, immutable
+data-plane and projection receipts, and current Workspace leases with monotonic
+fencing tokens. Every Project and coordination key or index begins with
+`organization_id`. The runtime role can select, insert, and update the mutable
+control records, but it cannot delete them or update immutable receipt rows.
+User, authentication, authorization persistence, contained catalogue, jobs,
+and administration groups remain unimplemented.
 
 ### Work package 3.3 - Implement Project catalogue repositories
 
@@ -1328,6 +1327,60 @@ artifact staging, after DuckDB commit, after artifact publication, before
 projection update, and after projection update. An identical replay returns
 the same result; changed meaning under the same idempotency key fails closed.
 
+Current local trial status: three bounded coordination increments are
+implemented.
+The PostgreSQL operation journal reserves one semantic request per
+Organization and idempotency key, returns the original request for an exact
+replay, and rejects changed meaning. Data-plane and projection receipts are
+append-only, bounded to hashes and storage-neutral artifact identities, and
+must match the exact Organization, Project, operation, and prior receipt. The
+Workspace lease repository acquires, heartbeats, releases, and reacquires one
+current row with an increasing fencing token. Each method uses one short-lived
+transaction and no retained connection pool.
+
+The deployment-neutral coordinator now distinguishes a new reservation from
+an idempotent replay. A replay reads the durable receipt and never repeats the
+data-plane command. The coordinator verifies the exact operation, lease,
+artifact identities, and projection receipt before it records success.
+Recovery finalizes proven data-plane evidence, records `INTERRUPTED` when no
+commit receipt exists, or records `MANUAL_REVIEW` when receipt, artifact, or
+projection evidence conflicts.
+
+Portable tests cover all seven named failure boundaries and prove that each
+boundary has a deterministic recovery result without a second data-plane
+execution. A Linux-owned suite against disposable PostgreSQL proves
+two-Organization isolation, immutable replay, substituted-receipt rejection,
+durable interruption and manual-review state, release and reacquisition,
+stale-owner fencing, and a two-contender race with one winner.
+
+The third increment adds the first concrete data-plane command. A verified
+file-scenario Preparation stages canonical prepared rows into one Parquet
+artifact, commits an immutable receipt and monotonic Workspace fence in
+workspace-engine schema version `17`, publishes the exact content-addressed
+artifact, and emits the three data-plane checkpoints. The command uses one
+bounded physical DuckDB connection for a new execution and retains no
+process-wide or cross-request connection cache. Its artifact verifier accepts
+only a Workspace-owned prepared snapshot and rechecks both SHA-256 and exact
+byte size. Its deterministic projection updater derives only bounded receipt
+facts and binds projection revision `1` to the exact data-plane receipt hash.
+
+The Linux-owned concrete suite now injects a failure at all seven boundaries
+against disposable PostgreSQL. Failures through artifact staging recover as
+`INTERRUPTED`; a receipt committed without published bytes recovers as
+`MANUAL_REVIEW` with `ARTIFACT_MISMATCH`; and failures after publication
+complete from the durable receipt without a second Preparation execution. The
+same suite runs the repository's fictional PLW manufacturing scenario through
+the complete DuckDB/artifact/PostgreSQL path, verifies the four dataset counts
+and all `37,253` prepared rows, then proves an identical replay returns the
+same receipts without repeating the data-plane command.
+
+This closes the concrete local-trial evidence requested by work package 3.4.
+Production Preparation job and browser composition remain deferred until the
+durable server job protocol and server request identity are implemented. The
+current concrete command is deliberately limited to reviewed file scenarios;
+other command families still need their own data-plane adapters before remote
+deployment.
+
 ### Work package 3.5 - Make projections rebuildable
 
 - Define a projection updater that receives only verified receipt facts.
@@ -1338,6 +1391,13 @@ the same result; changed meaning under the same idempotency key fails closed.
   every source or prepared row.
 - Rebuild a missing projection from receipts where the contract permits it.
   Do not reconstruct approvals or unknown Odoo outcomes from display status.
+
+Current local trial status: the deterministic receipt-facts updater implements
+the narrow projection input and records an exact data-plane receipt hash with
+projection revision `1` through the PostgreSQL operation journal. The
+administrative reconciliation scan, projection-specific current pointers,
+and a governed rebuild command remain open; the trial does not yet claim that
+arbitrary missing server projections are rebuildable.
 
 ### Work package 3.6 - Protect connection and transaction budgets
 

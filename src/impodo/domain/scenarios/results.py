@@ -4,7 +4,7 @@ The result deliberately contains only counts, hashes, timings, and controlled
 status codes. Source values, target values, connection URLs, credentials, and
 protected Odoo identifiers are never part of this portable contract.
 
-See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
+See ``docs/plans/08-end-to-end-trial-and-scenario-qualification.md`` and
 ``tests/domain/scenarios/test_results.py``.
 """
 

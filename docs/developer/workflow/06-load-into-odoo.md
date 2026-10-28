@@ -775,4 +775,4 @@ supported Odoo target.
 - [Platform support and testing](../reference/platform-support-and-testing.md)
 - [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)
-- [Proposed exact-record repair for known fallout](../../plans/load-fallout-source-cell-workbook.md)
+- [Proposed exact-record repair for known fallout](../../plans/06-load-fallout-source-cell-workbook.md)

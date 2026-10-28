@@ -1125,6 +1125,18 @@ class RecipeApplicationCompiler:
                     else value.get("join_kind", "LEFT")
                 ),
                 require_all_right_rows=bool(value.get("require_all_right_rows", True)),
+                require_unique_left=bool(value.get("require_unique_left", False)),
+                map_output=bool(value.get("map_output", True)),
+                group_id=(
+                    str(value["group_id"])
+                    if value.get("group_id") is not None
+                    else None
+                ),
+                group_step=(
+                    int(value["group_step"])
+                    if value.get("group_step") is not None
+                    else None
+                ),
             )
         if kind == "union_all" or "branches" in value:
             output_keys = {

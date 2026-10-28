@@ -23,7 +23,7 @@ Organization administration to the local user.
 
 This document refines [ADR-017](../decisions/README.md#adr-017--organization-scoped-postgresql-control-and-duckdb-data-planes)
 and the
-[Linux server architecture plan](../plans/vm-deployment-duckdb-worker-management.md).
+[Linux server architecture plan](../plans/07-vm-deployment-duckdb-worker-management.md).
 This acceptance authorizes Phase 1 composition and request-identity work. It
 does not authorize a PostgreSQL schema or data migration ahead of the later
 phase gates.

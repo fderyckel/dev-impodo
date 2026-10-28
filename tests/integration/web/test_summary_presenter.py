@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
+from impodo.domain.preparation.quality import QualityCauseCount
 from impodo.web.presenters.summary import (
     _quality_cause_groups,
     _quality_issue_field_label_map,
@@ -14,13 +15,13 @@ from impodo.web.presenters.summary import (
 
 class QualityCauseSummaryTests(unittest.TestCase):
     def test_groups_direct_and_inherited_causes_with_friendly_fields(self) -> None:
-        direct = SimpleNamespace(
+        direct_issue = SimpleNamespace(
             issue_id="direct",
             reason_code="SOURCE_TYPE_INVALID",
             message="The prepared value cannot be converted to integer.",
             affected_fields=("field:sequence",),
         )
-        inherited = SimpleNamespace(
+        inherited_issue = SimpleNamespace(
             issue_id="inherited",
             reason_code="INCOMING_RELATIONSHIP_PARENT_SET_ASIDE",
             message="The linked BOM was already set aside.",
@@ -28,7 +29,7 @@ class QualityCauseSummaryTests(unittest.TestCase):
         )
         item = SimpleNamespace(
             row=SimpleNamespace(dataset="bom_lines"),
-            issues=(direct, inherited),
+            issues=(direct_issue, inherited_issue),
         )
         labels = {
             "bom_lines": {
@@ -38,7 +39,25 @@ class QualityCauseSummaryTests(unittest.TestCase):
         }
 
         fields = _quality_issue_field_label_map((item,), labels)
-        groups = _quality_cause_groups((item,), labels)
+        groups = _quality_cause_groups(
+            (
+                QualityCauseCount(
+                    dataset="bom_lines",
+                    reason_code=direct_issue.reason_code,
+                    message=direct_issue.message,
+                    affected_fields=direct_issue.affected_fields,
+                    affected_record_count=2,
+                ),
+                QualityCauseCount(
+                    dataset="bom_lines",
+                    reason_code=inherited_issue.reason_code,
+                    message=inherited_issue.message,
+                    affected_fields=inherited_issue.affected_fields,
+                    affected_record_count=5,
+                ),
+            ),
+            labels,
+        )
 
         self.assertEqual(fields["direct"], ("Operation number",))
         self.assertEqual(fields["inherited"], ("Bill of Materials",))
@@ -46,7 +65,7 @@ class QualityCauseSummaryTests(unittest.TestCase):
             {group["kind"] for group in groups},
             {"Direct finding", "Inherited dependency"},
         )
-        self.assertEqual(sum(int(group["count"]) for group in groups), 2)
+        self.assertEqual(sum(int(group["count"]) for group in groups), 7)
 
 
 class SummaryPageSizeTests(unittest.TestCase):

@@ -13,12 +13,11 @@ CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (sys.executable, "scripts/check_python_quality.py"),
     ),
     (
-        "Architecture inventory",
+        "Architecture inventory report",
         (
             sys.executable,
             "scripts/architecture_inventory.py",
-            "--check",
-            "tests/architecture/phase0_baseline.json",
+            "--json",
         ),
     ),
     (

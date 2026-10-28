@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Protocol
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from impodo.application.data_version.source_snapshots import (
     load_source_snapshot_table,
@@ -26,6 +26,9 @@ from impodo.domain.staging.scale import (
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 )
 from impodo.domain.structural import (
+    MAX_STRUCTURAL_BRANCHES,
+    MAX_STRUCTURAL_COLUMNS,
+    MAX_STRUCTURAL_KEYS,
     ExactJoinLineageReference,
     ExactJoinReview,
     ExactJoinRule,
@@ -146,6 +149,88 @@ class ExactJoinRequest:
         object.__setattr__(self, "rule_id", rule_id)
 
 
+@dataclass(frozen=True, slots=True)
+class ExactJoinGroupAddition:
+    """One physical table that enriches a grouped primary-table decision."""
+
+    dataset_id: str
+    key_column_keys: tuple[str, ...]
+    kind: JoinKind = JoinKind.LEFT
+    require_all_rows: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "key_column_keys", tuple(self.key_column_keys))
+        object.__setattr__(self, "kind", JoinKind(self.kind))
+
+
+@dataclass(frozen=True, slots=True)
+class ExactJoinGroupProjection:
+    """One selected and named field in a grouped exact-join output."""
+
+    source_dataset_id: str
+    source_column_key: str
+    output_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExactJoinGroupRequest:
+    """Application input for one primary table and several enrichments."""
+
+    output_dataset_name: str
+    primary_dataset_id: str
+    primary_key_column_keys: tuple[str, ...]
+    key_value_types: tuple[str, ...]
+    additions: tuple[ExactJoinGroupAddition, ...]
+    projections: tuple[ExactJoinGroupProjection, ...]
+    group_id: str = field(default_factory=lambda: str(uuid4()))
+
+    def __post_init__(self) -> None:
+        try:
+            group_id = str(UUID(self.group_id))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise ValueError("Combination review identifier is invalid") from error
+        object.__setattr__(
+            self,
+            "primary_key_column_keys",
+            tuple(self.primary_key_column_keys),
+        )
+        object.__setattr__(self, "key_value_types", tuple(self.key_value_types))
+        object.__setattr__(self, "additions", tuple(self.additions))
+        object.__setattr__(self, "projections", tuple(self.projections))
+        object.__setattr__(self, "group_id", group_id)
+
+
+@dataclass(frozen=True, slots=True)
+class ExactJoinGroupPreview:
+    """Complete per-enrichment evidence for one grouped join decision."""
+
+    rules: tuple[ExactJoinRule, ...]
+    reviews: tuple[ExactJoinReview, ...]
+
+    def __post_init__(self) -> None:
+        if not self.rules or len(self.rules) != len(self.reviews):
+            raise ValueError("Grouped exact-join evidence is incomplete")
+
+    @property
+    def can_save(self) -> bool:
+        return all(review.can_save for review in self.reviews)
+
+    @property
+    def final_rule(self) -> ExactJoinRule:
+        return self.rules[-1]
+
+
+def _join_group_intermediate_name(
+    output_name: str,
+    group_id: UUID,
+    index: int,
+) -> str:
+    """Return a bounded private name that cannot collide across group reviews."""
+
+    suffix = f"_join_{index}_{str(group_id)[:8]}"
+    return f"{output_name[: 63 - len(suffix)]}{suffix}"
+
+
 class DerivedEntityWorkspaceService:
     """Author and review deterministic derived-entity rules.
 
@@ -180,6 +265,18 @@ class DerivedEntityWorkspaceService:
         tables, _snapshots = self._load_join_tables(workspace_id, selection)
         review = self._review_join(rule, selection, current, tables)
         return rule, review
+
+    def preview_join_group(
+        self,
+        workspace_id: str,
+        request: ExactJoinGroupRequest,
+    ) -> ExactJoinGroupPreview:
+        """Review all enrichments over one loaded set of frozen snapshots."""
+
+        selection, current = self._join_context(workspace_id)
+        rules = self._join_group_rules(request, selection, current)
+        tables, _snapshots = self._load_join_tables(workspace_id, selection)
+        return self._review_join_group(request, rules, selection, current, tables)
 
     def save_join(
         self,
@@ -262,6 +359,99 @@ class DerivedEntityWorkspaceService:
         )
         return plan, rule, review
 
+    def save_join_group(
+        self,
+        workspace_id: str,
+        request: ExactJoinGroupRequest,
+        *,
+        expected_parent_version: int | None,
+        actor: Actor,
+    ) -> tuple[DerivedEntityPlan, ExactJoinGroupPreview]:
+        """Recheck and atomically append one complete grouped join decision."""
+
+        self.authorization.require(
+            actor,
+            Capability.NORMALIZATION_DECIDE,
+            workspace_id=workspace_id,
+        )
+        selection, current = self._join_context(workspace_id)
+        actual_parent = current.version if current else None
+        if expected_parent_version != actual_parent:
+            raise WorkspaceError(
+                "The source-preparation plan was modified by another request; reload it"
+            )
+        rules = self._join_group_rules(request, selection, current)
+        tables, snapshots = self._load_join_tables(workspace_id, selection)
+        preview = self._review_join_group(
+            request,
+            rules,
+            selection,
+            current,
+            tables,
+        )
+        if not preview.can_save:
+            findings = tuple(
+                finding
+                for review in preview.reviews
+                for finding in review.findings
+            )
+            raise WorkspaceError(
+                "The complete combination cannot be saved: " + "; ".join(findings)
+            )
+
+        all_rules = (*(current.rules if current else ()), *rules)
+        uses = source_dataset_uses_for_authoring(selection, current)
+        participating = {
+            request.primary_dataset_id,
+            *(addition.dataset_id for addition in request.additions),
+        }
+        for dataset_id in participating:
+            if uses[dataset_id] is SourceDatasetUse.MAP_DIRECTLY:
+                uses[dataset_id] = SourceDatasetUse.PREPARATION_ONLY
+        snapshot_evidence = tuple(
+            ExactJoinInputSnapshotEvidence(
+                dataset_id=item.dataset_id,
+                logical_hash=item.logical_hash,
+                parquet_sha256=item.parquet_sha256,
+            )
+            for item in snapshots
+        )
+        saved_reviews = tuple(
+            SavedExactJoinReview(
+                rule_id=rule.rule_id,
+                rule_hash=content_hash(rule.to_dict()),
+                source_selection_hash=selection.content_hash,
+                input_snapshots=snapshot_evidence,
+                review=review,
+            )
+            for rule, review in zip(rules, preview.reviews, strict=True)
+        )
+        plan = DerivedEntityPlan(
+            plan_id=current.plan_id if current else str(uuid4()),
+            version=(current.version + 1 if current else 1),
+            workspace_id=workspace_id,
+            source_selection_hash=selection.content_hash,
+            rules=all_rules,
+            updated_at=datetime.now(UTC),
+            updated_by=actor.identity.display_name,
+            dataset_uses=tuple(
+                SourceDatasetUsePolicy(dataset_id, use)
+                for dataset_id, use in uses.items()
+            ),
+            join_reviews=(
+                *(current.join_reviews if current else ()),
+                *saved_reviews,
+            ),
+        )
+        validate_source_dataset_uses(selection, plan)
+        self.derived_entities.save_derived_entity_plan(
+            workspace_id,
+            plan,
+            expected_parent_version=actual_parent,
+            actor=actor,
+        )
+        return plan, preview
+
     def _join_context(
         self,
         workspace_id: str,
@@ -298,6 +488,347 @@ class DerivedEntityWorkspaceService:
             kind=request.kind,
             require_all_right_rows=request.require_all_right_rows,
         )
+
+    @staticmethod
+    def _join_group_rules(
+        request: ExactJoinGroupRequest,
+        selection: SourceSelection,
+        current: DerivedEntityPlan | None,
+    ) -> tuple[ExactJoinRule, ...]:
+        datasets = {item.dataset_id: item for item in selection.datasets}
+        primary = datasets.get(request.primary_dataset_id)
+        if primary is None:
+            raise WorkspaceError("Choose a current physical primary table")
+        if not 1 <= len(request.primary_key_column_keys) <= MAX_STRUCTURAL_KEYS:
+            raise WorkspaceError("Choose one to five primary key fields")
+        if len(request.key_value_types) != len(request.primary_key_column_keys):
+            raise WorkspaceError("Choose a value type for every primary key field")
+        if not request.additions or len(request.additions) >= MAX_STRUCTURAL_BRANCHES:
+            raise WorkspaceError("Choose between one and nine added tables")
+
+        participant_ids = [request.primary_dataset_id]
+        for addition in request.additions:
+            if addition.dataset_id not in datasets:
+                raise WorkspaceError("Choose only current physical added tables")
+            if addition.dataset_id in participant_ids:
+                raise WorkspaceError("Choose every participating table only once")
+            if len(addition.key_column_keys) != len(
+                request.primary_key_column_keys
+            ):
+                raise WorkspaceError(
+                    "Confirm every shared key field for each added table"
+                )
+            participant_ids.append(addition.dataset_id)
+
+        primary_columns = {
+            item.stable_key: item for item in primary.columns
+        }
+        if any(
+            key not in primary_columns for key in request.primary_key_column_keys
+        ):
+            raise WorkspaceError("Choose primary key fields from the primary table")
+
+        selected: list[
+            tuple[ExactJoinGroupProjection, str, str]
+        ] = []
+        selected_sources: set[tuple[str, str]] = set()
+        output_names: set[str] = set()
+        namespace = UUID(request.group_id)
+        for projection in request.projections:
+            source = datasets.get(projection.source_dataset_id)
+            if source is None or source.dataset_id not in participant_ids:
+                raise WorkspaceError(
+                    "Choose output fields only from participating physical tables"
+                )
+            source_column = next(
+                (
+                    item
+                    for item in source.columns
+                    if item.stable_key == projection.source_column_key
+                ),
+                None,
+            )
+            if source_column is None:
+                raise WorkspaceError("Choose current output fields")
+            source_identity = (source.dataset_id, source_column.stable_key)
+            if source_identity in selected_sources:
+                raise WorkspaceError("Choose every output field only once")
+            output_name = projection.output_name.strip()
+            if not output_name:
+                raise WorkspaceError("Give every selected output field a name")
+            if output_name in output_names:
+                raise WorkspaceError("Combined output field names must be unique")
+            selected_sources.add(source_identity)
+            output_names.add(output_name)
+            output_key = "column:join-group:" + str(
+                uuid5(
+                    namespace,
+                    f"field:{source.dataset_id}:{source_column.stable_key}",
+                )
+            )
+            selected.append(
+                (projection, output_key, source_column.candidate_type)
+            )
+        if not selected:
+            raise WorkspaceError("Choose at least one output field")
+
+        selected_keys = {
+            (projection.source_dataset_id, projection.source_column_key): output_key
+            for projection, output_key, _candidate_type in selected
+        }
+        helper_keys: list[tuple[str, str, str]] = []
+        for index, source_key in enumerate(
+            request.primary_key_column_keys,
+            start=1,
+        ):
+            output_key = selected_keys.get(
+                (request.primary_dataset_id, source_key),
+                "column:join-group:" + str(uuid5(namespace, f"primary-key:{index}")),
+            )
+            helper_name = next(
+                (
+                    projection.output_name.strip()
+                    for projection in request.projections
+                    if projection.source_dataset_id == request.primary_dataset_id
+                    and projection.source_column_key == source_key
+                ),
+                f"__impodo_group_key_{str(namespace)[:8]}_{index}",
+            )
+            helper_keys.append((source_key, output_key, helper_name))
+        rules: list[ExactJoinRule] = []
+        left_dataset_id = primary.dataset_id
+        joined_ids = {primary.dataset_id}
+        for index, addition in enumerate(request.additions, start=1):
+            right = datasets[addition.dataset_id]
+            right_columns = {item.stable_key for item in right.columns}
+            if any(key not in right_columns for key in addition.key_column_keys):
+                raise WorkspaceError(
+                    "Choose added-table key fields from the matching added table"
+                )
+            final = index == len(request.additions)
+            joined_ids.add(right.dataset_id)
+            output_columns: list[StructuralOutputColumn] = []
+            projections: list[StructuralProjection] = []
+            output_keys: set[str] = set()
+            for projection, output_key, candidate_type in selected:
+                if projection.source_dataset_id not in joined_ids:
+                    continue
+                output_columns.append(
+                    StructuralOutputColumn(
+                        output_key,
+                        projection.output_name.strip(),
+                        candidate_type,
+                    )
+                )
+                output_keys.add(output_key)
+                if projection.source_dataset_id == right.dataset_id:
+                    source_dataset_id = right.dataset_id
+                    source_column_key = projection.source_column_key
+                elif index == 1:
+                    source_dataset_id = primary.dataset_id
+                    source_column_key = projection.source_column_key
+                else:
+                    source_dataset_id = left_dataset_id
+                    source_column_key = output_key
+                projections.append(
+                    StructuralProjection(
+                        output_key,
+                        source_dataset_id,
+                        source_column_key,
+                    )
+                )
+            if not final:
+                for source_key, output_key, helper_name in helper_keys:
+                    if output_key in output_keys:
+                        continue
+                    output_columns.append(
+                        StructuralOutputColumn(
+                            output_key,
+                            helper_name,
+                            primary_columns[source_key].candidate_type,
+                        )
+                    )
+                    projections.append(
+                        StructuralProjection(
+                            output_key,
+                            primary.dataset_id if index == 1 else left_dataset_id,
+                            source_key if index == 1 else output_key,
+                        )
+                    )
+            output_name = (
+                request.output_dataset_name
+                if final
+                else _join_group_intermediate_name(
+                    request.output_dataset_name,
+                    namespace,
+                    index,
+                )
+            )
+            left_keys = (
+                request.primary_key_column_keys
+                if index == 1
+                else tuple(item[1] for item in helper_keys)
+            )
+            if len(output_columns) > MAX_STRUCTURAL_COLUMNS:
+                raise WorkspaceError(
+                    "Choose fewer output fields so the internal shared key remains "
+                    f"within the {MAX_STRUCTURAL_COLUMNS}-field limit"
+                )
+            rule = ExactJoinRule(
+                rule_id=str(uuid5(namespace, f"step:{index}")),
+                output_dataset_name=output_name,
+                left_dataset_id=left_dataset_id,
+                right_dataset_id=right.dataset_id,
+                keys=tuple(
+                    JoinKey(left_key, right_key, value_type)
+                    for left_key, right_key, value_type in zip(
+                        left_keys,
+                        addition.key_column_keys,
+                        request.key_value_types,
+                        strict=True,
+                    )
+                ),
+                output_columns=tuple(output_columns),
+                projections=tuple(projections),
+                kind=addition.kind,
+                require_all_right_rows=addition.require_all_rows,
+                require_unique_left=True,
+                map_output=final,
+                group_id=request.group_id,
+                group_step=index,
+            )
+            rules.append(rule)
+            left_dataset_id = structural_dataset_id(rule)
+
+        current_structural = tuple(
+            rule
+            for rule in (current.rules if current else ())
+            if isinstance(rule, (ExactJoinRule, UnionAllRule, GroupAggregateRule))
+        )
+        try:
+            structural_mapping_selection(selection, (*current_structural, *rules))
+        except (StructuralError, ValueError) as error:
+            raise WorkspaceError(str(error)) from error
+        return tuple(rules)
+
+    @staticmethod
+    def _review_join_group(
+        request: ExactJoinGroupRequest,
+        rules: tuple[ExactJoinRule, ...],
+        selection: SourceSelection,
+        current: DerivedEntityPlan | None,
+        loaded_tables: Mapping[str, SourceTable],
+    ) -> ExactJoinGroupPreview:
+        specs = {item.dataset_id: item for item in selection.datasets}
+        primary = specs[request.primary_dataset_id]
+        reviews: list[ExactJoinReview] = []
+        for index, (addition, rule) in enumerate(
+            zip(request.additions, rules, strict=True),
+            start=1,
+        ):
+            review_column = primary.columns[0]
+            review_rule = ExactJoinRule(
+                rule_id=str(uuid5(UUID(request.group_id), f"review:{index}")),
+                output_dataset_name=_join_group_intermediate_name(
+                    request.output_dataset_name,
+                    UUID(request.group_id),
+                    index + len(rules),
+                ),
+                left_dataset_id=request.primary_dataset_id,
+                right_dataset_id=addition.dataset_id,
+                keys=tuple(
+                    JoinKey(left_key, right_key, value_type)
+                    for left_key, right_key, value_type in zip(
+                        request.primary_key_column_keys,
+                        addition.key_column_keys,
+                        request.key_value_types,
+                        strict=True,
+                    )
+                ),
+                output_columns=(
+                    StructuralOutputColumn(
+                        "column:review",
+                        "Review field",
+                        review_column.candidate_type,
+                    ),
+                ),
+                projections=(
+                    StructuralProjection(
+                        "column:review",
+                        primary.dataset_id,
+                        review_column.stable_key,
+                    ),
+                ),
+                kind=addition.kind,
+                require_all_right_rows=addition.require_all_rows,
+                require_unique_left=True,
+                map_output=False,
+            )
+            reviews.append(
+                review_exact_join(
+                    review_rule,
+                    specs=specs,
+                    tables=loaded_tables,
+                )
+            )
+        if not all(review.can_save for review in reviews):
+            return ExactJoinGroupPreview(rules, tuple(reviews))
+
+        current_rules = tuple(
+            item
+            for item in (current.rules if current else ())
+            if isinstance(item, (ExactJoinRule, UnionAllRule, GroupAggregateRule))
+        )
+        try:
+            execution = execute_structural_rules(
+                selection=selection,
+                loaded_tables=loaded_tables,
+                rules=(*current_rules, *rules),
+            )
+        except (StructuralError, ValueError) as error:
+            raise WorkspaceError(str(error)) from error
+        outputs = execution.by_dataset_id()
+        complete: list[ExactJoinReview] = []
+        for rule, review in zip(rules, reviews, strict=True):
+            output = outputs[structural_dataset_id(rule)]
+            lineage_by_primary_row = {
+                primary_row.number: output.lineage[output_row.number]
+                for primary_row, output_row in zip(
+                    loaded_tables[request.primary_dataset_id].rows,
+                    output.table.rows,
+                    strict=True,
+                )
+            }
+            complete.append(
+                replace(
+                    review,
+                    actual_output_rows=output.reconciliation.output_rows,
+                    lineage_links=output.reconciliation.lineage_links,
+                    output_table_hash=output.table.content_hash,
+                    lineage_hash=content_hash(
+                        {
+                            str(row_number): {
+                                dataset_id: list(source_rows)
+                                for dataset_id, source_rows in sources.items()
+                            }
+                            for row_number, sources in output.lineage.items()
+                        }
+                    ),
+                    examples=tuple(
+                        replace(
+                            example,
+                            physical_lineage=tuple(
+                                ExactJoinLineageReference(dataset_id, source_rows)
+                                for dataset_id, source_rows in lineage_by_primary_row[
+                                    example.left_row_number
+                                ].items()
+                            ),
+                        )
+                        for example in review.examples
+                    ),
+                )
+            )
+        return ExactJoinGroupPreview(rules, tuple(complete))
 
     def _load_join_tables(
         self,
@@ -1038,22 +1569,62 @@ class DerivedEntityWorkspaceService:
             raise WorkspaceError(
                 "The derived-entity plan was modified by another request; reload it"
             )
-        remaining = tuple(item for item in current.rules if item.rule_id != rule_id)
-        if len(remaining) == len(current.rules):
+        requested = next(
+            (item for item in current.rules if item.rule_id == rule_id),
+            None,
+        )
+        if requested is None:
             raise WorkspaceError("Derived-entity rule not found")
-        removed = next(item for item in current.rules if item.rule_id == rule_id)
-        if isinstance(removed, (ExactJoinRule, UnionAllRule, GroupAggregateRule)):
-            removed_output_id = structural_dataset_id(removed)
-            dependent = next(
-                (
-                    rule
-                    for rule in remaining
-                    if removed_output_id
-                    in preparation_input_dataset_ids((rule,))
-                ),
-                None,
+        remove_ids = {rule_id}
+        if (
+            isinstance(requested, ExactJoinRule)
+            and requested.map_output
+            and requested.group_id is not None
+        ):
+            remove_ids.update(
+                item.rule_id
+                for item in current.rules
+                if isinstance(item, ExactJoinRule)
+                and item.group_id == requested.group_id
             )
-            if dependent is not None:
+        elif isinstance(requested, ExactJoinRule) and requested.map_output:
+            structural_by_output = {
+                structural_dataset_id(item): item
+                for item in current.rules
+                if isinstance(item, ExactJoinRule) and not item.map_output
+            }
+            pending_inputs = [requested.left_dataset_id, requested.right_dataset_id]
+            while pending_inputs:
+                input_id = pending_inputs.pop()
+                hidden = structural_by_output.get(input_id)
+                if hidden is None or hidden.rule_id in remove_ids:
+                    continue
+                consumers = {
+                    item.rule_id
+                    for item in current.rules
+                    if input_id in preparation_input_dataset_ids((item,))
+                }
+                if consumers.issubset(remove_ids):
+                    remove_ids.add(hidden.rule_id)
+                    pending_inputs.extend(
+                        (hidden.left_dataset_id, hidden.right_dataset_id)
+                    )
+        remaining = tuple(
+            item for item in current.rules if item.rule_id not in remove_ids
+        )
+        for removed in (
+            item for item in current.rules if item.rule_id in remove_ids
+        ):
+            if not isinstance(
+                removed,
+                (ExactJoinRule, UnionAllRule, GroupAggregateRule),
+            ):
+                continue
+            removed_output_id = structural_dataset_id(removed)
+            if any(
+                removed_output_id in preparation_input_dataset_ids((rule,))
+                for rule in remaining
+            ):
                 raise WorkspaceError(
                     "Remove the later source-preparation step that uses this "
                     "combined table first"
@@ -1073,7 +1644,7 @@ class DerivedEntityWorkspaceService:
             join_reviews=tuple(
                 review
                 for review in current.join_reviews
-                if review.rule_id != rule_id
+                if review.rule_id not in remove_ids
             ),
         )
         self.derived_entities.save_derived_entity_plan(

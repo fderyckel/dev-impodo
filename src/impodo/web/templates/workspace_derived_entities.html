@@ -8,7 +8,7 @@
     <div>
       <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_RUN_SETUP' %}Fresh data · Source organization{% else %}Stage 1 of 6 · Optional source organization{% endif %}</p>
       <h1>Separate combined information</h1>
-      <p>Use this when one source table contains more than one kind of business record.</p>
+      <p>Build the logical datasets you want to map while keeping every accepted source table unchanged.</p>
     </div>
     {% if plan %}
       <span class="status registered">Choices saved</span>
@@ -41,13 +41,80 @@
     <section class="form-card">
       <h2>What does your source contain?</h2>
       <div class="actions">
-        <button class="button primary" type="button" data-derived-entity-target="combine-source-tables">Combine columns from multiple tables</button>
+        <button class="button primary" type="button" data-derived-entity-target="combine-source-tables">Several tables describe the same records</button>
         <button class="button primary" type="button" data-derived-entity-target="lookup-extraction">One field contains reusable values</button>
         <button class="button secondary" type="button" data-derived-entity-target="hierarchy-extraction">Several fields form a hierarchy</button>
         <button class="button secondary" type="button" data-derived-entity-target="create-related-datasets">Several rows describe the same record</button>
       </div>
-      <p class="muted">Combine tables when two partial views describe the same business record. Choose a hierarchy or related-table option when one table contains several kinds of information.</p>
+      <p class="muted">Choose one primary table and add all other partial views in one review. Choose a hierarchy or related-table option when one table contains several kinds of information.</p>
     </section>
+
+    {% if pending_join_group %}
+      {% set group_preview = pending_join_group.preview %}
+      <section class="form-card exact-join-preview" id="join-group-preview" data-derived-entity-preview>
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Complete multi-table review</p>
+            <h2>{{ group_preview.final_rule.output_dataset_name }}</h2>
+            <p>One output row represents one row from <strong>{{ pending_join_group.primary.name }}</strong>. Only the final combined table enters Match data.</p>
+          </div>
+          <span class="status {{ 'registered' if group_preview.can_save else 'attention' }}">{{ "Complete" if group_preview.can_save else "Needs attention" }}</span>
+        </div>
+
+        <div class="metric-grid exact-join-metrics">
+          <div><span>Primary rows</span><strong>{{ pending_join_group.rows[0].review.left_rows }}</strong></div>
+          <div><span>Added tables</span><strong>{{ pending_join_group.rows|length }}</strong></div>
+          <div><span>Output fields</span><strong>{{ group_preview.final_rule.output_columns|length }}</strong></div>
+          <div><span>Final output rows</span><strong>{{ group_preview.reviews[-1].actual_output_rows if group_preview.can_save else "Blocked" }}</strong></div>
+        </div>
+
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Added table</th><th>Added rows</th><th>Primary matched</th><th>Primary unmatched</th><th>Unused added rows</th><th>Repeated key rows</th><th>Result</th></tr></thead>
+            <tbody>
+              {% for row in pending_join_group.rows %}
+                <tr>
+                  <th>{{ row.added.name }}</th>
+                  <td>{{ row.review.right_rows }}</td>
+                  <td>{{ row.review.matched_left_rows }}</td>
+                  <td>{{ row.review.unmatched_left_rows }}</td>
+                  <td>{{ row.review.unmatched_right_rows }}</td>
+                  <td>{{ row.review.duplicate_right_key_rows }}</td>
+                  <td>{{ "Complete" if row.review.can_save else row.review.findings|join('; ') }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if group_preview.can_save %}
+          <div class="notice success"><strong>The primary grain is preserved.</strong> <span>Every intermediate result remains private and every final row retains physical source lineage.</span></div>
+        {% endif %}
+
+        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join-group/save">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="expected_parent_version" value="{{ pending_join_group.expected_parent_version if pending_join_group.expected_parent_version is not none else '' }}">
+          <input type="hidden" name="group_id" value="{{ join_group_form.group_id }}">
+          <input type="hidden" name="output_dataset_name" value="{{ join_group_form.output_dataset_name }}">
+          <input type="hidden" name="primary_dataset_id" value="{{ join_group_form.primary_dataset_id }}">
+          {% for key in join_group_form.primary_key_rows %}
+            <input type="hidden" name="primary_key_field_{{ loop.index }}" value="{{ key[0] }}">
+            <input type="hidden" name="primary_key_type_{{ loop.index }}" value="{{ key[1] }}">
+          {% endfor %}
+          {% for addition in join_group_form.additions %}
+            <input type="hidden" name="group_addition" value="{{ addition.dataset_index }}">
+            <input type="hidden" name="group_addition_kind_{{ addition.dataset_index }}" value="{{ addition.kind }}">
+            {% if addition.require_all_rows %}<input type="hidden" name="group_addition_require_all_{{ addition.dataset_index }}" value="1">{% endif %}
+            {% for key in addition.key_column_keys %}<input type="hidden" name="group_addition_key_{{ addition.dataset_index }}_{{ loop.index }}" value="{{ key }}">{% endfor %}
+          {% endfor %}
+          {% for projection_index in join_group_form.projection_indexes %}<input type="hidden" name="group_projection" value="{{ projection_index }}">{% endfor %}
+          {% for projection_name in join_group_form.projection_names %}<input type="hidden" name="group_projection_name" value="{{ projection_name }}">{% endfor %}
+          <div class="actions">
+            <button class="button secondary" type="button" data-derived-entity-target="combine-source-tables">Change selections</button>
+            {% if group_preview.can_save %}<button class="button primary" type="submit">Save combined table</button>{% endif %}
+          </div>
+        </form>
+      </section>
+    {% endif %}
 
     {% if pending_join %}
       {% set pending_rule = pending_join.rule %}
@@ -150,7 +217,7 @@
           {% for projection_index in join_form.projection_indexes %}<input type="hidden" name="projection" value="{{ projection_index }}">{% endfor %}
           {% for projection_name in join_form.projection_names %}<input type="hidden" name="projection_name" value="{{ projection_name }}">{% endfor %}
           <div class="actions">
-            <button class="button secondary" type="button" data-derived-entity-target="combine-source-tables">Change selections</button>
+            <button class="button secondary" type="button" data-derived-entity-target="combine-two-tables">Change selections</button>
             {% if pending_review.can_save %}<button class="button primary" type="submit">Save combined table</button>{% endif %}
           </div>
         </form>
@@ -165,7 +232,7 @@
           <div>
             <p class="eyebrow">Combined table prepared</p>
             <h2>{{ view.output.name }}</h2>
-            <p>One row represents one <strong>{{ view.left.name }}</strong> row. This is structural preparation step {{ view.step }}.</p>
+            <p>One row represents one <strong>{{ view.left.name }}</strong> row.{% if not view.grouped %} This is structural preparation step {{ view.step }}.{% endif %}</p>
           </div>
           <div class="actions">
             <span class="status registered">Complete</span>
@@ -177,24 +244,156 @@
           </div>
         </div>
         <div class="join-summary-flow">
-          <div><span>Base input</span><strong>{{ view.left.name }}</strong><small>{{ view.left_use_label }}{% if view.left_use_label == 'Preparation only' %} - hidden from Match data{% endif %}</small></div>
+          <div><span>Primary input</span><strong>{{ view.left.name }}</strong><small>{{ view.left_use_label }}{% if view.left_use_label == 'Preparation only' %} - hidden from Match data{% endif %}</small></div>
           <div class="relationship-connector" aria-hidden="true">combine</div>
-          <div><span>Added input</span><strong>{{ view.right.name }}</strong><small>{{ view.right_use_label }}{% if view.right_use_label == 'Preparation only' %} - hidden from Match data{% endif %}</small></div>
+          <div><span>{{ "Added inputs" if view.grouped else "Added input" }}</span><strong>{% if view.grouped %}{% for input in view.inputs[1:] %}{{ input.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}{{ view.right.name }}{% endif %}</strong><small>{% if view.grouped %}{{ view.inputs|length - 1 }} enrichments - hidden from Match data{% else %}{{ view.right_use_label }}{% if view.right_use_label == 'Preparation only' %} - hidden from Match data{% endif %}{% endif %}</small></div>
           <div class="relationship-connector" aria-hidden="true">creates</div>
           <div class="logical-output-card"><span>Mapped logical dataset</span><strong>{{ view.output.name }}</strong><small>Shown in Match data</small></div>
         </div>
         <div class="definition-list">
           <div><dt>Join keys</dt><dd>{{ rule.keys|length }} exact typed pair(s)</dd></div>
-          <div><dt>Enrichment</dt><dd>{{ "Required" if rule.kind.value == 'INNER' else "Optional" }}</dd></div>
+          <div><dt>Enrichment</dt><dd>{% if view.grouped %}{{ view.inputs|length - 1 }} added tables reviewed together{% else %}{{ "Required" if rule.kind.value == 'INNER' else "Optional" }}{% endif %}</dd></div>
           <div><dt>Output fields</dt><dd>{{ rule.output_columns|length }} selected and named</dd></div>
           <div><dt>Reconciliation</dt><dd>{% if review %}{{ review.actual_output_rows }} output rows from {{ review.left_rows }} base rows{% else %}Saved review unavailable{% endif %}</dd></div>
         </div>
       </section>
     {% endfor %}
 
-    <details class="form-card secondary-preparation" id="combine-source-tables" data-derived-entity-section{% if pending_join %} open{% endif %}>
+    <details class="form-card secondary-preparation" id="combine-source-tables" data-derived-entity-section{% if pending_join_group %} open{% endif %}>
       <summary>
-        <span><strong>Combine columns from multiple tables</strong><small>Use this when two partial views describe the same business record.</small></span>
+        <span><strong>Several tables describe the same records</strong><small>Choose one primary table and add up to nine enrichments in one reviewed decision.</small></span>
+      </summary>
+      <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join-group/preview" data-exact-join-group-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
+        <input type="hidden" name="group_id" value="{{ join_group_form.group_id }}">
+
+        <div class="guided-step">
+          <span class="step-number">1</span>
+          <div>
+            <h3>Name the result and choose its grain</h3>
+            <div class="form-grid">
+              <label>
+                Combined table name
+                <input name="output_dataset_name" value="{{ join_group_form.output_dataset_name }}" pattern="[a-z][a-z0-9_]{0,62}" placeholder="customers_complete" required>
+              </label>
+              <label>
+                Primary table
+                <select name="primary_dataset_id" required>
+                  <option value="">Choose the table with one row per record</option>
+                  {% for view in join_group_dataset_views %}<option value="{{ view.dataset.dataset_id }}"{% if join_group_form.primary_dataset_id == view.dataset.dataset_id %} selected{% endif %}>{{ view.dataset.name }} - {{ view.dataset.row_count }} rows</option>{% endfor %}
+                </select>
+                <small>One primary row becomes one output row. Repeated complete keys block saving.</small>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="guided-step">
+          <span class="step-number">2</span>
+          <div>
+            <h3>Confirm the shared record key once</h3>
+            <p class="muted">Use the same ordered business identity for every table. Include company or partition when an identifier is not globally unique.</p>
+            <div class="table-scroll">
+              <table class="data-table exact-join-key-table">
+                <thead><tr><th>Key part</th><th>Primary field</th><th>Value type</th></tr></thead>
+                <tbody>
+                  {% for key in join_group_form.primary_key_rows %}
+                    <tr>
+                      <th>{{ loop.index }}</th>
+                      <td>
+                        <select name="primary_key_field_{{ loop.index }}"{% if loop.first %} required{% endif %}>
+                          <option value="">{{ "Choose a field" if loop.first else "Not used" }}</option>
+                          {% for view in join_group_dataset_views %}<optgroup label="{{ view.dataset.name }}">{% for column_view in view.columns %}{% set token = view.dataset.dataset_id ~ '|' ~ column_view.column.stable_key %}<option value="{{ token }}"{% if key[0] == token or (key[0] == column_view.column.stable_key and join_group_form.primary_dataset_id == view.dataset.dataset_id) %} selected{% endif %}>{{ column_view.column.source_name }}</option>{% endfor %}</optgroup>{% endfor %}
+                        </select>
+                      </td>
+                      <td>
+                        <select name="primary_key_type_{{ loop.index }}">
+                          {% for value, label in [('string', 'Text'), ('integer', 'Whole number'), ('decimal', 'Decimal number'), ('boolean', 'Yes or no'), ('date', 'Date'), ('datetime', 'Date and time')] %}<option value="{{ value }}"{% if key[1] == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                        </select>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="guided-step">
+          <span class="step-number">3</span>
+          <div>
+            <h3>Add every enrichment table</h3>
+            <p class="muted">Select all partial views now. For each one, pair its fields with the primary key parts above.</p>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead><tr><th>Add</th><th>Table</th>{% for key in join_group_form.primary_key_rows %}<th>Key {{ loop.index }}</th>{% endfor %}<th>Missing match</th><th>Unused rows</th></tr></thead>
+                <tbody>
+                  {% for view in join_group_dataset_views %}
+                    {% set addition = view.addition %}
+                    <tr>
+                      <td><input type="checkbox" name="group_addition" value="{{ view.dataset_index }}" aria-label="Add {{ view.dataset.name }}"{% if addition %} checked{% endif %}></td>
+                      <th>{{ view.dataset.name }}<small>{{ view.dataset.row_count }} rows</small></th>
+                      {% for key_index in range(1, 6) %}
+                        <td>
+                          <select name="group_addition_key_{{ view.dataset_index }}_{{ key_index }}" aria-label="{{ view.dataset.name }} key {{ key_index }}">
+                            <option value="">Choose</option>
+                            {% for column_view in view.columns %}{% set token = view.dataset.dataset_id ~ '|' ~ column_view.column.stable_key %}<option value="{{ token }}"{% if addition and (addition.key_column_keys[key_index - 1] == token or addition.key_column_keys[key_index - 1] == column_view.column.stable_key) %} selected{% endif %}>{{ column_view.column.source_name }}</option>{% endfor %}
+                          </select>
+                        </td>
+                      {% endfor %}
+                      <td>
+                        <select name="group_addition_kind_{{ view.dataset_index }}" aria-label="{{ view.dataset.name }} missing match policy">
+                          <option value="LEFT"{% if not addition or addition.kind == 'LEFT' %} selected{% endif %}>Optional</option>
+                          <option value="INNER"{% if addition and addition.kind == 'INNER' %} selected{% endif %}>Required</option>
+                        </select>
+                      </td>
+                      <td><label class="inline-choice"><input type="checkbox" name="group_addition_require_all_{{ view.dataset_index }}" value="1"{% if addition and addition.require_all_rows %} checked{% endif %}><span>Require every row</span></label></td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="guided-step">
+          <span class="step-number">4</span>
+          <div>
+            <h3>Choose the final output fields</h3>
+            <p class="muted">Fields from tables that do not participate are ignored. Physical inputs default to Preparation only, so Match data shows one final logical dataset.</p>
+            {% for view in join_group_dataset_views %}
+              <fieldset class="join-projection-group">
+                <legend>{{ view.dataset.name }}</legend>
+                <div class="table-scroll">
+                  <table class="data-table">
+                    <thead><tr><th>Include</th><th>Source field</th><th>Output name</th><th>Type</th></tr></thead>
+                    <tbody>
+                      {% for column_view in view.columns %}
+                        <tr>
+                          <td><input type="checkbox" name="group_projection" value="{{ column_view.projection_index }}"{% if column_view.selected %} checked{% endif %} aria-label="Include {{ view.dataset.name }} {{ column_view.column.source_name }}"></td>
+                          <td>{{ column_view.column.source_name }}</td>
+                          <td><input name="group_projection_name" value="{{ column_view.output_name }}" maxlength="200" aria-label="Output name for {{ view.dataset.name }} {{ column_view.column.source_name }}"></td>
+                          <td>{{ column_view.column.candidate_type }}</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </fieldset>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="button primary" type="submit">Review complete combination</button>
+        </div>
+      </form>
+    </details>
+
+    <details class="form-card secondary-preparation" id="combine-two-tables" data-derived-entity-section{% if pending_join %} open{% endif %}>
+      <summary>
+        <span><strong>Advanced: combine two tables</strong><small>Keep the existing pairwise editor for structural workflows that need an explicit chain.</small></span>
       </summary>
       <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join/preview" data-exact-join-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

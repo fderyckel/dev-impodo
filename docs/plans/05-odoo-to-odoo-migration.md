@@ -2,11 +2,11 @@
 
 ## Status and outcome
 
-**Status:** Priority 1 qualification plan, reconciled 2026-10-28. The complete
-Contact vertical is implemented and live-qualified. Product,
-bill-of-material, empty-destination, interrupted-load, recovery, and measured
-multi-model qualification remain open. Cross-major transfer and whole-database
-upgrade are excluded rather than lower-priority work.
+**Status:** Ranked fifth in the cross-plan implementation order as of
+2026-10-28. The complete Contact vertical is implemented and live-qualified.
+Product, bill-of-material, empty-destination, interrupted-load, recovery, and
+measured multi-model qualification remain open. Cross-major transfer and
+whole-database upgrade are excluded rather than lower-priority work.
 
 A data manager selects records from a supported Odoo 19 or final Odoo 20
 instance to move to another instance of the same major. The records may be

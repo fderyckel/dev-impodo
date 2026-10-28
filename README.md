@@ -259,7 +259,7 @@ disposable data. For approved internal data, follow the
 See [Security and infrastructure](docs/architecture/security-and-infrastructure.md)
 for local storage, credential protection, authorization, and deployment
 details. Future work is tracked in the
-[remaining-work plan](docs/plans/remaining-work.md).
+[remaining-work plan](docs/plans/00-remaining-work.md).
 
 ## Technical stack
 

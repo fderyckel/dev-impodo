@@ -148,9 +148,11 @@ domain -----------------------> shared domain primitives only
 `tests/architecture/test_dependency_rules.py` enforces the forbidden layer
 edges, rejects runtime dependency cycles, and restricts concrete adapter
 construction to approved composition and worker entry points.
-`tests/architecture/test_inventory.py` also rejects an unclassified production
-package and compares the complete deterministic import graph with its reviewed
-snapshot.
+`tests/architecture/test_inventory.py` also rejects unclassified production
+modules and validates the graph's architectural invariants. The repository
+gate prints the deterministic inventory, including module and import counts and
+digests, so a developer can review structural changes. Those measurements do
+not fail the gate merely because an intentional module or import was added.
 
 ## Ports and transaction boundaries
 

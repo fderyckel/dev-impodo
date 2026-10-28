@@ -65,18 +65,19 @@ does not have a matching product, Impodo sets aside that BoM, its other
 component lines, and the missing component line. Other BoMs can still proceed
 to review. The source files and Odoo remain unchanged.
 
-When you open **Set aside**, Impodo groups the causes for the records shown on
-the current page. A **Direct finding** belongs to that source row, such as a
-number that cannot be converted or a formula that divides by zero. An
-**Inherited dependency** means that Impodo set this row aside because a linked
-parent or another member of its identity group was already unsafe.
+When you open **Set aside**, Impodo groups the causes across the complete
+prepared result. The counts do not change when you move between pages. A
+**Direct finding** belongs to the affected source row, such as a number that
+cannot be converted or a formula that divides by zero. An **Inherited
+dependency** means that Impodo set the row aside because a linked parent or
+another member of its identity group was already unsafe.
 
 Each record still shows every saved finding, the friendly field name, the
 source row, the responsible role, and the next correction route. A linked-row
 finding states whether the parent is missing, ambiguous, or already set aside.
 Use the source row and field name to correct the source or field match, then
-prepare the data again. The grouped counts describe only the records on the
-page you are viewing.
+prepare the data again. The row table remains paged so you can inspect the
+saved evidence without loading the complete result into the browser.
 
 ## What Complete means
 

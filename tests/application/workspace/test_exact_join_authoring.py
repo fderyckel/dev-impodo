@@ -10,6 +10,9 @@ from uuid import uuid4
 
 from impodo.application.workspace.derived_entities import (
     DerivedEntityWorkspaceService,
+    ExactJoinGroupAddition,
+    ExactJoinGroupProjection,
+    ExactJoinGroupRequest,
     ExactJoinRequest,
 )
 from impodo.domain.preparation.source import SourceRow, SourceTable
@@ -31,6 +34,7 @@ from impodo.domain.workspace.contracts import (
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     SourceDatasetUse,
+    mapping_source_selection,
     validate_saved_exact_join_reviews,
 )
 from impodo.domain.workspace.errors import WorkspaceError
@@ -280,6 +284,7 @@ class ExactJoinAuthoringTests(unittest.TestCase):
             for item in self.selection.datasets[:2]
         }
         uses["dataset:terms"] = SourceDatasetUse.MAP_DIRECTLY
+        uses["dataset:contacts"] = SourceDatasetUse.MAP_DIRECTLY
 
         request = _customer_request()
         preview_rule, preview = self._preview(request)
@@ -293,10 +298,18 @@ class ExactJoinAuthoringTests(unittest.TestCase):
         self.assertTrue(review.can_save)
         self.assertEqual(rule.rule_id, preview_rule.rule_id)
         self.assertEqual(review.output_table_hash, preview.output_table_hash)
-        self.assertEqual(plan.contract_version, 7)
+        self.assertEqual(plan.contract_version, 8)
         self.assertEqual(restored, plan)
+        legacy = replace(plan, contract_version=7)
+        legacy_restored = DerivedEntityPlan.from_json(legacy.to_json())
+        self.assertTrue(
+            all(
+                isinstance(item, ExactJoinRule) and item.map_output
+                for item in legacy_restored.rules
+            )
+        )
         self.assertEqual(plan.join_reviews[0].rule_id, rule.rule_id)
-        self.assertEqual(len(plan.join_reviews[0].input_snapshots), 3)
+        self.assertEqual(len(plan.join_reviews[0].input_snapshots), 4)
         self.assertEqual(plan.join_reviews[0].review.actual_output_rows, 3)
 
         incomplete = replace(
@@ -352,6 +365,7 @@ class ExactJoinAuthoringTests(unittest.TestCase):
             for item in self.selection.datasets[:2]
         }
         first_uses["dataset:terms"] = SourceDatasetUse.MAP_DIRECTLY
+        first_uses["dataset:contacts"] = SourceDatasetUse.MAP_DIRECTLY
         first_plan, first_rule, _review = self._save(
             _customer_request(),
             expected_parent_version=None,
@@ -377,7 +391,11 @@ class ExactJoinAuthoringTests(unittest.TestCase):
             second_request,
             expected_parent_version=first_plan.version,
             dataset_uses={
-                item.dataset_id: SourceDatasetUse.PREPARATION_ONLY
+                item.dataset_id: (
+                    SourceDatasetUse.MAP_DIRECTLY
+                    if item.dataset_id == "dataset:contacts"
+                    else SourceDatasetUse.PREPARATION_ONLY
+                )
                 for item in self.selection.datasets
             },
         )
@@ -414,6 +432,146 @@ class ExactJoinAuthoringTests(unittest.TestCase):
             {policy.use for policy in empty.dataset_uses},
             {SourceDatasetUse.MAP_DIRECTLY},
         )
+
+    def test_group_preview_and_save_publish_only_the_final_output(self) -> None:
+        request = _customer_group_request()
+
+        with (
+            patch(
+                "impodo.application.workspace.derived_entities."
+                "validate_snapshot_for_dataset"
+            ),
+            patch(
+                "impodo.application.workspace.derived_entities."
+                "load_source_snapshot_table",
+                side_effect=lambda _path, snapshot: self.tables[snapshot.dataset_id],
+            ),
+        ):
+            preview = self.service.preview_join_group(WORKSPACE_ID, request)
+            plan, saved = self.service.save_join_group(
+                WORKSPACE_ID,
+                request,
+                expected_parent_version=None,
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertTrue(preview.can_save)
+        self.assertEqual(preview.rules, saved.rules)
+        self.assertEqual(len(plan.rules), 2)
+        self.assertFalse(saved.rules[0].map_output)
+        self.assertTrue(saved.rules[1].map_output)
+        self.assertTrue(all(rule.require_unique_left for rule in saved.rules))
+        self.assertEqual(
+            {rule.group_id for rule in saved.rules},
+            {request.group_id},
+        )
+        self.assertEqual(
+            {rule.group_step for rule in saved.rules},
+            {1, 2},
+        )
+        self.assertEqual(len(plan.join_reviews), 2)
+        self.assertEqual(plan.version, 1)
+        self.assertEqual(
+            {
+                item.dataset_id: item.use
+                for item in plan.dataset_uses
+                if item.dataset_id
+                in {"dataset:customers", "dataset:details", "dataset:contacts"}
+            },
+            {
+                "dataset:customers": SourceDatasetUse.PREPARATION_ONLY,
+                "dataset:details": SourceDatasetUse.PREPARATION_ONLY,
+                "dataset:contacts": SourceDatasetUse.PREPARATION_ONLY,
+            },
+        )
+        mapping = mapping_source_selection(self.selection, plan)
+        self.assertEqual(
+            {item.name for item in mapping.datasets},
+            {"terms", "customers_complete"},
+        )
+        self.assertNotIn(
+            structural_dataset_id(saved.rules[0]),
+            {item.dataset_id for item in mapping.datasets},
+        )
+
+    def test_group_duplicate_primary_key_blocks_the_whole_decision(self) -> None:
+        request = _customer_group_request(single_key=True)
+
+        with (
+            patch(
+                "impodo.application.workspace.derived_entities."
+                "validate_snapshot_for_dataset"
+            ),
+            patch(
+                "impodo.application.workspace.derived_entities."
+                "load_source_snapshot_table",
+                side_effect=lambda _path, snapshot: self.tables[snapshot.dataset_id],
+            ),
+        ):
+            preview = self.service.preview_join_group(WORKSPACE_ID, request)
+
+        self.assertFalse(preview.can_save)
+        self.assertTrue(
+            all(
+                "Join base keys are not unique" in review.findings
+                for review in preview.reviews
+            )
+        )
+
+    def test_interrupted_group_save_publishes_no_partial_chain(self) -> None:
+        self.plans.interrupt_once = True
+        request = _customer_group_request()
+
+        with (
+            patch(
+                "impodo.application.workspace.derived_entities."
+                "validate_snapshot_for_dataset"
+            ),
+            patch(
+                "impodo.application.workspace.derived_entities."
+                "load_source_snapshot_table",
+                side_effect=lambda _path, snapshot: self.tables[snapshot.dataset_id],
+            ),
+            self.assertRaisesRegex(RuntimeError, "interrupted"),
+        ):
+            self.service.save_join_group(
+                WORKSPACE_ID,
+                request,
+                expected_parent_version=None,
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertIsNone(self.plans.current)
+
+    def test_deleting_group_final_removes_hidden_chain_atomically(self) -> None:
+        request = _customer_group_request()
+        with (
+            patch(
+                "impodo.application.workspace.derived_entities."
+                "validate_snapshot_for_dataset"
+            ),
+            patch(
+                "impodo.application.workspace.derived_entities."
+                "load_source_snapshot_table",
+                side_effect=lambda _path, snapshot: self.tables[snapshot.dataset_id],
+            ),
+        ):
+            plan, preview = self.service.save_join_group(
+                WORKSPACE_ID,
+                request,
+                expected_parent_version=None,
+                actor=LOCAL_ACTOR,
+            )
+
+        empty = self.service.delete_rule(
+            WORKSPACE_ID,
+            preview.final_rule.rule_id,
+            expected_parent_version=plan.version,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(empty.rules, ())
+        self.assertEqual(empty.join_reviews, ())
 
 
 def _customer_request(*, kind: JoinKind = JoinKind.LEFT) -> ExactJoinRequest:
@@ -452,6 +610,44 @@ def _customer_rule() -> ExactJoinRule:
         projections=request.projections,
         kind=request.kind,
         require_all_right_rows=request.require_all_right_rows,
+    )
+
+
+def _customer_group_request(*, single_key: bool = False) -> ExactJoinGroupRequest:
+    primary_keys = ("account",) if single_key else ("company", "account")
+    detail_keys = (
+        ("detail_account",)
+        if single_key
+        else ("detail_company", "detail_account")
+    )
+    contact_keys = (
+        ("contact_account",)
+        if single_key
+        else ("contact_company", "contact_account")
+    )
+    return ExactJoinGroupRequest(
+        output_dataset_name="customers_complete",
+        primary_dataset_id="dataset:customers",
+        primary_key_column_keys=primary_keys,
+        key_value_types=tuple("string" for _item in primary_keys),
+        additions=(
+            ExactJoinGroupAddition(
+                "dataset:details",
+                detail_keys,
+                require_all_rows=False,
+            ),
+            ExactJoinGroupAddition(
+                "dataset:contacts",
+                contact_keys,
+                require_all_rows=False,
+            ),
+        ),
+        projections=(
+            ExactJoinGroupProjection("dataset:customers", "account", "Account"),
+            ExactJoinGroupProjection("dataset:customers", "name", "Name"),
+            ExactJoinGroupProjection("dataset:details", "country", "Country"),
+            ExactJoinGroupProjection("dataset:contacts", "email", "Email"),
+        ),
     )
 
 
@@ -496,6 +692,29 @@ def _source_evidence() -> tuple[SourceSelection, dict[str, SourceTable]]:
             (
                 SourceRow(1, {"Customer": "C1", "Terms": "30D"}),
                 SourceRow(2, {"Customer": "C2", "Terms": "45D"}),
+            ),
+        ),
+        (
+            "dataset:contacts",
+            "contacts",
+            (
+                SourceDatasetColumn(1, "Company", "contact_company", "string"),
+                SourceDatasetColumn(2, "Customer", "contact_account", "string"),
+                SourceDatasetColumn(3, "Email", "email", "string"),
+            ),
+            (
+                SourceRow(
+                    1,
+                    {"Company": "A", "Customer": "C1", "Email": "a@example.test"},
+                ),
+                SourceRow(
+                    2,
+                    {"Company": "A", "Customer": "C2", "Email": "b@example.test"},
+                ),
+                SourceRow(
+                    3,
+                    {"Company": "B", "Customer": "C1", "Email": "g@example.test"},
+                ),
             ),
         ),
     )

@@ -2,11 +2,11 @@
 
 ## Status and remaining scope
 
-**Status:** Long-term deferred as of 2026-10-28. Source-cell workbooks, grouped
-outcome explanations, numeric precision checks, HTML normalization, and
-append-only re-verification are implemented. A governed repair action for a
-completed load with known fallout is not scheduled and must be activated by a
-separate product decision.
+**Status:** Ranked sixth in the cross-plan implementation order as of
+2026-10-28, but the write-capable repair still requires an explicit activation
+decision. Source-cell workbooks, grouped outcome explanations, numeric
+precision checks, HTML normalization, and append-only re-verification are
+implemented.
 
 The [Load into Odoo developer workflow](../developer/workflow/06-load-into-odoo.md#implementation-flow)
 and [execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md#reconciliation)

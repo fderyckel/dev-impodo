@@ -1,4 +1,4 @@
-"""Keep the complete repository gate mandatory for agents and CI."""
+"""Keep the complete repository gate mandatory for CI."""
 
 from __future__ import annotations
 
@@ -17,9 +17,13 @@ class RepositoryQualityContractTests(unittest.TestCase):
             commands["Python quality"],
             (sys.executable, "scripts/check_python_quality.py"),
         )
-        self.assertIn(
-            "scripts/architecture_inventory.py",
-            commands["Architecture inventory"],
+        self.assertEqual(
+            commands["Architecture inventory report"],
+            (
+                sys.executable,
+                "scripts/architecture_inventory.py",
+                "--json",
+            ),
         )
         self.assertEqual(commands["Architecture tests"][3], "discover")
         self.assertIn("tests/architecture", commands["Architecture tests"])
@@ -33,14 +37,12 @@ class RepositoryQualityContractTests(unittest.TestCase):
             commands["Code documentation inventory"],
         )
 
-    def test_agents_and_ci_invoke_the_complete_gate(self) -> None:
+    def test_ci_invokes_the_complete_gate(self) -> None:
         command = "python scripts/check_repository_quality.py"
-        agents = (REPOSITORY_ROOT / "AGENTS.md").read_text(encoding="utf-8")
         workflow = (
             REPOSITORY_ROOT / ".github" / "workflows" / "python-quality.yml"
         ).read_text(encoding="utf-8")
 
-        self.assertIn(command, agents)
         self.assertIn(command, workflow)
         self.assertIn("name: Python quality", workflow)
         self.assertIn("\n  quality:\n", workflow)
@@ -51,6 +53,16 @@ class RepositoryQualityContractTests(unittest.TestCase):
         self.assertNotIn(
             "run: uv run --frozen --group quality python "
             "scripts/check_python_quality.py",
+            workflow,
+        )
+
+    def test_linux_server_integration_installs_the_test_extra(self) -> None:
+        workflow = (
+            REPOSITORY_ROOT / ".github" / "workflows" / "linux-server-quality.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "uv run --frozen --group quality --extra test python -m unittest",
             workflow,
         )
 

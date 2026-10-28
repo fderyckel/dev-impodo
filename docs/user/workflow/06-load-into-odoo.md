@@ -329,7 +329,7 @@ optional relationships. This check derives safety from those choices rather
 than imposing a Product- or BOM-specific workflow.
 
 Larger, multi-level BOM migrations remain part of the
-[deferred scale qualification](../../plans/remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
+[deferred scale qualification](../../plans/00-remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
 The current related-data limit stays in place while that work remains open.
 
 ## What Complete means

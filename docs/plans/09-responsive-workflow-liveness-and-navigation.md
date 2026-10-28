@@ -2,10 +2,10 @@
 
 ## Status and remaining scope
 
-**Status:** Priority 1 supported-platform qualification. Bounded shared
-navigation, operation-aware browser recovery, and process diagnostics are
-implemented. Representative platform p95 qualification and measurement-driven
-follow-up remain open as of 2026-10-28.
+**Status:** Ranked ninth in the cross-plan implementation order as of
+2026-10-28. Bounded shared navigation, operation-aware browser recovery, and
+process diagnostics are implemented. Representative platform p95
+qualification and measurement-driven follow-up remain open.
 
 The [setup developer workflow](../developer/workflow/00-project-setup.md) owns
 navigation reads, and [Match data diagnostics](../developer/workflow/03-match-data.md#operational-diagnostics-and-responsiveness)
@@ -56,9 +56,9 @@ release evidence. Do not report an unmeasured target as an achieved guarantee.
   tests before enabling it.
 - Measure comparison, load confirmation, execution, and reconciliation
   separately. Move credential-free CPU work to a bounded process only when the
-  measurements show a need. The [Final review follow-up](responsive-final-review-comparison.md)
+  measurements show a need. The [Final review follow-up](03-responsive-final-review-comparison.md)
   owns remaining comparison receipt, preview, and publication work.
-- Repeat the [macOS save qualification](resilient-match-data-saving.md),
+- Repeat the [macOS save qualification](10-resilient-match-data-saving.md),
   including concurrent catalogue readers from separate editor identities.
 
 ## Regression and completion gates

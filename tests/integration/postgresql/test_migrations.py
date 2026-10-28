@@ -111,8 +111,11 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         result = migrator.migrate(PurePosixPath("/run/secrets/postgres-migration-dsn"))
 
         self.assertEqual(len(opened_dsns), 1)
-        self.assertEqual(result.applied_versions, (1, 2))
-        self.assertEqual(result.current_version, 2)
+        self.assertEqual(
+            result.applied_versions,
+            tuple(migration.version for migration in POSTGRESQL_MIGRATIONS),
+        )
+        self.assertEqual(result.current_version, POSTGRESQL_MIGRATIONS[-1].version)
         self.assertIn("pg_advisory_xact_lock", session.events[0][1])
         self.assertEqual(session.events[0][2], (1_229_803_599, 1_146_047_815))
         self.assertIn("CREATE SCHEMA", session.events[1][1])
@@ -123,7 +126,7 @@ class PostgreSQLMigrationTests(unittest.TestCase):
             if event[0] == "execute"
             and "INSERT INTO impodo_control.schema_migration" in event[1]
         )
-        self.assertEqual(len(ledger_inserts), 2)
+        self.assertEqual(len(ledger_inserts), len(POSTGRESQL_MIGRATIONS))
         ledger_insert = ledger_inserts[0]
         self.assertEqual(
             ledger_insert[2],
@@ -138,16 +141,28 @@ class PostgreSQLMigrationTests(unittest.TestCase):
             for event in session.events
             if event[0] == "execute" and event[1].startswith("GRANT ")
         )
-        self.assertEqual(len(grant_events), 4)
+        expected_grant_count = sum(
+            statement.query.startswith("GRANT ")
+            for migration in POSTGRESQL_MIGRATIONS
+            for statement in migration.statements
+        )
+        self.assertEqual(len(grant_events), expected_grant_count)
         self.assertTrue(all("impodo_runtime" in event[1] for event in grant_events))
-        self.assertLess(
-            session.events.index(grant_events[1]),
-            session.events.index(ledger_inserts[0]),
-        )
-        self.assertLess(
-            session.events.index(grant_events[-1]),
-            session.events.index(ledger_inserts[1]),
-        )
+        for migration, ledger_event in zip(
+            POSTGRESQL_MIGRATIONS,
+            ledger_inserts,
+            strict=True,
+        ):
+            for statement in migration.statements:
+                if not statement.query.startswith("GRANT "):
+                    continue
+                grant_event = next(
+                    event for event in grant_events if event[1] == statement.query
+                )
+                self.assertLess(
+                    session.events.index(grant_event),
+                    session.events.index(ledger_event),
+                )
         self.assertTrue(session.committed)
         self.assertFalse(session.rolled_back)
         self.assertTrue(session.closed)
@@ -285,6 +300,35 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertNotIn("source_row", schema)
         self.assertNotIn("target_value", schema)
         self.assertNotIn("recipe_payload", schema)
+        for statement in migration.statements:
+            if statement.query.startswith("CREATE INDEX"):
+                self.assertIn("(organization_id,", statement.query)
+
+    def test_coordination_schema_is_tenant_scoped_fenced_and_append_only(
+        self,
+    ) -> None:
+        migration = POSTGRESQL_MIGRATIONS[2]
+        schema = "\n".join(statement.query for statement in migration.statements)
+
+        for table in (
+            "operation_request",
+            "data_plane_receipt",
+            "projection_receipt",
+            "workspace_lease",
+        ):
+            self.assertIn(f"impodo_control.{table}", schema)
+        self.assertIn("UNIQUE (organization_id, idempotency_key)", schema)
+        self.assertIn(
+            "PRIMARY KEY (organization_id, project_id, workspace_id)",
+            schema,
+        )
+        self.assertIn("fencing_token bigint NOT NULL", schema)
+        self.assertIn("jsonb_typeof(artifacts) = 'array'", schema)
+        self.assertIn("data_plane_receipt_hash", schema)
+        self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE", schema)
+        self.assertNotIn("GRANT SELECT, INSERT, DELETE", schema)
+        self.assertNotIn("source_row", schema)
+        self.assertNotIn("target_value", schema)
         for statement in migration.statements:
             if statement.query.startswith("CREATE INDEX"):
                 self.assertIn("(organization_id,", statement.query)

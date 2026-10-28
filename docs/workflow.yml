@@ -125,11 +125,14 @@ stages:
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_lookup
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_join
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.save_join
+      - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_join_group
+      - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.save_join_group
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_related_split
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.save_related_split
       - src/impodo/domain/workspace/derived_entities.py::source_dataset_uses_for_authoring
       - src/impodo/web/exact_join_forms.py::resolve_exact_join_request
       - src/impodo/web/exact_join_forms.py::exact_join_dataset_uses
+      - src/impodo/web/exact_join_forms.py::resolve_exact_join_group_request
       - src/impodo/application/odoo_source_capture_service.py::OdooSourceCaptureService.review_current_plans
       - src/impodo/adapters/duckdb/schema/structure.py::read_table_columns
       - src/impodo/application/odoo_source_capture_service.py::OdooSourceCaptureService
@@ -194,7 +197,7 @@ stages:
       - docs/developer/contracts/evidence-lifecycle.md
     references:
       - docs/user/guides/related-tables.md
-      - docs/plans/responsive-workflow-liveness-and-navigation.md
+      - docs/plans/09-responsive-workflow-liveness-and-navigation.md
 
   - id: integrated-test
     order: 7
@@ -390,7 +393,7 @@ stages:
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
     references:
-      - docs/plans/responsive-workflow-liveness-and-navigation.md
+      - docs/plans/09-responsive-workflow-liveness-and-navigation.md
   - id: match
     order: 3
     label: Match data
@@ -500,9 +503,9 @@ stages:
       - docs/developer/contracts/recipe-lifecycle.md
       - docs/developer/contracts/canonical-staging.md
     references:
-      - docs/plans/smart-match-data-ordering.md
-      - docs/plans/source-row-inclusion-rules.md
-      - docs/plans/six-stage-workflow-user-support.md
+      - docs/plans/12-smart-match-data-ordering.md
+      - docs/plans/13-source-row-inclusion-rules.md
+      - docs/plans/01-six-stage-workflow-user-support.md
 
   - id: prepare
     order: 4
@@ -527,6 +530,8 @@ stages:
       - src/impodo/application/shared/build_contract.py::ApplicationBuildContract
       - src/impodo/application/workspace/preparation/quality_service.py::QualityService
       - src/impodo/adapters/duckdb/preparation_quality_index.py::PreparationQualityIndex
+      - src/impodo/adapters/duckdb/quality_repository.py::_read_complete_quality_cause_counts
+      - src/impodo/domain/preparation/quality.py::QualityCauseCount
       - src/impodo/adapters/duckdb/preparation_identity_group_quality.py::iter_identity_group_findings
       - src/impodo/domain/staging/preparation_session.py::PreparedCanonicalProjection
       - src/impodo/adapters/duckdb/native_prepared_projection.py::projected_encoded_rows_sql
@@ -751,4 +756,4 @@ stages:
     references:
       - docs/architecture/security-and-infrastructure.md
       - docs/developer/reference/platform-support-and-testing.md
-      - docs/plans/load-fallout-source-cell-workbook.md
+      - docs/plans/06-load-fallout-source-cell-workbook.md

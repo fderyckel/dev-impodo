@@ -37,6 +37,7 @@ from impodo.domain.workspace.derived_entities import (
     RelatedDatasetRule,
     SourceDatasetUse,
     SourceDatasetUsePolicy,
+    mapping_source_selection,
     related_dataset_links,
 )
 
@@ -439,7 +440,14 @@ class RecipeSourceCompositionRoundTripTests(unittest.TestCase):
         self.assertEqual(rebuilt_rule.child_key_column_key, "fresh-item")
 
     def test_join_chain_rebinds_a_prior_logical_output(self) -> None:
-        first = _customer_rule(self.accounts, self.parties)
+        group_id = str(uuid4())
+        first = replace(
+            _customer_rule(self.accounts, self.parties),
+            require_unique_left=True,
+            map_output=False,
+            group_id=group_id,
+            group_step=1,
+        )
         first_output = structural_mapping_selection(
             self.authoring,
             (first,),
@@ -473,6 +481,9 @@ class RecipeSourceCompositionRoundTripTests(unittest.TestCase):
                     "region_name",
                 ),
             ),
+            require_unique_left=True,
+            group_id=group_id,
+            group_step=2,
         )
         portable, dataset_ids, columns = _portable_preparation(
             authoring,
@@ -499,9 +510,21 @@ class RecipeSourceCompositionRoundTripTests(unittest.TestCase):
         rebuilt_second = by_name["account_directory"]
         assert isinstance(rebuilt_first, ExactJoinRule)
         assert isinstance(rebuilt_second, ExactJoinRule)
+        self.assertFalse(rebuilt_first.map_output)
+        self.assertTrue(rebuilt_second.map_output)
+        self.assertTrue(rebuilt_first.require_unique_left)
+        self.assertEqual(rebuilt_first.group_id, group_id)
+        self.assertEqual(rebuilt_second.group_step, 2)
         self.assertEqual(
             rebuilt_second.left_dataset_id,
             structural_dataset_id(rebuilt_first),
+        )
+        self.assertEqual(
+            tuple(
+                item.name
+                for item in mapping_source_selection(fresh, plan).datasets
+            ),
+            ("account_directory",),
         )
 
         compiler = RecipeApplicationCompiler()

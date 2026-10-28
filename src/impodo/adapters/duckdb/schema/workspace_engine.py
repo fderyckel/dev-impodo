@@ -15,6 +15,11 @@ from ..constants import (
 )
 from ..request_timing import record_duckdb_schema_timing
 from .advanced_coverage import create_advanced_coverage_schema
+from .cross_store_coordination import (
+    CROSS_STORE_DATA_RECEIPT_COLUMNS,
+    WORKSPACE_FENCE_COLUMNS,
+    create_cross_store_coordination_schema,
+)
 from .derived_value_artifact import create_derived_value_artifact_schema
 from .execution import create_execution_schema
 from .forward_upgrades import (
@@ -243,6 +248,7 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "audit_event", "canonical_prepared_projection", "canonical_staging_current",
         "canonical_staging_row", "canonical_staging_row_issue", "canonical_staging_run",
         "coverage_scope_current", "coverage_scope_revision",
+        "cross_store_data_receipt",
         "derived_entity_plan_current", "derived_entity_plan_revision",
         "derived_value_artifact_current", "derived_value_artifact_manifest",
         "effective_dataset_current", "effective_dataset_reconciliation", "effective_row",
@@ -283,7 +289,7 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "supporting_lookup_current", "supporting_lookup_revision",
         "transformation_impact_row", "transformation_impact_run",
         "transformation_rule_acknowledgement", "transformation_rule_impact",
-        "workspace_projection_cache",
+        "workspace_fence", "workspace_projection_cache",
     }
 )
 
@@ -979,6 +985,7 @@ class WorkspaceEngineSchemaMixin:
         create_recipe_compilation_schema(connection)
         create_supporting_lookup_schema(connection)
         _create_row_inclusion_review_schema(connection)
+        create_cross_store_coordination_schema(connection)
 
     def _ensure_workspace_database_schema(
         self,
@@ -1083,6 +1090,8 @@ class WorkspaceEngineSchemaMixin:
                 "preflight_execution_projection",
                 _PREFLIGHT_EXECUTION_PROJECTION_COLUMNS,
             ),
+            ("cross_store_data_receipt", CROSS_STORE_DATA_RECEIPT_COLUMNS),
+            ("workspace_fence", WORKSPACE_FENCE_COLUMNS),
         ):
             if table_columns.get(table, ()) != expected:
                 raise WorkspaceStateCompatibilityError(
@@ -1488,6 +1497,14 @@ def _upgrade_workspace_engine_v15_to_v16(
     )
 
 
+def _upgrade_workspace_engine_v16_to_v17(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add durable shared-server receipts and monotonic workspace fencing."""
+
+    create_cross_store_coordination_schema(connection)
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -1548,5 +1565,9 @@ WORKSPACE_ENGINE_UPGRADES = {
     15: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v15-to-v16-odoo-relationship-scope",
         apply=_upgrade_workspace_engine_v15_to_v16,
+    ),
+    16: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v16-to-v17-cross-store-coordination",
+        apply=_upgrade_workspace_engine_v16_to_v17,
     ),
 }

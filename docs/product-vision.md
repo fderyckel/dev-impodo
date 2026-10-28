@@ -39,7 +39,7 @@ capabilities. Production loading outside the selected qualified-plan workflow
 is not a current capability.
 
 The completed disposable-target migration is retained as acceptance evidence.
-The active [remaining-work roadmap](plans/remaining-work.md) now prioritizes
+The active [remaining-work roadmap](plans/00-remaining-work.md) now prioritizes
 the shared-server Phase 2 Linux container exit gate. The composition and
 request-identity phase is complete. Scale expansion, optional clean-package,
 general production, Odoo-source guarded updates, the target-side gateway, and
@@ -614,7 +614,7 @@ records the Project-first ownership decision.
 
 **Current priority note, 2026-10-28:** The historical capability phases below
 describe the wider product progression. The Project-first architecture is
-current. The [authoritative remaining-work roadmap](plans/remaining-work.md)
+current. The [authoritative remaining-work roadmap](plans/00-remaining-work.md)
 contains only unfinished work. Completed Recipe-first delivery remains
 historical implementation evidence only. Scale expansion, general
 certification, general production hardening, Odoo-source guarded updates, and
@@ -699,7 +699,7 @@ native-columnar direct mappings, 50,000 for direct Python-fallback mappings,
 and 25,000 for derived or materialized paths. Impodo selects and explains the
 applicable limit from the current mapping and snapshot path before preparation.
 The mixed related-dataset scale proof and remaining advanced project-specific
-coverage are maintained in the [remaining-work plan](plans/remaining-work.md).
+coverage are maintained in the [remaining-work plan](plans/00-remaining-work.md).
 
 ### Phase 4 — Integrated preflight
 

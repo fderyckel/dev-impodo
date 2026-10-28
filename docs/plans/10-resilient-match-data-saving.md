@@ -2,7 +2,8 @@
 
 ## Status and remaining scope
 
-**Status:** Priority 1 macOS qualification remains open as of 2026-10-28.
+**Status:** Ranked tenth in the cross-plan implementation order. macOS
+qualification remains open as of 2026-10-28.
 
 Formula feedback, recoverable saves, mutation receipts, stale-tab handling,
 catalogue scheduling, process recovery, diagnostics, and paired documentation
@@ -42,7 +43,7 @@ the browser test itself; do not require macOS Accessibility, Screen Recording,
 system-wide browser configuration, or installation under `/Applications`.
 
 Use the current operation and connectivity model documented in the workflow.
-The later [navigation and liveness qualification](responsive-workflow-liveness-and-navigation.md)
+The later [navigation and liveness qualification](09-responsive-workflow-liveness-and-navigation.md)
 owns platform p95 measurements for shared pages; do not restore the retired
 three-failure heartbeat behavior from the original save delivery.
 

@@ -5,8 +5,9 @@ author bounded previews for lookup extraction, multi-column hierarchies, and
 parent/child dataset splits. Every rule type participates in the effective
 mapping selection. Contract-v6 dataset-use evidence may keep a physical input
 available only to preparation. Contract v7 can retain the complete accepted
-review for an exact join. Readiness staging repeats the accepted rules over
-the immutable frozen source.
+review for an exact join. Contract v8 can keep intermediate join outputs out
+of Match data while retaining them for dependent preparation rules. Readiness
+staging repeats the accepted rules over the immutable frozen source.
 
 See ``docs/architecture/python-code-map.md``,
 ``docs/user/guides/related-tables.md``, and
@@ -33,6 +34,7 @@ from impodo.domain.structural import (
     GroupAggregateRule,
     StructuralRule,
     UnionAllRule,
+    structural_dataset_id,
     structural_mapping_selection,
 )
 from impodo.domain.workspace.contracts import (
@@ -42,8 +44,8 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 
-DERIVED_ENTITY_CONTRACT_VERSION = 7
-_SUPPORTED_DERIVED_ENTITY_CONTRACT_VERSIONS = frozenset({4, 5, 6, 7})
+DERIVED_ENTITY_CONTRACT_VERSION = 8
+_SUPPORTED_DERIVED_ENTITY_CONTRACT_VERSIONS = frozenset({4, 5, 6, 7, 8})
 _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _EXTERNAL_ID_NAMESPACE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _TECHNICAL_NAME = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
@@ -496,6 +498,21 @@ class DerivedEntityPlan:
             raise ValueError(
                 "Saved exact-join reviews require source-preparation contract v7"
             )
+        if self.contract_version < 8 and any(
+            isinstance(rule, ExactJoinRule)
+            and (not rule.map_output or rule.group_id is not None)
+            for rule in self.rules
+        ):
+            raise ValueError(
+                "Grouped structural outputs require source-preparation contract v8"
+            )
+        if any(
+            isinstance(rule, ExactJoinRule)
+            and not rule.map_output
+            and rule.group_id is None
+            for rule in self.rules
+        ):
+            raise ValueError("A hidden exact-join output must belong to a rule group")
         ordered = tuple(sorted(self.dataset_uses, key=lambda item: item.dataset_id))
         if len({item.dataset_id for item in ordered}) != len(ordered):
             raise ValueError("Source dataset-use policies must be unique")
@@ -1303,6 +1320,11 @@ def mapping_source_selection(
         if isinstance(item, (ExactJoinRule, UnionAllRule, GroupAggregateRule))
     )
     prepared_selection = structural_mapping_selection(selection, structural_rules)
+    hidden_structural_outputs = {
+        structural_dataset_id(item)
+        for item in structural_rules
+        if isinstance(item, ExactJoinRule) and not item.map_output
+    }
     split_rules = {
         item.source_dataset_id: item
         for item in (plan.rules if plan else ())
@@ -1312,7 +1334,12 @@ def mapping_source_selection(
     for item in plan.rules if plan else ():
         if isinstance(item, (DerivedEntityRule, HierarchicalLookupRule)):
             lookup_rules.setdefault(item.source_dataset_id, []).append(item)
-    if not split_rules and not lookup_rules and not explicit_dataset_uses:
+    if (
+        not split_rules
+        and not lookup_rules
+        and not explicit_dataset_uses
+        and not hidden_structural_outputs
+    ):
         return prepared_selection
     catalog_set = tuple(catalogs)
     effective: list[SourceDataset] = []
@@ -1377,7 +1404,8 @@ def mapping_source_selection(
 
         rule = split_rules.get(dataset.dataset_id)
         if rule is None:
-            effective.append(dataset)
+            if dataset.dataset_id not in hidden_structural_outputs:
+                effective.append(dataset)
             continue
         if (
             explicit_dataset_uses
@@ -1901,6 +1929,11 @@ def _rule_payload(
         kind = "exact_join"
         if contract_version >= 6:
             payload["join_kind"] = payload.pop("kind")
+        if contract_version >= 8:
+            payload["map_output"] = rule.map_output
+            if rule.group_id is not None:
+                payload["group_id"] = rule.group_id
+                payload["group_step"] = rule.group_step
     elif isinstance(rule, UnionAllRule):
         kind = "union_all"
     else:

@@ -393,8 +393,10 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             self.assertEqual(self.check().status_code, 303)
             mocks["assess"].reset_mock()
             reads = 0
-            def preview_reader(workspace_id):
+            def preview_reader(workspace_id, *, actor):
                 nonlocal reads
+                self.assertEqual(workspace_id, self.workspace.workspace_id)
+                self.assertEqual(actor, resolve_local_actor(self.context))
                 reads += 1
                 return self.preview if reads == 1 else None
             mocks["preview"].side_effect = preview_reader

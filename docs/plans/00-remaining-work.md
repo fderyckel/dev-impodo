@@ -13,71 +13,116 @@ workflow documentation. Point-in-time evidence belongs in an owning plan or
 Git history. Remove completed delivery detail and retire completed plans after
 those current references have been verified.
 
-## Priority order
+## How the implementation order is decided
 
-This order reflects dependency, safety, unsupported product claims, and the
-delivery stream visible in the current checkout. A lower item does not start
-merely because its plan exists.
+The primary criterion is the improvement to a data manager's work. A change
+ranks higher when it helps more migrations, removes repeated or technical
+decisions, enables a useful migration path, prevents a wrong write, or makes
+interrupted work recoverable. Safety and accepted product boundaries remain
+mandatory. Dependencies and implementation difficulty may change the delivery
+sequence between similarly valuable changes, but they do not move indirect
+engineering work above a stronger operator outcome.
 
-### Priority 0: advance the local shared-server trial
+This is the only cross-plan implementation order. A detailed plan owns its
+internal sequence and prerequisites, but its older Priority 1, 2, or 3 label
+does not override this list.
 
-The local continuation gate in the
-[Linux container baseline](linux-server-postgresql-duckdb-implementation.md#local-trial-continuation-gate)
-has passed. Continue with bounded PostgreSQL control-plane persistence against
-the fictional, loopback-only Compose stack. No remote Impodo server is
-currently allocated, so Debian and Ubuntu qualification, production secrets
-and database roles, remote certificate policy, accepted supporting-image
-versions, explicit license and remaining-vulnerability decisions, and the
-first hosted image-quality run remain deferred release work. Local trial
-progress must not be described as a supported shared server or as completion
-of the Phase 2 supported-host exit gate.
+## Ordered implementation work
 
-### Priority 1: close safety and supported-platform gaps
+1. **Finish the [six-stage Authoring support](01-six-stage-workflow-user-support.md).**
+   This remains the most important change because every data manager benefits
+   when Impodo explains a blocker, names the affected business records, opens
+   the owning correction, and states which evidence remains safe. Finish the
+   root-cause correction routes first. Add migration intent and the load
+   cockpit after the safe technical scope is known.
+2. **Delivered: [multi-table record enrichment](02-multi-table-record-enrichment.md).**
+   The current browser reviews one primary table and up to nine enrichments in
+   one atomic decision, keeps intermediate outputs private, and preserves the
+   complete group through Recipe reuse. Remove this completed entry when the
+   cross-plan order is next re-ranked.
+3. **Make [Final review comparison recoverable](03-responsive-final-review-comparison.md).**
+   This remains important because a data manager should not lose a long Odoo
+   comparison after a restart or wait on an unnecessarily large review page.
+   Complete durable attempts and the bounded load preview before optimizing
+   publication from measurements.
+4. **Complete [hierarchy-root and grouped-cause qualification](04-hierarchy-root-null-scope-and-load-order.md).**
+   This remains important for categories, bills of materials, and other parent
+   structures. It lets the data manager correct one missing or ambiguous
+   parent instead of reviewing thousands of repeated downstream consequences.
+5. **Broaden the [Odoo-to-Odoo migration](05-odoo-to-odoo-migration.md).**
+   This remains a high-value feature. Extend the qualified Contact path to
+   Product, bills of materials, empty destinations, interruption, and recovery
+   after the hierarchy and Final review foundations above are reliable.
+6. **Add [exact-record repair for known load fallout](06-load-fallout-source-cell-workbook.md).**
+   This remains important even though it is not the normal path. When a load
+   partly fails, repairing only the reviewed target records can save a data
+   manager from rebuilding and repeating the complete migration. Product
+   ownership must activate the writer because uncertain outcomes and
+   concurrent target edits require strict safeguards.
+7. **Continue the [shared-server implementation](07-linux-server-postgresql-duckdb-implementation.md).**
+   A shared server remains strategically important for collaboration, durable
+   work, central access, and returning to long-running results. It no longer
+   ranks first merely because backend work has started. Continue bounded local
+   persistence without displacing the higher direct workflow improvements,
+   and do not claim a shared release before the supported-host gate passes.
+8. **Complete the [end-to-end trial and scenario lifecycle](08-end-to-end-trial-and-scenario-qualification.md).**
+   This remains important for confidence, training, recovery, and repeatable
+   Product and bill-of-material evidence. Its developer regression value is
+   substantial, but the normal data-manager workflow above should improve
+   before more scheduling and scenario infrastructure is added.
+9. **Qualify [workflow responsiveness and recovery across platforms](09-responsive-workflow-liveness-and-navigation.md).**
+   This remains important because slow or apparently frozen pages undermine
+   confidence. Measure the implemented path first and add a cache or process
+   split only when the retained evidence shows a user-visible need.
+10. **Finish [macOS Match data save qualification](10-resilient-match-data-saving.md).**
+    This remains important for data managers who use macOS, especially for
+    uncertain saves, stale tabs, and restart recovery. The behavior is already
+    implemented, so this item closes supported-platform evidence rather than
+    adding another workflow.
+11. **Finish the bounded [preparation correctness and measurement work](11-preparation-efficiency-and-storage.md).**
+    This remains important where large or error-heavy datasets block current
+    work. Complete consumer boundaries, bounded finding publication, browser
+    recovery, and reproducible measurements. Keep the separate 100,000-row
+    mixed and related expansion deferred until real migration demand justifies
+    it.
+12. **Close [Match data ordering qualification](12-smart-match-data-ordering.md).**
+    The implemented ordering is useful, but the remaining work is primarily
+    documentation, visual acceptance, and measurement. Do not redesign the
+    algorithm without evidence of a data-manager problem.
+13. **Close [row-inclusion visual qualification](13-source-row-inclusion-rules.md).**
+    Guided inclusion is already available and useful. Finish the authenticated
+    examples and documentation. Native execution remains conditional unless
+    the bounded fallback becomes a measured release blocker.
+14. **Activate the remaining [Odoo 20 Production promotion](14-odoo-19-and-20-support.md)
+    only when product demand requires it.** Ordinary Odoo 19 and Odoo 20 work
+    is already supported. The remaining Production matrix is important for an
+    organization that needs that exact release path, but it should not outrank
+    improvements that help every current migration.
+15. **Continue [execution-service maintainability](15-maintainable-code-and-execution-services.md)
+    alongside the product work it protects.** This remains important because
+    unclear ownership makes safe changes slower and riskier. It is supporting
+    work rather than a standalone data-manager feature, so extract the focused
+    boundary needed by the next product change instead of running a broad
+    refactor first.
 
-1. Qualify the [generic Odoo-to-Odoo migration](odoo-to-odoo-migration.md)
-   beyond its completed Contact vertical. Product, bill-of-material,
-   empty-destination, interrupted-load, recovery, and measured multi-model
-   evidence remain open.
-2. Make [Final review comparison attempts recoverable](responsive-final-review-comparison.md)
-   and finish the compact review projection before attempting a measured
-   publication optimization.
-3. Complete [macOS Match data save qualification](resilient-match-data-saving.md)
-   and the shared [Windows and macOS responsiveness measurements](responsive-workflow-liveness-and-navigation.md).
-   These checks support platforms that the product documentation already
-   names; they are not optional feature expansion.
-4. Continue the [execution-service maintainability work](maintainable-code-and-execution-services.md).
-   The repository quality commands and dependency repair are complete, but
-   execution and reconciliation still share private helpers, and the main
-   execution service remains an oversized coordination boundary.
+Each plan retains its safety gates. This order does not authorize an external
+write, live customer-data exercise, deferred Production operation, or remote
+deployment.
 
-### Priority 2: complete product journeys on the proven foundations
+## Files that are not separate implementation items
 
-1. Extend [scenario qualification](end-to-end-trial-and-scenario-qualification.md)
-   through the normal Project lifecycle, Product and bill-of-material
-   coverage, real-browser and retained remote lanes, recovery, and scheduling.
-   Reuse the Priority 1 transfer evidence instead of building another engine.
-2. Continue the [six-stage Authoring support plan](six-stage-workflow-user-support.md).
-   Finish root-cause correction routes before adding the migration-intent and
-   load-cockpit proposal.
-3. Finish the bounded, correctness-oriented parts of
-   [preparation efficiency](preparation-efficiency-and-storage.md): explicit
-   consumer ports, bounded error-heavy finding publication, browser recovery
-   checks, and clean reproducible measurements. The separate 100,000-row
-   mixed and related expansion remains deferred below.
-
-### Priority 3: qualification and usability follow-up
-
-- Complete [hierarchy-root live qualification and grouped-cause presentation](hierarchy-root-null-scope-and-load-order.md).
-- Reconcile and capture the implemented [Match data ordering](smart-match-data-ordering.md)
-  experience, then measure it before considering another optimization.
-- Complete the visual and documentation part of the
-  [row-inclusion follow-up](source-row-inclusion-rules.md). Native parity is a
-  conditional performance improvement and stays deferred unless measurement
-  makes it necessary.
-
-Each detailed plan retains its prerequisites. Listing work here does not
-authorize an external write, a live customer-data exercise, or a deferred
-track.
+- [Linux server deployment with PostgreSQL control and DuckDB workers](07-vm-deployment-duckdb-worker-management.md)
+  remains the target architecture for item 7. Do not implement it as a second
+  server track. Keep it aligned with the detailed plan, then retire duplicated
+  delivery detail when current architecture documentation owns the decisions.
+- This file, `00-remaining-work.md`, is the roadmap and ordering authority. It is
+  not an implementation item.
+- The [shared-server Phase 0 baseline](90-2026-10-22-shared-server-phase-0-baseline.md)
+  remains useful historical evidence. It requires no implementation.
+- The [local empty-server container rehearsal](91-2026-10-27-local-empty-server-container-rehearsal.md)
+  remains useful current qualification evidence until supported-host evidence
+  supersedes it. Its open findings belong to item 7 rather than a separate
+  implementation stream.
 
 ## Local execution constraint
 
@@ -508,7 +553,7 @@ current Authoring result.
 
 **Status:** Deferred. The current workbook and append-only re-verification
 behavior remains available. The proposed exact-ID writer in
-[the detailed repair plan](load-fallout-source-cell-workbook.md) is not
+[the detailed repair plan](06-load-fallout-source-cell-workbook.md) is not
 scheduled and must not be inferred from the existing successor correction
 workflow.
 
@@ -518,7 +563,7 @@ workflow.
 write, recovery, and same-major Recipe boundaries. Production remains blocked
 until its separate deployment, browser, recovery, Integrated Test, transfer,
 and representative-model promotion gate is activated and passed. The
-[dual-version support plan](odoo-19-and-20-support.md) owns that gate.
+[dual-version support plan](14-odoo-19-and-20-support.md) owns that gate.
 
 ### 8. Conditional target-side gateway
 
@@ -538,10 +583,10 @@ route must prove exact parity before it can change capability selection or row
 limits.
 
 The former “conditional hosted composition” track is no longer deferred. The
-shared-server architecture is approved and Phase 2 is the current Priority 0
-delivery stream. Corporate identity providers remain sequenced after the first
-server release; they are not a prerequisite for the current container or
-PostgreSQL phases.
+shared-server architecture is approved and retains bounded local trial work as
+item 7 in the current product-value order. Corporate identity providers remain
+sequenced after the first server release; they are not a prerequisite for the
+current container or PostgreSQL phases.
 
 ## Explicitly excluded work
 

@@ -39,9 +39,10 @@ read access.
 
 Before comparison, the prepared-data section can show records that Impodo set
 aside. Its cause summary distinguishes a problem on the record itself from a
-problem inherited from a linked record. The summary counts only the records on
-the current page. Open each row to review all findings and use its source row,
-field name, owner, and correction route to fix the cause upstream.
+problem inherited from a linked record. The summary counts affected records
+across the complete prepared result, even when the row table is filtered or
+paged. Open each row to review all findings and use its source row, field name,
+owner, and correction route to fix the cause upstream.
 
 The progress page reports elapsed time during work that has no honest row
 percentage. Delayed progress updates do not start another comparison. Selecting

@@ -41,12 +41,20 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
           <style>{styles}</style>
           <button data-derived-entity-target="lookup-extraction">Lookup</button>
           <button data-derived-entity-target="hierarchy-extraction">Hierarchy</button>
-          <button data-derived-entity-target="combine-source-tables">Combine columns from multiple tables</button>
+          <button data-derived-entity-target="combine-source-tables">Several tables describe the same records</button>
+          <button data-derived-entity-target="combine-two-tables">Advanced: combine two tables</button>
           <button data-derived-entity-target="hierarchy-source-one">Change selections</button>
           <div style="height: 1000px"></div>
           <details id="lookup-extraction"><summary>Lookup form</summary></details>
           <details id="combine-source-tables" data-derived-entity-section>
-            <summary>Combine source tables</summary>
+            <summary>Combine several source tables</summary>
+            <form data-exact-join-group-form>
+              <select name="primary_dataset_id"><option value="accounts">Customer accounts</option></select>
+              <input type="checkbox" name="group_addition" value="1" checked>
+            </form>
+          </details>
+          <details id="combine-two-tables" data-derived-entity-section>
+            <summary>Advanced: combine two tables</summary>
             <form data-exact-join-form>
               <label>Base dataset
                 <select data-exact-join-input="left" name="left_dataset_id">
@@ -110,15 +118,20 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
         self.assertTrue(self.page.locator("#hierarchy-preview").is_visible())
         self.assertEqual(self.errors, [])
 
-    def test_exact_join_is_keyboard_reachable_and_validates_distinct_inputs(self):
+    def test_grouped_join_is_keyboard_reachable_and_pairwise_form_validates_inputs(self):
         self.page.goto("http://127.0.0.1:12345/derived-entities")
         choice = self.page.get_by_role(
-            "button", name="Combine columns from multiple tables"
+            "button", name="Several tables describe the same records"
         )
         choice.focus()
         self.page.keyboard.press("Enter")
         self.assertTrue(
             self.page.locator("#combine-source-tables").evaluate("el => el.open")
+        )
+        self.assertTrue(self.page.locator("[data-exact-join-group-form]").is_visible())
+        self.page.get_by_role("button", name="Advanced: combine two tables").click()
+        self.assertTrue(
+            self.page.locator("#combine-two-tables").evaluate("el => el.open")
         )
         right = self.page.locator('[name="right_dataset_id"]')
         right.select_option("accounts")
@@ -139,7 +152,7 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
     def test_exact_join_summary_stacks_at_narrow_width(self):
         self.page.set_viewport_size({"width": 480, "height": 800})
         self.page.goto(
-            "http://127.0.0.1:12345/derived-entities#combine-source-tables"
+            "http://127.0.0.1:12345/derived-entities#combine-two-tables"
         )
         summary_columns = self.page.locator(".join-summary-flow").evaluate(
             "el => getComputedStyle(el).gridTemplateColumns"

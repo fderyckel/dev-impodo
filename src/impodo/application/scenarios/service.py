@@ -5,7 +5,7 @@ It is intentionally read-only. Write-capable definitions produce retained
 ``UNSAFE_TO_CONTINUE`` results until the normal journalled execution and
 reconciliation path is connected in the next slice.
 
-See ``docs/plans/end-to-end-trial-and-scenario-qualification.md`` and
+See ``docs/plans/08-end-to-end-trial-and-scenario-qualification.md`` and
 ``tests/application/scenarios/test_service.py``.
 """
 
