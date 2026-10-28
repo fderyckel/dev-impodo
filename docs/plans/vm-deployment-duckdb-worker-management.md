@@ -821,9 +821,17 @@ Organization-scoped Project catalogue tables. Runtime access is limited to
 select, insert, and update. The first Project catalogue repository contract and
 Psycopg adapter now perform Organization-scoped create, get, visible list,
 rename, lifecycle projection, revision checks, and soft-deletion transitions.
-They are not wired into a server browser. The remaining control-plane groups,
-cross-store operation protocol, customer accounts, and administration remain
-planned.
+A deployment-neutral service verifies Organization and principal scope,
+capability, receipt expiry, and Project visibility before it makes one
+repository call; denied Project access is opaque and opens no session. The
+Linux-owned contract suite now compares the shared DuckDB and PostgreSQL
+revision behavior and proves that twelve concurrent reads close twelve
+independent sessions. This structural evidence supports retaining short-lived
+connections until traffic measurements justify a pool. The service is not
+wired into a server browser because server identity and request-scope
+construction are not implemented. Optional row-level security, the remaining
+control-plane groups, cross-store operation protocol, customer accounts, and
+administration remain planned.
 
 **Exit gate.** PostgreSQL loss or application restart cannot manufacture a
 successful data-plane result. A data-plane commit can be reconciled without

@@ -1252,8 +1252,8 @@ starts with `organization_id`. The runtime role receives select, insert, and
 update privileges but no delete privilege. A local rollback-only trial created
 the same Project UUID under two fictional Organizations, observed one scoped
 row per Organization, and left both tables empty. User, authentication,
-authorization, contained catalogue, operation, job, lease, and administration
-groups remain unimplemented.
+authorization persistence, contained catalogue, operation, job, lease, and
+administration groups remain unimplemented.
 
 ### Work package 3.3 - Implement Project catalogue repositories
 
@@ -1284,11 +1284,26 @@ Portable value and fake-session tests protect the contract without requiring
 PostgreSQL. The Linux-owned suite runs the same adapter against a disposable
 PostgreSQL service and proves Organization isolation, stale-revision refusal,
 visible pagination, lifecycle projection, and retained soft-deletion rows. It
-does not enter the cross-platform repository gate. The adapter opens one
-short-lived transaction per call. Pooling remains deferred until measured
-concurrent catalogue traffic justifies it. Application-service wiring, direct
-comparison with applicable local-repository behavior, and optional row-level
-security remain open within this work package.
+does not enter the cross-platform repository gate. A deployment-neutral
+application service now verifies the request Organization, principal,
+capability, expiry, and Project visibility before repository access. Denied
+Project reads and mutations return the same opaque not-found failure and open
+no repository session; each accepted command makes one bounded repository
+call. Browser composition remains deliberately absent until server identity
+and request-scope construction exist.
+
+The Linux-owned suite also compares the applicable local DuckDB and hosted
+PostgreSQL semantics directly: both start at revision one, increment an
+accepted rename atomically, and reject a stale expected revision. A controlled
+twelve-read concurrent fixture opened and closed twelve independent Psycopg
+sessions. This is structural lifetime evidence, not a latency or capacity
+claim. The adapter therefore continues to use one short-lived transaction per
+call; pooling remains deferred until measured traffic justifies it. Optional
+row-level security also remains deferred because the application and SQL
+tenancy predicates now pass and no maintenance policy has yet been designed.
+This bounded local-trial implementation completes work package 3.3; hosted CI,
+browser/account integration, and supported-host qualification remain separate
+gates.
 
 ### Work package 3.4 - Implement the cross-store operation protocol
 

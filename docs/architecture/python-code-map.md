@@ -100,7 +100,7 @@ services.
 | Recognize Odoo versions and decide which operations are enabled | `domain/odoo/compatibility.py`; shared by connection, capture, comparison, Recipe, Production, and execution checks |
 | Project, Data version, workspace, Recipe, run, Cutover, and scenario meaning | `domain/project`, `domain/data_version`, `domain/workspace`, `domain/recipe`, `domain/run`, `domain/cutover`, and `domain/scenarios` |
 | Portable Mapping, Preparation, and Execution decisions | `domain/mapping`, `domain/compiler`, `domain/relationship_dependencies.py`, `domain/relationship_health.py`, `domain/matching_order.py`, `domain/preparation`, `domain/staging`, `domain/execution_snapshot.py`, and `domain/execution` |
-| Owner-qualified commands, queries, and ports | `application/project`, `application/data_version`, `application/recipe`, `application/run`, `application/workspace`, and `application/scenarios` |
+| Owner-qualified commands, queries, and ports | `application/project`, including `catalogue_service.py` for Organization-, principal-, capability-, and visibility-scoped catalogue access; `application/data_version`, `application/recipe`, `application/run`, `application/workspace`, and `application/scenarios` |
 | Cross-owner workflow coordinators and stable facades | Named modules directly below `application`, including Project authoring, Recipe compilation and publication, source projection, preflight, Cutover, and Production coordination. |
 | Shared application ports | `application/shared`, including `job_runtimes.py` for route-facing background-work lifecycles |
 | DuckDB stores and forward-only schema handling | `adapters/duckdb` and `adapters/duckdb/schema` |

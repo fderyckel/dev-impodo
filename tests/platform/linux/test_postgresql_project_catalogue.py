@@ -2,16 +2,29 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import os
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+import tempfile
+from threading import Lock
+from typing import LiteralString
 import unittest
 
 import psycopg
 
+from impodo.adapters.duckdb.migration_foundation_database import (
+    MigrationFoundationDatabase,
+)
+from impodo.adapters.duckdb.migration_foundation_repository import (
+    MigrationFoundationRepository,
+)
 from impodo.adapters.postgresql.migrations import POSTGRESQL_MIGRATIONS
 from impodo.adapters.postgresql.project_catalogue import (
+    PostgreSQLProjectCatalogueSession,
     PsycopgProjectCatalogueRepository,
+    open_psycopg_project_catalogue_session,
 )
 from impodo.domain.project.catalogue import (
     ProjectCatalogueListQuery,
@@ -20,10 +33,14 @@ from impodo.domain.project.catalogue import (
     ProjectCatalogueRevisionConflictError,
     ProjectCatalogueState,
 )
+from impodo.domain.project.foundation import MigrationConflictError
 from impodo.domain.project.models import (
     MigrationDataClassification,
+    MigrationProject,
     MigrationProjectStatus,
 )
+from impodo.domain.serialization import content_hash
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.shared.tenancy import OrganizationId, ProjectVisibilityScope
 
 
@@ -34,6 +51,56 @@ PROJECT_A = "10000000-0000-4000-8000-000000000001"
 PROJECT_B = "10000000-0000-4000-8000-000000000002"
 PROJECT_C = "10000000-0000-4000-8000-000000000003"
 RECEIPT_HASH = "sha256:" + "a" * 64
+LOCAL_CREATE_OPERATION = "20000000-0000-4000-8000-000000000001"
+
+
+class _SessionCounter:
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self.opened = 0
+        self.closed = 0
+
+    def record_open(self) -> None:
+        with self._lock:
+            self.opened += 1
+
+    def record_close(self) -> None:
+        with self._lock:
+            self.closed += 1
+
+
+class _CountingSession:
+    def __init__(
+        self,
+        session: PostgreSQLProjectCatalogueSession,
+        counter: _SessionCounter,
+    ) -> None:
+        self._session = session
+        self._counter = counter
+
+    def fetch_one(
+        self,
+        query: LiteralString,
+        parameters: tuple[object, ...] = (),
+    ) -> tuple[object, ...] | None:
+        return self._session.fetch_one(query, parameters)
+
+    def fetch_rows(
+        self,
+        query: LiteralString,
+        parameters: tuple[object, ...] = (),
+    ) -> tuple[tuple[object, ...], ...]:
+        return self._session.fetch_rows(query, parameters)
+
+    def commit(self) -> None:
+        self._session.commit()
+
+    def rollback(self) -> None:
+        self._session.rollback()
+
+    def close(self) -> None:
+        self._session.close()
+        self._counter.record_close()
 
 
 def _record(
@@ -268,6 +335,119 @@ class PostgreSQLProjectCatalogueLiveTests(unittest.TestCase):
         self.assertEqual(deleted.catalogue_state, ProjectCatalogueState.DELETED)
         self.assertEqual(row_count, 1)
         self.assertFalse(runtime_can_delete)
+
+    def test_shared_local_and_hosted_revision_semantics_match(self) -> None:
+        """Compare only the bounded semantics both persistence models own."""
+
+        with tempfile.TemporaryDirectory(prefix="impodo-catalogue-") as temporary:
+            local_repository = MigrationFoundationRepository(
+                MigrationFoundationDatabase(Path(temporary))
+            )
+            local_project = MigrationProject(
+                project_id=PROJECT_A,
+                display_name="Shared semantic trial",
+                migration_purpose="Verify bounded persistence semantics",
+                source_system_identity="Fictional legacy source",
+                data_classification=MigrationDataClassification.CONFIDENTIAL,
+                retention_days=365,
+                status=MigrationProjectStatus.DRAFT,
+                optimistic_revision=1,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+            local_created = local_repository.create_project(
+                local_project,
+                operation_id=LOCAL_CREATE_OPERATION,
+                request_hash=content_hash(
+                    {"project_id": PROJECT_A, "operation": "create"}
+                ),
+                actor=LOCAL_ACTOR,
+            )
+            hosted_created = self.repository.create(
+                _record(
+                    ORGANIZATION_A,
+                    PROJECT_A,
+                    display_name=local_project.display_name,
+                    updated_at=NOW,
+                )
+            )
+
+            renamed_at = NOW + timedelta(minutes=1)
+            local_renamed = local_repository.save_project(
+                replace(
+                    local_created,
+                    display_name="Shared semantic rename",
+                    updated_at=renamed_at,
+                ),
+                expected_revision=1,
+                event_type="MIGRATION_PROJECT_RENAMED",
+                actor=LOCAL_ACTOR,
+            )
+            hosted_renamed = self.repository.rename(
+                ORGANIZATION_A,
+                PROJECT_A,
+                expected_revision=1,
+                display_name="Shared semantic rename",
+                updated_at=renamed_at,
+            )
+
+            self.assertEqual(local_renamed.display_name, hosted_renamed.display_name)
+            self.assertEqual(
+                local_renamed.optimistic_revision,
+                hosted_renamed.optimistic_revision,
+            )
+            self.assertEqual(local_renamed.status, hosted_renamed.status)
+            with self.assertRaises(MigrationConflictError):
+                local_repository.save_project(
+                    replace(
+                        local_created,
+                        display_name="Stale local rename",
+                        updated_at=NOW + timedelta(minutes=2),
+                    ),
+                    expected_revision=1,
+                    event_type="MIGRATION_PROJECT_RENAMED",
+                    actor=LOCAL_ACTOR,
+                )
+            with self.assertRaises(ProjectCatalogueRevisionConflictError):
+                self.repository.rename(
+                    ORGANIZATION_A,
+                    PROJECT_A,
+                    expected_revision=1,
+                    display_name="Stale hosted rename",
+                    updated_at=NOW + timedelta(minutes=2),
+                )
+
+    def test_concurrent_reads_close_every_independent_session(self) -> None:
+        created = self.repository.create(
+            _record(
+                ORGANIZATION_A,
+                PROJECT_A,
+                display_name="Concurrent read trial",
+                updated_at=NOW,
+            )
+        )
+        counter = _SessionCounter()
+
+        def open_counted(dsn: str) -> PostgreSQLProjectCatalogueSession:
+            session = open_psycopg_project_catalogue_session(dsn)
+            counter.record_open()
+            return _CountingSession(session, counter)
+
+        repository = PsycopgProjectCatalogueRepository(
+            lambda _reference: self.dsn,
+            PurePosixPath("/run/secrets/postgres-runtime-dsn"),
+            session_factory=open_counted,
+        )
+
+        def read_project(_index: int) -> ProjectCatalogueRecord:
+            return repository.get(ORGANIZATION_A, PROJECT_A)
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            results = tuple(executor.map(read_project, range(12)))
+
+        self.assertEqual(results, (created,) * 12)
+        self.assertEqual(counter.opened, 12)
+        self.assertEqual(counter.closed, 12)
 
 
 if __name__ == "__main__":
