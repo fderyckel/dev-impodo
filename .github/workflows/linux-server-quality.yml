@@ -40,6 +40,22 @@ jobs:
   linux-server:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      IMPODO_TEST_POSTGRES_DSN: >-
+        postgresql://postgres:impodo-test-only@127.0.0.1:54329/impodo_test?sslmode=disable
+    services:
+      postgres:
+        image: postgres:18.6-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650
+        env:
+          POSTGRES_DB: impodo_test
+          POSTGRES_PASSWORD: impodo-test-only
+        ports:
+          - 54329:5432
+        options: >-
+          --health-cmd "pg_isready --quiet --username postgres --dbname impodo_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -64,6 +80,7 @@ jobs:
           uv run --frozen --group quality python -m unittest
           tests.integration.postgresql.test_startup
           tests.integration.postgresql.test_migrations
+          tests.integration.postgresql.test_project_catalogue
           tests.integration.web.test_server_runtime_contract
           tests.integration.web.test_server_runtime_coordination
           tests.integration.web.test_server_migration_command

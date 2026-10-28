@@ -58,6 +58,8 @@ TRUE_PROJECT_ID_TYPES = frozenset(
         "domain/cutover/models.py::CutoverPlanRevision",
         "domain/cutover/models.py::ProjectCutoverSelection",
         "domain/cutover/models.py::RecipeApplicationQualification",
+        "domain/project/catalogue.py::ProjectCatalogueCursor",
+        "domain/project/catalogue.py::ProjectCatalogueRecord",
         "domain/project/foundation.py::MigrationOperationIntent",
         "domain/run/production.py::ProductionRunBinding",
         "domain/run/production_values.py::ProductionRunValues",

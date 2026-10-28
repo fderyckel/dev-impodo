@@ -818,9 +818,12 @@ durable without moving migration processing into PostgreSQL.
 **Current local trial.** Immutable migration `2` advances the
 `impodo-control-v1` contract to version `2` and creates empty Organization and
 Organization-scoped Project catalogue tables. Runtime access is limited to
-select, insert, and update. The remaining control-plane groups and every
-PostgreSQL repository remain planned; no server browser or customer account is
-enabled.
+select, insert, and update. The first Project catalogue repository contract and
+Psycopg adapter now perform Organization-scoped create, get, visible list,
+rename, lifecycle projection, revision checks, and soft-deletion transitions.
+They are not wired into a server browser. The remaining control-plane groups,
+cross-store operation protocol, customer accounts, and administration remain
+planned.
 
 **Exit gate.** PostgreSQL loss or application restart cannot manufacture a
 successful data-plane result. A data-plane commit can be reconciled without

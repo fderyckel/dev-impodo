@@ -1270,6 +1270,26 @@ groups remain unimplemented.
 - Add repository contract tests that execute against a disposable PostgreSQL
   database and compare applicable semantics with the local repository.
 
+Current local trial status: the bounded Project catalogue contract and Psycopg
+adapter implement create, tenant-safe get, visible list, rename, lifecycle
+projection, optimistic revision, and deletion-state transition. Visible lists
+filter by verified Project visibility and bounded lifecycle states inside
+PostgreSQL. They use `updated_at DESC, project_id ASC` keyset ordering, page
+sizes from 1 through 100, and versioned `pc1.<base64url>` cursors. Every update
+uses `organization_id`, `project_id`, and the expected revision in one SQL
+predicate. Deletion changes state and retains the row; the adapter exposes no
+hard-delete operation.
+
+Portable value and fake-session tests protect the contract without requiring
+PostgreSQL. The Linux-owned suite runs the same adapter against a disposable
+PostgreSQL service and proves Organization isolation, stale-revision refusal,
+visible pagination, lifecycle projection, and retained soft-deletion rows. It
+does not enter the cross-platform repository gate. The adapter opens one
+short-lived transaction per call. Pooling remains deferred until measured
+concurrent catalogue traffic justifies it. Application-service wiring, direct
+comparison with applicable local-repository behavior, and optional row-level
+security remain open within this work package.
+
 ### Work package 3.4 - Implement the cross-store operation protocol
 
 For every command that changes control and data-plane state:

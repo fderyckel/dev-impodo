@@ -48,11 +48,13 @@ Host-owned suites run separately:
 - `.github/workflows/windows-release-quality.yml` runs the Windows installer
   tests when the installer or its release inputs change.
 - `.github/workflows/linux-server-quality.yml` runs Linux permission and server
-  integration tests when the deployment or server composition changes. Its
-  separate image-quality job builds the pinned production image, rejects
-  fixable critical or high vulnerabilities, and retains maximum-mode build
-  provenance plus an SPDX software bill of materials. The job requires no
-  registry publication or registry credential.
+  integration tests when the deployment or server composition changes. The
+  Linux job provides a disposable PostgreSQL service for live control-plane
+  repository contracts; those tests use only fictional records and do not
+  enter the portable gate. Its separate image-quality job builds the pinned
+  production image, rejects fixable critical or high vulnerabilities, and
+  retains maximum-mode build provenance plus an SPDX software bill of
+  materials. The job requires no registry publication or registry credential.
 
 This separation keeps the common gate portable without discarding valuable
 platform evidence.
