@@ -42,6 +42,7 @@ var/
 
 # Local AI agent and Codex configuration
 /.agents/
+[Aa][Gg][Ee][Nn][Tt][Ss].[Mm][Dd]
 /.codex/
 /.codex-*/
 /.local-development/
