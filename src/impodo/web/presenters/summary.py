@@ -1006,6 +1006,15 @@ def _quality_workflow_issue_summary(
         affected_record_count = sum(
             item.affected_record_count for item in equivalent_causes
         )
+        affected_parent_count = sum(
+            item.affected_parent_count for item in equivalent_causes
+        )
+        affected_child_count = sum(
+            item.affected_child_count for item in equivalent_causes
+        )
+        affected_sibling_count = sum(
+            item.affected_sibling_count for item in equivalent_causes
+        )
         labels = field_labels.get(cause.dataset, {})
         affected_fields = tuple(
             labels.get(field, field.replace("_", " ").title())
@@ -1054,6 +1063,9 @@ def _quality_workflow_issue_summary(
                 affected_record_types=(dataset_label,),
                 affected_fields=affected_fields,
                 affected_record_count=affected_record_count,
+                affected_parent_count=affected_parent_count,
+                affected_child_count=affected_child_count,
+                affected_sibling_count=affected_sibling_count,
                 dependent_on_other_issue=(
                     cause.reason_code in _INHERITED_QUALITY_REASONS
                 ),

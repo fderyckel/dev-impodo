@@ -60,6 +60,9 @@ class QualityCauseSummaryTests(unittest.TestCase):
                     family=QualityRuleFamily.BOUNDED_VALUES,
                     policy=QualityOutcomePolicy.BLOCK,
                     owner_label="Data manager",
+                    affected_parent_count=1,
+                    affected_child_count=2,
+                    affected_sibling_count=3,
                 ),
                 QualityCauseCount(
                     dataset="bom_lines",
@@ -120,6 +123,9 @@ class QualityCauseSummaryTests(unittest.TestCase):
         direct, inherited = summary.issues
         self.assertEqual(direct.severity, WorkflowIssueSeverity.MUST_FIX)
         self.assertEqual(direct.origin, WorkflowIssueOrigin.SOURCE_DATA)
+        self.assertEqual(direct.affected_parent_count, 1)
+        self.assertEqual(direct.affected_child_count, 2)
+        self.assertEqual(direct.affected_sibling_count, 3)
         self.assertEqual(
             direct.correction_route,
             "/workspaces/workspace:test/mapping?mapping_dataset=0&field_query="

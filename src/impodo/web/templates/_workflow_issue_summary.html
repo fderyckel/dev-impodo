@@ -25,6 +25,12 @@
             {% if issue.affected_record_count is not none %}
               <p><strong>Affected records:</strong> {{ issue.affected_record_count }}</p>
             {% endif %}
+            {% if issue.affected_parent_count or issue.affected_child_count or issue.affected_sibling_count %}
+              <p>
+                <strong>Also set aside through dependencies:</strong>
+                {% if issue.affected_parent_count %}{{ issue.affected_parent_count }} parent{% if issue.affected_parent_count != 1 %}s{% endif %}{% endif %}{% if issue.affected_parent_count and (issue.affected_child_count or issue.affected_sibling_count) %} &middot; {% endif %}{% if issue.affected_child_count %}{{ issue.affected_child_count }} child{% if issue.affected_child_count != 1 %}ren{% endif %}{% endif %}{% if issue.affected_child_count and issue.affected_sibling_count %} &middot; {% endif %}{% if issue.affected_sibling_count %}{{ issue.affected_sibling_count }} sibling{% if issue.affected_sibling_count != 1 %}s{% endif %}{% endif %}
+              </p>
+            {% endif %}
             {% if issue.affected_fields %}
               <p><strong>Fields:</strong> {{ issue.affected_fields|join('; ') }}</p>
             {% endif %}

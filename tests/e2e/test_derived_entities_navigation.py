@@ -49,8 +49,65 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
           <details id="combine-source-tables" data-derived-entity-section>
             <summary>Combine several source tables</summary>
             <form data-exact-join-group-form>
-              <select name="primary_dataset_id"><option value="accounts">Customer accounts</option></select>
-              <input type="checkbox" name="group_addition" value="1" checked>
+              <select name="primary_dataset_id" data-group-primary-dataset>
+                <option value="accounts">Customer accounts</option>
+                <option value="parties">Party details</option>
+              </select>
+              <select data-group-primary-key>
+                <option value="accounts|account" selected>Account</option>
+              </select>
+              <input type="checkbox" name="group_addition" value="1" data-group-addition data-dataset-id="parties">
+              <select data-group-addition-key data-dataset-id="parties">
+                <option value="parties|party_recid" selected>RecId</option>
+              </select>
+              <input type="search" data-group-field-search>
+              <select data-group-field-filter>
+                <option value="all">All participating fields</option>
+                <option value="recommended">Recommended</option>
+                <option value="decision">Needs decision</option>
+                <option value="empty">Empty</option>
+                <option value="selected">Selected</option>
+              </select>
+              <button type="button" data-group-use-recommended>Use recommended output</button>
+              <button type="button" data-group-select-visible>Select visible fields</button>
+              <button type="button" data-group-clear-visible>Clear visible fields</button>
+              <span data-group-field-count></span>
+              <span data-group-field-limit-error hidden>Too many fields</span>
+              <fieldset data-group-projection-dataset="accounts">
+                <div data-group-field-row data-dataset-id="accounts" data-dataset-name="Customer accounts" data-column-key="account" data-source-name="Account" data-candidate-type="string">
+                  <input type="checkbox" name="group_projection" data-group-field-checkbox checked>
+                  <input data-group-output-name data-default-name="Account" data-qualified-name="Customer accounts.Account" value="Account">
+                  <small data-group-field-reason></small>
+                </div>
+                <div data-group-field-row data-dataset-id="accounts" data-dataset-name="Customer accounts" data-column-key="account_recid" data-source-name="RecId" data-candidate-type="integer">
+                  <input type="checkbox" name="group_projection" data-group-field-checkbox checked>
+                  <input data-group-output-name data-default-name="RecId" data-qualified-name="Customer accounts.RecId" value="RecId">
+                  <small data-group-field-reason></small>
+                </div>
+                <div data-group-field-row data-dataset-id="accounts" data-dataset-name="Customer accounts" data-column-key="empty" data-source-name="Unused" data-candidate-type="empty">
+                  <input type="checkbox" name="group_projection" data-group-field-checkbox>
+                  <input data-group-output-name data-default-name="Unused" data-qualified-name="Customer accounts.Unused" value="Unused">
+                  <small data-group-field-reason></small>
+                </div>
+              </fieldset>
+              <fieldset data-group-projection-dataset="parties">
+                <div data-group-field-row data-dataset-id="parties" data-dataset-name="Party details" data-column-key="party_recid" data-source-name="RecId" data-candidate-type="integer">
+                  <input type="checkbox" name="group_projection" data-group-field-checkbox>
+                  <input data-group-output-name data-default-name="RecId" data-qualified-name="Party details.RecId" value="Party details.RecId">
+                  <small data-group-field-reason></small>
+                </div>
+                <div data-group-field-row data-dataset-id="parties" data-dataset-name="Party details" data-column-key="email" data-source-name="Email" data-candidate-type="string">
+                  <input type="checkbox" name="group_projection" data-group-field-checkbox>
+                  <input data-group-output-name data-default-name="Email" data-qualified-name="Party details.Email" value="Email">
+                  <small data-group-field-reason></small>
+                </div>
+                <div data-group-field-row data-dataset-id="parties" data-dataset-name="Party details" data-column-key="empty" data-source-name="Unused" data-candidate-type="empty">
+                  <input type="checkbox" name="group_projection" data-group-field-checkbox>
+                  <input data-group-output-name data-default-name="Unused" data-qualified-name="Party details.Unused" value="Party details.Unused">
+                  <small data-group-field-reason></small>
+                </div>
+              </fieldset>
+              <button type="submit">Review complete combination</button>
             </form>
           </details>
           <details id="combine-two-tables" data-derived-entity-section>
@@ -147,6 +204,50 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
                 "form => form.checkValidity()"
             )
         )
+        self.assertEqual(self.errors, [])
+
+    def test_grouped_join_recommends_unique_non_key_fields_and_bulk_filters(self):
+        self.page.goto(
+            "http://127.0.0.1:12345/derived-entities#combine-source-tables"
+        )
+        form = self.page.locator("[data-exact-join-group-form]")
+        addition = form.locator("[data-group-addition]")
+        addition.check()
+
+        party_key = form.locator(
+            '[data-group-field-row][data-dataset-id="parties"]'
+            '[data-column-key="party_recid"]'
+        )
+        party_email = form.locator(
+            '[data-group-field-row][data-dataset-id="parties"]'
+            '[data-column-key="email"]'
+        )
+        self.assertFalse(
+            party_key.locator("[data-group-field-checkbox]").is_checked()
+        )
+        self.assertTrue(
+            party_email.locator("[data-group-field-checkbox]").is_checked()
+        )
+        self.assertEqual(
+            party_key.locator("[data-group-output-name]").input_value(),
+            "Party details.RecId",
+        )
+        self.assertIn("3 / 200", form.locator("[data-group-field-count]").inner_text())
+
+        form.locator("[data-group-field-filter]").select_option("decision")
+        visible_decisions = form.locator(
+            '[data-group-field-row]:visible [data-group-field-checkbox]'
+        )
+        self.assertEqual(visible_decisions.count(), 1)
+        form.locator("[data-group-select-visible]").click()
+        self.assertTrue(party_key.locator("[data-group-field-checkbox]").is_checked())
+
+        form.locator("[data-group-field-filter]").select_option("empty")
+        visible_empty = form.locator(
+            '[data-group-field-row]:visible [data-group-field-checkbox]'
+        )
+        self.assertEqual(visible_empty.count(), 2)
+        self.assertTrue(visible_empty.first.is_enabled())
         self.assertEqual(self.errors, [])
 
     def test_exact_join_summary_stacks_at_narrow_width(self):

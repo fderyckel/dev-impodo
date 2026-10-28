@@ -42,6 +42,13 @@ fields once, and confirm the corresponding fields for every added table. The
 primary table defines what one output row represents. Include company,
 partition, or another scope field when an identifier is not globally unique.
 
+The output selector recommends non-empty primary fields and non-empty,
+non-key fields that occur in only one added table. When labels collide, Impodo
+keeps the primary version selected and puts the added versions under **Needs
+decision** with table-qualified names. Search and bulk controls let you review
+recommended, conflicting, empty, or selected fields while the counter keeps
+the final output within 200 fields.
+
 Select **Review complete combination**. Impodo checks every accepted row and
 shows one reconciliation row for each added table: matched and unmatched
 primary rows, unused added rows, invalid keys, repeated keys, and final output

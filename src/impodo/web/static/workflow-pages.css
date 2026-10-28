@@ -2342,6 +2342,7 @@ a.impact-card:focus-visible,
   .mode-grid,
   .model-picker-tools,
   .field-catalog-tools,
+  .exact-join-field-tools,
   .definition-list {
     grid-template-columns: 1fr;
   }

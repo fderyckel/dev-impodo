@@ -139,11 +139,16 @@ the same semantic request can be reviewed and retried.
 
 `ExactJoinGroupRequest` binds one physical primary table, one to nine physical
 added tables, one to five shared typed key parts, and the final projections.
-`preview_join_group` compiles it to deterministic exact-join steps, loads each
-physical snapshot once, reviews every added table against the primary grain,
-and executes the valid complete chain once for output and physical-lineage
-hashes. `save_join_group` repeats that work and stores every rule, review,
-dataset-use decision, and output-use decision in one optimistic plan revision.
+`preview_join_group` compiles it to deterministic exact-join steps and passes
+the verified participating Parquet paths to
+[`DuckDbExactJoinGroupEvaluator`](../../../src/impodo/adapters/duckdb/exact_join_group_evaluator.py).
+The evaluator opens one request-scoped in-memory DuckDB connection, scans each
+participating snapshot once into a narrow temporary key table, and performs
+all matching, duplicate checks, examples, and streamed lineage hashing over
+those temporary tables. It uses a 256 MB memory limit, two threads, projection
+pushdown, and no process-wide or cross-request connection cache.
+`save_join_group` repeats that work and stores every rule, review, dataset-use
+decision, and output-use decision in one optimistic plan revision.
 Intermediate steps carry private primary-key columns only as needed and set
 `map_output=False`; the final step alone sets `map_output=True`. Removing the
 final group output removes its private ancestors and saved reviews in one
@@ -154,8 +159,19 @@ The normal browser choice is **Several tables describe the same records**.
 `exact_join_forms.py` parses the bounded primary-key, added-table, completeness,
 and projection matrices, then resolves every posted index, dataset, and field
 against the current physical selection. It never trusts a posted source
-identity, type, count, hash, or lineage value. The prior pairwise editor remains
-under **Advanced: combine two tables** for explicit structural chains.
+identity, type, count, hash, or lineage value. The default projection selects
+non-empty primary fields. `derived-entities.js` recalculates the recommendation
+when the primary table, added tables, or key fields change: it adds non-empty,
+non-key fields that are unique to an added table, excludes added keys by
+default, keeps a colliding primary field, and places other colliding fields
+under **Needs decision** with qualified names. Search, category filters, bulk
+selection, bulk clearing, and the effective 200-field count remain client-side
+helpers; the server independently rejects an oversized or invalid projection.
+The prior pairwise editor remains under **Advanced: combine two tables** for
+explicit structural chains. The
+[`exact-join group form tests`](../../../tests/integration/web/test_exact_join_group_forms.py)
+cover the initial recommendation, qualified collision names, and early
+200-field rejection.
 
 `POST /workspaces/{workspace_id}/derived-entities/join/preview` performs the
 complete review and renders the counts and protected examples. `POST
@@ -170,8 +186,15 @@ the complete group and returns one reconciliation row per added table. `POST
 /workspaces/{workspace_id}/derived-entities/join-group/save` repeats the same
 bounded review and performs one repository save. The authenticated four-file
 customer fixture holds preview and save to 12 DuckDB connections and 10 schema
-checks, exposes only `customers_complete` to mapping, and performs zero Odoo
-calls.
+checks, compares the DuckDB evidence with the Python oracle, proves that the
+grouped route bypasses the materialized pairwise row guard, exposes only
+`customers_complete` to mapping, and performs zero Odoo calls. The scale
+fixture covers 65,299 rows, 262 source fields, 97 empty fields, collisions,
+and two joins. It asserts one physical scan per participating snapshot and a
+linear statement ceiling. These are controlled regression facts, not an
+unbounded scale guarantee. The
+[`grouped exact-join scale test`](../../../tests/performance/test_exact_join_group_scale.py)
+owns that fixture.
 
 Saved cards distinguish physical inputs from the mapped logical output and
 show whether each input remains visible in **Match data**. The fictional
@@ -638,19 +661,22 @@ The next request reads status again, and capture commands retrieve and validate
 current credentials independently. Capture history remains complete; the page
 still offers every saved capture rather than hiding older evidence.
 
-The exact-join preview and save routes materialize the complete frozen
-selection within the 25,000-row browser limit. Their local command scopes reuse
-repository owners, but they do not cache DuckDB connections across requests.
-The current derived or materialized preparation path has a lower row limit
-than exact direct mappings; keep that limit visible rather than silently
-falling back to unbounded Python work.
+The advanced pairwise exact-join preview and save routes materialize the
+complete frozen selection within the 25,000-row browser limit. The normal
+grouped route instead materializes verified artifact paths and runs the narrow
+DuckDB evaluator described above. Both local command scopes reuse repository
+owners and neither caches DuckDB connections across requests. The current
+derived or materialized preparation path has a lower row limit than the
+grouped authoring review; keep that preparation limit visible rather than
+silently falling back to unbounded Python work.
 
-The 2026-10-24 controlled qualification runs 2,000 rows per input through
-three fresh processes for both narrow and wide shapes. Preview consistently
-uses six DuckDB connections and ten schema checks. Save consistently uses six
-connections and six schema checks. Exact results, persisted complete review,
-and zero Odoo requests remain stable. The measurements do not justify changing
-the evaluator or the 25,000-row and 200-column admission limits. Historical
+The 2026-10-24 controlled pairwise qualification runs 2,000 rows per input
+through three fresh processes for both narrow and wide shapes. Preview
+consistently uses six DuckDB connections and ten schema checks. Save
+consistently uses six connections and six schema checks. The 2026-10-28
+grouped qualification adds the 65,299-row, 262-field regression described
+above and retains the 200-output-field admission limit. Exact results,
+persisted complete review, and zero Odoo requests remain stable. Historical
 measurement details remain available in Git history.
 
 ## Verification

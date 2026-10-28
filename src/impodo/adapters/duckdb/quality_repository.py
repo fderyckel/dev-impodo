@@ -112,7 +112,7 @@ def _read_complete_quality_cause_counts(
 
     rows = connection.execute(
         """
-        WITH parsed_issue AS (
+        WITH RECURSIVE parsed_issue AS (
             SELECT dataset, row_id,
                    json_extract_string(issue_json, '$.family') AS family,
                    json_extract_string(issue_json, '$.reason_code')
@@ -121,18 +121,108 @@ def _read_complete_quality_cause_counts(
                    CAST(json_extract(issue_json, '$.affected_fields') AS VARCHAR)
                        AS affected_fields_json,
                    json_extract_string(issue_json, '$.policy') AS policy,
-                   json_extract_string(issue_json, '$.owner_label') AS owner_label
+                   json_extract_string(issue_json, '$.owner_label') AS owner_label,
+                   json_extract_string(issue_json, '$.caused_by_row_id')
+                       AS caused_by_row_id,
+                   json_extract_string(issue_json, '$.dependency_impact')
+                       AS dependency_impact
               FROM quality_issue
              WHERE run_id = ? AND row_id IS NOT NULL
+        ),
+        cause_group AS (
+            SELECT dataset, family, reason_code, MIN(message) AS message,
+                   affected_fields_json, policy, owner_label,
+                   COUNT(DISTINCT row_id) AS affected_record_count
+              FROM parsed_issue
+             GROUP BY dataset, family, reason_code, affected_fields_json,
+                      policy, owner_label
+        ),
+        impact_walk (
+            dataset, family, reason_code, affected_fields_json, policy,
+            owner_label, current_row_id, seen_parent, impact_kind
+        ) AS (
+            SELECT DISTINCT dataset, family, reason_code,
+                   affected_fields_json, policy, owner_label,
+                   row_id AS current_row_id, FALSE AS seen_parent,
+                   CAST(NULL AS VARCHAR) AS impact_kind
+              FROM parsed_issue
+             WHERE caused_by_row_id IS NULL
+            UNION
+            SELECT walk.dataset, walk.family, walk.reason_code,
+                   walk.affected_fields_json, walk.policy, walk.owner_label,
+                   inherited.row_id,
+                   walk.seen_parent
+                       OR inherited.dependency_impact = 'PARENT',
+                   CASE
+                       WHEN inherited.dependency_impact = 'PARENT'
+                           THEN 'PARENT'
+                       WHEN walk.seen_parent THEN 'SIBLING'
+                       ELSE 'CHILD'
+                   END
+              FROM impact_walk AS walk
+              JOIN parsed_issue AS inherited
+                ON inherited.caused_by_row_id = walk.current_row_id
+             WHERE inherited.dependency_impact IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM parsed_issue AS direct_issue
+                    WHERE direct_issue.dataset = walk.dataset
+                      AND direct_issue.family = walk.family
+                      AND direct_issue.reason_code = walk.reason_code
+                      AND direct_issue.affected_fields_json =
+                          walk.affected_fields_json
+                      AND direct_issue.policy = walk.policy
+                      AND direct_issue.owner_label = walk.owner_label
+                      AND direct_issue.row_id = inherited.row_id
+                      AND direct_issue.caused_by_row_id IS NULL
+               )
+        ),
+        classified_impact AS (
+            SELECT dataset, family, reason_code, affected_fields_json,
+                   policy, owner_label, current_row_id,
+                   CASE
+                       WHEN MAX(
+                           CASE WHEN impact_kind = 'SIBLING' THEN 1 ELSE 0 END
+                       ) = 1 THEN 'SIBLING'
+                       WHEN MAX(
+                           CASE WHEN impact_kind = 'PARENT' THEN 1 ELSE 0 END
+                       ) = 1 THEN 'PARENT'
+                       ELSE 'CHILD'
+                   END AS impact_kind
+              FROM impact_walk
+             WHERE impact_kind IS NOT NULL
+             GROUP BY dataset, family, reason_code, affected_fields_json,
+                      policy, owner_label, current_row_id
+        ),
+        impact_count AS (
+            SELECT dataset, family, reason_code, affected_fields_json,
+                   policy, owner_label,
+                   SUM(CASE WHEN impact_kind = 'PARENT' THEN 1 ELSE 0 END)
+                       AS affected_parent_count,
+                   SUM(CASE WHEN impact_kind = 'CHILD' THEN 1 ELSE 0 END)
+                       AS affected_child_count,
+                   SUM(CASE WHEN impact_kind = 'SIBLING' THEN 1 ELSE 0 END)
+                       AS affected_sibling_count
+              FROM classified_impact
+             GROUP BY dataset, family, reason_code, affected_fields_json,
+                      policy, owner_label
         )
-        SELECT dataset, family, reason_code, MIN(message), affected_fields_json,
-               policy, owner_label,
-               COUNT(DISTINCT row_id) AS affected_record_count
-          FROM parsed_issue
-         GROUP BY dataset, family, reason_code, affected_fields_json,
-                  policy, owner_label
-         ORDER BY affected_record_count DESC, reason_code, MIN(message),
-                  dataset, affected_fields_json
+        SELECT causes.dataset, causes.family, causes.reason_code,
+               causes.message, causes.affected_fields_json, causes.policy,
+               causes.owner_label, causes.affected_record_count,
+               COALESCE(impact.affected_parent_count, 0),
+               COALESCE(impact.affected_child_count, 0),
+               COALESCE(impact.affected_sibling_count, 0)
+          FROM cause_group AS causes
+          LEFT JOIN impact_count AS impact
+            ON impact.dataset = causes.dataset
+           AND impact.family = causes.family
+           AND impact.reason_code = causes.reason_code
+           AND impact.affected_fields_json = causes.affected_fields_json
+           AND impact.policy = causes.policy
+           AND impact.owner_label = causes.owner_label
+         ORDER BY causes.affected_record_count DESC, causes.reason_code,
+                  causes.message, causes.dataset, causes.affected_fields_json
         """,
         [run_id],
     ).fetchall()
@@ -149,6 +239,9 @@ def _read_complete_quality_cause_counts(
                 policy=QualityOutcomePolicy(str(row[5])),
                 owner_label=str(row[6]),
                 affected_record_count=int(row[7]),
+                affected_parent_count=int(row[8]),
+                affected_child_count=int(row[9]),
+                affected_sibling_count=int(row[10]),
             )
             for row in rows
         )

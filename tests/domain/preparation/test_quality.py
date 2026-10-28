@@ -42,6 +42,7 @@ from impodo.domain.preflight.frozen_input import canonical_rows_to_prepared_bund
 from impodo.adapters.artifacts.profile_loader import load_profile
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStatus
 from impodo.domain.preparation.quality import (
+    QualityDependencyImpact,
     QualityDisposition,
     QualityOutcomePolicy,
     QualityOwnerRole,
@@ -374,6 +375,11 @@ class QualityEvaluationTests(unittest.TestCase):
             == "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE"
         )
         self.assertEqual(relationship_issue.affected_fields, ("categ_id",))
+        self.assertEqual(relationship_issue.caused_by_row_id, parent.row_id)
+        self.assertEqual(
+            relationship_issue.dependency_impact,
+            QualityDependencyImpact.CHILD,
+        )
         self.assertIn("categories", relationship_issue.message)
         self.assertIn("source row 2", relationship_issue.message)
 
@@ -474,6 +480,30 @@ class QualityEvaluationTests(unittest.TestCase):
         )
         self.assertEqual(missing_issue.affected_fields, ("product_id",))
         self.assertIn("articles", missing_issue.message)
+        identity_issue = next(
+            item
+            for item in run.issues
+            if item.reason_code == "INCOMING_IDENTITY_DEPENDENT_SET_ASIDE"
+        )
+        self.assertEqual(
+            identity_issue.caused_by_row_id,
+            missing_component_line.row_id,
+        )
+        self.assertEqual(
+            identity_issue.dependency_impact,
+            QualityDependencyImpact.PARENT,
+        )
+        sibling_issue = next(
+            item
+            for item in run.issues
+            if item.reason_code == "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE"
+            and item.row_id == ready_line.row_id
+        )
+        self.assertEqual(sibling_issue.caused_by_row_id, bom.row_id)
+        self.assertEqual(
+            sibling_issue.dependency_impact,
+            QualityDependencyImpact.CHILD,
+        )
 
     def test_relationship_readiness_propagates_through_a_long_chain(self) -> None:
         row_count = 64
@@ -1660,6 +1690,129 @@ class QualityStoreTests(unittest.TestCase):
         self.assertEqual(cause.owner_label, "Data manager")
         self.assertEqual(timings.connection_count, 1)
         self.assertEqual(timings.schema_check_count, 1)
+
+    def test_quality_projection_counts_transitive_dependency_impact(self) -> None:
+        root_issue = CanonicalIssue(
+            code="SOURCE_TYPE_INVALID",
+            message="The prepared number is invalid.",
+            severity="error",
+            dataset="contacts",
+            source_row=3,
+            field="amount",
+        )
+        group_parent = _canonical_row(
+            "5",
+            2,
+            source_identity=("GROUP",),
+            target_identity=("GROUP",),
+        )
+        direct = replace(
+            _canonical_row(
+                "6",
+                3,
+                source_identity=("DIRECT",),
+                target_identity=("DIRECT",),
+                target_scope=(
+                    LogicalReference(
+                        origin="incoming",
+                        key=("GROUP",),
+                        dataset="contacts",
+                        target_fields=("name",),
+                    ),
+                ),
+            ),
+            disposition=StagingDisposition.BLOCKED,
+            issues=(root_issue,),
+        )
+        sibling = _canonical_row(
+            "7",
+            4,
+            source_identity=("SIBLING",),
+            target_identity=("SIBLING",),
+            target_scope=(
+                LogicalReference(
+                    origin="incoming",
+                    key=("GROUP",),
+                    dataset="contacts",
+                    target_fields=("name",),
+                ),
+            ),
+        )
+        child = replace(
+            _canonical_row(
+                "8",
+                5,
+                source_identity=("CHILD",),
+                target_identity=("CHILD",),
+            ),
+            references={
+                "parent_id": LogicalReference(
+                    origin="incoming",
+                    key=("DIRECT",),
+                    dataset="contacts",
+                    target_fields=("name",),
+                )
+            },
+        )
+        staging_run = _staging(
+            self.workspace_state.workspace_id,
+            (group_parent, direct, sibling, child),
+        )
+        staging = self.staging.publish_canonical_staging(
+            self.workspace_state.workspace_id,
+            staging_run,
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        ruleset = default_quality_ruleset(
+            workspace_id=self.workspace_state.workspace_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+        )
+        self.quality.publish_quality_ruleset(
+            self.workspace_state.workspace_id,
+            ruleset,
+            actor=LOCAL_ACTOR,
+        )
+        run = evaluate_quality(
+            workspace_state=self.workspace_state,
+            staging=staging_run,
+            physical_rows={"dataset:contacts": (2, 3, 4, 5)},
+            ruleset=ruleset,
+        )
+        published = self.quality.publish_quality_run(
+            self.workspace_state.workspace_id,
+            run,
+            staging_run_id=staging.run_id,
+            actor=LOCAL_ACTOR,
+        )
+
+        page = self.quality.get_quality_review_page(
+            self.workspace_state.workspace_id,
+            published.run_id,
+            status="quarantined",
+            page=1,
+            page_size=1,
+            include_run_cause_counts=True,
+        )
+
+        cause = next(
+            item
+            for item in page.run_cause_counts
+            if item.reason_code == "SOURCE_TYPE_INVALID"
+        )
+        self.assertEqual(cause.affected_record_count, 1)
+        self.assertEqual(cause.affected_parent_count, 1)
+        self.assertEqual(cause.affected_child_count, 1)
+        self.assertEqual(cause.affected_sibling_count, 1)
+        self.assertEqual(
+            self.quality.get_quality_run(
+                self.workspace_state.workspace_id,
+                published.run_id,
+            ).to_json(),
+            run.to_json(),
+        )
 
     def test_failed_quality_batch_preserves_previous_current_run(self) -> None:
         row = _canonical_row("5", 2)

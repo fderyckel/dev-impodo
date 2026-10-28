@@ -36,8 +36,8 @@ from impodo.domain.shared.models import (
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.workspace.workbench import WorkspaceState
 
-QUALITY_CONTRACT_VERSION = 3
-QUALITY_EVALUATOR_VERSION = 4
+QUALITY_CONTRACT_VERSION = 4
+QUALITY_EVALUATOR_VERSION = 5
 QUALITY_RULESET_CONTRACT_VERSION = 3
 MAX_MANAGER_RULES_PER_DATASET = 3
 MANDATORY_QUALITY_FAMILIES = (
@@ -142,6 +142,13 @@ class QualityDisposition(StrEnum):
     BLOCKED = "BLOCKED"
     QUARANTINED = "QUARANTINED"
     EXCLUDED = "EXCLUDED"
+
+
+class QualityDependencyImpact(StrEnum):
+    """Relationship of an inherited unsafe row to its immediate cause."""
+
+    PARENT = "PARENT"
+    CHILD = "CHILD"
 
 
 class SourceAccountingState(StrEnum):
@@ -430,6 +437,8 @@ class QualityIssue:
     owner_role: QualityOwnerRole
     owner_label: str
     evidence_display: str = "masked"
+    caused_by_row_id: str | None = None
+    dependency_impact: QualityDependencyImpact | None = None
 
     def __post_init__(self) -> None:
         _require_hash(self.issue_id, "quality issue ID")
@@ -442,11 +451,20 @@ class QualityIssue:
             raise ValueError("Quality issue source rows must be positive")
         if self.affected_fields != tuple(sorted(set(self.affected_fields))):
             raise ValueError("Quality issue fields must be unique and ordered")
+        has_cause = self.caused_by_row_id is not None
+        if has_cause != (self.dependency_impact is not None):
+            raise ValueError(
+                "Inherited quality issues require a cause and impact direction"
+            )
+        if self.caused_by_row_id is not None:
+            _require_hash(self.caused_by_row_id, "quality issue causal row ID")
+            if self.row_id is None:
+                raise ValueError("Run-level quality issues cannot inherit a row cause")
 
     def to_portable_dict(self) -> dict[str, Any]:
         """Serialize the finding and its correction ownership."""
 
-        return {
+        payload = {
             "issue_id": self.issue_id,
             "rule_id": self.rule_id,
             "family": self.family.value,
@@ -461,6 +479,15 @@ class QualityIssue:
             "owner_label": self.owner_label,
             "evidence_display": self.evidence_display,
         }
+        if self.caused_by_row_id is not None:
+            dependency_impact = self.dependency_impact
+            if dependency_impact is None:
+                raise ValueError(
+                    "Inherited quality issues require an impact direction"
+                )
+            payload["caused_by_row_id"] = self.caused_by_row_id
+            payload["dependency_impact"] = dependency_impact.value
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> QualityIssue:
@@ -480,6 +507,16 @@ class QualityIssue:
             owner_role=QualityOwnerRole(str(payload["owner_role"])),
             owner_label=str(payload.get("owner_label", "")),
             evidence_display=str(payload.get("evidence_display", "masked")),
+            caused_by_row_id=(
+                str(payload["caused_by_row_id"])
+                if payload.get("caused_by_row_id") is not None
+                else None
+            ),
+            dependency_impact=(
+                QualityDependencyImpact(str(payload["dependency_impact"]))
+                if payload.get("dependency_impact") is not None
+                else None
+            ),
         )
 
 
@@ -1013,6 +1050,9 @@ class QualityCauseCount:
     family: QualityRuleFamily | None = None
     policy: QualityOutcomePolicy | None = None
     owner_label: str = ""
+    affected_parent_count: int = 0
+    affected_child_count: int = 0
+    affected_sibling_count: int = 0
 
     def __post_init__(self) -> None:
         if not self.dataset or not self.reason_code or not self.message:
@@ -1021,6 +1061,15 @@ class QualityCauseCount:
             raise ValueError("Quality cause fields must be unique and ordered")
         if self.affected_record_count < 1:
             raise ValueError("Quality cause counts must include a record")
+        if any(
+            count < 0
+            for count in (
+                self.affected_parent_count,
+                self.affected_child_count,
+                self.affected_sibling_count,
+            )
+        ):
+            raise ValueError("Quality dependency-impact counts cannot be negative")
 
     def to_portable_dict(self) -> dict[str, Any]:
         """Serialize the bounded projection without row-level evidence."""
@@ -1034,6 +1083,9 @@ class QualityCauseCount:
             "family": self.family.value if self.family is not None else None,
             "policy": self.policy.value if self.policy is not None else None,
             "owner_label": self.owner_label,
+            "affected_parent_count": self.affected_parent_count,
+            "affected_child_count": self.affected_child_count,
+            "affected_sibling_count": self.affected_sibling_count,
         }
 
     @classmethod
@@ -1060,6 +1112,9 @@ class QualityCauseCount:
                 else None
             ),
             owner_label=str(payload.get("owner_label", "")),
+            affected_parent_count=int(payload.get("affected_parent_count", 0)),
+            affected_child_count=int(payload.get("affected_child_count", 0)),
+            affected_sibling_count=int(payload.get("affected_sibling_count", 0)),
         )
 
 
@@ -1607,6 +1662,14 @@ def evaluate_quality(
             message,
             fields,
             policy=rule.outcome,
+            caused_by_row_id=related_row_id,
+            dependency_impact=(
+                QualityDependencyImpact.CHILD
+                if state == "UNSAFE_PARENT" and related_row_id is not None
+                else QualityDependencyImpact.PARENT
+                if state == "IDENTITY_GROUP" and related_row_id is not None
+                else None
+            ),
         )
         issue_ids = row_issue_ids.setdefault(row_id, set())
         if issue.issue_id in issue_ids:
@@ -1764,9 +1827,26 @@ def _quality_issue(
     fields: Iterable[str],
     *,
     policy: QualityOutcomePolicy,
+    caused_by_row_id: str | None = None,
+    dependency_impact: QualityDependencyImpact | None = None,
 ) -> QualityIssue:
     affected_fields = tuple(sorted({item for item in fields if item}))
-    issue_id = _hash({"rule_id": rule.rule_id, "row_id": row.row_id, "reason_code": reason_code, "message": message, "fields": affected_fields, "policy": policy.value})
+    issue_id = _hash(
+        {
+            "rule_id": rule.rule_id,
+            "row_id": row.row_id,
+            "reason_code": reason_code,
+            "message": message,
+            "fields": affected_fields,
+            "policy": policy.value,
+            "caused_by_row_id": caused_by_row_id,
+            "dependency_impact": (
+                dependency_impact.value
+                if dependency_impact is not None
+                else None
+            ),
+        }
+    )
     return QualityIssue(
         issue_id=issue_id,
         rule_id=rule.rule_id,
@@ -1781,6 +1861,8 @@ def _quality_issue(
         owner_role=rule.owner_role,
         owner_label=_owner_label(workspace_state, rule.owner_role),
         evidence_display=rule.evidence_display,
+        caused_by_row_id=caused_by_row_id,
+        dependency_impact=dependency_impact,
     )
 
 

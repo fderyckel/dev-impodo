@@ -2,9 +2,12 @@
 
 ## Status and product decision
 
-**Status:** Implemented and qualified on 2026-10-28. Current behavior is owned
-by the paired Source data documentation and related-table guide. This file
-retains the approved delivery rationale and acceptance boundary.
+**Status:** Implemented and qualified on 2026-10-28 for grouped authoring,
+automatic output recommendations, and bounded complete-data review. Current
+behavior is owned by the paired Source data documentation and related-table
+guide. Large derived-output preparation remains a separate qualification
+boundary. This file retains the approved delivery rationale and acceptance
+boundary.
 
 Impodo should let a data manager choose one primary table and enrich it from
 several other tables in one decision. The primary table defines one output row
@@ -50,8 +53,8 @@ foundation:
   duplicate keys, output rows, and physical lineage.
 - Accepted rules and their physical-input uses survive Recipe publication and
   fresh-data application.
-- The browser review remains bounded by 25,000 physical rows and the output by
-  200 fields.
+- The original pairwise browser review remains bounded by 25,000 physical rows,
+  while every structural output remains bounded by 200 fields.
 
 The proposal changes the authoring unit and logical-output visibility. It does
 not weaken these rules.
@@ -73,8 +76,8 @@ produce one target record from several primary rows.
 ### 2. Choose all enrichment tables
 
 The data manager selects every **Added table** in one list. The first delivery
-should support one primary table and up to nine added tables, subject to the
-existing complete-row and output-field limits.
+supports one primary table and up to nine added tables, subject to the bounded
+review and output-field constraints below.
 
 Physical inputs default to **Preparation only**. An advanced choice may keep a
 physical input available for a separate mapping, but the normal customer path
@@ -120,15 +123,19 @@ multiplies a primary row.
 
 ### 5. Choose the output fields once
 
-The page groups fields by source table. It selects the primary fields and the
-non-key enrichment fields by default. The data manager can remove fields and
-rename output fields before review.
+The page groups fields by source table. It selects non-empty primary fields
+and non-empty, non-key fields that occur in only one added table. It does not
+select added-table join keys or empty fields by default. The data manager can
+search, filter, select or clear visible fields, remove fields, and rename
+output fields before review. A live count includes private shared-key helpers
+against the 200-field limit.
 
 Two source fields may not overwrite the same output name. When labels collide,
-Impodo suggests distinct names that include the source-table label and asks the
-data manager to confirm them. Choosing between two competing values, or using
-one value only when another is blank, remains an explicit later mapping or
-transformation decision; the source combination does not invent precedence.
+Impodo keeps the primary version selected and places the other versions under
+**Needs decision** with names that include the source-table label. Choosing
+between two competing values, or using one value only when another is blank,
+remains an explicit later mapping or transformation decision; the source
+combination does not invent precedence or coalesce same-named fields.
 
 ### 6. Review the whole combination
 
@@ -221,18 +228,21 @@ Preview and save remain local synchronous operations inside one bounded
 DuckDB owners before returning to the event loop. They must not open a new
 repository or repeat schema checks for each added table.
 
-The first delivery retains the current 25,000-total-physical-row and
-200-output-field limits. It should support no more than ten participating
-tables and five key components. Raising those bounds requires separate
-measurement and evidence.
+The grouped review retains the 200-output-field limit, ten participating-table
+limit, and five-key-component limit. It no longer uses the pairwise editor's
+25,000-total-physical-row guard. A request-scoped DuckDB evaluator scans each
+verified Parquet input once into a narrow temporary key table, then performs
+the complete reconciliation and streamed lineage hashing over those temporary
+tables. It uses bounded memory and threads and never caches a DuckDB connection
+across requests. Later materialized preparation of a saved grouped output
+retains its own current admission limit.
 
-Qualification must measure two-, four-, and ten-table fixtures with one- and
-two-component keys. Record elapsed time, peak memory, physical DuckDB
-connections, schema checks, snapshot materializations, and output and lineage
-hashes across fresh processes. The four-table customer path should remain
-within the current exact-join request ceilings of 12 connections and 10 schema
-checks. Do not add a process-wide or cross-request DuckDB connection cache to
-meet that ceiling.
+Qualification measures the authenticated four-table path and a workspace-shaped
+regression with 65,299 rows, 262 source fields, 97 empty fields, collisions,
+and multiple joins. The scale fixture asserts one physical snapshot scan per
+participant and a linear statement ceiling. The four-table customer path stays
+within 12 connections and 10 schema checks. Do not add a process-wide or
+cross-request DuckDB connection cache to meet that ceiling.
 
 ## Delivery increments
 
@@ -306,4 +316,7 @@ within 12 DuckDB connections and 10 schema checks. Application tests prove one
 atomic revision, interruption rollback, duplicate-primary blocking, final-rule
 group deletion, and complete saved reviews. The Recipe round-trip proves that
 private intermediate outputs, group steps, primary uniqueness, and final-only
-visibility survive fresh binding.
+visibility survive fresh binding. Form tests prove the recommended projection,
+qualified collision names, and early 200-field rejection. The grouped browser
+fixture compares DuckDB evidence with the Python oracle. The scale regression
+proves the bounded scan plan at the motivating workspace shape.

@@ -18,6 +18,7 @@ from typing import Protocol, cast, overload
 from impodo.domain.mapping.contracts import MappingDefinition
 from impodo.domain.preparation.quality import (
     MANDATORY_QUALITY_FAMILIES,
+    QualityDependencyImpact,
     QualityDisposition,
     QualityError,
     QualityIssue,
@@ -1105,6 +1106,7 @@ def _build_indexed_quality_run(
                 ) = raw
                 linked_dataset = ""
                 affected_field = ""
+                related_row_id = None
                 related_dataset = ""
                 related_source_row = None
             else:
@@ -1122,6 +1124,11 @@ def _build_indexed_quality_run(
                     _related_row_id,
                     related_source_row,
                 ) = raw[:12]
+                related_row_id = (
+                    str(_related_row_id)
+                    if _related_row_id is not None
+                    else None
+                )
                 related_dataset = (
                     str(raw[12])
                     if len(raw) > 12 and raw[12] is not None
@@ -1166,6 +1173,16 @@ def _build_indexed_quality_run(
                 message,
                 fields,
                 policy=rule.outcome,
+                caused_by_row_id=related_row_id,
+                dependency_impact=(
+                    QualityDependencyImpact.CHILD
+                    if str(resolution_state) == "UNSAFE_PARENT"
+                    and related_row_id is not None
+                    else QualityDependencyImpact.PARENT
+                    if str(resolution_state) == "IDENTITY_GROUP"
+                    and related_row_id is not None
+                    else None
+                ),
             )
             issue_map[issue.issue_id] = issue
             row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
@@ -1409,6 +1426,14 @@ def _attach_relationship_findings(
             message,
             fields,
             policy=rule.outcome,
+            caused_by_row_id=related_row_id,
+            dependency_impact=(
+                QualityDependencyImpact.CHILD
+                if state == "UNSAFE_PARENT" and related_row_id is not None
+                else QualityDependencyImpact.PARENT
+                if state == "IDENTITY_GROUP" and related_row_id is not None
+                else None
+            ),
         )
         issue_ids = row_issue_ids.setdefault(row_id, set())
         if issue.issue_id in issue_ids:

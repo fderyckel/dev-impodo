@@ -50,11 +50,14 @@ same key. This is exact enrichment, not a free-form SQL join. Repeated primary
 or added keys block the result because Impodo cannot choose an arbitrary row,
 merge two intended records, or multiply the primary rows safely.
 
-Impodo reviews every row in the complete frozen source selection when that
-selection contains no more than 25,000 rows in total. A combined output may
-contain no more than 200 fields. These boundaries prevent the browser from
-starting unbounded in-memory work; they are not a reason to omit required key
-fields or business columns.
+Impodo reviews every row in each participating frozen table through a bounded
+local database operation. The grouped review does not load all wide source
+tables into browser memory and does not use the advanced pairwise editor's
+25,000-row review limit. It has regression coverage for 65,299 rows across
+three inputs with 262 source fields. A combined output may contain no more
+than 200 fields. Later preparation of a saved multi-table output still uses
+the current materialized-preparation limits, so check **Prepare data** before
+relying on a larger authoring review as production-scale qualification.
 
 For fictional AX customer exports, the primary table might contain
 `AccountNum` and `Party`. Separate contact, address, and payment-term tables
@@ -83,8 +86,14 @@ To build the logical customer table:
    field for every primary key part.
 4. For each added table, choose whether a missing match is optional or
    required and whether every added row must be represented.
-5. Select and name the final output fields once. Impodo suggests a
-   table-qualified name when source labels collide.
+5. Select and name the final output fields once. Impodo initially selects
+   non-empty primary fields and non-empty, non-key fields that are unique to
+   each added table. It keeps the primary version of a repeated label and
+   places the other versions under **Needs decision** with table-qualified
+   names. Use **Find a field**, **Show**, **Use recommended output**, **Select
+   visible fields**, and **Clear visible fields** to review a wide source. The
+   counter includes internal shared-key fields and stops review above the
+   200-field limit. Impodo never combines same-named values automatically.
 6. Select **Review complete combination**. Check one reconciliation row per
    added table, then select **Save combined table** only when the whole review
    says **Complete**.

@@ -133,6 +133,15 @@ class NormalizationSetAsideTests(unittest.TestCase):
                     family=issue.family,
                     policy=issue.policy,
                     owner_label=issue.owner_label,
+                    affected_parent_count=(
+                        1 if issue.reason_code == "SOURCE_FORMULA_INVALID" else 0
+                    ),
+                    affected_child_count=(
+                        2 if issue.reason_code == "SOURCE_FORMULA_INVALID" else 0
+                    ),
+                    affected_sibling_count=(
+                        3 if issue.reason_code == "SOURCE_FORMULA_INVALID" else 0
+                    ),
                 )
                 for issue in item.issues
             ),
@@ -156,6 +165,10 @@ class NormalizationSetAsideTests(unittest.TestCase):
         self.assertIn("Fields: Amount", html)
         self.assertIn("Migration issues", html)
         self.assertIn("Affected records:</strong> 1", html)
+        self.assertIn("Also set aside through dependencies:", html)
+        self.assertIn("1 parent", html)
+        self.assertIn("2 children", html)
+        self.assertIn("3 siblings", html)
         self.assertIn("Opening this action does not change accepted source data", html)
         self.assertIn("this warning did not exclude the record", html)
         self.assertIn("Correct the source value and prepare again.", html)

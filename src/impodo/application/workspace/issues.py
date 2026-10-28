@@ -56,6 +56,9 @@ class WorkflowIssueProjection:
     affected_record_types: tuple[str, ...] = ()
     affected_fields: tuple[str, ...] = ()
     affected_record_count: int | None = None
+    affected_parent_count: int = 0
+    affected_child_count: int = 0
+    affected_sibling_count: int = 0
     dependent_on_other_issue: bool = False
 
 
