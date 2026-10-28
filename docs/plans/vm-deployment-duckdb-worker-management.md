@@ -2,11 +2,18 @@
 
 ## Status and decision
 
-**Status:** Approved target architecture; Phase 1 implementation is in
-progress. The current supported product remains the local Windows application.
-No server deployment, PostgreSQL repository, Organization administration,
-server authentication, or durable worker described here is implemented merely
-by this document.
+**Status:** Approved target architecture; Phases 0 and 1 are complete, and
+Phase 2 is the current Priority 0 delivery stream as of 2026-10-28. The local
+empty-stack Compose rehearsal passed on 2026-10-27. Clean Debian and Ubuntu
+host qualification, the first hosted image-quality run, explicit license and
+remaining-vulnerability decisions, production secret and database-role
+provisioning, remote certificate policy, and accepted supporting-image
+versions remain open. No remote Impodo server is currently allocated, so
+delivery remains a local trial. Bounded Phase 3 persistence work may use the
+fictional local Compose stack, but the supported-host gate remains mandatory
+before a shared release. The current supported product remains the local
+application; the health-only container rehearsal is not a shared multi-user
+release.
 
 The
 [shared server detailed phased implementation plan](linux-server-postgresql-duckdb-implementation.md)
@@ -670,16 +677,18 @@ behavior.
   readiness, controlled shutdown, and restart behavior.
 - Keep Odoo transport disabled in the empty deployment rehearsal.
 
-**Current implementation status, 2026-10-26.** The first production-image
+**Current implementation status, 2026-10-28.** The first production-image
 increment is present. One pinned, multi-stage Debian Bookworm image installs
 the non-editable package from `uv.lock`, runs as fixed user and group `10001`,
 keeps its application tree read-only, and names its writable artifact,
 runtime, and temporary paths. One fail-closed `impodo-server` entry point
 selects web, worker, migration, and administration roles without importing the
-local launcher. Docker is unavailable on the current verification host, so
-the image build, scan, and Linux-host rehearsal remain open. The complete
-repository suite now passes all 78 architecture cases, including the four
-container-contract cases.
+local launcher. The image now builds and runs in the local Docker Desktop
+rehearsal. A repeat local scan of the refreshed base found no critical
+vulnerability and no fixable high finding. The first hosted image-quality run
+and clean supported-host rehearsals remain open. The complete repository suite
+now passes all 82 architecture cases, including the nine container-contract
+cases.
 
 The second increment adds a typed configuration boundary before every server
 role. It accepts non-secret public URL, trusted-proxy, PostgreSQL DSN-file,
@@ -779,7 +788,8 @@ role-separated secrets, container recreation, and PostgreSQL and artifact
 volume persistence.
 
 The external secret-provider adapter, production role provisioning,
-supported-host PostgreSQL volume qualification, image scan, accepted
+supported-host PostgreSQL volume qualification, first hosted image-quality
+run, explicit license and remaining-vulnerability decisions, accepted
 PostgreSQL major, remote certificate policy, and Debian and Ubuntu rehearsals
 remain open.
 

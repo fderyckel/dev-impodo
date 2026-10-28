@@ -1,6 +1,6 @@
 ---
 audience: developer
-kind: plan
+kind: report
 status: current
 ---
 
@@ -11,7 +11,8 @@ status: current
 This report records the local Phase 2 container rehearsal completed on
 2026-10-27. It verifies the empty server topology before Impodo is installed on
 a remote Debian or Ubuntu host. It uses fictional secrets and contains no
-customer data.
+customer data. No remote Impodo server is currently allocated; this evidence
+supports local trial development only.
 
 The result is point-in-time development evidence. Docker Desktop runs Linux
 inside a managed virtual machine, so this result does not qualify a supported
@@ -27,8 +28,9 @@ certificate policy.
 | Container runtime | Docker Desktop 4.97.0; Docker Engine 29.9.2; Docker Compose 5.6.1 |
 | Container platform | Linux arm64 |
 | Resolved Compose SHA-256 | `cc03a1c82f9939c6d2e07392465b1f34a14021c501077bc293d8bfdc480ceabb` |
-| Impodo image | `sha256:d4116fc02a2bc7b060f9dc7985196c0663199afa8eb567908d1c3f7aa34cdbcc` |
-| Impodo image size | 683,274,838 bytes |
+| Python base image | `python:3.12.16-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337` |
+| Impodo image | `sha256:e639d2adf99737ad6206775fd76bf4e9ee74b5019e0c96f25e71c9e759caaa24` |
+| Impodo image size | 683,280,936 bytes |
 | PostgreSQL image | `postgres:18.6-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650` |
 | Proxy image | `caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f` |
 
@@ -75,18 +77,44 @@ read-only application tree.
 | Worker | The worker profile remained disabled and no worker container started. |
 | Drain and recovery | Web shutdown completed cleanly. Readiness failed with HTTP 502 while web was stopped and returned after restart. |
 | Persistence | After Compose removed and recreated every container and network, PostgreSQL still reported schema version `1` and the fictional artifact marker remained readable. |
+| Image scan | Docker Scout 1.27.0 indexed 198 packages in image `sha256:e639d2adf997`. It reported no critical vulnerabilities and eight high, eleven medium, and forty-nine low vulnerabilities. No critical or high finding had an available fix. The policy evaluation failed with five of seven policies met and a health score of B at 78%. |
+| Continuous integration commands | The digest-pinned Trivy 0.76.1 command reported zero fixable critical or high vulnerabilities. The digest-pinned BuildKit scanner emitted SLSA provenance v1 and an SPDX 2.3 bill of materials containing 164 packages. The hosted workflow itself has not run yet. |
+| Repeat local checkpoint | On 2026-10-28, Compose resolved, two migration replays applied nothing at schema version `1`, liveness and readiness passed, the web process ran as UID and GID `10001`, `/opt/impodo` was not writable, Odoo egress remained disabled, and only the proxy published `127.0.0.1:8443`. |
 
 ## Remaining qualification
 
-The vulnerability scan did not run because Docker Scout may transmit local
-image metadata or contents to an external service and that disclosure was not
-separately authorized. The pinned PostgreSQL major and proxy version remain
-rehearsal candidates rather than accepted production versions.
+The operator explicitly authorized Docker Scout to store and index the local
+image on 2026-10-28. The first scan found nine high-severity vulnerabilities,
+including CVE-2026-84782 in OpenSSL. The image now pins Python 3.12.16 on a
+refreshed Bookworm digest that contains `openssl 3.0.22-1~deb12u2`. A clean
+rebuild and repeat scan removed that finding and reduced the medium and low
+counts by three and two respectively.
+
+The repeat scan found eight high-severity vulnerabilities in three Debian
+packages. Six affected `util-linux`, and one each affected `zlib` and `perl`.
+Scout reported no Bookworm fix for these findings. The current non-root,
+read-only, capability-restricted runtime reduces exposure to several local
+privilege paths, but it does not waive or resolve those findings.
+
+Scout also failed the license-policy and required-attestation policies. The
+Linux continuous integration workflow now builds the pinned image, applies a
+credential-free gate against fixable critical or high vulnerabilities, and
+exports maximum-mode provenance plus an SPDX software bill of materials as a
+retained artifact. Local validation reproduced both the gate and evidence
+export; the first hosted run remains open. An explicit license review and a
+vulnerability acceptance or upstream remediation decision for the remaining
+findings are still required. The pinned PostgreSQL major and proxy version
+remain rehearsal candidates rather than accepted production versions.
+Switching from Debian to Alpine is not an accepted remediation because it
+would change the runtime contract and requires separate compatibility
+qualification.
 
 Production secret-provider integration, production database-role
 provisioning, remote certificate policy, restart service, backup and restore,
 log rotation, attached-storage behavior, and clean Debian and Ubuntu
 rehearsals remain open. Docker Desktop ran from the verified official disk
-image for this session; this non-administrator account could not copy the app
-into `/Applications`, so a permanent local installation also remains an
-operator action.
+image for this session. Copying it into `/Applications` is not a qualification
+requirement and will not be requested from this non-administrator account.
+Future local rehearsals may reuse an already available user-launched container
+runtime; supported-host qualification belongs on approved external Debian and
+Ubuntu hosts.

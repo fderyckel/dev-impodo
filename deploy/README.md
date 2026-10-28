@@ -14,6 +14,10 @@ on a remote Debian or Ubuntu host. It starts only the empty Phase 2 server. It
 does not enable Projects, customer accounts, migration workflows, workers, or
 Odoo connectivity.
 
+The current delivery mode is a local trial. No remote Impodo server is
+allocated. This runbook therefore supports repeatable local development; it is
+not an installation guide and it does not imply that a shared server exists.
+
 The rehearsal uses internal TLS and binds its only host port to `127.0.0.1`.
 It uses fictional secrets and dedicated Docker volumes. A successful result is
 development evidence; it does not qualify a supported Linux host.
@@ -60,7 +64,7 @@ The topology initializes PostgreSQL, creates the fixed runtime and migration
 roles, applies migration `1`, starts the lifecycle-only web process, and then
 starts the loopback TLS proxy. The worker remains disabled behind the `worker`
 profile because its durable runtime is not implemented. The
-[2026-10-27 local rehearsal](../docs/reports/2026-10-27-local-empty-server-container-rehearsal.md)
+[2026-10-27 local rehearsal](../docs/plans/2026-10-27-local-empty-server-container-rehearsal.md)
 records the first complete result on Docker Desktop for Apple silicon.
 
 ## Verify the local contract
@@ -138,4 +142,6 @@ replace image-vulnerability review and explicit production version approval.
 Docker Desktop runs the Linux containers through a managed virtual machine.
 This rehearsal therefore does not prove the remote host firewall, filesystem,
 time synchronization, restart service, log rotation, or attached-storage
-contract. Work package 2.5 still requires clean Debian and Ubuntu hosts.
+contract. Work package 2.5 still requires clean Debian and Ubuntu hosts before
+a supported server release. While no remote host is allocated, record that
+qualification as deferred instead of treating the laptop as a substitute.

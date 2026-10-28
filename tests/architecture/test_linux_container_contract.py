@@ -26,6 +26,9 @@ POSTGRES_ROLE_INIT = ROOT / "deploy" / "postgres" / "init" / "010-impodo-roles.s
 SECRET_PROVISIONER = (
     ROOT / "deploy" / "local-rehearsal" / "provision-runtime-secrets.sh"
 )
+LINUX_SERVER_WORKFLOW = (
+    ROOT / ".github" / "workflows" / "linux-server-quality.yml"
+)
 
 
 def _compose() -> dict[str, object]:
@@ -87,6 +90,59 @@ class LinuxContainerContractTests(unittest.TestCase):
                 "!deploy/Dockerfile",
             },
         )
+
+    def test_ci_builds_scans_and_exports_supply_chain_evidence(self) -> None:
+        workflow = LINUX_SERVER_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("image-quality:", workflow)
+        for build_input in (
+            ".dockerignore",
+            "LICENSE",
+            "README.md",
+            "pyproject.toml",
+            "uv.lock",
+            "deploy/**",
+            "src/**",
+        ):
+            with self.subTest(build_input=build_input):
+                self.assertIn(f"- {build_input}", workflow)
+
+        action_references = tuple(
+            line.split("uses:", maxsplit=1)[1].split("#", maxsplit=1)[0].strip()
+            for line in workflow.splitlines()
+            if "uses:" in line
+        )
+        self.assertTrue(action_references)
+        for action_reference in action_references:
+            with self.subTest(action_reference=action_reference):
+                self.assertRegex(action_reference, r"^[^@\s]+@[0-9a-f]{40}$")
+
+        self.assertRegex(
+            workflow,
+            r"SBOM_GENERATOR: [^\s]+@sha256:[0-9a-f]{64}",
+        )
+        self.assertRegex(
+            workflow,
+            r"TRIVY_IMAGE: [^\s]+@sha256:[0-9a-f]{64}",
+        )
+        for required_contract in (
+            "--pull",
+            "--scanners vuln",
+            "--exit-code 1",
+            "--ignore-unfixed",
+            "--severity CRITICAL,HIGH",
+            "--provenance=mode=max",
+            '--sbom="generator=${SBOM_GENERATOR}"',
+            "provenance.json",
+            "sbom.spdx.json",
+            "if-no-files-found: error",
+        ):
+            with self.subTest(required_contract=required_contract):
+                self.assertIn(required_contract, workflow)
+
+        self.assertNotIn("docker login", workflow.lower())
+        self.assertNotIn("secrets.", workflow)
+        self.assertNotIn("--push", workflow)
 
     def test_one_entry_point_exposes_explicit_fail_closed_roles(self) -> None:
         project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")

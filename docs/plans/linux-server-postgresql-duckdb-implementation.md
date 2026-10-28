@@ -8,11 +8,20 @@ status: current
 
 ## Status, reader, and authority
 
-**Status:** Approved implementation sequence; Phase 1 started on 2026-10-23.
-The current supported Impodo product remains the local Windows application.
-Nothing in this plan describes current server, Organization administration,
-PostgreSQL, Linux container, or durable worker behavior unless an explicit
-implementation-status note says otherwise.
+**Status:** Approved implementation sequence; Phases 0 and 1 are complete, and
+Phase 2 is the current Priority 0 delivery stream as of 2026-10-28. The local
+empty-stack Compose rehearsal passed. The image now uses a refreshed pinned
+Bookworm base. Its repeat local scan found no critical vulnerabilities, eight
+high-severity findings, and no fixable critical or high finding. Vulnerability
+acceptance or upstream remediation, the first hosted image-quality run,
+production secret and database-role provisioning, remote certificate policy,
+accepted supporting-image versions, and clean Debian and Ubuntu host
+rehearsals remain open. The current delivery mode is local trial only because
+no remote Impodo server is allocated. Local Phase 3 persistence increments may
+proceed after the local trial continuation gate below, but this does not pass
+the Phase 2 supported-host exit gate or authorize a shared release. The current
+supported Impodo product remains the local application; the health-only
+container is qualification infrastructure, not a shared multi-user release.
 
 This document is for maintainers who will implement and review the shared
 server profile. The parent
@@ -324,7 +333,7 @@ or target values out of jobs, logs, and PostgreSQL projections.
 
 ## Phase 1 - Extract explicit compositions and request identity
 
-**Implementation status on 2026-10-25:** In progress. The first increment adds
+**Implementation status on 2026-10-28:** Complete. The first increment added
 an explicit local entry module, a fail-closed server entry point, immutable
 request-identity resolution for the implicit local Organization, and an
 Organization-scoped Project query used by the local Project-list route.
@@ -567,10 +576,11 @@ services use one deployment-neutral builder. The concrete local job managers,
 artifact-store construction, remaining request and worker target factories,
 and Cutover qualification artifact construction remain inside the local
 composition. Durable server job commands and their PostgreSQL adapters remain
-planned. Final context mapping now has one shared owner. Work packages 1.1 and
-1.4 therefore remain in progress.
-No PostgreSQL adapter, server session, Organization administration page, or
-Linux runtime has been added.
+planned. Final context mapping now has one shared owner. At that increment,
+work packages 1.1 and 1.4 still remained in progress. No PostgreSQL adapter,
+server session, Organization administration page, or Linux runtime had been
+added at that point. The later Phase 1 exit audit below closed the composition
+work before Phase 2 began.
 
 Focused verification for the sixth increment covers request identity, the
 foundation-service wiring, local-stack authorization, Project setup, security,
@@ -797,9 +807,11 @@ from the same image. The web role now runs a production Uvicorn process that
 serves only the lifecycle application. The migration role runs the private
 PostgreSQL migration command. Worker and administration roles still refuse
 startup with a configuration exit code, and no command can launch the local
-browser composition. Docker is not installed on the current Windows
-verification host, so an actual image build, image inspection, SBOM,
-vulnerability scan, and Debian or Ubuntu host run are not yet verified.
+browser composition. The image now builds and runs in the local Docker Desktop
+rehearsal. A repeat local scan of the refreshed base found no critical
+vulnerability and no fixable high finding, and local BuildKit validation
+emitted provenance plus an SPDX bill of materials. The first hosted
+image-quality run and clean Debian and Ubuntu host runs remain open.
 
 The second Phase 2 increment defines one typed, immutable configuration
 contract shared by every image role. It separates the public HTTPS origin,
@@ -955,10 +967,10 @@ local [rehearsal runbook](../../deploy/README.md) covers configuration
 resolution, image build, startup, repeated migration, health, drain, restart,
 and volume persistence.
 
-Eight focused container-contract tests verify the topology, digest-qualified
+Nine focused container-contract tests verify the topology, digest-qualified
 supporting images, role separation, loopback-only publication, disabled worker
 profile, secret references, runtime restrictions, and fictional-secret
-generation. The
+generation, plus the continuous integration image-quality contract. The
 [2026-10-27 local rehearsal](2026-10-27-local-empty-server-container-rehearsal.md)
 then resolved and built the topology on Docker Desktop for Apple silicon. It
 verified live PostgreSQL role creation and migration, repeated migration
@@ -971,8 +983,18 @@ from the shared image, retained Caddy's one required file capability, and
 removed a duplicated 369 MB image layer. The final Impodo image was 683 MB and
 ran as UID and GID `10001` with a read-only root filesystem.
 
+A point-in-time Docker Scout scan on 2026-10-28 found no critical
+vulnerabilities and nine high-severity findings. Refreshing the pinned base to
+Python 3.12.16 on Bookworm removed the fixable OpenSSL finding. The rebuilt
+image passed the clean local rehearsal and the repeat scan reported eight high,
+eleven medium, and forty-nine low findings, with no fixable critical or high
+finding. The required-attestation and license policies still failed. The
+[local rehearsal report](2026-10-27-local-empty-server-container-rehearsal.md)
+records the sanitized findings and remaining qualification work.
+
 The external secret-provider adapter, production database-role provisioning,
-PostgreSQL service-volume qualification, image scan, accepted PostgreSQL major,
+PostgreSQL service-volume qualification, vulnerability acceptance or upstream
+remediation, the first hosted image-quality run, accepted PostgreSQL major,
 remote certificate policy, and Debian and Ubuntu rehearsals remain open.
 
 ### Recommended local container rehearsal
@@ -1008,8 +1030,14 @@ require both supported remote host rehearsals.
 
 Current status: the Compose topology, proxy policy, fictional-secret helper,
 PostgreSQL role bootstrap, runbook, static contract tests, and one complete
-local Docker Desktop rehearsal are implemented. The supported Debian and
-Ubuntu host rehearsals remain open.
+local Docker Desktop rehearsal are implemented. One point-in-time local image
+scan and its refreshed-base repeat are recorded. The Linux continuous
+integration workflow now contains a credential-free image-quality job. It
+builds the pinned image, rejects fixable critical or high vulnerabilities with
+a digest-pinned scanner, and retains maximum-mode provenance and an SPDX
+software bill of materials. The first hosted run, vulnerability acceptance or
+upstream remediation, and the supported Debian and Ubuntu host rehearsals
+remain open.
 
 ### Work package 2.1 - Build the production image
 
@@ -1024,6 +1052,12 @@ Ubuntu host rehearsals remain open.
   commands. Do not build behaviorally different application images.
 - Generate image provenance and a software bill of materials, and run the
   selected vulnerability scanner in continuous integration.
+
+Current status: the existing Linux workflow now implements this image-quality
+lane without publishing the image or requiring a registry credential. Local
+validation reproduced its vulnerability threshold and BuildKit evidence
+export. A hosted workflow run remains required before the Phase 2 continuous
+integration exit criterion is complete.
 
 ### Work package 2.2 - Define the Compose topology
 
@@ -1101,7 +1135,32 @@ private migration command applies a checksum-validated forward suffix in one
 transaction under an exclusive advisory lock. Later control-plane migrations,
 the shared application graph, and administrative implementations remain open.
 
+### Local trial continuation gate
+
+When no remote server is allocated, maintainers may continue into bounded
+Phase 3 persistence work against the fictional local Compose stack after all
+of these checks pass:
+
+- Compose resolves without an unknown setting or secret value in tracked
+  configuration.
+- The migration command is idempotent on two consecutive replays.
+- Liveness and readiness pass through the loopback-only TLS proxy.
+- The application runs as UID and GID `10001`, and its application tree is
+  read-only.
+- PostgreSQL, the web process, and the disabled worker expose no host port.
+- Odoo egress remains disabled, the worker remains stopped, and no customer
+  data enters the trial volumes.
+
+The local checkpoint passed again on 2026-10-28. It authorizes disposable
+local schema, repository, and recovery trials only. It does not qualify a
+Linux host, production secrets, public certificates, backups, remote Odoo
+access, or a shared multi-user Impodo server.
+
 ### Work package 2.5 - Qualify Debian and Ubuntu hosts
+
+This work package is deferred while the project has no remote trial host. Do
+not substitute the developer laptop for its firewall, service-management,
+storage, certificate, or restart evidence.
 
 - Select one primary tested host release and one secondary supported release
   from the Debian and Ubuntu families.
@@ -1114,7 +1173,7 @@ the shared application graph, and administrative implementations remain open.
   roots persist and that the application never writes customer data into an
   image layer.
 
-### Phase 2 exit gate
+### Phase 2 supported-host exit gate
 
 - Continuous integration builds and scans the pinned image.
 - A clean supported Debian host and a clean supported Ubuntu host can start the
@@ -1132,6 +1191,11 @@ the shared application graph, and administrative implementations remain open.
 Make shared tenancy, visibility, sessions, catalogues, idempotency, and worker
 coordination durable without moving migration rows or detailed evidence into
 PostgreSQL. The fact-ownership inventory and Linux database service are ready.
+
+For the current local trial, the entry condition is the local trial
+continuation gate. Trial work uses fictional data and the loopback-only Compose
+stack. A supported server release still requires the complete Phase 2
+supported-host exit gate, including Debian and Ubuntu qualification.
 
 ### Work package 3.1 - Establish PostgreSQL persistence conventions
 

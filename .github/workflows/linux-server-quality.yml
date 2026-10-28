@@ -2,11 +2,32 @@ name: Linux server quality
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .dockerignore
+      - LICENSE
+      - README.md
+      - pyproject.toml
+      - uv.lock
+      - deploy/**
+      - src/**
+      - tests/architecture/test_linux_container_contract.py
+      - tests/platform/linux/**
+      - tests/integration/postgresql/**
+      - tests/integration/web/test_server_*.py
+      - .github/workflows/linux-server-quality.yml
   pull_request:
     paths:
+      - .dockerignore
+      - LICENSE
+      - README.md
+      - pyproject.toml
+      - uv.lock
       - deploy/**
-      - src/impodo/adapters/postgresql/**
-      - src/impodo/web/composition/server_*.py
+      - src/**
+      - tests/architecture/test_linux_container_contract.py
       - tests/platform/linux/**
       - tests/integration/postgresql/**
       - tests/integration/web/test_server_*.py
@@ -47,3 +68,70 @@ jobs:
           tests.integration.web.test_server_runtime_coordination
           tests.integration.web.test_server_migration_command
           tests.integration.web.test_server_web_process -v
+
+  image-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGE_TAG: impodo-server:ci
+      SBOM_GENERATOR: docker/buildkit-syft-scanner@sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315
+      TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the pinned image for scanning
+        run: >-
+          docker buildx build
+          --file deploy/Dockerfile
+          --pull
+          --load
+          --provenance=false
+          --sbom=false
+          --tag "${IMAGE_TAG}"
+          .
+
+      - name: Reject fixable critical or high vulnerabilities
+        run: |
+          docker run --rm \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            "${TRIVY_IMAGE}" image \
+            --docker-host unix:///var/run/docker.sock \
+            --scanners vuln \
+            --exit-code 1 \
+            --ignore-unfixed \
+            --severity CRITICAL,HIGH \
+            "${IMAGE_TAG}"
+
+      - name: Export maximum provenance and SPDX SBOM
+        run: |
+          evidence_directory="${RUNNER_TEMP}/impodo-image-evidence"
+          evidence_tar="${evidence_directory}/rootfs-with-attestations.tar"
+          mkdir -p "${evidence_directory}"
+          docker buildx build \
+            --file deploy/Dockerfile \
+            --pull \
+            --provenance=mode=max \
+            --sbom="generator=${SBOM_GENERATOR}" \
+            --output "type=tar,dest=${evidence_tar}" \
+            .
+          tar --extract \
+            --file "${evidence_tar}" \
+            --directory "${evidence_directory}" \
+            provenance.json sbom.spdx.json
+          rm "${evidence_tar}"
+          test -s "${evidence_directory}/provenance.json"
+          test -s "${evidence_directory}/sbom.spdx.json"
+
+      - name: Retain supply-chain evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: impodo-server-supply-chain-evidence
+          path: |
+            ${{ runner.temp }}/impodo-image-evidence/provenance.json
+            ${{ runner.temp }}/impodo-image-evidence/sbom.spdx.json
+          if-no-files-found: error
+          retention-days: 30
