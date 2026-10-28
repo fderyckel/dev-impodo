@@ -80,6 +80,7 @@ read-only application tree.
 | Image scan | Docker Scout 1.27.0 indexed 198 packages in image `sha256:e639d2adf997`. It reported no critical vulnerabilities and eight high, eleven medium, and forty-nine low vulnerabilities. No critical or high finding had an available fix. The policy evaluation failed with five of seven policies met and a health score of B at 78%. |
 | Continuous integration commands | The digest-pinned Trivy 0.76.1 command reported zero fixable critical or high vulnerabilities. The digest-pinned BuildKit scanner emitted SLSA provenance v1 and an SPDX 2.3 bill of materials containing 164 packages. The hosted workflow itself has not run yet. |
 | Repeat local checkpoint | On 2026-10-28, Compose resolved, two migration replays applied nothing at schema version `1`, liveness and readiness passed, the web process ran as UID and GID `10001`, `/opt/impodo` was not writable, Odoo egress remained disabled, and only the proxy published `127.0.0.1:8443`. |
+| Phase 3 persistence trial | Migration `2` advanced the control contract to version `2` and created empty Organization and Project catalogue tables. A replay applied nothing. The runtime role had select, insert, and update privileges without delete. Every Project index began with `organization_id`. A rollback-only two-Organization insertion left both tables empty, and liveness and readiness remained healthy. |
 
 ## Remaining qualification
 

@@ -76,6 +76,98 @@ _GRANT_SCHEMA_QUERY: LiteralString = (
 _GRANT_CONTRACT_QUERY: LiteralString = (
     "GRANT SELECT ON impodo_control.schema_contract TO impodo_runtime"
 )
+_CREATE_ORGANIZATION_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.organization (\n"
+    "    organization_id varchar(200) PRIMARY KEY "
+    "CHECK (organization_id <> '' AND organization_id = btrim(organization_id)),\n"
+    "    display_name varchar(200) NOT NULL "
+    "CHECK (display_name <> '' AND display_name = btrim(display_name)),\n"
+    "    status varchar(32) NOT NULL "
+    "CHECK (status IN ('ACTIVE', 'SUSPENDED')),\n"
+    "    policy_revision bigint NOT NULL CHECK (policy_revision > 0),\n"
+    "    optimistic_revision bigint NOT NULL CHECK (optimistic_revision > 0),\n"
+    "    deletion_state varchar(32) NOT NULL "
+    "CHECK (deletion_state IN ('NONE', 'REQUESTED', 'DELETING', 'DELETED')),\n"
+    "    created_at timestamp with time zone NOT NULL "
+    "DEFAULT transaction_timestamp(),\n"
+    "    updated_at timestamp with time zone NOT NULL "
+    "DEFAULT transaction_timestamp(),\n"
+    "    suspended_at timestamp with time zone,\n"
+    "    deletion_requested_at timestamp with time zone,\n"
+    "    deleted_at timestamp with time zone,\n"
+    "    CHECK ((status = 'ACTIVE' AND suspended_at IS NULL) "
+    "OR (status = 'SUSPENDED' AND suspended_at IS NOT NULL)),\n"
+    "    CHECK ((deletion_state = 'NONE' "
+    "AND deletion_requested_at IS NULL AND deleted_at IS NULL) "
+    "OR (deletion_state IN ('REQUESTED', 'DELETING') "
+    "AND deletion_requested_at IS NOT NULL AND deleted_at IS NULL) "
+    "OR (deletion_state = 'DELETED' "
+    "AND deletion_requested_at IS NOT NULL AND deleted_at IS NOT NULL))\n"
+    ")"
+)
+_CREATE_PROJECT_CATALOGUE_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.project_catalogue (\n"
+    "    organization_id varchar(200) NOT NULL,\n"
+    "    project_id uuid NOT NULL,\n"
+    "    display_name varchar(200) NOT NULL "
+    "CHECK (display_name <> '' AND display_name = btrim(display_name)),\n"
+    "    status varchar(32) NOT NULL "
+    "CHECK (status IN ('DRAFT', 'ACTIVE', 'CLOSED', 'ARCHIVED')),\n"
+    "    data_classification varchar(32) NOT NULL "
+    "CHECK (data_classification IN "
+    "('INTERNAL', 'CONFIDENTIAL', 'RESTRICTED')),\n"
+    "    retention_days smallint NOT NULL "
+    "CHECK (retention_days BETWEEN 1 AND 3650),\n"
+    "    optimistic_revision bigint NOT NULL CHECK (optimistic_revision > 0),\n"
+    "    catalogue_state varchar(32) NOT NULL "
+    "CHECK (catalogue_state IN "
+    "('PENDING', 'READY', 'REPAIR_REQUIRED', 'DELETING', 'DELETED')),\n"
+    "    artifact_root_key varchar(500),\n"
+    "    current_receipt_hash varchar(71) "
+    "CHECK (current_receipt_hash ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    created_at timestamp with time zone NOT NULL "
+    "DEFAULT transaction_timestamp(),\n"
+    "    updated_at timestamp with time zone NOT NULL "
+    "DEFAULT transaction_timestamp(),\n"
+    "    deletion_requested_at timestamp with time zone,\n"
+    "    deleted_at timestamp with time zone,\n"
+    "    PRIMARY KEY (organization_id, project_id),\n"
+    "    FOREIGN KEY (organization_id) "
+    "REFERENCES impodo_control.organization (organization_id) "
+    "ON DELETE RESTRICT,\n"
+    "    CHECK ((catalogue_state = 'DELETED' AND deleted_at IS NOT NULL) "
+    "OR (catalogue_state <> 'DELETED' AND deleted_at IS NULL)),\n"
+    "    CHECK ((catalogue_state IN ('DELETING', 'DELETED') "
+    "AND deletion_requested_at IS NOT NULL) "
+    "OR (catalogue_state NOT IN ('DELETING', 'DELETED') "
+    "AND deletion_requested_at IS NULL)),\n"
+    "    CHECK (catalogue_state <> 'READY' "
+    "OR (artifact_root_key IS NOT NULL AND current_receipt_hash IS NOT NULL))\n"
+    ")"
+)
+_CREATE_PROJECT_LIST_INDEX_QUERY: LiteralString = (
+    "CREATE INDEX project_catalogue_organization_status_idx\n"
+    "ON impodo_control.project_catalogue "
+    "(organization_id, status, updated_at DESC, project_id)"
+)
+_CREATE_PROJECT_REPAIR_INDEX_QUERY: LiteralString = (
+    "CREATE INDEX project_catalogue_organization_repair_idx\n"
+    "ON impodo_control.project_catalogue "
+    "(organization_id, catalogue_state, updated_at, project_id)"
+)
+_GRANT_ORGANIZATION_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT, UPDATE "
+    "ON impodo_control.organization TO impodo_runtime"
+)
+_GRANT_PROJECT_CATALOGUE_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT, UPDATE "
+    "ON impodo_control.project_catalogue TO impodo_runtime"
+)
+_UPDATE_CONTRACT_QUERY: LiteralString = (
+    "UPDATE impodo_control.schema_contract\n"
+    "SET version = %s, updated_at = transaction_timestamp()\n"
+    "WHERE contract_name = %s AND generation = %s AND version = %s"
+)
 
 MigrationParameter = str | int
 
@@ -166,18 +258,37 @@ def calculate_postgresql_migration_checksum(
     return digest.hexdigest()
 
 
+# Historical contract values stay literal so a later current-version bump cannot
+# silently change an already-applied migration checksum.
 _MIGRATION_0001_STATEMENTS = (
     PostgreSQLMigrationStatement(_CREATE_CONTRACT_QUERY),
     PostgreSQLMigrationStatement(
         _INSERT_CONTRACT_QUERY,
         (
             "control",
-            POSTGRESQL_CONTROL_SCHEMA_GENERATION,
-            POSTGRESQL_CONTROL_SCHEMA_VERSION,
+            "impodo-control-v1",
+            1,
         ),
     ),
     PostgreSQLMigrationStatement(_GRANT_SCHEMA_QUERY),
     PostgreSQLMigrationStatement(_GRANT_CONTRACT_QUERY),
+)
+_MIGRATION_0002_STATEMENTS = (
+    PostgreSQLMigrationStatement(_CREATE_ORGANIZATION_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_PROJECT_CATALOGUE_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_PROJECT_LIST_INDEX_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_PROJECT_REPAIR_INDEX_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_ORGANIZATION_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_PROJECT_CATALOGUE_QUERY),
+    PostgreSQLMigrationStatement(
+        _UPDATE_CONTRACT_QUERY,
+        (
+            2,
+            "control",
+            "impodo-control-v1",
+            1,
+        ),
+    ),
 )
 
 POSTGRESQL_MIGRATIONS = (
@@ -186,6 +297,12 @@ POSTGRESQL_MIGRATIONS = (
         name="create-control-schema-contract",
         checksum="24c4c383ecaaa0626766b8eae24cc17009e69179044a038d556a3ac9a445b556",
         statements=_MIGRATION_0001_STATEMENTS,
+    ),
+    PostgreSQLMigrationDefinition(
+        version=2,
+        name="create-organization-and-project-catalogue",
+        checksum="8743d8f6094562522a3573d7186ae7b60ec488ceb884e8b4a2775431d36fe2d1",
+        statements=_MIGRATION_0002_STATEMENTS,
     ),
 )
 

@@ -87,6 +87,13 @@ def _contract_rows() -> tuple[tuple[object, ...], ...]:
     )
 
 
+def _ledger_rows() -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        (migration.version, migration.name, migration.checksum)
+        for migration in POSTGRESQL_MIGRATIONS
+    )
+
+
 class PostgreSQLMigrationTests(unittest.TestCase):
     def test_first_run_locks_bootstraps_applies_ledgers_and_commits_once(self) -> None:
         session = _Session([(), _contract_rows()])
@@ -104,18 +111,20 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         result = migrator.migrate(PurePosixPath("/run/secrets/postgres-migration-dsn"))
 
         self.assertEqual(len(opened_dsns), 1)
-        self.assertEqual(result.applied_versions, (1,))
-        self.assertEqual(result.current_version, 1)
+        self.assertEqual(result.applied_versions, (1, 2))
+        self.assertEqual(result.current_version, 2)
         self.assertIn("pg_advisory_xact_lock", session.events[0][1])
         self.assertEqual(session.events[0][2], (1_229_803_599, 1_146_047_815))
         self.assertIn("CREATE SCHEMA", session.events[1][1])
         self.assertIn("schema_migration", session.events[2][1])
-        ledger_insert = next(
+        ledger_inserts = tuple(
             event
             for event in session.events
             if event[0] == "execute"
             and "INSERT INTO impodo_control.schema_migration" in event[1]
         )
+        self.assertEqual(len(ledger_inserts), 2)
+        ledger_insert = ledger_inserts[0]
         self.assertEqual(
             ledger_insert[2],
             (
@@ -129,10 +138,15 @@ class PostgreSQLMigrationTests(unittest.TestCase):
             for event in session.events
             if event[0] == "execute" and event[1].startswith("GRANT ")
         )
-        self.assertEqual(len(grant_events), 2)
+        self.assertEqual(len(grant_events), 4)
         self.assertTrue(all("impodo_runtime" in event[1] for event in grant_events))
         self.assertLess(
-            session.events.index(grant_events[-1]), session.events.index(ledger_insert)
+            session.events.index(grant_events[1]),
+            session.events.index(ledger_inserts[0]),
+        )
+        self.assertLess(
+            session.events.index(grant_events[-1]),
+            session.events.index(ledger_inserts[1]),
         )
         self.assertTrue(session.committed)
         self.assertFalse(session.rolled_back)
@@ -141,10 +155,9 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertEqual(session.events[-1][0], "close")
 
     def test_current_schema_is_a_no_op_after_lock_and_history_validation(self) -> None:
-        migration = POSTGRESQL_MIGRATIONS[0]
         session = _Session(
             [
-                ((migration.version, migration.name, migration.checksum),),
+                _ledger_rows(),
                 _contract_rows(),
             ]
         )
@@ -187,10 +200,9 @@ class PostgreSQLMigrationTests(unittest.TestCase):
                 self.assertTrue(session.closed)
 
     def test_current_history_with_wrong_contract_rolls_back(self) -> None:
-        migration = POSTGRESQL_MIGRATIONS[0]
         session = _Session(
             [
-                ((migration.version, migration.name, migration.checksum),),
+                _ledger_rows(),
                 (("future-generation", 99),),
             ]
         )
@@ -232,10 +244,9 @@ class PostgreSQLMigrationTests(unittest.TestCase):
             migrator.migrate(PurePosixPath("/run/secrets/migration-dsn"))
         self.assertNotIn("secret", str(caught.exception))
 
-        migration = POSTGRESQL_MIGRATIONS[0]
         session = _Session(
             [
-                ((migration.version, migration.name, migration.checksum),),
+                _ledger_rows(),
                 _contract_rows(),
             ],
             close_error=PostgreSQLMigrationUnavailableError("database.internal"),
@@ -250,12 +261,33 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertTrue(session.committed)
 
     def test_checked_in_checksum_matches_the_immutable_migration(self) -> None:
-        migration = POSTGRESQL_MIGRATIONS[0]
+        for migration in POSTGRESQL_MIGRATIONS:
+            with self.subTest(migration=migration.name):
+                self.assertEqual(
+                    migration.checksum,
+                    calculate_postgresql_migration_checksum(migration.statements),
+                )
 
-        self.assertEqual(
-            migration.checksum,
-            calculate_postgresql_migration_checksum(migration.statements),
+    def test_catalogue_schema_is_organization_scoped_and_bounded(self) -> None:
+        migration = POSTGRESQL_MIGRATIONS[1]
+        schema = "\n".join(statement.query for statement in migration.statements)
+
+        self.assertIn("impodo_control.organization", schema)
+        self.assertIn("impodo_control.project_catalogue", schema)
+        self.assertIn("PRIMARY KEY (organization_id, project_id)", schema)
+        self.assertIn(
+            "REFERENCES impodo_control.organization (organization_id)",
+            schema,
         )
+        self.assertIn("CHECK (retention_days BETWEEN 1 AND 3650)", schema)
+        self.assertIn("current_receipt_hash", schema)
+        self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE", schema)
+        self.assertNotIn("source_row", schema)
+        self.assertNotIn("target_value", schema)
+        self.assertNotIn("recipe_payload", schema)
+        for statement in migration.statements:
+            if statement.query.startswith("CREATE INDEX"):
+                self.assertIn("(organization_id,", statement.query)
 
     def test_default_psycopg_session_is_bounded_and_transactional(self) -> None:
         connection = Mock()

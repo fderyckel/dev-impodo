@@ -2,9 +2,10 @@
 
 ## Status and decision
 
-**Status:** Approved target architecture; Phases 0 and 1 are complete, and
-Phase 2 is the current Priority 0 delivery stream as of 2026-10-28. The local
-empty-stack Compose rehearsal passed on 2026-10-27. Clean Debian and Ubuntu
+**Status:** Approved target architecture; Phases 0 and 1 are complete. Phase 2
+supported-host qualification remains open, while the local Phase 3 persistence
+trial started on 2026-10-28. The local empty-stack Compose rehearsal passed on
+2026-10-27. Clean Debian and Ubuntu
 host qualification, the first hosted image-quality run, explicit license and
 remaining-vulnerability decisions, production secret and database-role
 provisioning, remote certificate policy, and accepted supporting-image
@@ -813,6 +814,13 @@ durable without moving migration processing into PostgreSQL.
 - Implement the operation-receipt and projection-finalization protocol.
 - Add contract suites that run the same repository, artifact, authorization,
   and job behaviors against the applicable local and server adapters.
+
+**Current local trial.** Immutable migration `2` advances the
+`impodo-control-v1` contract to version `2` and creates empty Organization and
+Organization-scoped Project catalogue tables. Runtime access is limited to
+select, insert, and update. The remaining control-plane groups and every
+PostgreSQL repository remain planned; no server browser or customer account is
+enabled.
 
 **Exit gate.** PostgreSQL loss or application restart cannot manufacture a
 successful data-plane result. A data-plane commit can be reconciled without

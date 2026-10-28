@@ -242,7 +242,7 @@ class ServerMigrationCommandTests(unittest.TestCase):
             postgresql_session_factory=open_session,
         )
 
-        self.assertEqual(result.applied_versions, (1,))
+        self.assertEqual(result.applied_versions, (1, 2))
         self.assertEqual(opened_dsns, ["private-migration-dsn"])
         self.assertEqual(file_operations.opened_child, "postgres-migration-dsn")
         self.assertEqual(file_operations.closed, [11, 10])

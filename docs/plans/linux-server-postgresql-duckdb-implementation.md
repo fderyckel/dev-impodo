@@ -8,9 +8,10 @@ status: current
 
 ## Status, reader, and authority
 
-**Status:** Approved implementation sequence; Phases 0 and 1 are complete, and
-Phase 2 is the current Priority 0 delivery stream as of 2026-10-28. The local
-empty-stack Compose rehearsal passed. The image now uses a refreshed pinned
+**Status:** Approved implementation sequence; Phases 0 and 1 are complete.
+Phase 2 supported-host qualification remains open, while the local Phase 3
+persistence trial started on 2026-10-28. The local empty-stack Compose
+rehearsal passed. The image now uses a refreshed pinned
 Bookworm base. Its repeat local scan found no critical vulnerabilities, eight
 high-severity findings, and no fixable critical or high finding. Vulnerability
 acceptance or upstream remediation, the first hosted image-quality run,
@@ -1214,10 +1215,17 @@ supported-host exit gate, including Debian and Ubuntu qualification.
   conditions into bounded application-facing failures. Do not expose SQL or
   row values in public errors.
 
+Current status: Psycopg 3 is selected and locked for the trial. The migration
+and startup paths use short-lived, bounded sessions and translate driver
+failures without exposing connection details. The connection-pool decision is
+deferred until the first concurrent catalogue repository is implemented; no
+unused process-wide pool is introduced for the health-only runtime.
+
 ### Work package 3.2 - Create the initial control-plane schema
 
-The first migration creates these responsibility groups. Exact table names may
-change, but their ownership may not collapse into one generic metadata table.
+The initial schema sequence creates these responsibility groups. Exact table
+names may change, but their ownership may not collapse into one generic
+metadata table.
 
 | Group | Required records and constraints |
 | --- | --- |
@@ -1235,6 +1243,17 @@ change, but their ownership may not collapse into one generic metadata table.
 Indexes must support Organization-scoped Project lists, Project-scoped job
 lists, fair-scheduler claims, active lease checks, session lookup, expiring
 grants, retention scans, and idempotency lookup without full-table scans.
+
+Current status: immutable migration `2` implements the first trial slice. It
+creates Organization and Project catalogue tables with bounded states, UTC
+timestamps, optimistic revisions, retention bounds, receipt hashes, and a
+database-enforced Organization foreign-key path. Every Project key and index
+starts with `organization_id`. The runtime role receives select, insert, and
+update privileges but no delete privilege. A local rollback-only trial created
+the same Project UUID under two fictional Organizations, observed one scoped
+row per Organization, and left both tables empty. User, authentication,
+authorization, contained catalogue, operation, job, lease, and administration
+groups remain unimplemented.
 
 ### Work package 3.3 - Implement Project catalogue repositories
 
