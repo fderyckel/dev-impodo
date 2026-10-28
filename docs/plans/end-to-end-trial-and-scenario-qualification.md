@@ -2,7 +2,13 @@
 
 ## Status and decision
 
-**Status:** Approved; remaining lifecycle and qualification work reviewed 2026-09-15.
+**Status:** Priority 2 plan; remaining lifecycle and qualification work
+reconciled 2026-10-28. The definition contract, CLI, committed Contact canary,
+profile-driven Product and bill-of-material preparation, retained journal and
+reconciliation evidence, and remote HTTPS entry point are implemented. The
+normal Project lifecycle, complete Product and bill-of-material execution,
+real-browser and retained remote lanes, recovery, Odoo-source scenarios,
+Odoo-to-Odoo qualification, and scheduling remain open.
 
 Complete the shared end-to-end execution capability with two controlled ways
 to use it:

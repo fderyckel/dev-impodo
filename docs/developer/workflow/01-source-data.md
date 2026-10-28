@@ -684,8 +684,7 @@ cancellation, lineage, and both navigation variants.
 ## Related documentation
 
 - [ADR-016: Generic Odoo relationship decisions and profiles](../../decisions/README.md#adr-016--odoo-relationship-scope-combines-generic-decisions-with-profiles)
-- [Planned source-table composition](../../plans/source-table-composition.md)
-- [Stage 1 and 2 page-loading optimization proposal](../../plans/stage-1-and-2-page-loading.md)
+- [Workflow responsiveness qualification](../../plans/responsive-workflow-liveness-and-navigation.md)
 - [Platform support and testing](../reference/platform-support-and-testing.md)
 - [Source-composition benchmark](../../../scripts/benchmark_source_composition.py)
 - [User guide: Source data](../../user/workflow/01-source-data.md)

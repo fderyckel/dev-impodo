@@ -2,10 +2,11 @@
 
 ## Status and remaining scope
 
-**Status:** Background comparison, event-loop containment, one-pass full-preview
-counts, compact navigation evidence, and operation-aware liveness are
-implemented. Durable comparison attempts, the remaining detailed compact load
-preview, and measured publication qualification remain open as of 2026-09-15.
+**Status:** Priority 1 reliability work. Background comparison, event-loop
+containment, one-pass full-preview counts, compact navigation evidence, and
+operation-aware liveness are implemented. Durable comparison attempts, the
+remaining detailed compact load preview, and measured publication
+qualification remain open as of 2026-10-28.
 
 Current behavior belongs to the [Final review developer workflow](../developer/workflow/05-final-review.md),
 [Load into Odoo](../developer/workflow/06-load-into-odoo.md), and
@@ -109,6 +110,13 @@ Extend the existing fresh-process preflight scale harness so it retains raw
 runs and reports wall time, CPU time, peak memory, artifact sizes, database
 size, and each phase. Establish clean Windows and macOS baselines before
 setting release budgets.
+
+The local macOS baseline must use checkout-local tools, temporary directories,
+and authenticated HTTP or headless-browser checks. It must not require
+administrator rights, macOS Accessibility or Screen Recording permission, an
+installation under `/Applications`, or system-wide browser changes. Use the
+cross-platform continuous-integration lane for the clean hosted comparison
+when the local account cannot provide it.
 
 If decision insertion is confirmed as the dominant publication cost, replace
 row-oriented `executemany` with a measured DuckDB bulk path. A preferred

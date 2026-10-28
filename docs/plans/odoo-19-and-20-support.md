@@ -1,30 +1,26 @@
 ---
 audience: developer
 kind: plan
-status: active
+status: deferred
 ---
 
 # Support Odoo 19 and Odoo 20
 
 ## Decision summary
 
-**Status:** Phases 1 and 2 were implemented on 2026-09-15. Phase 3 was
-implemented and live-qualified on 2026-09-23. The Odoo 19 baseline, shared
-version policy, and final Odoo 20 Community and Enterprise read qualification
-are retained as historical evidence in Git. Phase 4 entered
-controlled development qualification on 2026-10-08. A narrow Contact writer
-canary passed against final Odoo 20 Enterprise Runbot on 2026-10-08.
-File-to-Odoo browser-route canaries then
-created three Contacts on Enterprise and three on local Community through the
-execution journal. Automatic reconciliation verified every created record.
-The local Community probe also matched the Local-mode shell and JSON-2 field
-contracts for nine models. On 2026-10-08, normal final Odoo 20 loading and
-recovery were declared supported without a version-specific opt-in switch.
-Visual browser behavior, interrupted-write recovery, completed-load correction,
-non-Contact execution, transfers, Integrated Test, and the deployment matrix
-remain known coverage gaps to resolve as encountered. Odoo 20 Production
-remains blocked and Phase 5 remains open for its separate promotion. Historical
-write, browser-load, and local Community canary evidence remains in Git.
+**Status:** Ordinary dual-version support is implemented; the Odoo 20
+Production promotion gate is long-term deferred as of 2026-10-28. Phases 1
+through 3 and normal final Odoo 20 read, write, recovery, and verification are
+current. The 2026-10-08 Contact canaries passed against final Odoo 20
+Enterprise and local Community through the execution journal and automatic
+reconciliation. Same-major Recipe and transfer rules remain enforced.
+
+Odoo 20 Production stays blocked until a product decision activates Phase 5
+and the deployment, browser, interrupted-write recovery, Integrated Test,
+transfer, representative-model, and release-matrix gates pass. Cross-major
+transfer and Recipe conversion are excluded. Historical read, write, browser-
+load, and local Community evidence remains in Git; other current Odoo behavior
+belongs to the paired workflow documentation.
 
 **Reader:** Impodo maintainers deciding how to implement, test, and release
 dual-version support.

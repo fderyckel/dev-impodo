@@ -77,7 +77,7 @@ uv run --frozen --group quality python scripts/check_python_quality.py
 
 ## Cross-stage references
 
-- [Stage 1 and 2 page-loading optimization proposal](../plans/stage-1-and-2-page-loading.md)
+- [Workflow responsiveness qualification](../plans/responsive-workflow-liveness-and-navigation.md)
 - [Architecture overview](../architecture/overview.md)
 - [Code organization](../architecture/code-organization.md)
 - [Local browser database operation scopes](../architecture/code-organization.md#local-browser-database-operation-scopes)

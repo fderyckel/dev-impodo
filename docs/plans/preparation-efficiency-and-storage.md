@@ -8,11 +8,14 @@ status: in-progress
 
 ## Status, reader, and outcome
 
-**Status:** Implementation started, 2026-09-15. The first delivery adds generic
-admission checks, per-dataset route diagnostics, and a verified shortcut that
-avoids a complete-row scan before indexed quality checks. Canonical payloads
-are validated while publication hashes them. The remaining work below retains
-its acceptance gates; the full plan is not yet complete.
+**Status:** Priority 2 bounded correctness and measurement work, reconciled
+2026-10-28. Generic admission, route diagnostics, narrow indexed quality,
+compiled bounded arithmetic, native relational identity, set-based canonical
+projection, and the 50,000-row worker qualification are implemented. Explicit
+consumer ports, bounded error-heavy finding publication, native Decimal
+qualification, browser recovery checks, and clean reproducible measurements
+remain open. The 100,000-row mixed and related expansion is long-term deferred
+in the [remaining-work roadmap](remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
 
 | Step | Current progress |
 | --- | --- |

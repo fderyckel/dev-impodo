@@ -39,10 +39,13 @@ capabilities. Production loading outside the selected qualified-plan workflow
 is not a current capability.
 
 The completed disposable-target migration is retained as acceptance evidence.
-The active [remaining-work roadmap](plans/remaining-work.md) now prioritizes the
-last internal workspace-identity and Project-authorization conformance gate.
-Scale expansion, optional clean-package, general production, gateway, and
-hosted capabilities remain deferred.
+The active [remaining-work roadmap](plans/remaining-work.md) now prioritizes
+the shared-server Phase 2 Linux container exit gate. The composition and
+request-identity phase is complete. Scale expansion, optional clean-package,
+general production, Odoo-source guarded updates, the target-side gateway, and
+Odoo 20 Production remain deferred. The approved shared-server program is no
+longer a conditional hosted track, although no multi-user server release is
+current yet.
 
 ## 2. User workflow
 
@@ -609,13 +612,15 @@ records the Project-first ownership decision.
 
 ## 8. Delivery roadmap
 
-**Current priority note, 2026-08-24:** The historical capability phases below
+**Current priority note, 2026-10-28:** The historical capability phases below
 describe the wider product progression. The Project-first architecture is
 current. The [authoritative remaining-work roadmap](plans/remaining-work.md)
 contains only unfinished work. Completed Recipe-first delivery remains
 historical implementation evidence only. Scale expansion, general
-certification, general production hardening, Odoo-source guarded updates,
-gateway, and hosted work remain deferred in that roadmap.
+certification, general production hardening, Odoo-source guarded updates, and
+the target-side gateway remain deferred in that roadmap. The shared-server
+program is active at the Linux container baseline and has not yet reached the
+PostgreSQL control-plane or multi-user release phases.
 
 ### Phase 1 — Source discovery
 

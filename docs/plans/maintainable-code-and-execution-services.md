@@ -1,20 +1,24 @@
 ---
 audience: developer
 kind: plan
-status: proposed
+status: active
 ---
 
 # Maintainable code and focused execution services
 
 ## Decision and intended reader
 
-Adopt a small set of enforceable coding practices and use the execution service
-as the first focused refactor. The aim is to make a change easy to locate,
-review, test, and recover from as Impodo grows.
+Continue the delivered repository guardrails and use the execution service as
+the first focused refactor. This is Priority 1 reliability work in the
+[remaining-work roadmap](remaining-work.md#priority-1-close-safety-and-supported-platform-gaps).
+The aim is to make a change easy to locate, review, test, and recover from as
+Impodo grows.
 
-This proposal is for maintainers and contributors deciding how to organize
-future changes. It proposes delivery work; it does not introduce new enforced
-rules or change current execution behavior. The existing
+This plan is for maintainers and contributors deciding how to organize future
+changes. The repository quality commands, pinned Ruff and Basedpyright policy,
+dependency repair, and complete delivery gate are current. The execution and
+reconciliation refactor remains unfinished and does not change current
+execution behavior merely because it is listed here. The existing
 [code-organization guide](../architecture/code-organization.md) remains the
 authority for ownership and dependencies.
 
@@ -24,8 +28,24 @@ service abstraction.
 
 ## Evidence and immediate priorities
 
+The 2026-10-28 checkout review supersedes the original guardrail priorities:
+
+- `scripts/check_python_quality.py` and `scripts/check_repository_quality.py`
+  are pinned, documented, and run in continuous integration.
+- The fallout-workbook application service now depends on its consumer-owned
+  port instead of importing the concrete artifact adapter.
+- The main execution service has grown to 4,008 physical lines, and
+  reconciliation still imports `_identity_domain` and `_portable_key` from
+  that service. The shared contract extraction remains open.
+- Load progress still publishes an `ExecutionRun` containing the complete row
+  tuple at intervals. The compact progress value proposed below remains open.
+
+The next change should extract the shared identity and scope contracts before
+separating compact progress. Cohesive write and recovery operations follow
+after those contracts are stable.
+
 The working-tree review on 2026-09-14 found the following conditions. These are
-point-in-time observations, not permanent size baselines.
+historical point-in-time observations, not current size baselines.
 
 | Observation | Maintenance consequence |
 | --- | --- |
@@ -39,10 +59,9 @@ No runtime monkey patching was found in the reviewed execution service. Its
 local callback and `dataclasses.replace()` calls are ordinary Python
 composition. The primary concern is responsibility growth and coupling.
 
-The first priority is to restore meaningful architecture checks. Repair the
-forbidden adapter dependency through a consumer-owned port and composition.
-Review the inventory changes before updating the snapshot. Regenerating the
-baseline must not approve a forbidden dependency.
+The first historical priority was to restore meaningful architecture checks.
+That work is complete. The remaining plan starts with the execution contracts
+described above.
 
 ## Coding practices to adopt
 
@@ -193,12 +212,12 @@ ownership and behavior. Assign named people when scheduling the work.
 
 | Step | Deliverable | Completion evidence |
 | --- | --- | --- |
-| 1. Restore architecture checks. | Remove the fallout-workbook adapter dependency, review inventory drift, and restore the reviewed baseline. | The inventory and dependency suites pass without weakening their rules. |
-| 2. Establish a repeatable check command. | Compose existing checks, add the selected formatting and typing scope, and make the command available to CI. | A clean checkout can run the documented command; a deliberate forbidden dependency is rejected. |
-| 3. Extract pure and display responsibilities. | Move validation, shared identity and scope functions, and preview presentation to their owning modules. | Focused domain, application, reconciliation, and browser tests preserve results, messages, scopes, and hashes. Reconciliation no longer imports private service helpers. |
-| 4. Separate progress. | Extract current publication behavior, then introduce compact progress and migrate consumers in a separate change. | Tests cover resume initialization, partial-to-committed transitions, phase boundaries, errors, and final counts. Instrumentation proves that intermediate publication no longer scans all rows. |
-| 5. Reduce execution coordination. | Extract cohesive write and relationship operations, then recovery classification. Keep journal sequencing explicit. | Failure and recovery tests prove journal-before-transport, stop-after-unknown behavior, preserved batch bounds, and no duplicate writes. |
-| 6. Apply the practice elsewhere. | Review the most frequently changed modules with similar coupling and agree the next focused improvement. | New work uses established owners; documented exceptions and architecture failures do not accumulate unnoticed. |
+| 1. Restore architecture checks — complete. | The fallout-workbook adapter dependency was replaced by a consumer-owned port, and the architecture checks are part of the repository gate. | The inventory and dependency suites pass without weakening their rules. |
+| 2. Establish a repeatable check command — complete. | The pinned Python and complete repository quality commands run locally and in continuous integration. | A clean checkout can run the documented commands; deliberate violations fail the gate. |
+| 3. Extract pure and display responsibilities — next. | Move shared identity and scope functions and remaining preview responsibilities to their owners. | Focused tests preserve results, messages, scopes, and hashes. Reconciliation no longer imports private service helpers. |
+| 4. Separate progress — open. | Extract current publication behavior, then introduce compact progress and migrate consumers in a separate change. | Tests cover resume initialization, partial-to-committed transitions, phase boundaries, errors, and final counts. Instrumentation proves that intermediate publication no longer scans all rows. |
+| 5. Reduce execution coordination — open. | Extract cohesive write and relationship operations, then recovery classification. Keep journal sequencing explicit. | Failure and recovery tests prove journal-before-transport, stop-after-unknown behavior, preserved batch bounds, and no duplicate writes. |
+| 6. Apply the practice elsewhere — ongoing. | Review the most frequently changed modules with similar coupling and agree the next focused improvement. | New work uses established owners; documented exceptions and architecture failures do not accumulate unnoticed. |
 
 Structural changes and algorithm changes should use separate commits or pull
 requests. Keep the service callable throughout the sequence so each step can

@@ -2,11 +2,13 @@
 
 ## Status and decision
 
-**Status:** In progress, 2026-09-23. The first Stage 2 slice of Proposals 1 and
-2, the direct-identity slice of Proposal 3, and the first relationship-simulator
-slice of Proposal 6 are implemented. Proposal 9's shared comparison and
-reviewed deferred-record workflow are also implemented. Every remaining change
-is still proposed unless a section explicitly marks it as current behavior.
+**Status:** Priority 2 product work, reconciled 2026-10-28. The first Stage 2
+slice of Proposals 1 and 2, the direct-identity slice of Proposal 3, the first
+relationship-simulator slice of Proposal 6, and Proposal 9's shared comparison
+and reviewed deferred-record workflow are implemented. Finish Proposal 8's
+root-cause correction routes next, then consider Proposal 10's migration
+intent and load cockpit. Every other change remains proposed unless a section
+explicitly marks it as current behavior.
 
 This plan is for the product owner and the developers who own Impodo's
 six-stage Authoring workflow. It proposes how Impodo should help a data manager

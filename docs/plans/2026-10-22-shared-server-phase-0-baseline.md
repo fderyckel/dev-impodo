@@ -1,7 +1,7 @@
 ---
 audience: developer
-kind: plan
-status: current
+kind: report
+status: historical
 ---
 
 # Shared-server Phase 0 baseline

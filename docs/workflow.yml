@@ -194,8 +194,7 @@ stages:
       - docs/developer/contracts/evidence-lifecycle.md
     references:
       - docs/user/guides/related-tables.md
-      - docs/plans/source-table-composition.md
-      - docs/plans/stage-1-and-2-page-loading.md
+      - docs/plans/responsive-workflow-liveness-and-navigation.md
 
   - id: integrated-test
     order: 7
@@ -391,7 +390,7 @@ stages:
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
     references:
-      - docs/plans/stage-1-and-2-page-loading.md
+      - docs/plans/responsive-workflow-liveness-and-navigation.md
   - id: match
     order: 3
     label: Match data

@@ -2,9 +2,10 @@
 
 ## Status and remaining scope
 
-**Status:** Structural ordering, persisted custom order, and the explicit live
-Odoo check are implemented. Documentation reconciliation, visual acceptance,
-and remaining performance qualification are open as of 2026-09-15.
+**Status:** Priority 3 qualification. Structural ordering, persisted custom
+order, and the explicit live Odoo check are implemented. Documentation
+reconciliation, visual acceptance, and remaining performance qualification are
+open as of 2026-10-28.
 
 The [Match data developer workflow](../developer/workflow/03-match-data.md)
 owns the implemented recommendation algorithm, preference persistence, bounded

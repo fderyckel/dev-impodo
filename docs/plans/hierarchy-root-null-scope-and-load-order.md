@@ -2,10 +2,10 @@
 
 ## Status and remaining scope
 
-**Status:** The hierarchy-root semantic correction, bounded preflight lookup,
-Recipe reuse, and frozen execution-order tests are implemented. Live local and
-remote Odoo 19 qualification and grouped dependency explanations remain open
-as of 2026-09-15.
+**Status:** Priority 3 qualification. The hierarchy-root semantic correction,
+bounded preflight lookup, Recipe reuse, and frozen execution-order tests are
+implemented. Live local and remote same-major Odoo qualification and grouped
+dependency explanations remain open as of 2026-10-28.
 
 Current behavior belongs to the [Match data developer workflow](../developer/workflow/03-match-data.md),
 [Prepare data](../developer/workflow/04-prepare-data.md), and

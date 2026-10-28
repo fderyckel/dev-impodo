@@ -2,7 +2,7 @@
 
 ## Status and remaining scope
 
-**Status:** macOS qualification remains open as of 2026-09-15.
+**Status:** Priority 1 macOS qualification remains open as of 2026-10-28.
 
 Formula feedback, recoverable saves, mutation receipts, stale-tab handling,
 catalogue scheduling, process recovery, diagnostics, and paired documentation
@@ -33,6 +33,13 @@ large catalogues and isolated workspaces:
 5. Verify visible, keyboard-accessible failure messages and privacy-safe
    diagnostics. Bundles must exclude formulas, full forms, business values,
    credentials, tokens, and raw request details.
+
+Run this qualification without administrator-only macOS changes. Use
+repository-local Python, operating-system temporary directories, independent
+authenticated test clients or headless browser contexts, and subprocess
+restart tests. Inspect DOM roles, names, focus order, and keyboard behavior in
+the browser test itself; do not require macOS Accessibility, Screen Recording,
+system-wide browser configuration, or installation under `/Applications`.
 
 Use the current operation and connectivity model documented in the workflow.
 The later [navigation and liveness qualification](responsive-workflow-liveness-and-navigation.md)

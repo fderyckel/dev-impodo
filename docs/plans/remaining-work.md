@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Status:** Active roadmap, updated 2026-09-28.
+**Status:** Active roadmap, reconciled against the checkout on 2026-10-28.
 
 This is the broad forward-looking roadmap. Detailed plans remain beside it
 while delivery or qualification is unfinished. The [documentation index](../README.md#plans)
@@ -13,27 +13,97 @@ workflow documentation. Point-in-time evidence belongs in an owning plan or
 Git history. Remove completed delivery detail and retire completed plans after
 those current references have been verified.
 
-## Remaining delivery and qualification
+## Priority order
 
-- Complete the [three-page Production journey](recipe-run-three-page-ui-refactor.md)
-  and its user guidance. The Test journey is implemented.
-- Finish [Match data ordering qualification](smart-match-data-ordering.md) and
-  [row-inclusion visual and native follow-up](source-row-inclusion-rules.md).
-- Qualify [macOS saves](resilient-match-data-saving.md),
-  [workflow responsiveness](responsive-workflow-liveness-and-navigation.md), and
-  [hierarchy-root loading](hierarchy-root-null-scope-and-load-order.md), including
-  the remaining grouped dependency explanations.
-- Complete [comparison recovery and performance work](responsive-final-review-comparison.md)
-  and design [exact-record repair for known fallout](load-fallout-source-cell-workbook.md).
-- Extend [scenario qualification](end-to-end-trial-and-scenario-qualification.md)
-  through the full lifecycle and remaining target and browser lanes.
-- Deliver the [generic Odoo-to-Odoo migration](odoo-to-odoo-migration.md)
-  beyond its completed synthetic Contact vertical. Product, BOM,
-  empty-destination, interruption, recovery, and measured multi-model
-  qualification remain before the plan is complete.
+This order reflects dependency, safety, unsupported product claims, and the
+delivery stream visible in the current checkout. A lower item does not start
+merely because its plan exists.
 
-Each detailed plan retains its own status and prerequisites. Listing a
-proposal here does not activate a deferred track or authorize external writes.
+### Priority 0: advance the local shared-server trial
+
+The local continuation gate in the
+[Linux container baseline](linux-server-postgresql-duckdb-implementation.md#local-trial-continuation-gate)
+has passed. Continue with bounded PostgreSQL control-plane persistence against
+the fictional, loopback-only Compose stack. No remote Impodo server is
+currently allocated, so Debian and Ubuntu qualification, production secrets
+and database roles, remote certificate policy, accepted supporting-image
+versions, explicit license and remaining-vulnerability decisions, and the
+first hosted image-quality run remain deferred release work. Local trial
+progress must not be described as a supported shared server or as completion
+of the Phase 2 supported-host exit gate.
+
+### Priority 1: close safety and supported-platform gaps
+
+1. Qualify the [generic Odoo-to-Odoo migration](odoo-to-odoo-migration.md)
+   beyond its completed Contact vertical. Product, bill-of-material,
+   empty-destination, interrupted-load, recovery, and measured multi-model
+   evidence remain open.
+2. Make [Final review comparison attempts recoverable](responsive-final-review-comparison.md)
+   and finish the compact review projection before attempting a measured
+   publication optimization.
+3. Complete [macOS Match data save qualification](resilient-match-data-saving.md)
+   and the shared [Windows and macOS responsiveness measurements](responsive-workflow-liveness-and-navigation.md).
+   These checks support platforms that the product documentation already
+   names; they are not optional feature expansion.
+4. Continue the [execution-service maintainability work](maintainable-code-and-execution-services.md).
+   The repository quality commands and dependency repair are complete, but
+   execution and reconciliation still share private helpers, and the main
+   execution service remains an oversized coordination boundary.
+
+### Priority 2: complete product journeys on the proven foundations
+
+1. Extend [scenario qualification](end-to-end-trial-and-scenario-qualification.md)
+   through the normal Project lifecycle, Product and bill-of-material
+   coverage, real-browser and retained remote lanes, recovery, and scheduling.
+   Reuse the Priority 1 transfer evidence instead of building another engine.
+2. Continue the [six-stage Authoring support plan](six-stage-workflow-user-support.md).
+   Finish root-cause correction routes before adding the migration-intent and
+   load-cockpit proposal.
+3. Finish the bounded, correctness-oriented parts of
+   [preparation efficiency](preparation-efficiency-and-storage.md): explicit
+   consumer ports, bounded error-heavy finding publication, browser recovery
+   checks, and clean reproducible measurements. The separate 100,000-row
+   mixed and related expansion remains deferred below.
+
+### Priority 3: qualification and usability follow-up
+
+- Complete [hierarchy-root live qualification and grouped-cause presentation](hierarchy-root-null-scope-and-load-order.md).
+- Reconcile and capture the implemented [Match data ordering](smart-match-data-ordering.md)
+  experience, then measure it before considering another optimization.
+- Complete the visual and documentation part of the
+  [row-inclusion follow-up](source-row-inclusion-rules.md). Native parity is a
+  conditional performance improvement and stays deferred unless measurement
+  makes it necessary.
+
+Each detailed plan retains its prerequisites. Listing work here does not
+authorize an external write, a live customer-data exercise, or a deferred
+track.
+
+## Local execution constraint
+
+The current macOS development account has no administrator rights. Work on
+this laptop must use the repository-local runner, `.venv`, `.uv-cache`,
+operating-system temporary directories, authenticated test applications, and
+headless browser or HTTP-level checks that need no macOS Accessibility or
+Screen Recording permission. Do not make `/Applications`, system-wide browser
+settings, privileged services, or security-policy changes a prerequisite.
+
+Clean Linux-host, firewall, certificate, service-manager, and attached-storage
+qualification belongs on an approved external host or continuous-integration
+runner. Record it as omitted when that environment is unavailable; do not ask
+the local user to weaken or change laptop security settings.
+
+## Completed plans removed in this review
+
+The 2026-10-28 review removed the completed source-table composition plan and
+the completed three-page Production journey plan. Current source composition
+belongs to the Source data workflow and its focused tests. Current Production
+behavior belongs to the Production rollout guide, workflow registry, and run
+tests.
+
+The Stage 1 and Stage 2 page-loading plan was also retired after its implemented
+batches were verified in the current code and workflow documentation. Its only
+open platform measurements already belong to the shared responsiveness plan.
 
 ## Current implemented boundary
 
@@ -54,7 +124,7 @@ The current preparation limits are:
 
 This roadmap does not raise, remove, or reinterpret those limits.
 
-## Deferred tracks
+## Long-term deferred tracks
 
 Deferred work is recorded here so it remains visible, but it is not authorized
 for implementation merely because the active gate completes. Maintenance,
@@ -434,7 +504,23 @@ corrections, and corrections inside Integrated Test or Production runs each
 require a separate proposal and qualification. None is inferred from the
 current Authoring result.
 
-### 6. Conditional target-side gateway
+### 6. Add exact-record repair for known load fallout
+
+**Status:** Deferred. The current workbook and append-only re-verification
+behavior remains available. The proposed exact-ID writer in
+[the detailed repair plan](load-fallout-source-cell-workbook.md) is not
+scheduled and must not be inferred from the existing successor correction
+workflow.
+
+### 7. Promote Odoo 20 Production
+
+**Status:** Deferred. Final Odoo 20 supports the qualified ordinary read,
+write, recovery, and same-major Recipe boundaries. Production remains blocked
+until its separate deployment, browser, recovery, Integrated Test, transfer,
+and representative-model promotion gate is activated and passed. The
+[dual-version support plan](odoo-19-and-20-support.md) owns that gate.
+
+### 8. Conditional target-side gateway
 
 **Status:** Deferred.
 
@@ -444,14 +530,25 @@ requirement cannot be met safely through the existing bounded connector and
 executor contracts. No generic RPC, SQL, `sudo`, or caller-selected method
 surface is permitted.
 
-### 7. Conditional hosted composition
+### 9. Native row-inclusion execution
 
-**Status:** Deferred.
+**Status:** Deferred unless measurement makes the Python fallback a release
+blocker. The implemented evaluator remains bounded and authoritative. A native
+route must prove exact parity before it can change capability selection or row
+limits.
 
-PostgreSQL repositories, object storage, durable workers, distributed target
-locks, SSO actors, centralized authorization, and managed secrets remain
-conditional on an approved hosted deployment requirement. The local
-composition remains authoritative until then.
+The former “conditional hosted composition” track is no longer deferred. The
+shared-server architecture is approved and Phase 2 is the current Priority 0
+delivery stream. Corporate identity providers remain sequenced after the first
+server release; they are not a prerequisite for the current container or
+PostgreSQL phases.
+
+## Explicitly excluded work
+
+The current plans do not include cross-major Odoo transfers, automatic Recipe
+conversion between Odoo majors, whole-database Odoo upgrades, unrestricted
+recursive Odoo graph capture, or a generic RPC, SQL, `sudo`, or caller-selected
+method surface. These are deliberate exclusions, not unprioritized backlog.
 
 ## Selecting the next track
 

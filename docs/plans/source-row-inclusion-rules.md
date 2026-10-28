@@ -2,9 +2,11 @@
 
 ## Status and remaining scope
 
-**Status:** Guided row inclusion, bounded preparation, complete accounting,
-Recipe reuse, and run review are implemented. Visual qualification and native
-columnar parity remain open as of 2026-09-15.
+**Status:** Priority 3 visual and documentation qualification, reconciled
+2026-10-28. Guided row inclusion, bounded preparation, complete accounting,
+Recipe reuse, and run review are implemented. Native columnar parity is
+long-term deferred unless measurement makes the Python fallback a release
+blocker.
 
 The current rule and confirmation behavior are documented in the
 [Match data workflow](../developer/workflow/03-match-data.md), and exclusion

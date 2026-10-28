@@ -75,63 +75,55 @@ local tooling below `.agents/` is intentionally outside that contract.
 
 ## Plans
 
-Plans retain unfinished delivery and qualification work. Dated evidence that
-directly qualifies an active server plan also stays here rather than creating a
-generic reports bucket. Current behavior lives in the architecture, contracts,
-and paired workflow pages; other completed delivery records remain in Git
-history.
+The [remaining-work roadmap](plans/remaining-work.md) is the authoritative
+priority list. Plans retain only unfinished delivery or qualification work.
+Current behavior lives in architecture, contracts, and paired workflow pages.
+Completed plans are removed after those current owners and links are verified.
 
-- [Impodo remaining work](plans/remaining-work.md) is the broad roadmap and
-  records the deferred tracks and current row limits.
-- [Odoo 19 and Odoo 20 support](plans/odoo-19-and-20-support.md) records the
-  implemented Odoo 20 support boundary and the remaining Production gate.
-- [Maintainable code and focused execution services](plans/maintainable-code-and-execution-services.md)
-  proposes coding practices, automated checks, and a focused execution refactor.
-- [End-to-end trial and scenario qualification](plans/end-to-end-trial-and-scenario-qualification.md)
-  retains full lifecycle integration, browser and remote acceptance, Odoo-source
-  scenarios, recovery, and scheduling beyond the implemented profile runner.
-- [Generic Odoo-to-Odoo migration](plans/odoo-to-odoo-migration.md)
-  records the staged work to capture related records, match them in a second
-  same-major Odoo 19 or final Odoo 20 instance, and verify one approved load
-  across supported models.
-- [Linux server deployment with PostgreSQL control and DuckDB workers](plans/vm-deployment-duckdb-worker-management.md)
-  defines the proposed local and shared-server profiles, Organization model,
-  PostgreSQL control plane, DuckDB and Parquet data plane, built-in account
-  phase, remote roles, Linux containers, workers, networking, and retention.
-- [Shared server detailed phased implementation](plans/linux-server-postgresql-duckdb-implementation.md)
-  turns that architecture into ordered work packages, code and persistence
-  boundaries, tests, operational qualification, and phase exit gates.
-- [Shared-server Phase 0 baseline](plans/2026-10-22-shared-server-phase-0-baseline.md)
-  records the base commit, local storage and job boundaries, focused tests,
-  representative store sizes, and omitted live performance evidence.
-- [Local empty-server container rehearsal](plans/2026-10-27-local-empty-server-container-rehearsal.md)
-  records the first live Compose build, defects corrected during startup,
-  repeated migration, health, drain, security, and persistence evidence.
-- [Source table composition](plans/source-table-composition.md) defines the
-  generic exact-join, dataset-use, lineage, Recipe, browser, and qualification
-  work for several physical tables that describe one logical Odoo dataset.
-- [Match data ordering qualification](plans/smart-match-data-ordering.md)
-  retains documentation, visual, and performance checks for the implemented
-  queue, custom ordering, and explicit live Odoo refinement.
-- [Row-inclusion follow-up](plans/source-row-inclusion-rules.md) retains visual
-  qualification and native parity beyond the implemented bounded evaluator.
-- [Three-page Production journey](plans/recipe-run-three-page-ui-refactor.md)
-  retains Production UI completion and guidance beyond the implemented Test flow.
-- [Hierarchy-root qualification](plans/hierarchy-root-null-scope-and-load-order.md)
-  retains local and remote acceptance and grouped dependency explanations.
-- [macOS save qualification](plans/resilient-match-data-saving.md) retains
-  separate-editor concurrency, responsiveness, and restart evidence.
-- [Workflow responsiveness qualification](plans/responsive-workflow-liveness-and-navigation.md)
-  retains platform p95 measurements and any justified navigation follow-up.
+The current delivery sequence is:
+
+- [Linux server deployment architecture](plans/vm-deployment-duckdb-worker-management.md)
+  defines the approved target, while the
+  [detailed shared-server implementation plan](plans/linux-server-postgresql-duckdb-implementation.md)
+  owns the active Phase 2 Linux container exit gate and the later ordered
+  phases.
+- [Generic Odoo-to-Odoo migration](plans/odoo-to-odoo-migration.md) retains
+  Product, bill-of-material, empty-destination, interruption, recovery, and
+  measured multi-model qualification beyond the completed Contact vertical.
 - [Final review recovery and performance](plans/responsive-final-review-comparison.md)
-  retains durable attempts, the remaining detailed compact preview, and measured
+  retains durable comparison attempts, compact review completion, and measured
   publication qualification.
+- [Maintainable code and focused execution services](plans/maintainable-code-and-execution-services.md)
+  retains the execution and reconciliation boundary refactor after the quality
+  and dependency guardrails were delivered.
+- [End-to-end trial and scenario qualification](plans/end-to-end-trial-and-scenario-qualification.md)
+  retains normal lifecycle integration, Product and bill-of-material coverage,
+  browser and remote lanes, recovery, and scheduling.
 - [Six-stage Authoring workflow user support](plans/six-stage-workflow-user-support.md)
-  proposes business-led supporting-model discovery, earlier identity,
-  missing-parent, relationship, and decimal-capacity proof, guided blocked-stage
-  corrections, business-intent review, and clearer load recovery.
-- [Known-fallout repair](plans/load-fallout-source-cell-workbook.md) proposes
-  confirmed exact-record repairs after an execution with known differences.
+  retains root-cause correction, migration intent, and later setup assistance.
+- [Preparation efficiency and storage](plans/preparation-efficiency-and-storage.md)
+  retains bounded correctness work and clean measurements. The 100,000-row
+  mixed and related expansion is separately deferred in the roadmap.
+
+Qualification-only follow-up remains in the
+[macOS save](plans/resilient-match-data-saving.md),
+[workflow responsiveness](plans/responsive-workflow-liveness-and-navigation.md),
+[hierarchy-root](plans/hierarchy-root-null-scope-and-load-order.md),
+[Match data ordering](plans/smart-match-data-ordering.md), and
+[row-inclusion](plans/source-row-inclusion-rules.md) plans.
+
+Long-term deferred proposals remain in
+[Odoo 19 and Odoo 20 support](plans/odoo-19-and-20-support.md) for the Odoo 20
+Production gate and in
+[known-fallout repair](plans/load-fallout-source-cell-workbook.md) for an
+exact-record repair writer. Listing either plan does not activate it.
+
+Two dated reports remain beside the active server plans because they directly
+qualify that program: the
+[shared-server Phase 0 baseline](plans/2026-10-22-shared-server-phase-0-baseline.md)
+and the
+[local empty-server container rehearsal](plans/2026-10-27-local-empty-server-container-rehearsal.md).
+Other completed delivery detail remains in Git history.
 
 ## Guides, runbooks, and quality
 

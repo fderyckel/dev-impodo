@@ -2,9 +2,10 @@
 
 ## Status and remaining scope
 
-**Status:** Bounded shared navigation, operation-aware browser recovery, and
-process diagnostics are implemented. Representative platform p95 qualification
-and measurement-driven follow-up remain open as of 2026-09-15.
+**Status:** Priority 1 supported-platform qualification. Bounded shared
+navigation, operation-aware browser recovery, and process diagnostics are
+implemented. Representative platform p95 qualification and measurement-driven
+follow-up remain open as of 2026-10-28.
 
 The [setup developer workflow](../developer/workflow/00-project-setup.md) owns
 navigation reads, and [Match data diagnostics](../developer/workflow/03-match-data.md#operational-diagnostics-and-responsiveness)
@@ -26,6 +27,15 @@ Retain p95 latency, CPU time, working-set growth, registry and workspace-engine
 connections, schema checks, artifact bytes read, thread-pool queue delay,
 owner reads, navigation reads, and template time. Verify that each child emits
 normal diagnostic records or a bounded diagnostic-unavailable reason.
+
+The macOS lane must run from the checkout without administrator rights. Use
+the repository-local runner, `.uv-cache`, operating-system temporary
+directories, authenticated test clients, and a checkout-launched headless
+browser when browser timing or focus evidence is required. The lane must not
+depend on macOS Accessibility or Screen Recording permission, `/Applications`,
+or a system-wide browser change. Use the existing cross-platform continuous-
+integration lane for a clean hosted macOS or Windows environment when the
+local account cannot provide one.
 
 The proposed acceptance budgets remain:
 
