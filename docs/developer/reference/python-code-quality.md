@@ -23,7 +23,8 @@ Each quality artifact owns one decision:
 | `pyproject.toml` | Defines the Ruff and Basedpyright configuration and pins their quality dependency versions. |
 | `scripts/check_python_quality.py` | Runs the focused Python checks in their supported order. |
 | `scripts/check_repository_quality.py` | Runs every required repository guardrail before delivery. |
-| `.github/workflows/python-quality.yml` | Runs the complete repository gate for proposed and accepted changes. |
+| `.github/workflows/python-quality.yml` | Runs the portable repository gate on Linux, macOS, and Windows. |
+| `.github/workflows/*-quality.yml` | Runs host-specific tests only on the platform that owns them. |
 | GitHub branch protection | Must require the stable `Python quality / quality` check before merge. |
 | `AGENTS.md` | Tells coding agents how to apply the policy safely. |
 
@@ -80,11 +81,12 @@ ready unless the gate passes or a human explicitly names and waives that
 failure for the delivery. Focused behavioral tests remain required for the
 responsibility that changed.
 
-The workflow and job identifiers remain `Python quality` and `quality` so an
-existing required-check rule continues to match `Python quality / quality`.
-The workflow file makes the check run, but GitHub repository settings determine
-whether a pull request may merge without it. A repository administrator must
-keep that check required on `main`.
+The workflow fans the complete gate out to Linux, macOS, and Windows. A final
+job retains the workflow and job identifiers `Python quality` and `quality` so
+an existing required-check rule continues to match `Python quality / quality`.
+Host-specific suites live below `tests/platform/` and run in separate workflows;
+they are not discovered by the portable repository gate. See
+[Platform support and testing](platform-support-and-testing.md).
 
 ## Keep type diagnostics visible
 

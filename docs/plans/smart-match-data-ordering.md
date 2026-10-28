@@ -48,5 +48,5 @@ in Git history.
   submit a mapping, authorize a writer, or satisfy load confirmation.
 
 Remove this plan after the outstanding visual, documentation, and measured
-qualification evidence is recorded in `docs/testing/` and current workflow
-references have been verified.
+qualification evidence is recorded in its owning tracked documentation and
+current workflow references have been verified.

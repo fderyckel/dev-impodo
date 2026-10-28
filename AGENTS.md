@@ -2,6 +2,20 @@
 
 These instructions apply to the complete repository.
 
+## Use the checkout toolchain
+
+- Resolve the repository root before running a repository command.
+- On a POSIX checkout, use `.tools/uv/uv` when that executable exists. Set
+  `UV_CACHE_DIR` to the repository-local `.uv-cache` directory when the
+  surrounding sandbox cannot write to the user cache.
+- Do not expect `uv` inside `.venv`. The `.venv` directory contains the
+  project interpreter and installed project tools; `uv` bootstraps and manages
+  that environment from outside it.
+- When `.tools/uv/uv` is absent, use the repository-pinned `uv` version from
+  `PATH`. Every `uv` command below means the runner selected by this rule.
+- A missing runner or dependency is a failed or omitted check. It is never a
+  passing result.
+
 ## Protect behavior first
 
 - Treat accepted contracts, runtime behavior, and focused tests as the semantic
@@ -47,6 +61,13 @@ These instructions apply to the complete repository.
 
 - Run focused tests for every changed responsibility in addition to the static
   quality command.
+- Keep tests discovered by the complete repository gate platform independent.
+  Put host-specific behavior under `tests/platform/<platform>/`; those suites
+  run only in their owning CI workflow.
+- Use operating-system temporary directories for test artifacts. Never require
+  the ignored repository-local `.tmp/` directory to exist in a clean checkout.
+- Treat `.agents/` as local tooling state. Repository tests, documentation, and
+  CI must not depend on files below it.
 - Apply the `impodo-documentation` skill to documentation changes when it is
   available. Always run the repository documentation checks after a
   documentation edit.

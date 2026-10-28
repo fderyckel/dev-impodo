@@ -126,4 +126,4 @@ belong in testing and reports, not in this contract.
 
 - [Prepare data implementation](../workflow/04-prepare-data.md)
 - [Quality and quarantine contract](quality-and-quarantine.md)
-- [Acceptance and test strategy](../../testing/acceptance.md)
+- [Platform support and testing](../reference/platform-support-and-testing.md)

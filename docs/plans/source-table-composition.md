@@ -457,10 +457,9 @@ routes, so this slice adds no new route or database-lifetime boundary.
 - The current evaluator is not the dominant request cost, so this slice makes
   no production optimization and does not change an admission limit.
 
-The exit gate passed. The
-[qualification report](../testing/source-composition-scale-2026-10-24.md)
-records the method, medians, application-build identity, exact fixture hashes,
-and qualification limits. Any future supported-scale increase still requires
+The exit gate passed. Historical qualification evidence records the method,
+medians, application-build identity, exact fixture hashes, and qualification
+limits. Any future supported-scale increase still requires
 separate reproducible worker and browser evidence.
 
 ## Test placement

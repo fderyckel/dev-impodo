@@ -12,9 +12,17 @@ permissions:
   contents: read
 
 jobs:
-  quality:
-    runs-on: windows-latest
+  portable:
+    name: Portable (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
 
     steps:
       - name: Check out the repository
@@ -36,3 +44,14 @@ jobs:
         run: uv run --frozen --group quality python scripts/check_repository_quality.py
         env:
           IMPODO_CI_BEFORE: ${{ github.event.before }}
+
+  quality:
+    name: quality
+    if: always()
+    needs: portable
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preserve the historical required-check contract
+        env:
+          PORTABLE_RESULT: ${{ needs.portable.result }}
+        run: test "$PORTABLE_RESULT" = success

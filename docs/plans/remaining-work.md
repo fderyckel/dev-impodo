@@ -9,7 +9,7 @@ while delivery or qualification is unfinished. The [documentation index](../READ
 lists those plans and their remaining scope.
 
 Completed behavior belongs in architecture, contracts, and user and developer
-workflow documentation. Point-in-time evidence belongs in `docs/testing/` and
+workflow documentation. Point-in-time evidence belongs in an owning plan or
 Git history. Remove completed delivery detail and retire completed plans after
 those current references have been verified.
 
@@ -72,9 +72,9 @@ The unfinished outcome is a bounded Product/BOM workflow for approximately
 production, logical projection, relationship accounting, and dependency
 propagation without whole-run Python collections.
 
-The [Windows relationship qualification report](../testing/relationship-execution-windows-2026-09-28.md)
-retains the completed current-boundary evidence. That result does not activate
-this deferred high-volume track or raise a row limit.
+Historical Windows relationship qualification in Git retains the completed
+current-boundary evidence. That result does not activate this deferred
+high-volume track or raise a row limit.
 
 Before raising any limit, the release evidence must prove:
 

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import ast
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 TEST_ROOT = ROOT / "tests"
@@ -15,6 +15,7 @@ EVIDENCE_ROOTS = {
     "e2e",
     "integration",
     "performance",
+    "platform",
 }
 
 
@@ -45,6 +46,28 @@ class TestOrganizationTests(unittest.TestCase):
             len(support.read_text(encoding="utf-8").splitlines()),
             1_600,
         )
+
+    def test_architecture_tests_are_host_independent_and_hermetic(self) -> None:
+        violations: list[str] = []
+        repository_tmp = "ROOT / " + '".tmp"'
+        repository_tmp_single = "ROOT / " + "'.tmp'"
+        for path in sorted((TEST_ROOT / "architecture").glob("test_*.py")):
+            source = path.read_text(encoding="utf-8")
+            relative = path.relative_to(ROOT).as_posix()
+            if repository_tmp in source or repository_tmp_single in source:
+                violations.append(f"{relative}: repository-local .tmp")
+
+            tree = ast.parse(source, filename=str(path))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Attribute)
+                    and isinstance(node.value, ast.Name)
+                    and (node.value.id, node.attr)
+                    in {("os", "name"), ("sys", "platform")}
+                ):
+                    violations.append(f"{relative}:{node.lineno}: host platform branch")
+
+        self.assertEqual(violations, [])
 
 
 if __name__ == "__main__":

@@ -193,8 +193,8 @@ These are separate stage limits, not a claim that a 100,000-row migration has
 been qualified end to end. Retained local Odoo acceptance includes a
 150-record load with every row verified and a repeat preview proposing no
 writes. Remote throughput requires its own live-target measurement. See the
-[acceptance evidence](docs/testing/acceptance.md) and
-[remote acceptance runbook](docs/developer/runbooks/remote-odoo-acceptance.md)
+[platform support and testing policy](docs/developer/reference/platform-support-and-testing.md)
+and [remote acceptance runbook](docs/developer/runbooks/remote-odoo-acceptance.md)
 for workloads, measurements, and remaining qualification work.
 
 ## Get started
@@ -311,7 +311,8 @@ Before changing code, read the
 [developer setup](docs/developer/setup/windows.md) and
 [code-organization rules](docs/architecture/code-organization.md). Run the
 focused tests for the affected behavior using the
-[acceptance strategy](docs/testing/acceptance.md). Documentation changes follow
+[platform support and testing policy](docs/developer/reference/platform-support-and-testing.md).
+Documentation changes follow
 the [style guide](docs/style-guide.md) and
 [documentation checks](docs/README.md#documentation-maintenance).
 

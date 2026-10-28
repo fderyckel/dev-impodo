@@ -251,9 +251,9 @@ python scripts/code_documentation_inventory.py --check
 git diff --check
 ```
 
-Add the focused tests created by each extraction. Use the existing
-[regression baseline](../testing/code-organization-phase0-baseline.md) for
-atomic-operation, bounded-I/O, seeded-order, and broader structural checks.
+Add the focused tests created by each extraction. Use the architecture and
+integration suites for atomic-operation, bounded-I/O, seeded-order, and broader
+structural checks.
 The [load workflow registry](../workflow.yml) identifies additional affected
 adapter and browser suites. Offline tests must not be reported as live Odoo
 qualification.
@@ -283,5 +283,5 @@ run for this proposal because it changes documentation only.
 - [Python code map](../architecture/python-code-map.md)
 - [Load into Odoo implementation](../developer/workflow/06-load-into-odoo.md)
 - [Execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md)
-- [Acceptance and test strategy](../testing/acceptance.md)
+- [Platform support and testing](../developer/reference/platform-support-and-testing.md)
 - [Internal development and release](../developer/runbooks/internal-release.md)

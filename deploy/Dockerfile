@@ -15,7 +15,8 @@ RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
 
-RUN uv sync --frozen --no-dev --no-editable --no-cache
+RUN uv sync --frozen --no-dev --no-editable --no-cache \
+    && chmod -R a-w /opt/impodo/venv
 
 
 FROM ${PYTHON_IMAGE} AS runtime
@@ -24,8 +25,6 @@ ARG IMPODO_UID=10001
 ARG IMPODO_GID=10001
 
 ENV HOME=/nonexistent \
-    IMPODO_ARTIFACT_ROOT=/var/lib/impodo/artifacts \
-    IMPODO_RUNTIME_ROOT=/var/lib/impodo/runtime \
     PATH=/opt/impodo/venv/bin:${PATH} \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -40,9 +39,7 @@ RUN groupadd --gid "${IMPODO_GID}" impodo \
         /var/tmp/impodo
 
 COPY --from=builder --chown=0:0 /opt/impodo/venv /opt/impodo/venv
-RUN chmod -R a-w /opt/impodo
 
-VOLUME ["/var/lib/impodo/artifacts"]
 USER 10001:10001
 WORKDIR /opt/impodo
 

@@ -760,11 +760,28 @@ fail closed until its PostgreSQL adapters are complete. Injected Windows tests
 prove signal ordering and full-response lease ownership, but do not constitute
 a live Linux process test.
 
-PostgreSQL volume validation, the external secret-provider adapter,
-database-role provisioning, Compose topology, image scan, and Debian and
-Ubuntu rehearsals remain open for the Docker-capable machine. The migration
-behavior is covered by injected Windows tests but has not yet run against a
-live PostgreSQL server.
+The eighth increment adds an empty
+[reference Compose topology](../../deploy/compose.yaml) and a local
+[rehearsal runbook](../../deploy/README.md). A digest-pinned PostgreSQL service,
+one-shot migration role, health-only web role, disabled worker profile, and
+digest-pinned local TLS proxy use separate internal networks. Only the proxy
+publishes a loopback host port. A local-only bootstrap creates the fixed
+PostgreSQL roles, and a provisioner gives each Impodo process only its
+root-owned DSN file. Static contract tests cover the topology, role separation,
+runtime restrictions, and fictional-secret generation.
+
+The
+[2026-10-27 local rehearsal](2026-10-27-local-empty-server-container-rehearsal.md)
+resolved and built the topology on Docker Desktop for Apple silicon. It
+verified live PostgreSQL role creation and migration, TLS health, repeated
+migration no-ops, drain and recovery, non-root read-only application roles,
+role-separated secrets, container recreation, and PostgreSQL and artifact
+volume persistence.
+
+The external secret-provider adapter, production role provisioning,
+supported-host PostgreSQL volume qualification, image scan, accepted
+PostgreSQL major, remote certificate policy, and Debian and Ubuntu rehearsals
+remain open.
 
 **Exit gate.** A clean supported Linux host can build or pull the pinned image,
 start the stack, pass HTTPS health checks, restart it, and prove that both

@@ -175,14 +175,14 @@ The registry, protected evidence, Data version database, and workspace
 databases cannot share one DuckDB transaction. A cross-store workflow records
 an operation intent, reserves exact meaning, completes idempotent store steps,
 and returns the same result when retried with the same operation identity.
-The maintained fault and retry commands are listed in the
-[code-organization regression baseline](../testing/code-organization-phase0-baseline.md#atomic-operation-gates).
+The maintained architecture and integration suites cover fault and retry
+behavior.
 
 Repository decomposition must also preserve bounded I/O. A narrower port is
 not an excuse to add one registry query, workspace open, Odoo request, write,
-or read-back call per Project, Recipe, field, relationship, or source row. The
-[bounded-I/O gates](../testing/code-organization-phase0-baseline.md#bounded-io-gates)
-protect the accepted query and batching limits.
+or read-back call per Project, Recipe, field, relationship, or source row.
+Focused architecture and integration gates protect the accepted query and
+batching limits.
 
 ## Local browser database operation scopes
 
@@ -332,10 +332,10 @@ uv run --frozen --group quality python scripts/check_repository_quality.py
 ```
 
 The runner applies the Python quality gate, verifies the reviewed architecture
-inventory, discovers every test below `tests/architecture`, checks repository
-documentation, and checks Python code documentation. This discovery keeps new
-architecture guardrails inside the mandatory gate without requiring a second
-command list to be updated.
+inventory, discovers every platform-independent test below
+`tests/architecture`, checks repository documentation, and checks Python code
+documentation. Host-specific tests belong below `tests/platform/<platform>/`
+and run in their owning workflow.
 
 Every failure blocks delivery even when it appears pre-existing or belongs to
 concurrent work. The contributor reports the exact failure and coordinates its
@@ -344,14 +344,14 @@ human instruction that names the failed guardrail may waive it for one
 delivery.
 
 Also run the focused owner, transaction, bounded-I/O, browser, seeded-order, or
-end-to-end commands that match the change. The
-[regression baseline](../testing/code-organization-phase0-baseline.md) records
-those commands and their exact preservation limits.
+end-to-end commands that match the change. The current platform and test-suite
+ownership rules are defined in
+[Platform support and testing](../developer/reference/platform-support-and-testing.md).
 
 ## Related documentation
 
 - [Architecture overview](overview.md)
 - [Python code map](python-code-map.md)
-- [Code-organization regression baseline](../testing/code-organization-phase0-baseline.md)
+- [Platform support and testing](../developer/reference/platform-support-and-testing.md)
 - [Architecture decisions](../decisions/README.md)
 - [Project lifecycle contract](../developer/contracts/project-lifecycle.md)

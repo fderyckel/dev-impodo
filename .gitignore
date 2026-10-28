@@ -38,11 +38,14 @@ outputs/
 # Local migration projects and customer data
 var/
 .codex-artifacts
+/deploy/.local/
 
 # Local AI agent and Codex configuration
 /.agents/
 /.codex/
 /.codex-*/
+/.local-development/
+/.python-version
 
 # Local Git worktrees
 # Keep disposable worktrees under .local-worktrees/ (or the existing .tmp/),

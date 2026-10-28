@@ -2,9 +2,8 @@ from tests.support.paths import REPOSITORY_ROOT
 
 """Guard workflow-documentation coverage and durable repository references."""
 
-from configparser import ConfigParser
-from pathlib import Path
 import unittest
+from configparser import ConfigParser
 
 import yaml
 
@@ -14,7 +13,6 @@ from scripts.documentation_quality import (
     resolve_code_reference,
     validate_repository,
 )
-
 
 ROOT = REPOSITORY_ROOT
 
@@ -51,7 +49,7 @@ class DocumentationQualityTests(unittest.TestCase):
         )
         self.assertEqual(first.count("| yes | yes |"), 10)
 
-    def test_workflow_registers_documentation_standards_and_skill(self) -> None:
+    def test_workflow_registers_documentation_standards(self) -> None:
         manifest = load_manifest(ROOT)
         shared = manifest["shared"]
 
@@ -71,10 +69,10 @@ class DocumentationQualityTests(unittest.TestCase):
             shared["performance_standard"],
             "docs/architecture/code-organization.md#local-browser-database-operation-scopes",
         )
-        self.assertIn(
-            ".agents/skills/impodo-documentation/SKILL.md",
-            shared["skills"],
-        )
+        self.assertEqual(shared["skills"], [])
+        manifest_text = (ROOT / "docs" / "workflow.yml").read_text(encoding="utf-8")
+        self.assertNotIn(".agents/", manifest_text)
+        self.assertNotIn("docs/testing/", manifest_text)
         self.assertEqual(
             shared["code_references"],
             [

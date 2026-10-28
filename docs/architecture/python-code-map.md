@@ -84,7 +84,11 @@ assembled graph, while `web/app.py` preserves the historical local import.
 `web/composition/server_cli.py` is the single Linux-image process selector. It
 exposes web, worker, migration, and administration roles and fails closed until
 each deployment-owned server runtime exists; it never calls the local launcher.
-`deploy/Dockerfile` packages that entry point once for every process role.
+[`deploy/Dockerfile`](../../deploy/Dockerfile) packages that entry point once
+for every process role. [`deploy/compose.yaml`](../../deploy/compose.yaml)
+defines the empty local rehearsal topology, and
+[`deploy/local_rehearsal.py`](../../deploy/local_rehearsal.py) creates its
+fictional ignored secret files without printing or replacing their values.
 The local composition does not restore the superseded Recipe-root list,
 creation, deletion, Test-application, Production-application, or qualification
 services.
@@ -390,6 +394,5 @@ and recovery support both majors; Odoo 20 Production remains disabled.
 - `tests/domain/recipe/test_representative_shapes.py`
 - `tests/application/workspace/preparation/test_jobs.py`
 
-The [code-organization regression
-baseline](../testing/code-organization-phase0-baseline.md) lists the exact
-fault-retry, bounded-I/O, fixed-seed, browser, and complete-discovery commands.
+The architecture tests and focused owner suites retain the fault-retry,
+bounded-I/O, fixed-seed, browser, and complete-discovery contracts.

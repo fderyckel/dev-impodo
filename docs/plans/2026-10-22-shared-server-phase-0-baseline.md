@@ -1,6 +1,6 @@
 ---
 audience: developer
-kind: report
+kind: plan
 status: current
 ---
 

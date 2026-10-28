@@ -9,13 +9,9 @@ status: active
 ## Decision summary
 
 **Status:** Phases 1 and 2 were implemented on 2026-09-15. Phase 3 was
-implemented and live-qualified on 2026-09-23. The Odoo 19
-baseline and isolated prerelease lab are recorded in the
-[Phase 1 report](../testing/odoo-compatibility-phase1.md). The shared version
-policy and its validation are recorded in the
-[Phase 2 report](../testing/odoo-compatibility-phase2.md). Final Odoo 20
-Community and Enterprise read qualification is recorded in the
-[Phase 3 report](../testing/odoo-compatibility-phase3.md). Phase 4 entered
+implemented and live-qualified on 2026-09-23. The Odoo 19 baseline, shared
+version policy, and final Odoo 20 Community and Enterprise read qualification
+are retained as historical evidence in Git. Phase 4 entered
 controlled development qualification on 2026-10-08. A narrow Contact writer
 canary passed against final Odoo 20 Enterprise Runbot on 2026-10-08.
 File-to-Odoo browser-route canaries then
@@ -27,12 +23,8 @@ recovery were declared supported without a version-specific opt-in switch.
 Visual browser behavior, interrupted-write recovery, completed-load correction,
 non-Contact execution, transfers, Integrated Test, and the deployment matrix
 remain known coverage gaps to resolve as encountered. Odoo 20 Production
-remains blocked and Phase 5 remains open for its separate promotion. See the
-[controlled write canary report](../testing/odoo20-write-canary-2026-10-08.md)
-and the
-[browser load canary report](../testing/odoo20-browser-load-canary-2026-10-08.md),
-plus the
-[local Community report](../testing/odoo20-local-community-canary-2026-10-08.md).
+remains blocked and Phase 5 remains open for its separate promotion. Historical
+write, browser-load, and local Community canary evidence remains in Git.
 
 **Reader:** Impodo maintainers deciding how to implement, test, and release
 dual-version support.

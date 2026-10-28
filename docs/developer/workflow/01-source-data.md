@@ -627,8 +627,8 @@ three fresh processes for both narrow and wide shapes. Preview consistently
 uses six DuckDB connections and ten schema checks. Save consistently uses six
 connections and six schema checks. Exact results, persisted complete review,
 and zero Odoo requests remain stable. The measurements do not justify changing
-the evaluator or the 25,000-row and 200-column admission limits. See the
-[source-composition scale report](../../testing/source-composition-scale-2026-10-24.md).
+the evaluator or the 25,000-row and 200-column admission limits. Historical
+measurement details remain available in Git history.
 
 ## Verification
 
@@ -686,11 +686,7 @@ cancellation, lineage, and both navigation variants.
 - [ADR-016: Generic Odoo relationship decisions and profiles](../../decisions/README.md#adr-016--odoo-relationship-scope-combines-generic-decisions-with-profiles)
 - [Planned source-table composition](../../plans/source-table-composition.md)
 - [Stage 1 and 2 page-loading optimization proposal](../../plans/stage-1-and-2-page-loading.md)
-- [Page-loading optimization evidence](../../testing/stage12-page-loading-2026-10-07.md)
-- [Shared page-read measurements](../../testing/stage12-shared-page-reads-2026-10-07.md)
-- [Shared page-read audit helper](../../testing/evidence/stage12-shared-page-reads-2026-10-07/audit.py)
-- [Source-composition scale qualification](../../testing/source-composition-scale-2026-10-24.md)
-- [Odoo 20 local Community and stock-lot canaries](../../testing/odoo20-local-community-canary-2026-10-08.md)
+- [Platform support and testing](../reference/platform-support-and-testing.md)
 - [Source-composition benchmark](../../../scripts/benchmark_source_composition.py)
 - [User guide: Source data](../../user/workflow/01-source-data.md)
 - [Project lifecycle contract](../contracts/project-lifecycle.md)

@@ -44,6 +44,10 @@ class RepositoryQualityContractTests(unittest.TestCase):
         self.assertIn(command, workflow)
         self.assertIn("name: Python quality", workflow)
         self.assertIn("\n  quality:\n", workflow)
+        self.assertIn("\n  portable:\n", workflow)
+        self.assertIn("needs: portable", workflow)
+        for runner in ("ubuntu-latest", "macos-latest", "windows-latest"):
+            self.assertIn(f"          - {runner}", workflow)
         self.assertNotIn(
             "run: uv run --frozen --group quality python "
             "scripts/check_python_quality.py",

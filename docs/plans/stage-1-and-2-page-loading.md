@@ -23,16 +23,14 @@ The next batch, approved on 2026-10-07, also shares the setup selection between
 schema routing, Odoo requirements, and recovery. Schema and Odoo source pages
 share a safe read-credential status with the dialog when the credential owner
 is identical. Active Test recovery counts its required-default blockers in SQL
-instead of loading complete Recipe applications and issue records.
-The [shared-read report](../testing/stage12-shared-page-reads-2026-10-07.md)
-records CPU, memory, database work, and real browser navigation measurements.
+instead of loading complete Recipe applications and issue records. Historical
+evidence records CPU, memory, database work, and browser navigation measurements.
 
 The baseline audit used commit `bea06b6380fcb5d3a08d5002af63de7274e30256`.
 The intended reader is the developer reviewing the implemented optimization
 and choosing any follow-up performance work.
 
-The [implementation report](../testing/stage12-page-loading-2026-10-07.md)
-records the changes, checks, measurement method, and qualification limits.
+The implementation evidence remains available in Git history.
 
 ## Scope and measured baseline
 
@@ -67,14 +65,8 @@ fetching. DuckDB opens count physical database owners, rather than every
 repository cursor. The SQL and package timings overlap and must not be added
 together.
 
-The [raw samples](../testing/evidence/stage12-page-loading-2026-10-06/baseline.json)
-include database timing, SQL counts, response sizes, and `Server-Timing`.
-The [audit helper](../testing/evidence/stage12-page-loading-2026-10-06/audit.py)
-recreates the fixtures and writes results under `.tmp`. Run it from the repository:
-
-```powershell
-.\.venv\Scripts\python.exe docs\testing\evidence\stage12-page-loading-2026-10-06\audit.py
-```
+The historical samples and audit helper remain available in Git history. They
+are not part of the current repository gate.
 
 ## Batch 1: share database opens and move page reads off the event loop
 

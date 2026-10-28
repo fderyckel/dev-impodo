@@ -78,18 +78,13 @@ uv run --frozen --group quality python scripts/check_python_quality.py
 ## Cross-stage references
 
 - [Stage 1 and 2 page-loading optimization proposal](../plans/stage-1-and-2-page-loading.md)
-- [Stage 1 and 2 page-loading optimization evidence](../testing/stage12-page-loading-2026-10-07.md)
-- [Shared page-read measurements](../testing/stage12-shared-page-reads-2026-10-07.md)
-- [Source-table composition scale qualification](../testing/source-composition-scale-2026-10-24.md)
 - [Architecture overview](../architecture/overview.md)
 - [Code organization](../architecture/code-organization.md)
 - [Local browser database operation scopes](../architecture/code-organization.md#local-browser-database-operation-scopes)
 - [Python code map](../architecture/python-code-map.md)
 - [Architecture decisions](../decisions/README.md)
-- [Acceptance and test strategy](../testing/acceptance.md)
-- [Code-organization regression baseline](../testing/code-organization-phase0-baseline.md)
+- [Platform support and testing](reference/platform-support-and-testing.md)
 - [Examples and edge cases](reference/examples-and-edge-cases.md)
-- [Windows relationship qualification evidence](../testing/relationship-execution-windows-2026-09-28.md)
 - [Documentation style guide](../style-guide.md)
 
 Before changing an Odoo-backed loop, verify that record access is bounded and

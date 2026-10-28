@@ -2,31 +2,29 @@
 
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
+import tempfile
+import unittest
 from dataclasses import FrozenInstanceError, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
-import tempfile
 from threading import Event, Thread
-import unittest
 from uuid import uuid4
 
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.adapters.jobs.inline import InlineJobDispatcher
+from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.domain.cutover.approvals import ExportPlanApproval, FrozenExportPlan
 from impodo.domain.shared.access import (
     Actor,
     ActorIdentity,
     Capability,
 )
-from impodo.domain.cutover.approvals import ExportPlanApproval, FrozenExportPlan
-from impodo.application.shared.artifacts import ArtifactStoreError
-from impodo.adapters.artifacts.local_store import LocalArtifactStore
-from impodo.adapters.jobs.inline import InlineJobDispatcher
 from impodo.domain.shared.jobs import JobKind, JobRequest, JobStatus
-
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
-NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
 HASH_A = "sha256:" + "a" * 64
 HASH_B = "sha256:" + "b" * 64
 HASH_C = "sha256:" + "c" * 64
@@ -48,8 +46,7 @@ def actor(name: str, *capabilities: Capability) -> Actor:
 
 class ArtifactStoreContractTests(unittest.TestCase):
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.store = LocalArtifactStore(self.temporary.name)
         self.data_version_id = str(uuid4())
 
@@ -77,20 +74,24 @@ class ArtifactStoreContractTests(unittest.TestCase):
             self.assertEqual(materialized.read_bytes(), validated[0])
 
         self.store.delete_source(self.data_version_id, stored.storage_key)
-        with self.assertRaises(ArtifactStoreError):
-            with self.store.materialize_source(
+        with (
+            self.assertRaises(ArtifactStoreError),
+            self.store.materialize_source(
                 self.data_version_id,
                 stored.storage_key,
-            ):
-                pass
+            ),
+        ):
+            pass
 
     def test_source_storage_rejects_traversal_keys(self) -> None:
-        with self.assertRaises(ArtifactStoreError):
-            with self.store.materialize_source(
+        with (
+            self.assertRaises(ArtifactStoreError),
+            self.store.materialize_source(
                 self.data_version_id,
                 "../source.csv",
-            ):
-                pass
+            ),
+        ):
+            pass
 
 
 class JobContractTests(unittest.TestCase):
@@ -194,4 +195,3 @@ class ExportApprovalContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

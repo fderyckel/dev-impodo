@@ -40,9 +40,8 @@ stage. The [documentation style guide](style-guide.md) defines the audience and
 voice rules, including the
 [data-manager-first explanation standard](style-guide.md#data-manager-first-explanations)
 and the [two-pass editing workflow](style-guide.md#documentation-editing-workflow).
-The project-local
-[Impodo documentation skill](../.agents/skills/impodo-documentation/SKILL.md)
-applies those rules when documentation is created or rewritten.
+Repository documentation and its CI checks depend only on tracked content;
+local tooling below `.agents/` is intentionally outside that contract.
 
 ## Architecture
 
@@ -76,9 +75,11 @@ applies those rules when documentation is created or rewritten.
 
 ## Plans
 
-Plans retain unfinished delivery and qualification work. Current behavior lives
-in the architecture, contracts, and paired workflow pages; completed delivery
-records remain in Git history.
+Plans retain unfinished delivery and qualification work. Dated evidence that
+directly qualifies an active server plan also stays here rather than creating a
+generic reports bucket. Current behavior lives in the architecture, contracts,
+and paired workflow pages; other completed delivery records remain in Git
+history.
 
 - [Impodo remaining work](plans/remaining-work.md) is the broad roadmap and
   records the deferred tracks and current row limits.
@@ -100,9 +101,12 @@ records remain in Git history.
 - [Shared server detailed phased implementation](plans/linux-server-postgresql-duckdb-implementation.md)
   turns that architecture into ordered work packages, code and persistence
   boundaries, tests, operational qualification, and phase exit gates.
-- [Shared-server Phase 0 baseline](reports/2026-10-22-shared-server-phase-0-baseline.md)
+- [Shared-server Phase 0 baseline](plans/2026-10-22-shared-server-phase-0-baseline.md)
   records the base commit, local storage and job boundaries, focused tests,
   representative store sizes, and omitted live performance evidence.
+- [Local empty-server container rehearsal](plans/2026-10-27-local-empty-server-container-rehearsal.md)
+  records the first live Compose build, defects corrected during startup,
+  repeated migration, health, drain, security, and persistence evidence.
 - [Source table composition](plans/source-table-composition.md) defines the
   generic exact-join, dataset-use, lineage, Recipe, browser, and qualification
   work for several physical tables that describe one logical Odoo dataset.
@@ -169,27 +173,9 @@ setup, CLI, release, and acceptance procedures live under
 - [Python code quality](developer/reference/python-code-quality.md) — pinned
   Ruff and Basedpyright ownership, baseline policy, local gate, CI enforcement,
   and safe remediation rules for developers and coding agents.
-- [Acceptance and test strategy](testing/acceptance.md) — test layers, golden
-  slice, determinism checks, and acceptance traceability.
-- [Windows relationship execution qualification](testing/relationship-execution-windows-2026-09-28.md)
-  records current-boundary Product and Bill of Materials measurements,
-  determinism, recovery, exact read-back, and authenticated visual evidence.
-- [Source-table composition scale qualification](testing/source-composition-scale-2026-10-24.md)
-  records exact-join preview and save timing, memory, deterministic fixtures,
-  database ownership, and the decision to retain current admission limits.
-- [Odoo dual-support Phase 2 policy](testing/odoo-compatibility-phase2.md)
-  records shared version decisions, preserved Odoo 19 behavior, and verification.
-- [Odoo dual-support Phase 3 reads](testing/odoo-compatibility-phase3.md)
-  records final Odoo 20 Community and Enterprise read qualification, native
-  schema differences, and the write operations that remain blocked.
-- [Odoo dual-support Phase 1 baseline](testing/odoo-compatibility-phase1.md)
-  — pinned local Odoo builds, live Odoo 19 scenario evidence, preserved policy
-  hashes, and the version and storage inventory for implementation.
-- [Code-organization regression baseline](testing/code-organization-phase0-baseline.md)
-  — reproducible import, fixed-order, atomic-operation, bounded-I/O, browser,
-  and test-organization gates for the implemented architecture.
-- [Design QA evidence](testing/design-qa.md) — point-in-time visual fidelity
-  findings, completed checks, and blocked browser-verification evidence.
+- [Platform support and testing](developer/reference/platform-support-and-testing.md)
+  — portable test ownership, host-specific suites, CI lanes, and temporary-file
+  rules for Windows, macOS, and Linux server development.
 - [Glossary](glossary.md) — canonical project terminology.
 
 ## Documentation maintenance

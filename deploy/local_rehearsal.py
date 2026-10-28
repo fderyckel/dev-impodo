@@ -1,0 +1,122 @@
+"""Create fictional file secrets for the local empty-server rehearsal."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import secrets
+from pathlib import Path
+from urllib.parse import quote
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SECRET_DIRECTORY = REPOSITORY_ROOT / "deploy" / ".local" / "secrets"
+SECRET_FILENAMES = (
+    "postgres-bootstrap-password",
+    "postgres-runtime-password",
+    "postgres-migration-password",
+    "postgres-runtime-dsn",
+    "postgres-migration-dsn",
+)
+
+
+def _new_password() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _dsn(role: str, password: str) -> str:
+    encoded_password = quote(password, safe="")
+    return (
+        f"postgresql://{role}:{encoded_password}@postgres:5432/impodo?sslmode=disable"
+    )
+
+
+def _prepare_directory(path: Path) -> None:
+    if path.is_symlink():
+        raise ValueError("The local secret directory may not be a symbolic link")
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not path.is_dir():
+        raise ValueError("The local secret path must be a directory")
+    if os.name == "posix":
+        path.chmod(0o700)
+
+
+def _write_secret(path: Path, value: str) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if no_follow := getattr(os, "O_NOFOLLOW", 0):
+        flags |= no_follow
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(value)
+            stream.write("\n")
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+    if os.name == "posix":
+        path.chmod(0o600)
+
+
+def prepare_local_secrets(directory: Path) -> tuple[Path, ...]:
+    """Create one internally consistent fictional secret set without overwrite."""
+
+    _prepare_directory(directory)
+    targets = tuple(directory / filename for filename in SECRET_FILENAMES)
+    existing = tuple(path.name for path in targets if path.exists())
+    if existing:
+        names = ", ".join(existing)
+        raise FileExistsError(
+            "Local rehearsal secrets already exist; refusing to overwrite: " + names
+        )
+
+    bootstrap_password = _new_password()
+    runtime_password = _new_password()
+    migration_password = _new_password()
+    values = (
+        bootstrap_password,
+        runtime_password,
+        migration_password,
+        _dsn("impodo_runtime", runtime_password),
+        _dsn("impodo_migrator", migration_password),
+    )
+    created: list[Path] = []
+    try:
+        for path, value in zip(targets, values, strict=True):
+            _write_secret(path, value)
+            created.append(path)
+    except BaseException:
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise
+    return targets
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the bounded local-rehearsal secret command."""
+
+    parser = argparse.ArgumentParser(
+        description="Create fictional secrets for the empty local server rehearsal."
+    )
+    parser.add_argument(
+        "--directory",
+        type=Path,
+        default=DEFAULT_SECRET_DIRECTORY,
+        help="ignored directory that will receive the fictional secret files",
+    )
+    return parser
+
+
+def main() -> int:
+    """Create the local secret set without printing its values."""
+
+    arguments = build_parser().parse_args()
+    try:
+        created = prepare_local_secrets(arguments.directory)
+    except (FileExistsError, OSError, ValueError) as error:
+        print(f"Local rehearsal secret preparation refused: {error}")
+        return 1
+    print(f"Created {len(created)} fictional local rehearsal secret files.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

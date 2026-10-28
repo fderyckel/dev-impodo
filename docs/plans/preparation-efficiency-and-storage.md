@@ -361,8 +361,7 @@ This work covers preparation, its admission checks, and consumers of prepared
 evidence. It preserves saved source data and mapping choices. Preparation
 continues to make zero Odoo calls. Execution ordering remains owned by the
 [execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md),
-with current measurements in the
-[Windows relationship qualification report](../testing/relationship-execution-windows-2026-09-28.md).
+with historical Windows qualification evidence retained in Git history.
 Faster preparation does not increase the qualified size of a later load.
 
 ### Required model independence

@@ -7,9 +7,7 @@ shared:
   audience_standard: docs/style-guide.md#data-manager-first-explanations
   editing_workflow: docs/style-guide.md#documentation-editing-workflow
   performance_standard: docs/architecture/code-organization.md#local-browser-database-operation-scopes
-  skills:
-    - .agents/skills/impodo-documentation/SKILL.md
-    - .agents/skills/impodo-match-data-tutorial/SKILL.md
+  skills: []
   code_references:
     - src/impodo/web/composition/page_reads.py::run_page_read
     - src/impodo/web/composition/page_reads.py::run_local_operation
@@ -133,7 +131,6 @@ stages:
       - src/impodo/web/exact_join_forms.py::resolve_exact_join_request
       - src/impodo/web/exact_join_forms.py::exact_join_dataset_uses
       - src/impodo/application/odoo_source_capture_service.py::OdooSourceCaptureService.review_current_plans
-      - docs/testing/evidence/stage12-shared-page-reads-2026-10-07/audit.py::main
       - src/impodo/adapters/duckdb/schema/structure.py::read_table_columns
       - src/impodo/application/odoo_source_capture_service.py::OdooSourceCaptureService
       - src/impodo/application/odoo_dependency_capture.py::discover_dependency_closure
@@ -198,11 +195,7 @@ stages:
     references:
       - docs/user/guides/related-tables.md
       - docs/plans/source-table-composition.md
-      - docs/testing/source-composition-scale-2026-10-24.md
-      - docs/testing/odoo20-local-community-canary-2026-10-08.md
       - docs/plans/stage-1-and-2-page-loading.md
-      - docs/testing/stage12-page-loading-2026-10-07.md
-      - docs/testing/stage12-shared-page-reads-2026-10-07.md
 
   - id: integrated-test
     order: 7
@@ -371,7 +364,6 @@ stages:
       - src/impodo/application/run/setup_service.py::RunSetupService.page_for_workspace
       - src/impodo/application/run/odoo_requirements.py::RunOdooRequirementsUseCase.for_selection
       - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository.count_blocking_run_issues
-      - docs/testing/evidence/stage12-shared-page-reads-2026-10-07/audit.py::main
       - src/impodo/application/browser_queries.py::BrowserQueryService.get_source_page
       - src/impodo/adapters/duckdb/schema/structure.py::read_table_columns
       - src/impodo/application/workspace/issues.py::WorkflowIssueProjection
@@ -400,8 +392,6 @@ stages:
       - docs/developer/contracts/evidence-lifecycle.md
     references:
       - docs/plans/stage-1-and-2-page-loading.md
-      - docs/testing/stage12-page-loading-2026-10-07.md
-      - docs/testing/stage12-shared-page-reads-2026-10-07.md
   - id: match
     order: 3
     label: Match data
@@ -761,6 +751,5 @@ stages:
       - docs/developer/contracts/execution-and-reconciliation.md
     references:
       - docs/architecture/security-and-infrastructure.md
-      - docs/testing/acceptance.md
-      - docs/testing/relationship-execution-windows-2026-09-28.md
+      - docs/developer/reference/platform-support-and-testing.md
       - docs/plans/load-fallout-source-cell-workbook.md

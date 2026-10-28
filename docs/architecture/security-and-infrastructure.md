@@ -360,7 +360,7 @@ Project evidence:
 - [Contained project lifecycle contract](../developer/contracts/project-lifecycle.md)
 - [Preflight contract](../developer/contracts/preflight.md)
 - [Execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md)
-- [Acceptance and test strategy](../testing/acceptance.md)
+- [Platform support and testing](../developer/reference/platform-support-and-testing.md)
 - [Internal release runbook](../developer/runbooks/internal-release.md)
 - [Windows workstation requirements](../developer/setup/windows.md)
 

@@ -189,9 +189,8 @@ The lifecycle fixture uses real Recipe compilation, preparation, approval,
 comparison, execution journals, read-back reconciliation, and Test qualification.
 Only Odoo metadata, identity probes, and record transport use fictional adapters.
 The Production total differs from Test, and interrupted activation resumes after
-restart before Production completes its own evidence stages. See the
-[phase 6 report](../../testing/recipe-workflow-phase-6-2026-09-09.md) for the
-executed checks and their limits.
+restart before Production completes its own evidence stages. The executed
+checks and their limits remain available in Git history.
 
 ## Current limitations
 

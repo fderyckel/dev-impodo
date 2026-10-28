@@ -2,19 +2,37 @@
 
 from __future__ import annotations
 
+import tempfile
+import unittest
 from contextlib import redirect_stderr
 from io import StringIO
-import unittest
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
+import yaml
+
+from deploy.local_rehearsal import SECRET_FILENAMES, prepare_local_secrets
 from impodo.web.composition.server_cli import (
     CONFIGURATION_ERROR_EXIT,
     main,
 )
 from tests.support.paths import REPOSITORY_ROOT
 
-
 ROOT = REPOSITORY_ROOT
 DOCKERFILE = ROOT / "deploy" / "Dockerfile"
+COMPOSE_FILE = ROOT / "deploy" / "compose.yaml"
+PROXY_CONFIG = ROOT / "deploy" / "proxy" / "Caddyfile"
+POSTGRES_ROLE_INIT = ROOT / "deploy" / "postgres" / "init" / "010-impodo-roles.sh"
+SECRET_PROVISIONER = (
+    ROOT / "deploy" / "local-rehearsal" / "provision-runtime-secrets.sh"
+)
+
+
+def _compose() -> dict[str, object]:
+    payload = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError("deploy/compose.yaml must contain one mapping")
+    return payload
 
 
 class LinuxContainerContractTests(unittest.TestCase):
@@ -35,7 +53,10 @@ class LinuxContainerContractTests(unittest.TestCase):
         dockerfile = DOCKERFILE.read_text(encoding="utf-8")
 
         self.assertIn("USER 10001:10001", dockerfile)
-        self.assertIn("RUN chmod -R a-w /opt/impodo", dockerfile)
+        self.assertIn("&& chmod -R a-w /opt/impodo/venv", dockerfile)
+        self.assertNotIn("VOLUME [", dockerfile)
+        self.assertNotIn("IMPODO_ARTIFACT_ROOT=", dockerfile)
+        self.assertNotIn("IMPODO_RUNTIME_ROOT=", dockerfile)
         for path in (
             "/var/lib/impodo/artifacts",
             "/var/lib/impodo/runtime",
@@ -86,6 +107,218 @@ class LinuxContainerContractTests(unittest.TestCase):
                     result = main((command,))
                 self.assertEqual(result, CONFIGURATION_ERROR_EXIT)
                 self.assertIn(f"{command} startup refused", error.getvalue())
+
+    def test_compose_defines_the_complete_empty_private_topology(self) -> None:
+        compose = _compose()
+        services = compose["services"]
+        self.assertIsInstance(services, dict)
+        assert isinstance(services, dict)
+
+        self.assertEqual(
+            set(services),
+            {
+                "postgres",
+                "volume-provisioner",
+                "migrate",
+                "web",
+                "worker",
+                "proxy",
+            },
+        )
+        self.assertNotIn("ports", services["postgres"])
+        self.assertNotIn("ports", services["web"])
+        self.assertNotIn("ports", services["worker"])
+        self.assertEqual(
+            services["proxy"]["ports"],
+            ["127.0.0.1:${IMPODO_PROXY_PORT:-8443}:8443"],
+        )
+        self.assertEqual(services["worker"]["profiles"], ["worker"])
+        self.assertEqual(services["worker"]["restart"], "no")
+        self.assertEqual(
+            {
+                service_name
+                for service_name, service in services.items()
+                if "build" in service
+            },
+            {"migrate"},
+        )
+        self.assertEqual(
+            {services[name]["image"] for name in ("migrate", "web", "worker")},
+            {"impodo-server:local"},
+        )
+
+        networks = compose["networks"]
+        self.assertTrue(networks["application"]["internal"])
+        self.assertTrue(networks["control"]["internal"])
+        self.assertEqual(
+            services["web"]["environment"]["IMPODO_TRUSTED_PROXY_CIDRS"],
+            "172.30.10.2/32",
+        )
+        self.assertEqual(
+            services["web"]["environment"]["IMPODO_ODOO_EGRESS_MODE"],
+            "disabled",
+        )
+        proxy_config = PROXY_CONFIG.read_text(encoding="utf-8")
+        self.assertIn("tls internal", proxy_config)
+        self.assertIn("reverse_proxy web:8000", proxy_config)
+
+    def test_compose_uses_pinned_images_and_fail_closed_runtime_security(
+        self,
+    ) -> None:
+        services = _compose()["services"]
+        assert isinstance(services, dict)
+
+        for service_name in ("postgres", "volume-provisioner", "proxy"):
+            with self.subTest(service=service_name):
+                self.assertRegex(
+                    services[service_name]["image"],
+                    r"^[a-z0-9./:-]+@sha256:[0-9a-f]{64}$",
+                )
+        self.assertEqual(
+            services["postgres"]["healthcheck"]["test"][0],
+            "CMD-SHELL",
+        )
+        self.assertEqual(
+            services["migrate"]["depends_on"]["postgres"]["condition"],
+            "service_healthy",
+        )
+        self.assertEqual(
+            services["postgres"]["depends_on"]["volume-provisioner"]["condition"],
+            "service_completed_successfully",
+        )
+        self.assertIn(
+            "impodo-postgres-init:/docker-entrypoint-initdb.d:ro",
+            services["postgres"]["volumes"],
+        )
+        self.assertFalse(
+            any(
+                str(volume).startswith("./postgres/init/")
+                for volume in services["postgres"]["volumes"]
+            )
+        )
+        self.assertEqual(
+            services["web"]["depends_on"]["migrate"]["condition"],
+            "service_completed_successfully",
+        )
+        self.assertEqual(services["proxy"]["healthcheck"]["test"][1], "curl")
+        self.assertEqual(services["proxy"]["cap_drop"], ["ALL"])
+        self.assertEqual(services["proxy"]["cap_add"], ["NET_BIND_SERVICE"])
+        self.assertIn("no-new-privileges:true", services["proxy"]["security_opt"])
+
+        for service_name in ("migrate", "web", "worker"):
+            with self.subTest(service=service_name):
+                service = services[service_name]
+                self.assertEqual(service["user"], "10001:10001")
+                self.assertTrue(service["read_only"])
+                self.assertEqual(service["cap_drop"], ["ALL"])
+                self.assertIn("no-new-privileges:true", service["security_opt"])
+
+    def test_compose_uses_file_references_without_committed_secret_values(
+        self,
+    ) -> None:
+        compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
+        compose = _compose()
+        secrets_config = compose["secrets"]
+        self.assertIsInstance(secrets_config, dict)
+        assert isinstance(secrets_config, dict)
+
+        self.assertNotIn("postgresql://", compose_text)
+        self.assertEqual(
+            set(secrets_config),
+            {
+                "postgres-bootstrap-password",
+                "postgres-runtime-password",
+                "postgres-migration-password",
+                "postgres-runtime-dsn",
+                "postgres-migration-dsn",
+            },
+        )
+        for value in secrets_config.values():
+            self.assertIsInstance(value, dict)
+            assert isinstance(value, dict)
+            self.assertTrue(str(value["file"]).startswith("./.local/secrets/"))
+
+        role_init = POSTGRES_ROLE_INIT.read_text(encoding="utf-8")
+        self.assertIn("CREATE ROLE impodo_runtime LOGIN NOSUPERUSER", role_init)
+        self.assertIn("CREATE ROLE impodo_migrator LOGIN NOSUPERUSER", role_init)
+        self.assertIn("GRANT CREATE ON DATABASE %I TO impodo_migrator", role_init)
+        self.assertNotIn("SUPERUSER PASSWORD", role_init)
+
+        provisioner = SECRET_PROVISIONER.read_text(encoding="utf-8")
+        self.assertEqual(provisioner.count("-o 0 -g 10001 -m 0440"), 2)
+        self.assertIn('postgres_uid="$(id -u postgres)"', provisioner)
+        self.assertEqual(provisioner.count("-m 0400 \\"), 3)
+        self.assertIn("-o 0 -g 0 -m 0644", provisioner)
+        self.assertIn("/var/lib/impodo/artifacts", provisioner)
+        self.assertIn("/data \\", provisioner)
+
+        volume_provisioner = compose["services"]["volume-provisioner"]
+        self.assertEqual(
+            set(volume_provisioner["secrets"]),
+            set(secrets_config),
+        )
+        self.assertIn(
+            "impodo-postgres-secrets:/run/impodo-postgres-secrets",
+            volume_provisioner["volumes"],
+        )
+        self.assertIn(
+            "impodo-postgres-init:/run/impodo-postgres-init",
+            volume_provisioner["volumes"],
+        )
+        self.assertEqual(
+            compose["services"]["migrate"]["volumes"],
+            ["impodo-migration-secrets:/run/secrets/impodo:ro"],
+        )
+        self.assertIn(
+            "impodo-runtime-secrets:/run/secrets/impodo:ro",
+            compose["services"]["web"]["volumes"],
+        )
+        self.assertNotIn(
+            "impodo-migration-secrets:/run/secrets/impodo:ro",
+            compose["services"]["web"]["volumes"],
+        )
+
+        ignore_rules = (ROOT / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn("/deploy/.local/", ignore_rules.splitlines())
+
+    def test_local_secret_preparation_is_consistent_private_and_no_overwrite(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            secret_directory = Path(temporary_directory) / "secrets"
+            created = prepare_local_secrets(secret_directory)
+
+            self.assertEqual(tuple(path.name for path in created), SECRET_FILENAMES)
+            runtime_password = (
+                (secret_directory / "postgres-runtime-password")
+                .read_text(encoding="utf-8")
+                .strip()
+            )
+            migration_password = (
+                (secret_directory / "postgres-migration-password")
+                .read_text(encoding="utf-8")
+                .strip()
+            )
+            runtime_dsn = urlsplit(
+                (secret_directory / "postgres-runtime-dsn")
+                .read_text(encoding="utf-8")
+                .strip()
+            )
+            migration_dsn = urlsplit(
+                (secret_directory / "postgres-migration-dsn")
+                .read_text(encoding="utf-8")
+                .strip()
+            )
+
+            self.assertEqual(runtime_dsn.username, "impodo_runtime")
+            self.assertEqual(unquote(runtime_dsn.password or ""), runtime_password)
+            self.assertEqual(migration_dsn.username, "impodo_migrator")
+            self.assertEqual(
+                unquote(migration_dsn.password or ""),
+                migration_password,
+            )
+            with self.assertRaises(FileExistsError):
+                prepare_local_secrets(secret_directory)
 
 
 if __name__ == "__main__":

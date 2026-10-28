@@ -592,10 +592,9 @@ evidence.
 
 ## 11. Test pointers
 
-The current test inventory, platform-specific validation commands, optional
-workbook gate, and remaining evidence are maintained in the
-[acceptance and test strategy](../../testing/acceptance.md). Do not rely on a fixed
-test count copied into an example.
+The current platform-specific validation rules are maintained in
+[Platform support and testing](platform-support-and-testing.md). Do not rely on
+a fixed test count copied into an example.
 
 Live-target smoke tests, a 100–300-record sanitized acceptance slice, memory
 profiling of the historical 360,000-row package, and Odoo-side ACL evidence

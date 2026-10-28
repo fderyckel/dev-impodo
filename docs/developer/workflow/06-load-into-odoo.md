@@ -27,17 +27,14 @@ version-specific opt-in switch. The shared compatibility policy enables final
 Odoo 20 `WRITE` and `RECOVER` operation decisions. It continues to block
 `PRODUCTION`, prerelease builds, SaaS series, and other major versions.
 
-The 2026-10-08
-[controlled Odoo 20 write canary](../../testing/odoo20-write-canary-2026-10-08.md)
-proved one synthetic Contact create, exact read-back, and repeat identity match
-against final Enterprise Runbot. The later
-[browser load canary](../../testing/odoo20-browser-load-canary-2026-10-08.md)
+The 2026-10-08 controlled Odoo 20 write canary proved one synthetic Contact
+create, exact read-back, and repeat identity match against final Enterprise
+Runbot. The later browser load canary
 exercised the authenticated file-to-Odoo browser routes, live preflight,
 separate confirmation, background execution journal, and automatic
 reconciliation. It created and verified three synthetic Contacts with no
-updates, fallout, or unknown outcomes on Enterprise Runbot. The
-[local Community qualification](../../testing/odoo20-local-community-canary-2026-10-08.md)
-then verified the Local-mode shell and JSON-2 contracts for nine models. It
+updates, fallout, or unknown outcomes on Enterprise Runbot. The local Community
+qualification then verified the Local-mode shell and JSON-2 contracts for nine models. It
 also repeated the same file-to-Odoo route journey against final Odoo 20
 Community, where the journal recorded three creates and reconciliation
 verified all three. This evidence supports the declared normal-load boundary.
@@ -468,10 +465,9 @@ The implemented relationship planner publishes immutable row edges and
 schedules with exact cycle classification. Execution revalidates bounded
 crosswalks, requires receipts before releasing dependent components, and uses
 read-back to govern recovery. The browser derives bounded progressive guidance
-from that same snapshot. The current 25,000-row Product/BOM macOS and
-[Windows](../../testing/relationship-execution-windows-2026-09-28.md)
-qualifications pass, as does the bounded Odoo 19 generated-variant probe. The
-Windows report also records the green clean-revision repository gate that
+from that same snapshot. The current 25,000-row Product/BOM macOS and Windows
+qualifications pass, as does the bounded Odoo 19 generated-variant probe.
+Historical Windows evidence also records the green clean-revision repository gate that
 retired the relationship qualification plan.
 
 ## Browser guidance and progress
@@ -776,8 +772,7 @@ supported Odoo target.
 - [Execution and reconciliation contract](../contracts/execution-and-reconciliation.md)
 - [Security and infrastructure](../../architecture/security-and-infrastructure.md)
 - [Local browser database operation scopes](../../architecture/code-organization.md#local-browser-database-operation-scopes)
-- [Acceptance and test strategy](../../testing/acceptance.md)
+- [Platform support and testing](../reference/platform-support-and-testing.md)
 - [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)
-- [Windows relationship qualification evidence](../../testing/relationship-execution-windows-2026-09-28.md)
 - [Proposed exact-record repair for known fallout](../../plans/load-fallout-source-cell-workbook.md)

@@ -199,7 +199,7 @@ not qualify it as a server profile.
 
 **Implementation status on 2026-10-23:** Complete. The current baseline is
 recorded in the
-[Phase 0 baseline report](../reports/2026-10-22-shared-server-phase-0-baseline.md).
+[Phase 0 baseline report](2026-10-22-shared-server-phase-0-baseline.md).
 The accepted
 [server fact-ownership inventory](../architecture/server-fact-ownership.md)
 and portable domain contracts passed their focused review gate. The user's
@@ -236,7 +236,7 @@ parent architecture plan.
 - Record the current process-local job managers, lifecycle states, cancellation
   behavior, and restart behavior.
 
-**Deliverable:** A point-in-time baseline report under `docs/reports/` with
+**Deliverable:** A point-in-time baseline record under `docs/plans/` with
 commands and results. It is evidence, not a permanent performance guarantee.
 
 ### Work package 0.2 - Accept the architecture decisions
@@ -934,9 +934,82 @@ separate fail-closed server application graph remains the boundary for that
 future composition. Injected Windows tests prove configuration, signal order,
 new-work refusal, full-response lease ownership, and command composition.
 
-The external secret-provider adapter, Compose topology, role provisioning,
-PostgreSQL volume validation, and a real Linux container and PostgreSQL run
-remain open.
+The eighth Phase 2 increment adds the
+[reference empty-stack topology](../../deploy/compose.yaml). It builds one
+Impodo image for the migration, web, and disabled worker roles. A
+digest-pinned PostgreSQL service owns a separate persistent volume, while a
+digest-pinned Caddy service is the only component that publishes a host port.
+The proxy binds that port to loopback, terminates local internal TLS, and
+reaches the health-only web process through an internal application network.
+PostgreSQL, migration, web, and worker processes use a separate internal
+control network, and no database port is published.
+
+The same increment adds local-only PostgreSQL bootstrap role provisioning and
+a one-shot secret-volume provisioner. The Impodo containers receive only the
+DSN required by their role through root-owned, service-group-readable files.
+The web role runs as UID and GID `10001` with a read-only root filesystem,
+private temporary mounts, disabled Odoo egress, and one persistent artifact
+volume. A helper creates an internally consistent fictional secret set under
+the ignored `deploy/.local/` root without printing or replacing values. The
+local [rehearsal runbook](../../deploy/README.md) covers configuration
+resolution, image build, startup, repeated migration, health, drain, restart,
+and volume persistence.
+
+Eight focused container-contract tests verify the topology, digest-qualified
+supporting images, role separation, loopback-only publication, disabled worker
+profile, secret references, runtime restrictions, and fictional-secret
+generation. The
+[2026-10-27 local rehearsal](2026-10-27-local-empty-server-container-rehearsal.md)
+then resolved and built the topology on Docker Desktop for Apple silicon. It
+verified live PostgreSQL role creation and migration, repeated migration
+no-ops, internal TLS health, drain and recovery, container recreation, and
+PostgreSQL and artifact-volume persistence.
+
+That rehearsal corrected macOS bind-mount execution of the PostgreSQL init
+script, removed role-specific configuration and an implicit writable volume
+from the shared image, retained Caddy's one required file capability, and
+removed a duplicated 369 MB image layer. The final Impodo image was 683 MB and
+ran as UID and GID `10001` with a read-only root filesystem.
+
+The external secret-provider adapter, production database-role provisioning,
+PostgreSQL service-volume qualification, image scan, accepted PostgreSQL major,
+remote certificate policy, and Debian and Ubuntu rehearsals remain open.
+
+### Recommended local container rehearsal
+
+Run a loopback-only container rehearsal before the first remote Debian or
+Ubuntu deployment. This rehearsal should use the exact pinned production image
+and the reference Compose topology from Work package 2.2. It must not use a
+separate development image or enable behavior that the remote stack will not
+have.
+
+The local rehearsal should:
+
+- bind the reverse proxy only to the host loopback interface and publish no
+  direct web, worker, or PostgreSQL listener;
+- use fictional secrets, an empty PostgreSQL database, an empty artifact
+  root, and disabled Odoo egress;
+- build and inspect the image, run the migration command twice to prove a safe
+  no-op replay, and start the lifecycle-only web role;
+- verify liveness, readiness failure and recovery, drain behavior, non-root
+  execution, the read-only application tree, and private writable roots;
+- restart and recreate the containers while proving that the PostgreSQL and
+  artifact volumes persist; and
+- record the image digest, effective Compose configuration, schema version,
+  exposed ports, and sanitized results so the later host rehearsal can compare
+  the same facts.
+
+Docker Desktop or another local container engine runs Linux through a managed
+virtual machine. A successful local rehearsal catches image, configuration,
+secret-mount, migration, health, network, and persistence defects early, but
+it does not prove Debian or Ubuntu firewall, filesystem, service-management,
+or attached-storage behavior. Work package 2.5 and the Phase 2 exit gate still
+require both supported remote host rehearsals.
+
+Current status: the Compose topology, proxy policy, fictional-secret helper,
+PostgreSQL role bootstrap, runbook, static contract tests, and one complete
+local Docker Desktop rehearsal are implemented. The supported Debian and
+Ubuntu host rehearsals remain open.
 
 ### Work package 2.1 - Build the production image
 
@@ -968,6 +1041,13 @@ reach PostgreSQL through the private Docker network. PostgreSQL requires a
 health check before application readiness. The worker does not share a writable
 temporary directory with the web process.
 
+Current status: the reference topology is implemented for the empty local
+rehearsal. It uses separate edge, application, and control networks; publishes
+only the loopback TLS proxy; waits for PostgreSQL health and successful schema
+migration; and keeps the incomplete worker behind a disabled profile. Docker
+Compose resolved and ran the file successfully during the 2026-10-27 local
+rehearsal. Clean Debian and Ubuntu execution remains open.
+
 ### Work package 2.3 - Validate configuration and mounts
 
 - Define a typed server configuration that separates public URL, trusted proxy,
@@ -987,9 +1067,12 @@ web process cannot accept the privileged migration DSN reference. The
 platform-neutral Impodo-root policy and Linux mount observer have
 fixture-tested mount parsing, ownership, mode, and write-probe behavior. The
 Linux file-secret adapter validates a root-owned, service-group-readable,
-direct-child secret through no-follow descriptors. Real container execution,
-PostgreSQL service-volume validation, external secret-provider support, role
-provisioning, and separate fictional deployment examples remain open.
+direct-child secret through no-follow descriptors. The first fictional local
+rehearsal example and a no-overwrite secret generator are implemented. The
+local Docker Desktop run verified the expected secret ownership, separate
+role mounts, PostgreSQL named volume, and artifact named volume. Supported-host
+volume qualification, external secret-provider support, production role
+provisioning, and separate on-premises and cloud examples remain open.
 
 ### Work package 2.4 - Add lifecycle endpoints and commands
 
@@ -2012,7 +2095,9 @@ The first reviewable increments should occur in this order:
 5. **P1 Project visibility.** Add scoped list and contained-resource contracts,
    using the implicit local Organization adapter first.
 6. **P2 container shell.** Build and qualify the non-root image, empty server
-   entry point, proxy, PostgreSQL, mounts, health, and migration command.
+   entry point, proxy, PostgreSQL, mounts, health, and migration command. Run
+   the loopback-only local container rehearsal before the Debian and Ubuntu
+   host qualification.
 7. **P3 PostgreSQL foundation.** Add migrations, connection handling,
    Organization and Project catalogue repositories, and disposable-database
    contract tests.

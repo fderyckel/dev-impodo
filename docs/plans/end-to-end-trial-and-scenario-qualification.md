@@ -605,7 +605,7 @@ Focused implementation verification should include:
 
 ## Related documentation
 
-- [Acceptance and test strategy](../testing/acceptance.md)
+- [Platform support and testing](../developer/reference/platform-support-and-testing.md)
 - [Integrated Test run lifecycle](../developer/contracts/integrated-run-lifecycle.md)
 - [Execution and reconciliation](../developer/contracts/execution-and-reconciliation.md)
 - [Source data implementation](../developer/workflow/01-source-data.md)

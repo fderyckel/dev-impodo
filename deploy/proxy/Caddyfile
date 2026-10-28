@@ -1,0 +1,14 @@
+https://{$IMPODO_PROXY_HOST:localhost}:8443 {
+	tls internal
+	encode zstd gzip
+
+	header {
+		-Server
+		Cache-Control "no-store"
+		Strict-Transport-Security "max-age=0"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+	}
+
+	reverse_proxy web:8000
+}

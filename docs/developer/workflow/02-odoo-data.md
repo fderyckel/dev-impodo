@@ -100,9 +100,8 @@ The adapters cross-check structured version information when Odoo provides it.
 Unknown, malformed, or contradictory evidence cannot authorize capture. Odoo
 19 retains its existing acceptance rules. Final Odoo 20 enables connection,
 schema capture, bounded source capture, comparison reads, and Recipe authoring;
-write, recovery, and Production operations remain disabled. See the
-[Phase 3 report](../../testing/odoo-compatibility-phase3.md) for the live
-Community and Enterprise evidence and exact limitations.
+write, recovery, and Production operations remain disabled. The live Community
+and Enterprise qualification details remain available in Git history.
 
 Target evidence is either verified `LIVE_API` capture or an unverified
 `LOCAL_MANUAL` draft. A manual draft may support mapping work but cannot
@@ -359,10 +358,7 @@ read-only capability, batched requests, invalidation, and both source modes.
 ## Related documentation
 
 - [Stage 1 and 2 page-loading optimization proposal](../../plans/stage-1-and-2-page-loading.md)
-- [Page-loading optimization evidence](../../testing/stage12-page-loading-2026-10-07.md)
-- [Shared page-read measurements](../../testing/stage12-shared-page-reads-2026-10-07.md)
-- [Shared page-read audit helper](../../testing/evidence/stage12-shared-page-reads-2026-10-07/audit.py)
 - [User guide: Odoo data](../../user/workflow/02-odoo-data.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
-- [Stage 2 matching-rule acceptance evidence](../../testing/acceptance.md#stage-2-matching-rule-qualification-2026-09-23)
+- [Platform support and testing](../reference/platform-support-and-testing.md)
 - [Architecture decisions](../../decisions/README.md)

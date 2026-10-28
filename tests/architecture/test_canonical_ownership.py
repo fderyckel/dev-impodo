@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import shutil
+import tempfile
 import unittest
 from io import BytesIO
 from pathlib import Path
@@ -16,15 +16,12 @@ from impodo.domain.workspace.models import MigrationWorkspaceSetupState
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceStatus
 from impodo.web.app import create_local_app
 from tests.support.identity import resolve_local_actor
-from tests.support.paths import REPOSITORY_ROOT
-
-ROOT = REPOSITORY_ROOT
 
 
 class CanonicalOwnershipTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.root = ROOT / ".tmp" / f"canonical-ownership-{uuid4()}"
-        self.root.mkdir()
+        self.temporary = tempfile.TemporaryDirectory(prefix="canonical-ownership-")
+        self.root = Path(self.temporary.name)
         self.app = create_local_app(self.root)
         self.context = self.app.state.context
         self.bundle = self.context.project_authoring.create(
@@ -39,12 +36,14 @@ class CanonicalOwnershipTests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
-        shutil.rmtree(self.root, ignore_errors=True)
+        self.temporary.cleanup()
 
     def test_project_and_data_version_values_override_workbench_cache(self) -> None:
         workspace_id = self.bundle.workspace.workspace_id
         current = self.context.queries.get(workspace_id)
-        with patch("impodo.application.data_version.intake.validate_source_file_isolated"):
+        with patch(
+            "impodo.application.data_version.intake.validate_source_file_isolated"
+        ):
             self.context.intake.accept(
                 workspace_id,
                 actor=resolve_local_actor(self.context),
@@ -60,9 +59,7 @@ class CanonicalOwnershipTests(unittest.TestCase):
         self.assertEqual(len(package.files), 1)
 
         database_path = (
-            self.context.workspace_states.repository.workspace_directory(
-                workspace_id
-            )
+            self.context.workspace_states.repository.workspace_directory(workspace_id)
             / "workspace-engine.duckdb"
         )
         with duckdb.connect(str(database_path)) as connection:
@@ -86,7 +83,9 @@ class CanonicalOwnershipTests(unittest.TestCase):
     def test_registration_advances_only_the_workspace_setup_root(self) -> None:
         workspace_id = self.bundle.workspace.workspace_id
         current = self.context.queries.get(workspace_id)
-        with patch("impodo.application.data_version.intake.validate_source_file_isolated"):
+        with patch(
+            "impodo.application.data_version.intake.validate_source_file_isolated"
+        ):
             self.context.intake.accept(
                 workspace_id,
                 actor=resolve_local_actor(self.context),
