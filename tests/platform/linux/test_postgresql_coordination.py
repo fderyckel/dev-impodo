@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import unittest
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-import os
 from pathlib import PurePosixPath
-import unittest
 
 import psycopg
 
@@ -23,6 +23,7 @@ from impodo.domain.shared.coordination import (
     CrossStoreOperationState,
     DataPlaneOperationReceipt,
     IdempotencyConflictError,
+    OperationNotFoundError,
     OperationRequest,
     OperationStateConflictError,
     ReceiptMismatchError,
@@ -30,8 +31,11 @@ from impodo.domain.shared.coordination import (
     StaleLeaseError,
     WorkspaceLease,
 )
+from impodo.domain.shared.projection_reconciliation import (
+    ProjectionReconciliationDisposition,
+    ProjectionReconciliationQuery,
+)
 from impodo.domain.shared.tenancy import OrganizationId
-
 
 NOW = datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
 ORGANIZATION_A = OrganizationId("fictional-organization-a")
@@ -144,6 +148,7 @@ class PostgreSQLCoordinationLiveTests(unittest.TestCase):
     def setUp(self) -> None:
         with psycopg.connect(self.dsn) as connection:
             for table in (
+                "projection_current",
                 "projection_receipt",
                 "data_plane_receipt",
                 "workspace_lease",
@@ -232,12 +237,16 @@ class PostgreSQLCoordinationLiveTests(unittest.TestCase):
                 replace(projection, data_plane_receipt_hash=HASH_A)
             )
         with psycopg.connect(self.dsn) as connection:
-            state, data_count, projection_count, runtime_can_delete = (
+            connection.execute("TRUNCATE impodo_control.projection_current")
+            backfill = POSTGRESQL_MIGRATIONS[3].statements[1]
+            connection.execute(backfill.query, backfill.parameters)
+            state, data_count, projection_count, current_count, runtime_can_delete = (
                 connection.execute(
                     """
                     SELECT o.state,
                            (SELECT count(*) FROM impodo_control.data_plane_receipt),
                            (SELECT count(*) FROM impodo_control.projection_receipt),
+                           (SELECT count(*) FROM impodo_control.projection_current),
                            has_table_privilege(
                                'impodo_runtime',
                                'impodo_control.data_plane_receipt',
@@ -255,7 +264,107 @@ class PostgreSQLCoordinationLiveTests(unittest.TestCase):
         self.assertEqual(snapshot.projection_receipt, projection)
         self.assertEqual(data_count, 1)
         self.assertEqual(projection_count, 1)
+        self.assertEqual(current_count, 1)
         self.assertFalse(runtime_can_delete)
+
+    def test_reconciliation_scan_keeps_newer_projection_current(self) -> None:
+        older_request = replace(
+            _operation(),
+            operation_id="20000000-0000-4000-8000-000000000021",
+            idempotency_key="prepare:workspace:older",
+        )
+        newer_request = replace(
+            _operation(),
+            operation_id="20000000-0000-4000-8000-000000000022",
+            idempotency_key="prepare:workspace:newer",
+            requested_at=NOW + timedelta(seconds=1),
+        )
+        older_receipt = replace(
+            _data_receipt(),
+            receipt_id="data-receipt-older",
+            operation_id=older_request.operation_id,
+        )
+        newer_receipt = replace(
+            _data_receipt(),
+            receipt_id="data-receipt-newer",
+            operation_id=newer_request.operation_id,
+            committed_at=NOW + timedelta(minutes=10),
+        )
+        for request, receipt in (
+            (older_request, older_receipt),
+            (newer_request, newer_receipt),
+        ):
+            self.journal.reserve(request)
+            self.journal.record_data_plane_receipt(receipt)
+        newer_projection = ControlPlaneProjectionReceipt.for_data_plane(
+            newer_receipt,
+            projection_receipt_id="projection-newer",
+            projection_hash=HASH_C,
+            projection_revision=1,
+            projected_at=newer_receipt.committed_at,
+        )
+        older_projection = ControlPlaneProjectionReceipt.for_data_plane(
+            older_receipt,
+            projection_receipt_id="projection-older",
+            projection_hash=HASH_C,
+            projection_revision=1,
+            projected_at=older_receipt.committed_at,
+        )
+
+        self.journal.record_projection_receipt(newer_projection)
+        self.journal.record_projection_receipt(older_projection)
+
+        first_page = self.journal.list_reconciliation_page(
+            ORGANIZATION_A,
+            PROJECT_ID,
+            ProjectionReconciliationQuery(page_size=1),
+        )
+        self.assertEqual(
+            first_page.items[0].disposition,
+            ProjectionReconciliationDisposition.SUPERSEDED,
+        )
+        self.assertIsNotNone(first_page.next_cursor)
+        second_page = self.journal.list_reconciliation_page(
+            ORGANIZATION_A,
+            PROJECT_ID,
+            ProjectionReconciliationQuery(
+                page_size=1,
+                cursor=first_page.next_cursor,
+            ),
+        )
+        self.assertEqual(
+            second_page.items[0].disposition,
+            ProjectionReconciliationDisposition.CURRENT,
+        )
+        with psycopg.connect(self.dsn) as connection:
+            current_operation_id = connection.execute(
+                """
+                SELECT operation_id
+                FROM impodo_control.projection_current
+                WHERE organization_id = %s AND project_id = %s
+                  AND projection_kind = %s
+                """,
+                (
+                    str(ORGANIZATION_A),
+                    PROJECT_ID,
+                    newer_request.operation_kind,
+                ),
+            ).fetchone()[0]
+        self.assertEqual(str(current_operation_id), newer_request.operation_id)
+        self.assertEqual(
+            self.journal.list_reconciliation_page(
+                ORGANIZATION_B,
+                PROJECT_ID,
+                ProjectionReconciliationQuery(page_size=10),
+            ).items,
+            (),
+        )
+        with self.assertRaises(OperationNotFoundError):
+            self.journal.get_reconciliation_snapshot(
+                ORGANIZATION_B,
+                PROJECT_ID,
+                older_request.operation_id,
+            )
 
     def test_interruption_and_manual_review_are_durable_terminal_states(self) -> None:
         interrupted = replace(

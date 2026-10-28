@@ -65,12 +65,18 @@ does not have a matching product, Impodo sets aside that BoM, its other
 component lines, and the missing component line. Other BoMs can still proceed
 to review. The source files and Odoo remain unchanged.
 
-When you open **Set aside**, Impodo groups the causes across the complete
-prepared result. The counts do not change when you move between pages. A
-**Direct finding** belongs to the affected source row, such as a number that
-cannot be converted or a formula that divides by zero. An **Inherited
+When you open **Set aside**, **Migration issues** groups the causes across the
+complete prepared result. The counts do not change when you move between
+pages. Root findings appear before inherited dependencies. An **Inherited
 dependency** means that Impodo set the row aside because a linked parent or
 another member of its identity group was already unsafe.
+
+Each issue card shows the affected record type, friendly fields, complete-run
+record count, correction owner, and one **Match data** action. When current
+saved evidence identifies the exact Odoo field, relationship, Odoo match, or
+data check, that action opens the corresponding decision. Opening it does not
+change accepted source data or saved rules. Save a deliberate correction and
+then prepare the complete data again.
 
 Each record still shows every saved finding, the friendly field name, the
 source row, the responsible role, and the next correction route. A linked-row

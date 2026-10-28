@@ -1392,12 +1392,40 @@ deployment.
 - Rebuild a missing projection from receipts where the contract permits it.
   Do not reconstruct approvals or unknown Odoo outcomes from display status.
 
-Current local trial status: the deterministic receipt-facts updater implements
-the narrow projection input and records an exact data-plane receipt hash with
-projection revision `1` through the PostgreSQL operation journal. The
-administrative reconciliation scan, projection-specific current pointers,
-and a governed rebuild command remain open; the trial does not yet claim that
-arbitrary missing server projections are rebuildable.
+Current local trial status: this work package is implemented behind the
+deployment-neutral administration boundary. PostgreSQL control schema version
+`4` adds one `projection_current` pointer for each Organization, Project, and
+projection kind. A projection can advance that pointer only when its immutable
+data-commit time and operation identity sort after the current receipt. A late
+older projection is retained as `SUPERSEDED` evidence and cannot replace the
+newer current pointer. The forward migration backfills each pointer from the
+newest exact projection receipt.
+
+`PsycopgOperationJournal.list_reconciliation_page` reads at most `100`
+operations in one joined, keyset-ordered PostgreSQL query. Its URL-safe cursor
+is bound to the Organization and Project. The adapter reconstructs each
+data-plane receipt, verifies its recorded semantic hash, verifies any
+projection receipt and current pointer, and returns only bounded dispositions:
+`AWAITING_DATA_COMMIT`, `MISSING_PROJECTION`, `CURRENT`, `SUPERSEDED`, or
+`NOT_REBUILDABLE`. It does not open DuckDB or read source or prepared rows.
+
+`ProjectionReconciliationService` requires a valid `AUDIT_VIEW` authorization
+and Project visibility before scanning. Rebuild requires the exact
+`PROJECT_ADMIN` capability and accepts only a `DATA_COMMITTED` operation with
+missing projection evidence. It delegates to the existing recovery
+coordinator, which re-verifies immutable artifacts and projects the receipt
+without executing the data-plane command again. Projected, interrupted, and
+manual-review operations are not rebuilt, so the command cannot reconstruct
+an approval or an unknown Odoo outcome from display status.
+
+The portable contract suite proves authorization-before-storage, opaque
+cross-scope lookup, page bounds, cursor scoping, hash reconstruction, and the
+stale-pointer race. The Linux-owned disposable PostgreSQL suite proves the
+version-3 receipt backfill, current-versus-superseded ordering, and
+Organization isolation. An operator-facing server administration process is
+still deferred until the server identity and administration composition can
+construct the required authorization receipt; the current local trial does
+not expose an unauthenticated maintenance command.
 
 ### Work package 3.6 - Protect connection and transaction budgets
 

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath
 import unittest
+from pathlib import PurePosixPath
 from typing import LiteralString
 from unittest.mock import Mock, patch
 
@@ -332,6 +332,20 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         for statement in migration.statements:
             if statement.query.startswith("CREATE INDEX"):
                 self.assertIn("(organization_id,", statement.query)
+
+    def test_current_projection_pointer_rejects_stale_replacement(self) -> None:
+        migration = POSTGRESQL_MIGRATIONS[3]
+        schema = "\n".join(statement.query for statement in migration.statements)
+
+        self.assertIn("impodo_control.projection_current", schema)
+        self.assertIn(
+            "PRIMARY KEY (organization_id, project_id, projection_kind)",
+            schema,
+        )
+        self.assertIn("source_committed_at", schema)
+        self.assertIn("DISTINCT ON", schema)
+        self.assertIn("d.committed_at DESC, o.operation_id DESC", schema)
+        self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE", schema)
 
     def test_default_psycopg_session_is_bounded_and_transactional(self) -> None:
         connection = Mock()

@@ -1010,6 +1010,9 @@ class QualityCauseCount:
     message: str
     affected_fields: tuple[str, ...]
     affected_record_count: int
+    family: QualityRuleFamily | None = None
+    policy: QualityOutcomePolicy | None = None
+    owner_label: str = ""
 
     def __post_init__(self) -> None:
         if not self.dataset or not self.reason_code or not self.message:
@@ -1028,6 +1031,9 @@ class QualityCauseCount:
             "message": self.message,
             "affected_fields": list(self.affected_fields),
             "affected_record_count": self.affected_record_count,
+            "family": self.family.value if self.family is not None else None,
+            "policy": self.policy.value if self.policy is not None else None,
+            "owner_label": self.owner_label,
         }
 
     @classmethod
@@ -1043,6 +1049,17 @@ class QualityCauseCount:
             message=str(payload["message"]),
             affected_fields=tuple(str(item) for item in fields),
             affected_record_count=int(payload["affected_record_count"]),
+            family=(
+                QualityRuleFamily(str(payload["family"]))
+                if payload.get("family") is not None
+                else None
+            ),
+            policy=(
+                QualityOutcomePolicy(str(payload["policy"]))
+                if payload.get("policy") is not None
+                else None
+            ),
+            owner_label=str(payload.get("owner_label", "")),
         )
 
 

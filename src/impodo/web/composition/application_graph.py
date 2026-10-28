@@ -60,6 +60,7 @@ from impodo.application.workspace.derived_entities import (
     DerivedEntityRepository,
     DerivedEntityWorkspaceService,
     DerivedSourceRepository,
+    ExactJoinGroupEvaluator,
 )
 from impodo.application.workspace.mapping.field_catalog import (
     MappingFieldCatalogQueryRepository,
@@ -159,6 +160,7 @@ class WorkflowSupportPorts:
     supporting_lookups: SupportingLookupRepositoryPort
     preparation_recovery: PreparationRecoveryRepository
     recovery_workspace_states: PreparationRecoveryWorkspaceReader
+    exact_join_groups: ExactJoinGroupEvaluator | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,6 +287,7 @@ def build_workflow_support_service_graph(
             ports.derived_entities,
             foundation.workspace_access,
             artifacts,
+            ports.exact_join_groups,
         ),
         supporting_lookups=supporting_lookups,
         recipe_target_matches=RecipeTargetMatchService(

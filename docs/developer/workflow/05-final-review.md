@@ -43,13 +43,15 @@ current report or the complete new report, never a partial current report.
 Tests may disable the manager and exercise the synchronous compatibility path.
 Both paths call the same comparison service and publication transaction.
 
-Quality publication stores complete-run cause counts by dataset, reason,
-message, and affected field. The summary presenter resolves friendly field
-labels and merges equivalent display groups without rereading row-level issues.
-It labels each group as a direct finding or an inherited dependency. The cause
-summary remains complete when the row table is filtered or paged. The row table
-still renders every saved issue instead of collapsing the record to its first
-issue. Stable reason and rule identifiers remain under **Support details**.
+Quality publication stores complete-run cause counts by dataset, reason, rule
+family, policy, owner, and affected field. The summary presenter resolves
+friendly field labels and projects the bounded counts through the same
+`WorkflowIssueProjection` used by Odoo data. Root findings sort before
+inherited dependencies, and each card opens the closest saved Match-data
+decision without changing it. The issue summary remains complete when the row
+table is filtered or paged. The row table still renders every saved issue
+instead of collapsing the record to its first issue. Stable reason and rule
+identifiers remain under **Support details**.
 
 `PreflightService` freezes the input bindings, plans metadata and record
 requests, captures the target fingerprint and snapshot, performs offline
@@ -173,7 +175,7 @@ defined by the [reviewed deferred record groups contract](../contracts/deferred-
 | --- | --- |
 | Comparison orchestration | [`PreflightService`](../../../src/impodo/application/preflight_service.py) |
 | Persisted complete-run quality causes | [`QualityRepository`](../../../src/impodo/adapters/duckdb/quality_repository.py) |
-| Prepared-quality cause presentation | [`_quality_cause_groups`](../../../src/impodo/web/presenters/summary.py) |
+| Prepared-quality issue presentation | [`_quality_workflow_issue_summary`](../../../src/impodo/web/presenters/summary.py) and [`WorkflowIssueProjection`](../../../src/impodo/application/workspace/issues.py) |
 | Compact execution projection | [`navigation.py`](../../../src/impodo/application/workspace/execution/navigation.py) and [`PreflightRepository`](../../../src/impodo/adapters/duckdb/preflight_repository.py) |
 | Bounded shared navigation | [`WorkspaceNavigationQueryService`](../../../src/impodo/application/workspace/navigation.py) and [`WorkspaceNavigationRepository`](../../../src/impodo/adapters/duckdb/navigation_repository.py) |
 | Background comparison control | [`preflight_jobs.py`](../../../src/impodo/application/preflight_jobs.py) |

@@ -54,12 +54,22 @@ Quality publication also derives the complete-run cause counts after the
 batched issue rows have been stored. `QualityRepository` performs one set-based
 `COUNT(DISTINCT row_id)` aggregation inside the publication transaction and
 stores only the compact result in `quality_evidence_projection`. The projection
-keeps the dataset, stable reason, message, affected fields, and affected-record
-count. It contains no source value. The preparation owner therefore does the
-full issue scan once; browser pages do not repeat it or load every issue into
-Python. A current browser read asks for the projection through the existing
-bounded quality-page query. Historical runs without the new projection use one
-set-based fallback query on the same retained DuckDB owner and are not rewritten.
+keeps the dataset, stable reason, representative message, rule family, outcome
+policy, correction owner, affected fields, and affected-record count. It
+contains no source value. Equivalent messages that differ only in row-specific
+detail are counted once with `COUNT(DISTINCT row_id)`. The preparation owner
+therefore does the full issue scan once; browser pages do not repeat it or load
+every issue into Python. A current browser read asks for the projection through
+the existing bounded quality-page query. Historical runs without the enriched
+fields remain readable and are not rewritten.
+
+Stages 4 and 5 project those counts through the shared read-only
+`WorkflowIssueProjection`. The projection orders root findings before inherited
+dependencies, shows the authoritative policy and owner when current evidence
+contains them, and builds one non-mutating Match-data route. The route filters
+and anchors the current dataset's scalar field, relationship, Odoo identity, or
+guided data-check decision when the saved schema can identify it. This does not
+create a second issue store and adds no page-read query.
 
 Each direct dataset may use either a prepared-value projection or stored
 canonical JSON. `PreparationQualityIndex._bounded_quality_index` accepts both
@@ -256,6 +266,7 @@ Extending qualification belongs to the
 | Project-only worker wiring | [`create_preparation_worker`](../../../src/impodo/web/composition/preparation_worker.py) |
 | Quality publication | [`QualityService`](../../../src/impodo/application/workspace/preparation/quality_service.py) |
 | Complete-run quality causes | [`QualityCauseCount`](../../../src/impodo/domain/preparation/quality.py) and [`_read_complete_quality_cause_counts`](../../../src/impodo/adapters/duckdb/quality_repository.py) |
+| Shared issue projection and exact correction route | [`WorkflowIssueProjection`](../../../src/impodo/application/workspace/issues.py) and [`_quality_workflow_issue_summary`](../../../src/impodo/web/presenters/summary.py) |
 | Quality indexes across direct datasets | [`PreparationQualityIndex`](../../../src/impodo/adapters/duckdb/preparation_quality_index.py) |
 | Actionable relationship reason builder | [`_relationship_issue_details`](../../../src/impodo/domain/preparation/quality.py) |
 | Admission and dataset route diagnostics | [`compile_preparation_capability`](../../../src/impodo/application/workspace/preparation/preparation_capability.py) |
@@ -352,11 +363,13 @@ Review database writes for repeated single-row `execute` calls and source-row
 loops for hidden conversions. New paths must preserve deterministic hash and
 lineage parity before being called an optimization.
 
-The cause projection adds no browser database owner or schema check. Focused
+The cause and issue projections add no browser database owner or schema check. Focused
 tests require one physical connection and one schema check for a real
 quality-page read inside `retain_databases_for_read`. The summary route also
 proves that its quality read runs off the event loop and remains within the
-existing eight-connection request ceiling.
+existing eight-connection request ceiling. In the shared-server composition,
+the data-plane worker publishes this bounded projection with its verified
+operation result; an application request must not reopen worker-owned DuckDB.
 
 ## Verification
 
@@ -377,6 +390,7 @@ existing eight-connection request ceiling.
 - [`tests/performance/test_preparation_identity_groups.py`](../../../tests/performance/test_preparation_identity_groups.py)
 - [`tests/integration/web/test_preparation_workflow.py`](../../../tests/integration/web/test_preparation_workflow.py)
 - [`tests/integration/web/test_normalization_presenter.py`](../../../tests/integration/web/test_normalization_presenter.py)
+- [`tests/application/workspace/test_workflow_issues.py`](../../../tests/application/workspace/test_workflow_issues.py)
 - [`tests/application/workspace/preparation/test_readiness.py`](../../../tests/application/workspace/preparation/test_readiness.py)
 - [`tests/integration/artifacts/test_source_snapshot_io.py`](../../../tests/integration/artifacts/test_source_snapshot_io.py)
 

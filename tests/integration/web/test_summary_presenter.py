@@ -4,10 +4,18 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
-from impodo.domain.preparation.quality import QualityCauseCount
+from impodo.application.workspace.issues import (
+    WorkflowIssueOrigin,
+    WorkflowIssueSeverity,
+)
+from impodo.domain.preparation.quality import (
+    QualityCauseCount,
+    QualityOutcomePolicy,
+    QualityRuleFamily,
+)
 from impodo.web.presenters.summary import (
-    _quality_cause_groups,
     _quality_issue_field_label_map,
+    _quality_workflow_issue_summary,
     _preparation_limit_message,
     _summary_page_size,
 )
@@ -39,7 +47,9 @@ class QualityCauseSummaryTests(unittest.TestCase):
         }
 
         fields = _quality_issue_field_label_map((item,), labels)
-        groups = _quality_cause_groups(
+        summary = _quality_workflow_issue_summary(
+            "workspace:test",
+            "quality-run",
             (
                 QualityCauseCount(
                     dataset="bom_lines",
@@ -47,6 +57,9 @@ class QualityCauseSummaryTests(unittest.TestCase):
                     message=direct_issue.message,
                     affected_fields=direct_issue.affected_fields,
                     affected_record_count=2,
+                    family=QualityRuleFamily.BOUNDED_VALUES,
+                    policy=QualityOutcomePolicy.BLOCK,
+                    owner_label="Data manager",
                 ),
                 QualityCauseCount(
                     dataset="bom_lines",
@@ -54,18 +67,74 @@ class QualityCauseSummaryTests(unittest.TestCase):
                     message=inherited_issue.message,
                     affected_fields=inherited_issue.affected_fields,
                     affected_record_count=5,
+                    family=QualityRuleFamily.RELATIONSHIP_READINESS,
+                    policy=QualityOutcomePolicy.QUARANTINE,
+                    owner_label="Product data manager",
                 ),
             ),
             labels,
+            SimpleNamespace(
+                datasets=(
+                    SimpleNamespace(dataset_id="dataset:bom-lines", name="bom_lines"),
+                )
+            ),
+            SimpleNamespace(
+                definition=SimpleNamespace(
+                    datasets=(
+                        SimpleNamespace(
+                            dataset_id="dataset:bom-lines",
+                            target_model="mrp.bom.line",
+                        ),
+                    )
+                )
+            ),
+            SimpleNamespace(
+                models=(
+                    SimpleNamespace(
+                        name="mrp.bom.line",
+                        fields=(
+                            SimpleNamespace(
+                                name="field:sequence",
+                                label="Operation number",
+                                type="integer",
+                            ),
+                            SimpleNamespace(
+                                name="bom_id",
+                                label="Bill of Materials",
+                                type="many2one",
+                            ),
+                        ),
+                    ),
+                )
+            ),
         )
 
         self.assertEqual(fields["direct"], ("Operation number",))
         self.assertEqual(fields["inherited"], ("Bill of Materials",))
+        self.assertEqual(summary.must_fix_count, 1)
+        self.assertEqual(summary.review_count, 1)
         self.assertEqual(
-            {group["kind"] for group in groups},
-            {"Direct finding", "Inherited dependency"},
+            sum(issue.affected_record_count or 0 for issue in summary.issues),
+            7,
         )
-        self.assertEqual(sum(int(group["count"]) for group in groups), 7)
+        direct, inherited = summary.issues
+        self.assertEqual(direct.severity, WorkflowIssueSeverity.MUST_FIX)
+        self.assertEqual(direct.origin, WorkflowIssueOrigin.SOURCE_DATA)
+        self.assertEqual(
+            direct.correction_route,
+            "/workspaces/workspace:test/mapping?mapping_dataset=0&field_query="
+            "Operation+number#scalar-0-field:sequence",
+        )
+        self.assertEqual(
+            inherited.origin,
+            WorkflowIssueOrigin.INCOMING_RELATIONSHIP,
+        )
+        self.assertTrue(inherited.dependent_on_other_issue)
+        self.assertEqual(
+            inherited.correction_route,
+            "/workspaces/workspace:test/mapping?mapping_dataset=0&relation_query="
+            "Bill+of+Materials#relationship-0-bom_id",
+        )
 
 
 class SummaryPageSizeTests(unittest.TestCase):

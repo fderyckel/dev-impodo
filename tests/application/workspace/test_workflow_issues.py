@@ -28,12 +28,26 @@ class WorkflowIssueProjectionTests(unittest.TestCase):
         self.assertEqual(summary.must_fix_count, 1)
         self.assertEqual(summary.review_count, 1)
 
+    def test_summary_places_root_findings_before_dependent_findings(self) -> None:
+        summary = summarize_workflow_issues(
+            (
+                _issue("dependent", WorkflowIssueSeverity.REVIEW, dependent=True),
+                _issue("root", WorkflowIssueSeverity.REVIEW),
+            )
+        )
+
+        self.assertEqual(
+            tuple(issue.code for issue in summary.issues),
+            ("root", "dependent"),
+        )
+
 
 def _issue(
     code: str,
     severity: WorkflowIssueSeverity,
     *,
     resolved: bool = False,
+    dependent: bool = False,
 ) -> WorkflowIssueProjection:
     return WorkflowIssueProjection(
         code=code,
@@ -52,6 +66,7 @@ def _issue(
         preserved_work="Accepted source data remains unchanged.",
         recheck="Check Odoo data again.",
         evidence_revision="sha256:" + "a" * 64,
+        dependent_on_other_issue=dependent,
     )
 
 

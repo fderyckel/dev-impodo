@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from time import perf_counter
-from typing import TypedDict
 from urllib.parse import urlencode
 
 from fastapi import HTTPException, Request
@@ -14,14 +13,33 @@ from impodo.adapters.artifacts.reporting import WORKBOOK_NAME
 from impodo.adapters.odoo.local_stack import LocalStackError, LocalStackStatus
 from impodo.application.preflight_service import DEFERRED_SCOPE_DECISION_NAME
 from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.application.workspace.issues import (
+    WorkflowIssueOrigin,
+    WorkflowIssueProjection,
+    WorkflowIssueSeverity,
+    WorkflowIssueState,
+    WorkflowIssueSummary,
+    summarize_workflow_issues,
+)
 from impodo.application.workspace.source_readiness import (
     assess_source_stage_readiness,
 )
 from impodo.domain.compiler.browser_mapping_compiler import browser_mapping_labels
 from impodo.domain.errors import ReadinessError
+from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.preflight.deferred_scope import DeferredScopeEvidenceError
-from impodo.domain.preparation.quality import QualityCauseCount, QualityReviewItem
+from impodo.domain.preparation.quality import (
+    QualityCauseCount,
+    QualityOutcomePolicy,
+    QualityReviewItem,
+    QualityRuleFamily,
+)
 from impodo.domain.shared.access import Actor, AuthorizationError, Capability
+from impodo.domain.workspace.contracts import (
+    OdooSchemaCatalog,
+    SchemaField,
+    SourceSelection,
+)
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     SourceMode,
@@ -62,17 +80,6 @@ from ..target_credentials import (
 from .common import _render
 from .comparison_recovery import comparison_recovery_view
 from .missing_parent_actions import missing_parent_source_key
-
-
-class _QualityCauseGroupView(TypedDict):
-    """Present one grouped quality cause without untyped counter mutation."""
-
-    reason_code: str
-    title: str
-    kind: str
-    message: str
-    fields: tuple[str, ...]
-    count: int
 
 
 def _render_target(
@@ -194,7 +201,7 @@ def _render_normalization(
     collision_routes = {}
     quality_field_labels: dict[str, dict[str, str]] = {}
     quality_issue_field_labels: dict[str, tuple[str, ...]] = {}
-    quality_cause_groups = ()
+    workflow_issue_summary = summarize_workflow_issues(())
     if set_aside_page is not None:
         selection = context.queries.get_mapping_source_selection(workspace_id)
         revision = context.queries.get_mapping_revision(workspace_id)
@@ -208,9 +215,14 @@ def _render_normalization(
             set_aside_page.items,
             quality_field_labels,
         )
-        quality_cause_groups = _quality_cause_groups(
+        workflow_issue_summary = _quality_workflow_issue_summary(
+            workspace_id,
+            summary.quality_run_id,
             set_aside_page.run_cause_counts,
             quality_field_labels,
+            selection,
+            revision,
+            schema,
         )
         collision_items = tuple(
             item
@@ -281,7 +293,7 @@ def _render_normalization(
         dry_run=dry_run,
         review_items=page_items,
         set_aside_page=set_aside_page,
-        quality_cause_groups=quality_cause_groups,
+        workflow_issue_summary=workflow_issue_summary,
         quality_issue_field_labels=quality_issue_field_labels,
         collision_groups=collision_groups,
         collision_routes=collision_routes,
@@ -646,9 +658,14 @@ def _render_summary(
         quality_page.items if quality_page is not None else (),
         quality_field_labels,
     )
-    quality_cause_groups = _quality_cause_groups(
+    workflow_issue_summary = _quality_workflow_issue_summary(
+        workspace_id,
+        quality.run_id if quality is not None else "",
         quality_page.run_cause_counts if quality_page is not None else (),
         quality_field_labels,
+        effective_selection,
+        revision,
+        schema_catalog,
     )
     summary_quality_page_ms = (perf_counter() - quality_page_started) * 1000
     status_filter = request.query_params.get("status", "").strip()
@@ -706,7 +723,7 @@ def _render_summary(
         normalization=normalization,
         resolution=resolution,
         quality_review_page=quality_page,
-        quality_cause_groups=quality_cause_groups,
+        workflow_issue_summary=workflow_issue_summary,
         quality_issue_field_labels=quality_issue_field_labels,
         quality_review_row_start=quality_row_start,
         quality_review_row_end=quality_row_end,
@@ -916,63 +933,239 @@ def _quality_issue_field_label_map(
     }
 
 
-def _quality_cause_groups(
+_MANAGER_QUALITY_FAMILIES = frozenset({
+    QualityRuleFamily.REQUIRED_IF,
+    QualityRuleFamily.EXACTLY_ONE_OF,
+    QualityRuleFamily.ORDERED_COMPARISON,
+    QualityRuleFamily.EQUALITY,
+    QualityRuleFamily.INEQUALITY,
+    QualityRuleFamily.LUHN_CHECKSUM,
+    QualityRuleFamily.IBAN_MOD97,
+    QualityRuleFamily.POSTAL_FORMAT,
+    QualityRuleFamily.DATE_WINDOW,
+    QualityRuleFamily.APPROVED_CODE_LIST,
+    QualityRuleFamily.METRIC_BOUNDARY,
+    QualityRuleFamily.IQR_OUTLIER,
+})
+
+_INHERITED_QUALITY_REASONS = frozenset({
+    "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE",
+    "INCOMING_IDENTITY_DEPENDENT_SET_ASIDE",
+})
+
+_QUALITY_CAUSE_TITLES = {
+    "SOURCE_TYPE_INVALID": "Invalid number or value type",
+    "SOURCE_FORMULA_INVALID": "Formula calculation failed",
+    "INCOMING_RELATIONSHIP_MISSING": "Linked source record is missing",
+    "INCOMING_RELATIONSHIP_AMBIGUOUS": "Linked source record is ambiguous",
+    "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE": "Linked parent was set aside",
+    "INCOMING_IDENTITY_DEPENDENT_SET_ASIDE": (
+        "Dependent identity group was set aside"
+    ),
+    "POST_TRANSFORM_IDENTITY_COLLISION": "Odoo match is not unique",
+}
+
+
+def _quality_workflow_issue_summary(
+    workspace_id: str,
+    evidence_revision: str,
     causes: Sequence[QualityCauseCount],
     field_labels: dict[str, dict[str, str]],
-) -> tuple[_QualityCauseGroupView, ...]:
-    """Present persisted complete-run direct and inherited cause counts."""
+    selection: SourceSelection | None,
+    revision: MappingRevision | None,
+    schema: OdooSchemaCatalog | None,
+) -> WorkflowIssueSummary:
+    """Project complete-run quality causes through the shared issue contract."""
 
-    titles = {
-        "SOURCE_TYPE_INVALID": "Invalid number or value type",
-        "SOURCE_FORMULA_INVALID": "Formula calculation failed",
-        "INCOMING_RELATIONSHIP_MISSING": "Linked source record is missing",
-        "INCOMING_RELATIONSHIP_AMBIGUOUS": "Linked source record is ambiguous",
-        "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE": "Linked parent was set aside",
-        "INCOMING_IDENTITY_DEPENDENT_SET_ASIDE": (
-            "Dependent identity group was set aside"
-        ),
+    dataset_locations = {
+        dataset.name: (index, dataset.dataset_id)
+        for index, dataset in enumerate(selection.datasets if selection else ())
     }
-    inherited_reasons = {
-        "INCOMING_RELATIONSHIP_PARENT_SET_ASIDE",
-        "INCOMING_IDENTITY_DEPENDENT_SET_ASIDE",
+    target_models = {
+        mapping.dataset_id: mapping.target_model
+        for mapping in (revision.definition.datasets if revision else ())
     }
-    grouped: dict[tuple[object, ...], _QualityCauseGroupView] = {}
+    schema_fields = {
+        model.name: {field.name: field for field in model.fields}
+        for model in (schema.models if schema else ())
+    }
+    grouped: dict[tuple[object, ...], list[QualityCauseCount]] = {}
     for cause in causes:
-        scoped = field_labels.get(cause.dataset, {})
-        fields = tuple(
-            scoped.get(field, field.replace("_", " ").title())
+        key = (
+            cause.dataset,
+            cause.reason_code,
+            cause.affected_fields,
+            cause.family,
+            cause.policy,
+            cause.owner_label,
+        )
+        grouped.setdefault(key, []).append(cause)
+    issues = []
+    for equivalent_causes in grouped.values():
+        cause = equivalent_causes[0]
+        affected_record_count = sum(
+            item.affected_record_count for item in equivalent_causes
+        )
+        labels = field_labels.get(cause.dataset, {})
+        affected_fields = tuple(
+            labels.get(field, field.replace("_", " ").title())
             for field in cause.affected_fields
         )
-        key = (cause.reason_code, cause.message, fields)
-        group = grouped.setdefault(
-            key,
-            {
-                "reason_code": cause.reason_code,
-                "title": titles.get(
+        dataset_label = cause.dataset.replace("_", " ").title()
+        correction_label, correction_route = _quality_correction_action(
+            workspace_id,
+            cause,
+            dataset_label=dataset_label,
+            dataset_locations=dataset_locations,
+            target_models=target_models,
+            schema_fields=schema_fields,
+        )
+        issues.append(
+            WorkflowIssueProjection(
+                code=(
+                    f"QUALITY:{cause.dataset}:{cause.reason_code}:"
+                    f"{cause.family.value if cause.family else 'LEGACY'}:"
+                    f"{cause.policy.value if cause.policy else 'REVIEW'}:"
+                    f"{','.join(cause.affected_fields) or 'dataset'}"
+                ),
+                severity=(
+                    WorkflowIssueSeverity.MUST_FIX
+                    if cause.policy is QualityOutcomePolicy.BLOCK
+                    else WorkflowIssueSeverity.REVIEW
+                ),
+                state=WorkflowIssueState.CURRENT,
+                cause=_QUALITY_CAUSE_TITLES.get(
                     cause.reason_code,
                     cause.reason_code.replace("_", " ").title(),
                 ),
-                "kind": (
-                    "Inherited dependency"
-                    if cause.reason_code in inherited_reasons
-                    else "Direct finding"
+                origin=_quality_issue_origin(cause),
+                owner=cause.owner_label or "Data manager",
+                owning_stage="Match data",
+                correction_label=correction_label,
+                correction_route=correction_route,
+                preserved_work=(
+                    "Opening this action does not change accepted source data "
+                    "or saved rules."
                 ),
-                "message": cause.message,
-                "fields": fields,
-                "count": 0,
-            },
+                recheck=(
+                    "Save the correction, then prepare the complete data again."
+                ),
+                evidence_revision=evidence_revision,
+                affected_record_types=(dataset_label,),
+                affected_fields=affected_fields,
+                affected_record_count=affected_record_count,
+                dependent_on_other_issue=(
+                    cause.reason_code in _INHERITED_QUALITY_REASONS
+                ),
+            )
         )
-        group["count"] += cause.affected_record_count
-    return tuple(
-        sorted(
-            grouped.values(),
-            key=lambda item: (
-                -item["count"],
-                item["title"],
-                item["message"],
+    return summarize_workflow_issues(issues)
+
+
+def _quality_issue_origin(cause: QualityCauseCount) -> WorkflowIssueOrigin:
+    """Classify a quality cause without changing its owning evidence."""
+
+    if (
+        cause.family is QualityRuleFamily.RELATIONSHIP_READINESS
+        or cause.reason_code.startswith("INCOMING_")
+    ):
+        return WorkflowIssueOrigin.INCOMING_RELATIONSHIP
+    if cause.reason_code.startswith("SOURCE_"):
+        return WorkflowIssueOrigin.SOURCE_DATA
+    return WorkflowIssueOrigin.IMPODO_ACTION
+
+
+def _quality_correction_action(
+    workspace_id: str,
+    cause: QualityCauseCount,
+    *,
+    dataset_label: str,
+    dataset_locations: dict[str, tuple[int, str]],
+    target_models: dict[str, str],
+    schema_fields: Mapping[str, Mapping[str, SchemaField]],
+) -> tuple[str, str]:
+    """Return one non-mutating route to the closest owning Match decision."""
+
+    location = dataset_locations.get(cause.dataset)
+    if location is None:
+        return (
+            "Open Match data",
+            f"/workspaces/{workspace_id}/mapping",
+        )
+    dataset_index, dataset_id = location
+    base_parameters: dict[str, str | int] = {
+        "mapping_dataset": dataset_index,
+    }
+    if cause.family in _MANAGER_QUALITY_FAMILIES:
+        return (
+            f"Open {dataset_label} data checks",
+            _quality_mapping_url(
+                workspace_id,
+                base_parameters,
+                anchor="data-checks-title",
             ),
         )
+    if (
+        cause.family is QualityRuleFamily.IDENTITY_COLLISION
+        or "Odoo match" in cause.affected_fields
+        or "Odoo match scope" in cause.affected_fields
+    ):
+        return (
+            f"Open {dataset_label} Odoo match",
+            _quality_mapping_url(
+                workspace_id,
+                base_parameters,
+                anchor=f"target-identity-{dataset_index}",
+            ),
+        )
+    target_model = target_models.get(dataset_id, "")
+    fields = schema_fields.get(target_model, {})
+    target_field = next(
+        (field for field in cause.affected_fields if field in fields),
+        "",
     )
+    metadata = fields.get(target_field)
+    field_label = metadata.label if metadata is not None else target_field
+    field_type = metadata.type if metadata is not None else ""
+    if target_field and field_type in {"many2one", "many2many", "one2many"}:
+        parameters = {**base_parameters, "relation_query": field_label}
+        return (
+            f"Open {dataset_label} {field_label} relationship",
+            _quality_mapping_url(
+                workspace_id,
+                parameters,
+                anchor=f"relationship-{dataset_index}-{target_field}",
+            ),
+        )
+    if target_field:
+        parameters = {**base_parameters, "field_query": field_label}
+        return (
+            f"Open {dataset_label} {field_label} rule",
+            _quality_mapping_url(
+                workspace_id,
+                parameters,
+                anchor=f"scalar-{dataset_index}-{target_field}",
+            ),
+        )
+    return (
+        f"Open {dataset_label} field rules",
+        _quality_mapping_url(
+            workspace_id,
+            base_parameters,
+            anchor=f"mapping-dataset-{dataset_index}",
+        ),
+    )
+
+
+def _quality_mapping_url(
+    workspace_id: str,
+    parameters: dict[str, str | int],
+    *,
+    anchor: str,
+) -> str:
+    """Build one bounded Match-data recovery URL."""
+
+    return f"/workspaces/{workspace_id}/mapping?{urlencode(parameters)}#{anchor}"
 
 
 def _append_summary_server_timing(response, **metrics: float) -> None:

@@ -174,6 +174,9 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                     message=issue.message,
                     affected_fields=issue.affected_fields,
                     affected_record_count=3,
+                    family=issue.family,
+                    policy=issue.policy,
+                    owner_label=issue.owner_label,
                 ),
             ),
         )
@@ -199,9 +202,10 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             page = self.client.get(f"/workspaces/{workspace_id}/summary")
 
         self.assertEqual(page.status_code, 200, page.text)
-        self.assertIn("Causes across the complete prepared result", page.text)
-        self.assertIn("Invalid number or value type (3)", page.text)
-        self.assertIn("even when this table is filtered or paged", page.text)
+        self.assertIn("Migration issues", page.text)
+        self.assertIn("Invalid number or value type", page.text)
+        self.assertIn("Affected records:</strong> 3", page.text)
+        self.assertIn("Open Match data", page.text)
         self.assertGreater(timings.connection_count, 0)
         self.assertLessEqual(timings.connection_count, 8)
         self.assertLessEqual(timings.schema_check_count, 12)

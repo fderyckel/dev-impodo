@@ -5,8 +5,10 @@
 **Status:** Ranked first in the cross-plan implementation order and reassessed
 against the current checkout on 2026-10-28. Proposals 1, 2, 3, 4, 5, 6, 7, 8,
 and 10 now have useful implemented foundations, while Proposal 9 is complete.
-The next delivery should combine the remaining work from Proposals 1 and 8
-into one root-cause correction journey. It should then complete the relational
+The shared root-cause correction journey from Proposals 1 and 8 now covers
+Stages 4 and 5 as well as the earlier Stage 2 adapter. The next delivery should
+add the dependency-impact closure and prepared-value precision pass that the
+current evidence cannot yet prove. It should then complete the relational
 identity and relationship gaps from Proposals 3 and 6, the source-aware
 supporting-data closure from Proposal 2, and the migration-intent part of
 Proposal 10. Do not build parallel replacements for the implemented default,
@@ -61,6 +63,13 @@ remains explicitly not tested. The first Proposal 6 slice checks saved
 relationship fields but does not yet complete a dataset's resolver-backed
 identity. Final review remains authoritative.
 
+The shared issue projection now also presents complete-run preparation causes
+on Stages 4 and 5. It sorts root findings before inherited dependencies, shows
+the complete affected-record count and authoritative owner/policy, and opens
+the closest saved Match-data field, relationship, Odoo-match, or data-check
+decision without mutating it. The existing bounded quality-page read supplies
+the projection; the browser adds no DuckDB open or Odoo call.
+
 The remaining work does not yet pair file-source dependencies with accepted or
 derived source tables, derive Recipe closure, authorize supporting reads,
 include optional many-to-one or many-to-many fields from source or Recipe
@@ -111,14 +120,14 @@ delivery summary recorded:
 
 | Proposal | Current implementation | Remaining decision |
 | --- | --- | --- |
-| **1. Issue register** | Stage 2 uses the shared `WorkflowIssueProjection` and renders cause, owner, preserved work, correction action, and recheck. | Extend the same projection to the other stages and workspace navigation without creating a second issue authority. |
+| **1. Issue register** | Stages 2, 4, and 5 use the shared `WorkflowIssueProjection` and render cause, owner, affected count, preserved work, correction action, and recheck. | Extend the same projection to the remaining stage adapters and workspace navigation without creating a second issue authority. |
 | **2. Supporting data** | File-source Stage 2 derives direct required relationships and inverse-owned children. The Odoo-source path already stores generic reviewed decisions for each relationship edge and builds guided capture plans. | Reuse that edge evidence. Add accepted or derived source-table intent, optional-field intent, Recipe closure, and explicit supporting-read authorization for file-source authoring. |
 | **3. Identity proof** | Direct scalar identities are checked against included source rows and current target evidence. | Prove relational key and scope components, expose protected duplicate-group review, and forecast update versus unchanged only when complete mapped evidence exists. |
 | **4. Required values** | Authoring can identify required-field blockers, check bounded Odoo defaults, review one or several defaults, save the chosen disposition, and run one complete mapping check. | Consolidate these decisions into one clear checklist. Do not create a second default-capture workflow. |
 | **5. Mapping starter** | Stage 2 matching-rule suggestions, generated-table relationship suggestions, recommended authoring order, scalar catalogue tools, and checked coverage evidence provide several safe starting points. | Add only evidence-backed suggestions that remove a demonstrated operator burden. A broad automatic field mapper is no longer a prerequisite for this plan. |
 | **6. Relationship simulator** | Direct scalar Many2one and Many2many keys, three resolver origins, constant references, parent counts, case-only protection, and inverse One2many guidance are current. | Add protected unresolved-choice review, nested relational keys, and resolver-backed components of the dataset's own identity. |
 | **7. Rule effects** | The optional **Review rule effects** page and matching review workbook already show changed, fallback, blank, invalid, supplied, and unchanged outcomes for the checked revision. | Prefer field-specific links and compact context over duplicating the complete preview inside every field card. |
-| **8. Root-cause repair** | Prepare data now publishes complete-run cause groups with direct or inherited classification and affected-record counts, while preserving paged row-level owner, field, source-row, and correction evidence. The preparation owner calculates the compact projection once during quality publication, so browser paging does not rescan all issue rows. Match data also predicts numeric precision loss from current frozen source-backed rules. | Add parent, child, and sibling impact, open the exact owning decision, join the groups to the cross-stage issue contract, and add a prepared-value precision pass for values that the earlier source-backed scan cannot prove. |
+| **8. Root-cause repair** | Prepare data publishes complete-run cause groups with direct or inherited classification, owner/policy, and affected-record counts. Stages 4 and 5 project them through the cross-stage issue contract and open the exact saved decision when current schema evidence identifies it. Browser paging does not rescan all issue rows. Match data also predicts numeric precision loss from current frozen source-backed rules. | Add parent, child, and sibling impact and a prepared-value precision pass for values that the earlier source-backed scan cannot prove. |
 | **9. Shared comparison** | The single Stage 4-to-Stage 5 comparison and reviewed deferred-record-group workflow are complete. | Preserve this owner; do not add another target scan. |
 | **10. Intent and cockpit** | Load already has dependency groups, bounded blockers, durable row journals, unknown-outcome states, read-back-gated recovery, reconciliation, and progressive relationship status. | Add the explicit business-intent contract and present it together with the existing execution and recovery evidence. |
 
@@ -853,14 +862,15 @@ review workbook already provide much of the underlying evidence.
 ## Proposal 8: Turn Stage 4 findings into root-cause repair plans
 
 **Delivery status:** Preparation now distinguishes direct and inherited
-findings and publishes affected-record counts across the complete current run.
-The worker calculates the compact projection once after storing quality issues;
-the browser reads it with the existing bounded page query. Row-level owner,
-field, source-row, and correction evidence remains paged. Match data also scans
-current frozen source-backed scalar rules for potential numeric precision loss.
-Parent, child, and sibling impact, exact owning-decision links, integration with
-the cross-stage issue contract, and a prepared-value precision pass remain
-proposed.
+findings and publishes affected-record counts, owner, policy, and rule family
+across the complete current run. The worker calculates the compact projection
+once after storing quality issues; the browser reads it with the existing
+bounded page query. Stages 4 and 5 use the shared issue contract, order root
+findings before inherited dependencies, and route to the exact saved Match-data
+decision when the captured schema can identify it. Row-level field, source-row,
+and correction evidence remains paged. Match data also scans current frozen
+source-backed scalar rules for potential numeric precision loss. Parent, child,
+and sibling impact plus a prepared-value precision pass remain proposed.
 
 **Owning stage:** Prepare data.  
 **User impact:** **9/10**.

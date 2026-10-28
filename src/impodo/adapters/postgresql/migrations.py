@@ -309,6 +309,59 @@ _GRANT_WORKSPACE_LEASE_QUERY: LiteralString = (
     "GRANT SELECT, INSERT, UPDATE "
     "ON impodo_control.workspace_lease TO impodo_runtime"
 )
+_CREATE_PROJECTION_CURRENT_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.projection_current (\n"
+    "    organization_id varchar(200) NOT NULL,\n"
+    "    project_id uuid NOT NULL,\n"
+    "    projection_kind varchar(300) NOT NULL "
+    "CHECK (projection_kind <> '' "
+    "AND projection_kind = btrim(projection_kind)),\n"
+    "    operation_id uuid NOT NULL,\n"
+    "    data_plane_receipt_hash varchar(71) NOT NULL "
+    "CHECK (data_plane_receipt_hash ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    projection_hash varchar(71) NOT NULL "
+    "CHECK (projection_hash ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    projection_revision bigint NOT NULL CHECK (projection_revision > 0),\n"
+    "    source_committed_at timestamp with time zone NOT NULL,\n"
+    "    projected_at timestamp with time zone NOT NULL,\n"
+    "    updated_at timestamp with time zone NOT NULL "
+    "DEFAULT transaction_timestamp(),\n"
+    "    PRIMARY KEY (organization_id, project_id, projection_kind),\n"
+    "    UNIQUE (organization_id, operation_id),\n"
+    "    FOREIGN KEY (organization_id, project_id) "
+    "REFERENCES impodo_control.project_catalogue "
+    "(organization_id, project_id) ON DELETE RESTRICT,\n"
+    "    FOREIGN KEY (organization_id, operation_id) "
+    "REFERENCES impodo_control.projection_receipt "
+    "(organization_id, operation_id) ON DELETE RESTRICT\n"
+    ")"
+)
+_BACKFILL_PROJECTION_CURRENT_QUERY: LiteralString = (
+    "INSERT INTO impodo_control.projection_current (\n"
+    "    organization_id, project_id, projection_kind, operation_id,\n"
+    "    data_plane_receipt_hash, projection_hash, projection_revision,\n"
+    "    source_committed_at, projected_at, updated_at\n"
+    ")\n"
+    "SELECT DISTINCT ON (o.organization_id, o.project_id, o.operation_kind)\n"
+    "       o.organization_id, o.project_id, o.operation_kind, o.operation_id,\n"
+    "       p.data_plane_receipt_hash, p.projection_hash,\n"
+    "       p.projection_revision, d.committed_at, p.projected_at,\n"
+    "       transaction_timestamp()\n"
+    "FROM impodo_control.operation_request AS o\n"
+    "JOIN impodo_control.data_plane_receipt AS d\n"
+    "  ON d.organization_id = o.organization_id\n"
+    " AND d.operation_id = o.operation_id\n"
+    "JOIN impodo_control.projection_receipt AS p\n"
+    "  ON p.organization_id = o.organization_id\n"
+    " AND p.operation_id = o.operation_id\n"
+    "WHERE o.state = 'PROJECTED'\n"
+    "ORDER BY o.organization_id, o.project_id, o.operation_kind,\n"
+    "         d.committed_at DESC, o.operation_id DESC"
+)
+_GRANT_PROJECTION_CURRENT_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT, UPDATE "
+    "ON impodo_control.projection_current TO impodo_runtime"
+)
 _UPDATE_CONTRACT_QUERY: LiteralString = (
     "UPDATE impodo_control.schema_contract\n"
     "SET version = %s, updated_at = transaction_timestamp()\n"
@@ -457,6 +510,20 @@ _MIGRATION_0003_STATEMENTS = (
         ),
     ),
 )
+_MIGRATION_0004_STATEMENTS = (
+    PostgreSQLMigrationStatement(_CREATE_PROJECTION_CURRENT_QUERY),
+    PostgreSQLMigrationStatement(_BACKFILL_PROJECTION_CURRENT_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_PROJECTION_CURRENT_QUERY),
+    PostgreSQLMigrationStatement(
+        _UPDATE_CONTRACT_QUERY,
+        (
+            4,
+            "control",
+            "impodo-control-v1",
+            3,
+        ),
+    ),
+)
 
 POSTGRESQL_MIGRATIONS = (
     PostgreSQLMigrationDefinition(
@@ -476,6 +543,12 @@ POSTGRESQL_MIGRATIONS = (
         name="create-operation-receipt-and-lease-coordination",
         checksum="e7a866832e0a50d4cac2e9b980de0cbb4f2aabe3972c638c880d8b6d233a9175",
         statements=_MIGRATION_0003_STATEMENTS,
+    ),
+    PostgreSQLMigrationDefinition(
+        version=4,
+        name="create-current-projection-pointers",
+        checksum="7ced134369ebc673b1f463f571d09fe745e80419a9a521dd1304699a62075dea",
+        statements=_MIGRATION_0004_STATEMENTS,
     ),
 )
 

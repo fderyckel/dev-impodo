@@ -27,6 +27,11 @@ from impodo.domain.shared.coordination import (
     StaleLeaseError,
     WorkspaceLease,
 )
+from impodo.domain.shared.projection_reconciliation import (
+    ProjectionReconciliationCursorError,
+    ProjectionReconciliationDisposition,
+    ProjectionReconciliationQuery,
+)
 from impodo.domain.shared.tenancy import OrganizationId
 
 NOW = datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
@@ -149,6 +154,59 @@ def _stored_data_receipt_row(
     )
 
 
+def _stored_projection_receipt_row(
+    receipt: ControlPlaneProjectionReceipt,
+) -> tuple[object, ...]:
+    return (
+        receipt.projection_receipt_id,
+        receipt.operation_id,
+        receipt.data_plane_receipt_hash,
+        receipt.projection_hash,
+        receipt.projection_revision,
+        receipt.projected_at,
+    )
+
+
+def _reconciliation_row(
+    request: OperationRequest,
+    *,
+    state: CrossStoreOperationState,
+    data_receipt: DataPlaneOperationReceipt | None = None,
+    projection: ControlPlaneProjectionReceipt | None = None,
+    current: bool = False,
+) -> tuple[object, ...]:
+    return (
+        *_snapshot_operation_row(
+            request,
+            state=state,
+            receipt_hash=(
+                data_receipt.semantic_hash if data_receipt is not None else None
+            ),
+        ),
+        *(
+            _stored_data_receipt_row(data_receipt)
+            if data_receipt is not None
+            else (None,) * 11
+        ),
+        *(
+            _stored_projection_receipt_row(projection)
+            if projection is not None
+            else (None,) * 6
+        ),
+        *(
+            (
+                request.operation_id,
+                data_receipt.semantic_hash,
+                projection.projection_hash,
+                projection.projection_revision,
+                data_receipt.committed_at,
+            )
+            if current and data_receipt is not None and projection is not None
+            else (None,) * 5
+        ),
+    )
+
+
 def _lease_row(
     *,
     token: int = 1,
@@ -182,6 +240,13 @@ class _Session:
 
     def fetch_one(self, query, parameters=()):
         self.events.append(("fetch_one", query, parameters))
+        response = self.responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+    def fetch_all(self, query, parameters=()):
+        self.events.append(("fetch_all", query, parameters))
         response = self.responses.pop(0)
         if isinstance(response, BaseException):
             raise response
@@ -351,8 +416,10 @@ class PostgreSQLOperationJournalTests(unittest.TestCase):
                     "DATA_COMMITTED",
                     data_receipt.semantic_hash,
                 ),
+                _stored_data_receipt_row(data_receipt),
                 None,
                 (projection.projection_receipt_id,),
+                (OPERATION_ID,),
                 (OPERATION_ID,),
             ]
         )
@@ -379,6 +446,136 @@ class PostgreSQLOperationJournalTests(unittest.TestCase):
         with self.assertRaises(ReceiptMismatchError):
             _journal(mismatch).record_projection_receipt(substituted)
         self.assertTrue(mismatch.rolled_back)
+
+    def test_stale_projection_receipt_never_replaces_a_newer_current_pointer(
+        self,
+    ) -> None:
+        data_receipt = _data_receipt()
+        projection = ControlPlaneProjectionReceipt.for_data_plane(
+            data_receipt,
+            projection_receipt_id="projection-001",
+            projection_hash=HASH_C,
+            projection_revision=1,
+            projected_at=NOW + timedelta(minutes=2),
+        )
+        newer_operation_id = "20000000-0000-4000-8000-000000000099"
+        session = _Session(
+            [
+                (
+                    PROJECT_ID,
+                    data_receipt.operation_kind,
+                    HASH_A,
+                    "DATA_COMMITTED",
+                    data_receipt.semantic_hash,
+                ),
+                _stored_data_receipt_row(data_receipt),
+                None,
+                (projection.projection_receipt_id,),
+                (OPERATION_ID,),
+                None,
+                (
+                    newer_operation_id,
+                    HASH_A,
+                    HASH_B,
+                    1,
+                    data_receipt.committed_at + timedelta(minutes=5),
+                    projection.projected_at + timedelta(minutes=5),
+                ),
+            ]
+        )
+
+        _journal(session).record_projection_receipt(projection)
+
+        current_query = session.events[-2][1]
+        self.assertIn("ON CONFLICT", current_query)
+        self.assertIn("source_committed_at", current_query)
+        self.assertTrue(session.committed)
+
+    def test_reconciliation_scan_is_bounded_keyset_ordered_and_hash_verified(
+        self,
+    ) -> None:
+        request = _operation()
+        data_receipt = _data_receipt()
+        projection = ControlPlaneProjectionReceipt.for_data_plane(
+            data_receipt,
+            projection_receipt_id="projection-001",
+            projection_hash=HASH_C,
+            projection_revision=1,
+            projected_at=NOW + timedelta(minutes=2),
+        )
+        extra_request = replace(
+            request,
+            operation_id="20000000-0000-4000-8000-000000000002",
+            idempotency_key="prepare:workspace:revision-2",
+            requested_at=NOW + timedelta(minutes=3),
+        )
+        first = _Session(
+            [
+                (
+                    _reconciliation_row(
+                        request,
+                        state=CrossStoreOperationState.PROJECTED,
+                        data_receipt=data_receipt,
+                        projection=projection,
+                        current=True,
+                    ),
+                    _reconciliation_row(
+                        extra_request,
+                        state=CrossStoreOperationState.RESERVED,
+                    ),
+                )
+            ]
+        )
+
+        page = _journal(first).list_reconciliation_page(
+            ORGANIZATION,
+            PROJECT_ID,
+            ProjectionReconciliationQuery(page_size=1),
+        )
+
+        self.assertEqual(len(page.items), 1)
+        self.assertEqual(
+            page.items[0].disposition,
+            ProjectionReconciliationDisposition.CURRENT,
+        )
+        self.assertEqual(page.items[0].data_plane_receipt_hash, data_receipt.semantic_hash)
+        self.assertIsNotNone(page.next_cursor)
+        self.assertIn("ORDER BY o.requested_at, o.operation_id", first.events[0][1])
+        self.assertEqual(first.events[0][2][-1], 2)
+
+        second = _Session(
+            [
+                (
+                    _reconciliation_row(
+                        extra_request,
+                        state=CrossStoreOperationState.RESERVED,
+                    ),
+                )
+            ]
+        )
+        next_page = _journal(second).list_reconciliation_page(
+            ORGANIZATION,
+            PROJECT_ID,
+            ProjectionReconciliationQuery(page_size=1, cursor=page.next_cursor),
+        )
+        self.assertEqual(
+            next_page.items[0].disposition,
+            ProjectionReconciliationDisposition.AWAITING_DATA_COMMIT,
+        )
+        self.assertIn(
+            "(o.requested_at, o.operation_id) >",
+            second.events[0][1],
+        )
+
+        with self.assertRaises(ProjectionReconciliationCursorError):
+            _journal(_Session([])).list_reconciliation_page(
+                ORGANIZATION,
+                "10000000-0000-4000-8000-000000000002",
+                ProjectionReconciliationQuery(
+                    page_size=1,
+                    cursor=page.next_cursor,
+                ),
+            )
 
     def test_get_reconstructs_exact_projected_receipt_evidence(self) -> None:
         request = _operation()

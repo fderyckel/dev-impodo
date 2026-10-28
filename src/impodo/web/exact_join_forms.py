@@ -21,6 +21,7 @@ from impodo.application.workspace.derived_entities import (
 )
 from impodo.domain.structural import (
     MAX_STRUCTURAL_COLUMNS,
+    STRUCTURAL_OUTPUT_VALUE_TYPES,
     ExactJoinReview,
     ExactJoinRule,
     GroupAggregateRule,
@@ -261,13 +262,13 @@ def parse_exact_join_group_form(form: FormData) -> ExactJoinGroupFormSubmission:
         projection_indexes = tuple(int(str(value)) for value in raw_projections)
     except ValueError as error:
         raise ValueError("The selected output fields are invalid") from error
-    if (
-        len(projection_indexes) > _MAX_PROJECTION_CANDIDATES
-        or len(set(projection_indexes)) != len(projection_indexes)
-        or any(
-            index < 0 or index >= _MAX_PROJECTION_CANDIDATES
-            for index in projection_indexes
+    if len(projection_indexes) > MAX_STRUCTURAL_COLUMNS:
+        raise ValueError(
+            f"Choose no more than {MAX_STRUCTURAL_COLUMNS} output fields"
         )
+    if len(set(projection_indexes)) != len(projection_indexes) or any(
+        index < 0 or index >= _MAX_PROJECTION_CANDIDATES
+        for index in projection_indexes
     ):
         raise ValueError("The selected output fields are invalid")
     projection_names = tuple(
@@ -400,13 +401,20 @@ def default_exact_join_group_form(
     """Build safe grouped-form defaults for one current frozen selection."""
 
     candidates = exact_join_group_projection_candidates(selection)
+    primary_dataset_id = (
+        selection.datasets[0].dataset_id if selection.datasets else ""
+    )
     name_counts: dict[str, int] = {}
     for _dataset, column in candidates:
-        name_counts[column.source_name] = name_counts.get(column.source_name, 0) + 1
+        label = column.source_name.casefold()
+        name_counts[label] = name_counts.get(label, 0) + 1
     projection_names = tuple(
         (
-            f"{dataset.name} {column.source_name}"
-            if name_counts[column.source_name] > 1
+            qualified_exact_join_output_name(dataset, column)
+            if (
+                dataset.dataset_id != primary_dataset_id
+                and name_counts[column.source_name.casefold()] > 1
+            )
             else column.source_name
         )
         for dataset, column in candidates
@@ -415,14 +423,28 @@ def default_exact_join_group_form(
         expected_parent_version=plan.version if plan else None,
         group_id=str(uuid4()),
         output_dataset_name="",
-        primary_dataset_id=(
-            selection.datasets[0].dataset_id if selection.datasets else ""
-        ),
+        primary_dataset_id=primary_dataset_id,
         primary_key_rows=tuple(("", "string") for _index in range(5)),
         additions=(),
-        projection_indexes=tuple(range(len(candidates))),
+        projection_indexes=tuple(
+            index
+            for index, (dataset, column) in enumerate(candidates)
+            if dataset.dataset_id == primary_dataset_id
+            and column.candidate_type in STRUCTURAL_OUTPUT_VALUE_TYPES
+            and column.candidate_type != "empty"
+        ),
         projection_names=projection_names,
     )
+
+
+def qualified_exact_join_output_name(
+    dataset: SourceDataset,
+    column: SourceDatasetColumn,
+) -> str:
+    """Qualify one collision without exceeding the structural label bound."""
+
+    prefix = f"{dataset.name}."
+    return prefix + column.source_name[: 200 - len(prefix)]
 
 
 def resolve_exact_join_group_request(

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Protocol
 from uuid import UUID, uuid4, uuid5
 
@@ -206,6 +208,9 @@ class ExactJoinGroupPreview:
 
     rules: tuple[ExactJoinRule, ...]
     reviews: tuple[ExactJoinReview, ...]
+    physical_snapshot_scans: int = 0
+    statement_count: int = 0
+    bounded_execution_plan_verified: bool = False
 
     def __post_init__(self) -> None:
         if not self.rules or len(self.rules) != len(self.reviews):
@@ -218,6 +223,22 @@ class ExactJoinGroupPreview:
     @property
     def final_rule(self) -> ExactJoinRule:
         return self.rules[-1]
+
+
+class ExactJoinGroupEvaluator(Protocol):
+    """Evaluate one grouped exact join over verified columnar snapshots."""
+
+    def review(
+        self,
+        *,
+        request: ExactJoinGroupRequest,
+        rules: tuple[ExactJoinRule, ...],
+        selection: SourceSelection,
+        snapshots: Mapping[str, SourceSnapshot],
+        paths: Mapping[str, Path],
+    ) -> ExactJoinGroupPreview:
+        """Return complete reconciliation and lineage evidence."""
+        ...
 
 
 def _join_group_intermediate_name(
@@ -247,11 +268,13 @@ class DerivedEntityWorkspaceService:
         derived_entities: DerivedEntityRepository,
         authorization: WorkspaceAuthorizationPolicy,
         artifacts: DataVersionSourceArtifactStore | None = None,
+        group_evaluator: ExactJoinGroupEvaluator | None = None,
     ) -> None:
         self.sources = sources
         self.derived_entities = derived_entities
         self.authorization = authorization
         self.artifacts = artifacts
+        self.group_evaluator = group_evaluator
 
     def preview_join(
         self,
@@ -273,8 +296,24 @@ class DerivedEntityWorkspaceService:
     ) -> ExactJoinGroupPreview:
         """Review all enrichments over one loaded set of frozen snapshots."""
 
-        selection, current = self._join_context(workspace_id)
+        selection, current = self._join_context(
+            workspace_id,
+            require_materialized_scale=self.group_evaluator is None,
+        )
         rules = self._join_group_rules(request, selection, current)
+        if self.group_evaluator is not None:
+            with self._materialize_join_group_inputs(
+                workspace_id,
+                selection,
+                request,
+            ) as (snapshots, paths):
+                return self.group_evaluator.review(
+                    request=request,
+                    rules=rules,
+                    selection=selection,
+                    snapshots=snapshots,
+                    paths=paths,
+                )
         tables, _snapshots = self._load_join_tables(workspace_id, selection)
         return self._review_join_group(request, rules, selection, current, tables)
 
@@ -374,21 +413,41 @@ class DerivedEntityWorkspaceService:
             Capability.NORMALIZATION_DECIDE,
             workspace_id=workspace_id,
         )
-        selection, current = self._join_context(workspace_id)
+        selection, current = self._join_context(
+            workspace_id,
+            require_materialized_scale=self.group_evaluator is None,
+        )
         actual_parent = current.version if current else None
         if expected_parent_version != actual_parent:
             raise WorkspaceError(
                 "The source-preparation plan was modified by another request; reload it"
             )
         rules = self._join_group_rules(request, selection, current)
-        tables, snapshots = self._load_join_tables(workspace_id, selection)
-        preview = self._review_join_group(
-            request,
-            rules,
-            selection,
-            current,
-            tables,
-        )
+        if self.group_evaluator is None:
+            tables, snapshots = self._load_join_tables(workspace_id, selection)
+            preview = self._review_join_group(
+                request,
+                rules,
+                selection,
+                current,
+                tables,
+            )
+        else:
+            with self._materialize_join_group_inputs(
+                workspace_id,
+                selection,
+                request,
+            ) as (snapshots_by_id, paths):
+                preview = self.group_evaluator.review(
+                    request=request,
+                    rules=rules,
+                    selection=selection,
+                    snapshots=snapshots_by_id,
+                    paths=paths,
+                )
+            snapshots = tuple(
+                snapshots_by_id[item.dataset_id] for item in selection.datasets
+            )
         if not preview.can_save:
             findings = tuple(
                 finding
@@ -455,6 +514,8 @@ class DerivedEntityWorkspaceService:
     def _join_context(
         self,
         workspace_id: str,
+        *,
+        require_materialized_scale: bool = True,
     ) -> tuple[SourceSelection, DerivedEntityPlan | None]:
         selection = self.sources.get_source_selection(workspace_id)
         if selection is None:
@@ -465,7 +526,8 @@ class DerivedEntityWorkspaceService:
                 "The source-preparation plan is stale; rebuild it from the frozen datasets"
             )
         if (
-            sum(item.row_count for item in selection.datasets)
+            require_materialized_scale
+            and sum(item.row_count for item in selection.datasets)
             > MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
         ):
             raise WorkspaceError(
@@ -829,6 +891,55 @@ class DerivedEntityWorkspaceService:
                 )
             )
         return ExactJoinGroupPreview(rules, tuple(complete))
+
+    @contextmanager
+    def _materialize_join_group_inputs(
+        self,
+        workspace_id: str,
+        selection: SourceSelection,
+        request: ExactJoinGroupRequest,
+    ) -> Iterator[tuple[dict[str, SourceSnapshot], dict[str, Path]]]:
+        """Keep each participating verified snapshot available for one review."""
+
+        if self.artifacts is None:
+            raise WorkspaceError(
+                "Impodo cannot open the accepted source data for this review"
+            )
+        snapshots = self.sources.get_current_source_snapshots(workspace_id)
+        by_dataset = {item.dataset_id: item for item in snapshots}
+        physical = {item.dataset_id: item for item in selection.datasets}
+        if len(by_dataset) != len(snapshots) or set(by_dataset) != set(physical):
+            raise WorkspaceError(
+                "Accept this Data version again before reviewing the exact join"
+            )
+        participants = {
+            request.primary_dataset_id,
+            *(item.dataset_id for item in request.additions),
+        }
+        stack = ExitStack()
+        paths: dict[str, Path] = {}
+        try:
+            for dataset in selection.datasets:
+                snapshot = by_dataset[dataset.dataset_id]
+                validate_snapshot_for_dataset(selection, dataset, snapshot)
+                if dataset.dataset_id not in participants:
+                    continue
+                paths[dataset.dataset_id] = stack.enter_context(
+                    self.artifacts.materialize_source_snapshot(
+                        selection.data_version_id,
+                        snapshot.parquet_storage_key,
+                        expected_sha256=snapshot.parquet_sha256,
+                    )
+                )
+        except (ArtifactStoreError, OSError, SourceLoadError, ValueError) as error:
+            stack.close()
+            raise WorkspaceError(
+                "Impodo could not verify the accepted source data for this review"
+            ) from error
+        try:
+            yield by_dataset, paths
+        finally:
+            stack.close()
 
     def _load_join_tables(
         self,

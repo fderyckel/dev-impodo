@@ -9,10 +9,11 @@ status: current
 ## Status and decision boundary
 
 **Status:** Accepted on 2026-10-23 as the Phase 0 ownership boundary. It
-defines the target shared-server authority boundary. It does not describe
-current PostgreSQL,
-Organization, account, or worker behavior, because those adapters do not exist
-yet.
+defines the target shared-server authority boundary. The local Linux trial now
+implements the Organization-scoped Project catalogue, immutable cross-store
+receipts, fenced Workspace leases, and receipt-projection current pointers in
+PostgreSQL. Accounts, remote request identity, the shared worker, and the
+operator-facing administration process are not implemented yet.
 
 The current local Windows product remains authoritative through its contained
 DuckDB stores, protected artifact stores, Windows Credential Manager bindings,
@@ -20,6 +21,12 @@ and loopback launch session. This inventory does not move or dual-write a
 local fact. A future local composition may pass an implicit reserved
 Organization identity through portable interfaces, but it does not expose
 Organization administration to the local user.
+
+The local Linux trial uses PostgreSQL control schema version `4`. Its bounded
+reconciliation read verifies receipt hashes and current pointers without
+opening DuckDB. Its governed rebuild service accepts only a missing projection
+for an already committed data-plane receipt. It never repeats the data-plane
+command or derives approvals and Odoo outcomes from display status.
 
 This document refines [ADR-017](../decisions/README.md#adr-017--organization-scoped-postgresql-control-and-duckdb-data-planes)
 and the
@@ -134,13 +141,14 @@ The current reference store generation is
 ## Current Workspace engine inventory
 
 The engine generation is
-`impodo-workspace-engine-2026-08-workspace-owned`, version 16. The families
-below enumerate every current generation-16 table. Unless a row explicitly
+`impodo-workspace-engine-2026-08-workspace-owned`, version 17. The families
+below enumerate every current generation-17 table. Unless a row explicitly
 says otherwise, the named tables remain DuckDB data-plane authority.
 
 | Evidence family and current tables | Server projection, if any |
 | --- | --- |
 | Store metadata: `schema_version`, `schema_migration` | None beyond operational backup compatibility. |
+| Cross-store coordination: `cross_store_data_receipt`, `workspace_fence` | DuckDB owns the exact committed receipt and current fencing proof for its bounded data-plane command. PostgreSQL stores and verifies the matching receipt hash, projection receipt, and current pointer. |
 | Workspace cache: `workspace_projection_cache` | This is a DuckDB cache of Project/Workspace context. On the server, PostgreSQL is authoritative for the catalogue fields; workers create or refresh the cache from an Organization-qualified receipt. |
 | Source intake and selection: `source_file`, `source_catalog`, `source_configuration`, `source_selection`, `source_snapshot_manifest`, `source_snapshot_current` | Source counts, phase status, and snapshot receipt hash only. Source names, values, configuration payloads, manifests, and snapshots stay in the data plane. |
 | Odoo source scope: `odoo_capture_selection_revision`, `odoo_capture_selection_current`, `odoo_capture_manifest_revision`, `odoo_capture_manifest_current`, `odoo_model_catalog`, `odoo_schema_catalog`, `odoo_relationship_scope_revision`, `odoo_relationship_scope_current`, `derived_entity_plan_revision`, `derived_entity_plan_current` | Bounded stage readiness, revision number, and receipt hashes only. Models, fields, relationship choices, domains, and protected source links stay in DuckDB or protected artifacts. |
@@ -186,7 +194,9 @@ Every server command that may write DuckDB or artifacts follows this order:
    evidence hash, artifact identities, and fencing token. It contains no raw
    customer values.
 8. In a PostgreSQL transaction, verify the exact receipt hash, advance bounded
-   projections, finish the job attempt, and publish a projection receipt.
+   projections, finish the job attempt, and publish a projection receipt. The
+   current pointer advances only when this receipt is newer than the pointer it
+   replaces.
 9. Release the lease. A failed release is repaired by expiry; it does not undo
    committed evidence.
 

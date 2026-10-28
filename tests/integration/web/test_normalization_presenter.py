@@ -130,6 +130,9 @@ class NormalizationSetAsideTests(unittest.TestCase):
                     message=issue.message,
                     affected_fields=issue.affected_fields,
                     affected_record_count=1,
+                    family=issue.family,
+                    policy=issue.policy,
+                    owner_label=issue.owner_label,
                 )
                 for issue in item.issues
             ),
@@ -151,9 +154,9 @@ class NormalizationSetAsideTests(unittest.TestCase):
         self.assertIn("Formula requires numbers.", html)
         self.assertIn("Two records use the same Odoo match.", html)
         self.assertIn("Fields: Amount", html)
-        self.assertIn("Causes across the complete prepared result", html)
-        self.assertIn("even when this table is paged", html)
-        self.assertIn("Direct finding", html)
+        self.assertIn("Migration issues", html)
+        self.assertIn("Affected records:</strong> 1", html)
+        self.assertIn("Opening this action does not change accepted source data", html)
         self.assertIn("this warning did not exclude the record", html)
         self.assertIn("Correct the source value and prepare again.", html)
         self.assertNotIn("No changes in this view", html)
@@ -256,6 +259,7 @@ class NormalizationSetAsideTests(unittest.TestCase):
         self.context.queries.get_mapping_revision.return_value = SimpleNamespace(
             definition=SimpleNamespace(datasets=(SimpleNamespace(
                 dataset_id="dataset-1",
+                target_model="res.partner",
                 source_identity_column_keys=("recid-column",),
             ),))
         )

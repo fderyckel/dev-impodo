@@ -31,6 +31,7 @@ from impodo.domain.preparation.quality import (
     QualityReviewItem,
     QualityReviewPage,
     QualityRowResult,
+    QualityRuleFamily,
     QualityRuleSet,
     QualityRun,
     QualityRunStatus,
@@ -113,19 +114,24 @@ def _read_complete_quality_cause_counts(
         """
         WITH parsed_issue AS (
             SELECT dataset, row_id,
+                   json_extract_string(issue_json, '$.family') AS family,
                    json_extract_string(issue_json, '$.reason_code')
                        AS reason_code,
                    json_extract_string(issue_json, '$.message') AS message,
                    CAST(json_extract(issue_json, '$.affected_fields') AS VARCHAR)
-                       AS affected_fields_json
+                       AS affected_fields_json,
+                   json_extract_string(issue_json, '$.policy') AS policy,
+                   json_extract_string(issue_json, '$.owner_label') AS owner_label
               FROM quality_issue
              WHERE run_id = ? AND row_id IS NOT NULL
         )
-        SELECT dataset, reason_code, message, affected_fields_json,
+        SELECT dataset, family, reason_code, MIN(message), affected_fields_json,
+               policy, owner_label,
                COUNT(DISTINCT row_id) AS affected_record_count
           FROM parsed_issue
-         GROUP BY dataset, reason_code, message, affected_fields_json
-         ORDER BY affected_record_count DESC, reason_code, message,
+         GROUP BY dataset, family, reason_code, affected_fields_json,
+                  policy, owner_label
+         ORDER BY affected_record_count DESC, reason_code, MIN(message),
                   dataset, affected_fields_json
         """,
         [run_id],
@@ -134,12 +140,15 @@ def _read_complete_quality_cause_counts(
         return tuple(
             QualityCauseCount(
                 dataset=str(row[0]),
-                reason_code=str(row[1]),
-                message=str(row[2]),
+                family=QualityRuleFamily(str(row[1])),
+                reason_code=str(row[2]),
+                message=str(row[3]),
                 affected_fields=tuple(
-                    str(item) for item in json.loads(str(row[3]))
+                    str(item) for item in json.loads(str(row[4]))
                 ),
-                affected_record_count=int(row[4]),
+                policy=QualityOutcomePolicy(str(row[5])),
+                owner_label=str(row[6]),
+                affected_record_count=int(row[7]),
             )
             for row in rows
         )

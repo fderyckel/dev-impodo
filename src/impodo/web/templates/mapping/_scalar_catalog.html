@@ -19,7 +19,7 @@
                   {# A saved omission is a choice; only prefill recommendations for new mappings. #}
                   {% set recommended_source = row.recommended_source_column if not disposition and not view.mapping else none %}
                   {% set value_source = mapping.value_source.value if mapping else ('source' if recommended_source else '') %}
-                  <tr
+                  <tr id="scalar-{{ dataset_index }}-{{ row.metadata.name }}"
                     data-scalar-mapping-row
                     data-scalar-field-row
                     data-target-field="{{ row.metadata.name }}"

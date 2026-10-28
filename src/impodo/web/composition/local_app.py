@@ -77,6 +77,9 @@ from ...adapters.duckdb.data_version_source_repository import (
     DataVersionOwnedSourceRepository,
 )
 from ...adapters.duckdb.derived_entity_repository import DerivedEntityRepository
+from ...adapters.duckdb.exact_join_group_evaluator import (
+    DuckDbExactJoinGroupEvaluator,
+)
 from ...adapters.duckdb.execution_repository import ExecutionRepository
 from ...adapters.duckdb.mapping_field_catalog_repository import (
     MappingFieldCatalogRepository,
@@ -654,6 +657,7 @@ def create_local_app(
             supporting_lookups=supporting_lookup_repository,
             preparation_recovery=PreparationRecoveryRepository(database),
             recovery_workspace_states=workspace_state_repository,
+            exact_join_groups=DuckDbExactJoinGroupEvaluator(database),
         ),
         artifacts=artifacts,
         jobs=job_runtimes,

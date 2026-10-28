@@ -127,23 +127,7 @@
 
     {% if review_status == 'set_aside' %}
       {% set restricted = migration_project.data_classification.value == 'RESTRICTED' %}
-      {% if quality_cause_groups %}
-        <div class="notice" data-quality-cause-summary>
-          <strong>Causes across the complete prepared result</strong>
-          <span>Counts cover all prepared records, even when this table is paged. Direct findings come from the record itself. Inherited dependencies mean a linked record was already set aside.</span>
-          <dl class="summary-list">
-            {% for cause in quality_cause_groups %}
-              <div data-quality-cause="{{ cause.reason_code }}">
-                <dt>{{ cause.title }} ({{ cause.count }})</dt>
-                <dd>
-                  {{ cause.kind }}. {{ cause.message }}
-                  {% if cause.fields %}<small class="row-field">Fields: {{ cause.fields|join(', ') }}</small>{% endif %}
-                </dd>
-              </div>
-            {% endfor %}
-          </dl>
-        </div>
-      {% endif %}
+      {% include "_workflow_issue_summary.html" %}
       {% if set_aside_page.items %}
         <div class="table-scroll" data-normalization-table-scroll>
           <table class="data-table readiness-row-table">

@@ -33,7 +33,12 @@ STRUCTURAL_CONTRACT_VERSION = 1
 MAX_STRUCTURAL_COLUMNS = 200
 MAX_STRUCTURAL_BRANCHES = 10
 MAX_STRUCTURAL_KEYS = 5
-_VALUE_TYPES = frozenset({"string", "integer", "decimal", "boolean", "date", "datetime"})
+STRUCTURAL_JOIN_VALUE_TYPES = frozenset(
+    {"string", "integer", "decimal", "boolean", "date", "datetime"}
+)
+STRUCTURAL_OUTPUT_VALUE_TYPES = frozenset(
+    {*STRUCTURAL_JOIN_VALUE_TYPES, "empty", "mixed"}
+)
 
 
 class StructuralError(ValueError):
@@ -59,7 +64,7 @@ class StructuralOutputColumn:
     def __post_init__(self) -> None:
         _column_key(self.column_key)
         _text(self.source_name, "structural column label", 200)
-        if self.candidate_type not in _VALUE_TYPES:
+        if self.candidate_type not in STRUCTURAL_OUTPUT_VALUE_TYPES:
             raise ValueError("Structural output type is unsupported")
 
 
@@ -84,7 +89,7 @@ class JoinKey:
     def __post_init__(self) -> None:
         _column_key(self.left_column_key)
         _column_key(self.right_column_key)
-        if self.value_type not in _VALUE_TYPES:
+        if self.value_type not in STRUCTURAL_JOIN_VALUE_TYPES:
             raise ValueError("Join-key type is unsupported")
 
 
@@ -254,7 +259,7 @@ class GroupKey:
     def __post_init__(self) -> None:
         _column_key(self.output_column_key)
         _column_key(self.source_column_key)
-        if self.value_type not in _VALUE_TYPES:
+        if self.value_type not in STRUCTURAL_JOIN_VALUE_TYPES:
             raise ValueError("Group-key type is unsupported")
 
 

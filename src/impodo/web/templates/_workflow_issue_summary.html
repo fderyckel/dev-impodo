@@ -17,10 +17,13 @@
       {% for issue in workflow_issue_summary.issues %}
         <article class="overview-stage-card {% if issue.severity.value == 'MUST_FIX' %}attention{% endif %}">
           <div>
-            <p class="eyebrow">{{ 'Must fix' if issue.severity.value == 'MUST_FIX' else 'Review' }} &middot; {{ issue.owning_stage }}</p>
+            <p class="eyebrow">{{ 'Must fix' if issue.severity.value == 'MUST_FIX' else 'Review' }} &middot; {{ issue.owning_stage }}{% if issue.dependent_on_other_issue %} &middot; Inherited dependency{% endif %}</p>
             <h3>{{ issue.cause }}</h3>
             {% if issue.affected_record_types %}
               <p><strong>Affects:</strong> {{ issue.affected_record_types|join(', ') }}</p>
+            {% endif %}
+            {% if issue.affected_record_count is not none %}
+              <p><strong>Affected records:</strong> {{ issue.affected_record_count }}</p>
             {% endif %}
             {% if issue.affected_fields %}
               <p><strong>Fields:</strong> {{ issue.affected_fields|join('; ') }}</p>

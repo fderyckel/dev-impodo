@@ -51,6 +51,7 @@ from ..exact_join_forms import (
     default_exact_join_group_form,
     exact_join_group_projection_candidates,
     exact_join_projection_candidates,
+    qualified_exact_join_output_name,
     saved_exact_join_views,
     source_use_label,
 )
@@ -347,6 +348,9 @@ def _render_derived_entities(
                             group_candidate_index in group_selected_projections
                         ),
                         "output_name": output_name,
+                        "qualified_output_name": (
+                            qualified_exact_join_output_name(dataset, column)
+                        ),
                     }
                 )
                 group_candidate_index += 1

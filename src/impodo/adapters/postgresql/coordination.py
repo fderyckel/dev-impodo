@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import sys
 from collections.abc import Callable
@@ -36,6 +38,13 @@ from impodo.domain.shared.coordination import (
     RecoveryDisposition,
     StaleLeaseError,
     WorkspaceLease,
+)
+from impodo.domain.shared.projection_reconciliation import (
+    ProjectionReconciliationCursorError,
+    ProjectionReconciliationDisposition,
+    ProjectionReconciliationItem,
+    ProjectionReconciliationPage,
+    ProjectionReconciliationQuery,
 )
 from impodo.domain.shared.tenancy import OrganizationId
 
@@ -130,6 +139,77 @@ _ADVANCE_PROJECTED_QUERY: LiteralString = (
     "  AND state = 'DATA_COMMITTED' AND data_plane_receipt_hash = %s\n"
     "RETURNING operation_id"
 )
+_ADVANCE_PROJECTION_CURRENT_QUERY: LiteralString = (
+    "INSERT INTO impodo_control.projection_current (\n"
+    "    organization_id, project_id, projection_kind, operation_id,\n"
+    "    data_plane_receipt_hash, projection_hash, projection_revision,\n"
+    "    source_committed_at, projected_at, updated_at\n"
+    ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)\n"
+    "ON CONFLICT (organization_id, project_id, projection_kind) DO UPDATE\n"
+    "SET operation_id = EXCLUDED.operation_id,\n"
+    "    data_plane_receipt_hash = EXCLUDED.data_plane_receipt_hash,\n"
+    "    projection_hash = EXCLUDED.projection_hash,\n"
+    "    projection_revision = EXCLUDED.projection_revision,\n"
+    "    source_committed_at = EXCLUDED.source_committed_at,\n"
+    "    projected_at = EXCLUDED.projected_at,\n"
+    "    updated_at = EXCLUDED.updated_at\n"
+    "WHERE (impodo_control.projection_current.source_committed_at,\n"
+    "       impodo_control.projection_current.operation_id)\n"
+    "    < (EXCLUDED.source_committed_at, EXCLUDED.operation_id)\n"
+    "RETURNING operation_id"
+)
+_READ_PROJECTION_CURRENT_QUERY: LiteralString = (
+    "SELECT operation_id, data_plane_receipt_hash, projection_hash,\n"
+    "       projection_revision, source_committed_at, projected_at\n"
+    "FROM impodo_control.projection_current\n"
+    "WHERE organization_id = %s AND project_id = %s AND projection_kind = %s"
+)
+_RECONCILIATION_SELECT: LiteralString = (
+    "SELECT o.operation_id, o.organization_id, o.project_id,\n"
+    "       o.operation_kind, o.idempotency_key, o.semantic_input_hash,\n"
+    "       o.authorization_receipt_id, o.requested_by_issuer,\n"
+    "       o.requested_by_subject, o.requested_by_display_name,\n"
+    "       o.requested_at, o.state, o.data_plane_receipt_hash,\n"
+    "       o.interrupted_at, o.recovery_disposition,\n"
+    "       d.receipt_id, d.operation_id, d.project_id, d.workspace_id,\n"
+    "       d.operation_kind, d.semantic_input_hash, d.fencing_token,\n"
+    "       d.evidence_hash, d.receipt_hash, d.artifacts, d.committed_at,\n"
+    "       p.projection_receipt_id, p.operation_id,\n"
+    "       p.data_plane_receipt_hash, p.projection_hash,\n"
+    "       p.projection_revision, p.projected_at,\n"
+    "       pc.operation_id, pc.data_plane_receipt_hash,\n"
+    "       pc.projection_hash, pc.projection_revision,\n"
+    "       pc.source_committed_at\n"
+    "FROM impodo_control.operation_request AS o\n"
+    "LEFT JOIN impodo_control.data_plane_receipt AS d\n"
+    "  ON d.organization_id = o.organization_id\n"
+    " AND d.operation_id = o.operation_id\n"
+    "LEFT JOIN impodo_control.projection_receipt AS p\n"
+    "  ON p.organization_id = o.organization_id\n"
+    " AND p.operation_id = o.operation_id\n"
+    "LEFT JOIN impodo_control.projection_current AS pc\n"
+    "  ON pc.organization_id = o.organization_id\n"
+    " AND pc.project_id = o.project_id\n"
+    " AND pc.projection_kind = o.operation_kind\n"
+)
+_READ_RECONCILIATION_OPERATION_QUERY: LiteralString = (
+    f"{_RECONCILIATION_SELECT}"
+    "WHERE o.organization_id = %s AND o.project_id = %s\n"
+    "  AND o.operation_id = %s"
+)
+_LIST_RECONCILIATION_FIRST_PAGE_QUERY: LiteralString = (
+    f"{_RECONCILIATION_SELECT}"
+    "WHERE o.organization_id = %s AND o.project_id = %s\n"
+    "ORDER BY o.requested_at, o.operation_id\n"
+    "LIMIT %s"
+)
+_LIST_RECONCILIATION_AFTER_QUERY: LiteralString = (
+    f"{_RECONCILIATION_SELECT}"
+    "WHERE o.organization_id = %s AND o.project_id = %s\n"
+    "  AND (o.requested_at, o.operation_id) > (%s, %s)\n"
+    "ORDER BY o.requested_at, o.operation_id\n"
+    "LIMIT %s"
+)
 _RECORD_RECOVERY_QUERY: LiteralString = (
     "UPDATE impodo_control.operation_request\n"
     "SET state = %s, interrupted_at = %s, recovery_disposition = %s,\n"
@@ -199,6 +279,12 @@ class PostgreSQLCoordinationSession(Protocol):
         parameters: tuple[object, ...] = (),
     ) -> tuple[object, ...] | None: ...
 
+    def fetch_all(
+        self,
+        query: LiteralString,
+        parameters: tuple[object, ...] = (),
+    ) -> tuple[tuple[object, ...], ...]: ...
+
     def commit(self) -> None: ...
 
     def rollback(self) -> None: ...
@@ -223,6 +309,14 @@ class _PsycopgCoordinationSession:
     ) -> tuple[object, ...] | None:
         row = self._connection.execute(query, parameters).fetchone()
         return tuple(row) if row is not None else None
+
+    def fetch_all(
+        self,
+        query: LiteralString,
+        parameters: tuple[object, ...] = (),
+    ) -> tuple[tuple[object, ...], ...]:
+        rows = self._connection.execute(query, parameters).fetchall()
+        return tuple(tuple(row) for row in rows)
 
     def commit(self) -> None:
         self._connection.commit()
@@ -442,6 +536,85 @@ class PsycopgOperationJournal(_PsycopgCoordinationRepository):
 
         return self._run(read_operation)
 
+    def list_reconciliation_page(
+        self,
+        organization_id: OrganizationId,
+        project_id: str,
+        query: ProjectionReconciliationQuery,
+    ) -> ProjectionReconciliationPage:
+        """Read one deterministic page and verify every included receipt."""
+
+        project_id = require_uuid(project_id, "project_id")
+        organization_value = str(organization_id)
+        if query.cursor is None:
+            statement = _LIST_RECONCILIATION_FIRST_PAGE_QUERY
+            parameters: tuple[object, ...] = (
+                organization_value,
+                project_id,
+                query.page_size + 1,
+            )
+        else:
+            requested_at, operation_id = _decode_reconciliation_cursor(
+                query.cursor,
+                organization_id=organization_id,
+                project_id=project_id,
+            )
+            statement = _LIST_RECONCILIATION_AFTER_QUERY
+            parameters = (
+                organization_value,
+                project_id,
+                requested_at,
+                operation_id,
+                query.page_size + 1,
+            )
+
+        def read_page(
+            session: PostgreSQLCoordinationSession,
+        ) -> ProjectionReconciliationPage:
+            rows = session.fetch_all(statement, parameters)
+            page_rows = rows[: query.page_size]
+            items = tuple(_reconciliation_item_from_row(row) for row in page_rows)
+            next_cursor = None
+            if len(rows) > query.page_size and page_rows:
+                last = _operation_from_row(page_rows[-1])
+                next_cursor = _encode_reconciliation_cursor(
+                    organization_id,
+                    project_id,
+                    last.requested_at,
+                    last.operation_id,
+                )
+            return ProjectionReconciliationPage(
+                items=items,
+                next_cursor=next_cursor,
+            )
+
+        return self._run(read_page)
+
+    def get_reconciliation_snapshot(
+        self,
+        organization_id: OrganizationId,
+        project_id: str,
+        operation_id: str,
+    ) -> CrossStoreOperationSnapshot:
+        """Read one exact operation through its Organization and Project scope."""
+
+        project_id = require_uuid(project_id, "project_id")
+        operation_id = require_uuid(operation_id, "operation_id")
+
+        def read_snapshot(
+            session: PostgreSQLCoordinationSession,
+        ) -> CrossStoreOperationSnapshot:
+            row = session.fetch_one(
+                _READ_RECONCILIATION_OPERATION_QUERY,
+                (str(organization_id), project_id, operation_id),
+            )
+            if row is None:
+                raise OperationNotFoundError("Operation not found")
+            snapshot, _current_operation_id = _reconciliation_snapshot_from_row(row)
+            return snapshot
+
+        return self._run(read_snapshot)
+
     def record_data_plane_receipt(
         self,
         receipt: DataPlaneOperationReceipt,
@@ -537,6 +710,19 @@ class PsycopgOperationJournal(_PsycopgCoordinationRepository):
                 raise ReceiptMismatchError(
                     "projection does not match stored data-plane evidence"
                 )
+            data_row = session.fetch_one(
+                _READ_DATA_RECEIPT_QUERY,
+                (str(receipt.organization_id), operation_id),
+            )
+            if data_row is None:
+                raise ReceiptMismatchError(
+                    "projection does not have stored data-plane evidence"
+                )
+            data_receipt = _data_receipt_from_row(
+                data_row,
+                organization_id=receipt.organization_id,
+            )
+            receipt.require_data_plane_receipt(data_receipt)
             existing = session.fetch_one(
                 _READ_PROJECTION_RECEIPT_QUERY,
                 (str(receipt.organization_id), operation_id),
@@ -546,6 +732,12 @@ class PsycopgOperationJournal(_PsycopgCoordinationRepository):
                     raise ReceiptMismatchError(
                         "operation already has a different projection receipt"
                     )
+                self._advance_projection_current(
+                    session,
+                    receipt,
+                    projection_kind=str(current[1]),
+                    source_committed_at=data_receipt.committed_at,
+                )
                 return
             if str(current[3]) != "DATA_COMMITTED":
                 raise ReceiptMismatchError(
@@ -580,8 +772,54 @@ class PsycopgOperationJournal(_PsycopgCoordinationRepository):
                 raise PostgreSQLCoordinationStorageError(
                     "Operation projection transition failed"
                 )
+            self._advance_projection_current(
+                session,
+                receipt,
+                projection_kind=str(current[1]),
+                source_committed_at=data_receipt.committed_at,
+            )
 
         self._run(record)
+
+    @staticmethod
+    def _advance_projection_current(
+        session: PostgreSQLCoordinationSession,
+        receipt: ControlPlaneProjectionReceipt,
+        *,
+        projection_kind: str,
+        source_committed_at: datetime,
+    ) -> None:
+        candidate = (
+            str(receipt.organization_id),
+            receipt.project_id,
+            projection_kind,
+            receipt.operation_id,
+            receipt.data_plane_receipt_hash,
+            receipt.projection_hash,
+            receipt.projection_revision,
+            source_committed_at,
+            receipt.projected_at,
+            receipt.projected_at,
+        )
+        advanced = session.fetch_one(_ADVANCE_PROJECTION_CURRENT_QUERY, candidate)
+        if _returned_identity_matches(advanced, receipt.operation_id):
+            return
+        current = session.fetch_one(
+            _READ_PROJECTION_CURRENT_QUERY,
+            (
+                str(receipt.organization_id),
+                receipt.project_id,
+                projection_kind,
+            ),
+        )
+        if current is None or not _current_projection_accepts_candidate(
+            current,
+            receipt,
+            source_committed_at=source_committed_at,
+        ):
+            raise PostgreSQLCoordinationStorageError(
+                "Current projection pointer did not advance safely"
+            )
 
     def record_interruption(
         self,
@@ -816,6 +1054,183 @@ class PsycopgWorkspaceLeaseRepository(_PsycopgCoordinationRepository):
             return _lease_from_row(row)
 
         return self._run(release_lease)
+
+
+def _reconciliation_snapshot_from_row(
+    row: tuple[object, ...],
+) -> tuple[CrossStoreOperationSnapshot, str | None]:
+    try:
+        data_row = tuple(row[15:26]) if row[15] is not None else None
+        projection_row = tuple(row[26:32]) if row[26] is not None else None
+        snapshot = _snapshot_from_rows(
+            tuple(row[:15]),
+            data_row=data_row,
+            projection_row=projection_row,
+        )
+        current_values = tuple(row[32:37])
+        if all(value is None for value in current_values):
+            current_operation_id = None
+        elif any(value is None for value in current_values):
+            raise ValueError("current projection pointer is incomplete")
+        else:
+            current_operation_id = require_uuid(str(row[32]), "operation_id")
+            require_hash(str(row[33]), "data_plane_receipt_hash")
+            require_hash(str(row[34]), "projection_hash")
+            if _integer_value(row[35]) < 1:
+                raise ValueError("projection revision is invalid")
+            require_aware(_datetime_value(row[36]), "source_committed_at")
+
+        if snapshot.state is CrossStoreOperationState.PROJECTED:
+            data_receipt = snapshot.data_plane_receipt
+            projection = snapshot.projection_receipt
+            if (
+                data_receipt is None
+                or projection is None
+                or current_operation_id is None
+            ):
+                raise ValueError("projected operation is missing current evidence")
+            if current_operation_id == snapshot.request.operation_id and (
+                str(row[33]) != data_receipt.semantic_hash
+                or str(row[34]) != projection.projection_hash
+                or _integer_value(row[35]) != projection.projection_revision
+                or _datetime_value(row[36]) != data_receipt.committed_at
+            ):
+                raise ValueError("current projection pointer is inconsistent")
+        elif current_operation_id == snapshot.request.operation_id:
+            raise ValueError("non-projected operation cannot be current")
+        return snapshot, current_operation_id
+    except (IndexError, MigrationFoundationError, TypeError, ValueError) as error:
+        raise PostgreSQLCoordinationStorageError(
+            "Projection reconciliation returned invalid receipt evidence"
+        ) from error
+
+
+def _reconciliation_item_from_row(
+    row: tuple[object, ...],
+) -> ProjectionReconciliationItem:
+    snapshot, current_operation_id = _reconciliation_snapshot_from_row(row)
+    state = snapshot.state
+    if state is CrossStoreOperationState.RESERVED:
+        disposition = ProjectionReconciliationDisposition.AWAITING_DATA_COMMIT
+    elif state is CrossStoreOperationState.DATA_COMMITTED:
+        disposition = ProjectionReconciliationDisposition.MISSING_PROJECTION
+    elif state is CrossStoreOperationState.PROJECTED:
+        disposition = (
+            ProjectionReconciliationDisposition.CURRENT
+            if current_operation_id == snapshot.request.operation_id
+            else ProjectionReconciliationDisposition.SUPERSEDED
+        )
+    else:
+        disposition = ProjectionReconciliationDisposition.NOT_REBUILDABLE
+    data_receipt = snapshot.data_plane_receipt
+    projection = snapshot.projection_receipt
+    return ProjectionReconciliationItem(
+        operation_id=snapshot.request.operation_id,
+        operation_kind=snapshot.request.operation_kind,
+        requested_at=snapshot.request.requested_at,
+        state=state,
+        disposition=disposition,
+        data_plane_receipt_hash=(
+            data_receipt.semantic_hash if data_receipt is not None else None
+        ),
+        projection_hash=(
+            projection.projection_hash if projection is not None else None
+        ),
+        projection_revision=(
+            projection.projection_revision if projection is not None else None
+        ),
+    )
+
+
+def _encode_reconciliation_cursor(
+    organization_id: OrganizationId,
+    project_id: str,
+    requested_at: datetime,
+    operation_id: str,
+) -> str:
+    payload = json.dumps(
+        {
+            "operation_id": operation_id,
+            "organization_id": str(organization_id),
+            "project_id": project_id,
+            "requested_at": requested_at.isoformat(),
+            "version": 1,
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _decode_reconciliation_cursor(
+    cursor: str,
+    *,
+    organization_id: OrganizationId,
+    project_id: str,
+) -> tuple[datetime, str]:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        decoded = base64.b64decode(
+            cursor + padding,
+            altchars=b"-_",
+            validate=True,
+        )
+        payload = json.loads(decoded.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise TypeError("cursor payload must be an object")
+        if (
+            payload.get("version") != 1
+            or payload.get("organization_id") != str(organization_id)
+            or payload.get("project_id") != project_id
+        ):
+            raise ValueError("cursor scope does not match")
+        requested_at_value = payload.get("requested_at")
+        operation_id_value = payload.get("operation_id")
+        if not isinstance(requested_at_value, str) or not isinstance(
+            operation_id_value,
+            str,
+        ):
+            raise TypeError("cursor values are invalid")
+        requested_at = datetime.fromisoformat(requested_at_value)
+        require_aware(requested_at, "requested_at")
+        operation_id = require_uuid(operation_id_value, "operation_id")
+        return requested_at, operation_id
+    except (
+        binascii.Error,
+        json.JSONDecodeError,
+        MigrationFoundationError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as error:
+        raise ProjectionReconciliationCursorError(
+            "Projection reconciliation cursor is invalid"
+        ) from error
+
+
+def _current_projection_accepts_candidate(
+    row: tuple[object, ...],
+    receipt: ControlPlaneProjectionReceipt,
+    *,
+    source_committed_at: datetime,
+) -> bool:
+    try:
+        current_operation_id = require_uuid(str(row[0]), "operation_id")
+        current_source_committed_at = _datetime_value(row[4])
+        current_key = (current_source_committed_at, current_operation_id)
+        candidate_key = (source_committed_at, receipt.operation_id)
+        if current_operation_id != receipt.operation_id:
+            return current_key > candidate_key
+        return (
+            str(row[1]) == receipt.data_plane_receipt_hash
+            and str(row[2]) == receipt.projection_hash
+            and _integer_value(row[3]) == receipt.projection_revision
+            and current_source_committed_at == source_committed_at
+            and _datetime_value(row[5]) == receipt.projected_at
+        )
+    except (IndexError, MigrationFoundationError, TypeError, ValueError):
+        return False
 
 
 def _operation_from_row(row: tuple[object, ...]) -> OperationRequest:

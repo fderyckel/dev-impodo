@@ -1655,6 +1655,9 @@ class QualityStoreTests(unittest.TestCase):
         self.assertEqual(cause.reason_code, "SOURCE_TYPE_INVALID")
         self.assertEqual(cause.affected_fields, ("amount",))
         self.assertEqual(cause.affected_record_count, 3)
+        self.assertEqual(cause.family, QualityRuleFamily.BOUNDED_VALUES)
+        self.assertEqual(cause.policy, QualityOutcomePolicy.QUARANTINE)
+        self.assertEqual(cause.owner_label, "Data manager")
         self.assertEqual(timings.connection_count, 1)
         self.assertEqual(timings.schema_check_count, 1)
 

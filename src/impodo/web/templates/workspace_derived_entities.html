@@ -279,7 +279,7 @@
               </label>
               <label>
                 Primary table
-                <select name="primary_dataset_id" required>
+                <select name="primary_dataset_id" data-group-primary-dataset required>
                   <option value="">Choose the table with one row per record</option>
                   {% for view in join_group_dataset_views %}<option value="{{ view.dataset.dataset_id }}"{% if join_group_form.primary_dataset_id == view.dataset.dataset_id %} selected{% endif %}>{{ view.dataset.name }} - {{ view.dataset.row_count }} rows</option>{% endfor %}
                 </select>
@@ -302,7 +302,7 @@
                     <tr>
                       <th>{{ loop.index }}</th>
                       <td>
-                        <select name="primary_key_field_{{ loop.index }}"{% if loop.first %} required{% endif %}>
+                        <select name="primary_key_field_{{ loop.index }}" data-group-primary-key{% if loop.first %} required{% endif %}>
                           <option value="">{{ "Choose a field" if loop.first else "Not used" }}</option>
                           {% for view in join_group_dataset_views %}<optgroup label="{{ view.dataset.name }}">{% for column_view in view.columns %}{% set token = view.dataset.dataset_id ~ '|' ~ column_view.column.stable_key %}<option value="{{ token }}"{% if key[0] == token or (key[0] == column_view.column.stable_key and join_group_form.primary_dataset_id == view.dataset.dataset_id) %} selected{% endif %}>{{ column_view.column.source_name }}</option>{% endfor %}</optgroup>{% endfor %}
                         </select>
@@ -332,11 +332,11 @@
                   {% for view in join_group_dataset_views %}
                     {% set addition = view.addition %}
                     <tr>
-                      <td><input type="checkbox" name="group_addition" value="{{ view.dataset_index }}" aria-label="Add {{ view.dataset.name }}"{% if addition %} checked{% endif %}></td>
+                      <td><input type="checkbox" name="group_addition" value="{{ view.dataset_index }}" data-group-addition data-dataset-id="{{ view.dataset.dataset_id }}" aria-label="Add {{ view.dataset.name }}"{% if addition %} checked{% endif %}></td>
                       <th>{{ view.dataset.name }}<small>{{ view.dataset.row_count }} rows</small></th>
                       {% for key_index in range(1, 6) %}
                         <td>
-                          <select name="group_addition_key_{{ view.dataset_index }}_{{ key_index }}" aria-label="{{ view.dataset.name }} key {{ key_index }}">
+                          <select name="group_addition_key_{{ view.dataset_index }}_{{ key_index }}" data-group-addition-key data-dataset-id="{{ view.dataset.dataset_id }}" aria-label="{{ view.dataset.name }} key {{ key_index }}">
                             <option value="">Choose</option>
                             {% for column_view in view.columns %}{% set token = view.dataset.dataset_id ~ '|' ~ column_view.column.stable_key %}<option value="{{ token }}"{% if addition and (addition.key_column_keys[key_index - 1] == token or addition.key_column_keys[key_index - 1] == column_view.column.stable_key) %} selected{% endif %}>{{ column_view.column.source_name }}</option>{% endfor %}
                           </select>
@@ -362,18 +362,41 @@
           <div>
             <h3>Choose the final output fields</h3>
             <p class="muted">Fields from tables that do not participate are ignored. Physical inputs default to Preparation only, so Match data shows one final logical dataset.</p>
+            <div class="exact-join-field-tools" data-group-field-tools>
+              <label>
+                Find a field
+                <input type="search" data-group-field-search placeholder="Search source or output name">
+              </label>
+              <label>
+                Show
+                <select data-group-field-filter>
+                  <option value="all">All participating fields</option>
+                  <option value="recommended">Recommended</option>
+                  <option value="decision">Needs decision</option>
+                  <option value="empty">Empty</option>
+                  <option value="selected">Selected</option>
+                </select>
+              </label>
+              <div class="actions compact">
+                <button class="button secondary" type="button" data-group-use-recommended>Use recommended output</button>
+                <button class="button secondary" type="button" data-group-select-visible>Select visible fields</button>
+                <button class="button secondary" type="button" data-group-clear-visible>Clear visible fields</button>
+              </div>
+              <p class="status" data-group-field-count aria-live="polite">0 / 200 output fields selected</p>
+              <p class="notice error" data-group-field-limit-error hidden>Choose fewer fields before reviewing this combination.</p>
+            </div>
             {% for view in join_group_dataset_views %}
-              <fieldset class="join-projection-group">
+              <fieldset class="join-projection-group" data-group-projection-dataset="{{ view.dataset.dataset_id }}">
                 <legend>{{ view.dataset.name }}</legend>
                 <div class="table-scroll">
                   <table class="data-table">
                     <thead><tr><th>Include</th><th>Source field</th><th>Output name</th><th>Type</th></tr></thead>
                     <tbody>
                       {% for column_view in view.columns %}
-                        <tr>
-                          <td><input type="checkbox" name="group_projection" value="{{ column_view.projection_index }}"{% if column_view.selected %} checked{% endif %} aria-label="Include {{ view.dataset.name }} {{ column_view.column.source_name }}"></td>
+                        <tr data-group-field-row data-dataset-id="{{ view.dataset.dataset_id }}" data-dataset-name="{{ view.dataset.name }}" data-column-key="{{ column_view.column.stable_key }}" data-source-name="{{ column_view.column.source_name }}" data-candidate-type="{{ column_view.column.candidate_type }}">
+                          <td><input type="checkbox" name="group_projection" value="{{ column_view.projection_index }}" data-group-field-checkbox{% if column_view.selected %} checked{% endif %} aria-label="Include {{ view.dataset.name }} {{ column_view.column.source_name }}"></td>
                           <td>{{ column_view.column.source_name }}</td>
-                          <td><input name="group_projection_name" value="{{ column_view.output_name }}" maxlength="200" aria-label="Output name for {{ view.dataset.name }} {{ column_view.column.source_name }}"></td>
+                          <td><input name="group_projection_name" value="{{ column_view.output_name }}" data-group-output-name data-default-name="{{ column_view.column.source_name }}" data-qualified-name="{{ column_view.qualified_output_name }}" maxlength="200" aria-label="Output name for {{ view.dataset.name }} {{ column_view.column.source_name }}"><small data-group-field-reason></small></td>
                           <td>{{ column_view.column.candidate_type }}</td>
                         </tr>
                       {% endfor %}

@@ -7,12 +7,17 @@ import re
 from unittest.mock import patch
 from uuid import uuid4
 
+from starlette.datastructures import FormData
+
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
 from impodo.domain.workspace.derived_entities import SourceDatasetUse
 from impodo.web.exact_join_forms import (
     available_exact_join_selection,
     exact_join_group_projection_candidates,
     exact_join_projection_candidates,
+    parse_exact_join_group_form,
+    resolve_exact_join_group_request,
 )
 from tests.support.browser_scenarios import (
     POST_HEADERS,
@@ -409,8 +414,26 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
             several_tables=True
         )
         form = self._join_group_form(selection, by_name)
+        service = self.app.state.context.derived_entities
+        evaluator = service.group_evaluator
+        self.assertIsNotNone(evaluator)
+        captured = []
+        original_review = evaluator.review
 
-        with collect_duckdb_request_timings() as preview_timings:
+        def capture_review(**kwargs):
+            result = original_review(**kwargs)
+            captured.append(result)
+            return result
+
+        with (
+            patch.object(evaluator, "review", side_effect=capture_review),
+            patch(
+                "impodo.application.workspace.derived_entities."
+                "MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT",
+                1,
+            ),
+            collect_duckdb_request_timings() as preview_timings,
+        ):
             preview = self.client.post(
                 f"/workspaces/{workspace_id}/derived-entities/join-group/preview",
                 data=form,
@@ -423,6 +446,30 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Only the final combined table enters Match data", preview.text)
         self.assertLessEqual(preview_timings.connection_count, 12)
         self.assertLessEqual(preview_timings.schema_check_count, 10)
+        self.assertEqual(len(captured), 1)
+        self.assertTrue(captured[0].bounded_execution_plan_verified)
+        self.assertEqual(captured[0].physical_snapshot_scans, 4)
+        self.assertLessEqual(captured[0].statement_count, 20)
+
+        form_items = []
+        for name, value in form.items():
+            if isinstance(value, list):
+                form_items.extend((name, item) for item in value)
+            else:
+                form_items.append((name, value))
+        request = resolve_exact_join_group_request(
+            parse_exact_join_group_form(FormData(form_items)),
+            selection,
+        )
+        fallback = DerivedEntityWorkspaceService(
+            service.sources,
+            service.derived_entities,
+            service.authorization,
+            service.artifacts,
+        )
+        expected = fallback.preview_join_group(workspace_id, request)
+        self.assertEqual(captured[0].rules, expected.rules)
+        self.assertEqual(captured[0].reviews, expected.reviews)
 
         action = f"/workspaces/{workspace_id}/derived-entities/join-group/save"
         group_id = self._hidden_value(preview.text, action, "group_id")
@@ -437,7 +484,14 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
             expected_version=expected_version,
             group_id=group_id,
         )
-        with collect_duckdb_request_timings() as save_timings:
+        with (
+            patch(
+                "impodo.application.workspace.derived_entities."
+                "MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT",
+                1,
+            ),
+            collect_duckdb_request_timings() as save_timings,
+        ):
             saved = self.client.post(
                 action,
                 data=save_form,

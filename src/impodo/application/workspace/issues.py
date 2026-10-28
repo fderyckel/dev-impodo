@@ -56,6 +56,7 @@ class WorkflowIssueProjection:
     affected_record_types: tuple[str, ...] = ()
     affected_fields: tuple[str, ...] = ()
     affected_record_count: int | None = None
+    dependent_on_other_issue: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +82,7 @@ def summarize_workflow_issues(
             ),
             key=lambda issue: (
                 issue.severity is not WorkflowIssueSeverity.MUST_FIX,
+                issue.dependent_on_other_issue,
                 issue.owning_stage,
                 issue.cause.casefold(),
                 issue.code,
