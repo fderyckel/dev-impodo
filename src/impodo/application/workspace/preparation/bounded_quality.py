@@ -39,6 +39,7 @@ from impodo.domain.preparation.quality import (
     _identity_logical_references,
     _logical_reference_contexts,
     _logical_references,
+    _prepared_numeric_precision_issue,
     _quality_issue,
     _record_label,
     _relationship_issue_details,
@@ -56,6 +57,11 @@ from impodo.domain.preparation.staging_contracts import (
 )
 from impodo.domain.shared.models import canonical_json_bytes, portable_value
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.target_numeric_precision import (
+    PreparedNumericField,
+    PreparedNumericPrecisionFinding,
+    prepared_numeric_precision_finding,
+)
 from impodo.domain.workspace.workbench import WorkspaceState
 
 
@@ -93,6 +99,8 @@ class _QualityIndexBuilder(Protocol):
     def __call__(
         self,
         physical_rows: Mapping[str, tuple[int, ...]],
+        *,
+        numeric_fields: tuple[PreparedNumericField, ...] = (),
     ) -> Mapping[str, object] | None: ...
 
 
@@ -488,6 +496,7 @@ def build_bounded_quality_run(
     ruleset: QualityRuleSet,
     published_staging_content_hash: str,
     definition: MappingDefinition | None = None,
+    numeric_fields: tuple[PreparedNumericField, ...] = (),
 ) -> StoredQualityRun:
     """Return lazy evidence for direct rows and compact mapping findings.
 
@@ -539,7 +548,11 @@ def build_bounded_quality_run(
     index_builder = getattr(staging.rows, "bounded_quality_index", None)
     if callable(index_builder):
         build_index = cast(_QualityIndexBuilder, index_builder)
-        index = build_index(physical_rows)
+        index = (
+            build_index(physical_rows, numeric_fields=numeric_fields)
+            if numeric_fields
+            else build_index(physical_rows)
+        )
         if index is not None:
             if needs_identity_groups and not callable(getattr(staging.rows, "bounded_identity_group_findings", None)):
                 raise BoundedQualityUnsupported
@@ -571,7 +584,7 @@ def build_bounded_quality_run(
     previous_row_key: tuple[str, int, str] | None = None
     previous_accounting_row = 0
     has_relationships = False
-    dirty = bool(staging.issues)
+    dirty = bool(staging.issues or numeric_fields)
     row_count = 0
 
     for row in staging.rows:
@@ -781,6 +794,51 @@ def build_bounded_quality_run(
             relation_rows=relation_rows,
             duplicate_coordinates=duplicate_relation_coordinates,
         )
+
+    numeric_fields_by_dataset: dict[str, tuple[PreparedNumericField, ...]] = {}
+    for dataset in sorted({item.dataset for item in numeric_fields}):
+        numeric_fields_by_dataset[dataset] = tuple(
+            item for item in numeric_fields if item.dataset == dataset
+        )
+    for row in staging.rows:
+        existing_issues = tuple(
+            issue_map[item] for item in row_issue_ids.get(row.row_id, ())
+        )
+        if _effective_disposition(row, existing_issues) not in {
+            QualityDisposition.CANDIDATE,
+            QualityDisposition.REFERENCE,
+        }:
+            continue
+        rule = rules_by_family.get(
+            (row.dataset, QualityRuleFamily.BOUNDED_VALUES)
+        )
+        if rule is None:
+            continue
+        for numeric_field in numeric_fields_by_dataset.get(row.dataset, ()):
+            if numeric_field.target_model != row.target_model:
+                continue
+            value = row.proposed_values.get(numeric_field.field_name)
+            if value is None:
+                continue
+            finding = prepared_numeric_precision_finding(
+                row_id=row.row_id,
+                dataset=row.dataset,
+                source_row=row.source_row,
+                target_model=row.target_model,
+                field_name=numeric_field.field_name,
+                digits=numeric_field.digits,
+                value=value,
+            )
+            if finding is None:
+                continue
+            issue = _prepared_numeric_precision_issue(
+                workspace_state,
+                rule,
+                row,
+                finding,
+            )
+            issue_map[issue.issue_id] = issue
+            row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
     row_results = _BoundedQualityRows(
         staging.rows,
@@ -1186,6 +1244,67 @@ def _build_indexed_quality_run(
             )
             issue_map[issue.issue_id] = issue
             row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+
+    for raw in _indexed_rows(index, "precision_rows"):
+        (
+            _ordinal,
+            row_id,
+            dataset,
+            source_row,
+            disposition,
+            physical_id,
+            physical_row,
+            target_model,
+            field_name,
+            precision,
+            scale,
+            required_places,
+            integral_overflow,
+            zeroed_positive,
+        ) = raw
+        row = register(
+            row_id,
+            dataset,
+            source_row,
+            disposition,
+            physical_id,
+            physical_row,
+        )
+        if _effective_disposition(
+            row,
+            (
+                issue_map[item]
+                for item in row_issue_ids.get(row.row_id, ())
+            ),
+        ) not in {
+            QualityDisposition.CANDIDATE,
+            QualityDisposition.REFERENCE,
+        }:
+            continue
+        rule = rules_by_family.get(
+            (row.dataset, QualityRuleFamily.BOUNDED_VALUES)
+        )
+        if rule is None:
+            continue
+        finding = PreparedNumericPrecisionFinding(
+            row_id=row.row_id,
+            dataset=row.dataset,
+            source_row=row.source_row,
+            target_model=str(target_model),
+            field_name=str(field_name),
+            digits=(_indexed_integer(precision), _indexed_integer(scale)),
+            required_decimal_places=_indexed_integer(required_places),
+            integral_overflow=bool(integral_overflow),
+            zeroed_positive=bool(zeroed_positive),
+        )
+        issue = _prepared_numeric_precision_issue(
+            workspace_state,
+            rule,
+            row,
+            finding,
+        )
+        issue_map[issue.issue_id] = issue
+        row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
     summary_counts = {
         "ready_count": disposition_counts[StagingDisposition.CANDIDATE]

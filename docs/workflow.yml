@@ -535,12 +535,16 @@ stages:
       - src/impodo/adapters/duckdb/preparation_quality_index.py::PreparationQualityIndex
       - src/impodo/adapters/duckdb/quality_repository.py::_read_complete_quality_cause_counts
       - src/impodo/domain/preparation/quality.py::QualityCauseCount
+      - src/impodo/domain/preparation/quality.py::QualityDependencyImpact
+      - src/impodo/domain/target_numeric_precision.py::PreparedNumericField
+      - src/impodo/domain/target_numeric_precision.py::PreparedNumericPrecisionFinding
       - src/impodo/application/workspace/issues.py::WorkflowIssueProjection
       - src/impodo/web/presenters/summary.py::_quality_workflow_issue_summary
       - src/impodo/adapters/duckdb/preparation_identity_group_quality.py::iter_identity_group_findings
       - src/impodo/domain/staging/preparation_session.py::PreparedCanonicalProjection
       - src/impodo/adapters/duckdb/native_prepared_projection.py::projected_encoded_rows_sql
       - src/impodo/adapters/duckdb/native_prepared_projection.py::projected_hybrid_dependency_rows_sql
+      - src/impodo/adapters/duckdb/native_prepared_projection.py::projected_numeric_values_sql
       - src/impodo/domain/preparation/quality.py::quality_dependency_references
       - src/impodo/domain/preparation/quality.py::quality_dependency_reference_contexts
       - src/impodo/application/workspace/preparation/preparation_capability.py::compile_preparation_capability
@@ -585,6 +589,7 @@ stages:
       - src/impodo/web/routers/preflight.py
     templates:
       - src/impodo/web/templates/workspace_summary.html
+      - src/impodo/web/templates/workspace_quality_cause.html
       - src/impodo/web/templates/workspace_preflight_progress.html
       - src/impodo/web/templates/workspace_deferred_scope.html
     code_references:

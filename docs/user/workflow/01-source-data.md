@@ -56,7 +56,9 @@ rows. Select **Save combined table** only when the primary grain is preserved.
 The physical inputs default to preparation-only, private intermediate tables
 do not create separate mapping work, and only the final logical output enters
 **Match data**. Use **Advanced: combine two tables** when an explicit pairwise
-structural step is needed.
+structural step is needed. The qualified grouped path can prepare up to 100,000
+physical input rows when the primary output contains no more than 50,000 rows;
+other derived-table shapes keep their separate preparation limits.
 
 For a BoM delivery, combine partial header tables only at the header grain and
 partial line tables only at the complete line grain. Keep repeating operations

@@ -259,11 +259,11 @@
       </section>
     {% endfor %}
 
-    <details class="form-card secondary-preparation" id="combine-source-tables" data-derived-entity-section{% if pending_join_group %} open{% endif %}>
+    <details class="form-card secondary-preparation" id="combine-source-tables" data-derived-entity-section{% if pending_join_group or join_group_error %} open{% endif %}>
       <summary>
         <span><strong>Several tables describe the same records</strong><small>Choose one primary table and add up to nine enrichments in one reviewed decision.</small></span>
       </summary>
-      <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join-group/preview" data-exact-join-group-form>
+      <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join-group/preview" data-exact-join-group-form{% if join_group_error %} data-group-server-error{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
         <input type="hidden" name="group_id" value="{{ join_group_form.group_id }}">

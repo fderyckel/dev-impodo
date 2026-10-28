@@ -1,4 +1,4 @@
-"""Capture the exact-join review from an isolated fictional customer workspace."""
+"""Capture grouped exact-join evidence from an isolated customer workspace."""
 
 from __future__ import annotations
 
@@ -25,12 +25,6 @@ def _column(dataset, name: str):
     return next(column for column in dataset.columns if column.source_name == name)
 
 
-def _select_output_field(section, source_name: str, output_name: str) -> None:
-    row = section.locator("tbody tr").filter(has_text=source_name).first
-    row.locator('input[name="projection"]').check()
-    row.locator('input[name="projection_name"]').fill(output_name)
-
-
 def capture(output_directory: Path, *, browser_channel: str) -> None:
     try:
         from playwright.sync_api import expect, sync_playwright
@@ -45,9 +39,19 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
     server = None
     thread = None
     try:
-        workspace_id, _selection, by_name = fixture._frozen_customer_workspace()
-        left = by_name["customer_accounts"]
-        right = by_name["party_details"]
+        workspace_id, selection, by_name = fixture._frozen_customer_workspace(
+            several_tables=True
+        )
+        primary = by_name["customer_accounts"]
+        additions = (
+            (by_name["party_details"], "RecId"),
+            (by_name["customer_addresses"], "Party"),
+            (by_name["customer_terms"], "Party"),
+        )
+        dataset_indexes = {
+            dataset.dataset_id: index
+            for index, dataset in enumerate(selection.datasets)
+        }
         session_cookie = fixture.client.cookies.get("impodo_session")
         if not session_cookie:
             raise RuntimeError("The isolated setup did not create an Impodo session.")
@@ -56,9 +60,13 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
         server, thread, port = _start_server(fixture.app)
         base_url = f"http://127.0.0.1:{port}"
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
-                channel=browser_channel,
-                headless=True,
+            browser = (
+                playwright.chromium.launch(headless=True)
+                if browser_channel == "bundled"
+                else playwright.chromium.launch(
+                    channel=browser_channel,
+                    headless=True,
+                )
             )
             browser_context = browser.new_context(
                 viewport=VIEWPORT,
@@ -82,48 +90,47 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 wait_until="networkidle",
             )
             page.get_by_role(
-                "button", name="Combine columns from multiple tables"
+                "button", name="Several tables describe the same records"
             ).click()
             form = page.locator("#combine-source-tables")
             expect(form).to_have_attribute("open", "")
             form.locator('input[name="output_dataset_name"]').fill(
-                "customer_contacts"
+                "customers_complete"
             )
-            form.locator('select[name="left_dataset_id"]').select_option(
-                left.dataset_id
+            form.locator('select[name="primary_dataset_id"]').select_option(
+                primary.dataset_id
             )
-            form.locator('select[name="right_dataset_id"]').select_option(
-                right.dataset_id
+            form.locator('select[name="primary_key_field_1"]').select_option(
+                f'{primary.dataset_id}|{_column(primary, "Partition").stable_key}'
             )
-            form.locator('select[name="key_left_1"]').select_option(
-                f'{left.dataset_id}|{_column(left, "Partition").stable_key}'
+            form.locator('select[name="primary_key_field_2"]').select_option(
+                f'{primary.dataset_id}|{_column(primary, "Party").stable_key}'
             )
-            form.locator('select[name="key_right_1"]').select_option(
-                f'{right.dataset_id}|{_column(right, "Partition").stable_key}'
-            )
-            form.locator('select[name="key_left_2"]').select_option(
-                f'{left.dataset_id}|{_column(left, "Party").stable_key}'
-            )
-            form.locator('select[name="key_right_2"]').select_option(
-                f'{right.dataset_id}|{_column(right, "RecId").stable_key}'
-            )
-            form.locator('select[name="key_type_2"]').select_option("integer")
+            form.locator('select[name="primary_key_type_2"]').select_option("integer")
+            for dataset, identity_field in additions:
+                dataset_index = dataset_indexes[dataset.dataset_id]
+                form.locator(
+                    f'[data-group-addition][data-dataset-id="{dataset.dataset_id}"]'
+                ).check()
+                form.locator(
+                    f'select[name="group_addition_key_{dataset_index}_1"]'
+                ).select_option(
+                    f'{dataset.dataset_id}|{_column(dataset, "Partition").stable_key}'
+                )
+                form.locator(
+                    f'select[name="group_addition_key_{dataset_index}_2"]'
+                ).select_option(
+                    f"{dataset.dataset_id}|"
+                    f"{_column(dataset, identity_field).stable_key}"
+                )
+            form.get_by_role(
+                "button", name="Review complete combination"
+            ).click()
 
-            left_fields = form.locator(
-                f'[data-exact-projection-dataset="{left.dataset_id}"]'
-            )
-            right_fields = form.locator(
-                f'[data-exact-projection-dataset="{right.dataset_id}"]'
-            )
-            _select_output_field(left_fields, "AccountNum", "account_number")
-            _select_output_field(left_fields, "Company", "company")
-            _select_output_field(right_fields, "Name", "name")
-            _select_output_field(right_fields, "Email", "email")
-            form.get_by_role("button", name="Review complete join").click()
-
-            preview = page.locator("#join-preview")
+            preview = page.locator("#join-group-preview")
             expect(preview).to_be_visible()
-            expect(preview).to_contain_text("The base grain is preserved")
+            expect(preview).to_contain_text("The primary grain is preserved")
+            expect(preview).to_contain_text("3")
             preview.scroll_into_view_if_needed()
             page.evaluate("window.scrollBy(0, -80)")
             _capture(
@@ -160,7 +167,11 @@ def main() -> None:
         type=Path,
         default=DEFAULT_OUTPUT_DIRECTORY,
     )
-    parser.add_argument("--browser-channel", default="msedge")
+    parser.add_argument(
+        "--browser-channel",
+        default="msedge",
+        help="Playwright channel name, or 'bundled' for its installed Chromium",
+    )
     arguments = parser.parse_args()
     capture(
         arguments.output_directory.resolve(),

@@ -313,6 +313,77 @@ def parse_exact_join_group_form(form: FormData) -> ExactJoinGroupFormSubmission:
     )
 
 
+def retain_exact_join_group_form(form: FormData) -> ExactJoinGroupFormSubmission:
+    """Retain bounded inert choices when strict grouped-form parsing fails."""
+
+    raw_version = _text(form, "expected_parent_version")
+    try:
+        expected_parent_version = int(raw_version) if raw_version else None
+    except ValueError:
+        expected_parent_version = None
+    raw_group_id = _text(form, "group_id")
+    try:
+        group_id = str(UUID(raw_group_id))
+    except (ValueError, TypeError, AttributeError):
+        group_id = str(uuid4())
+
+    addition_indexes: list[int] = []
+    for value in form.getlist("group_addition")[:9]:
+        try:
+            index = int(str(value))
+        except ValueError:
+            continue
+        if (
+            0 <= index < _MAX_GROUP_DATASET_CANDIDATES
+            and index not in addition_indexes
+        ):
+            addition_indexes.append(index)
+    projection_indexes: list[int] = []
+    for value in form.getlist("group_projection")[:_MAX_PROJECTION_CANDIDATES]:
+        try:
+            index = int(str(value))
+        except ValueError:
+            continue
+        if 0 <= index < _MAX_PROJECTION_CANDIDATES and index not in projection_indexes:
+            projection_indexes.append(index)
+
+    return ExactJoinGroupFormSubmission(
+        expected_parent_version=expected_parent_version,
+        group_id=group_id,
+        output_dataset_name=_text(form, "output_dataset_name"),
+        primary_dataset_id=_text(form, "primary_dataset_id"),
+        primary_key_rows=tuple(
+            (
+                _text(form, f"primary_key_field_{index}"),
+                _text(form, f"primary_key_type_{index}") or "string",
+            )
+            for index in range(1, 6)
+        ),
+        additions=tuple(
+            ExactJoinGroupAdditionSubmission(
+                dataset_index=index,
+                key_column_keys=tuple(
+                    _text(form, f"group_addition_key_{index}_{key_index}")
+                    for key_index in range(1, 6)
+                ),
+                kind=_text(form, f"group_addition_kind_{index}") or JoinKind.LEFT.value,
+                require_all_rows=_checked(
+                    form,
+                    f"group_addition_require_all_{index}",
+                ),
+            )
+            for index in addition_indexes
+        ),
+        projection_indexes=tuple(projection_indexes),
+        projection_names=tuple(
+            value if isinstance(value, str) else ""
+            for value in form.getlist("group_projection_name")[
+                :_MAX_PROJECTION_CANDIDATES
+            ]
+        ),
+    )
+
+
 def available_exact_join_selection(
     selection: SourceSelection,
     plan: DerivedEntityPlan | None,

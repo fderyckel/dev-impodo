@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..composition.page_reads import run_page_read
 from ..context import WebContext
-from ..presenters.summary import _render_summary
+from ..presenters.summary import _render_quality_cause, _render_summary
 from ..security import require_session
 
 
@@ -39,6 +39,24 @@ def build_summary_router(context: WebContext) -> APIRouter:
             request,
             context,
             workspace_id,
+        )
+
+    @router.get(
+        "/workspaces/{workspace_id}/summary/quality-causes/{cause_key}",
+        response_class=HTMLResponse,
+    )
+    async def workspace_quality_cause(
+        request: Request,
+        workspace_id: str,
+        cause_key: str,
+    ):
+        require_session(request)
+        return await run_page_read(
+            _render_quality_cause,
+            request,
+            context,
+            workspace_id,
+            cause_key,
         )
 
     return router

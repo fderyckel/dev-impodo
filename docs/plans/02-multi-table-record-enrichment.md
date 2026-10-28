@@ -2,12 +2,12 @@
 
 ## Status and product decision
 
-**Status:** Implemented and qualified on 2026-10-28 for grouped authoring,
-automatic output recommendations, and bounded complete-data review. Current
-behavior is owned by the paired Source data documentation and related-table
-guide. Large derived-output preparation remains a separate qualification
-boundary. This file retains the approved delivery rationale and acceptance
-boundary.
+**Status:** Completed and qualified on 2026-10-29. Grouped authoring,
+automatic output recommendations, bounded complete-data review, bounded
+durable preparation of the saved grouped output, validation recovery, and the
+authenticated browser evidence are implemented. Current behavior is owned by
+the paired Source data documentation and related-table guide; this file now
+records the completed product decision and its acceptance evidence.
 
 Impodo should let a data manager choose one primary table and enrich it from
 several other tables in one decision. The primary table defines one output row
@@ -25,9 +25,10 @@ For example, one customer delivery may contain these four accepted tables:
 | `customer_terms` | Commercial enrichment | Customer reference, payment term code |
 
 The data manager should create `customers_complete` in one guided action and
-map that dataset once to Contact (`res.partner`). They should not have to save
-three pairwise joins, manage intermediate datasets, or repeat the Odoo record
-decision.
+map that dataset once to the appropriate target model. Contact (`res.partner`)
+is one example, not a source-preparation dependency. They should not have to
+save three pairwise joins, manage intermediate datasets, or repeat the target
+record decision.
 
 This is a Stage 1 source-preparation feature. It remains model-neutral: the
 data manager chooses Contact (`res.partner`) later in **Match data**. Source
@@ -167,9 +168,9 @@ implementation detail and do not appear as separate mapping work.
 ## Match data and Recipe behavior
 
 The effective mapping selection exposes `customers_complete` and hides the
-intermediate structural outputs. The data manager chooses Contact
-(`res.partner`), its create or update outcome, business identity, relationships,
-and field providers once for that final dataset.
+intermediate structural outputs. The data manager chooses the target model,
+its create or update outcome, business identity, relationships, and field
+providers once for that final dataset.
 
 A published Recipe retains:
 
@@ -233,16 +234,22 @@ limit, and five-key-component limit. It no longer uses the pairwise editor's
 25,000-total-physical-row guard. A request-scoped DuckDB evaluator scans each
 verified Parquet input once into a narrow temporary key table, then performs
 the complete reconciliation and streamed lineage hashing over those temporary
-tables. It uses bounded memory and threads and never caches a DuckDB connection
-across requests. Later materialized preparation of a saved grouped output
-retains its own current admission limit.
+tables. Saved grouped outputs use a second request-scoped DuckDB adapter that
+projects only required key and final-output columns, performs one left-deep
+join, and streams 1,000-row pages into the existing durable preparation
+session. It admits at most 100,000 physical input rows and 50,000 final rows.
+Both adapters use bounded memory and threads and never cache a DuckDB
+connection across requests. The general materialized fallback remains limited
+to 25,000 rows.
 
-Qualification measures the authenticated four-table path and a workspace-shaped
-regression with 65,299 rows, 262 source fields, 97 empty fields, collisions,
-and multiple joins. The scale fixture asserts one physical snapshot scan per
-participant and a linear statement ceiling. The four-table customer path stays
-within 12 connections and 10 schema checks. Do not add a process-wide or
-cross-request DuckDB connection cache to meet that ceiling.
+Qualification measures the authenticated four-table authoring path and a
+three-table workspace-shaped regression with 65,299 rows, 262 source fields,
+97 empty fields, collisions, and two joins. The scale fixture asserts one
+physical snapshot scan per participant, streams 21,766 final rows through a
+durable generic-model preparation session, and proves that the materialized
+fallback remains disabled. The four-table customer path stays within 12
+connections and 10 schema checks. Do not add a process-wide or cross-request
+DuckDB connection cache to meet that ceiling.
 
 ## Delivery increments
 
@@ -283,13 +290,13 @@ cross-request DuckDB connection cache to meet that ceiling.
 
 ### Increment 4: qualification and documentation
 
-1. Add a fictional four-file Contact scenario and a separate composite-key
-   scenario. Prove that only the final dataset enters **Match data** and is
-   mapped once to `res.partner`.
+1. Add a fictional multi-file example and a separate composite-key scenario.
+   Prove that only the final dataset enters **Match data** and that source
+   preparation remains independent of the later target-model choice.
 2. Add exact-value, order, lineage, hash, Recipe round-trip, concurrency,
    rollback, invalidation, authorization, CSRF, and form-tampering tests.
-3. Run the two-, four-, and ten-table performance qualification without Odoo
-   access or per-row repository work.
+3. Qualify three participating tables at the motivating workspace shape without
+   Odoo access, wide Python materialization, or per-row repository work.
 4. Update the paired Source data pages, related-table guide, workflow registry,
    contracts, Python code map, BPMN model, and authenticated 1440 by 1024
    screenshots after the browser behavior is implemented.
@@ -314,9 +321,11 @@ three enrichments, confirms a composite key, reviews and saves one combination,
 and exposes only `customers_complete` to **Match data**. Preview and save remain
 within 12 DuckDB connections and 10 schema checks. Application tests prove one
 atomic revision, interruption rollback, duplicate-primary blocking, final-rule
-group deletion, and complete saved reviews. The Recipe round-trip proves that
-private intermediate outputs, group steps, primary uniqueness, and final-only
-visibility survive fresh binding. Form tests prove the recommended projection,
-qualified collision names, and early 200-field rejection. The grouped browser
-fixture compares DuckDB evidence with the Python oracle. The scale regression
-proves the bounded scan plan at the motivating workspace shape.
+group deletion, complete saved reviews, CSRF enforcement, and form-field
+allowlisting. The Recipe round-trip proves that private intermediate outputs,
+group steps, primary uniqueness, and final-only visibility survive fresh
+binding. Form tests prove the recommended projection, qualified collision
+names, and early 200-field rejection. The grouped browser fixture compares
+DuckDB evidence with the Python oracle. The three-table scale regression proves
+the bounded review and durable preparation path at 65,299 physical rows and
+uses `x_generic.record` to keep the qualification target-model neutral.

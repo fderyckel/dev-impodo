@@ -65,7 +65,10 @@ from impodo.domain.staging.scale import (
     require_supported_browser_scale,
 )
 from impodo.domain.staging.transformation_impact import TransformationImpactRow
-from impodo.domain.target_numeric_precision import TargetNumericPrecisionLosses
+from impodo.domain.target_numeric_precision import (
+    PreparedNumericField,
+    TargetNumericPrecisionLosses,
+)
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
 from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from impodo.domain.workspace.errors import WorkspaceError
@@ -76,6 +79,11 @@ from .bounded_preparation import (
     supports_bounded_direct_preparation,
 )
 from .columnar_transformation_port import ColumnarTransformationPort
+from .grouped_exact_join_preparation import (
+    GroupedExactJoinSourcePort,
+    bounded_exact_join_group,
+    prepare_bounded_grouped_exact_join_session,
+)
 
 
 class PreparationOdooProvenance(Protocol):
@@ -144,6 +152,7 @@ class PreparationService:
         schemas: PreflightSchemaRepository | None = None,
         target_mapping_schema_hash: str | None = None,
         target_float_digits: tuple[tuple[str, str, tuple[int, int]], ...] = (),
+        grouped_exact_joins: GroupedExactJoinSourcePort | None = None,
     ) -> None:
         self.workspaces = workspaces
         self.sources = sources
@@ -161,6 +170,7 @@ class PreparationService:
         self.schemas = schemas
         self.target_mapping_schema_hash = target_mapping_schema_hash
         self.target_float_digits = target_float_digits
+        self.grouped_exact_joins = grouped_exact_joins
 
     def prepare(
         self,
@@ -329,6 +339,64 @@ class PreparationService:
                 workspace_id,
                 bounded_session_id,
             )
+        elif (
+            derived_plan is not None
+            and self.grouped_exact_joins is not None
+            and bounded_exact_join_group(
+                physical_selection,
+                effective_selection,
+                derived_plan,
+            )
+            is not None
+        ):
+            bounded_group = prepare_bounded_grouped_exact_join_session(
+                workspace_state,
+                revision.definition,
+                revision.version,
+                physical_selection,
+                effective_selection,
+                derived_plan,
+                self.artifacts,
+                reference_bundle,
+                self.sessions,
+                self.grouped_exact_joins,
+                actor=actor,
+                source_snapshots=source_snapshots,
+                batch_progress=report_source_batch,
+            )
+            bounded_session_id = bounded_group.session_id
+            staging_input = bounded_group.run
+            bounded_canonical_run = bounded_group.run
+            try:
+                check_cancelled()
+                report_progress(
+                    PreparationPhase.PUBLISHING,
+                    total_rows,
+                    total_rows,
+                    "Saving prepared data",
+                )
+                staging = self.staging.publish_canonical_staging(
+                    workspace_id,
+                    staging_input,
+                    mapping_version=revision.version,
+                    actor=actor,
+                )
+            except Exception:
+                self.sessions.fail_session(
+                    workspace_id,
+                    bounded_session_id,
+                    "BOUNDED_PUBLICATION_FAILED",
+                )
+                raise
+            del staging_input, bounded_group
+            physical_rows = self.sessions.physical_rows(
+                workspace_id,
+                bounded_session_id,
+            )
+            impact_rows = self.sessions.iter_impacts(
+                workspace_id,
+                bounded_session_id,
+            )
         else:
             materialized_impacts: list[TransformationImpactRow] = []
             staged = stage_browser_mapping(
@@ -395,26 +463,6 @@ class PreparationService:
                 total_rows,
                 "Running data checks",
             )
-            quality_run, quality = self.quality.evaluate_and_publish(
-                workspace_state,
-                revision,
-                effective_selection,
-                canonical_run,
-                physical_rows,
-                staging,
-                effective,
-                (
-                    resolution_summary.run_id
-                    if effective is not None and resolution_summary is not None
-                    else None
-                ),
-                reference_bundle,
-                actor=actor,
-                allow_materialized_fallback=(
-                    capability.permits_materialized_fallback
-                ),
-                timing=timing,
-            )
             schemas = self.schemas
             schema = (
                 schemas.get_odoo_schema_catalog(workspace_id)
@@ -448,6 +496,33 @@ class PreparationService:
                         "The captured Odoo field details changed after matching. "
                         "Refresh the Odoo data and check field matches again."
                     )
+            numeric_fields = prepared_target_numeric_fields(
+                revision.definition,
+                effective_selection,
+                schema,
+                target_float_digits=self.target_float_digits,
+            )
+            quality_run, quality = self.quality.evaluate_and_publish(
+                workspace_state,
+                revision,
+                effective_selection,
+                canonical_run,
+                physical_rows,
+                staging,
+                effective,
+                (
+                    resolution_summary.run_id
+                    if effective is not None and resolution_summary is not None
+                    else None
+                ),
+                reference_bundle,
+                numeric_fields=numeric_fields,
+                actor=actor,
+                allow_materialized_fallback=(
+                    capability.permits_materialized_fallback
+                ),
+                timing=timing,
+            )
             report_progress(
                 PreparationPhase.NORMALIZING,
                 total_rows,
@@ -511,31 +586,17 @@ def prepared_target_precision_error(
     UPDATE field intents, where unchanged values cannot become false blockers.
     """
 
-    dataset_names = {item.dataset_id: item.name for item in selection.datasets}
-    write_fields = {
-        dataset_names[dataset.dataset_id]: {
-            item.target_field
-            for item in dataset.fields
-            if not item.validate_only
-            and item.value_source is not ScalarValueSource.ODOO_DEFAULT
-        }
-        for dataset in definition.datasets
-        if dataset.dataset_id in dataset_names
-        and dataset.mode is not MappingTargetMode.REFERENCE
-    }
-    digits_by_model: dict[str, dict[str, tuple[int, int]]] = {}
-    if schema is not None:
-        digits_by_model = {
-            model.name: {
-                field.name: field.digits
-                for field in model.fields
-                if field.type == "float" and field.digits is not None
-            }
-            for model in schema.models
-        }
-    else:
-        for model, field_name, digits in target_float_digits:
-            digits_by_model.setdefault(model, {})[field_name] = digits
+    numeric_fields = prepared_target_numeric_fields(
+        definition,
+        selection,
+        schema,
+        target_float_digits=target_float_digits,
+    )
+    fields_by_dataset: dict[str, tuple[PreparedNumericField, ...]] = {}
+    for dataset in sorted({item.dataset for item in numeric_fields}):
+        fields_by_dataset[dataset] = tuple(
+            item for item in numeric_fields if item.dataset == dataset
+        )
     losses = TargetNumericPrecisionLosses()
     # Stored quality runs can check known canonical IDs without a database lookup.
     contains_canonical = getattr(eligible_row_ids, "contains_canonical", None)
@@ -547,13 +608,76 @@ def prepared_target_precision_error(
         )
         if not eligible:
             continue
-        allowed_fields = write_fields.get(row.dataset, ())
-        model_digits = digits_by_model.get(row.target_model, {})
-        for field_name, value in row.proposed_values.items():
-            digits = model_digits.get(field_name)
-            if field_name in allowed_fields and digits is not None and value is not None:
-                losses.add(row.target_model, field_name, digits, value)
+        for numeric_field in fields_by_dataset.get(row.dataset, ()):
+            if numeric_field.target_model != row.target_model:
+                continue
+            value = row.proposed_values.get(numeric_field.field_name)
+            if value is not None:
+                losses.add(
+                    row.target_model,
+                    numeric_field.field_name,
+                    numeric_field.digits,
+                    value,
+                )
     return losses.first_message()
+
+
+def prepared_target_numeric_fields(
+    definition: MappingDefinition,
+    selection: SourceSelection,
+    schema: OdooSchemaCatalog | None,
+    *,
+    target_float_digits: tuple[tuple[str, str, tuple[int, int]], ...] = (),
+) -> tuple[PreparedNumericField, ...]:
+    """Bind writable prepared fields to one captured, remote-safe capacity."""
+
+    dataset_names = {item.dataset_id: item.name for item in selection.datasets}
+    digits_by_model: dict[str, dict[str, tuple[int, int]]] = {}
+    if schema is not None:
+        digits_by_model = {
+            model.name: {
+                field.name: field.digits
+                for field in model.fields
+                if field.digits is not None
+            }
+            for model in schema.models
+        }
+    else:
+        for model, field_name, digits in target_float_digits:
+            digits_by_model.setdefault(model, {})[field_name] = digits
+
+    fields = []
+    for dataset in definition.datasets:
+        dataset_name = dataset_names.get(dataset.dataset_id)
+        if dataset_name is None or dataset.mode is MappingTargetMode.REFERENCE:
+            continue
+        model_digits = digits_by_model.get(dataset.target_model, {})
+        for mapping in dataset.fields:
+            digits = model_digits.get(mapping.target_field)
+            if (
+                digits is None
+                or mapping.validate_only
+                or mapping.value_source is ScalarValueSource.ODOO_DEFAULT
+            ):
+                continue
+            fields.append(
+                PreparedNumericField(
+                    dataset=dataset_name,
+                    target_model=dataset.target_model,
+                    field_name=mapping.target_field,
+                    digits=digits,
+                )
+            )
+    return tuple(
+        sorted(
+            fields,
+            key=lambda item: (
+                item.dataset,
+                item.target_model,
+                item.field_name,
+            ),
+        )
+    )
 
 
 def canonical_source_hashes(selection: SourceSelection) -> dict[str, str]:

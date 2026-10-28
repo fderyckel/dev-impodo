@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Affected records - {{ migration_project.display_name }} - Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Prepared-data finding</p>
+      <h1>{{ cause_title }}</h1>
+      <p>{{ cause.message }}</p>
+    </div>
+    <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary#migration-issues">Back to migration issues</a>
+  </div>
+
+  <section class="readiness-cards quality-cards" aria-label="Affected record totals">
+    <article class="readiness-card blocked">
+      <span>Direct findings</span>
+      <strong>{{ cause.affected_record_count }}</strong>
+      <small>Records where this finding was saved</small>
+    </article>
+    <article class="readiness-card review">
+      <span>Dependency impact</span>
+      <strong>{{ cause.affected_parent_count + cause.affected_child_count + cause.affected_sibling_count }}</strong>
+      <small>Parents, children, or siblings set aside with them</small>
+    </article>
+  </section>
+
+  <section class="form-card" aria-labelledby="affected-records-title">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Affected records</p>
+        <h2 id="affected-records-title">Records behind this finding</h2>
+        {% if review_page.matching_count %}
+          <p class="muted">Records {{ row_start }}-{{ row_end }} of {{ review_page.matching_count }}</p>
+        {% endif %}
+      </div>
+      <div class="actions" aria-label="Records per page">
+        {% for option in page_size_options %}
+          <a class="button secondary small{% if option.size == page_size %} selected{% endif %}" href="{{ option.url }}">{{ option.size }}</a>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% if review_page.items %}
+      <div class="table-scroll">
+        <table class="data-table readiness-row-table">
+          <thead>
+            <tr><th>Table</th><th>Source row</th><th>Record</th><th>Why it appears here</th><th>Saved findings and next step</th></tr>
+          </thead>
+          <tbody>
+            {% for item in review_page.items %}
+              {% set row = item.row %}
+              <tr data-quality-cause-row>
+                <td>{{ row.dataset.replace('_', ' ')|title }}</td>
+                <td>{{ row.source_row }}</td>
+                <th>{{ row.record_label }}</th>
+                <td>
+                  {% if item.cause_impact.value == 'DIRECT' %}
+                    <span class="status blocked">Direct finding</span>
+                  {% elif item.cause_impact.value == 'PARENT' %}
+                    <span class="status review">Affected parent</span>
+                  {% elif item.cause_impact.value == 'SIBLING' %}
+                    <span class="status review">Affected sibling</span>
+                  {% else %}
+                    <span class="status review">Affected child</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% for issue in item.issues %}
+                    <p>
+                      {{ issue.message }}
+                      {% if issue.affected_fields %}<small class="row-field">Fields: {{ issue.affected_fields|join(', ') }}</small>{% endif %}
+                    </p>
+                  {% else %}
+                    <p>This record was set aside through the saved dependency closure.</p>
+                  {% endfor %}
+                  {% if item.correction_route %}<p><strong>Next step:</strong> {{ item.correction_route }}</p>{% endif %}
+                  <details class="technical-details">
+                    <summary>Support details</summary>
+                    <code>{{ row.effective_disposition.value }} - {{ row.row_id }}</code>
+                  </details>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="pagination-row">
+        {% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Previous</a>{% endif %}
+        <span class="muted">Page {{ review_page.page }} of {{ review_page.page_count }}</span>
+        {% if next_url %}<a class="button secondary" href="{{ next_url }}">Next</a>{% endif %}
+      </div>
+    {% else %}
+      <div class="empty-state compact">
+        <h3>No affected records</h3>
+        <p>Prepare the complete data again to refresh this finding.</p>
+      </div>
+    {% endif %}
+
+    <details class="technical-details">
+      <summary>Support details</summary>
+      <p><code>{{ cause.reason_code }}</code> &middot; <code>{{ quality_run_id }}</code></p>
+    </details>
+  </section>
+{% endblock %}

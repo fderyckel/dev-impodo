@@ -5,13 +5,17 @@ from types import SimpleNamespace
 import unittest
 
 from impodo.application.workspace.preparation.preparation_service import (
+    prepared_target_numeric_fields,
     prepared_target_precision_error,
 )
 from impodo.application.odoo_comparison_service import _same_write_field
 from impodo.domain.mapping.contracts import MappingTargetMode, ScalarValueSource
 from impodo.domain.shared.models import FieldMetadata
 from impodo.domain.target_numeric_precision import (
+    PreparedNumericField,
     TargetNumericPrecisionLosses,
+    prepared_numeric_precision_finding,
+    prepared_numeric_precision_message,
     required_decimal_places,
     unrepresentable_decimal,
 )
@@ -19,6 +23,31 @@ from impodo.domain.workspace.contracts import SchemaField
 
 
 class TargetNumericPrecisionTests(unittest.TestCase):
+    def test_prepared_finding_is_exact_and_value_free(self) -> None:
+        field = PreparedNumericField(
+            dataset="lines",
+            target_model="mrp.bom.line",
+            field_name="product_qty",
+            digits=(16, 2),
+        )
+        finding = prepared_numeric_precision_finding(
+            row_id="sha256:" + "a" * 64,
+            dataset=field.dataset,
+            source_row=2,
+            target_model=field.target_model,
+            field_name=field.field_name,
+            digits=field.digits,
+            value=Decimal("0.003"),
+        )
+
+        self.assertIsNotNone(finding)
+        assert finding is not None
+        self.assertEqual(finding.required_decimal_places, 3)
+        self.assertTrue(finding.zeroed_positive)
+        message = prepared_numeric_precision_message(finding)
+        self.assertIn("precision (16, 2)", message)
+        self.assertNotIn("0.003", message)
+
     def test_each_odoo_float_uses_its_own_decimal_scale(self) -> None:
         for scale in (2, 6, 10):
             with self.subTest(scale=scale):
@@ -82,6 +111,7 @@ class TargetNumericPrecisionTests(unittest.TestCase):
         )
         definition = SimpleNamespace(datasets=(SimpleNamespace(
             dataset_id="line-id",
+            target_model="x.model",
             mode=MappingTargetMode.UPSERT,
             fields=(
                 SimpleNamespace(target_field="x_two", validate_only=False, value_source=ScalarValueSource.SOURCE),
@@ -116,7 +146,7 @@ class TargetNumericPrecisionTests(unittest.TestCase):
             proposed_values={"x_ten": Decimal("0.12345678901")},
         )
         definition = SimpleNamespace(datasets=(SimpleNamespace(
-            dataset_id="line-id",
+            dataset_id="line-id", target_model="x.model",
             mode=MappingTargetMode.UPSERT,
             fields=(SimpleNamespace(
                 target_field="x_ten", validate_only=False,
@@ -139,7 +169,8 @@ class TargetNumericPrecisionTests(unittest.TestCase):
             proposed_values={"x_quantity": Decimal("0.123")},
         )
         definition = SimpleNamespace(datasets=(SimpleNamespace(
-            dataset_id="lookup-id", mode=MappingTargetMode.REFERENCE,
+            dataset_id="lookup-id", target_model="x.model",
+            mode=MappingTargetMode.REFERENCE,
             fields=(SimpleNamespace(
                 target_field="x_quantity", validate_only=False,
                 value_source=ScalarValueSource.SOURCE,
@@ -155,6 +186,42 @@ class TargetNumericPrecisionTests(unittest.TestCase):
         self.assertIsNone(prepared_target_precision_error(
             (row,), {"one"}, definition, selection, schema,
         ))
+
+    def test_captured_monetary_digits_are_part_of_prepared_capacity(self) -> None:
+        definition = SimpleNamespace(datasets=(SimpleNamespace(
+            dataset_id="line-id",
+            target_model="account.move.line",
+            mode=MappingTargetMode.UPSERT,
+            fields=(SimpleNamespace(
+                target_field="price_unit",
+                validate_only=False,
+                value_source=ScalarValueSource.SOURCE,
+            ),),
+        ),))
+        selection = SimpleNamespace(datasets=(SimpleNamespace(
+            dataset_id="line-id",
+            name="lines",
+        ),))
+        schema = SimpleNamespace(models=(SimpleNamespace(
+            name="account.move.line",
+            fields=(SimpleNamespace(
+                name="price_unit",
+                type="monetary",
+                digits=(16, 2),
+            ),),
+        ),))
+
+        self.assertEqual(
+            prepared_target_numeric_fields(definition, selection, schema),
+            (
+                PreparedNumericField(
+                    dataset="lines",
+                    target_model="account.move.line",
+                    field_name="price_unit",
+                    digits=(16, 2),
+                ),
+            ),
+        )
 
 
 if __name__ == "__main__":

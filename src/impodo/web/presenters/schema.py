@@ -224,6 +224,7 @@ def _render_derived_entities(
     pending_hierarchy: dict[str, object] | None = None,
     pending_join: dict[str, object] | None = None,
     pending_join_group: dict[str, object] | None = None,
+    join_group_error: bool = False,
     join_group_form: ExactJoinGroupFormSubmission | None = None,
     join_form: ExactJoinFormSubmission | None = None,
 ):
@@ -437,6 +438,7 @@ def _render_derived_entities(
         pending_hierarchy=pending_hierarchy,
         pending_join=pending_join,
         pending_join_group=pending_join_group,
+        join_group_error=join_group_error,
         join_group_form=join_group_form,
         join_group_dataset_views=join_group_dataset_views,
         join_form=join_form,

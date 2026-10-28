@@ -1435,21 +1435,81 @@ not expose an unauthenticated maintenance command.
   data, waiting for a worker, contacting Odoo, or opening a long DuckDB
   transaction.
 - Record query counts, pool waits, transaction duration, and retries for
-  catalogue, administration, and job pages.
-- Add call-count tests for Organization-scoped list pages and job claims. A
-  Project list must not query roles or receipts once per Project.
+  catalogue and administration pages. Apply the same metric contract to job
+  pages when the durable PostgreSQL job adapter is added in Phase 6.
+- Add call-count tests for Organization-scoped list pages. Add the job-claim
+  call-count case with the durable claim operation in Phase 6. A Project list
+  must not query roles or receipts once per Project.
+
+The implemented PostgreSQL repositories now emit one privacy-safe
+`PostgreSQLTransactionMetric` after every opened transaction. The metric uses
+an allowlisted repository-operation name and contains only the connection and
+query counts, pool wait, transaction duration, retry count, and bounded
+outcome. It contains no Organization, Project, operation identity, receipt,
+row, query text, parameter, or DSN values. An optional observer is isolated
+from the governed repository result, so a diagnostic failure cannot replace a
+committed result or convert a rejected command into success.
+
+The Project catalogue and projection-reconciliation list contracts each have
+an explicit budget of one short-lived connection, one transaction, and one SQL
+query per non-empty page. They continue to use the existing five-second
+statement and idle-in-transaction limits. The current adapters do not use a
+pool or perform hidden retries, so both reported values are zero. Portable
+call-count tests prove that returning several Projects or reconciliation items
+does not add per-item role, receipt, or Project queries. The Linux-owned suite
+also exercises the measured adapters against disposable PostgreSQL.
+
+This measurement boundary opens only inside one repository call and closes
+before control returns to application orchestration. It therefore cannot span
+file parsing, DuckDB work, worker waits, Odoo calls, or artifact verification.
+No DuckDB lifetime or cache changed in this work package. Durable job pages and
+claims do not yet have an executable PostgreSQL repository; their matching
+metric and claim call-count test remain an explicit Phase 6 acceptance
+criterion rather than a placeholder schema or a false passing result.
 
 ### Phase 3 exit gate
 
 - Fresh and upgrade migrations are deterministic and safe under one exclusive
   migration lock.
 - Two fictional Organizations cannot observe or mutate each other's catalogue,
-  operation, job, lease, or receipt records through repositories or services.
+  operation, lease, or receipt records through repositories or services. Apply
+  the same isolation gate to durable job records when Phase 6 adds their
+  PostgreSQL repository.
 - Cross-store fault-injection tests prove deterministic recovery at every
   commit boundary.
 - PostgreSQL contains no source rows, prepared rows, protected target values,
   credentials, or full Recipe payloads.
 - Local repository and performance tests remain green.
+
+Current local-trial status: Phase 3 passes this exit gate for the implemented
+control-plane records. The Linux-owned migration suite runs two migrators
+against one empty database and proves that the transaction-level advisory lock
+allows one fresh application and one no-op replay. It also constructs every
+historical schema prefix, upgrades each prefix to version `4`, and proves that
+another replay applies no migration. The disposable database is removed after
+the local rehearsal.
+
+The portable Phase 3 suite runs `60` focused startup, migration, catalogue,
+coordination, cross-store, authorization, and reconciliation tests. The
+Linux-owned suite runs `16` live PostgreSQL tests. Those live tests prove
+two-Organization catalogue, operation, receipt, projection, and lease
+isolation, and they inject failure at all seven cross-store commit boundaries.
+The complete fictional PLW path still produces `37,253` prepared rows and an
+identical replay without a second data-plane execution.
+
+The checked migration definitions and their contract tests allow only bounded
+catalogue facts, hashes, storage keys, receipt metadata, and artifact identity
+arrays in PostgreSQL. They reject source-row, protected-target-value, full
+Recipe-payload, credential, and hard-delete authority from the runtime schema.
+The default performance qualification suite runs `67` tests successfully.
+Eight larger scale qualifications remain explicitly opt-in and were omitted
+from this local exit audit; they are not reclassified as passing evidence.
+
+This is a local-trial Phase 3 checkpoint. It does not satisfy the deferred
+Debian and Ubuntu host qualification, remote backup and restore, Internet
+security acceptance, or future durable-job isolation gates. Phase 4 may now
+implement built-in identity and administration against the bounded PostgreSQL
+foundation while the supported-host release gate remains open.
 
 ## Phase 4 - Add built-in accounts and Organization administration
 

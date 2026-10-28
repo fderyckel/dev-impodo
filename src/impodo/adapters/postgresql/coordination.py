@@ -9,6 +9,7 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import PurePosixPath
+from time import perf_counter
 from typing import Any, LiteralString, Protocol, TypeVar
 from uuid import uuid4
 
@@ -16,6 +17,12 @@ import psycopg
 
 from impodo.adapters.postgresql.control_schema import POSTGRESQL_RUNTIME_ROLE
 from impodo.adapters.postgresql.startup import PostgreSQLDsnError, PostgreSQLDsnReader
+from impodo.adapters.postgresql.transaction_metrics import (
+    PostgreSQLTransactionMetric,
+    PostgreSQLTransactionMetricObserver,
+    PostgreSQLTransactionOutcome,
+    report_postgresql_transaction_metric,
+)
 from impodo.domain.project.foundation import (
     MigrationFoundationError,
     require_aware,
@@ -53,6 +60,8 @@ POSTGRESQL_COORDINATION_LOCK_TIMEOUT_MILLISECONDS = 1_000
 POSTGRESQL_COORDINATION_STATEMENT_TIMEOUT_MILLISECONDS = 5_000
 POSTGRESQL_RECEIPT_MAXIMUM_ARTIFACTS = 1_000
 POSTGRESQL_RECEIPT_MAXIMUM_ARTIFACT_JSON_BYTES = 1_000_000
+POSTGRESQL_RECONCILIATION_LIST_CONNECTION_BUDGET = 1
+POSTGRESQL_RECONCILIATION_LIST_QUERY_BUDGET = 1
 
 _OPERATION_COLUMNS = (
     "operation_id, organization_id, project_id, operation_kind, "
@@ -328,6 +337,37 @@ class _PsycopgCoordinationSession:
         self._connection.close()
 
 
+class _MeasuredCoordinationSession:
+    def __init__(self, session: PostgreSQLCoordinationSession) -> None:
+        self._session = session
+        self.query_count = 0
+
+    def fetch_one(
+        self,
+        query: LiteralString,
+        parameters: tuple[object, ...] = (),
+    ) -> tuple[object, ...] | None:
+        self.query_count += 1
+        return self._session.fetch_one(query, parameters)
+
+    def fetch_all(
+        self,
+        query: LiteralString,
+        parameters: tuple[object, ...] = (),
+    ) -> tuple[tuple[object, ...], ...]:
+        self.query_count += 1
+        return self._session.fetch_all(query, parameters)
+
+    def commit(self) -> None:
+        self._session.commit()
+
+    def rollback(self) -> None:
+        self._session.rollback()
+
+    def close(self) -> None:
+        self._session.close()
+
+
 def open_psycopg_coordination_session(dsn: str) -> PostgreSQLCoordinationSession:
     """Open one bounded runtime-role coordination transaction."""
 
@@ -357,13 +397,16 @@ class _PsycopgCoordinationRepository:
         dsn_reference: PurePosixPath,
         *,
         session_factory: PostgreSQLCoordinationSessionFactory,
+        metrics_observer: PostgreSQLTransactionMetricObserver | None,
     ) -> None:
         self._dsn_reader = dsn_reader
         self._dsn_reference = dsn_reference
         self._session_factory = session_factory
+        self._metrics_observer = metrics_observer
 
     def _run(
         self,
+        operation_name: str,
         operation: Callable[[PostgreSQLCoordinationSession], _Result],
     ) -> _Result:
         try:
@@ -374,10 +417,14 @@ class _PsycopgCoordinationRepository:
                 "Coordination storage is unavailable"
             ) from error
 
+        measured_session = _MeasuredCoordinationSession(session)
+        transaction_started = perf_counter()
+        outcome = PostgreSQLTransactionOutcome.FAILED
         try:
             try:
-                result = operation(session)
-                session.commit()
+                result = operation(measured_session)
+                measured_session.commit()
+                outcome = PostgreSQLTransactionOutcome.COMMITTED
                 return result
             except (
                 IdempotencyConflictError,
@@ -387,10 +434,12 @@ class _PsycopgCoordinationRepository:
                 ReceiptMismatchError,
                 StaleLeaseError,
             ):
-                _rollback_or_unavailable(session)
+                _rollback_or_unavailable(measured_session)
+                outcome = PostgreSQLTransactionOutcome.ROLLED_BACK
                 raise
             except psycopg.errors.UniqueViolation as error:
-                _rollback_or_unavailable(session)
+                _rollback_or_unavailable(measured_session)
+                outcome = PostgreSQLTransactionOutcome.ROLLED_BACK
                 raise IdempotencyConflictError(
                     "Operation or receipt identity already exists"
                 ) from error
@@ -400,29 +449,50 @@ class _PsycopgCoordinationRepository:
                 psycopg.errors.QueryCanceled,
                 psycopg.errors.SerializationFailure,
             ) as error:
-                _rollback_or_unavailable(session)
+                _rollback_or_unavailable(measured_session)
+                outcome = PostgreSQLTransactionOutcome.ROLLED_BACK
                 raise PostgreSQLCoordinationUnavailableError(
                     "Coordination storage is temporarily unavailable"
                 ) from error
             except (psycopg.InterfaceError, psycopg.OperationalError) as error:
-                _rollback_or_unavailable(session)
+                _rollback_or_unavailable(measured_session)
+                outcome = PostgreSQLTransactionOutcome.ROLLED_BACK
                 raise PostgreSQLCoordinationUnavailableError(
                     "Coordination storage is unavailable"
                 ) from error
             except psycopg.Error as error:
-                _rollback_or_unavailable(session)
+                _rollback_or_unavailable(measured_session)
+                outcome = PostgreSQLTransactionOutcome.ROLLED_BACK
                 raise PostgreSQLCoordinationStorageError(
                     "Coordination statement failed"
                 ) from error
         finally:
             active_error = sys.exception()
+            transaction_duration_milliseconds = (
+                perf_counter() - transaction_started
+            ) * 1000
             try:
-                session.close()
+                measured_session.close()
             except psycopg.Error as error:
                 if active_error is None:
                     raise PostgreSQLCoordinationUnavailableError(
                         "Coordination storage is unavailable"
                     ) from error
+            finally:
+                report_postgresql_transaction_metric(
+                    self._metrics_observer,
+                    PostgreSQLTransactionMetric(
+                        operation=operation_name,
+                        outcome=outcome,
+                        connection_count=1,
+                        query_count=measured_session.query_count,
+                        pool_wait_milliseconds=0.0,
+                        transaction_duration_milliseconds=(
+                            transaction_duration_milliseconds
+                        ),
+                        retry_count=0,
+                    ),
+                )
 
 
 class PsycopgOperationJournal(_PsycopgCoordinationRepository):
@@ -436,11 +506,13 @@ class PsycopgOperationJournal(_PsycopgCoordinationRepository):
         session_factory: PostgreSQLCoordinationSessionFactory = (
             open_psycopg_coordination_session
         ),
+        metrics_observer: PostgreSQLTransactionMetricObserver | None = None,
     ) -> None:
         super().__init__(
             dsn_reader,
             dsn_reference,
             session_factory=session_factory,
+            metrics_observer=metrics_observer,
         )
 
     def reserve(self, request: OperationRequest) -> OperationRequest:
@@ -489,7 +561,7 @@ class PsycopgOperationJournal(_PsycopgCoordinationRepository):
             existing.require_same_idempotent_request(request)
             return OperationReservation(request=existing, created=False)
 
-        return self._run(reserve_operation)
+        return self._run("operation_journal.reserve", reserve_operation)
 
     def get(self, request: OperationRequest) -> CrossStoreOperationSnapshot:
         """Read exact durable state and immutable receipts for one operation."""
@@ -534,7 +606,7 @@ class PsycopgOperationJournal(_PsycopgCoordinationRepository):
                 projection_row=projection_row,
             )
 
-        return self._run(read_operation)
+        return self._run("operation_journal.get", read_operation)
 
     def list_reconciliation_page(
         self,
@@ -588,7 +660,7 @@ class PsycopgOperationJournal(_PsycopgCoordinationRepository):
                 next_cursor=next_cursor,
             )
 
-        return self._run(read_page)
+        return self._run("operation_journal.list_reconciliation_page", read_page)
 
     def get_reconciliation_snapshot(
         self,
@@ -613,7 +685,10 @@ class PsycopgOperationJournal(_PsycopgCoordinationRepository):
             snapshot, _current_operation_id = _reconciliation_snapshot_from_row(row)
             return snapshot
 
-        return self._run(read_snapshot)
+        return self._run(
+            "operation_journal.get_reconciliation_snapshot",
+            read_snapshot,
+        )
 
     def record_data_plane_receipt(
         self,
@@ -686,7 +761,7 @@ class PsycopgOperationJournal(_PsycopgCoordinationRepository):
                     "Operation receipt transition failed"
                 )
 
-        self._run(record)
+        self._run("operation_journal.record_data_plane_receipt", record)
 
     def record_projection_receipt(
         self,
@@ -779,7 +854,7 @@ class PsycopgOperationJournal(_PsycopgCoordinationRepository):
                 source_committed_at=data_receipt.committed_at,
             )
 
-        self._run(record)
+        self._run("operation_journal.record_projection_receipt", record)
 
     @staticmethod
     def _advance_projection_current(
@@ -921,7 +996,7 @@ class PsycopgOperationJournal(_PsycopgCoordinationRepository):
                     "Operation recovery state changed concurrently"
                 )
 
-        self._run(record_state)
+        self._run("operation_journal.record_recovery_state", record_state)
 
 
 class PsycopgWorkspaceLeaseRepository(_PsycopgCoordinationRepository):
@@ -935,11 +1010,13 @@ class PsycopgWorkspaceLeaseRepository(_PsycopgCoordinationRepository):
         session_factory: PostgreSQLCoordinationSessionFactory = (
             open_psycopg_coordination_session
         ),
+        metrics_observer: PostgreSQLTransactionMetricObserver | None = None,
     ) -> None:
         super().__init__(
             dsn_reader,
             dsn_reference,
             session_factory=session_factory,
+            metrics_observer=metrics_observer,
         )
 
     def acquire(
@@ -983,7 +1060,7 @@ class PsycopgWorkspaceLeaseRepository(_PsycopgCoordinationRepository):
                 raise StaleLeaseError("Workspace already has an active lease")
             return _lease_from_row(row)
 
-        return self._run(acquire_lease)
+        return self._run("workspace_lease.acquire", acquire_lease)
 
     def heartbeat(
         self,
@@ -1024,7 +1101,7 @@ class PsycopgWorkspaceLeaseRepository(_PsycopgCoordinationRepository):
                 raise StaleLeaseError("Workspace lease is expired, released, or fenced")
             return _lease_from_row(row)
 
-        return self._run(heartbeat_lease)
+        return self._run("workspace_lease.heartbeat", heartbeat_lease)
 
     def release(self, lease: WorkspaceLease, *, at: datetime) -> WorkspaceLease:
         """Release only the exact current lease revision and fencing token."""
@@ -1053,7 +1130,7 @@ class PsycopgWorkspaceLeaseRepository(_PsycopgCoordinationRepository):
                 raise StaleLeaseError("Workspace lease is expired, released, or fenced")
             return _lease_from_row(row)
 
-        return self._run(release_lease)
+        return self._run("workspace_lease.release", release_lease)
 
 
 def _reconciliation_snapshot_from_row(
@@ -1542,6 +1619,8 @@ __all__ = [
     "POSTGRESQL_COORDINATION_STATEMENT_TIMEOUT_MILLISECONDS",
     "POSTGRESQL_RECEIPT_MAXIMUM_ARTIFACTS",
     "POSTGRESQL_RECEIPT_MAXIMUM_ARTIFACT_JSON_BYTES",
+    "POSTGRESQL_RECONCILIATION_LIST_CONNECTION_BUDGET",
+    "POSTGRESQL_RECONCILIATION_LIST_QUERY_BUDGET",
     "PostgreSQLCoordinationSession",
     "PostgreSQLCoordinationSessionFactory",
     "PostgreSQLCoordinationStorageError",

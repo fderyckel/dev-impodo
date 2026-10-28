@@ -81,6 +81,9 @@ from ...adapters.duckdb.exact_join_group_evaluator import (
     DuckDbExactJoinGroupEvaluator,
 )
 from ...adapters.duckdb.execution_repository import ExecutionRepository
+from ...adapters.duckdb.grouped_exact_join_source import (
+    DuckDbGroupedExactJoinSource,
+)
 from ...adapters.duckdb.mapping_field_catalog_repository import (
     MappingFieldCatalogRepository,
 )
@@ -474,6 +477,7 @@ def create_local_app(
         columnar_transformations=PolarsTransformationAdapter(),
         odoo_provenance=odoo_sources.provenance,
         recipe_quality=recipe_application_state,
+        grouped_exact_joins=DuckDbGroupedExactJoinSource(database),
     )
     preflight = preparation_services.preflight
 

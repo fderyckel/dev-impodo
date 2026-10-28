@@ -35,6 +35,7 @@ from ...domain.staging.preparation_session import (
 from ...domain.staging.transformation_impact import (
     TransformationImpactRow,
 )
+from ...domain.target_numeric_precision import PreparedNumericField
 from .constants import (
     DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES,
 )
@@ -372,13 +373,19 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
             connection=connection,
         )
 
-    def bounded_quality_index(self, physical_rows: Mapping[str, Sequence[int]]):
+    def bounded_quality_index(
+        self,
+        physical_rows: Mapping[str, Sequence[int]],
+        *,
+        numeric_fields: tuple[PreparedNumericField, ...] = (),
+    ):
         """Validate and summarize the direct quality index set-wise."""
 
         return self._repository._bounded_quality_index(
             self._workspace_id,
             self._session_id,
             physical_rows,
+            numeric_fields=numeric_fields,
         )
 
     def bounded_relationship_findings(

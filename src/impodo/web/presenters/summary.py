@@ -861,6 +861,85 @@ def _render_summary(
     return response
 
 
+def _render_quality_cause(
+    request: Request,
+    context: WebContext,
+    workspace_id: str,
+    cause_key: str,
+):
+    """Render one authorized, bounded page from a persisted cause closure."""
+
+    actor = request_identity(request, context.identity_resolver).actor
+    navigation_snapshot = context.navigation.get_for_workspace(
+        workspace_id,
+        actor=actor,
+    )
+    facts = navigation_snapshot.facts
+    if (
+        not facts.quality_run_id
+        or facts.quality_staging_run_id != facts.staging_run_id
+    ):
+        raise HTTPException(status_code=404, detail="Quality review not found")
+    page_size = _summary_page_size(request.query_params.get("page_size"))
+    review_page = context.queries.get_quality_cause_review_page(
+        workspace_id,
+        facts.quality_run_id,
+        cause_key,
+        page=_positive_query_int(request.query_params.get("page"), default=1),
+        page_size=page_size,
+    )
+    cause = review_page.selected_cause
+    if cause is None:
+        raise HTTPException(status_code=404, detail="Quality cause not found")
+    row_start = (
+        (review_page.page - 1) * page_size + 1
+        if review_page.matching_count
+        else 0
+    )
+    row_end = min(
+        review_page.page * page_size,
+        review_page.matching_count,
+    )
+
+    def page_url(page: int, size: int = page_size) -> str:
+        return (
+            f"/workspaces/{workspace_id}/summary/quality-causes/{cause_key}"
+            f"?{urlencode({'page': page, 'page_size': size})}"
+        )
+
+    return _render(
+        request,
+        "workspace_quality_cause.html",
+        workspace_state=navigation_snapshot.workspace_state,
+        _workspace_navigation_facts=facts,
+        quality_run_id=facts.quality_run_id,
+        cause=cause,
+        cause_title=_QUALITY_CAUSE_TITLES.get(
+            cause.reason_code,
+            cause.reason_code.replace("_", " ").title(),
+        ),
+        review_page=review_page,
+        row_start=row_start,
+        row_end=row_end,
+        page_size=page_size,
+        page_size_options=tuple(
+            {
+                "size": size,
+                "url": page_url(1, size),
+            }
+            for size in SUMMARY_ROW_PAGE_SIZES
+        ),
+        previous_url=(
+            page_url(review_page.page - 1) if review_page.page > 1 else None
+        ),
+        next_url=(
+            page_url(review_page.page + 1)
+            if review_page.page < review_page.page_count
+            else None
+        ),
+    )
+
+
 def _quality_field_label_map(
     revision,
     selection,
@@ -963,6 +1042,7 @@ _QUALITY_CAUSE_TITLES = {
         "Dependent identity group was set aside"
     ),
     "POST_TRANSFORM_IDENTITY_COLLISION": "Odoo match is not unique",
+    "TARGET_NUMERIC_PRECISION_LOSS": "Prepared value exceeds Odoo precision",
 }
 
 
@@ -1014,6 +1094,20 @@ def _quality_workflow_issue_summary(
         )
         affected_sibling_count = sum(
             item.affected_sibling_count for item in equivalent_causes
+        )
+        required_decimal_places = max(
+            (
+                item.required_decimal_places
+                for item in equivalent_causes
+                if item.required_decimal_places is not None
+            ),
+            default=None,
+        )
+        integral_overflow_count = sum(
+            item.integral_overflow_count for item in equivalent_causes
+        )
+        zeroed_positive_count = sum(
+            item.zeroed_positive_count for item in equivalent_causes
         )
         labels = field_labels.get(cause.dataset, {})
         affected_fields = tuple(
@@ -1069,6 +1163,29 @@ def _quality_workflow_issue_summary(
                 dependent_on_other_issue=(
                     cause.reason_code in _INHERITED_QUALITY_REASONS
                 ),
+                target_digits=cause.target_digits,
+                required_decimal_places=required_decimal_places,
+                integral_overflow_count=integral_overflow_count,
+                zeroed_positive_count=zeroed_positive_count,
+                secondary_correction_label=(
+                    "Review Odoo precision"
+                    if cause.reason_code == "TARGET_NUMERIC_PRECISION_LOSS"
+                    else ""
+                ),
+                secondary_correction_route=(
+                    f"/workspaces/{workspace_id}/schema"
+                    if cause.reason_code == "TARGET_NUMERIC_PRECISION_LOSS"
+                    else ""
+                ),
+                detail_label=(
+                    "Review affected records" if cause.cause_key else ""
+                ),
+                detail_route=(
+                    f"/workspaces/{workspace_id}/summary/quality-causes/"
+                    f"{cause.cause_key}"
+                    if cause.cause_key
+                    else ""
+                ),
             )
         )
     return summarize_workflow_issues(issues)
@@ -1077,6 +1194,8 @@ def _quality_workflow_issue_summary(
 def _quality_issue_origin(cause: QualityCauseCount) -> WorkflowIssueOrigin:
     """Classify a quality cause without changing its owning evidence."""
 
+    if cause.reason_code == "TARGET_NUMERIC_PRECISION_LOSS":
+        return WorkflowIssueOrigin.ODOO_SCHEMA
     if (
         cause.family is QualityRuleFamily.RELATIONSHIP_READINESS
         or cause.reason_code.startswith("INCOMING_")

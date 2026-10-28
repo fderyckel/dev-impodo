@@ -60,6 +60,14 @@ class WorkflowIssueProjection:
     affected_child_count: int = 0
     affected_sibling_count: int = 0
     dependent_on_other_issue: bool = False
+    target_digits: tuple[int, int] | None = None
+    required_decimal_places: int | None = None
+    integral_overflow_count: int = 0
+    zeroed_positive_count: int = 0
+    secondary_correction_label: str = ""
+    secondary_correction_route: str = ""
+    detail_label: str = ""
+    detail_route: str = ""
 
 
 @dataclass(frozen=True, slots=True)

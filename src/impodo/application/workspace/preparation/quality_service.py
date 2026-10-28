@@ -23,6 +23,7 @@ from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
 from impodo.domain.resolution import EffectiveDataset
 from impodo.domain.shared.access import Actor
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.target_numeric_precision import PreparedNumericField
 from impodo.domain.workspace.contracts import SourceSelection
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceState
@@ -246,6 +247,7 @@ class QualityService:
         effective: EffectiveDataset | None = None,
         effective_dataset_run_id: str | None = None,
         reference_bundle: ReferenceBundle | None = None,
+        numeric_fields: tuple[PreparedNumericField, ...] = (),
         *,
         actor: Actor,
         allow_materialized_fallback: bool = True,
@@ -307,6 +309,7 @@ class QualityService:
                                 ruleset=ruleset,
                                 published_staging_content_hash=staging.content_hash,
                                 definition=revision.definition,
+                                numeric_fields=numeric_fields,
                             )
                         )
                     except BoundedQualityUnsupported as error:
@@ -323,6 +326,7 @@ class QualityService:
                             ruleset=ruleset,
                             published_staging_content_hash=staging.content_hash,
                             reference_bundle=reference_bundle,
+                            numeric_fields=numeric_fields,
                         )
                 else:
                     quality_run = evaluate_quality(
@@ -333,6 +337,7 @@ class QualityService:
                         published_staging_content_hash=staging.content_hash,
                         effective=effective,
                         reference_bundle=reference_bundle,
+                        numeric_fields=numeric_fields,
                     )
             except QualityError as error:
                 raise ReadinessError(str(error)) from error

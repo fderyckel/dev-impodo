@@ -190,9 +190,12 @@ checks, compares the DuckDB evidence with the Python oracle, proves that the
 grouped route bypasses the materialized pairwise row guard, exposes only
 `customers_complete` to mapping, and performs zero Odoo calls. The scale
 fixture covers 65,299 rows, 262 source fields, 97 empty fields, collisions,
-and two joins. It asserts one physical scan per participating snapshot and a
-linear statement ceiling. These are controlled regression facts, not an
-unbounded scale guarantee. The
+and two joins. It asserts one physical scan per participating snapshot, then
+streams 21,766 final rows into the durable canonical preparation session for
+the generic target model `x_generic.record`. The preparation manifest admits
+the 100,000-row grouped-input route while refusing the 25,000-row materialized
+fallback. These are controlled regression facts, not an unbounded scale
+guarantee. The
 [`grouped exact-join scale test`](../../../tests/performance/test_exact_join_group_scale.py)
 owns that fixture.
 
@@ -665,19 +668,25 @@ The advanced pairwise exact-join preview and save routes materialize the
 complete frozen selection within the 25,000-row browser limit. The normal
 grouped route instead materializes verified artifact paths and runs the narrow
 DuckDB evaluator described above. Both local command scopes reuse repository
-owners and neither caches DuckDB connections across requests. The current
-derived or materialized preparation path has a lower row limit than the
-grouped authoring review; keep that preparation limit visible rather than
-silently falling back to unbounded Python work.
+owners and neither caches DuckDB connections across requests. During
+preparation, `bounded_exact_join_group` admits only one reviewed left-deep group
+whose physical inputs total no more than 100,000 rows and whose final output
+contains no more than 50,000 rows. `DuckDbGroupedExactJoinSource` projects each
+snapshot once into a narrow temporary table, performs the join set-wise, and
+streams 1,000-row pages with complete physical lineage into the durable
+session. Unsupported structural shapes keep the 25,000-row materialized limit;
+the grouped route never raises that general constant or falls back to
+unbounded Python work.
 
 The 2026-10-24 controlled pairwise qualification runs 2,000 rows per input
 through three fresh processes for both narrow and wide shapes. Preview
 consistently uses six DuckDB connections and ten schema checks. Save
 consistently uses six connections and six schema checks. The 2026-10-28
 grouped qualification adds the 65,299-row, 262-field regression described
-above and retains the 200-output-field admission limit. Exact results,
-persisted complete review, and zero Odoo requests remain stable. Historical
-measurement details remain available in Git history.
+above, retains the 200-output-field admission limit, and completes durable
+preparation for 21,766 output rows. Exact results, persisted complete review,
+generic target-model behavior, and zero Odoo requests remain stable.
+Historical measurement details remain available in Git history.
 
 ## Verification
 

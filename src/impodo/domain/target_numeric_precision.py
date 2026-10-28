@@ -6,12 +6,25 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
 
+def _validate_digits(digits: tuple[int, int]) -> None:
+    precision, scale = digits
+    if (
+        type(precision) is not int
+        or type(scale) is not int
+        or precision < 1
+        or scale < 0
+        or scale > precision
+    ):
+        raise ValueError("Odoo numeric precision is invalid")
+
+
 def unrepresentable_decimal(
     value: object,
     digits: tuple[int, int],
 ) -> Decimal | None:
     """Return a value if the captured Odoo precision would alter or overflow it."""
 
+    _validate_digits(digits)
     try:
         number = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
@@ -43,6 +56,114 @@ def required_decimal_places(value: Decimal) -> int:
             break
         trailing_zeros += 1
     return max(0, -parts.exponent - trailing_zeros)
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedNumericField:
+    """One mapped prepared field with captured Odoo numeric capacity."""
+
+    dataset: str
+    target_model: str
+    field_name: str
+    digits: tuple[int, int]
+
+    def __post_init__(self) -> None:
+        if not self.dataset or not self.target_model or not self.field_name:
+            raise ValueError("Prepared numeric fields require table and target names")
+        _validate_digits(self.digits)
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedNumericPrecisionFinding:
+    """Value-free evidence that one exact prepared number exceeds capacity."""
+
+    row_id: str
+    dataset: str
+    source_row: int
+    target_model: str
+    field_name: str
+    digits: tuple[int, int]
+    required_decimal_places: int
+    integral_overflow: bool
+    zeroed_positive: bool
+
+    def __post_init__(self) -> None:
+        if (
+            not self.row_id
+            or not self.dataset
+            or not self.target_model
+            or not self.field_name
+            or self.source_row < 1
+            or self.required_decimal_places < 0
+        ):
+            raise ValueError("Prepared numeric precision evidence is invalid")
+        _validate_digits(self.digits)
+
+
+def prepared_numeric_precision_finding(
+    *,
+    row_id: str,
+    dataset: str,
+    source_row: int,
+    target_model: str,
+    field_name: str,
+    digits: tuple[int, int],
+    value: object,
+) -> PreparedNumericPrecisionFinding | None:
+    """Classify one exact prepared number without retaining its value."""
+
+    number = unrepresentable_decimal(value, digits)
+    if number is None:
+        return None
+    required_places = required_decimal_places(number)
+    integral_digits = (
+        max(0, number.adjusted() + 1)
+        if number.is_finite() and number
+        else 0
+    )
+    return PreparedNumericPrecisionFinding(
+        row_id=row_id,
+        dataset=dataset,
+        source_row=source_row,
+        target_model=target_model,
+        field_name=field_name,
+        digits=digits,
+        required_decimal_places=required_places,
+        integral_overflow=(
+            not number.is_finite()
+            or integral_digits > digits[0] - digits[1]
+        ),
+        zeroed_positive=(
+            number.is_finite()
+            and number > 0
+            and number < Decimal(5).scaleb(-digits[1] - 1)
+        ),
+    )
+
+
+def prepared_numeric_precision_message(
+    finding: PreparedNumericPrecisionFinding,
+) -> str:
+    """Explain captured capacity without persisting or displaying the value."""
+
+    precision, scale = finding.digits
+    if finding.required_decimal_places > scale:
+        detail = (
+            f" It needs at least {finding.required_decimal_places} decimal places."
+        )
+    else:
+        detail = " It exceeds the available total-digit capacity."
+    zero_warning = (
+        " Applying this precision could turn the positive value into zero."
+        if finding.zeroed_positive
+        else ""
+    )
+    return (
+        f"The exact prepared value cannot fit Odoo precision "
+        f"({precision}, {scale}) without changing.{detail}{zero_warning} "
+        "Change the explicit field rule or the captured Odoo precision, then "
+        "prepare the complete data again."
+    )
 
 
 @dataclass(slots=True)

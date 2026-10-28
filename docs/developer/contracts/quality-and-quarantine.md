@@ -51,9 +51,24 @@ that keeps an incoming identity group together.
 
 The finding names the linked dataset and affected field. An inherited finding
 also names one deterministic related source row when that row is available.
-Full and bounded evaluation must publish the same reason, disposition, and
-field evidence. The browser may group findings on the current page, but it
-must label that scope and continue to show every finding on each record.
+Its portable evidence retains that causal row identity and whether the unsafe
+record is the cause's parent or child. Full and bounded evaluation must publish
+the same reason, disposition, field, and causal evidence.
+
+Quality publication groups direct causes across the complete run and derives
+their transitive dependency impact. The compact projection counts distinct
+parents, children, and siblings made unsafe by each direct cause. It does not
+replace the row findings: the browser continues to show every finding on each
+record and keeps detail access bounded and paged.
+
+The `TARGET_NUMERIC_PRECISION_LOSS` cause is a non-blocking `ADVISORY` during
+preparation. The worker checks each exact prepared Decimal for a mapped,
+writable Odoo field with captured `digits` against the precision submitted with the
+mapping. It never rounds the value. The issue stores only the target digits,
+required decimal-place count, and integral-overflow or positive-to-zero flags;
+it does not store the number. Advisory rows remain eligible and do not create a
+pending review. Final review remains authoritative for whether an actual CREATE
+or UPDATE field intent would lose precision.
 
 User-facing messages must not expose internal sentinels or dataclass
 representations. Quality evidence remains value-free: the source row and
@@ -83,8 +98,15 @@ quality result. Evidence excludes raw field values and numeric Odoo record IDs.
 
 ## Access and performance boundary
 
-Quality evaluation makes no Odoo request. Evidence writes are bounded and
-batched. Eligible Odoo reads are planned by model and paged; there is no
+Quality evaluation makes no Odoo request. Captured float digits are supplied by
+the local schema repository or the remote worker packet bound to the mapping
+schema hash. Stored JSON rows expose only selected mapped values to the worker;
+clean native rows project the same narrow fields from verified prepared
+Parquet. No browser request repeats this scan. Evidence writes are bounded and
+batched. The dependency-impact closure is one recursive set operation inside
+the publication transaction and is persisted with the existing compact cause
+projection. Browser reads do not traverse the graph or open another DuckDB
+connection. Eligible Odoo reads are planned by model and paged; there is no
 connector or database query per source row. Measured row limits and workstation
 results belong in testing and reports.
 

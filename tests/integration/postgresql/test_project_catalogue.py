@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
-import unittest
 from unittest.mock import Mock, patch
 
 import psycopg
 
 from impodo.adapters.postgresql.project_catalogue import (
+    POSTGRESQL_CATALOGUE_LIST_CONNECTION_BUDGET,
+    POSTGRESQL_CATALOGUE_LIST_QUERY_BUDGET,
     PsycopgProjectCatalogueRepository,
     open_psycopg_project_catalogue_session,
+)
+from impodo.adapters.postgresql.transaction_metrics import (
+    PostgreSQLTransactionMetric,
+    PostgreSQLTransactionMetricObserver,
+    PostgreSQLTransactionOutcome,
 )
 from impodo.domain.project.catalogue import (
     ProjectCatalogueAlreadyExistsError,
@@ -26,7 +33,6 @@ from impodo.domain.project.models import (
     MigrationProjectStatus,
 )
 from impodo.domain.shared.tenancy import OrganizationId, ProjectVisibilityScope
-
 
 NOW = datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
 ORGANIZATION_A = OrganizationId("organization-a")
@@ -119,11 +125,16 @@ class _Session:
         self.closed = True
 
 
-def repository(session: _Session) -> PsycopgProjectCatalogueRepository:
+def repository(
+    session: _Session,
+    *,
+    metrics_observer: PostgreSQLTransactionMetricObserver | None = None,
+) -> PsycopgProjectCatalogueRepository:
     return PsycopgProjectCatalogueRepository(
         lambda _reference: "private-dsn",
         PurePosixPath("/run/secrets/postgres-runtime-dsn"),
         session_factory=lambda _dsn: session,
+        metrics_observer=metrics_observer,
     )
 
 
@@ -134,7 +145,9 @@ class PostgreSQLProjectCatalogueTests(unittest.TestCase):
         stored = repository(session).create(record())
 
         self.assertEqual(stored.project_id, PROJECT_A)
-        self.assertIn("INSERT INTO impodo_control.project_catalogue", session.events[0][1])
+        self.assertIn(
+            "INSERT INTO impodo_control.project_catalogue", session.events[0][1]
+        )
         self.assertNotIn("DELETE FROM", session.events[0][1])
         self.assertEqual(session.events[0][2][0:2], (str(ORGANIZATION_A), PROJECT_A))
         self.assertTrue(session.committed)
@@ -169,8 +182,9 @@ class PostgreSQLProjectCatalogueTests(unittest.TestCase):
             organization_id=ORGANIZATION_A,
             project_ids=frozenset({PROJECT_A, PROJECT_B, PROJECT_C}),
         )
+        metrics: list[PostgreSQLTransactionMetric] = []
 
-        page = repository(session).list_visible(
+        page = repository(session, metrics_observer=metrics.append).list_visible(
             visibility,
             ProjectCatalogueListQuery(
                 statuses=frozenset({MigrationProjectStatus.DRAFT}),
@@ -178,7 +192,9 @@ class PostgreSQLProjectCatalogueTests(unittest.TestCase):
             ),
         )
 
-        self.assertEqual([item.project_id for item in page.records], [PROJECT_A, PROJECT_B])
+        self.assertEqual(
+            [item.project_id for item in page.records], [PROJECT_A, PROJECT_B]
+        )
         self.assertIsNotNone(page.next_cursor)
         query = session.events[0][1]
         parameters = session.events[0][2]
@@ -187,6 +203,34 @@ class PostgreSQLProjectCatalogueTests(unittest.TestCase):
         self.assertIn("ORDER BY updated_at DESC, project_id ASC", query)
         self.assertEqual(parameters[0], str(ORGANIZATION_A))
         self.assertEqual(parameters[-1], 3)
+        self.assertEqual(len(session.events), POSTGRESQL_CATALOGUE_LIST_QUERY_BUDGET)
+        self.assertEqual(len(metrics), 1)
+        metric = metrics[0]
+        self.assertEqual(metric.operation, "project_catalogue.list_visible")
+        self.assertEqual(metric.outcome, PostgreSQLTransactionOutcome.COMMITTED)
+        self.assertEqual(
+            metric.connection_count,
+            POSTGRESQL_CATALOGUE_LIST_CONNECTION_BUDGET,
+        )
+        self.assertEqual(metric.query_count, POSTGRESQL_CATALOGUE_LIST_QUERY_BUDGET)
+        self.assertEqual(metric.pool_wait_milliseconds, 0.0)
+        self.assertGreaterEqual(metric.transaction_duration_milliseconds, 0.0)
+        self.assertEqual(metric.retry_count, 0)
+
+    def test_metrics_observer_cannot_change_a_committed_result(self) -> None:
+        session = _Session([row()])
+
+        def reject_metric(_metric: PostgreSQLTransactionMetric) -> None:
+            raise RuntimeError("optional observer failed")
+
+        stored = repository(session, metrics_observer=reject_metric).get(
+            ORGANIZATION_A,
+            PROJECT_A,
+        )
+
+        self.assertEqual(stored.project_id, PROJECT_A)
+        self.assertTrue(session.committed)
+        self.assertTrue(session.closed)
 
     def test_empty_project_visibility_does_not_open_postgresql(self) -> None:
         factory = Mock()

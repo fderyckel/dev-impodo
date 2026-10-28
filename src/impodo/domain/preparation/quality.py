@@ -34,10 +34,16 @@ from impodo.domain.shared.models import (
     portable_value,
 )
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.target_numeric_precision import (
+    PreparedNumericField,
+    PreparedNumericPrecisionFinding,
+    prepared_numeric_precision_finding,
+    prepared_numeric_precision_message,
+)
 from impodo.domain.workspace.workbench import WorkspaceState
 
-QUALITY_CONTRACT_VERSION = 4
-QUALITY_EVALUATOR_VERSION = 5
+QUALITY_CONTRACT_VERSION = 5
+QUALITY_EVALUATOR_VERSION = 6
 QUALITY_RULESET_CONTRACT_VERSION = 3
 MAX_MANAGER_RULES_PER_DATASET = 3
 MANDATORY_QUALITY_FAMILIES = (
@@ -112,6 +118,7 @@ class QualityRuleFamily(StrEnum):
 class QualityOutcomePolicy(StrEnum):
     """Effect of a failed rule on review and dataset eligibility."""
 
+    ADVISORY = "ADVISORY"
     WARNING = "WARNING"
     BLOCK = "BLOCK"
     QUARANTINE = "QUARANTINE"
@@ -149,6 +156,15 @@ class QualityDependencyImpact(StrEnum):
 
     PARENT = "PARENT"
     CHILD = "CHILD"
+
+
+class QualityCauseImpact(StrEnum):
+    """How one drill-down row belongs to a persisted quality cause."""
+
+    DIRECT = "DIRECT"
+    PARENT = "PARENT"
+    CHILD = "CHILD"
+    SIBLING = "SIBLING"
 
 
 class SourceAccountingState(StrEnum):
@@ -206,6 +222,8 @@ class QualityRule:
             raise ValueError("Quality review timing must be between 1 and 3650 days")
         if self.evidence_display not in {"masked", "plain"}:
             raise ValueError("Quality evidence display policy is unsupported")
+        if self.outcome is QualityOutcomePolicy.ADVISORY:
+            raise ValueError("Advisory is reserved for automatic evidence")
         advanced_families = {
             QualityRuleFamily.LUHN_CHECKSUM,
             QualityRuleFamily.IBAN_MOD97,
@@ -439,6 +457,10 @@ class QualityIssue:
     evidence_display: str = "masked"
     caused_by_row_id: str | None = None
     dependency_impact: QualityDependencyImpact | None = None
+    target_digits: tuple[int, int] | None = None
+    required_decimal_places: int | None = None
+    integral_overflow: bool = False
+    zeroed_positive: bool = False
 
     def __post_init__(self) -> None:
         _require_hash(self.issue_id, "quality issue ID")
@@ -460,6 +482,22 @@ class QualityIssue:
             _require_hash(self.caused_by_row_id, "quality issue causal row ID")
             if self.row_id is None:
                 raise ValueError("Run-level quality issues cannot inherit a row cause")
+        if self.target_digits is not None:
+            precision, scale = self.target_digits
+            if (
+                type(precision) is not int
+                or type(scale) is not int
+                or precision < 1
+                or scale < 0
+                or scale > precision
+            ):
+                raise ValueError("Quality issue target precision is invalid")
+        if self.required_decimal_places is not None and (
+            self.target_digits is None or self.required_decimal_places < 0
+        ):
+            raise ValueError("Quality issue decimal-place evidence is invalid")
+        if (self.integral_overflow or self.zeroed_positive) and self.target_digits is None:
+            raise ValueError("Quality issue capacity evidence requires target precision")
 
     def to_portable_dict(self) -> dict[str, Any]:
         """Serialize the finding and its correction ownership."""
@@ -487,6 +525,11 @@ class QualityIssue:
                 )
             payload["caused_by_row_id"] = self.caused_by_row_id
             payload["dependency_impact"] = dependency_impact.value
+        if self.target_digits is not None:
+            payload["target_digits"] = list(self.target_digits)
+            payload["required_decimal_places"] = self.required_decimal_places
+            payload["integral_overflow"] = self.integral_overflow
+            payload["zeroed_positive"] = self.zeroed_positive
         return payload
 
     @classmethod
@@ -517,6 +560,19 @@ class QualityIssue:
                 if payload.get("dependency_impact") is not None
                 else None
             ),
+            target_digits=(
+                (int(payload["target_digits"][0]), int(payload["target_digits"][1]))
+                if isinstance(payload.get("target_digits"), list)
+                and len(payload["target_digits"]) == 2
+                else None
+            ),
+            required_decimal_places=(
+                int(payload["required_decimal_places"])
+                if payload.get("required_decimal_places") is not None
+                else None
+            ),
+            integral_overflow=bool(payload.get("integral_overflow", False)),
+            zeroed_positive=bool(payload.get("zeroed_positive", False)),
         )
 
 
@@ -1053,6 +1109,11 @@ class QualityCauseCount:
     affected_parent_count: int = 0
     affected_child_count: int = 0
     affected_sibling_count: int = 0
+    target_digits: tuple[int, int] | None = None
+    required_decimal_places: int | None = None
+    integral_overflow_count: int = 0
+    zeroed_positive_count: int = 0
+    cause_key: str = ""
 
     def __post_init__(self) -> None:
         if not self.dataset or not self.reason_code or not self.message:
@@ -1067,9 +1128,21 @@ class QualityCauseCount:
                 self.affected_parent_count,
                 self.affected_child_count,
                 self.affected_sibling_count,
+                self.integral_overflow_count,
+                self.zeroed_positive_count,
             )
         ):
-            raise ValueError("Quality dependency-impact counts cannot be negative")
+            raise ValueError("Quality aggregate counts cannot be negative")
+        if self.target_digits is not None:
+            precision, scale = self.target_digits
+            if precision < 1 or scale < 0 or scale > precision:
+                raise ValueError("Quality cause target precision is invalid")
+        if self.required_decimal_places is not None and (
+            self.target_digits is None or self.required_decimal_places < 0
+        ):
+            raise ValueError("Quality cause decimal-place evidence is invalid")
+        if self.cause_key:
+            _require_hash(self.cause_key, "quality cause key")
 
     def to_portable_dict(self) -> dict[str, Any]:
         """Serialize the bounded projection without row-level evidence."""
@@ -1086,6 +1159,13 @@ class QualityCauseCount:
             "affected_parent_count": self.affected_parent_count,
             "affected_child_count": self.affected_child_count,
             "affected_sibling_count": self.affected_sibling_count,
+            "target_digits": (
+                list(self.target_digits) if self.target_digits is not None else None
+            ),
+            "required_decimal_places": self.required_decimal_places,
+            "integral_overflow_count": self.integral_overflow_count,
+            "zeroed_positive_count": self.zeroed_positive_count,
+            "cause_key": self.cause_key,
         }
 
     @classmethod
@@ -1115,6 +1195,20 @@ class QualityCauseCount:
             affected_parent_count=int(payload.get("affected_parent_count", 0)),
             affected_child_count=int(payload.get("affected_child_count", 0)),
             affected_sibling_count=int(payload.get("affected_sibling_count", 0)),
+            target_digits=(
+                (int(payload["target_digits"][0]), int(payload["target_digits"][1]))
+                if isinstance(payload.get("target_digits"), list)
+                and len(payload["target_digits"]) == 2
+                else None
+            ),
+            required_decimal_places=(
+                int(payload["required_decimal_places"])
+                if payload.get("required_decimal_places") is not None
+                else None
+            ),
+            integral_overflow_count=int(payload.get("integral_overflow_count", 0)),
+            zeroed_positive_count=int(payload.get("zeroed_positive_count", 0)),
+            cause_key=str(payload.get("cause_key", "")),
         )
 
 
@@ -1125,6 +1219,7 @@ class QualityReviewItem:
     row: QualityRowResult
     issues: tuple[QualityIssue, ...]
     correction_route: str = ""
+    cause_impact: QualityCauseImpact | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1136,6 +1231,7 @@ class QualityReviewPage:
     page: int
     page_count: int
     run_cause_counts: tuple[QualityCauseCount, ...] = ()
+    selected_cause: QualityCauseCount | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1263,6 +1359,7 @@ def evaluate_quality(
     published_staging_content_hash: str | None = None,
     effective: EffectiveDataset | None = None,
     reference_bundle: ReferenceBundle | None = None,
+    numeric_fields: tuple[PreparedNumericField, ...] = (),
 ) -> QualityRun:
     """Evaluate a complete quality overlay without database or Odoo access."""
 
@@ -1727,6 +1824,48 @@ def evaluate_quality(
             if became_unsafe:
                 queue.append(identity_parent_id)
 
+    numeric_fields_by_dataset: dict[str, tuple[PreparedNumericField, ...]] = {}
+    for dataset in sorted({item.dataset for item in numeric_fields}):
+        numeric_fields_by_dataset[dataset] = tuple(
+            item for item in numeric_fields if item.dataset == dataset
+        )
+    for row in rows:
+        if dispositions[row.row_id] not in {
+            QualityDisposition.CANDIDATE,
+            QualityDisposition.REFERENCE,
+        }:
+            continue
+        rule = rules_by_family.get(
+            (row.dataset, QualityRuleFamily.BOUNDED_VALUES)
+        )
+        if rule is None:
+            continue
+        for numeric_field in numeric_fields_by_dataset.get(row.dataset, ()):
+            if numeric_field.target_model != row.target_model:
+                continue
+            value = row.proposed_values.get(numeric_field.field_name)
+            if value is None:
+                continue
+            finding = prepared_numeric_precision_finding(
+                row_id=row.row_id,
+                dataset=row.dataset,
+                source_row=row.source_row,
+                target_model=row.target_model,
+                field_name=numeric_field.field_name,
+                digits=numeric_field.digits,
+                value=value,
+            )
+            if finding is None:
+                continue
+            issue = _prepared_numeric_precision_issue(
+                workspace_state,
+                rule,
+                row,
+                finding,
+            )
+            issue_map[issue.issue_id] = issue
+            row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+
     row_results = tuple(
         sorted(
             (
@@ -1829,6 +1968,10 @@ def _quality_issue(
     policy: QualityOutcomePolicy,
     caused_by_row_id: str | None = None,
     dependency_impact: QualityDependencyImpact | None = None,
+    target_digits: tuple[int, int] | None = None,
+    required_decimal_places: int | None = None,
+    integral_overflow: bool = False,
+    zeroed_positive: bool = False,
 ) -> QualityIssue:
     affected_fields = tuple(sorted({item for item in fields if item}))
     issue_id = _hash(
@@ -1845,6 +1988,10 @@ def _quality_issue(
                 if dependency_impact is not None
                 else None
             ),
+            "target_digits": target_digits,
+            "required_decimal_places": required_decimal_places,
+            "integral_overflow": integral_overflow,
+            "zeroed_positive": zeroed_positive,
         }
     )
     return QualityIssue(
@@ -1863,6 +2010,33 @@ def _quality_issue(
         evidence_display=rule.evidence_display,
         caused_by_row_id=caused_by_row_id,
         dependency_impact=dependency_impact,
+        target_digits=target_digits,
+        required_decimal_places=required_decimal_places,
+        integral_overflow=integral_overflow,
+        zeroed_positive=zeroed_positive,
+    )
+
+
+def _prepared_numeric_precision_issue(
+    workspace_state: WorkspaceState,
+    rule: QualityRule,
+    row: _QualityIssueRow,
+    finding: PreparedNumericPrecisionFinding,
+) -> QualityIssue:
+    """Build one non-blocking, value-free prepared-capacity advisory."""
+
+    return _quality_issue(
+        workspace_state,
+        rule,
+        row,
+        "TARGET_NUMERIC_PRECISION_LOSS",
+        prepared_numeric_precision_message(finding),
+        (finding.field_name,),
+        policy=QualityOutcomePolicy.ADVISORY,
+        target_digits=finding.digits,
+        required_decimal_places=finding.required_decimal_places,
+        integral_overflow=finding.integral_overflow,
+        zeroed_positive=finding.zeroed_positive,
     )
 
 

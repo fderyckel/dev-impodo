@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from copy import deepcopy
 from dataclasses import replace
+from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ import duckdb
 from impodo.adapters.duckdb.native_prepared_projection import (
     projected_encoded_rows_sql,
     projected_hybrid_dependency_rows_sql,
+    projected_numeric_values_sql,
     supports_clean_native_projection,
 )
 from impodo.adapters.duckdb.preparation_session_repository import (
@@ -223,6 +225,43 @@ class NativeReferenceSerializationTests(unittest.TestCase):
             )
         actual = self._project(projection, path)
         self.assertEqual(actual[0][-1], expected_row.row_json)
+
+    def test_numeric_projection_reads_only_selected_prepared_columns(self):
+        selection = fixtures._selection()
+        definition = fixtures._definition(selection)
+        decision = compile_columnar_transformation_program(
+            definition,
+            selection,
+            fixtures.DATASET_ID,
+        )
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+        _selection, snapshot, path, _prepared = self._prepare(
+            decision.program,
+            (fixtures._rows()[0],),
+        )
+        projection = PreparedCanonicalProjection(
+            dataset_id=fixtures.DATASET_ID,
+            dataset="products",
+            ordinal_start=0,
+            row_count=1,
+            mode=decision.program.target_mode,
+            source_hash=snapshot.content_hash,
+            physical_dataset_id=fixtures.DATASET_ID,
+            field_sources={},
+            program=decision.program,
+            set_based_projection=True,
+        )
+
+        with duckdb.connect() as connection:
+            rows = connection.execute(
+                projected_numeric_values_sql(projection, ("list_price",)),
+                [str(path)],
+            ).fetchall()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][:2], (0, "list_price"))
+        self.assertEqual(Decimal(str(rows[0][2])), Decimal("1234.500"))
 
     def test_resolved_identity_and_scope_replay_all_origins_and_nullable_roots(self):
         selection = fixtures._selection()

@@ -15,9 +15,14 @@ from ...domain.staging.preparation_session import (
     PreparationSessionStatus,
     PreparedCanonicalProjection,
 )
+from ...domain.target_numeric_precision import (
+    PreparedNumericField,
+    prepared_numeric_precision_finding,
+)
 from .constants import (
     PREPARATION_SESSION_ROW_BATCH_SIZE,
 )
+from .native_prepared_projection import projected_numeric_values_sql
 from .preparation_identity_group_quality import iter_identity_group_findings
 from .preparation_session_support import (
     PreparationSessionRepositoryHost,
@@ -153,13 +158,16 @@ class PreparationQualityIndex:
         workspace_id: str,
         session_id: str,
         physical_rows: Mapping[str, Sequence[int]],
+        *,
+        numeric_fields: tuple[PreparedNumericField, ...] = (),
     ) -> dict[str, object] | None:
         """Validate a direct prepared run using set-based narrow relations."""
 
         database_path = (
             self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         )
-        with self._connect(database_path) as connection:
+        connect = self._connect_prepared if numeric_fields else self._connect
+        with connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             header = connection.execute(
                 """
@@ -335,6 +343,13 @@ class PreparationQualityIndex:
                 """,
                 [session_id],
             ).fetchall()
+            precision_rows = PreparationQualityIndex._bounded_numeric_precision_rows(
+                self,
+                connection,
+                workspace_id,
+                session_id,
+                numeric_fields,
+            )
             return {
                 "row_count": row_count,
                 "disposition_counts": {
@@ -347,7 +362,234 @@ class PreparationQualityIndex:
                 "issue_rows": tuple(issue_rows),
                 "collisions": tuple(collisions),
                 "exception_rows": tuple(exception_rows),
+                "precision_rows": precision_rows,
             }
+
+    @staticmethod
+    def _bounded_numeric_precision_rows(
+        host: PreparationSessionRepositoryHost,
+        connection: duckdb.DuckDBPyConnection,
+        workspace_id: str,
+        session_id: str,
+        numeric_fields: tuple[PreparedNumericField, ...],
+    ) -> tuple[tuple[object, ...], ...]:
+        """Return only value-free precision failures from narrow stored columns."""
+
+        if not numeric_fields:
+            return ()
+        specs = {
+            (item.dataset, item.target_model, item.field_name): item
+            for item in numeric_fields
+        }
+        if len(specs) != len(numeric_fields):
+            raise WorkspaceError("Prepared numeric field evidence is ambiguous")
+
+        connection.execute(
+            """
+            CREATE TEMP TABLE quality_numeric_field (
+                dataset VARCHAR,
+                target_model VARCHAR,
+                field_name VARCHAR,
+                precision INTEGER,
+                scale INTEGER,
+                PRIMARY KEY (dataset, target_model, field_name)
+            )
+            """
+        )
+        connection.executemany(
+            "INSERT INTO quality_numeric_field VALUES (?, ?, ?, ?, ?)",
+            [
+                (
+                    item.dataset,
+                    item.target_model,
+                    item.field_name,
+                    item.digits[0],
+                    item.digits[1],
+                )
+                for item in numeric_fields
+            ],
+        )
+        stored_values = connection.execute(
+            """
+            SELECT row.ordinal, row.row_id, row.dataset, row.source_row,
+                   spec.target_model, spec.field_name, spec.precision, spec.scale,
+                   COALESCE(
+                       json_extract_string(value.value, '$.value'),
+                       json_extract_string(value.value, '$')
+                   ) AS prepared_value
+              FROM canonical_staging_row AS row
+              JOIN quality_numeric_field AS spec
+                ON spec.dataset = row.dataset
+               AND spec.target_model =
+                   json_extract_string(row.row_json, '$.target_model')
+              CROSS JOIN json_each(
+                   json_extract(row.row_json, '$.proposed_values')
+              ) AS value
+             WHERE row.run_id = ?
+               AND row.row_json != ''
+               AND row.disposition IN ('CANDIDATE', 'REFERENCE')
+               AND value.key = spec.field_name
+             ORDER BY row.ordinal, spec.field_name
+            """,
+            [session_id],
+        ).fetchall()
+        failures: list[tuple[object, ...]] = []
+        for (
+            ordinal,
+            row_id,
+            dataset,
+            source_row,
+            target_model,
+            field_name,
+            precision,
+            scale,
+            prepared_value,
+        ) in stored_values:
+            finding = prepared_numeric_precision_finding(
+                row_id=str(row_id),
+                dataset=str(dataset),
+                source_row=int(source_row),
+                target_model=str(target_model),
+                field_name=str(field_name),
+                digits=(int(precision), int(scale)),
+                value=prepared_value,
+            )
+            if finding is not None:
+                failures.append(
+                    (
+                        int(ordinal),
+                        finding.target_model,
+                        finding.field_name,
+                        finding.digits[0],
+                        finding.digits[1],
+                        finding.required_decimal_places,
+                        finding.integral_overflow,
+                        finding.zeroed_positive,
+                    )
+                )
+
+        raw_projections = connection.execute(
+            """
+            SELECT projection.projection_json, manifest.manifest_json
+              FROM canonical_prepared_projection AS projection
+              JOIN prepared_snapshot_manifest AS manifest
+                ON manifest.content_hash = projection.prepared_snapshot_hash
+               AND manifest.dataset_id = projection.dataset_id
+             WHERE projection.run_id = ?
+             ORDER BY projection.ordinal_start
+            """,
+            [session_id],
+        ).fetchall()
+        for projection_json, snapshot_json in raw_projections:
+            projection = PreparedCanonicalProjection.from_portable_dict(
+                json.loads(str(projection_json))
+            )
+            target_fields = tuple(
+                sorted(
+                    item.field_name
+                    for item in numeric_fields
+                    if item.dataset == projection.dataset
+                    and item.target_model == projection.program.target_model
+                )
+            )
+            if not target_fields:
+                continue
+            snapshot = PreparedSnapshot.from_json(str(snapshot_json))
+            if (
+                snapshot.workspace_id != workspace_id
+                or snapshot.dataset_id != projection.dataset_id
+                or snapshot.row_count != projection.row_count
+                or snapshot.transformation_program_hash
+                != projection.program.content_hash
+                or snapshot.mapping_hash != projection.program.mapping_content_hash
+                or snapshot.schema_hash != projection.program.schema_hash
+            ):
+                raise WorkspaceError("Prepared canonical projection metadata changed")
+            with host._artifacts.materialize_prepared_snapshot(
+                workspace_id,
+                snapshot.parquet_storage_key,
+                expected_sha256=snapshot.parquet_sha256,
+            ) as path:
+                projected_values = connection.execute(
+                    projected_numeric_values_sql(projection, target_fields),
+                    [str(path)],
+                ).fetchall()
+            for prepared_ordinal, field_name, prepared_value in projected_values:
+                spec = specs.get(
+                    (
+                        projection.dataset,
+                        projection.program.target_model,
+                        str(field_name),
+                    )
+                )
+                if spec is None:
+                    raise WorkspaceError("Prepared numeric field evidence changed")
+                finding = prepared_numeric_precision_finding(
+                    row_id="pending",
+                    dataset=projection.dataset,
+                    source_row=1,
+                    target_model=projection.program.target_model,
+                    field_name=spec.field_name,
+                    digits=spec.digits,
+                    value=prepared_value,
+                )
+                if finding is not None:
+                    failures.append(
+                        (
+                            projection.ordinal_start + int(prepared_ordinal),
+                            finding.target_model,
+                            finding.field_name,
+                            finding.digits[0],
+                            finding.digits[1],
+                            finding.required_decimal_places,
+                            finding.integral_overflow,
+                            finding.zeroed_positive,
+                        )
+                    )
+
+        if not failures:
+            return ()
+        connection.execute(
+            """
+            CREATE TEMP TABLE quality_numeric_failure (
+                ordinal BIGINT,
+                target_model VARCHAR,
+                field_name VARCHAR,
+                precision INTEGER,
+                scale INTEGER,
+                required_places INTEGER,
+                integral_overflow BOOLEAN,
+                zeroed_positive BOOLEAN,
+                PRIMARY KEY (ordinal, field_name)
+            )
+            """
+        )
+        connection.executemany(
+            "INSERT INTO quality_numeric_failure VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            failures,
+        )
+        return tuple(
+            connection.execute(
+                """
+                SELECT row.ordinal, row.row_id, row.dataset, row.source_row,
+                       row.disposition, lineage.physical_dataset_id,
+                       lineage.physical_source_row, failure.target_model,
+                       failure.field_name, failure.precision, failure.scale,
+                       failure.required_places, failure.integral_overflow,
+                       failure.zeroed_positive
+                  FROM quality_numeric_failure AS failure
+                  JOIN canonical_staging_row AS row
+                    ON row.run_id = ? AND row.ordinal = failure.ordinal
+                  JOIN preparation_lineage AS lineage
+                    ON lineage.session_id = row.run_id
+                   AND lineage.dataset = row.dataset
+                   AND lineage.output_source_row = row.source_row
+                 WHERE row.disposition IN ('CANDIDATE', 'REFERENCE')
+                 ORDER BY row.ordinal, failure.field_name
+                """,
+                [session_id],
+            ).fetchall()
+        )
 
     def _bounded_relationship_findings(
         self: PreparationSessionRepositoryHost,

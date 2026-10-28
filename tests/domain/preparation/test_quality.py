@@ -4,6 +4,7 @@ from tests.support.paths import REPOSITORY_ROOT
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from decimal import Decimal
 from hashlib import sha256
 import os
 from pathlib import Path
@@ -42,6 +43,7 @@ from impodo.domain.preflight.frozen_input import canonical_rows_to_prepared_bund
 from impodo.adapters.artifacts.profile_loader import load_profile
 from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode, WorkspaceStatus
 from impodo.domain.preparation.quality import (
+    QualityCauseImpact,
     QualityDependencyImpact,
     QualityDisposition,
     QualityOutcomePolicy,
@@ -69,6 +71,10 @@ from impodo.domain.preparation.staging_contracts import (
     StagingReconciliation,
 )
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.target_numeric_precision import (
+    PreparedNumericField,
+    prepared_numeric_precision_finding,
+)
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.workspace.contracts import (
     SourceDataset,
@@ -97,6 +103,71 @@ class _SparseSourceAccounting(_SparseEvidence):
 
 
 class QualityEvaluationTests(unittest.TestCase):
+    def test_prepared_numeric_precision_is_advisory_and_does_not_block(self) -> None:
+        row = replace(
+            _canonical_row("a", 2),
+            proposed_values={"name": "C001", "credit_limit": Decimal("0.003")},
+        )
+        staging = _staging(self.workspace_state.workspace_id, (row,))
+        ruleset = default_quality_ruleset(
+            workspace_id=self.workspace_state.workspace_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+        )
+
+        run = evaluate_quality(
+            workspace_state=self.workspace_state,
+            staging=staging,
+            physical_rows={"dataset:contacts": (2,)},
+            ruleset=ruleset,
+            numeric_fields=(
+                PreparedNumericField(
+                    dataset="contacts",
+                    target_model="res.partner",
+                    field_name="credit_limit",
+                    digits=(16, 2),
+                ),
+            ),
+        )
+
+        self.assertTrue(run.ready_for_package)
+        self.assertEqual(run.review_count, 0)
+        self.assertEqual(run.row_results[0].effective_disposition, QualityDisposition.CANDIDATE)
+        self.assertFalse(run.row_results[0].requires_review)
+        self.assertEqual(len(run.issues), 1)
+        issue = run.issues[0]
+        self.assertEqual(issue.policy, QualityOutcomePolicy.ADVISORY)
+        self.assertEqual(issue.reason_code, "TARGET_NUMERIC_PRECISION_LOSS")
+        self.assertEqual(issue.target_digits, (16, 2))
+        self.assertEqual(issue.required_decimal_places, 3)
+        self.assertTrue(issue.zeroed_positive)
+        self.assertNotIn("0.003", issue.message)
+
+        stored = replace(
+            _stored_staging(staging),
+            rows=_IndexedTestRows(staging.rows),
+        )
+        bounded = build_bounded_quality_run(
+            workspace_state=self.workspace_state,
+            staging=stored,
+            physical_rows={"dataset:contacts": (2,)},
+            ruleset=ruleset,
+            published_staging_content_hash=staging.content_hash,
+            numeric_fields=(
+                PreparedNumericField(
+                    dataset="contacts",
+                    target_model="res.partner",
+                    field_name="credit_limit",
+                    digits=(16, 2),
+                ),
+            ),
+        )
+        self.assertEqual(
+            _materialized_bounded_quality(bounded).to_json(),
+            run.to_json(),
+        )
+
     def test_null_hierarchy_scope_remains_part_of_collision_identity(self) -> None:
         first = _canonical_row(
             "a",
@@ -1691,6 +1762,66 @@ class QualityStoreTests(unittest.TestCase):
         self.assertEqual(timings.connection_count, 1)
         self.assertEqual(timings.schema_check_count, 1)
 
+    def test_quality_projection_aggregates_numeric_capacity_without_values(self) -> None:
+        row = replace(
+            _canonical_row("a", 2),
+            proposed_values={"name": "C001", "credit_limit": Decimal("0.003")},
+        )
+        staging_run = _staging(self.workspace_state.workspace_id, (row,))
+        staging = self.staging.publish_canonical_staging(
+            self.workspace_state.workspace_id,
+            staging_run,
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        ruleset = default_quality_ruleset(
+            workspace_id=self.workspace_state.workspace_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+        )
+        self.quality.publish_quality_ruleset(
+            self.workspace_state.workspace_id,
+            ruleset,
+            actor=LOCAL_ACTOR,
+        )
+        run = evaluate_quality(
+            workspace_state=self.workspace_state,
+            staging=staging_run,
+            physical_rows={"dataset:contacts": (2,)},
+            ruleset=ruleset,
+            numeric_fields=(
+                PreparedNumericField(
+                    dataset="contacts",
+                    target_model="res.partner",
+                    field_name="credit_limit",
+                    digits=(16, 2),
+                ),
+            ),
+        )
+        published = self.quality.publish_quality_run(
+            self.workspace_state.workspace_id,
+            run,
+            staging_run_id=staging.run_id,
+            actor=LOCAL_ACTOR,
+        )
+
+        page = self.quality.get_quality_review_page(
+            self.workspace_state.workspace_id,
+            published.run_id,
+            page=1,
+            page_size=50,
+            include_run_cause_counts=True,
+        )
+
+        self.assertEqual(len(page.run_cause_counts), 1)
+        cause = page.run_cause_counts[0]
+        self.assertEqual(cause.target_digits, (16, 2))
+        self.assertEqual(cause.required_decimal_places, 3)
+        self.assertEqual(cause.zeroed_positive_count, 1)
+        self.assertEqual(cause.integral_overflow_count, 0)
+        self.assertNotIn("0.003", cause.message)
+
     def test_quality_projection_counts_transitive_dependency_impact(self) -> None:
         root_issue = CanonicalIssue(
             code="SOURCE_TYPE_INVALID",
@@ -1806,6 +1937,36 @@ class QualityStoreTests(unittest.TestCase):
         self.assertEqual(cause.affected_parent_count, 1)
         self.assertEqual(cause.affected_child_count, 1)
         self.assertEqual(cause.affected_sibling_count, 1)
+        self.assertTrue(cause.cause_key.startswith("sha256:"))
+        with collect_duckdb_request_timings() as timings:
+            with retain_databases_for_read():
+                first_cause_page = self.quality.get_quality_cause_review_page(
+                    self.workspace_state.workspace_id,
+                    published.run_id,
+                    cause.cause_key,
+                    page=1,
+                    page_size=2,
+                )
+        second_cause_page = self.quality.get_quality_cause_review_page(
+            self.workspace_state.workspace_id,
+            published.run_id,
+            cause.cause_key,
+            page=2,
+            page_size=2,
+        )
+        self.assertEqual(first_cause_page.matching_count, 4)
+        self.assertEqual(first_cause_page.page_count, 2)
+        self.assertEqual(first_cause_page.selected_cause, cause)
+        self.assertEqual(
+            tuple(item.cause_impact for item in first_cause_page.items),
+            (QualityCauseImpact.PARENT, QualityCauseImpact.DIRECT),
+        )
+        self.assertEqual(
+            tuple(item.cause_impact for item in second_cause_page.items),
+            (QualityCauseImpact.SIBLING, QualityCauseImpact.CHILD),
+        )
+        self.assertEqual(timings.connection_count, 1)
+        self.assertEqual(timings.schema_check_count, 1)
         self.assertEqual(
             self.quality.get_quality_run(
                 self.workspace_state.workspace_id,
@@ -2043,13 +2204,52 @@ def _stored_staging(staging: CanonicalStagingRun) -> StoredCanonicalStagingRun:
 class _IndexedTestRows(tuple):
     """Small oracle for the narrow quality-adapter contract."""
 
-    def bounded_quality_index(self, physical_rows):
+    def bounded_quality_index(self, physical_rows, *, numeric_fields=()):
         expected = {
             row.lineage.physical_dataset_id: (row.source_row,)
             for row in self
         }
         if physical_rows != expected:
             return None
+        precision_rows = []
+        for ordinal, row in enumerate(self):
+            for field in numeric_fields:
+                if (
+                    field.dataset != row.dataset
+                    or field.target_model != row.target_model
+                ):
+                    continue
+                value = row.proposed_values.get(field.field_name)
+                if value is None:
+                    continue
+                finding = prepared_numeric_precision_finding(
+                    row_id=row.row_id,
+                    dataset=row.dataset,
+                    source_row=row.source_row,
+                    target_model=row.target_model,
+                    field_name=field.field_name,
+                    digits=field.digits,
+                    value=value,
+                )
+                if finding is not None:
+                    precision_rows.append(
+                        (
+                            ordinal,
+                            row.row_id,
+                            row.dataset,
+                            row.source_row,
+                            row.disposition.value,
+                            row.lineage.physical_dataset_id,
+                            row.source_row,
+                            row.target_model,
+                            finding.field_name,
+                            finding.digits[0],
+                            finding.digits[1],
+                            finding.required_decimal_places,
+                            finding.integral_overflow,
+                            finding.zeroed_positive,
+                        )
+                    )
         return {
             "row_count": len(self),
             "disposition_counts": {
@@ -2061,6 +2261,7 @@ class _IndexedTestRows(tuple):
             "issue_rows": (),
             "collisions": (),
             "exception_rows": (),
+            "precision_rows": tuple(precision_rows),
         }
 
     def iter_quality_index_batches(self, _connection, batch_size):

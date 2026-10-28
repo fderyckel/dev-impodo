@@ -8,20 +8,21 @@ writer. No Odoo server is contacted and no production behavior is changed.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass, replace
-from datetime import datetime, timezone
-from hashlib import sha256
 import json
 import os
-from pathlib import Path
 import platform
 import statistics
 import subprocess
 import sys
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
+from hashlib import sha256
+from pathlib import Path
 from threading import Event, Thread
 from time import perf_counter
 from types import SimpleNamespace
-from typing import Any, Mapping, Sequence
+from typing import Any, Self
 from uuid import NAMESPACE_URL, uuid5
 
 from impodo.application.workspace.execution.service import (
@@ -38,14 +39,13 @@ from impodo.domain.execution_snapshot import (
     dependency_ordered_execution_datasets,
     plan_execution_rows,
 )
-from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
 from impodo.domain.shared.models import (
     Classification,
     LogicalReference,
     canonical_json_bytes,
 )
 from impodo.domain.workspace.workbench import OdooConnectionMode, SourceMode
-
 
 ROOT = Path(__file__).resolve().parents[1]
 RESULT_PREFIX = "IMPODO_DEPENDENCY_EXECUTION_JSON="
@@ -80,7 +80,7 @@ class _PeakSampler:
         self._thread = Thread(target=self._sample_until_stopped, daemon=True)
         self.peak_bytes = 0
 
-    def __enter__(self) -> "_PeakSampler":
+    def __enter__(self) -> Self:
         self._sample()
         self._thread.start()
         return self
@@ -136,7 +136,7 @@ class _Journal:
         self.run = replace(
             self.run,
             status=status,
-            completed_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(UTC),
             rows=tuple(self.rows[item.row_id] for item in self.run.rows),
         )
         return self.run
@@ -151,9 +151,7 @@ class _Executor:
         self.scope_hash = scope_hash
         self.lookups: list[tuple[str, tuple[tuple[str, str, Any], ...]]] = []
         self.creates: list[tuple[str, tuple[dict[str, Any], ...]]] = []
-        self.loads: list[
-            tuple[str, tuple[dict[str, Any], ...], tuple[str, ...]]
-        ] = []
+        self.loads: list[tuple[str, tuple[dict[str, Any], ...], tuple[str, ...]]] = []
         self.updates: list[tuple[str, int, dict[str, Any]]] = []
         self.calls: list[dict[str, object]] = []
         self._next_id = 10_000
@@ -170,9 +168,7 @@ class _Executor:
     def create_rows(self, model, values):
         rows = tuple(dict(item) for item in values)
         self.creates.append((model, rows))
-        self.calls.append(
-            {"operation": "create", "model": model, "rows": len(rows)}
-        )
+        self.calls.append({"operation": "create", "model": model, "rows": len(rows)})
         return self._identifiers(len(rows))
 
     def load_create_rows(self, model, values, external_ids):
@@ -278,7 +274,7 @@ def _run_parent(arguments: argparse.Namespace) -> dict[str, object]:
     for shape, runs in evidence.items():
         _require_same_semantics(shape, runs)
     return {
-        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "captured_at": datetime.now(UTC).isoformat(),
         "command": _configuration(arguments),
         "platform": platform.platform(),
         "python": platform.python_version(),
@@ -395,9 +391,7 @@ def measure_shape(
         planned = dependency_ordered_execution_datasets(
             tuple(
                 replace(item, sequence=index)
-                for index, item in enumerate(
-                    _datasets_in_reviewed_order(fixture)
-                )
+                for index, item in enumerate(_datasets_in_reviewed_order(fixture))
             )
         )
         dataset_planning_seconds = perf_counter() - planning_started
@@ -411,7 +405,10 @@ def measure_shape(
         ExecutionSnapshot.from_json(snapshot_json)
         service, journal = _service(fixture.snapshot)
         preview_started = perf_counter()
-        preview = service.current_preview(fixture.snapshot.workspace_id)
+        preview = service.current_preview(
+            fixture.snapshot.workspace_id,
+            actor=LOCAL_ACTOR,
+        )
         preview_seconds = perf_counter() - preview_started
         if preview is None or not preview.can_load:
             reason = "missing preview" if preview is None else preview.scope_error
@@ -506,7 +503,9 @@ def _require_same_semantics(
         "snapshot_size_bytes",
     )
     baseline = {name: runs[0][name] for name in stable_fields}
-    if any({name: item[name] for name in stable_fields} != baseline for item in runs[1:]):
+    if any(
+        {name: item[name] for name in stable_fields} != baseline for item in runs[1:]
+    ):
         raise DependencyBenchmarkError(f"{shape} changed semantics between runs")
 
 
@@ -541,10 +540,17 @@ def _product_unit_fixture(products: int) -> Fixture:
         _dataset("uoms", "uom.uom"),
     )
     rows = [
-        _row("products", "product.template", f"P-{index:04d}", (
-            _scalar("default_code", f"P-{index:04d}"),
-            _relation("uom_id", "uom.uom", "uoms", "UNIT" if index % 2 else "DOZEN"),
-        ))
+        _row(
+            "products",
+            "product.template",
+            f"P-{index:04d}",
+            (
+                _scalar("default_code", f"P-{index:04d}"),
+                _relation(
+                    "uom_id", "uom.uom", "uoms", "UNIT" if index % 2 else "DOZEN"
+                ),
+            ),
+        )
         for index in range(1, products + 1)
     ]
     rows.extend(
@@ -718,8 +724,7 @@ def _fixture(
     expected_order: tuple[str, ...],
 ) -> Fixture:
     reviewed = tuple(
-        replace(item, sequence=index)
-        for index, item in enumerate(reviewed_datasets)
+        replace(item, sequence=index) for index, item in enumerate(reviewed_datasets)
     )
     ordered = tuple(
         replace(item, sequence=index)
@@ -803,7 +808,7 @@ def _row(
     key: str,
     fields: tuple[FieldIntent, ...],
 ) -> ExecutionRow:
-    token = sha256(f"{dataset}:{key}".encode("utf-8")).hexdigest()
+    token = sha256(f"{dataset}:{key}".encode()).hexdigest()
     return ExecutionRow(
         row_id="sha256:" + token,
         dataset=dataset,
@@ -822,9 +827,12 @@ def _row(
 
 def _finalize_row(row: ExecutionRow, ordinal: int) -> ExecutionRow:
     provisional = replace(row, source_row=ordinal + 2, row_hash="")
-    row_hash = "sha256:" + sha256(
-        canonical_json_bytes(provisional.portable_dict(include_hash=False))
-    ).hexdigest()
+    row_hash = (
+        "sha256:"
+        + sha256(
+            canonical_json_bytes(provisional.portable_dict(include_hash=False))
+        ).hexdigest()
+    )
     return replace(provisional, row_hash=row_hash)
 
 
@@ -840,9 +848,10 @@ def _snapshot(
 
     counts = {item.value: 0 for item in Classification}
     counts[Classification.CREATE.value] = len(rows)
-    root_hash = "sha256:" + sha256(
-        canonical_json_bytes([row.row_hash for row in rows])
-    ).hexdigest()
+    root_hash = (
+        "sha256:"
+        + sha256(canonical_json_bytes([row.row_hash for row in rows])).hexdigest()
+    )
     return ExecutionSnapshot(
         workspace_id=identity("workspace"),
         preflight_run_id=identity("preflight"),

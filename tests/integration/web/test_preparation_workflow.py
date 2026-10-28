@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.preparation.quality import (
+    QualityCauseImpact,
     QualityCauseCount,
     QualityDisposition,
     QualityIssue,
@@ -177,6 +179,21 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                     family=issue.family,
                     policy=issue.policy,
                     owner_label=issue.owner_label,
+                    cause_key="sha256:" + "d" * 64,
+                ),
+                QualityCauseCount(
+                    dataset="contacts",
+                    reason_code="TARGET_NUMERIC_PRECISION_LOSS",
+                    message="The exact prepared value exceeds captured capacity.",
+                    affected_fields=("credit_limit",),
+                    affected_record_count=2,
+                    family=QualityRuleFamily.BOUNDED_VALUES,
+                    policy=QualityOutcomePolicy.ADVISORY,
+                    owner_label="Data manager",
+                    target_digits=(16, 2),
+                    required_decimal_places=6,
+                    zeroed_positive_count=1,
+                    cause_key="sha256:" + "e" * 64,
                 ),
             ),
         )
@@ -205,10 +222,127 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Migration issues", page.text)
         self.assertIn("Invalid number or value type", page.text)
         self.assertIn("Affected records:</strong> 3", page.text)
+        self.assertIn("Prepared value exceeds Odoo precision", page.text)
+        self.assertIn("16 total digits, 2 decimal places", page.text)
+        self.assertIn("up to 6 decimal places", page.text)
+        self.assertIn("could become zero", page.text)
+        self.assertIn("Review Odoo precision", page.text)
+        self.assertIn(f'href="/workspaces/{workspace_id}/schema"', page.text)
         self.assertIn("Open Match data", page.text)
+        self.assertIn("Review affected records", page.text)
+        self.assertIn(
+            f'href="/workspaces/{workspace_id}/summary/quality-causes/'
+            f'sha256:{"d" * 64}"',
+            page.text,
+        )
         self.assertGreater(timings.connection_count, 0)
         self.assertLessEqual(timings.connection_count, 8)
         self.assertLessEqual(timings.schema_check_count, 12)
+
+    def test_quality_cause_detail_is_bounded_and_runs_off_loop(self) -> None:
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
+            scalar_field_count=0,
+        )
+        context = self.app.state.context
+        actor = resolve_local_actor(context)
+        navigation = context.navigation.get_for_workspace(
+            workspace_id,
+            actor=actor,
+        )
+        staging_run_id = "f0cd6d32-80d9-4e31-9bcb-d316d83cf0b8"
+        quality_run_id = "e0cd6d32-80d9-4e31-9bcb-d316d83cf0b8"
+        cause_key = "sha256:" + "d" * 64
+        row_id = "sha256:" + "8" * 64
+        cause = QualityCauseCount(
+            dataset="contacts",
+            reason_code="SOURCE_TYPE_INVALID",
+            message="The prepared number is invalid.",
+            affected_fields=("amount",),
+            affected_record_count=1,
+            family=QualityRuleFamily.BOUNDED_VALUES,
+            policy=QualityOutcomePolicy.QUARANTINE,
+            owner_label="Data manager",
+            affected_child_count=1,
+            cause_key=cause_key,
+        )
+        issue = QualityIssue(
+            issue_id="sha256:" + "b" * 64,
+            rule_id="sha256:" + "c" * 64,
+            family=QualityRuleFamily.BOUNDED_VALUES,
+            reason_code=cause.reason_code,
+            message=cause.message,
+            dataset=cause.dataset,
+            row_id=row_id,
+            source_row=2,
+            affected_fields=cause.affected_fields,
+            policy=QualityOutcomePolicy.QUARANTINE,
+            owner_role=QualityOwnerRole.DATA_MANAGER,
+            owner_label="Data manager",
+        )
+        detail_page = QualityReviewPage(
+            items=(
+                QualityReviewItem(
+                    row=QualityRowResult(
+                        row_id=row_id,
+                        dataset="contacts",
+                        source_row=2,
+                        record_label="Contact C002",
+                        base_disposition=QualityDisposition.CANDIDATE,
+                        effective_disposition=QualityDisposition.QUARANTINED,
+                        issue_ids=(issue.issue_id,),
+                        requires_review=True,
+                    ),
+                    issues=(issue,),
+                    correction_route="Correct the source and prepare again.",
+                    cause_impact=QualityCauseImpact.DIRECT,
+                ),
+            ),
+            matching_count=2,
+            page=1,
+            page_count=1,
+            selected_cause=cause,
+        )
+        snapshot = replace(
+            navigation,
+            facts=replace(
+                navigation.facts,
+                staging_run_id=staging_run_id,
+                quality_run_id=quality_run_id,
+                quality_staging_run_id=staging_run_id,
+            ),
+        )
+
+        def read_cause_page(*args, **kwargs):
+            with self.assertRaises(RuntimeError):
+                asyncio.get_running_loop()
+            self.assertEqual(args, (workspace_id, quality_run_id, cause_key))
+            self.assertEqual(kwargs, {"page": 1, "page_size": 20})
+            return detail_page
+
+        with (
+            patch.object(
+                context.navigation,
+                "get_for_workspace",
+                return_value=snapshot,
+            ),
+            patch.object(
+                context.queries,
+                "get_quality_cause_review_page",
+                side_effect=read_cause_page,
+            ),
+            collect_duckdb_request_timings() as timings,
+        ):
+            page = self.client.get(
+                f"/workspaces/{workspace_id}/summary/quality-causes/{cause_key}"
+            )
+
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn("Records behind this finding", page.text)
+        self.assertIn("Direct finding", page.text)
+        self.assertIn("Contact C002", page.text)
+        self.assertIn("Records 1-2 of 2", page.text)
+        self.assertLessEqual(timings.connection_count, 2)
+        self.assertLessEqual(timings.schema_check_count, 2)
 
     def test_prepare_rejects_bad_source_hash_before_publication_and_redirects(
         self,

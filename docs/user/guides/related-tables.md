@@ -54,10 +54,11 @@ Impodo reviews every row in each participating frozen table through a bounded
 local database operation. The grouped review does not load all wide source
 tables into browser memory and does not use the advanced pairwise editor's
 25,000-row review limit. It has regression coverage for 65,299 rows across
-three inputs with 262 source fields. A combined output may contain no more
-than 200 fields. Later preparation of a saved multi-table output still uses
-the current materialized-preparation limits, so check **Prepare data** before
-relying on a larger authoring review as production-scale qualification.
+three inputs with 262 source fields. The same fixture prepares the saved
+combined output through bounded local batches without using the 25,000-row
+materialized fallback. This qualified route supports at most 100,000 physical
+input rows, 50,000 final rows, and 200 final fields. Other derived-table shapes
+keep their separate limits.
 
 For fictional AX customer exports, the primary table might contain
 `AccountNum` and `Party`. Separate contact, address, and payment-term tables
@@ -109,9 +110,9 @@ needs one explicit pairwise step or a visible pairwise output. That editor
 retains the prior base/added controls and can still chain visible logical
 outputs.
 
-![The advanced pairwise review combines two fictional customer tables while preserving one output row per customer account.](../../images/user/06d-customer-combination.png)
+![The grouped review reconciles three fictional enrichment tables while preserving one output row per customer account.](../../images/user/06d-customer-combination.png)
 
-![The advanced pairwise saved summary distinguishes its physical inputs from the map-visible logical output.](../../images/user/06e-customer-combination-saved.png)
+![The saved grouped summary distinguishes its primary and added physical inputs from the one map-visible logical output.](../../images/user/06e-customer-combination-saved.png)
 
 Do not use this choice to flatten one-to-many data. BoM lines and operations
 normally remain separate logical datasets linked to their header. Two partial

@@ -44,14 +44,24 @@ Tests may disable the manager and exercise the synchronous compatibility path.
 Both paths call the same comparison service and publication transaction.
 
 Quality publication stores complete-run cause counts by dataset, reason, rule
-family, policy, owner, and affected field. The summary presenter resolves
-friendly field labels and projects the bounded counts through the same
-`WorkflowIssueProjection` used by Odoo data. Root findings sort before
-inherited dependencies, and each card opens the closest saved Match-data
-decision without changing it. The issue summary remains complete when the row
-table is filtered or paged. The row table still renders every saved issue
-instead of collapsing the record to its first issue. Stable reason and rule
-identifiers remain under **Support details**.
+family, policy, owner, and affected field. It also stores the distinct parent,
+child, and sibling impact derived from persisted causal links during the same
+publication operation. The summary presenter resolves friendly field labels
+and projects the bounded counts through the same `WorkflowIssueProjection`
+used by Odoo data. Root findings sort before inherited dependencies, and each
+card opens the closest saved Match-data decision without changing it. The
+issue summary remains complete when the row table is filtered or paged. The
+row table still renders every saved issue instead of collapsing the record to
+its first issue. Stable reason and rule identifiers remain under **Support
+details**.
+
+Prepared numeric-capacity advisories reuse this same projection. Their cards
+show captured total digits and scale, the highest required scale, and compact
+overflow counts without exposing a prepared value. The primary action opens
+the exact Match-data scalar rule; the secondary action opens the captured Odoo
+schema. The advisory does not stop comparison. The deferred-scope and
+intended-write checks below remain authoritative because they evaluate only
+fields that the comparison would actually CREATE or UPDATE.
 
 `PreflightService` freezes the input bindings, plans metadata and record
 requests, captures the target fingerprint and snapshot, performs offline

@@ -29,6 +29,35 @@ from tests.support.browser_scenarios import (
 class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
     """Prove the fictional customer workflow through current HTTP routes."""
 
+    def test_grouped_join_routes_reject_bad_csrf_and_unknown_fields(self) -> None:
+        created = self._post(
+            "/projects/new",
+            {
+                "csrf_token": self.csrf,
+                "display_name": "Grouped join security",
+                "source_mode": "FILE",
+                "source_system_identity": "Security fixture",
+            },
+        )
+        workspace_id = _created_workspace_id(self.app, created)
+        action = (
+            f"/workspaces/{workspace_id}/derived-entities/join-group/preview"
+        )
+        bad_csrf = self.client.post(
+            action,
+            data={"csrf_token": "wrong"},
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(bad_csrf.status_code, 403, bad_csrf.text)
+
+        unknown = self.client.post(
+            action,
+            data={"csrf_token": self.csrf, "untrusted_field": "value"},
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(unknown.status_code, 422, unknown.text)
+        self.assertIn("Unexpected form fields", unknown.text)
+
     def _frozen_customer_workspace(self, *, several_tables: bool = False):
         created = self._post(
             "/projects/new",

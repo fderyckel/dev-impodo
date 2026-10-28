@@ -171,6 +171,9 @@ from impodo.application.workspace.ports import MigrationWorkspaceRepository
 from impodo.application.workspace.preparation.columnar_transformation_port import (
     ColumnarTransformationPort,
 )
+from impodo.application.workspace.preparation.grouped_exact_join_preparation import (
+    GroupedExactJoinSourcePort,
+)
 from impodo.application.workspace.preparation.normalization_service import (
     NormalizationService,
 )
@@ -995,6 +998,7 @@ def build_preparation_service_graph(
     columnar_transformations: ColumnarTransformationPort,
     odoo_provenance: OdooProvenanceService,
     recipe_quality: RecipeQualitySeedRepository,
+    grouped_exact_joins: GroupedExactJoinSourcePort | None = None,
 ) -> PreparationServiceGraph:
     """Wire preparation and final review without choosing concrete adapters."""
 
@@ -1024,6 +1028,7 @@ def build_preparation_service_graph(
         resolution,
         odoo_provenance=odoo_provenance,
         schemas=schemas,
+        grouped_exact_joins=grouped_exact_joins,
     )
     preflight = PreflightService(
         staging,

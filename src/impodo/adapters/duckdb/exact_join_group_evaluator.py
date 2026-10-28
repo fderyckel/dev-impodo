@@ -204,7 +204,7 @@ def _create_key_table(
             f"({kind_alias} = {int(SourceCellKind.STRING)} "
             f"AND length(trim({value_alias})) = 0))"
         )
-        parsed = _parsed_key_expression(value_alias, value_type)
+        parsed = parsed_join_key_expression(value_alias, value_type)
         blank_parts.append(blank)
         parsed_values.append(f"{parsed} AS key_{index}")
         invalid_parts.append(f"key_{index} IS NULL")
@@ -235,7 +235,8 @@ def _create_key_table(
         raise WorkspaceError(
             "Impodo could not evaluate the accepted exact-join keys"
         ) from error
-def _parsed_key_expression(value_alias: str, value_type: str) -> str:
+def parsed_join_key_expression(value_alias: str, value_type: str) -> str:
+    """Return the canonical DuckDB expression for one reviewed join key."""
     if value_type == "string":
         return value_alias
     if value_type == "integer":

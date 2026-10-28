@@ -51,25 +51,48 @@ mapping, writes bounded staging batches, publishes quality/accounting evidence,
 and records the preparation session.
 
 Quality publication also derives the complete-run cause counts after the
-batched issue rows have been stored. `QualityRepository` performs one set-based
-`COUNT(DISTINCT row_id)` aggregation inside the publication transaction and
-stores only the compact result in `quality_evidence_projection`. The projection
-keeps the dataset, stable reason, representative message, rule family, outcome
-policy, correction owner, affected fields, and affected-record count. It
-contains no source value. Equivalent messages that differ only in row-specific
-detail are counted once with `COUNT(DISTINCT row_id)`. The preparation owner
-therefore does the full issue scan once; browser pages do not repeat it or load
-every issue into Python. A current browser read asks for the projection through
-the existing bounded quality-page query. Historical runs without the enriched
-fields remain readable and are not rewritten.
+batched issue rows have been stored. Inherited issues retain one causal row
+identity and a parent-or-child direction. `QualityRepository` performs one
+recursive set operation inside the publication transaction: it groups direct
+causes, walks the persisted causal links, and counts distinct parents,
+children, and siblings made unsafe by each cause. It stores only the compact
+result in `quality_evidence_projection`.
+
+The projection keeps the dataset, stable reason, representative message, rule
+family, outcome policy, correction owner, affected fields, direct affected
+record count, and the three dependency-impact counts. Numeric-capacity causes
+also keep captured total digits and scale, the maximum required decimal places,
+and counts for integral overflow or a positive value that could become zero.
+It contains no source or prepared value. Equivalent messages that differ only
+in row-specific detail are counted once. The preparation owner therefore scans
+and closes the issue graph once; browser pages do not repeat it or load every
+issue into Python. A current browser read asks for the projection through the
+existing bounded quality-page query. Historical projections without the
+enriched counts remain readable and are not rewritten.
 
 Stages 4 and 5 project those counts through the shared read-only
 `WorkflowIssueProjection`. The projection orders root findings before inherited
 dependencies, shows the authoritative policy and owner when current evidence
-contains them, and builds one non-mutating Match-data route. The route filters
-and anchors the current dataset's scalar field, relationship, Odoo identity, or
-guided data-check decision when the saved schema can identify it. This does not
-create a second issue store and adds no page-read query.
+contains them, shows the parent, child, and sibling impact when non-zero, and
+builds one non-mutating Match-data route. The route filters and anchors the
+current dataset's scalar field, relationship, Odoo identity, or guided
+data-check decision when the saved schema can identify it. This does not create
+a second issue store and adds no page-read query. A numeric-capacity card opens
+the exact scalar rule and offers a second non-mutating route to the captured
+Odoo field precision.
+
+Before quality evaluation, `PreparationService` validates the local schema or
+remote worker precision packet against the submitted mapping hash. It derives
+only non-reference, writable fields with captured `digits`: validation-only
+mappings and values left to an Odoo default are excluded. The full evaluator checks the exact
+post-transformation Decimal through the
+[numeric-capacity domain](../../../src/impodo/domain/target_numeric_precision.py).
+The bounded evaluator performs the same check through
+`PreparationQualityIndex`: stored JSON uses a targeted JSON relation, while
+clean native datasets project only the selected prepared columns from the
+hash-verified Parquet snapshot. Both routes publish the same value-free
+`ADVISORY` issue and leave the row eligible. They never round, contact Odoo, or
+load a whole native canonical row merely to check precision.
 
 Each direct dataset may use either a prepared-value projection or stored
 canonical JSON. `PreparationQualityIndex._bounded_quality_index` accepts both
@@ -189,9 +212,10 @@ bindings remain current.
 
 Preparation still completes without Odoo. An unavailable target leaves the
 approved prepared result intact and the comparison incomplete. Source-only
-quality and incoming-parent failures remain preparation responsibilities;
-target-only references and exact intended-write precision remain Final review
-responsibilities.
+quality and incoming-parent failures remain preparation responsibilities.
+Preparation now advises when any exact mapped prepared value exceeds captured
+numeric capacity; Final review remains responsible for deciding whether an
+actual intended write is blocked, as unchanged values are not writes.
 
 ### Columnar compilation and execution
 
@@ -363,8 +387,8 @@ Review database writes for repeated single-row `execute` calls and source-row
 loops for hidden conversions. New paths must preserve deterministic hash and
 lineage parity before being called an optimization.
 
-The cause and issue projections add no browser database owner or schema check. Focused
-tests require one physical connection and one schema check for a real
+The cause and issue projections add no browser database owner or schema check.
+Focused tests require one physical connection and one schema check for a real
 quality-page read inside `retain_databases_for_read`. The summary route also
 proves that its quality read runs off the event loop and remains within the
 existing eight-connection request ceiling. In the shared-server composition,

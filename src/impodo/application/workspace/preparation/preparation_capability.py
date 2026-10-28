@@ -50,6 +50,10 @@ from .bounded_preparation import (
     direct_preparation_row_limit,
     supports_bounded_direct_preparation,
 )
+from .grouped_exact_join_preparation import (
+    GROUPED_EXACT_JOIN_INPUT_ROW_LIMIT,
+    bounded_exact_join_group,
+)
 
 
 class PreparationRouteBehavior(str, Enum):
@@ -193,6 +197,11 @@ def compile_preparation_capability(
         effective_selection,
         derived_plan,
     )
+    grouped_exact_join = bounded_exact_join_group(
+        physical_selection,
+        effective_selection,
+        derived_plan,
+    )
     lookup_only_derived = _supports_lookup_only_derived_preparation(
         physical_selection,
         effective_selection,
@@ -211,7 +220,12 @@ def compile_preparation_capability(
         except ColumnarCompilationError:
             pass  # The existing conservative route still handles compiler refusal.
     dataset_routes = _dataset_capabilities(
-        definition, effective_selection, snapshots, compilation, direct=direct,
+        definition,
+        effective_selection,
+        snapshots,
+        compilation,
+        direct=direct,
+        grouped_exact_join=grouped_exact_join is not None,
     )
     if direct:
         transformation_limit = direct_preparation_row_limit(
@@ -269,6 +283,20 @@ def compile_preparation_capability(
             supported_rows=transformation_limit,
             reason_codes=canonical_reasons,
         )
+    elif grouped_exact_join is not None:
+        transformation_limit = GROUPED_EXACT_JOIN_INPUT_ROW_LIMIT
+        transformation = PreparationStageCapability(
+            stage="transformation",
+            behavior=PreparationRouteBehavior.BOUNDED_PYTHON,
+            supported_rows=transformation_limit,
+            reason_codes=("GROUPED_EXACT_JOIN_STREAM",),
+        )
+        canonical = PreparationStageCapability(
+            stage="canonical_adaptation",
+            behavior=PreparationRouteBehavior.BOUNDED_DURABLE,
+            supported_rows=transformation_limit,
+            reason_codes=("ROW_JSON_COMPATIBILITY_PATH",),
+        )
     else:
         transformation_limit = materialized_fallback_rows
         transformation_reasons = (
@@ -295,7 +323,7 @@ def compile_preparation_capability(
         effective_selection=effective_selection,
         current_ruleset=current_ruleset,
         reference_bundle=reference_bundle,
-        direct=direct,
+        bounded_input=direct or grouped_exact_join is not None,
     )
     if quality_reasons:
         quality_limit = (
@@ -350,24 +378,28 @@ def compile_preparation_capability(
             normalization_limit,
             BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
         )
-        if direct and not quality_reasons and related_or_multi_dataset
+        if (direct or grouped_exact_join is not None)
+        and not quality_reasons
+        and related_or_multi_dataset
         else normalization_limit
     )
     relationship_reasons = (
         ("MULTI_DATASET_OR_RELATIONSHIP_SCALE_UNQUALIFIED",)
-        if direct and not quality_reasons and related_or_multi_dataset
+        if (direct or grouped_exact_join is not None)
+        and not quality_reasons
+        and related_or_multi_dataset
         else ()
     )
     relationships = PreparationStageCapability(
         stage="relationships",
         behavior=(
             PreparationRouteBehavior.BOUNDED_DURABLE
-            if direct and not quality_reasons
+            if (direct or grouped_exact_join is not None) and not quality_reasons
             else PreparationRouteBehavior.MATERIALIZING
         ),
         supported_rows=(
             relationship_limit
-            if direct and not quality_reasons
+            if (direct or grouped_exact_join is not None) and not quality_reasons
             else (
                 normalization_limit
                 if lookup_only_derived
@@ -465,6 +497,7 @@ def _dataset_capabilities(
     compilation: tuple[ColumnarCompilationDecision, ...] | None,
     *,
     direct: bool,
+    grouped_exact_join: bool = False,
 ) -> tuple[PreparationDatasetCapability, ...]:
     """Report actual per-table choices while preserving the run's lower limit."""
 
@@ -477,7 +510,10 @@ def _dataset_capabilities(
         decision = decisions.get(dataset.dataset_id)
         behavior = PreparationRouteBehavior.BOUNDED_PYTHON
         paths: tuple[str, ...] = ()
-        if not direct:
+        if grouped_exact_join:
+            behavior = PreparationRouteBehavior.BOUNDED_PYTHON
+            reasons = ("GROUPED_EXACT_JOIN_STREAM",)
+        elif not direct:
             behavior = PreparationRouteBehavior.MATERIALIZING
             reasons = ("DERIVED_OR_NON_DIRECT_DATASET",)
         elif decision is None:
@@ -511,10 +547,10 @@ def _bounded_quality_reasons(
     effective_selection: SourceSelection,
     current_ruleset: QualityRuleSet | None,
     reference_bundle: ReferenceBundle | None,
-    direct: bool,
+    bounded_input: bool,
 ) -> tuple[str, ...]:
     reasons: list[str] = []
-    if not direct:
+    if not bounded_input:
         reasons.append("NON_DIRECT_QUALITY_INPUT")
     if reference_bundle is not None:
         reasons.append("REFERENCE_RESOLUTION_MATERIALIZES")

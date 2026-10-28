@@ -72,11 +72,23 @@ dependency** means that Impodo set the row aside because a linked parent or
 another member of its identity group was already unsafe.
 
 Each issue card shows the affected record type, friendly fields, complete-run
-record count, correction owner, and one **Match data** action. When current
-saved evidence identifies the exact Odoo field, relationship, Odoo match, or
-data check, that action opens the corresponding decision. Opening it does not
-change accepted source data or saved rules. Save a deliberate correction and
-then prepare the complete data again.
+record count, correction owner, and one **Match data** action. For a direct
+cause, the card also separates the parents, children, and siblings that Impodo
+set aside through linked-record dependencies. When current saved evidence
+identifies the exact Odoo field, relationship, Odoo match, or data check, that
+action opens the corresponding decision. Opening it does not change accepted
+source data or saved rules. Save a deliberate correction and then prepare the
+complete data again.
+
+For a mapped number, a card can say **Prepared value exceeds Odoo precision**.
+This means an exact prepared value needs more decimal places or total digits
+than the captured Odoo field allows. The card shows the captured capacity and
+aggregate impact, not the value itself. It is an early advisory: the row can
+still proceed because Final review later checks only fields that would actually
+be written. Use **Open … rule** to add an explicit conversion or rounding rule,
+or **Review Odoo precision** when the Odoo owner should change the field. Impodo
+never rounds silently; after either deliberate correction, prepare all data
+again.
 
 Each record still shows every saved finding, the friendly field name, the
 source row, the responsible role, and the next correction route. A linked-row

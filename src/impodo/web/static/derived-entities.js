@@ -314,6 +314,13 @@ document.addEventListener("DOMContentLoaded", () => {
       syncGroupFields();
     });
     syncGroupFields();
+    if (form.hasAttribute("data-group-server-error")) {
+      const alert = document.querySelector('main [role="alert"]');
+      if (alert) {
+        alert.setAttribute("tabindex", "-1");
+        alert.focus();
+      }
+    }
   }
 
   window.addEventListener("hashchange", revealCurrentTarget);

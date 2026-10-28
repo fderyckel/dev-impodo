@@ -9,6 +9,9 @@ from impodo.adapters.duckdb.advanced_coverage_repository import (
     AdvancedCoverageRepository,
 )
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
+from impodo.adapters.duckdb.grouped_exact_join_source import (
+    DuckDbGroupedExactJoinSource,
+)
 from impodo.adapters.duckdb.mapping_repository import MappingRepository
 from impodo.adapters.duckdb.migration_workspace_engine_database import (
     FixedMigrationWorkspaceEngineDatabase,
@@ -142,4 +145,5 @@ def create_preparation_worker(
         schemas=SchemaRepository(database),
         target_mapping_schema_hash=workspace.target_mapping_schema_hash,
         target_float_digits=workspace.target_float_digits,
+        grouped_exact_joins=DuckDbGroupedExactJoinSource(database),
     )

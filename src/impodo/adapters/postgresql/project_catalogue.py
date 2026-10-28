@@ -6,12 +6,19 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import PurePosixPath
+from time import perf_counter
 from typing import Any, LiteralString, Protocol, TypeVar
 
 import psycopg
 
 from impodo.adapters.postgresql.control_schema import POSTGRESQL_RUNTIME_ROLE
 from impodo.adapters.postgresql.startup import PostgreSQLDsnError, PostgreSQLDsnReader
+from impodo.adapters.postgresql.transaction_metrics import (
+    PostgreSQLTransactionMetric,
+    PostgreSQLTransactionMetricObserver,
+    PostgreSQLTransactionOutcome,
+    report_postgresql_transaction_metric,
+)
 from impodo.domain.project.catalogue import (
     ProjectCatalogueAlreadyExistsError,
     ProjectCatalogueCursor,
@@ -43,6 +50,8 @@ from impodo.domain.shared.tenancy import OrganizationId, ProjectVisibilityScope
 POSTGRESQL_CATALOGUE_CONNECT_TIMEOUT_SECONDS = 5
 POSTGRESQL_CATALOGUE_LOCK_TIMEOUT_MILLISECONDS = 1_000
 POSTGRESQL_CATALOGUE_STATEMENT_TIMEOUT_MILLISECONDS = 5_000
+POSTGRESQL_CATALOGUE_LIST_CONNECTION_BUDGET = 1
+POSTGRESQL_CATALOGUE_LIST_QUERY_BUDGET = 1
 
 _RECORD_COLUMNS = (
     "organization_id, project_id, display_name, status, "
@@ -189,6 +198,37 @@ class _PsycopgProjectCatalogueSession:
         self._connection.close()
 
 
+class _MeasuredProjectCatalogueSession:
+    def __init__(self, session: PostgreSQLProjectCatalogueSession) -> None:
+        self._session = session
+        self.query_count = 0
+
+    def fetch_one(
+        self,
+        query: LiteralString,
+        parameters: tuple[object, ...] = (),
+    ) -> tuple[object, ...] | None:
+        self.query_count += 1
+        return self._session.fetch_one(query, parameters)
+
+    def fetch_rows(
+        self,
+        query: LiteralString,
+        parameters: tuple[object, ...] = (),
+    ) -> tuple[tuple[object, ...], ...]:
+        self.query_count += 1
+        return self._session.fetch_rows(query, parameters)
+
+    def commit(self) -> None:
+        self._session.commit()
+
+    def rollback(self) -> None:
+        self._session.rollback()
+
+    def close(self) -> None:
+        self._session.close()
+
+
 def open_psycopg_project_catalogue_session(
     dsn: str,
 ) -> PostgreSQLProjectCatalogueSession:
@@ -224,10 +264,12 @@ class PsycopgProjectCatalogueRepository:
         session_factory: PostgreSQLProjectCatalogueSessionFactory = (
             open_psycopg_project_catalogue_session
         ),
+        metrics_observer: PostgreSQLTransactionMetricObserver | None = None,
     ) -> None:
         self._dsn_reader = dsn_reader
         self._dsn_reference = dsn_reference
         self._session_factory = session_factory
+        self._metrics_observer = metrics_observer
 
     def create(self, record: ProjectCatalogueRecord) -> ProjectCatalogueRecord:
         """Insert one revision-one pending record without retaining a session."""
@@ -244,15 +286,15 @@ class PsycopgProjectCatalogueRepository:
                 "new Project catalogue record must start pending at revision one"
             )
 
-        def insert(session: PostgreSQLProjectCatalogueSession) -> ProjectCatalogueRecord:
+        def insert(
+            session: PostgreSQLProjectCatalogueSession,
+        ) -> ProjectCatalogueRecord:
             row = session.fetch_one(_CREATE_QUERY, _record_values(record))
             if row is None:
-                raise ProjectCatalogueStorageError(
-                    "Project catalogue create failed"
-                )
+                raise ProjectCatalogueStorageError("Project catalogue create failed")
             return _record_from_row(row)
 
-        return self._run(insert)
+        return self._run("project_catalogue.create", insert)
 
     def get(
         self,
@@ -272,7 +314,7 @@ class PsycopgProjectCatalogueRepository:
                 raise ProjectCatalogueNotFoundError("Project not found")
             return _record_from_row(row)
 
-        return self._run(read)
+        return self._run("project_catalogue.get", read)
 
     def list_visible(
         self,
@@ -325,7 +367,7 @@ class PsycopgProjectCatalogueRepository:
                 ).encode()
             return ProjectCataloguePage(records=records, next_cursor=next_cursor)
 
-        return self._run(read)
+        return self._run("project_catalogue.list_visible", read)
 
     def rename(
         self,
@@ -352,6 +394,7 @@ class PsycopgProjectCatalogueRepository:
         return self._mutate(
             organization_id,
             project_id,
+            operation_name="project_catalogue.rename",
             expected_revision=expected_revision,
             query=_RENAME_QUERY,
             parameters=parameters,
@@ -401,6 +444,7 @@ class PsycopgProjectCatalogueRepository:
         return self._mutate(
             organization_id,
             project_id,
+            operation_name="project_catalogue.update_lifecycle_summary",
             expected_revision=expected_revision,
             query=_UPDATE_LIFECYCLE_QUERY,
             parameters=parameters,
@@ -437,6 +481,7 @@ class PsycopgProjectCatalogueRepository:
         return self._mutate(
             organization_id,
             project_id,
+            operation_name="project_catalogue.transition_deletion_state",
             expected_revision=expected_revision,
             query=query,
             parameters=parameters,
@@ -447,11 +492,14 @@ class PsycopgProjectCatalogueRepository:
         organization_id: OrganizationId,
         project_id: str,
         *,
+        operation_name: str,
         expected_revision: int,
         query: LiteralString,
         parameters: tuple[object, ...],
     ) -> ProjectCatalogueRecord:
-        def update(session: PostgreSQLProjectCatalogueSession) -> ProjectCatalogueRecord:
+        def update(
+            session: PostgreSQLProjectCatalogueSession,
+        ) -> ProjectCatalogueRecord:
             row = session.fetch_one(query, parameters)
             if row is None:
                 self._raise_mutation_miss(
@@ -461,12 +509,10 @@ class PsycopgProjectCatalogueRepository:
                     expected_revision=expected_revision,
                 )
             if row is None:
-                raise ProjectCatalogueStorageError(
-                    "Project catalogue mutation failed"
-                )
+                raise ProjectCatalogueStorageError("Project catalogue mutation failed")
             return _record_from_row(row)
 
-        return self._run(update)
+        return self._run(operation_name, update)
 
     @staticmethod
     def _raise_mutation_miss(
@@ -489,15 +535,14 @@ class PsycopgProjectCatalogueRepository:
                 "Project catalogue mutation failed"
             ) from error
         if current_revision != expected_revision:
-            raise ProjectCatalogueRevisionConflictError(
-                "Project revision is stale"
-            )
+            raise ProjectCatalogueRevisionConflictError("Project revision is stale")
         raise ProjectCatalogueStateConflictError(
             "Project lifecycle transition is unavailable"
         )
 
     def _run(
         self,
+        operation_name: str,
         operation: Callable[[PostgreSQLProjectCatalogueSession], _Result],
     ) -> _Result:
         try:
@@ -508,16 +553,22 @@ class PsycopgProjectCatalogueRepository:
                 "Project catalogue is unavailable"
             ) from error
 
+        measured_session = _MeasuredProjectCatalogueSession(session)
+        transaction_started = perf_counter()
+        outcome = PostgreSQLTransactionOutcome.FAILED
         try:
             try:
-                result = operation(session)
-                session.commit()
+                result = operation(measured_session)
+                measured_session.commit()
+                outcome = PostgreSQLTransactionOutcome.COMMITTED
                 return result
             except ProjectCatalogueError:
-                _rollback_or_unavailable(session)
+                _rollback_or_unavailable(measured_session)
+                outcome = PostgreSQLTransactionOutcome.ROLLED_BACK
                 raise
             except psycopg.errors.UniqueViolation as error:
-                _rollback_or_unavailable(session)
+                _rollback_or_unavailable(measured_session)
+                outcome = PostgreSQLTransactionOutcome.ROLLED_BACK
                 raise ProjectCatalogueAlreadyExistsError(
                     "Project already exists"
                 ) from error
@@ -527,29 +578,50 @@ class PsycopgProjectCatalogueRepository:
                 psycopg.errors.QueryCanceled,
                 psycopg.errors.SerializationFailure,
             ) as error:
-                _rollback_or_unavailable(session)
+                _rollback_or_unavailable(measured_session)
+                outcome = PostgreSQLTransactionOutcome.ROLLED_BACK
                 raise ProjectCatalogueUnavailableError(
                     "Project catalogue is temporarily unavailable"
                 ) from error
             except (psycopg.InterfaceError, psycopg.OperationalError) as error:
-                _rollback_or_unavailable(session)
+                _rollback_or_unavailable(measured_session)
+                outcome = PostgreSQLTransactionOutcome.ROLLED_BACK
                 raise ProjectCatalogueUnavailableError(
                     "Project catalogue is unavailable"
                 ) from error
             except psycopg.Error as error:
-                _rollback_or_unavailable(session)
+                _rollback_or_unavailable(measured_session)
+                outcome = PostgreSQLTransactionOutcome.ROLLED_BACK
                 raise ProjectCatalogueStorageError(
                     "Project catalogue statement failed"
                 ) from error
         finally:
             active_error = sys.exception()
+            transaction_duration_milliseconds = (
+                perf_counter() - transaction_started
+            ) * 1000
             try:
-                session.close()
+                measured_session.close()
             except psycopg.Error as error:
                 if active_error is None:
                     raise ProjectCatalogueUnavailableError(
                         "Project catalogue is unavailable"
                     ) from error
+            finally:
+                report_postgresql_transaction_metric(
+                    self._metrics_observer,
+                    PostgreSQLTransactionMetric(
+                        operation=operation_name,
+                        outcome=outcome,
+                        connection_count=1,
+                        query_count=measured_session.query_count,
+                        pool_wait_milliseconds=0.0,
+                        transaction_duration_milliseconds=(
+                            transaction_duration_milliseconds
+                        ),
+                        retry_count=0,
+                    ),
+                )
 
 
 def _record_values(record: ProjectCatalogueRecord) -> tuple[object, ...]:
@@ -648,6 +720,8 @@ def _validate_projection_pointer(
 
 __all__ = [
     "POSTGRESQL_CATALOGUE_CONNECT_TIMEOUT_SECONDS",
+    "POSTGRESQL_CATALOGUE_LIST_CONNECTION_BUDGET",
+    "POSTGRESQL_CATALOGUE_LIST_QUERY_BUDGET",
     "POSTGRESQL_CATALOGUE_LOCK_TIMEOUT_MILLISECONDS",
     "POSTGRESQL_CATALOGUE_STATEMENT_TIMEOUT_MILLISECONDS",
     "PostgreSQLProjectCatalogueSession",

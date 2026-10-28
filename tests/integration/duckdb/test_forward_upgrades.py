@@ -448,6 +448,11 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         17,
                         "workspace-engine-v16-to-v17-cross-store-coordination",
                     ),
+                    (
+                        17,
+                        18,
+                        "workspace-engine-v17-to-v18-quality-cause-members",
+                    ),
                 ],
             )
             self.assertEqual(

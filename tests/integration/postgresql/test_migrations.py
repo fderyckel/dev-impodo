@@ -297,9 +297,15 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertIn("CHECK (retention_days BETWEEN 1 AND 3650)", schema)
         self.assertIn("current_receipt_hash", schema)
         self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE", schema)
-        self.assertNotIn("source_row", schema)
-        self.assertNotIn("target_value", schema)
-        self.assertNotIn("recipe_payload", schema)
+        for forbidden_value in (
+            "credential",
+            "password",
+            "prepared_row",
+            "recipe_payload",
+            "source_row",
+            "target_value",
+        ):
+            self.assertNotIn(forbidden_value, schema)
         for statement in migration.statements:
             if statement.query.startswith("CREATE INDEX"):
                 self.assertIn("(organization_id,", statement.query)
@@ -327,8 +333,15 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertIn("data_plane_receipt_hash", schema)
         self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE", schema)
         self.assertNotIn("GRANT SELECT, INSERT, DELETE", schema)
-        self.assertNotIn("source_row", schema)
-        self.assertNotIn("target_value", schema)
+        for forbidden_value in (
+            "credential",
+            "password",
+            "prepared_row",
+            "recipe_payload",
+            "source_row",
+            "target_value",
+        ):
+            self.assertNotIn(forbidden_value, schema)
         for statement in migration.statements:
             if statement.query.startswith("CREATE INDEX"):
                 self.assertIn("(organization_id,", statement.query)

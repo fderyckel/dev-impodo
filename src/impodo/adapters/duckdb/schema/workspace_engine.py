@@ -274,7 +274,8 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "preparation_session", "preparation_session_derived_artifact",
         "preparation_session_snapshot", "prepared_snapshot_current",
         "prepared_snapshot_manifest", "quality_current", "quality_evidence_projection",
-        "quality_issue", "quality_quarantine_entry", "quality_row_result",
+        "quality_cause_member", "quality_issue", "quality_quarantine_entry",
+        "quality_row_result",
         "quality_ruleset_current", "quality_ruleset_revision", "quality_run",
         "readiness_run", "recipe_parameter_definitions", "recipe_quality_seed",
         "reconciliation_current", "reconciliation_run", "reference_bundle_current",
@@ -731,6 +732,19 @@ class WorkspaceEngineSchemaMixin:
                 contract_version INTEGER NOT NULL,
                 projection_json VARCHAR NOT NULL
             );
+
+            CREATE TABLE quality_cause_member (
+                run_id VARCHAR NOT NULL,
+                cause_key VARCHAR NOT NULL,
+                row_id VARCHAR NOT NULL,
+                impact_kind VARCHAR NOT NULL,
+                PRIMARY KEY (run_id, cause_key, row_id)
+            );
+
+            CREATE INDEX quality_cause_member_lookup
+                ON quality_cause_member (
+                    run_id, cause_key, impact_kind, row_id
+                );
 
             CREATE TABLE quality_issue (
                 run_id VARCHAR NOT NULL,
@@ -1505,6 +1519,28 @@ def _upgrade_workspace_engine_v16_to_v17(
     create_cross_store_coordination_schema(connection)
 
 
+def _upgrade_workspace_engine_v17_to_v18(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add the persisted cause-membership index used by bounded drill-down."""
+
+    connection.execute(
+        """
+        CREATE TABLE quality_cause_member (
+            run_id VARCHAR NOT NULL,
+            cause_key VARCHAR NOT NULL,
+            row_id VARCHAR NOT NULL,
+            impact_kind VARCHAR NOT NULL,
+            PRIMARY KEY (run_id, cause_key, row_id)
+        );
+        CREATE INDEX quality_cause_member_lookup
+            ON quality_cause_member (
+                run_id, cause_key, impact_kind, row_id
+            );
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -1569,5 +1605,9 @@ WORKSPACE_ENGINE_UPGRADES = {
     16: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v16-to-v17-cross-store-coordination",
         apply=_upgrade_workspace_engine_v16_to_v17,
+    ),
+    17: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v17-to-v18-quality-cause-members",
+        apply=_upgrade_workspace_engine_v17_to_v18,
     ),
 }

@@ -23,6 +23,7 @@ from impodo.domain.preparation.quality import (
     QUALITY_EVALUATOR_VERSION,
     QUALITY_RULESET_CONTRACT_VERSION,
     QualityCauseCount,
+    QualityCauseImpact,
     QualityCollisionGroup,
     QualityCollisionMember,
     QualityDisposition,
@@ -104,6 +105,228 @@ _SOURCE_ACCOUNTING_LINK_JSON_STRUCTURE = """[{
 }]"""
 
 
+_QUALITY_CAUSE_KEY_SQL = """
+    'sha256:' || sha256(CAST(json_object(
+        'dataset', dataset,
+        'family', family,
+        'reason_code', reason_code,
+        'affected_fields', affected_fields_json,
+        'policy', policy,
+        'owner_label', owner_label
+    ) AS VARCHAR))
+"""
+
+
+def _materialize_quality_cause_members(
+    connection: duckdb.DuckDBPyConnection,
+    run_id: str,
+) -> None:
+    """Persist direct and transitive cause membership once at publication."""
+
+    connection.execute(
+        f"""
+        WITH RECURSIVE parsed_issue_base AS (
+            SELECT dataset, row_id,
+                   json_extract_string(issue_json, '$.family') AS family,
+                   json_extract_string(issue_json, '$.reason_code')
+                       AS reason_code,
+                   CAST(json_extract(issue_json, '$.affected_fields') AS VARCHAR)
+                       AS affected_fields_json,
+                   json_extract_string(issue_json, '$.policy') AS policy,
+                   json_extract_string(issue_json, '$.owner_label') AS owner_label,
+                   json_extract_string(issue_json, '$.caused_by_row_id')
+                       AS caused_by_row_id,
+                   json_extract_string(issue_json, '$.dependency_impact')
+                       AS dependency_impact
+              FROM quality_issue
+             WHERE run_id = ? AND row_id IS NOT NULL
+        ),
+        parsed_issue AS (
+            SELECT *, {_QUALITY_CAUSE_KEY_SQL} AS cause_key
+              FROM parsed_issue_base
+        ),
+        impact_walk (cause_key, current_row_id, seen_parent, impact_kind) AS (
+            SELECT DISTINCT cause_key, row_id, FALSE,
+                   CAST(NULL AS VARCHAR)
+              FROM parsed_issue
+             WHERE caused_by_row_id IS NULL
+            UNION
+            SELECT walk.cause_key, inherited.row_id,
+                   walk.seen_parent
+                       OR inherited.dependency_impact = 'PARENT',
+                   CASE
+                       WHEN inherited.dependency_impact = 'PARENT'
+                           THEN 'PARENT'
+                       WHEN walk.seen_parent THEN 'SIBLING'
+                       ELSE 'CHILD'
+                   END
+              FROM impact_walk AS walk
+              JOIN parsed_issue AS inherited
+                ON inherited.caused_by_row_id = walk.current_row_id
+             WHERE inherited.dependency_impact IS NOT NULL
+        ),
+        classified_impact AS (
+            SELECT cause_key, current_row_id,
+                   CASE
+                       WHEN MAX(CASE WHEN impact_kind = 'SIBLING'
+                                     THEN 1 ELSE 0 END) = 1
+                           THEN 'SIBLING'
+                       WHEN MAX(CASE WHEN impact_kind = 'PARENT'
+                                     THEN 1 ELSE 0 END) = 1
+                           THEN 'PARENT'
+                       ELSE 'CHILD'
+                   END AS impact_kind
+              FROM impact_walk
+             WHERE impact_kind IS NOT NULL
+             GROUP BY cause_key, current_row_id
+        ),
+        direct_member AS (
+            SELECT DISTINCT cause_key, row_id
+              FROM parsed_issue
+        ),
+        all_member AS (
+            SELECT cause_key, row_id, 'DIRECT' AS impact_kind
+              FROM direct_member
+            UNION ALL
+            SELECT impact.cause_key, impact.current_row_id, impact.impact_kind
+              FROM classified_impact AS impact
+             WHERE NOT EXISTS (
+                   SELECT 1
+                     FROM direct_member AS direct
+                    WHERE direct.cause_key = impact.cause_key
+                      AND direct.row_id = impact.current_row_id
+             )
+        )
+        INSERT INTO quality_cause_member (
+            run_id, cause_key, row_id, impact_kind
+        )
+        SELECT ?, cause_key, row_id, impact_kind
+          FROM all_member
+        """,
+        [run_id, run_id],
+    )
+
+
+def _read_materialized_quality_cause_counts(
+    connection: duckdb.DuckDBPyConnection,
+    run_id: str,
+) -> tuple[QualityCauseCount, ...]:
+    """Aggregate cards from the publication-time cause-membership index."""
+
+    rows = connection.execute(
+        f"""
+        WITH parsed_issue_base AS (
+            SELECT dataset, row_id,
+                   json_extract_string(issue_json, '$.family') AS family,
+                   json_extract_string(issue_json, '$.reason_code')
+                       AS reason_code,
+                   json_extract_string(issue_json, '$.message') AS message,
+                   CAST(json_extract(issue_json, '$.affected_fields') AS VARCHAR)
+                       AS affected_fields_json,
+                   json_extract_string(issue_json, '$.policy') AS policy,
+                   json_extract_string(issue_json, '$.owner_label') AS owner_label,
+                   TRY_CAST(json_extract_string(
+                       issue_json, '$.target_digits[0]'
+                   ) AS INTEGER) AS target_precision,
+                   TRY_CAST(json_extract_string(
+                       issue_json, '$.target_digits[1]'
+                   ) AS INTEGER) AS target_scale,
+                   TRY_CAST(json_extract_string(
+                       issue_json, '$.required_decimal_places'
+                   ) AS INTEGER) AS required_decimal_places,
+                   COALESCE(TRY_CAST(json_extract_string(
+                       issue_json, '$.integral_overflow'
+                   ) AS BOOLEAN), FALSE) AS integral_overflow,
+                   COALESCE(TRY_CAST(json_extract_string(
+                       issue_json, '$.zeroed_positive'
+                   ) AS BOOLEAN), FALSE) AS zeroed_positive
+              FROM quality_issue
+             WHERE run_id = ? AND row_id IS NOT NULL
+        ),
+        parsed_issue AS (
+            SELECT *, {_QUALITY_CAUSE_KEY_SQL} AS cause_key
+              FROM parsed_issue_base
+        ),
+        cause_group AS (
+            SELECT cause_key, dataset, family, reason_code,
+                   MIN(message) AS message, affected_fields_json, policy,
+                   owner_label,
+                   MAX(target_precision) AS target_precision,
+                   MAX(target_scale) AS target_scale,
+                   MAX(required_decimal_places) AS required_decimal_places,
+                   COUNT(DISTINCT CASE WHEN integral_overflow THEN row_id END)
+                       AS integral_overflow_count,
+                   COUNT(DISTINCT CASE WHEN zeroed_positive THEN row_id END)
+                       AS zeroed_positive_count
+              FROM parsed_issue
+             GROUP BY cause_key, dataset, family, reason_code,
+                      affected_fields_json, policy, owner_label
+        ),
+        member_count AS (
+            SELECT cause_key,
+                   SUM(CASE WHEN impact_kind = 'DIRECT' THEN 1 ELSE 0 END)
+                       AS affected_record_count,
+                   SUM(CASE WHEN impact_kind = 'PARENT' THEN 1 ELSE 0 END)
+                       AS affected_parent_count,
+                   SUM(CASE WHEN impact_kind = 'CHILD' THEN 1 ELSE 0 END)
+                       AS affected_child_count,
+                   SUM(CASE WHEN impact_kind = 'SIBLING' THEN 1 ELSE 0 END)
+                       AS affected_sibling_count
+              FROM quality_cause_member
+             WHERE run_id = ?
+             GROUP BY cause_key
+        )
+        SELECT causes.dataset, causes.family, causes.reason_code,
+               causes.message, causes.affected_fields_json, causes.policy,
+               causes.owner_label, members.affected_record_count,
+               members.affected_parent_count, members.affected_child_count,
+               members.affected_sibling_count, causes.target_precision,
+               causes.target_scale, causes.required_decimal_places,
+               causes.integral_overflow_count, causes.zeroed_positive_count,
+               causes.cause_key
+          FROM cause_group AS causes
+          JOIN member_count AS members USING (cause_key)
+         ORDER BY members.affected_record_count DESC, causes.reason_code,
+                  causes.message, causes.dataset, causes.affected_fields_json
+        """,
+        [run_id, run_id],
+    ).fetchall()
+    try:
+        return tuple(
+            QualityCauseCount(
+                dataset=str(row[0]),
+                family=QualityRuleFamily(str(row[1])),
+                reason_code=str(row[2]),
+                message=str(row[3]),
+                affected_fields=tuple(
+                    str(item) for item in json.loads(str(row[4]))
+                ),
+                policy=QualityOutcomePolicy(str(row[5])),
+                owner_label=str(row[6]),
+                affected_record_count=int(row[7]),
+                affected_parent_count=int(row[8]),
+                affected_child_count=int(row[9]),
+                affected_sibling_count=int(row[10]),
+                target_digits=(
+                    (int(row[11]), int(row[12]))
+                    if row[11] is not None and row[12] is not None
+                    else None
+                ),
+                required_decimal_places=(
+                    int(row[13]) if row[13] is not None else None
+                ),
+                integral_overflow_count=int(row[14]),
+                zeroed_positive_count=int(row[15]),
+                cause_key=str(row[16]),
+            )
+            for row in rows
+        )
+    except (TypeError, ValueError) as error:
+        raise WorkspaceError(
+            "Stored quality cause evidence is invalid"
+        ) from error
+
+
 def _read_complete_quality_cause_counts(
     connection: duckdb.DuckDBPyConnection,
     run_id: str,
@@ -125,14 +348,36 @@ def _read_complete_quality_cause_counts(
                    json_extract_string(issue_json, '$.caused_by_row_id')
                        AS caused_by_row_id,
                    json_extract_string(issue_json, '$.dependency_impact')
-                       AS dependency_impact
+                       AS dependency_impact,
+                   TRY_CAST(json_extract_string(
+                       issue_json, '$.target_digits[0]'
+                   ) AS INTEGER) AS target_precision,
+                   TRY_CAST(json_extract_string(
+                       issue_json, '$.target_digits[1]'
+                   ) AS INTEGER) AS target_scale,
+                   TRY_CAST(json_extract_string(
+                       issue_json, '$.required_decimal_places'
+                   ) AS INTEGER) AS required_decimal_places,
+                   COALESCE(TRY_CAST(json_extract_string(
+                       issue_json, '$.integral_overflow'
+                   ) AS BOOLEAN), FALSE) AS integral_overflow,
+                   COALESCE(TRY_CAST(json_extract_string(
+                       issue_json, '$.zeroed_positive'
+                   ) AS BOOLEAN), FALSE) AS zeroed_positive
               FROM quality_issue
              WHERE run_id = ? AND row_id IS NOT NULL
         ),
         cause_group AS (
             SELECT dataset, family, reason_code, MIN(message) AS message,
                    affected_fields_json, policy, owner_label,
-                   COUNT(DISTINCT row_id) AS affected_record_count
+                   COUNT(DISTINCT row_id) AS affected_record_count,
+                   MAX(target_precision) AS target_precision,
+                   MAX(target_scale) AS target_scale,
+                   MAX(required_decimal_places) AS required_decimal_places,
+                   COUNT(DISTINCT CASE WHEN integral_overflow THEN row_id END)
+                       AS integral_overflow_count,
+                   COUNT(DISTINCT CASE WHEN zeroed_positive THEN row_id END)
+                       AS zeroed_positive_count
               FROM parsed_issue
              GROUP BY dataset, family, reason_code, affected_fields_json,
                       policy, owner_label
@@ -212,7 +457,11 @@ def _read_complete_quality_cause_counts(
                causes.owner_label, causes.affected_record_count,
                COALESCE(impact.affected_parent_count, 0),
                COALESCE(impact.affected_child_count, 0),
-               COALESCE(impact.affected_sibling_count, 0)
+               COALESCE(impact.affected_sibling_count, 0),
+               causes.target_precision, causes.target_scale,
+               causes.required_decimal_places,
+               causes.integral_overflow_count,
+               causes.zeroed_positive_count
           FROM cause_group AS causes
           LEFT JOIN impact_count AS impact
             ON impact.dataset = causes.dataset
@@ -242,6 +491,16 @@ def _read_complete_quality_cause_counts(
                 affected_parent_count=int(row[8]),
                 affected_child_count=int(row[9]),
                 affected_sibling_count=int(row[10]),
+                target_digits=(
+                    (int(row[11]), int(row[12]))
+                    if row[11] is not None and row[12] is not None
+                    else None
+                ),
+                required_decimal_places=(
+                    int(row[13]) if row[13] is not None else None
+                ),
+                integral_overflow_count=int(row[14]),
+                zeroed_positive_count=int(row[15]),
             )
             for row in rows
         )
@@ -1376,6 +1635,209 @@ class QualityRepository(DuckDbRepository):
             run_cause_counts=run_cause_counts,
         )
 
+    def get_quality_cause_review_page(
+        self,
+        workspace_id: str,
+        run_id: str,
+        cause_key: str,
+        *,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> QualityReviewPage:
+        """Read one indexed page from a publication-time cause closure."""
+
+        try:
+            canonical_run_id = str(UUID(run_id))
+        except (ValueError, AttributeError) as error:
+            raise WorkspaceError("Quality run identifier is invalid") from error
+        if (
+            not cause_key.startswith("sha256:")
+            or len(cause_key) != 71
+            or any(character not in "0123456789abcdef" for character in cause_key[7:])
+        ):
+            raise WorkspaceError("Quality cause identifier is invalid")
+        if page < 1 or page_size < 1 or page_size > 250:
+            raise WorkspaceError("Quality review page is invalid")
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            current = connection.execute(
+                """
+                SELECT run.staging_run_id, projection.projection_json
+                  FROM quality_run AS run
+                  LEFT JOIN quality_evidence_projection AS projection
+                    ON projection.run_id = run.run_id
+                 WHERE run.run_id = ?
+                """,
+                [canonical_run_id],
+            ).fetchone()
+            if current is None:
+                raise WorkspaceError("Quality run was not found")
+            projection = (
+                json.loads(str(current[1]))
+                if current[1] is not None
+                else None
+            )
+            causes = (
+                _projected_quality_cause_counts(projection)
+                if projection is not None
+                else None
+            )
+            selected_cause = next(
+                (
+                    cause
+                    for cause in (causes or ())
+                    if cause.cause_key == cause_key
+                ),
+                None,
+            )
+            if selected_cause is None:
+                raise WorkspaceError("Quality cause detail is not available")
+            count_row = connection.execute(
+                """
+                SELECT COUNT(*)
+                  FROM quality_cause_member
+                 WHERE run_id = ? AND cause_key = ?
+                """,
+                [canonical_run_id, cause_key],
+            ).fetchone()
+            matching_count = int(count_row[0]) if count_row else 0
+            if matching_count < 1:
+                raise WorkspaceError("Quality cause detail is not available")
+            page_count = max(1, (matching_count + page_size - 1) // page_size)
+            current_page = min(page, page_count)
+            offset = (current_page - 1) * page_size
+            sparse = isinstance(projection, dict) and (
+                projection.get("row_results") == "direct-defaults-v1"
+            )
+            if sparse:
+                relation = """
+                (
+                    SELECT staging.row_id, staging.dataset,
+                           staging.source_row, staging.record_label,
+                           staging.disposition AS base_disposition,
+                           COALESCE(exception.effective_disposition,
+                                    staging.disposition)
+                               AS effective_disposition,
+                           COALESCE(exception.requires_review, FALSE)
+                               AS requires_review,
+                           COALESCE(exception.row_json, '') AS row_json
+                      FROM canonical_staging_row AS staging
+                      LEFT JOIN quality_row_result AS exception
+                        ON exception.run_id = ?
+                       AND exception.row_id = staging.row_id
+                     WHERE staging.run_id = ?
+                ) AS logical_quality
+                """
+                relation_parameters: list[object] = [
+                    canonical_run_id,
+                    str(current[0]),
+                ]
+            else:
+                relation = """
+                (
+                    SELECT row_id, dataset, source_row, record_label,
+                           base_disposition, effective_disposition,
+                           requires_review, row_json
+                      FROM quality_row_result
+                     WHERE run_id = ?
+                ) AS logical_quality
+                """
+                relation_parameters = [canonical_run_id]
+            rows = connection.execute(
+                f"""
+                SELECT logical_quality.row_id, logical_quality.dataset,
+                       logical_quality.source_row,
+                       logical_quality.record_label,
+                       logical_quality.base_disposition,
+                       logical_quality.effective_disposition,
+                       logical_quality.requires_review,
+                       logical_quality.row_json, member.impact_kind
+                  FROM {relation}
+                  JOIN quality_cause_member AS member
+                    ON member.row_id = logical_quality.row_id
+                 WHERE member.run_id = ? AND member.cause_key = ?
+                 ORDER BY logical_quality.dataset,
+                          logical_quality.source_row,
+                          logical_quality.row_id
+                 LIMIT ? OFFSET ?
+                """,
+                [
+                    *relation_parameters,
+                    canonical_run_id,
+                    cause_key,
+                    page_size,
+                    offset,
+                ],
+            ).fetchall()
+            row_ids = tuple(str(item[0]) for item in rows)
+            issues_by_row: dict[str, list[QualityIssue]] = {
+                row_id: [] for row_id in row_ids
+            }
+            route_by_row: dict[str, str] = {}
+            if row_ids:
+                placeholders = ", ".join("?" for _ in row_ids)
+                issue_rows = connection.execute(
+                    f"""
+                    SELECT issue_json FROM quality_issue
+                     WHERE run_id = ? AND row_id IN ({placeholders})
+                     ORDER BY issue_id
+                    """,
+                    [canonical_run_id, *row_ids],
+                ).fetchall()
+                for item in issue_rows:
+                    issue = QualityIssue.from_dict(json.loads(str(item[0])))
+                    if issue.row_id is not None:
+                        issues_by_row[issue.row_id].append(issue)
+                quarantine_rows = connection.execute(
+                    f"""
+                    SELECT entry_json FROM quality_quarantine_entry
+                     WHERE run_id = ? AND row_id IN ({placeholders})
+                     ORDER BY entry_id
+                    """,
+                    [canonical_run_id, *row_ids],
+                ).fetchall()
+                for item in quarantine_rows:
+                    entry = QuarantineEntry.from_dict(json.loads(str(item[0])))
+                    route_by_row.setdefault(entry.row_id, entry.correction_route)
+            results = tuple(
+                (
+                    QualityRowResult.from_dict(json.loads(str(item[7])))
+                    if str(item[7])
+                    else QualityRowResult(
+                        row_id=str(item[0]),
+                        dataset=str(item[1]),
+                        source_row=int(item[2]),
+                        record_label=str(item[3]),
+                        base_disposition=QualityDisposition(str(item[4])),
+                        effective_disposition=QualityDisposition(str(item[5])),
+                        issue_ids=tuple(
+                            issue.issue_id
+                            for issue in issues_by_row[str(item[0])]
+                        ),
+                        requires_review=bool(item[6]),
+                    )
+                )
+                for item in rows
+            )
+        return QualityReviewPage(
+            items=tuple(
+                QualityReviewItem(
+                    row=result,
+                    issues=tuple(issues_by_row[result.row_id]),
+                    correction_route=route_by_row.get(result.row_id, ""),
+                    cause_impact=QualityCauseImpact(str(row[8])),
+                )
+                for result, row in zip(results, rows, strict=True)
+            ),
+            matching_count=matching_count,
+            page=current_page,
+            page_count=page_count,
+            selected_cause=selected_cause,
+        )
+
     def get_quality_collision_groups(
         self,
         workspace_id: str,
@@ -1599,7 +2061,8 @@ class QualityRepository(DuckDbRepository):
             "sparse_projection_contract",
             None,
         )
-        run_cause_counts = _read_complete_quality_cause_counts(
+        _materialize_quality_cause_members(connection, run_id)
+        run_cause_counts = _read_materialized_quality_cause_counts(
             connection,
             run_id,
         )

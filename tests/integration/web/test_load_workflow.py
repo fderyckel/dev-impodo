@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     Capability,
@@ -440,9 +441,10 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 return_value=None,
             ),
         ):
-            review = self.client.get(
-                f"/workspaces/{workspace_state.workspace_id}/load/review"
-            )
+            with collect_duckdb_request_timings() as review_timings:
+                review = self.client.get(
+                    f"/workspaces/{workspace_state.workspace_id}/load/review"
+                )
             confirm = self.client.get(
                 f"/workspaces/{workspace_state.workspace_id}/load/confirm"
             )
@@ -497,6 +499,10 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Units, Products", review.text)
         self.assertIn("BOM Lines", review.text)
         self.assertNotIn('name="write_api_key"', review.text)
+        self.assertGreater(review_timings.connection_count, 0)
+        self.assertLessEqual(review_timings.connection_count, 75)
+        self.assertLessEqual(review_timings.schema_check_count, 16)
+        self.assertEqual(review_timings.lock_retry_count, 0)
         self.assertEqual(confirm.status_code, 200)
         self.assertIn("Load 3 records into migration", confirm.text)
         self.assertIn('name="write_api_key"', confirm.text)

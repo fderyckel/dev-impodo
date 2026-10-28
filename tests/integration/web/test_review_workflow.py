@@ -26,7 +26,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self,
     ) -> None:
         context = self.app.state.context
-        workspace_state, _schema = self._registered_remote_schema_workspace()
+        workspace_state, _schema = self._frozen_odoo_source_workspace()
         manager = PreflightJobManager()
         context.preflight_jobs = manager
         started = Event()
@@ -126,7 +126,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
     def test_background_comparison_opens_blocked_rows_before_load(self) -> None:
         context = self.app.state.context
-        workspace_state, _schema = self._registered_remote_schema_workspace()
+        workspace_state, _schema = self._frozen_odoo_source_workspace()
         manager = PreflightJobManager()
         context.preflight_jobs = manager
 
@@ -177,7 +177,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
     def test_direct_comparison_opens_blocked_rows_before_load(self) -> None:
         context = self.app.state.context
-        workspace_state, _schema = self._registered_remote_schema_workspace()
+        workspace_state, _schema = self._frozen_odoo_source_workspace()
         context.preflight_jobs = None
         with (
             patch.object(
@@ -211,7 +211,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self,
     ) -> None:
         context = self.app.state.context
-        workspace_state, schema = self._registered_remote_schema_workspace()
+        workspace_state, schema = self._frozen_odoo_source_workspace()
 
         def compare_with_reader(_project_id, *, reader, actor):
             self.assertEqual(actor, resolve_local_actor(context))
@@ -282,7 +282,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self,
     ) -> None:
         context = self.app.state.context
-        workspace_state, schema = self._registered_remote_schema_workspace()
+        workspace_state, schema = self._frozen_odoo_source_workspace()
         available_key = SimpleNamespace(
             available=True,
             binding_hash=schema.read_credential_binding_hash,
@@ -322,7 +322,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
     def test_remote_compare_recovery_matches_the_classified_failure(self) -> None:
         context = self.app.state.context
-        workspace_state, schema = self._registered_remote_schema_workspace()
+        workspace_state, schema = self._frozen_odoo_source_workspace()
         available_key = SimpleNamespace(
             available=True,
             binding_hash=schema.read_credential_binding_hash,

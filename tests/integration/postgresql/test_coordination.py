@@ -9,9 +9,16 @@ from pathlib import PurePosixPath
 from unittest.mock import Mock, patch
 
 from impodo.adapters.postgresql.coordination import (
+    POSTGRESQL_RECONCILIATION_LIST_CONNECTION_BUDGET,
+    POSTGRESQL_RECONCILIATION_LIST_QUERY_BUDGET,
     PsycopgOperationJournal,
     PsycopgWorkspaceLeaseRepository,
     open_psycopg_coordination_session,
+)
+from impodo.adapters.postgresql.transaction_metrics import (
+    PostgreSQLTransactionMetric,
+    PostgreSQLTransactionMetricObserver,
+    PostgreSQLTransactionOutcome,
 )
 from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.shared.coordination import (
@@ -262,11 +269,16 @@ class _Session:
         self.closed = True
 
 
-def _journal(session: _Session) -> PsycopgOperationJournal:
+def _journal(
+    session: _Session,
+    *,
+    metrics_observer: PostgreSQLTransactionMetricObserver | None = None,
+) -> PsycopgOperationJournal:
     return PsycopgOperationJournal(
         lambda _reference: "private-dsn",
         PurePosixPath("/run/secrets/postgres-runtime-dsn"),
         session_factory=lambda _dsn: session,
+        metrics_observer=metrics_observer,
     )
 
 
@@ -526,8 +538,11 @@ class PostgreSQLOperationJournalTests(unittest.TestCase):
                 )
             ]
         )
+        metrics: list[PostgreSQLTransactionMetric] = []
 
-        page = _journal(first).list_reconciliation_page(
+        page = _journal(
+            first, metrics_observer=metrics.append
+        ).list_reconciliation_page(
             ORGANIZATION,
             PROJECT_ID,
             ProjectionReconciliationQuery(page_size=1),
@@ -538,10 +553,34 @@ class PostgreSQLOperationJournalTests(unittest.TestCase):
             page.items[0].disposition,
             ProjectionReconciliationDisposition.CURRENT,
         )
-        self.assertEqual(page.items[0].data_plane_receipt_hash, data_receipt.semantic_hash)
+        self.assertEqual(
+            page.items[0].data_plane_receipt_hash, data_receipt.semantic_hash
+        )
         self.assertIsNotNone(page.next_cursor)
         self.assertIn("ORDER BY o.requested_at, o.operation_id", first.events[0][1])
         self.assertEqual(first.events[0][2][-1], 2)
+        self.assertEqual(
+            len(first.events),
+            POSTGRESQL_RECONCILIATION_LIST_QUERY_BUDGET,
+        )
+        self.assertEqual(len(metrics), 1)
+        metric = metrics[0]
+        self.assertEqual(
+            metric.operation,
+            "operation_journal.list_reconciliation_page",
+        )
+        self.assertEqual(metric.outcome, PostgreSQLTransactionOutcome.COMMITTED)
+        self.assertEqual(
+            metric.connection_count,
+            POSTGRESQL_RECONCILIATION_LIST_CONNECTION_BUDGET,
+        )
+        self.assertEqual(
+            metric.query_count,
+            POSTGRESQL_RECONCILIATION_LIST_QUERY_BUDGET,
+        )
+        self.assertEqual(metric.pool_wait_milliseconds, 0.0)
+        self.assertGreaterEqual(metric.transaction_duration_milliseconds, 0.0)
+        self.assertEqual(metric.retry_count, 0)
 
         second = _Session(
             [

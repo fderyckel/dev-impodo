@@ -402,6 +402,42 @@ def projected_hybrid_dependency_rows_sql(projection: PreparedCanonicalProjection
     """
 
 
+def projected_numeric_values_sql(
+    projection: PreparedCanonicalProjection,
+    target_fields: tuple[str, ...],
+) -> str:
+    """Project only selected prepared numeric values from verified Parquet."""
+
+    if not target_fields or len(target_fields) != len(set(target_fields)):
+        raise ValueError("Numeric projection fields must be unique")
+    layout = _layout(projection.program)
+    values_by_field = {
+        field.target_field: value
+        for field, value in zip(
+            projection.program.scalar_fields,
+            layout.scalars,
+            strict=True,
+        )
+    }
+    missing = set(target_fields) - set(values_by_field)
+    if missing:
+        raise ValueError("Numeric projection field is not prepared")
+    items = ", ".join(
+        "struct_pack("
+        f"field_name := {_literal(field_name)}, "
+        f"prepared_value := CAST({_identifier(values_by_field[field_name].alias)} "
+        "AS VARCHAR))"
+        for field_name in target_fields
+    )
+    return f"""
+        SELECT {_identifier(PREPARED_ORDINAL_COLUMN)} AS prepared_ordinal,
+               item.field_name, item.prepared_value
+          FROM read_parquet(?), UNNEST([{items}]) AS numeric(item)
+         WHERE item.prepared_value IS NOT NULL
+         ORDER BY prepared_ordinal, item.field_name
+    """
+
+
 def projected_encoded_rows_sql(
     projection: PreparedCanonicalProjection,
 ) -> str:

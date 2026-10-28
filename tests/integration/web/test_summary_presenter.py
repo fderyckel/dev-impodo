@@ -22,6 +22,73 @@ from impodo.web.presenters.summary import (
 
 
 class QualityCauseSummaryTests(unittest.TestCase):
+    def test_numeric_capacity_advisory_routes_to_rule_and_odoo_schema(self) -> None:
+        summary = _quality_workflow_issue_summary(
+            "workspace:test",
+            "quality-run",
+            (
+                QualityCauseCount(
+                    dataset="bom_lines",
+                    reason_code="TARGET_NUMERIC_PRECISION_LOSS",
+                    message="The exact prepared value exceeds captured capacity.",
+                    affected_fields=("product_qty",),
+                    affected_record_count=4,
+                    family=QualityRuleFamily.BOUNDED_VALUES,
+                    policy=QualityOutcomePolicy.ADVISORY,
+                    owner_label="Data manager",
+                    target_digits=(16, 2),
+                    required_decimal_places=6,
+                    integral_overflow_count=1,
+                    zeroed_positive_count=2,
+                ),
+            ),
+            {"bom_lines": {"product_qty": "Quantity"}},
+            SimpleNamespace(
+                datasets=(
+                    SimpleNamespace(
+                        dataset_id="dataset:bom-lines",
+                        name="bom_lines",
+                    ),
+                )
+            ),
+            SimpleNamespace(
+                definition=SimpleNamespace(
+                    datasets=(
+                        SimpleNamespace(
+                            dataset_id="dataset:bom-lines",
+                            target_model="mrp.bom.line",
+                        ),
+                    )
+                )
+            ),
+            SimpleNamespace(
+                models=(
+                    SimpleNamespace(
+                        name="mrp.bom.line",
+                        fields=(
+                            SimpleNamespace(
+                                name="product_qty",
+                                label="Quantity",
+                                type="float",
+                            ),
+                        ),
+                    ),
+                )
+            ),
+        )
+
+        self.assertEqual(summary.must_fix_count, 0)
+        self.assertEqual(summary.review_count, 1)
+        issue = summary.issues[0]
+        self.assertEqual(issue.origin, WorkflowIssueOrigin.ODOO_SCHEMA)
+        self.assertEqual(issue.target_digits, (16, 2))
+        self.assertEqual(issue.required_decimal_places, 6)
+        self.assertIn("field_query=Quantity", issue.correction_route)
+        self.assertEqual(
+            issue.secondary_correction_route,
+            "/workspaces/workspace:test/schema",
+        )
+
     def test_groups_direct_and_inherited_causes_with_friendly_fields(self) -> None:
         direct_issue = SimpleNamespace(
             issue_id="direct",

@@ -42,6 +42,7 @@ from ..exact_join_forms import (
     parse_exact_join_group_form,
     resolve_exact_join_group_request,
     resolve_exact_join_request,
+    retain_exact_join_group_form,
     source_use_label,
 )
 from ..forms import _optional_int, _secure_form, _text
@@ -349,6 +350,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         try:
             submission = parse_exact_join_group_form(form)
         except ValueError as error:
+            retained = retain_exact_join_group_form(form)
             return await run_local_operation(
                 _render_derived_entities,
                 request,
@@ -356,6 +358,8 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 error=str(error),
                 status_code=422,
+                join_group_form=retained,
+                join_group_error=True,
             )
 
         def review_join_group():
@@ -411,6 +415,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                     error=str(error),
                     status_code=422,
                     join_group_form=submission,
+                    join_group_error=True,
                 )
 
         return await run_local_operation(review_join_group)
@@ -428,6 +433,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         try:
             submission = parse_exact_join_group_form(form)
         except ValueError as error:
+            retained = retain_exact_join_group_form(form)
             return await run_local_operation(
                 _render_derived_entities,
                 request,
@@ -435,6 +441,8 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 error=str(error),
                 status_code=422,
+                join_group_form=retained,
+                join_group_error=True,
             )
 
         def save_join_group():
@@ -462,6 +470,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                     error=str(error),
                     status_code=422,
                     join_group_form=submission,
+                    join_group_error=True,
                 )
 
         outcome = await run_local_operation(save_join_group)

@@ -16,6 +16,7 @@ from impodo.web.exact_join_forms import (
     default_exact_join_group_form,
     exact_join_group_projection_candidates,
     parse_exact_join_group_form,
+    retain_exact_join_group_form,
 )
 
 
@@ -94,6 +95,31 @@ class ExactJoinGroupFormTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "no more than 200"):
             parse_exact_join_group_form(form)
+
+        retained = retain_exact_join_group_form(form)
+        self.assertEqual(len(retained.projection_indexes), 201)
+
+    def test_invalid_submission_retains_bounded_group_choices(self) -> None:
+        form = FormData(
+            (
+                ("group_id", "not-a-uuid"),
+                ("output_dataset_name", "records_complete"),
+                ("primary_dataset_id", "dataset:primary"),
+                ("primary_key_field_1", "dataset:primary|account"),
+                ("group_addition", "1"),
+                ("group_addition_key_1_1", "dataset:details|detail_account"),
+                ("group_projection", "0"),
+                ("group_projection_name", "Account"),
+            )
+        )
+
+        retained = retain_exact_join_group_form(form)
+
+        self.assertEqual(retained.output_dataset_name, "records_complete")
+        self.assertEqual(retained.primary_dataset_id, "dataset:primary")
+        self.assertEqual(retained.projection_indexes, (0,))
+        self.assertEqual(retained.projection_names, ("Account",))
+        self.assertEqual(retained.additions[0].dataset_index, 1)
 
 
 if __name__ == "__main__":

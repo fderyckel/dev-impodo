@@ -34,11 +34,29 @@
             {% if issue.affected_fields %}
               <p><strong>Fields:</strong> {{ issue.affected_fields|join('; ') }}</p>
             {% endif %}
+            {% if issue.target_digits %}
+              <p><strong>Captured Odoo capacity:</strong> {{ issue.target_digits[0] }} total digits, {{ issue.target_digits[1] }} decimal places</p>
+              {% if issue.required_decimal_places is not none and issue.required_decimal_places > issue.target_digits[1] %}
+                <p><strong>Prepared precision needed:</strong> up to {{ issue.required_decimal_places }} decimal places</p>
+              {% endif %}
+              {% if issue.integral_overflow_count %}
+                <p>{{ issue.integral_overflow_count }} affected value{% if issue.integral_overflow_count != 1 %}s{% endif %} exceed{% if issue.integral_overflow_count == 1 %}s{% endif %} the total-digit capacity.</p>
+              {% endif %}
+              {% if issue.zeroed_positive_count %}
+                <p>{{ issue.zeroed_positive_count }} positive value{% if issue.zeroed_positive_count != 1 %}s{% endif %} could become zero if rounded to this capacity.</p>
+              {% endif %}
+            {% endif %}
             <p><strong>Owner:</strong> {{ issue.owner }}</p>
             <p><strong>Your saved work:</strong> {{ issue.preserved_work }}</p>
             <p><strong>Then:</strong> {{ issue.recheck }}</p>
             <div class="actions">
               <a class="button primary" href="{{ issue.correction_route }}">{{ issue.correction_label }}</a>
+              {% if issue.secondary_correction_route %}
+                <a class="button secondary" href="{{ issue.secondary_correction_route }}">{{ issue.secondary_correction_label }}</a>
+              {% endif %}
+              {% if issue.detail_route %}
+                <a class="button secondary" href="{{ issue.detail_route }}">{{ issue.detail_label }}</a>
+              {% endif %}
             </div>
             <details class="technical-details">
               <summary>Support details</summary>
