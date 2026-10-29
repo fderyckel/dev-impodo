@@ -669,14 +669,16 @@ complete frozen selection within the 25,000-row browser limit. The normal
 grouped route instead materializes verified artifact paths and runs the narrow
 DuckDB evaluator described above. Both local command scopes reuse repository
 owners and neither caches DuckDB connections across requests. During
-preparation, `bounded_exact_join_group` admits only one reviewed left-deep group
-whose physical inputs total no more than 100,000 rows and whose final output
-contains no more than 50,000 rows. `DuckDbGroupedExactJoinSource` projects each
-snapshot once into a narrow temporary table, performs the join set-wise, and
-streams 1,000-row pages with complete physical lineage into the durable
-session. Unsupported structural shapes keep the 25,000-row materialized limit;
-the grouped route never raises that general constant or falls back to
-unbounded Python work.
+preparation,
+[`bounded_exact_join_group`](../../../src/impodo/application/workspace/preparation/grouped_exact_join_preparation.py)
+admits only one reviewed left-deep group whose physical inputs total no more
+than 100,000 rows and whose final output contains no more than 50,000 rows.
+[`DuckDbGroupedExactJoinSource`](../../../src/impodo/adapters/duckdb/grouped_exact_join_source.py)
+projects each snapshot once into a narrow temporary table, performs the join
+set-wise, and streams 1,000-row pages with complete physical lineage into the
+durable session. Unsupported structural shapes keep the 25,000-row
+materialized limit; the grouped route never raises that general constant or
+falls back to unbounded Python work.
 
 The 2026-10-24 controlled pairwise qualification runs 2,000 rows per input
 through three fresh processes for both narrow and wide shapes. Preview
@@ -721,6 +723,9 @@ operator workspace.
 - [`tests/application/workspace/test_derived_entities.py`](../../../tests/application/workspace/test_derived_entities.py)
 - [`tests/application/workspace/test_exact_join_authoring.py`](../../../tests/application/workspace/test_exact_join_authoring.py)
 - [`tests/integration/web/test_exact_join_workflow.py`](../../../tests/integration/web/test_exact_join_workflow.py)
+- [`tests/integration/web/test_exact_join_group_forms.py`](../../../tests/integration/web/test_exact_join_group_forms.py)
+- [`tests/integration/artifacts/test_grouped_exact_join_preparation.py`](../../../tests/integration/artifacts/test_grouped_exact_join_preparation.py)
+- [`tests/performance/test_exact_join_group_scale.py`](../../../tests/performance/test_exact_join_group_scale.py)
 - [`tests/integration/web/test_related_split_workflow.py`](../../../tests/integration/web/test_related_split_workflow.py)
 - [`tests/integration/web/test_generic_source_composition.py`](../../../tests/integration/web/test_generic_source_composition.py)
 - [`tests/integration/web/test_bom_source_composition.py`](../../../tests/integration/web/test_bom_source_composition.py)

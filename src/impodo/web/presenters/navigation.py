@@ -88,6 +88,9 @@ class WorkflowNavigation:
     current_work_label: str = "Current data-version work"
     odoo_access_href: str | None = None
     odoo_access_active: bool = False
+    workflow_issue_must_fix_count: int = 0
+    workflow_issue_review_count: int = 0
+    workflow_issue_href: str | None = None
 
     @property
     def current_stage(self) -> WorkflowStage | None:
@@ -784,6 +787,7 @@ def _build_authoring_workspace_navigation(
             viewed_page_label,
             stages,
             migration_project_name=navigation_name,
+            facts=facts,
         )
 
     workspace_id = current_workspace_state.workspace_id
@@ -845,6 +849,7 @@ def _build_authoring_workspace_navigation(
             viewed_page_label,
             stages,
             migration_project_name=navigation_name,
+            facts=facts,
         )
 
     schema_complete = facts.schema_complete
@@ -886,6 +891,7 @@ def _build_authoring_workspace_navigation(
             viewed_page_label,
             stages,
             migration_project_name=navigation_name,
+            facts=facts,
         )
 
     mapping_complete = facts.mapping_complete
@@ -925,6 +931,7 @@ def _build_authoring_workspace_navigation(
             viewed_page_label,
             stages,
             migration_project_name=navigation_name,
+            facts=facts,
         )
 
     active_job_id = facts.active_preparation_job_id
@@ -965,6 +972,7 @@ def _build_authoring_workspace_navigation(
             viewed_page_label,
             stages,
             migration_project_name=navigation_name,
+            facts=facts,
         )
 
     staging_run_id = facts.staging_run_id
@@ -1061,6 +1069,7 @@ def _build_authoring_workspace_navigation(
             viewed_page_label,
             stages,
             migration_project_name=navigation_name,
+            facts=facts,
         )
 
     review_complete = facts.preflight_status == "READY"
@@ -1107,6 +1116,7 @@ def _build_authoring_workspace_navigation(
             viewed_page_label,
             stages,
             migration_project_name=navigation_name,
+            facts=facts,
         )
 
     load_status = "current"
@@ -1218,6 +1228,7 @@ def _build_authoring_workspace_navigation(
         viewed_page_label,
         stages,
         migration_project_name=navigation_name,
+        facts=facts,
     )
 
 
@@ -1229,6 +1240,7 @@ def _navigation(
     stages: list[WorkflowStage],
     *,
     migration_project_name: str | None = None,
+    facts: WorkspaceNavigationFacts | None = None,
 ) -> WorkspaceNavigation:
     current_stage = next(
         (stage for stage in stages if stage.status in {"current", "attention"}),
@@ -1277,6 +1289,21 @@ def _navigation(
         viewed_stage_id=viewed_stage_id,
         viewed_page_label=viewed_page_label,
         stages=active_stages,
+        workflow_issue_must_fix_count=(
+            facts.workflow_issue_must_fix_count if facts is not None else 0
+        ),
+        workflow_issue_review_count=(
+            facts.workflow_issue_review_count if facts is not None else 0
+        ),
+        workflow_issue_href=(
+            f"/workspaces/{workspace_state.workspace_id}/mapping#migration-issues"
+            if facts is not None
+            and (
+                facts.workflow_issue_must_fix_count
+                or facts.workflow_issue_review_count
+            )
+            else None
+        ),
     )
 
 

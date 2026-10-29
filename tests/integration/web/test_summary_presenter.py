@@ -13,9 +13,11 @@ from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
     QualityRuleFamily,
 )
+from impodo.domain.preflight.reports import ReadinessIssueCount
 from impodo.web.presenters.summary import (
     _quality_issue_field_label_map,
     _quality_workflow_issue_summary,
+    _readiness_workflow_issue_summary,
     _preparation_limit_message,
     _summary_page_size,
 )
@@ -87,6 +89,43 @@ class QualityCauseSummaryTests(unittest.TestCase):
         self.assertEqual(
             issue.secondary_correction_route,
             "/workspaces/workspace:test/schema",
+        )
+
+    def test_final_review_issue_routes_to_exact_persisted_decisions(self) -> None:
+        summary = _readiness_workflow_issue_summary(
+            "workspace:test",
+            SimpleNamespace(
+                run_id="readiness-run",
+                datasets=(),
+                issue_counts=(
+                    ReadinessIssueCount(
+                        dataset="products",
+                        dataset_label="Products",
+                        status="blocked",
+                        technical_code="TARGET_REFERENCE_UNRESOLVED",
+                        reason="An Odoo relationship has no usable business key.",
+                        field="Category",
+                        recommended_action=(
+                            "Check the related Odoo record and its business key."
+                        ),
+                        affected_record_count=4,
+                    ),
+                ),
+            ),
+        )
+
+        self.assertEqual(summary.must_fix_count, 1)
+        self.assertEqual(summary.review_count, 0)
+        issue = summary.issues[0]
+        self.assertEqual(issue.origin, WorkflowIssueOrigin.ODOO_DATA)
+        self.assertEqual(issue.owner, "Odoo data owner")
+        self.assertEqual(issue.affected_record_count, 4)
+        self.assertEqual(issue.affected_fields, ("Category",))
+        self.assertIn("status=blocked", issue.correction_route)
+        self.assertIn("dataset=products", issue.correction_route)
+        self.assertIn(
+            "issue=TARGET_REFERENCE_UNRESOLVED",
+            issue.correction_route,
         )
 
     def test_groups_direct_and_inherited_causes_with_friendly_fields(self) -> None:

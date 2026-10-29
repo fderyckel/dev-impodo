@@ -160,6 +160,7 @@ def _relationship_card(
         f"{view['edit_url']}#relationship-{view['index']}-{relationship.target_field}"
     )
     return {
+        "dataset_id": source.dataset_id,
         "dataset_name": source.name,
         "field_label": field_label,
         "technical_field": relationship.target_field,
@@ -167,6 +168,12 @@ def _relationship_card(
         "relationship_kind": relationship.kind,
         "required": bool(relationship.required or relationship.required_on_create),
         "origin_label": origin_label,
+        "resolver_origin": relationship.resolver.origin.value,
+        "not_checkable_reason": (
+            result.not_checkable_reason.value
+            if result is not None and result.not_checkable_reason is not None
+            else ""
+        ),
         "show_target_count": (
             relationship.resolver.origin is not ResolverOrigin.DATASET
         ),

@@ -79,6 +79,7 @@ from ..domain.preflight.reports import (
     ReadinessDataset,
     ReadinessReport,
     ReadinessRow,
+    readiness_row_issue_counts,
 )
 from ..domain.source_binding import OdooSourceBinding, SourceOriginKind
 from ..domain.source_snapshot import SourceSnapshot
@@ -902,6 +903,7 @@ def _report(
             ),
         ),
         rows=rows,
+        issue_counts=readiness_row_issue_counts(rows),
     )
 
 

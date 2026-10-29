@@ -70,11 +70,15 @@ def retain_databases_for_operation() -> Iterator[None]:
         return
     with ExitStack() as stack:
         _read_databases.connections = {}
+        _read_databases.cursor_database_keys = {}
+        _read_databases.validated_schemas = set()
         _read_databases.stack = stack
         try:
             yield
         finally:
             del _read_databases.connections
+            del _read_databases.cursor_database_keys
+            del _read_databases.validated_schemas
             del _read_databases.stack
 
 
@@ -84,6 +88,40 @@ def retain_databases_for_read() -> Iterator[None]:
 
     with retain_databases_for_operation():
         yield
+
+
+@contextmanager
+def validate_schema_once_for_operation(
+    connection: duckdb.DuckDBPyConnection,
+    contract: str,
+) -> Iterator[bool]:
+    """Request one exact-schema check per database and contract in a scope.
+
+    Connections opened outside a retained operation always validate. A failed
+    validation is never cached. The marker contains only the internal retained
+    database key and the caller-supplied schema contract; it is discarded when
+    the synchronous operation ends.
+    """
+
+    cursor_database_keys = getattr(
+        _read_databases,
+        "cursor_database_keys",
+        None,
+    )
+    validated_schemas = getattr(_read_databases, "validated_schemas", None)
+    if cursor_database_keys is None or validated_schemas is None:
+        yield True
+        return
+    database_key = cursor_database_keys.get(id(connection))
+    if database_key is None:
+        yield True
+        return
+    validation_key = (database_key, contract)
+    if validation_key in validated_schemas:
+        yield False
+        return
+    yield True
+    validated_schemas.add(validation_key)
 
 
 class DuckDbConnectionFactory:
@@ -134,9 +172,17 @@ class DuckDbConnectionFactory:
                 retained[key] = self._connect_with_lock_wait(path, config)
                 _read_databases.stack.callback(retained[key].close)
             connection = retained[key].cursor()
+            _read_databases.cursor_database_keys[id(connection)] = key
         try:
             yield connection
         finally:
+            cursor_database_keys = getattr(
+                _read_databases,
+                "cursor_database_keys",
+                None,
+            )
+            if cursor_database_keys is not None:
+                cursor_database_keys.pop(id(connection), None)
             connection.close()
 
     def _connect_with_lock_wait(

@@ -25,6 +25,9 @@ install -d -o 0 -g 10001 -m 0750 /run/impodo-runtime-secrets
 install -o 0 -g 10001 -m 0440 \
     /run/secrets/postgres-runtime-dsn \
     /run/impodo-runtime-secrets/postgres-runtime-dsn
+install -o 0 -g 10001 -m 0440 \
+    /run/secrets/platform-admin-password \
+    /run/impodo-runtime-secrets/platform-admin-password
 install -d -o 0 -g 10001 -m 0750 /run/impodo-migration-secrets
 install -o 0 -g 10001 -m 0440 \
     /run/secrets/postgres-migration-dsn \

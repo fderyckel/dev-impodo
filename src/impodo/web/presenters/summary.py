@@ -29,6 +29,7 @@ from impodo.domain.compiler.browser_mapping_compiler import browser_mapping_labe
 from impodo.domain.errors import ReadinessError
 from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.preflight.deferred_scope import DeferredScopeEvidenceError
+from impodo.domain.preflight.reports import ReadinessIssueCount, ReadinessReport
 from impodo.domain.preparation.quality import (
     QualityCauseCount,
     QualityOutcomePolicy,
@@ -661,7 +662,7 @@ def _render_summary(
         quality_page.items if quality_page is not None else (),
         quality_field_labels,
     )
-    workflow_issue_summary = _quality_workflow_issue_summary(
+    quality_workflow_issue_summary = _quality_workflow_issue_summary(
         workspace_id,
         quality.run_id if quality is not None else "",
         quality_page.run_cause_counts if quality_page is not None else (),
@@ -669,6 +670,16 @@ def _render_summary(
         effective_selection,
         revision,
         schema_catalog,
+    )
+    readiness_workflow_issue_summary = _readiness_workflow_issue_summary(
+        workspace_id,
+        report,
+    )
+    workflow_issue_summary = summarize_workflow_issues(
+        (
+            *quality_workflow_issue_summary.issues,
+            *readiness_workflow_issue_summary.issues,
+        )
     )
     summary_quality_page_ms = (perf_counter() - quality_page_started) * 1000
     status_filter = request.query_params.get("status", "").strip()
@@ -687,6 +698,12 @@ def _render_summary(
     available_datasets = {item.dataset for item in (report.datasets if report else ())}
     if dataset_filter not in available_datasets:
         dataset_filter = ""
+    readiness_issue_code = request.query_params.get("issue", "").strip()
+    available_issue_codes = {
+        item.technical_code for item in (report.issue_counts if report else ())
+    }
+    if readiness_issue_code not in available_issue_codes:
+        readiness_issue_code = ""
     requested_row_page = _positive_query_int(
         request.query_params.get("page"),
         default=1,
@@ -699,6 +716,7 @@ def _render_summary(
             report.run_id,
             status=status_filter,
             dataset=dataset_filter,
+            issue_code=readiness_issue_code,
             page=requested_row_page,
             page_size=readiness_page_size,
         )
@@ -824,6 +842,7 @@ def _render_summary(
         ),
         status_filter=status_filter,
         dataset_filter=dataset_filter,
+        readiness_issue_code=readiness_issue_code,
         evaluation_scale=evaluation_scale,
         preparation_limit_message=preparation_limit_message,
         source_stage_ready=source_stage_ready,
@@ -1048,6 +1067,152 @@ _QUALITY_CAUSE_TITLES = {
     "POST_TRANSFORM_IDENTITY_COLLISION": "Odoo match is not unique",
     "TARGET_NUMERIC_PRECISION_LOSS": "Prepared value exceeds Odoo precision",
 }
+
+
+def _readiness_workflow_issue_summary(
+    workspace_id: str,
+    report: ReadinessReport | None,
+) -> WorkflowIssueSummary:
+    """Adapt complete-run Final review evidence without reading decision rows."""
+
+    if report is None:
+        return summarize_workflow_issues(())
+    issue_counts = report.issue_counts or _legacy_readiness_issue_counts(report)
+    issues = []
+    for issue in issue_counts:
+        params = {
+            "status": issue.status,
+            "dataset": issue.dataset,
+        }
+        if (
+            report.issue_counts
+            and issue.technical_code != "FINAL_REVIEW_BLOCKED"
+        ):
+            params["issue"] = issue.technical_code
+        route = (
+            f"/workspaces/{workspace_id}/summary?{urlencode(params)}"
+            "#readiness-rows"
+        )
+        origin = _readiness_issue_origin(issue.technical_code)
+        issues.append(
+            WorkflowIssueProjection(
+                code=(
+                    f"FINAL_REVIEW:{issue.dataset}:{issue.technical_code}:"
+                    f"{issue.field or 'record'}"
+                ),
+                severity=(
+                    WorkflowIssueSeverity.MUST_FIX
+                    if issue.status == "blocked"
+                    else WorkflowIssueSeverity.REVIEW
+                ),
+                state=WorkflowIssueState.CURRENT,
+                cause=issue.reason.removesuffix("."),
+                origin=origin,
+                owner=_readiness_issue_owner(issue.technical_code),
+                owning_stage="Final review",
+                correction_label=f"Review affected {issue.dataset_label}",
+                correction_route=route,
+                preserved_work=(
+                    "Reviewing these records does not change accepted source "
+                    "data, saved field matches, prepared data, or Odoo."
+                ),
+                recheck=(
+                    "Complete the correction, prepare the complete data again, "
+                    "then compare with Odoo."
+                ),
+                evidence_revision=report.run_id,
+                affected_record_types=(issue.dataset_label,),
+                affected_fields=((issue.field,) if issue.field else ()),
+                affected_record_count=issue.affected_record_count,
+                dependent_on_other_issue=(
+                    issue.technical_code == "REFERENCE_BLOCKED_BY_DEPENDENCY"
+                ),
+            )
+        )
+    return summarize_workflow_issues(issues)
+
+
+def _legacy_readiness_issue_counts(
+    report: ReadinessReport,
+) -> tuple[ReadinessIssueCount, ...]:
+    """Keep older current reports actionable until their next comparison."""
+
+    issues = []
+    for dataset in report.datasets:
+        if dataset.blocked:
+            issues.append(
+                ReadinessIssueCount(
+                    dataset=dataset.dataset,
+                    dataset_label=dataset.label,
+                    status="blocked",
+                    technical_code="FINAL_REVIEW_BLOCKED",
+                    reason="Final review could not safely classify these records.",
+                    field="",
+                    recommended_action="Review the affected records.",
+                    affected_record_count=dataset.blocked,
+                )
+            )
+        if dataset.needs_review:
+            issues.append(
+                ReadinessIssueCount(
+                    dataset=dataset.dataset,
+                    dataset_label=dataset.label,
+                    status="needs_review",
+                    technical_code="TARGET_IDENTITY_AMBIGUOUS",
+                    reason="More than one Odoo record matches this key.",
+                    field="",
+                    recommended_action="Review the matching Odoo records.",
+                    affected_record_count=dataset.needs_review,
+                )
+            )
+    return tuple(issues)
+
+
+def _readiness_issue_origin(code: str) -> WorkflowIssueOrigin:
+    """Classify one Final review cause for a correction owner."""
+
+    if code.startswith("SOURCE_"):
+        return WorkflowIssueOrigin.SOURCE_DATA
+    if code.startswith("REFERENCE_") and code not in {
+        "REFERENCE_TARGET_PRECEDENCE_CONFLICT",
+        "REFERENCE_TARGET_PRECEDENCE_REUSE",
+    }:
+        return WorkflowIssueOrigin.INCOMING_RELATIONSHIP
+    if code in {
+        "REQUIRED_ON_CREATE_MISSING",
+        "TARGET_SCHEMA_CHANGED",
+        "TARGET_SELECTION_FIELD_DRIFT",
+    }:
+        return WorkflowIssueOrigin.ODOO_SCHEMA
+    if code.startswith("TARGET_") or code in {
+        "CREATE_IDENTITY_EXISTS",
+        "RECORD_REMOVED_OR_INACCESSIBLE",
+        "CONCURRENT_FIELD_CHANGE",
+        "BASELINE_NOT_CAPTURED",
+        "REFERENCE_TARGET_PRECEDENCE_CONFLICT",
+        "REFERENCE_TARGET_PRECEDENCE_REUSE",
+    }:
+        return WorkflowIssueOrigin.ODOO_DATA
+    return WorkflowIssueOrigin.IMPODO_ACTION
+
+
+def _readiness_issue_owner(code: str) -> str:
+    """Name the business role closest to the Final review correction."""
+
+    if code in {
+        "TARGET_SCHEMA_CHANGED",
+        "TARGET_SELECTION_FIELD_DRIFT",
+    }:
+        return "Odoo administrator"
+    if code in {
+        "TARGET_IDENTITY_AMBIGUOUS",
+        "TARGET_REFERENCE_UNRESOLVED",
+        "RECORD_REMOVED_OR_INACCESSIBLE",
+        "CONCURRENT_FIELD_CHANGE",
+        "BASELINE_NOT_CAPTURED",
+    }:
+        return "Odoo data owner"
+    return "Data manager"
 
 
 def _quality_workflow_issue_summary(
@@ -1359,7 +1524,7 @@ def _summary_rows_url(
     params = {
         name: value
         for name, value in request.query_params.items()
-        if name in {"status", "dataset"} and len(value) <= 256
+        if name in {"status", "dataset", "issue"} and len(value) <= 256
     }
     if page is not None and page > 1:
         params["page"] = str(page)

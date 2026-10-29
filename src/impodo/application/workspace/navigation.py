@@ -46,6 +46,8 @@ class WorkspaceNavigationFacts:
     normalization_status: str = ""
     normalization_decision_count: int = 0
     normalization_reviewed_count: int = 0
+    workflow_issue_must_fix_count: int = 0
+    workflow_issue_review_count: int = 0
     preflight_status: str = ""
     execution_state: ExecutionNavigationState | None = None
     transfer_execution_run_id: str = ""

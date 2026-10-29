@@ -308,7 +308,9 @@ groups to five each, retains only display and binding facts, and overlays the
 current execution and reconciliation status at read time. `GET .../load/review`
 uses that projection in one page-read operation and makes zero complete
 execution-snapshot reads. The 25,000-row probe used 6 physical DuckDB
-connections and 10 schema checks for the page. Confirmation and every
+connections for the page. A later operation-scoped schema-validation change
+reduced its exact Workspace schema checks from 10 to 1 without caching across
+requests. Confirmation and every
 write-authorizing boundary continue to load and validate the complete
 snapshot. Historical current reports without the projection redirect to one
 explicit **Compare with Odoo again** action.
@@ -371,11 +373,13 @@ snapshots, and connector shape remained identical; no lock retries occurred.
 Median peak RSS was 445.84 MiB, 3.75 MiB above the measured row-wise path.
 
 After durable attempt writes from work package 3 are included, the complete
-comparison uses 16 physical DuckDB connections and 16 schema checks, while
-compare-start uses 9 connections and 7 schema checks. Those current totals are
-expected phase ownership, not a reversal of the work-package-2 database-
-lifetime split. Active progress, status, and authenticated health use no
-DuckDB connection or schema check in the scale probe.
+comparison uses 16 physical DuckDB connections and 3 Workspace schema checks,
+while compare-start uses 9 connections and 1 schema check. The action-rich
+summary and **Check changes** each perform one exact Workspace schema check per
+request. Those current connection totals represent distinct store and phase
+ownership, not a reversal of the work-package-2 database-lifetime split.
+Active progress, status, and authenticated health use no DuckDB connection or
+schema check in the scale probe.
 
 Add privacy-safe timings inside the publication owner for:
 
@@ -410,6 +414,18 @@ Never commit independent decision batches. Never treat a lower connection
 count or one fixture run as a latency claim.
 
 ## Work package 6 - Integrate Final review with the shared server
+
+**Implementation status:** The dependency-safe portable Phase 6 contract slice
+started on 2026-10-29. The shared job contract now names preflight as an
+allowlisted durable job family and carries the manifest, authorization
+revision, attempt fence, heartbeat, review-required state, compare-and-set
+revision, result receipt, and cancellation disposition needed by this stage.
+Restart recovery now requires a receipt check after attempt expiry: absent
+evidence permits interruption, matching committed evidence completes from its
+receipt, and ambiguous evidence requires review instead of replay.
+Final review is not connected to a PostgreSQL job or server worker yet. That
+runtime integration remains gated by completed built-in identity, scoped
+authorization, PostgreSQL job persistence, and the first qualified worker.
 
 Start this work only after the shared-server Phase 6 prerequisites and earlier
 job families pass their gates. Implement the deployment-neutral attempt port

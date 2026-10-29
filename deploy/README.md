@@ -10,9 +10,9 @@ status: partial
 
 This rehearsal lets a developer find image, configuration, secret-mount,
 migration, health, network, and persistence defects before Impodo is installed
-on a remote Debian or Ubuntu host. It starts only the empty Phase 2 server. It
-does not enable Projects, customer accounts, migration workflows, workers, or
-Odoo connectivity.
+on a remote Debian or Ubuntu host. It starts the lifecycle-only server and can
+run the opt-in first-operator bootstrap command. It does not enable login,
+Projects, Organizations, migration workflows, workers, or Odoo connectivity.
 
 The current delivery mode is a local trial. No remote Impodo server is
 allocated. This runbook therefore supports repeatable local development; it is
@@ -46,9 +46,18 @@ Create one internally consistent secret set:
 .venv/bin/python deploy/local_rehearsal.py
 ```
 
-The command writes five files below the ignored `deploy/.local/secrets`
+The command writes six files below the ignored `deploy/.local/secrets`
 directory. It prints no secret value and refuses to replace an existing set.
 Remove that directory deliberately before generating a new empty rehearsal.
+
+If an existing rehearsal has the original five-file set, add only the new
+fictional Platform Administrator password without replacing its database
+credentials:
+
+```sh
+.venv/bin/python deploy/local_rehearsal.py --platform-admin-only
+docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml run --rm --no-deps volume-provisioner
+```
 
 ## Validate and start the stack
 
@@ -61,10 +70,11 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 ```
 
 The topology initializes PostgreSQL, creates the fixed runtime and migration
-roles, applies the current migration suffix through schema version `2`, starts
+roles, applies the current migration suffix through schema version `7`, starts
 the lifecycle-only web process, and then starts the loopback TLS proxy. The
 worker remains disabled behind the `worker` profile because its durable
-runtime is not implemented. The
+runtime is not implemented. The first-operator command remains disabled behind
+the `admin` profile until a developer invokes it explicitly. The
 [2026-10-27 local rehearsal](../docs/plans/91-2026-10-27-local-empty-server-container-rehearsal.md)
 records the first complete result on Docker Desktop for Apple silicon.
 
@@ -82,12 +92,30 @@ The two responses contain only generic status. The service list must show no
 published web, worker, or PostgreSQL port.
 
 Run the migration command twice after the initial start. Both runs must report
-schema version `2` and apply no new migration:
+schema version `7` and apply no new migration:
 
 ```sh
 docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml run --rm migrate
 docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml run --rm migrate
 ```
+
+## Bootstrap the fictional first operator
+
+Set a fictional login email and display name for this local rehearsal. Compose
+reads the generated password from the protected secret volume; the command
+does not accept the password as a command-line argument and does not print it.
+
+```sh
+IMPODO_BOOTSTRAP_LOGIN_EMAIL=platform.operator@example.test \
+IMPODO_BOOTSTRAP_DISPLAY_NAME='Fictional platform operator' \
+docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml --profile admin run --rm admin-bootstrap
+```
+
+The first run must report completion. Repeating the command must refuse with
+exit code `78` because one active Platform Administrator now exists. The
+administrator cannot log in through HTTP yet. The password-verification
+foundation exists, but a browser login route, sessions, Organizations, and
+the administration browser are later Phase 4 work.
 
 Confirm that the application runs as the fixed unprivileged identity and that
 its application tree is not writable. Then add a fictional marker to the
@@ -120,7 +148,7 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml exec web test -r /var/lib/impodo/artifacts/.local-rehearsal-marker
 ```
 
-The final migration result must still report schema version `2` with no newly
+The final migration result must still report schema version `7` with no newly
 applied migration, and the final marker check must pass. Together these prove
 that the PostgreSQL and artifact volumes survived container recreation. No
 customer file belongs in this rehearsal.

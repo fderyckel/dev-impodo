@@ -106,6 +106,7 @@ from .mapping_impact import (
     _mapping_field_page_size,
     _mapping_return_url,
 )
+from .matching_health_issues import matching_health_workflow_issue_summary
 from .missing_parent_actions import missing_parent_source_key
 from .relationship_health import relationship_health_view
 
@@ -535,6 +536,12 @@ def _render_mapping(
         check_attempt=matching_order_attempt,
         working_draft_is_current=working_draft_is_current,
     )
+    workflow_issue_summary = matching_health_workflow_issue_summary(
+        check=matching_order_check,
+        check_current=matching_order_check_current,
+        identity_health=identity_health,
+        relationship_health=relationship_health,
+    )
     mapping_review_workbook_ready = False
     if revision is not None and validation is not None and not has_unvalidated_changes:
         try:
@@ -613,6 +620,7 @@ def _render_mapping(
         collision_draft=collision_draft,
         identity_health=identity_health,
         relationship_health=relationship_health,
+        workflow_issue_summary=workflow_issue_summary,
         matching_order=matching_order_view,
         warning_issues=warning_issues,
         readonly_field_recovery=readonly_field_recovery,

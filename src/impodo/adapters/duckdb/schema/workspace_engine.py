@@ -14,6 +14,7 @@ from ..constants import (
     SCHEMA_VERSION,
 )
 from ..request_timing import record_duckdb_schema_timing
+from ..unit_of_work import validate_schema_once_for_operation
 from .advanced_coverage import create_advanced_coverage_schema
 from .cross_store_coordination import (
     CROSS_STORE_DATA_RECEIPT_COLUMNS,
@@ -1007,6 +1008,18 @@ class WorkspaceEngineSchemaMixin:
         connection: duckdb.DuckDBPyConnection,
     ) -> None:
         """Upgrade the recognized generation, then require its exact schema."""
+
+        contract = f"{SCHEMA_GENERATION}:{SCHEMA_VERSION}"
+        with validate_schema_once_for_operation(connection, contract) as required:
+            if not required:
+                return
+            self._validate_or_upgrade_workspace_schema(connection)
+
+    def _validate_or_upgrade_workspace_schema(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+    ) -> None:
+        """Perform one exact validation or forward upgrade."""
 
         started = perf_counter()
         try:

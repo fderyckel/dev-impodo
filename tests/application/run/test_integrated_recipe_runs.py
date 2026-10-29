@@ -3785,7 +3785,8 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             missing_reader.text,
         )
         self.assertIn("Keep it on this computer", missing_reader.text)
-        self.assertIn("Windows Credential Manager", missing_reader.text)
+        self.assertIn("Save securely on this computer", missing_reader.text)
+        self.assertNotIn("Windows Credential Manager", missing_reader.text)
         self.assertNotIn("test-read-key", missing_reader.text)
 
         for unsafe_location in (

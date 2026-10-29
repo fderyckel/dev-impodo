@@ -38,7 +38,7 @@ class CredentialVault:
             )
         except KeyringError as error:
             raise SecretStoreError(
-                "Windows Credential Manager is unavailable"
+                "Secure credential storage is unavailable on this computer"
             ) from error
 
     def set(self, credential_id: str, secret: str, *, persistent: bool) -> None:
@@ -56,7 +56,7 @@ class CredentialVault:
                 )
             except KeyringError as error:
                 raise SecretStoreError(
-                    "Could not save the API key in Windows Credential Manager"
+                    "Could not save the API key securely on this computer"
                 ) from error
         else:
             try:
@@ -65,8 +65,8 @@ class CredentialVault:
                     keyring.delete_password(service_name, credential_id)
             except KeyringError as error:
                 raise SecretStoreError(
-                    "Could not remove the earlier API key from Windows "
-                    "Credential Manager"
+                    "Could not remove the earlier API key from secure credential "
+                    "storage"
                 ) from error
         self._session[credential_id] = clean_secret
 
@@ -80,7 +80,7 @@ class CredentialVault:
                 keyring.delete_password(service_name, credential_id)
         except KeyringError as error:
             raise SecretStoreError(
-                "Could not delete the API key from Windows Credential Manager"
+                "Could not delete the API key from secure credential storage"
             ) from error
 
 

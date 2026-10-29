@@ -204,8 +204,24 @@ The
 projects each saved relationship into **Chosen - not tested**, **Ready**,
 **Needs attention**, or **Needs refresh** and supplies the owner-field and
 incoming-table correction routes.
+The
+[matching-health issue presenter](../../../src/impodo/web/presenters/matching_health_issues.py)
+adapts only current aggregate identity and relationship results to the shared
+`WorkflowIssueProjection`. Checked blockers become **Must fix**; explicit
+not-checkable results become **Review**. It reuses the correction routes from
+the health presenters and does not store another issue record.
 `mapping_view.py` remains the page orchestrator and does not duplicate the
 identity or relationship classification rules.
+
+`WorkspaceNavigationRepository` exposes only two scalar Stage 3 issue counts.
+It accepts the current matching check only while its source, schema,
+governance, working draft, target, read credential, principal, permission, and
+context bindings still match. This predicate runs inside the repository's
+existing single navigation transaction. It decodes one aggregate-only check,
+never the protected key snapshot, and never contacts Odoo. The local adapter
+does not imply that a server page may open worker-held DuckDB state; a shared
+server composition must advance an equivalent bounded PostgreSQL projection
+only after verifying the worker receipt.
 
 Publication is transactional and succeeds as current only when source
 selection, schema, governance, target/read identities, and working-draft
@@ -608,6 +624,8 @@ validation result for the malformed formula.
 | Aggregate identity-health browser projection | [`identity_health.py`](../../../src/impodo/web/presenters/identity_health.py) |
 | Aggregate relationship-health domain | [`relationship_health.py`](../../../src/impodo/domain/relationship_health.py) |
 | Aggregate relationship-health browser projection | [`relationship_health.py`](../../../src/impodo/web/presenters/relationship_health.py) |
+| Stage 3 issue-count classification | [`health_issues.py`](../../../src/impodo/application/workspace/mapping/health_issues.py) |
+| Shared Stage 3 issue projection | [`matching_health_issues.py`](../../../src/impodo/web/presenters/matching_health_issues.py) |
 | Matching-order preference contract | [`MatchingOrderPreference`](../../../src/impodo/domain/matching_order.py) |
 | Matching-order preference persistence | [`MatchingOrderRepository`](../../../src/impodo/adapters/duckdb/matching_order_repository.py) |
 | Matching-order check schema and forward migration | [`workspace_engine.py`](../../../src/impodo/adapters/duckdb/schema/workspace_engine.py) |
@@ -654,7 +672,7 @@ validation result for the malformed formula.
 | Canonical relationship dependencies | [`relationship_dependencies.py`](../../../src/impodo/domain/relationship_dependencies.py) |
 | Shared dataset component ordering and typed recommendation facts | [`matching_order.py`](../../../src/impodo/domain/matching_order.py) |
 | Recommended-order browser queue | [`_matching_order.html`](../../../src/impodo/web/templates/mapping/_matching_order.html), [`mapping-order.js`](../../../src/impodo/web/static/mapping-order.js), and [`mapping.css`](../../../src/impodo/web/static/mapping.css) |
-| Matching-order and relationship-health domain, service, persistence, and browser tests | [`test_matching_order.py`](../../../tests/domain/test_matching_order.py), [`test_relationship_health.py`](../../../tests/domain/test_relationship_health.py), [`test_order_service.py`](../../../tests/application/workspace/mapping/test_order_service.py), [`test_matching_order_live_check.py`](../../../tests/application/workspace/mapping/test_matching_order_live_check.py), [`test_matching_order_repository.py`](../../../tests/integration/duckdb/test_matching_order_repository.py), [`test_identity_health_presenter.py`](../../../tests/integration/web/test_identity_health_presenter.py), [`test_relationship_health_presenter.py`](../../../tests/integration/web/test_relationship_health_presenter.py), [`test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py), and [`test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py) |
+| Matching-order and relationship-health domain, service, persistence, issue-projection, and browser tests | [`test_matching_order.py`](../../../tests/domain/test_matching_order.py), [`test_relationship_health.py`](../../../tests/domain/test_relationship_health.py), [`test_order_service.py`](../../../tests/application/workspace/mapping/test_order_service.py), [`test_matching_order_live_check.py`](../../../tests/application/workspace/mapping/test_matching_order_live_check.py), [`test_matching_health_issues.py`](../../../tests/application/workspace/mapping/test_matching_health_issues.py), [`test_matching_order_repository.py`](../../../tests/integration/duckdb/test_matching_order_repository.py), [`test_identity_health_presenter.py`](../../../tests/integration/web/test_identity_health_presenter.py), [`test_relationship_health_presenter.py`](../../../tests/integration/web/test_relationship_health_presenter.py), [`test_matching_health_issues_presenter.py`](../../../tests/integration/web/test_matching_health_issues_presenter.py), [`test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py), and [`test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py) |
 | Batched Odoo read planning | [`planner.py`](../../../src/impodo/domain/execution/planner.py) |
 | Target-first resolution and classification | [`preflight.py`](../../../src/impodo/domain/preparation/preflight.py) |
 | Reviewed execution hand-off | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
@@ -886,6 +904,8 @@ operational source data.
 - [`tests/integration/web/test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py)
 - [`tests/integration/web/test_identity_health_presenter.py`](../../../tests/integration/web/test_identity_health_presenter.py)
 - [`tests/integration/web/test_relationship_health_presenter.py`](../../../tests/integration/web/test_relationship_health_presenter.py)
+- [`tests/application/workspace/mapping/test_matching_health_issues.py`](../../../tests/application/workspace/mapping/test_matching_health_issues.py)
+- [`tests/integration/web/test_matching_health_issues_presenter.py`](../../../tests/integration/web/test_matching_health_issues_presenter.py)
 - [`tests/integration/web/test_mapping_catalog_scale.py`](../../../tests/integration/web/test_mapping_catalog_scale.py)
 - [`tests/integration/web/test_mapping_catalog_runtime.py`](../../../tests/integration/web/test_mapping_catalog_runtime.py)
 - [`tests/integration/web/test_diagnostics.py`](../../../tests/integration/web/test_diagnostics.py)

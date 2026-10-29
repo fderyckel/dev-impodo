@@ -12,6 +12,7 @@ shared:
     - src/impodo/web/composition/page_reads.py::run_page_read
     - src/impodo/web/composition/page_reads.py::run_local_operation
     - src/impodo/web/composition/page_reads.py::run_local_operation_sync
+    - src/impodo/adapters/duckdb/unit_of_work.py::validate_schema_once_for_operation
   tests:
     - tests/integration/web/test_page_reads.py
     - tests/integration/duckdb/test_page_read_connections.py
@@ -129,6 +130,8 @@ stages:
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_join_group
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.save_join_group
       - src/impodo/adapters/duckdb/exact_join_group_evaluator.py::DuckDbExactJoinGroupEvaluator
+      - src/impodo/application/workspace/preparation/grouped_exact_join_preparation.py::prepare_bounded_grouped_exact_join_session
+      - src/impodo/adapters/duckdb/grouped_exact_join_source.py::DuckDbGroupedExactJoinSource
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.preview_related_split
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService.save_related_split
       - src/impodo/domain/workspace/derived_entities.py::source_dataset_uses_for_authoring
@@ -182,6 +185,7 @@ stages:
       - tests/application/workspace/test_exact_join_authoring.py
       - tests/integration/web/test_exact_join_workflow.py
       - tests/integration/web/test_exact_join_group_forms.py
+      - tests/integration/artifacts/test_grouped_exact_join_preparation.py
       - tests/performance/test_exact_join_group_scale.py
       - tests/integration/web/test_related_split_workflow.py
       - tests/integration/web/test_generic_source_composition.py
@@ -448,6 +452,7 @@ stages:
       - src/impodo/domain/matching_order.py::live_matching_order_recommendation
       - src/impodo/domain/relationship_health.py::RelationshipHealthResult
       - src/impodo/domain/relationship_health.py::classify_relationship_health
+      - src/impodo/application/workspace/mapping/health_issues.py::matching_health_issue_counts
       - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v11_to_v12
       - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v12_to_v13
       - src/impodo/domain/execution/planner.py::plan_record_requests
@@ -474,6 +479,7 @@ stages:
       - src/impodo/web/presenters/mapping_view.py::_matching_order_view
       - src/impodo/web/presenters/identity_health.py::identity_health_view
       - src/impodo/web/presenters/relationship_health.py::relationship_health_view
+      - src/impodo/web/presenters/matching_health_issues.py::matching_health_workflow_issue_summary
       - src/impodo/web/presenters/mapping_view.py::_build_dataset_catalog_projection
     tests:
       - tests/integration/web/test_mapping_forms.py
@@ -487,6 +493,8 @@ stages:
       - tests/integration/web/test_mapping_workflow.py
       - tests/integration/web/test_identity_health_presenter.py
       - tests/integration/web/test_relationship_health_presenter.py
+      - tests/application/workspace/mapping/test_matching_health_issues.py
+      - tests/integration/web/test_matching_health_issues_presenter.py
       - tests/integration/web/test_mapping_catalog_scale.py
       - tests/integration/web/test_mapping_catalog_runtime.py
       - tests/integration/web/test_diagnostics.py
@@ -619,16 +627,20 @@ stages:
       - src/impodo/application/odoo_comparison_service.py::build_odoo_comparison_publication
       - src/impodo/domain/preflight/reports.py::review_workbook_cell_feedback
       - src/impodo/domain/preflight/reports.py::review_workbook_action_priority
+      - src/impodo/domain/preflight/reports.py::readiness_issue_counts
+      - src/impodo/adapters/duckdb/preflight_repository.py::PreflightRepository.get_readiness_rows
       - src/impodo/domain/preflight/deferred_scope.py::preview_deferred_scope
       - src/impodo/domain/preflight/deferred_execution.py::reduce_execution_snapshot
       - src/impodo/adapters/artifacts/reporting.py::write_review_workbook
       - src/impodo/web/presenters/summary.py::_quality_workflow_issue_summary
+      - src/impodo/web/presenters/summary.py::_readiness_workflow_issue_summary
       - src/impodo/application/workspace/issues.py::WorkflowIssueProjection
       - src/impodo/web/composition/target_readers.py::LocalOdooRecoveryRequired
     tests:
       - tests/application/workspace/review/test_preflight_jobs.py
       - tests/application/workspace/review/test_preflight.py
       - tests/domain/preflight/test_review_workbook.py
+      - tests/domain/preflight/test_reports.py
       - tests/domain/preflight/test_deferred_scope.py
       - tests/domain/preflight/test_deferred_execution.py
       - tests/performance/test_preflight_scale.py

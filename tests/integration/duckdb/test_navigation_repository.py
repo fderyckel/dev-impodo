@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import unittest
 from contextlib import contextmanager
+from datetime import UTC, datetime
+import json
 from unittest.mock import MagicMock, Mock
 from uuid import uuid4
 
@@ -16,6 +18,11 @@ from impodo.adapters.duckdb.schema.workspace_engine import (
     WorkspaceEngineSchemaMixin,
 )
 from impodo.adapters.duckdb.serialization import _workspace_values
+from impodo.domain.matching_order import (
+    MatchingIdentityCheckStatus,
+    MatchingIdentityResult,
+    MatchingOrderCheck,
+)
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceState
 
 
@@ -29,6 +36,43 @@ class _WorkspaceSchema(WorkspaceEngineSchemaMixin):
 @contextmanager
 def _keep_open(connection):
     yield connection
+
+
+def _matching_health_check() -> MatchingOrderCheck:
+    return MatchingOrderCheck(
+        check_id=str(uuid4()),
+        workspace_id="workspace-1",
+        source_selection_hash=HASH,
+        schema_hash=HASH,
+        governance_hash=HASH,
+        working_draft_version=1,
+        working_draft_hash=HASH,
+        target_hash=HASH,
+        read_credential_binding_hash=HASH,
+        read_principal_hash=HASH,
+        read_permission_hash=HASH,
+        read_context_hash=HASH,
+        relationship_results=(),
+        unchecked_relationship_count=0,
+        ordered_dataset_ids=(),
+        recommendation_hash=HASH,
+        schema_changed=False,
+        captured_at=datetime.now(UTC),
+        actor_issuer="local",
+        actor_subject="operator",
+        actor_display_name="Operator",
+        identity_results=(
+            MatchingIdentityResult(
+                dataset_id="products",
+                target_model="product.template",
+                target_fields=("default_code",),
+                status=MatchingIdentityCheckStatus.CHECKED,
+                source_row_count=1,
+                source_blank_row_count=1,
+                blocked_count=1,
+            ),
+        ),
+    )
 
 
 class WorkspaceNavigationRepositoryTests(unittest.TestCase):
@@ -137,6 +181,87 @@ class WorkspaceNavigationRepositoryTests(unittest.TestCase):
         self.assertFalse(facts.schema_present)
         self.assertFalse(facts.schema_complete)
         self.assertTrue(facts.schema_attention)
+
+    def test_current_matching_health_uses_bounded_counts_and_stale_bindings_hide_it(
+        self,
+    ) -> None:
+        connection = duckdb.connect(":memory:")
+        try:
+            _WorkspaceSchema()._initialize_workspace_database(connection)
+            check = _matching_health_check()
+            connection.execute(
+                "INSERT INTO source_selection VALUES (1, ?)",
+                [json.dumps({"content_hash": HASH})],
+            )
+            connection.execute(
+                "INSERT INTO odoo_schema_catalog VALUES (1, ?)",
+                [
+                    json.dumps(
+                        {
+                            "contract_version": "2",
+                            "models": [],
+                            "content_hash": HASH,
+                            "connection_target_hash": HASH,
+                            "read_credential_binding_hash": HASH,
+                            "read_principal_hash": HASH,
+                            "read_permission_hash": HASH,
+                            "read_context_hash": HASH,
+                            "pending_refresh": None,
+                        }
+                    )
+                ],
+            )
+            connection.execute(
+                """
+                INSERT INTO mapping_working_draft
+                VALUES (1, 'mapping', 1, ?, ?, ?, '', '{}')
+                """,
+                [HASH, HASH, HASH],
+            )
+            connection.execute(
+                """
+                INSERT INTO matching_order_check
+                VALUES (?, '', ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    check.check_id,
+                    HASH,
+                    HASH,
+                    HASH,
+                    HASH,
+                    HASH,
+                    HASH,
+                    HASH,
+                    HASH,
+                    HASH,
+                    HASH,
+                    check.to_json(),
+                ],
+            )
+            connection.execute(
+                "INSERT INTO matching_order_check_current VALUES (1, ?)",
+                [check.check_id],
+            )
+
+            current = WorkspaceNavigationRepository._read_facts(
+                connection,
+                "workspace-1",
+            )
+            connection.execute(
+                "UPDATE mapping_working_draft SET content_hash = ?",
+                ["sha256:" + "3" * 64],
+            )
+            stale = WorkspaceNavigationRepository._read_facts(
+                connection,
+                "workspace-1",
+            )
+        finally:
+            connection.close()
+
+        self.assertEqual(current.workflow_issue_must_fix_count, 1)
+        self.assertEqual(current.workflow_issue_review_count, 0)
+        self.assertEqual(stale.workflow_issue_must_fix_count, 0)
+        self.assertEqual(stale.workflow_issue_review_count, 0)
 
     def test_invalid_execution_projection_is_not_treated_as_loadable(self) -> None:
         connection = duckdb.connect(":memory:")

@@ -681,6 +681,7 @@ class PreflightRepository(Protocol):
         *,
         status: str = "",
         dataset: str = "",
+        issue_code: str = "",
         page: int = 1,
         page_size: int = 100,
     ) -> ReadinessRowPage:

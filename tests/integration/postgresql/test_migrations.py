@@ -360,6 +360,67 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertIn("d.committed_at DESC, o.operation_id DESC", schema)
         self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE", schema)
 
+    def test_platform_bootstrap_schema_separates_secret_and_event_data(self) -> None:
+        migration = POSTGRESQL_MIGRATIONS[4]
+        schema = "\n".join(statement.query for statement in migration.statements)
+
+        for table in (
+            "platform_administrator",
+            "platform_administrator_password_identity",
+            "platform_security_event",
+        ):
+            self.assertIn(f"impodo_control.{table}", schema)
+        self.assertIn("normalized_login_email varchar(320) NOT NULL UNIQUE", schema)
+        self.assertIn("parameters jsonb NOT NULL", schema)
+        self.assertIn("salt bytea NOT NULL", schema)
+        self.assertIn("password_hash bytea NOT NULL", schema)
+        self.assertIn("PLATFORM_ADMINISTRATOR_BOOTSTRAPPED", schema)
+        self.assertIn("subject_administrator_id", schema)
+        self.assertNotIn("password_hash text", schema)
+        self.assertNotIn("raw_password", schema)
+        self.assertNotIn("activation_link", schema)
+        self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE", schema)
+        self.assertNotIn("GRANT SELECT, INSERT, DELETE", schema)
+        self.assertNotIn("GRANT UPDATE", schema)
+
+    def test_platform_authentication_schema_bounds_identity_and_throttles(self) -> None:
+        migration = POSTGRESQL_MIGRATIONS[5]
+        schema = "\n".join(statement.query for statement in migration.statements)
+
+        self.assertIn("impodo_control.login_identity", schema)
+        self.assertIn("normalized_login_email varchar(320) PRIMARY KEY", schema)
+        self.assertIn("impodo_control.authentication_throttle", schema)
+        self.assertIn("scope_kind IN ('ACCOUNT', 'SOURCE')", schema)
+        self.assertIn("password_revision bigint NOT NULL", schema)
+        self.assertIn("AUTHENTICATION_REJECTED", schema)
+        self.assertIn("principal_hint_digest", schema)
+        self.assertIn("source_digest", schema)
+        self.assertNotIn("raw_password", schema)
+        self.assertNotIn("remote_address", schema)
+        self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE", schema)
+
+    def test_account_recovery_schema_is_digest_only_one_use_and_no_delete(self) -> None:
+        migration = POSTGRESQL_MIGRATIONS[6]
+        schema = "\n".join(statement.query for statement in migration.statements)
+
+        self.assertIn("impodo_control.account_recovery_token", schema)
+        self.assertIn("token_digest bytea NOT NULL UNIQUE", schema)
+        self.assertIn("octet_length(token_digest) = 32", schema)
+        self.assertIn("purpose IN ('ACTIVATION', 'PASSWORD_RESET')", schema)
+        self.assertIn("state IN ('ISSUED', 'CONSUMED', 'REVOKED')", schema)
+        self.assertIn("WHERE state = 'ISSUED'", schema)
+        self.assertIn("UNIQUE (principal_kind, principal_id)", schema)
+        self.assertIn("'RESET_ACCOUNT', 'RESET_SOURCE'", schema)
+        self.assertIn(
+            "UPDATE (state, consumed_at, revoked_at, optimistic_revision)",
+            schema,
+        )
+        self.assertNotIn("raw_token", schema)
+        self.assertNotIn("activation_link", schema)
+        self.assertNotIn("GRANT DELETE", schema)
+        self.assertNotIn("UPDATE (token_digest", schema)
+        self.assertNotIn("UPDATE (principal_kind", schema)
+
     def test_default_psycopg_session_is_bounded_and_transactional(self) -> None:
         connection = Mock()
         with patch(

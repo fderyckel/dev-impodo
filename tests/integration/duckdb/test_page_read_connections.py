@@ -15,6 +15,7 @@ from impodo.adapters.duckdb.unit_of_work import (
     DuckDbConnectionFactory,
     retain_databases_for_operation,
     retain_databases_for_read,
+    validate_schema_once_for_operation,
 )
 from tests.support.paths import REPOSITORY_ROOT
 
@@ -139,6 +140,55 @@ class PageReadConnectionTests(unittest.TestCase):
             with self.assertRaises(duckdb.ConnectionException):
                 with self.factory.connect(self.path, threads="3"):
                     self.fail("An incompatible database configuration was reused")
+
+    def test_schema_validation_is_reused_only_for_the_same_scoped_database(self) -> None:
+        second_path = self.path.with_name("second.duckdb")
+
+        with retain_databases_for_read():
+            with self.factory.connect(self.path) as first:
+                with validate_schema_once_for_operation(first, "workspace-v1") as required:
+                    self.assertTrue(required)
+            with self.factory.connect(self.path) as repeated:
+                with validate_schema_once_for_operation(
+                    repeated,
+                    "workspace-v1",
+                ) as required:
+                    self.assertFalse(required)
+                with validate_schema_once_for_operation(
+                    repeated,
+                    "workspace-v2",
+                ) as required:
+                    self.assertTrue(required)
+            with self.factory.connect(second_path) as second:
+                with validate_schema_once_for_operation(
+                    second,
+                    "workspace-v1",
+                ) as required:
+                    self.assertTrue(required)
+
+        with self.factory.connect(self.path) as unscoped:
+            with validate_schema_once_for_operation(
+                unscoped,
+                "workspace-v1",
+            ) as required:
+                self.assertTrue(required)
+
+    def test_failed_schema_validation_is_not_reused(self) -> None:
+        with retain_databases_for_read():
+            with self.factory.connect(self.path) as failed:
+                with self.assertRaisesRegex(ValueError, "invalid schema"):
+                    with validate_schema_once_for_operation(
+                        failed,
+                        "workspace-v1",
+                    ) as required:
+                        self.assertTrue(required)
+                        raise ValueError("invalid schema")
+            with self.factory.connect(self.path) as retried:
+                with validate_schema_once_for_operation(
+                    retried,
+                    "workspace-v1",
+                ) as required:
+                    self.assertTrue(required)
 
 
 

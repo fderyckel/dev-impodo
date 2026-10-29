@@ -265,8 +265,9 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
         else:
             _flash(
                 request,
-                f'Deleted project "{deleted.display_name}", but Windows could not '
-                "remove every stored Odoo key. Review Windows Credential Manager.",
+                f'Deleted project "{deleted.display_name}", but Impodo could not '
+                "remove every stored Odoo key. Review this computer's secure "
+                "credential storage.",
             )
         return RedirectResponse("/projects", status_code=303)
 

@@ -11,7 +11,11 @@ from urllib.parse import unquote, urlsplit
 
 import yaml
 
-from deploy.local_rehearsal import SECRET_FILENAMES, prepare_local_secrets
+from deploy.local_rehearsal import (
+    SECRET_FILENAMES,
+    prepare_local_secrets,
+    prepare_platform_admin_secret,
+)
 from impodo.web.composition.server_cli import (
     CONFIGURATION_ERROR_EXIT,
     main,
@@ -178,6 +182,7 @@ class LinuxContainerContractTests(unittest.TestCase):
                 "migrate",
                 "web",
                 "worker",
+                "admin-bootstrap",
                 "proxy",
             },
         )
@@ -190,6 +195,8 @@ class LinuxContainerContractTests(unittest.TestCase):
         )
         self.assertEqual(services["worker"]["profiles"], ["worker"])
         self.assertEqual(services["worker"]["restart"], "no")
+        self.assertEqual(services["admin-bootstrap"]["profiles"], ["admin"])
+        self.assertEqual(services["admin-bootstrap"]["restart"], "no")
         self.assertEqual(
             {
                 service_name
@@ -199,7 +206,10 @@ class LinuxContainerContractTests(unittest.TestCase):
             {"migrate"},
         )
         self.assertEqual(
-            {services[name]["image"] for name in ("migrate", "web", "worker")},
+            {
+                services[name]["image"]
+                for name in ("migrate", "web", "worker", "admin-bootstrap")
+            },
             {"impodo-server:local"},
         )
 
@@ -261,7 +271,7 @@ class LinuxContainerContractTests(unittest.TestCase):
         self.assertEqual(services["proxy"]["cap_add"], ["NET_BIND_SERVICE"])
         self.assertIn("no-new-privileges:true", services["proxy"]["security_opt"])
 
-        for service_name in ("migrate", "web", "worker"):
+        for service_name in ("migrate", "web", "worker", "admin-bootstrap"):
             with self.subTest(service=service_name):
                 service = services[service_name]
                 self.assertEqual(service["user"], "10001:10001")
@@ -287,6 +297,7 @@ class LinuxContainerContractTests(unittest.TestCase):
                 "postgres-migration-password",
                 "postgres-runtime-dsn",
                 "postgres-migration-dsn",
+                "platform-admin-password",
             },
         )
         for value in secrets_config.values():
@@ -301,7 +312,7 @@ class LinuxContainerContractTests(unittest.TestCase):
         self.assertNotIn("SUPERUSER PASSWORD", role_init)
 
         provisioner = SECRET_PROVISIONER.read_text(encoding="utf-8")
-        self.assertEqual(provisioner.count("-o 0 -g 10001 -m 0440"), 2)
+        self.assertEqual(provisioner.count("-o 0 -g 10001 -m 0440"), 3)
         self.assertIn('postgres_uid="$(id -u postgres)"', provisioner)
         self.assertEqual(provisioner.count("-m 0400 \\"), 3)
         self.assertIn("-o 0 -g 0 -m 0644", provisioner)
@@ -328,6 +339,10 @@ class LinuxContainerContractTests(unittest.TestCase):
         self.assertIn(
             "impodo-runtime-secrets:/run/secrets/impodo:ro",
             compose["services"]["web"]["volumes"],
+        )
+        self.assertEqual(
+            compose["services"]["admin-bootstrap"]["volumes"],
+            ["impodo-runtime-secrets:/run/secrets/impodo:ro"],
         )
         self.assertNotIn(
             "impodo-migration-secrets:/run/secrets/impodo:ro",
@@ -375,6 +390,28 @@ class LinuxContainerContractTests(unittest.TestCase):
             )
             with self.assertRaises(FileExistsError):
                 prepare_local_secrets(secret_directory)
+
+    def test_older_rehearsal_can_add_only_the_missing_admin_secret(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            secret_directory = Path(temporary_directory) / "secrets"
+            created = prepare_local_secrets(secret_directory)
+            admin_secret = secret_directory / "platform-admin-password"
+            original_runtime_dsn = (
+                secret_directory / "postgres-runtime-dsn"
+            ).read_bytes()
+            admin_secret.unlink()
+
+            added = prepare_platform_admin_secret(secret_directory)
+
+            self.assertEqual(added, admin_secret)
+            self.assertTrue(added.read_text(encoding="utf-8").strip())
+            self.assertEqual(
+                (secret_directory / "postgres-runtime-dsn").read_bytes(),
+                original_runtime_dsn,
+            )
+            self.assertEqual(len(created), len(SECRET_FILENAMES))
+            with self.assertRaises(FileExistsError):
+                prepare_platform_admin_secret(secret_directory)
 
 
 if __name__ == "__main__":

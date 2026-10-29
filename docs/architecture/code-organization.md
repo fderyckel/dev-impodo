@@ -214,6 +214,16 @@ object. Do not split one page into several `run_page_read` calls merely to wrap
 individual queries; doing so recreates connection churn and can observe an
 inconsistent page state.
 
+The first repository that opens a retained Workspace engine validates or
+upgrades its exact schema. Later repositories call
+[`validate_schema_once_for_operation`](../../src/impodo/adapters/duckdb/unit_of_work.py)
+to reuse the successful validation for the same database and schema contract
+inside that synchronous scope.
+The marker is scoped to that database path and configuration, is recorded only
+after success, and is discarded with the retained owner. A different database,
+contract, request, or unscoped call validates independently. This rule never
+acts as a process-wide schema or connection cache.
+
 For every new or materially changed database-backed browser route:
 
 1. Measure a representative request's elapsed time, physical DuckDB opens,

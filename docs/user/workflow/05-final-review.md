@@ -51,6 +51,14 @@ paged list behind its totals. The page distinguishes the direct finding from
 parents, children, and siblings set aside through the saved dependency
 closure. Opening it makes no Odoo request and changes no saved decision.
 
+After comparison, **Migration issues** also summarizes blockers that Final
+review found only against current Odoo evidence. These cards remain complete
+when the checked-row table is filtered or paged. A card states the cause,
+owner, affected record type and count, saved work that remains unchanged, and
+the check to repeat. Select **Review affected record type** to open only the
+saved decisions with that exact cause. Opening the list does not compare again,
+change source data or field matches, or write to Odoo.
+
 A prepared-value precision advisory does not itself stop comparison. It shows
 the Odoo field capacity captured during matching and opens either the exact
 number rule or **Odoo data**. Final review then applies the authoritative check

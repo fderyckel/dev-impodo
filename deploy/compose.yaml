@@ -89,6 +89,7 @@ services:
       - postgres-migration-password
       - postgres-runtime-dsn
       - postgres-migration-dsn
+      - platform-admin-password
     volumes:
       - ./local-rehearsal/provision-runtime-secrets.sh:/opt/impodo/provision-runtime-secrets.sh:ro
       - ./postgres/init/010-impodo-roles.sh:/opt/impodo/010-impodo-roles.sh:ro
@@ -180,6 +181,36 @@ services:
       control:
         ipv4_address: 172.30.20.5
 
+  admin-bootstrap:
+    <<: [*impodo-image, *impodo-runtime-security]
+    profiles:
+      - admin
+    command:
+      - admin
+      - bootstrap
+      - --login-email
+      - ${IMPODO_BOOTSTRAP_LOGIN_EMAIL:-}
+      - --display-name
+      - ${IMPODO_BOOTSTRAP_DISPLAY_NAME:-}
+      - --password-file
+      - /run/secrets/impodo/platform-admin-password
+    environment:
+      IMPODO_DEPLOYMENT_ID: local-rehearsal
+      IMPODO_POSTGRES_DSN_FILE: /run/secrets/impodo/postgres-runtime-dsn
+      IMPODO_SECRET_PROVIDER: files
+      IMPODO_SECRET_ROOT: /run/secrets/impodo
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - impodo-runtime-secrets:/run/secrets/impodo:ro
+    tmpfs:
+      - /var/tmp/impodo:uid=10001,gid=10001,mode=0750,noexec,nosuid,nodev
+    networks:
+      control:
+        ipv4_address: 172.30.20.6
+    restart: "no"
+
   proxy:
     image: caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
     user: "10001:10001"
@@ -233,6 +264,8 @@ secrets:
     file: ./.local/secrets/postgres-runtime-dsn
   postgres-migration-dsn:
     file: ./.local/secrets/postgres-migration-dsn
+  platform-admin-password:
+    file: ./.local/secrets/platform-admin-password
 
 volumes:
   postgres-data: {}

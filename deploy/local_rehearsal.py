@@ -16,6 +16,7 @@ SECRET_FILENAMES = (
     "postgres-migration-password",
     "postgres-runtime-dsn",
     "postgres-migration-dsn",
+    "platform-admin-password",
 )
 
 
@@ -68,15 +69,17 @@ def prepare_local_secrets(directory: Path) -> tuple[Path, ...]:
             "Local rehearsal secrets already exist; refusing to overwrite: " + names
         )
 
-    bootstrap_password = _new_password()
+    postgres_bootstrap_password = _new_password()
     runtime_password = _new_password()
     migration_password = _new_password()
+    platform_admin_password = _new_password()
     values = (
-        bootstrap_password,
+        postgres_bootstrap_password,
         runtime_password,
         migration_password,
         _dsn("impodo_runtime", runtime_password),
         _dsn("impodo_migrator", migration_password),
+        platform_admin_password,
     )
     created: list[Path] = []
     try:
@@ -88,6 +91,20 @@ def prepare_local_secrets(directory: Path) -> tuple[Path, ...]:
             path.unlink(missing_ok=True)
         raise
     return targets
+
+
+def prepare_platform_admin_secret(directory: Path) -> Path:
+    """Add only the fictional admin password to an older rehearsal safely."""
+
+    _prepare_directory(directory)
+    target = directory / "platform-admin-password"
+    if target.exists():
+        raise FileExistsError(
+            "Local rehearsal Platform Administrator secret already exists; "
+            "refusing to overwrite it"
+        )
+    _write_secret(target, _new_password())
+    return target
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -102,6 +119,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_SECRET_DIRECTORY,
         help="ignored directory that will receive the fictional secret files",
     )
+    parser.add_argument(
+        "--platform-admin-only",
+        action="store_true",
+        help="add only the missing fictional admin password to an older rehearsal",
+    )
     return parser
 
 
@@ -110,7 +132,10 @@ def main() -> int:
 
     arguments = build_parser().parse_args()
     try:
-        created = prepare_local_secrets(arguments.directory)
+        if arguments.platform_admin_only:
+            created = (prepare_platform_admin_secret(arguments.directory),)
+        else:
+            created = prepare_local_secrets(arguments.directory)
     except (FileExistsError, OSError, ValueError) as error:
         print(f"Local rehearsal secret preparation refused: {error}")
         return 1

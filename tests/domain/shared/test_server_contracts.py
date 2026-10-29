@@ -25,12 +25,20 @@ from impodo.domain.shared.coordination import (
     WorkspaceLease,
 )
 from impodo.domain.shared.jobs import (
+    DurableJobAttempt,
+    DurableJobKind,
     DurableJobRequest,
     DurableJobState,
     JobAttemptIdentity,
     JobCancellation,
+    JobCancellationDisposition,
+    JobCancellationReceipt,
     JobInterruption,
     JobProgress,
+    JobReceiptCheck,
+    JobReceiptCheckStatus,
+    JobRecoveryDecision,
+    JobRecoveryDisposition,
     JobResultIdentity,
     JobStateTransition,
 )
@@ -400,10 +408,12 @@ class DurableJobContractTests(unittest.TestCase):
             organization_id=OrganizationId("organization-001"),
             project_id="project-001",
             workspace_id="workspace-001",
-            job_kind="workspace.prepare",
+            job_kind=DurableJobKind.PREPARATION,
             idempotency_key="prepare:workspace-001:revision-7",
             semantic_input_hash=HASH_A,
+            manifest_hash=HASH_B,
             authorization_receipt_id="authorization-001",
+            authorization_revision=3,
             requested_by=identity(),
             requested_at=NOW,
         )
@@ -412,7 +422,15 @@ class DurableJobContractTests(unittest.TestCase):
             attempt=self.attempt,
             from_state=DurableJobState.QUEUED,
             to_state=DurableJobState.RUNNING,
+            expected_revision=1,
+            resulting_revision=2,
             occurred_at=NOW,
+        )
+        attempt = DurableJobAttempt(
+            identity=self.attempt,
+            worker_id="worker-001",
+            started_at=NOW,
+            heartbeat_at=NOW + timedelta(seconds=5),
         )
         progress = JobProgress(
             attempt=self.attempt,
@@ -428,10 +446,32 @@ class DurableJobContractTests(unittest.TestCase):
             requested_at=NOW,
             reason_code="USER_REQUESTED",
         )
+        cancellation_receipt = JobCancellationReceipt(
+            cancellation_id=cancellation.cancellation_id,
+            attempt=self.attempt,
+            disposition=JobCancellationDisposition.ACCEPTED,
+            disposed_at=NOW + timedelta(seconds=1),
+        )
+        receipt_check = JobReceiptCheck(
+            check_id="receipt-check-001",
+            attempt=self.attempt,
+            operation_id=request.operation_id,
+            status=JobReceiptCheckStatus.NO_COMMITTED_RECEIPT,
+            attempt_expired_at=NOW + timedelta(seconds=10),
+            checked_at=NOW + timedelta(seconds=11),
+        )
+        recovery_decision = JobRecoveryDecision(
+            decision_id="recovery-decision-001",
+            receipt_check=receipt_check,
+            disposition=JobRecoveryDisposition.INTERRUPT_RETRYABLE,
+            decided_at=NOW + timedelta(seconds=12),
+            reason_code="NO_COMMITTED_RECEIPT",
+        )
         interruption = JobInterruption(
             interruption_id="interruption-001",
             attempt=self.attempt,
-            interrupted_at=NOW,
+            recovery_decision=recovery_decision,
+            interrupted_at=NOW + timedelta(seconds=13),
             reason_code="WORKER_RESTARTED",
         )
         result = JobResultIdentity(
@@ -443,9 +483,19 @@ class DurableJobContractTests(unittest.TestCase):
         )
 
         self.assertEqual(request.organization_id, OrganizationId("organization-001"))
+        self.assertIs(request.job_kind, DurableJobKind.PREPARATION)
         self.assertEqual(started.to_state, DurableJobState.RUNNING)
+        self.assertEqual(attempt.worker_id, "worker-001")
         self.assertEqual(progress.total_units, 10)
         self.assertEqual(cancellation.reason_code, "USER_REQUESTED")
+        self.assertIs(
+            cancellation_receipt.disposition,
+            JobCancellationDisposition.ACCEPTED,
+        )
+        self.assertIs(
+            recovery_decision.disposition,
+            JobRecoveryDisposition.INTERRUPT_RETRYABLE,
+        )
         self.assertEqual(interruption.reason_code, "WORKER_RESTARTED")
         self.assertEqual(
             result.result_artifact_ids,
@@ -456,6 +506,171 @@ class DurableJobContractTests(unittest.TestCase):
                 started,
                 from_state=DurableJobState.SUCCEEDED,
                 to_state=DurableJobState.RUNNING,
+            )
+
+    def test_job_kinds_and_review_required_state_cover_phase_six(self) -> None:
+        self.assertEqual(
+            {item.value for item in DurableJobKind},
+            {
+                "source.inspect",
+                "odoo.capture",
+                "workspace.prepare",
+                "workspace.preflight",
+                "recipe.apply",
+                "report.create",
+                "workspace.load",
+                "workspace.correct",
+                "workspace.reconcile",
+                "project.delete",
+            },
+        )
+        review_required = JobStateTransition(
+            transition_id="transition-review-001",
+            attempt=self.attempt,
+            from_state=DurableJobState.RUNNING,
+            to_state=DurableJobState.REVIEW_REQUIRED,
+            expected_revision=2,
+            resulting_revision=3,
+            occurred_at=NOW,
+            reason_code="DATA_MANAGER_REVIEW_REQUIRED",
+        )
+
+        self.assertIs(
+            review_required.to_state,
+            DurableJobState.REVIEW_REQUIRED,
+        )
+        with self.assertRaisesRegex(ValueError, "invalid job transition"):
+            replace(
+                review_required,
+                from_state=DurableJobState.REVIEW_REQUIRED,
+                to_state=DurableJobState.RUNNING,
+            )
+
+    def test_job_transition_requires_one_compare_and_set_revision(self) -> None:
+        with self.assertRaisesRegex(ValueError, "advance by one"):
+            JobStateTransition(
+                transition_id="transition-001",
+                attempt=self.attempt,
+                from_state=DurableJobState.QUEUED,
+                to_state=DurableJobState.RUNNING,
+                expected_revision=4,
+                resulting_revision=6,
+                occurred_at=NOW,
+            )
+
+    def test_attempt_rejects_reversed_timestamps(self) -> None:
+        with self.assertRaisesRegex(ValueError, "heartbeat_at"):
+            DurableJobAttempt(
+                identity=self.attempt,
+                worker_id="worker-001",
+                started_at=NOW,
+                heartbeat_at=NOW - timedelta(seconds=1),
+            )
+
+    def test_attempt_outcome_requires_finish_and_one_disposition(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires finished_at"):
+            DurableJobAttempt(
+                identity=self.attempt,
+                worker_id="worker-001",
+                started_at=NOW,
+                heartbeat_at=NOW,
+                result_receipt_hash=HASH_A,
+            )
+        with self.assertRaisesRegex(ValueError, "both failure and result"):
+            DurableJobAttempt(
+                identity=self.attempt,
+                worker_id="worker-001",
+                started_at=NOW,
+                heartbeat_at=NOW,
+                finished_at=NOW + timedelta(seconds=1),
+                failure_code="WORKER_FAILED",
+                result_receipt_hash=HASH_A,
+            )
+
+    def test_expired_attempt_recovery_is_bound_to_receipt_evidence(self) -> None:
+        no_receipt = JobReceiptCheck(
+            check_id="receipt-check-none",
+            attempt=self.attempt,
+            operation_id="operation-001",
+            status=JobReceiptCheckStatus.NO_COMMITTED_RECEIPT,
+            attempt_expired_at=NOW,
+            checked_at=NOW + timedelta(seconds=1),
+        )
+        matched_receipt = replace(
+            no_receipt,
+            check_id="receipt-check-matched",
+            status=JobReceiptCheckStatus.MATCHED_COMMITTED_RECEIPT,
+            data_plane_receipt_hash=HASH_A,
+        )
+        retryable = JobRecoveryDecision(
+            decision_id="decision-retryable",
+            receipt_check=no_receipt,
+            disposition=JobRecoveryDisposition.INTERRUPT_RETRYABLE,
+            decided_at=NOW + timedelta(seconds=2),
+            reason_code="NO_COMMITTED_RECEIPT",
+        )
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            replace(
+                retryable,
+                receipt_check=matched_receipt,
+            )
+        completed = replace(
+            retryable,
+            decision_id="decision-complete",
+            receipt_check=matched_receipt,
+            disposition=JobRecoveryDisposition.COMPLETE_FROM_RECEIPT,
+        )
+        with self.assertRaisesRegex(ValueError, "retryable"):
+            JobInterruption(
+                interruption_id="interruption-001",
+                attempt=self.attempt,
+                recovery_decision=completed,
+                interrupted_at=NOW + timedelta(seconds=3),
+                reason_code="WORKER_RESTARTED",
+            )
+        with self.assertRaisesRegex(ValueError, "requires a recovery decision"):
+            JobStateTransition(
+                transition_id="transition-interrupted-without-check",
+                attempt=self.attempt,
+                from_state=DurableJobState.RUNNING,
+                to_state=DurableJobState.INTERRUPTED,
+                expected_revision=2,
+                resulting_revision=3,
+                occurred_at=NOW + timedelta(seconds=3),
+            )
+        interrupted = JobStateTransition(
+            transition_id="transition-interrupted",
+            attempt=self.attempt,
+            from_state=DurableJobState.RUNNING,
+            to_state=DurableJobState.INTERRUPTED,
+            expected_revision=2,
+            resulting_revision=3,
+            occurred_at=NOW + timedelta(seconds=3),
+            recovery_decision_id=retryable.decision_id,
+        )
+
+        self.assertEqual(interrupted.recovery_decision_id, retryable.decision_id)
+
+    def test_receipt_check_requires_expiry_and_bounded_receipt_hash(self) -> None:
+        with self.assertRaisesRegex(ValueError, "precede attempt expiry"):
+            JobReceiptCheck(
+                check_id="receipt-check-early",
+                attempt=self.attempt,
+                operation_id="operation-001",
+                status=JobReceiptCheckStatus.NO_COMMITTED_RECEIPT,
+                attempt_expired_at=NOW + timedelta(seconds=1),
+                checked_at=NOW,
+            )
+        with self.assertRaisesRegex(ValueError, "sha256"):
+            JobReceiptCheck(
+                check_id="receipt-check-invalid-hash",
+                attempt=self.attempt,
+                operation_id="operation-001",
+                status=JobReceiptCheckStatus.RECEIPT_MISMATCH,
+                attempt_expired_at=NOW,
+                checked_at=NOW + timedelta(seconds=1),
+                data_plane_receipt_hash="invalid",
             )
 
 

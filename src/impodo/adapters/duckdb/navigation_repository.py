@@ -10,10 +10,14 @@ from impodo.application.workspace.execution.navigation import (
     ExecutionNavigationState,
     ExecutionPreviewSummary,
 )
+from impodo.application.workspace.mapping.health_issues import (
+    matching_health_issue_counts,
+)
 from impodo.application.workspace.navigation import (
     WorkspaceNavigationFacts,
     WorkspaceNavigationSnapshot,
 )
+from impodo.domain.matching_order import MatchingOrderCheck
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     WorkspaceState,
@@ -329,12 +333,83 @@ class WorkspaceNavigationRepository(DuckDbRepository):
                    AND submission.content_hash = revision.content_hash
                  WHERE current.singleton_id = 1
                    AND try_cast(revision.revision_json AS JSON) IS NOT NULL
-            )
+            ), coalesce((
+                SELECT result.check_json
+                  FROM matching_order_check_current AS current_check
+                  JOIN matching_order_check AS result
+                    ON result.check_id = current_check.check_id
+                  JOIN mapping_working_draft AS draft
+                    ON draft.singleton_id = 1
+                  JOIN odoo_schema_catalog AS catalog
+                    ON catalog.singleton_id = 1
+                  JOIN source_selection AS selection
+                    ON selection.singleton_id = 1
+             LEFT JOIN (
+                       SELECT revision.content_hash
+                         FROM schema_governance_current AS current_governance
+                         JOIN schema_governance_revision AS revision
+                           ON revision.governance_id =
+                              current_governance.governance_id
+                          AND revision.version = current_governance.version
+                        WHERE current_governance.singleton_id = 1
+                       ) AS governance ON TRUE
+                 WHERE current_check.singleton_id = 1
+                   AND result.source_selection_hash = json_extract_string(
+                       try_cast(selection.selection_json AS JSON),
+                       '$.content_hash'
+                   )
+                   AND result.schema_hash = json_extract_string(
+                       try_cast(catalog.catalog_json AS JSON),
+                       '$.content_hash'
+                   )
+                   AND result.governance_hash = coalesce(
+                       governance.content_hash,
+                       json_extract_string(
+                           try_cast(catalog.catalog_json AS JSON),
+                           '$.content_hash'
+                       )
+                   )
+                   AND result.working_draft_version = draft.version
+                   AND result.working_draft_hash = draft.content_hash
+                   AND result.target_hash = json_extract_string(
+                       try_cast(catalog.catalog_json AS JSON),
+                       '$.connection_target_hash'
+                   )
+                   AND result.read_credential_binding_hash =
+                       json_extract_string(
+                           try_cast(catalog.catalog_json AS JSON),
+                           '$.read_credential_binding_hash'
+                       )
+                   AND result.read_principal_hash = json_extract_string(
+                       try_cast(catalog.catalog_json AS JSON),
+                       '$.read_principal_hash'
+                   )
+                   AND result.read_permission_hash = json_extract_string(
+                       try_cast(catalog.catalog_json AS JSON),
+                       '$.read_permission_hash'
+                   )
+                   AND result.read_context_hash = json_extract_string(
+                       try_cast(catalog.catalog_json AS JSON),
+                       '$.read_context_hash'
+                   )
+                   AND NOT coalesce(try_cast(json_extract_string(
+                       try_cast(result.check_json AS JSON),
+                       '$.schema_changed'
+                   ) AS BOOLEAN), TRUE)
+                 LIMIT 1
+            ), '')
             """
         ).fetchone()
         if mapping_row is None:
             raise WorkspaceError("Stored mapping navigation evidence is missing")
         mapping_complete = bool(mapping_row[0])
+        matching_issue_counts = (
+            matching_health_issue_counts(
+                MatchingOrderCheck.from_json(str(mapping_row[1]))
+            )
+            if mapping_row[1]
+            else None
+        )
         preparation = connection.execute(
             """
             SELECT coalesce(staging.run_id, ''),
@@ -454,6 +529,16 @@ class WorkspaceNavigationRepository(DuckDbRepository):
             normalization_status=str(preparation[8]),
             normalization_decision_count=int(preparation[9]),
             normalization_reviewed_count=int(preparation[10]),
+            workflow_issue_must_fix_count=(
+                matching_issue_counts.must_fix
+                if matching_issue_counts is not None
+                else 0
+            ),
+            workflow_issue_review_count=(
+                matching_issue_counts.review
+                if matching_issue_counts is not None
+                else 0
+            ),
             preflight_status=preflight_status,
             execution_state=execution_state,
             transfer_execution_run_id=str(transfer[0]),

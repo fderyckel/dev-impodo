@@ -362,6 +362,244 @@ _GRANT_PROJECTION_CURRENT_QUERY: LiteralString = (
     "GRANT SELECT, INSERT, UPDATE "
     "ON impodo_control.projection_current TO impodo_runtime"
 )
+_CREATE_PLATFORM_ADMINISTRATOR_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.platform_administrator (\n"
+    "    administrator_id uuid PRIMARY KEY,\n"
+    "    normalized_login_email varchar(320) NOT NULL UNIQUE "
+    "CHECK (normalized_login_email <> '' "
+    "AND normalized_login_email = btrim(normalized_login_email)),\n"
+    "    display_name varchar(200) NOT NULL "
+    "CHECK (display_name <> '' AND display_name = btrim(display_name)),\n"
+    "    status varchar(32) NOT NULL "
+    "CHECK (status IN ('ACTIVE', 'DEACTIVATED')),\n"
+    "    security_revision bigint NOT NULL CHECK (security_revision > 0),\n"
+    "    created_at timestamp with time zone NOT NULL,\n"
+    "    deactivated_at timestamp with time zone,\n"
+    "    CHECK ((status = 'ACTIVE' AND deactivated_at IS NULL) "
+    "OR (status = 'DEACTIVATED' AND deactivated_at IS NOT NULL))\n"
+    ")"
+)
+_CREATE_ACTIVE_PLATFORM_ADMINISTRATOR_INDEX_QUERY: LiteralString = (
+    "CREATE INDEX platform_administrator_active_created_idx\n"
+    "ON impodo_control.platform_administrator (created_at, administrator_id)\n"
+    "WHERE status = 'ACTIVE'"
+)
+_CREATE_PLATFORM_ADMINISTRATOR_PASSWORD_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.platform_administrator_password_identity (\n"
+    "    administrator_id uuid PRIMARY KEY,\n"
+    "    algorithm varchar(64) NOT NULL "
+    "CHECK (algorithm <> '' AND algorithm = btrim(algorithm)),\n"
+    "    parameters jsonb NOT NULL "
+    "CHECK (jsonb_typeof(parameters) = 'object'),\n"
+    "    salt bytea NOT NULL CHECK (octet_length(salt) BETWEEN 16 AND 128),\n"
+    "    password_hash bytea NOT NULL "
+    "CHECK (octet_length(password_hash) BETWEEN 32 AND 256),\n"
+    "    created_at timestamp with time zone NOT NULL,\n"
+    "    FOREIGN KEY (administrator_id) "
+    "REFERENCES impodo_control.platform_administrator (administrator_id) "
+    "ON DELETE RESTRICT\n"
+    ")"
+)
+_CREATE_PLATFORM_SECURITY_EVENT_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.platform_security_event (\n"
+    "    event_id uuid PRIMARY KEY,\n"
+    "    deployment_id varchar(63) NOT NULL "
+    "CHECK (deployment_id <> '' AND deployment_id = btrim(deployment_id)),\n"
+    "    event_kind varchar(100) NOT NULL "
+    "CHECK (event_kind IN ('PLATFORM_ADMINISTRATOR_BOOTSTRAPPED')),\n"
+    "    subject_administrator_id uuid NOT NULL,\n"
+    "    occurred_at timestamp with time zone NOT NULL,\n"
+    "    FOREIGN KEY (subject_administrator_id) "
+    "REFERENCES impodo_control.platform_administrator (administrator_id) "
+    "ON DELETE RESTRICT\n"
+    ")"
+)
+_CREATE_PLATFORM_SECURITY_EVENT_INDEX_QUERY: LiteralString = (
+    "CREATE INDEX platform_security_event_subject_time_idx\n"
+    "ON impodo_control.platform_security_event "
+    "(subject_administrator_id, occurred_at DESC, event_id)"
+)
+_GRANT_PLATFORM_ADMINISTRATOR_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT "
+    "ON impodo_control.platform_administrator TO impodo_runtime"
+)
+_GRANT_PLATFORM_ADMINISTRATOR_PASSWORD_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT "
+    "ON impodo_control.platform_administrator_password_identity TO impodo_runtime"
+)
+_GRANT_PLATFORM_SECURITY_EVENT_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT "
+    "ON impodo_control.platform_security_event TO impodo_runtime"
+)
+_ADD_PLATFORM_PASSWORD_REVISION_QUERY: LiteralString = (
+    "ALTER TABLE impodo_control.platform_administrator_password_identity\n"
+    "ADD COLUMN password_revision bigint NOT NULL DEFAULT 1 "
+    "CHECK (password_revision > 0),\n"
+    "ADD COLUMN updated_at timestamp with time zone NOT NULL "
+    "DEFAULT transaction_timestamp()"
+)
+_CREATE_LOGIN_IDENTITY_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.login_identity (\n"
+    "    normalized_login_email varchar(320) PRIMARY KEY "
+    "CHECK (normalized_login_email <> '' "
+    "AND normalized_login_email = btrim(normalized_login_email)),\n"
+    "    principal_kind varchar(32) NOT NULL "
+    "CHECK (principal_kind = 'PLATFORM_ADMINISTRATOR'),\n"
+    "    platform_administrator_id uuid NOT NULL UNIQUE,\n"
+    "    created_at timestamp with time zone NOT NULL,\n"
+    "    FOREIGN KEY (platform_administrator_id) "
+    "REFERENCES impodo_control.platform_administrator (administrator_id) "
+    "ON DELETE RESTRICT\n"
+    ")"
+)
+_BACKFILL_LOGIN_IDENTITY_QUERY: LiteralString = (
+    "INSERT INTO impodo_control.login_identity (\n"
+    "    normalized_login_email, principal_kind, "
+    "platform_administrator_id, created_at\n"
+    ")\n"
+    "SELECT normalized_login_email, 'PLATFORM_ADMINISTRATOR', "
+    "administrator_id, created_at\n"
+    "FROM impodo_control.platform_administrator\n"
+    "ORDER BY created_at, administrator_id"
+)
+_CREATE_AUTHENTICATION_THROTTLE_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.authentication_throttle (\n"
+    "    scope_kind varchar(16) NOT NULL "
+    "CHECK (scope_kind IN ('ACCOUNT', 'SOURCE')),\n"
+    "    scope_digest varchar(71) NOT NULL "
+    "CHECK (scope_digest ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    failure_count integer NOT NULL "
+    "CHECK (failure_count BETWEEN 0 AND 1000),\n"
+    "    window_started_at timestamp with time zone NOT NULL,\n"
+    "    locked_until timestamp with time zone,\n"
+    "    optimistic_revision bigint NOT NULL "
+    "CHECK (optimistic_revision > 0),\n"
+    "    updated_at timestamp with time zone NOT NULL,\n"
+    "    PRIMARY KEY (scope_kind, scope_digest)\n"
+    ")"
+)
+_EXPAND_PLATFORM_SECURITY_EVENT_QUERY: LiteralString = (
+    "ALTER TABLE impodo_control.platform_security_event\n"
+    "DROP CONSTRAINT platform_security_event_event_kind_check,\n"
+    "ALTER COLUMN subject_administrator_id DROP NOT NULL,\n"
+    "ADD COLUMN principal_hint_digest varchar(71) "
+    "CHECK (principal_hint_digest ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "ADD COLUMN source_digest varchar(71) "
+    "CHECK (source_digest ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "ADD CONSTRAINT platform_security_event_event_kind_check "
+    "CHECK (event_kind IN ("
+    "'PLATFORM_ADMINISTRATOR_BOOTSTRAPPED', "
+    "'AUTHENTICATION_SUCCEEDED', 'AUTHENTICATION_REJECTED', "
+    "'PASSWORD_REHASHED'))"
+)
+_GRANT_LOGIN_IDENTITY_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT ON impodo_control.login_identity TO impodo_runtime"
+)
+_GRANT_AUTHENTICATION_THROTTLE_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT, UPDATE "
+    "ON impodo_control.authentication_throttle TO impodo_runtime"
+)
+_GRANT_PLATFORM_PASSWORD_UPDATE_QUERY: LiteralString = (
+    "GRANT UPDATE (algorithm, parameters, salt, password_hash, "
+    "password_revision, updated_at) "
+    "ON impodo_control.platform_administrator_password_identity "
+    "TO impodo_runtime"
+)
+_ADD_LOGIN_PRINCIPAL_ID_QUERY: LiteralString = (
+    "ALTER TABLE impodo_control.login_identity "
+    "ADD COLUMN principal_id uuid"
+)
+_BACKFILL_LOGIN_PRINCIPAL_ID_QUERY: LiteralString = (
+    "UPDATE impodo_control.login_identity "
+    "SET principal_id = platform_administrator_id"
+)
+_ENFORCE_LOGIN_PRINCIPAL_ID_QUERY: LiteralString = (
+    "ALTER TABLE impodo_control.login_identity "
+    "ALTER COLUMN principal_id SET NOT NULL, "
+    "ADD CONSTRAINT login_identity_principal_unique "
+    "UNIQUE (principal_kind, principal_id)"
+)
+_EXPAND_AUTHENTICATION_THROTTLE_SCOPES_QUERY: LiteralString = (
+    "ALTER TABLE impodo_control.authentication_throttle\n"
+    "DROP CONSTRAINT authentication_throttle_scope_kind_check,\n"
+    "ADD CONSTRAINT authentication_throttle_scope_kind_check "
+    "CHECK (scope_kind IN "
+    "('ACCOUNT', 'SOURCE', 'RESET_ACCOUNT', 'RESET_SOURCE'))"
+)
+_EXPAND_RECOVERY_SECURITY_EVENTS_QUERY: LiteralString = (
+    "ALTER TABLE impodo_control.platform_security_event\n"
+    "DROP CONSTRAINT platform_security_event_event_kind_check,\n"
+    "ADD CONSTRAINT platform_security_event_event_kind_check "
+    "CHECK (event_kind IN ("
+    "'PLATFORM_ADMINISTRATOR_BOOTSTRAPPED', "
+    "'AUTHENTICATION_SUCCEEDED', 'AUTHENTICATION_REJECTED', "
+    "'PASSWORD_REHASHED', 'PASSWORD_RESET_REQUESTED', "
+    "'RECOVERY_TOKEN_ISSUED', 'PASSWORD_RESET_COMPLETED'))"
+)
+_CREATE_ACCOUNT_RECOVERY_TOKEN_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.account_recovery_token (\n"
+    "    token_id uuid PRIMARY KEY,\n"
+    "    principal_kind varchar(32) NOT NULL,\n"
+    "    principal_id uuid NOT NULL,\n"
+    "    purpose varchar(32) NOT NULL "
+    "CHECK (purpose IN ('ACTIVATION', 'PASSWORD_RESET')),\n"
+    "    token_digest bytea NOT NULL UNIQUE "
+    "CHECK (octet_length(token_digest) = 32),\n"
+    "    state varchar(16) NOT NULL "
+    "CHECK (state IN ('ISSUED', 'CONSUMED', 'REVOKED')),\n"
+    "    issued_security_revision bigint NOT NULL "
+    "CHECK (issued_security_revision > 0),\n"
+    "    issued_password_revision bigint "
+    "CHECK (issued_password_revision IS NULL "
+    "OR issued_password_revision > 0),\n"
+    "    issued_by_administrator_id uuid,\n"
+    "    issued_at timestamp with time zone NOT NULL,\n"
+    "    expires_at timestamp with time zone NOT NULL,\n"
+    "    consumed_at timestamp with time zone,\n"
+    "    revoked_at timestamp with time zone,\n"
+    "    optimistic_revision bigint NOT NULL "
+    "CHECK (optimistic_revision > 0),\n"
+    "    FOREIGN KEY (principal_kind, principal_id) "
+    "REFERENCES impodo_control.login_identity "
+    "(principal_kind, principal_id) ON DELETE RESTRICT,\n"
+    "    FOREIGN KEY (issued_by_administrator_id) "
+    "REFERENCES impodo_control.platform_administrator (administrator_id) "
+    "ON DELETE RESTRICT,\n"
+    "    CHECK (expires_at > issued_at),\n"
+    "    CHECK ((purpose = 'PASSWORD_RESET' "
+    "AND issued_password_revision IS NOT NULL) "
+    "OR purpose = 'ACTIVATION'),\n"
+    "    CHECK ((state = 'ISSUED' AND consumed_at IS NULL "
+    "AND revoked_at IS NULL) "
+    "OR (state = 'CONSUMED' AND consumed_at IS NOT NULL "
+    "AND revoked_at IS NULL) "
+    "OR (state = 'REVOKED' AND consumed_at IS NULL "
+    "AND revoked_at IS NOT NULL))\n"
+    ")"
+)
+_CREATE_ACCOUNT_RECOVERY_OUTSTANDING_INDEX_QUERY: LiteralString = (
+    "CREATE UNIQUE INDEX account_recovery_token_outstanding_idx\n"
+    "ON impodo_control.account_recovery_token "
+    "(principal_kind, principal_id, purpose)\n"
+    "WHERE state = 'ISSUED'"
+)
+_CREATE_ACCOUNT_RECOVERY_EXPIRY_INDEX_QUERY: LiteralString = (
+    "CREATE INDEX account_recovery_token_expiry_idx\n"
+    "ON impodo_control.account_recovery_token "
+    "(expires_at, token_id) WHERE state = 'ISSUED'"
+)
+_GRANT_ACCOUNT_RECOVERY_TOKEN_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT ON impodo_control.account_recovery_token "
+    "TO impodo_runtime"
+)
+_GRANT_ACCOUNT_RECOVERY_TOKEN_UPDATE_QUERY: LiteralString = (
+    "GRANT UPDATE (state, consumed_at, revoked_at, optimistic_revision) "
+    "ON impodo_control.account_recovery_token TO impodo_runtime"
+)
+_GRANT_PLATFORM_SECURITY_REVISION_UPDATE_QUERY: LiteralString = (
+    "GRANT UPDATE (security_revision) "
+    "ON impodo_control.platform_administrator TO impodo_runtime"
+)
 _UPDATE_CONTRACT_QUERY: LiteralString = (
     "UPDATE impodo_control.schema_contract\n"
     "SET version = %s, updated_at = transaction_timestamp()\n"
@@ -524,6 +762,66 @@ _MIGRATION_0004_STATEMENTS = (
         ),
     ),
 )
+_MIGRATION_0005_STATEMENTS = (
+    PostgreSQLMigrationStatement(_CREATE_PLATFORM_ADMINISTRATOR_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_ACTIVE_PLATFORM_ADMINISTRATOR_INDEX_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_PLATFORM_ADMINISTRATOR_PASSWORD_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_PLATFORM_SECURITY_EVENT_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_PLATFORM_SECURITY_EVENT_INDEX_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_PLATFORM_ADMINISTRATOR_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_PLATFORM_ADMINISTRATOR_PASSWORD_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_PLATFORM_SECURITY_EVENT_QUERY),
+    PostgreSQLMigrationStatement(
+        _UPDATE_CONTRACT_QUERY,
+        (
+            5,
+            "control",
+            "impodo-control-v1",
+            4,
+        ),
+    ),
+)
+_MIGRATION_0006_STATEMENTS = (
+    PostgreSQLMigrationStatement(_ADD_PLATFORM_PASSWORD_REVISION_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_LOGIN_IDENTITY_QUERY),
+    PostgreSQLMigrationStatement(_BACKFILL_LOGIN_IDENTITY_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_AUTHENTICATION_THROTTLE_QUERY),
+    PostgreSQLMigrationStatement(_EXPAND_PLATFORM_SECURITY_EVENT_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_LOGIN_IDENTITY_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_AUTHENTICATION_THROTTLE_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_PLATFORM_PASSWORD_UPDATE_QUERY),
+    PostgreSQLMigrationStatement(
+        _UPDATE_CONTRACT_QUERY,
+        (
+            6,
+            "control",
+            "impodo-control-v1",
+            5,
+        ),
+    ),
+)
+_MIGRATION_0007_STATEMENTS = (
+    PostgreSQLMigrationStatement(_ADD_LOGIN_PRINCIPAL_ID_QUERY),
+    PostgreSQLMigrationStatement(_BACKFILL_LOGIN_PRINCIPAL_ID_QUERY),
+    PostgreSQLMigrationStatement(_ENFORCE_LOGIN_PRINCIPAL_ID_QUERY),
+    PostgreSQLMigrationStatement(_EXPAND_AUTHENTICATION_THROTTLE_SCOPES_QUERY),
+    PostgreSQLMigrationStatement(_EXPAND_RECOVERY_SECURITY_EVENTS_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_ACCOUNT_RECOVERY_TOKEN_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_ACCOUNT_RECOVERY_OUTSTANDING_INDEX_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_ACCOUNT_RECOVERY_EXPIRY_INDEX_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_ACCOUNT_RECOVERY_TOKEN_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_ACCOUNT_RECOVERY_TOKEN_UPDATE_QUERY),
+    PostgreSQLMigrationStatement(_GRANT_PLATFORM_SECURITY_REVISION_UPDATE_QUERY),
+    PostgreSQLMigrationStatement(
+        _UPDATE_CONTRACT_QUERY,
+        (
+            7,
+            "control",
+            "impodo-control-v1",
+            6,
+        ),
+    ),
+)
 
 POSTGRESQL_MIGRATIONS = (
     PostgreSQLMigrationDefinition(
@@ -549,6 +847,24 @@ POSTGRESQL_MIGRATIONS = (
         name="create-current-projection-pointers",
         checksum="7ced134369ebc673b1f463f571d09fe745e80419a9a521dd1304699a62075dea",
         statements=_MIGRATION_0004_STATEMENTS,
+    ),
+    PostgreSQLMigrationDefinition(
+        version=5,
+        name="create-platform-administrator-bootstrap",
+        checksum="9c4514309889deaf90b3b2397ed7a80a34f5486cfd07cd1db75feb0c9667ab0f",
+        statements=_MIGRATION_0005_STATEMENTS,
+    ),
+    PostgreSQLMigrationDefinition(
+        version=6,
+        name="add-platform-authentication-policy",
+        checksum="b2ae2625460aa2387ccc118925fe7d1114f75c2d78b8966d4c98119de4246cf7",
+        statements=_MIGRATION_0006_STATEMENTS,
+    ),
+    PostgreSQLMigrationDefinition(
+        version=7,
+        name="add-one-time-account-recovery-tokens",
+        checksum="456196b8188d4013cb43c86843dea4eccfb4fd4538eeb9127ce60625141eb9f9",
+        statements=_MIGRATION_0007_STATEMENTS,
     ),
 )
 

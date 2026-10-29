@@ -794,6 +794,7 @@ class PreflightRepository(DuckDbRepository):
         *,
         status: str = "",
         dataset: str = "",
+        issue_code: str = "",
         page: int = 1,
         page_size: int = 100,
     ) -> ReadinessRowPage:
@@ -825,6 +826,16 @@ class PreflightRepository(DuckDbRepository):
         if dataset:
             clauses.append("dataset = ?")
             parameters.append(dataset)
+        if issue_code:
+            clauses.append(
+                "("
+                "json_extract_string(decision_json, '$.technical_code') = ? "
+                "OR json_contains("
+                "json_extract(decision_json, '$.technical_codes'), to_json(?)"
+                ")"
+                ")"
+            )
+            parameters.extend((issue_code, issue_code))
         where = " AND ".join(clauses)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():

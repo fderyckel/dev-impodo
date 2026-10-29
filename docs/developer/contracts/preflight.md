@@ -120,6 +120,15 @@ issues, coverage, and semantic hash. Each decision records its dataset, source
 row, business identity and scope, match count, classification, differences,
 and issues.
 
+The readiness report header also carries a value-free complete-run issue
+aggregate. Publication groups every blocking decision issue and ambiguous
+target match by dataset, stable technical code, field label, and action while
+the complete decisions are already in memory. It stores only the affected
+record count and portable labels; record identities, values, numeric Odoo IDs,
+and target evidence remain in the existing decision rows and protected
+artifacts. This aggregate is a read-only projection of manifest evidence, not
+a second issue authority.
+
 Serialization recursively rejects numeric record IDs, credentials, and
 transport authorization. The manifest remains the decision source for every
 workbook status, issue, and count. A file-source workbook may add the exact

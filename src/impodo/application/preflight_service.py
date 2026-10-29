@@ -989,6 +989,7 @@ class PreflightService:
         *,
         status: str = "",
         dataset: str = "",
+        issue_code: str = "",
         page: int = 1,
         page_size: int = 100,
     ) -> ReadinessRowPage:
@@ -999,6 +1000,7 @@ class PreflightService:
             run_id,
             status=status,
             dataset=dataset,
+            issue_code=issue_code,
             page=page,
             page_size=page_size,
         )

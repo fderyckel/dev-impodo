@@ -10,7 +10,7 @@ identities and source trace IDs, never environment-local numeric Odoo IDs.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, is_dataclass
 from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime
@@ -57,6 +57,13 @@ class ReadinessRow:
     technical_code: str
     issue_count: int = 0
     source_trace_id: str = ""
+    technical_codes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        codes = tuple(dict.fromkeys(self.technical_codes))
+        if not codes and self.technical_code:
+            codes = (self.technical_code,)
+        object.__setattr__(self, "technical_codes", codes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +81,25 @@ class ReadinessDataset:
     update_count: int = 0
     unchanged_count: int = 0
     ambiguous_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ReadinessIssueCount:
+    """Complete-run count for one actionable final-review finding.
+
+    The projection contains only portable labels and counts. Protected target
+    values, source values, target identifiers, and per-record identities stay
+    in their existing bounded evidence owners.
+    """
+
+    dataset: str
+    dataset_label: str
+    status: str
+    technical_code: str
+    reason: str
+    field: str
+    recommended_action: str
+    affected_record_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,6 +337,7 @@ class ReadinessReport:
     checked_by: str
     datasets: tuple[ReadinessDataset, ...]
     rows: tuple[ReadinessRow, ...]
+    issue_counts: tuple[ReadinessIssueCount, ...] = ()
     contract_version: int = READINESS_CONTRACT_VERSION
     operation_id: str = ""
 
@@ -407,11 +434,18 @@ class ReadinessReport:
 
         payload = json.loads(value)
         payload.setdefault("operation_id", "")
+        payload.setdefault("issue_counts", [])
         _require_dataclass_fields(payload, ReadinessReport, "readiness report")
         for item in payload["datasets"]:
             _require_dataclass_fields(item, ReadinessDataset, "readiness dataset")
         for item in payload["rows"]:
             _require_dataclass_fields(item, ReadinessRow, "readiness row")
+        for item in payload["issue_counts"]:
+            _require_dataclass_fields(
+                item,
+                ReadinessIssueCount,
+                "readiness issue count",
+            )
         return cls(
             run_id=str(payload["run_id"]),
             workspace_id=str(payload["workspace_id"]),
@@ -446,6 +480,9 @@ class ReadinessReport:
             checked_by=str(payload["checked_by"]),
             datasets=tuple(ReadinessDataset(**item) for item in payload["datasets"]),
             rows=tuple(ReadinessRow(**item) for item in payload["rows"]),
+            issue_counts=tuple(
+                ReadinessIssueCount(**item) for item in payload["issue_counts"]
+            ),
             contract_version=int(payload["contract_version"]),
             operation_id=str(payload["operation_id"]),
         )
@@ -555,6 +592,161 @@ def _readiness_report(
         checked_by=actor.identity.display_name,
         datasets=tuple(datasets),
         rows=rows,
+        issue_counts=readiness_issue_counts(
+            result.decisions,
+            dataset_labels,
+            source_labels,
+        ),
+    )
+
+
+def readiness_issue_counts(
+    decisions: Iterable[Decision],
+    dataset_labels: Mapping[str, str],
+    source_labels: Mapping[tuple[str, str], str],
+) -> tuple[ReadinessIssueCount, ...]:
+    """Aggregate every blocking or ambiguous decision without a page scan."""
+
+    grouped: dict[tuple[str, ...], set[tuple[str, int, str]]] = {}
+    for decision in decisions:
+        record_key = (
+            decision.dataset,
+            decision.source_row,
+            decision.source_trace_id,
+        )
+        dataset_label = dataset_labels.get(decision.dataset, decision.dataset)
+        blocking_issues = tuple(item for item in decision.issues if item.blocking)
+        for issue in blocking_issues:
+            code = issue.code or "FINAL_REVIEW_BLOCKED"
+            reason, action = plain_readiness_guidance(
+                code,
+                Classification.BLOCKED,
+            )
+            field = issue.field or ""
+            _add_readiness_issue_count(
+                grouped,
+                dataset=decision.dataset,
+                dataset_label=dataset_label,
+                status="blocked",
+                code=code,
+                reason=reason,
+                field=source_labels.get((decision.dataset, field), field),
+                action=action,
+                record_key=record_key,
+            )
+        if decision.classification is Classification.BLOCKED and not blocking_issues:
+            reason, action = plain_readiness_guidance(
+                "FINAL_REVIEW_BLOCKED",
+                Classification.BLOCKED,
+            )
+            _add_readiness_issue_count(
+                grouped,
+                dataset=decision.dataset,
+                dataset_label=dataset_label,
+                status="blocked",
+                code="FINAL_REVIEW_BLOCKED",
+                reason=reason,
+                field="",
+                action=action,
+                record_key=record_key,
+            )
+        if decision.classification is Classification.AMBIGUOUS:
+            code = "TARGET_IDENTITY_AMBIGUOUS"
+            reason, action = plain_readiness_guidance(
+                code,
+                Classification.AMBIGUOUS,
+            )
+            _add_readiness_issue_count(
+                grouped,
+                dataset=decision.dataset,
+                dataset_label=dataset_label,
+                status="needs_review",
+                code=code,
+                reason=reason,
+                field="",
+                action=action,
+                record_key=record_key,
+            )
+    return _project_readiness_issue_counts(grouped)
+
+
+def readiness_row_issue_counts(
+    rows: Iterable[ReadinessRow],
+) -> tuple[ReadinessIssueCount, ...]:
+    """Aggregate already projected final-review rows by stable cause."""
+
+    grouped: dict[tuple[str, ...], set[tuple[str, int, str]]] = {}
+    for row in rows:
+        if row.status not in {"blocked", "needs_review"}:
+            continue
+        code = row.technical_code or "FINAL_REVIEW_BLOCKED"
+        _add_readiness_issue_count(
+            grouped,
+            dataset=row.dataset,
+            dataset_label=row.dataset_label,
+            status=row.status,
+            code=code,
+            reason=row.reason,
+            field=row.field,
+            action=row.recommended_action,
+            record_key=(row.dataset, row.source_row, row.source_trace_id),
+        )
+    return _project_readiness_issue_counts(grouped)
+
+
+def _add_readiness_issue_count(
+    grouped: dict[tuple[str, ...], set[tuple[str, int, str]]],
+    *,
+    dataset: str,
+    dataset_label: str,
+    status: str,
+    code: str,
+    reason: str,
+    field: str,
+    action: str,
+    record_key: tuple[str, int, str],
+) -> None:
+    key = (
+        dataset,
+        dataset_label,
+        status,
+        code,
+        reason,
+        field,
+        action,
+    )
+    grouped.setdefault(key, set()).add(record_key)
+
+
+def _project_readiness_issue_counts(
+    grouped: Mapping[
+        tuple[str, ...],
+        set[tuple[str, int, str]],
+    ],
+) -> tuple[ReadinessIssueCount, ...]:
+    """Project deterministic portable counts from publication-time groups."""
+
+    return tuple(
+        ReadinessIssueCount(
+            dataset=key[0],
+            dataset_label=key[1],
+            status=key[2],
+            technical_code=key[3],
+            reason=key[4],
+            field=key[5],
+            recommended_action=key[6],
+            affected_record_count=len(records),
+        )
+        for key, records in sorted(
+            grouped.items(),
+            key=lambda item: (
+                item[0][2] != "blocked",
+                item[0][1].casefold(),
+                item[0][4].casefold(),
+                item[0][5].casefold(),
+                item[0][3],
+            ),
+        )
     )
 
 
@@ -584,6 +776,14 @@ def _readiness_row(
             else ""
         )
     )
+    technical_codes = tuple(
+        dict.fromkeys(item.code for item in decision.issues if item.blocking)
+    )
+    if decision.classification is Classification.AMBIGUOUS:
+        technical_codes = (
+            *technical_codes,
+            "TARGET_IDENTITY_AMBIGUOUS",
+        )
     reason, action = plain_readiness_guidance(code, decision.classification)
     field = issue.field if issue is not None and issue.field else ""
     field = source_labels.get((decision.dataset, field), field)
@@ -603,6 +803,7 @@ def _readiness_row(
         technical_code=code,
         issue_count=len(decision.issues),
         source_trace_id=decision.source_trace_id,
+        technical_codes=technical_codes,
     )
 
 

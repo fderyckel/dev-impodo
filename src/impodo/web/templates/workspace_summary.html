@@ -58,6 +58,8 @@
     {% include "_comparison_recovery.html" %}
   {% endif %}
 
+  {% include "_workflow_issue_summary.html" %}
+
   {% if resolution and resolution.status == 'REVIEW_REQUIRED' %}
     <section class="next-action-card review" aria-labelledby="resolution-next-title">
       <div>
@@ -145,7 +147,6 @@
           {% endif %}
         </div>
       </div>
-      {% include "_workflow_issue_summary.html" %}
       {% if quality_review_page and quality_review_page.items %}
         <div class="table-scroll">
           <table class="data-table readiness-row-table">
@@ -553,7 +554,7 @@
           <span class="muted">
             Rows {{ readiness_row_start }}-{{ readiness_row_end }} of {{ readiness_row_total }}
           </span>
-          {% if status_filter or dataset_filter %}
+          {% if status_filter or dataset_filter or readiness_issue_code %}
             <a class="button secondary small" href="/workspaces/{{ workspace_id }}/summary#readiness-rows">Clear filter</a>
           {% endif %}
         </div>

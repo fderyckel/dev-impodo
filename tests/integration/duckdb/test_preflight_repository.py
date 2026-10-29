@@ -85,7 +85,11 @@ class _InMemoryDatabase:
                                 "reason": "Test row",
                                 "field": "",
                                 "recommended_action": "Review it",
-                                "technical_code": "TEST",
+                                "technical_code": f"TEST_{ordinal}",
+                                "technical_codes": [
+                                    f"TEST_{ordinal}",
+                                    "SHARED_SECONDARY",
+                                ],
                             }
                         ),
                     ]
@@ -138,6 +142,23 @@ class PreflightRepositoryReadinessRowTests(unittest.TestCase):
                     outcome_page.items[0].identity,
                     f"ROW-{expected_ordinal}",
                 )
+
+        issue_page = repository.get_readiness_rows(
+            WORKSPACE_ID,
+            RUN_ID,
+            issue_code="TEST_5",
+            page_size=20,
+        )
+        self.assertEqual(issue_page.matching_count, 1)
+        self.assertEqual(issue_page.items[0].identity, "ROW-5")
+
+        secondary_page = repository.get_readiness_rows(
+            WORKSPACE_ID,
+            RUN_ID,
+            issue_code="SHARED_SECONDARY",
+            page_size=20,
+        )
+        self.assertEqual(secondary_page.matching_count, 5)
 
 
 class DeferredScopeProjectionTests(unittest.TestCase):

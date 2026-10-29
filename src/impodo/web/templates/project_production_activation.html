@@ -66,7 +66,7 @@
         <input type="password" name="write_api_key" autocomplete="new-password" {% if not write_status.available %}required{% endif %}>
         <span class="hint">Impodo checks the exact planned Odoo models without writing a record. The read-only key is never used as a fallback.</span>
       </label>
-      <label class="checkbox-row"><input type="checkbox" name="remember_write_api_key"><span>Save this write key in Windows Credential Manager</span></label>
+      <label class="checkbox-row"><input type="checkbox" name="remember_write_api_key"><span>Save this write key securely on this computer</span></label>
       <div class="notice"><strong>No Test evidence is reused.</strong><p>Impodo rechecks the required source shapes, uncovered values, Odoo fields, references, parameters, controls, access, order, and write ownership. Every Production Recipe work area starts without comparison, approval, load, or verification evidence.</p></div>
       <div class="actions"><button class="button primary" type="submit">Create Production work areas</button><a class="button secondary" href="/projects/{{ project.project_id }}">Cancel</a></div>
     </form>

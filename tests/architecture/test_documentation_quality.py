@@ -79,6 +79,7 @@ class DocumentationQualityTests(unittest.TestCase):
                 "src/impodo/web/composition/page_reads.py::run_page_read",
                 "src/impodo/web/composition/page_reads.py::run_local_operation",
                 "src/impodo/web/composition/page_reads.py::run_local_operation_sync",
+                "src/impodo/adapters/duckdb/unit_of_work.py::validate_schema_once_for_operation",
             ],
         )
         self.assertEqual(

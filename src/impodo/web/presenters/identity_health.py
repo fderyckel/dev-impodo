@@ -120,6 +120,13 @@ def _identity_card(
         schema_changed=schema_changed,
     )
     result_counts = result if result is not None and result.checked else None
+    target_fields = (
+        result.target_fields
+        if result is not None
+        else tuple(selected_key.key_fields)
+        if selected_key is not None
+        else ()
+    )
     return {
         "dataset_id": source.dataset_id,
         "dataset_name": source.name,
@@ -133,6 +140,12 @@ def _identity_card(
         "status_label": status_label,
         "status_class": status_class,
         "message": message,
+        "not_checkable_reason": (
+            result.not_checkable_reason.value
+            if result is not None and result.not_checkable_reason is not None
+            else ""
+        ),
+        "target_fields": target_fields,
         "checked": result_counts is not None,
         "source_row_count": (result_counts.source_row_count if result_counts else 0),
         "source_unique_row_count": (

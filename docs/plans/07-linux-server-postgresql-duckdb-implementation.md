@@ -1529,6 +1529,23 @@ and server sessions are available.
 - Record only a bounded bootstrap security event. Never log the password,
   token, password hash, or complete activation link.
 
+Current local-trial status: implemented and verified on 2026-10-29. Immutable
+migration `5` creates separate Platform Administrator, password-identity, and
+bounded platform-security-event tables. `impodo-server admin bootstrap`
+accepts an interactive password or a protected one-time file, normalizes the
+login email, derives a salted scrypt hash with explicit policy metadata, and
+commits the active operator and its event in one short-lived PostgreSQL
+transaction. A transaction-level advisory lock makes simultaneous empty-state
+attempts deterministic. Once one active Platform Administrator exists, the
+ordinary command refuses with no additional row or event.
+
+The opt-in local Compose service completed once with fictional data and its
+immediate replay refused as expected. The rebuilt health-only web and proxy
+containers remained healthy on schema version `5`. This checkpoint provides
+no login route, session, Organization, browser administration, or recovery
+override; those remain owned by work packages 4.2 through 4.6. It is local
+rehearsal evidence, not remote Debian or Ubuntu qualification.
+
 ### Work package 4.2 - Implement Impodo-managed authentication
 
 - Store a current slow password hash with algorithm and parameter metadata so
@@ -1537,14 +1554,73 @@ and server sessions are available.
   first server uses a globally unique login email because one account belongs
   to one Organization.
 - Store activation and reset token digests, one-use state, purpose, expiry, and
-  revocation. Show a generated activation link once so an administrator can
-  deliver it manually without an email service.
+  revocation. Provide the generic one-time disclosure contract here; bind and
+  show an activation link only when work packages 4.4 and 4.5 create an
+  eligible customer account and its governed administration action.
 - Apply generic login and reset responses, account and source throttles,
   bounded lockout, and security-event recording without confirming whether an
   account exists.
 - Make multi-factor authentication policy an explicit release decision. An
   Internet-accessible deployment cannot pass security acceptance until the
   accepted privileged-account policy is implemented.
+
+Current local-trial status: complete at the authentication and token-policy
+boundary, and verified on 2026-10-29. Immutable migration `6` adds a globally
+unique login-identity index, password revisions, persistent account and source
+throttle rows, and digest-only authentication event fields.
+The platform authentication service normalizes the email, gives unknown,
+invalid, deactivated, locked, and wrong-password attempts the same rejection,
+and still performs one bounded scrypt verification for an unknown account. A
+successful verification compare-and-swaps a stale password hash to the current
+policy and records the rehash only when that revision update succeeds.
+
+Credential and lock lookup uses one short-lived PostgreSQL transaction.
+Scrypt runs after that transaction closes. Outcome persistence then uses a
+second short-lived transaction to append the security event, update both
+throttle scopes, and apply an optional rehash. The live Linux-owned test proves
+fresh and prefix migration to version `6`, concurrent first-operator bootstrap,
+five-attempt lockout, source and account scope enforcement, and successful
+rehash against disposable PostgreSQL. The exact local server image was then
+rebuilt, the persistent rehearsal database advanced to `impodo-control-v1:6`,
+and the PostgreSQL, web, and loopback proxy containers all returned healthy.
+
+Immutable migration `7` adds a generic principal ID, digest-only activation and
+password-reset token persistence, purpose and expiry, irreversible issued,
+consumed, and revoked states, issued password and security revisions, a
+one-outstanding-token constraint, separate reset account and source throttles,
+and column-level runtime grants with no token delete or digest rewrite. The raw
+selector-plus-secret token contains 32 random bytes, is purpose-bound before
+SHA-256 storage, stays out of representations and events, and is returned only
+after an authorized issuance transaction commits. Low-entropy account and
+source hints use deployment-keyed, scope-separated HMAC-SHA-256.
+
+The public reset request returns one constant result for known, unknown,
+invalid, inactive, and throttled identities. For an eligible Platform
+Administrator, reset consumption locks the subject and token, compares the
+issued password and security revisions, updates the slow password hash,
+increments both revisions, consumes the token, revokes siblings, and appends
+the event in one short-lived transaction. The replacement scrypt hash is
+derived before that transaction opens. Unit and repository contract tests
+cover opaque responses, purpose binding, replacement issuance, stale-revision
+rollback, and secret-safe representations. The exact local image applied the
+version `6` to `7` suffix once, replayed it with no changes, and restarted the
+web and loopback proxy healthy on `impodo-control-v1:7`.
+
+The privileged-account decision is now explicit: password-only access remains
+permitted for this loopback-only trial, but every Platform or Organization
+Administrator must have WebAuthn plus either a second WebAuthn authenticator or
+unused hashed offline recovery codes before an Internet-accessible deployment
+can pass security acceptance. TOTP alone does not satisfy that release gate.
+WebAuthn enrollment and enforcement remain implementation work, so the gate is
+currently blocked.
+
+This increment does not expose an HTTP login/reset route or create a session.
+There is also no pending customer account to activate: the schema and service
+contract support the token purpose, but work package 4.4 must bind activation
+issuance and consumption atomically to customer-user creation, and work package
+4.5 must present that authorized link once. Treating the already-active
+Platform Administrator or a deactivated account as pending activation would
+be incorrect. The server therefore remains suitable only for the local trial.
 
 ### Work package 4.3 - Implement server sessions
 
@@ -1755,6 +1831,29 @@ meaning or authority of long-running work. PostgreSQL jobs, scoped
 authorization, and the cross-store operation protocol are available.
 
 ### Work package 6.1 - Complete the durable job model
+
+**Implementation status on 2026-10-29:** Started at the portable contract
+boundary only. `DurableJobKind` now allowlists all ten planned job families,
+and `DurableJobRequest` binds the Organization, Project, optional Workspace,
+requester, authorization receipt and revision, idempotency key, semantic input
+hash, and manifest hash. The contract now includes `REVIEW_REQUIRED`,
+compare-and-set transition revisions, worker-bound attempts with fencing and
+heartbeat facts, and an explicit cancellation disposition receipt. Pure tests
+reject invalid transitions, reversed attempt times, ambiguous terminal
+outcomes, and a terminal review state returning to `RUNNING`.
+
+The second portable increment binds restart recovery to an exact expired-
+attempt receipt check. No-receipt evidence permits a retryable interruption, a
+matching committed receipt requires completion from that receipt, and a
+mismatch or unavailable check requires review. An `INTERRUPTED` transition now
+requires the retained recovery-decision identity, so a restart cannot infer
+that state from process loss alone.
+
+This increment does not satisfy the Phase 6 entry gate. It adds no PostgreSQL
+job table, claim query, worker process, route, scheduler, or Final review server
+adapter while Phase 4 identity and Phase 5 scoped authorization remain
+incomplete. Those dependencies must still pass before the contract is wired to
+server execution.
 
 Extend the portable job contract and PostgreSQL schema with:
 

@@ -118,10 +118,11 @@ class TargetCredentialStatus:
                 "Impodo will forget this key when Impodo closes."
             ),
             TargetCredentialAvailability.PERSISTENT: (
-                "Windows Credential Manager will keep this key after Impodo closes."
+                "This key will remain available after Impodo closes."
             ),
             TargetCredentialAvailability.UNAVAILABLE: (
-                "Enter the read-only key again or review Windows Credential Manager."
+                "Enter the read-only key again or review this computer's secure "
+                "credential storage."
             ),
         }
         return guidance[self.availability]

@@ -6,13 +6,15 @@
 against the current checkout on 2026-10-29. Proposals 1, 2, 3, 4, 5, 6, 7, 8,
 and 10 now have useful implemented foundations, while Proposal 9 is complete.
 The shared root-cause correction journey from Proposals 1 and 8 now covers
-Stages 4 and 5 as well as the earlier Stage 2 adapter. The exact prepared-value
-precision pass is implemented as bounded, value-free worker evidence. The next
-delivery should add the remaining issue adapters. The bounded cause-specific
-drill-down is now implemented over a publication-time membership index. The
-plan should then complete the relational identity and relationship gaps
-from Proposals 3 and 6, the source-aware supporting-data closure from Proposal
-2, and the migration-intent part of Proposal 10. Do not build parallel
+Stage 2, current Stage 3 identity and relationship findings, complete-run
+preparation causes in Stages 4 and 5, and Final-review-only blockers. Current
+Stage 3 counts also remain visible in workspace navigation without opening a
+second issue store. The exact prepared-value precision pass is implemented as
+bounded, value-free worker evidence, and cause-specific drill-down uses
+publication-time membership and readiness projections. The next delivery
+should complete the relational identity and relationship gaps from Proposals
+3 and 6, followed by the source-aware supporting-data closure from Proposal 2
+and the migration-intent part of Proposal 10. Do not build parallel
 replacements for the implemented default, mapping-impact, comparison, or
 load-recovery flows.
 
@@ -75,9 +77,10 @@ the projection; the browser adds no DuckDB open or Odoo call.
 The remaining work does not yet pair file-source dependencies with accepted or
 derived source tables, derive Recipe closure, authorize supporting reads,
 include optional many-to-one or many-to-many fields from source or Recipe
-intent, prove relational identity components, or add the issue summary to
-global navigation. The current Odoo-source relationship scope and the direct
-relationship-health slice below now cover parts of the earlier gap.
+intent, or prove relational identity components. The current Odoo-source
+relationship scope, direct relationship health, and persistent Stage 3 issue
+counts now cover parts of the earlier gap. A combined all-stage issue drawer
+remains optional consolidation.
 
 ### Implemented third slice
 
@@ -115,6 +118,42 @@ Exact numeric-precision findings are evaluated against intended writes. The
 preview, acceptance, and workbook do not contact Odoo, and stale comparison or
 preview evidence is rejected.
 
+### Implemented fifth slice
+
+Final review now publishes a complete-run, value-free aggregate for every
+blocking decision cause and ambiguous target match while the complete result
+is already in memory. Records with several blocking causes contribute to every
+relevant cause. Odoo-source refresh blockers use the same projection from
+their already-built comparison rows.
+
+The Final review page merges these counts into the shared **Migration issues**
+journey. Each card shows the cause, owner, affected record type and count,
+preserved work, and required recheck outside the paged row table. Its action
+filters the existing bounded decision-page query by stable issue code. The
+browser adds no database open, target scan, per-row call, or second issue
+store. Older saved comparisons retain an actionable dataset-level fallback
+until the next comparison publishes cause-specific counts.
+
+### Implemented sixth slice
+
+Current Stage 3 identity and relationship evidence now uses the same
+**Migration issues** projection as the other implemented stages. Checked
+blockers become **Must fix** cards; aggregate not-checkable results become
+**Review** cards. Each card identifies the cause, correction owner, affected
+record type and field, preserved work, exact Match-data anchor, and required
+**Check current data** rerun. Invalid One2many choices retain the existing
+child-inverse correction route.
+
+The workspace sidebar persists the current Stage 3 **Must fix** and **Review**
+counts on later pages. Its local repository reads only the current
+aggregate-only `MatchingOrderCheck` after scalar source, schema, governance,
+working-draft, target, principal, permission, and context bindings match. A
+stale check contributes no navigation count. The read remains inside the
+existing single navigation connection and transaction; it makes no Odoo call
+and does not decode protected key values. A future shared-server adapter may
+carry the same two counts and verified evidence pointer in PostgreSQL, but a
+server page must not open worker-held DuckDB evidence.
+
 ### Additional current foundations found during reassessment
 
 The current checkout contains more of the intended workflow than the original
@@ -122,7 +161,7 @@ delivery summary recorded:
 
 | Proposal | Current implementation | Remaining decision |
 | --- | --- | --- |
-| **1. Issue register** | Stages 2, 4, and 5 use the shared `WorkflowIssueProjection` and render cause, owner, affected count, preserved work, correction action, and recheck. | Extend the same projection to the remaining stage adapters and workspace navigation without creating a second issue authority. |
+| **1. Issue register** | Stage 2, current Stage 3 identity and relationship findings, complete-run Stage 4 preparation causes, and both preparation and comparison blockers in Stage 5 use the shared `WorkflowIssueProjection`. Stage 3 current counts persist in workspace navigation through a bounded freshness-checked read. | If evidence shows the need for one all-stage drawer, aggregate the already-persisted stage counts without moving detailed worker evidence into PostgreSQL or creating a second issue authority. |
 | **2. Supporting data** | File-source Stage 2 derives direct required relationships and inverse-owned children. The Odoo-source path already stores generic reviewed decisions for each relationship edge and builds guided capture plans. | Reuse that edge evidence. Add accepted or derived source-table intent, optional-field intent, Recipe closure, and explicit supporting-read authorization for file-source authoring. |
 | **3. Identity proof** | Direct scalar identities are checked against included source rows and current target evidence. | Prove relational key and scope components, expose protected duplicate-group review, and forecast update versus unchanged only when complete mapped evidence exists. |
 | **4. Required values** | Authoring can identify required-field blockers, check bounded Odoo defaults, review one or several defaults, save the chosen disposition, and run one complete mapping check. | Consolidate these decisions into one clear checklist. Do not create a second default-capture workflow. |
@@ -255,7 +294,7 @@ stages.
 | **2. Odoo data** | Impodo captures Odoo 19 models, fields, requirements, selections, relationships, defaults, and optional uniqueness metadata. It now derives direct required supporting relationships and inverse-owned child data, then confirms one matching rule for every selected writable record type. | The first slice does not yet pair optional relationships with accepted source or Recipe intent, authorize arbitrary supporting reads, or prove that current source and target values are populated and unique. |
 | **3. Match data** | The data manager defines row inclusion, record identity, scalar values, transformations, defaults, and relationships. Impodo checks direct identity and relationship health, predicts source-backed numeric precision loss, and can show rule effects in a browser review and workbook. | Relational identity components and nested relationship keys still stop at aggregate guidance. Protected unresolved choices and a compact cross-table coverage view remain missing. |
 | **4. Prepare data** | Impodo applies the confirmed mapping to every accepted row, accounts for every row, resolves source duplicates, evaluates incoming relationships, checks exact prepared numeric capacity, freezes normalization decisions, publishes complete-run cause counts, and offers an indexed cause-specific record drill-down for the shared repair queue. | The remaining preparation improvements depend on the relational-identity and supporting-data evidence still missing upstream, not another issue store. |
-| **5. Final review** | Impodo reads current Odoo evidence, classifies every eligible prepared row, produces the final action queue and execution snapshot, can retain a reviewed safe remainder, and reuses the Stage 4 repair projection for preparation causes. | Indirect identities and target-only relationships that the early checks cannot prove may still first become visible here. Final-review-only blockers do not yet all use the cross-stage issue journey. |
+| **5. Final review** | Impodo reads current Odoo evidence, classifies every eligible prepared row, produces the final action queue and execution snapshot, can retain a reviewed safe remainder, reuses the Stage 4 repair projection, and publishes every Final-review-only blocking cause through the shared issue journey. | Indirect identities and target-only relationships that the early checks cannot prove may still first become visible here. Move those decisions earlier only with authoritative Stage 3 evidence; do not duplicate the target comparison. |
 | **6. Load into Odoo** | Impodo revalidates the reviewed target scope, writes in dependency order, journals each attempted row, requires read-back before recovery, and verifies the result through reconciliation. | Recovery is already evidence-led. The main remaining gap is an explicit business-intent comparison that catches a technically valid load whose create, update, field, or relationship effects contradict the migration purpose. |
 
 The current boundaries are defined by the paired
@@ -334,9 +373,12 @@ undo.
 ## Proposal 1: Add one cross-stage issue register
 
 **Delivery status:** The shared projection contract is implemented for Stage 2
-supporting-data blockers and Stage 4/5 preparation causes. Persistent
-cross-stage navigation and the remaining authoritative stage adapters are
-proposed.
+supporting-data blockers, current Stage 3 identity and relationship evidence,
+Stage 4/5 preparation causes, and Final-review-only blocking or ambiguous
+comparison causes. Current Stage 3 counts persist across workspace navigation
+with freshness checked from aggregate-only evidence. One combined all-stage
+drawer remains optional future consolidation rather than a prerequisite for
+the next safety slice.
 
 **Owning stages:** All six stages.  
 **User impact:** **9.5/10**.
@@ -1145,11 +1187,10 @@ the highest-risk stage, so it receives a near-maximum score.
 
 | Priority | Proposals | Reason |
 | --- | --- | --- |
-| **1 - next** | Remaining 1. Cross-stage issue adapters | Dependency impact, prepared-value capacity, preserved work, correction actions, required rechecks, and bounded closure detail are current for preparation causes. Extend the shared issue contract only to remaining authoritative stage evidence. |
-| **2** | 3. Relational identity proof with 6. Nested relationship resolution | Extend the existing bounded Stage 3 check to the parent-, company-, and relationship-backed identities that still defer risk until Final review. Add protected unresolved-choice review without exposing keys in ordinary projections. |
-| **3** | 2. Source-aware supporting-data closure | Join accepted physical and derived tables, optional-field intent, Recipe requirements, and reviewed Odoo-source edge meaning into the existing bounded dependency plan. Do not add another relationship-policy engine. |
-| **4** | 10. Migration intent over the current load cockpit | Compare the exact Final review result with explicit business expectations, then present those expectations with the implemented dependency, journal, recovery, and reconciliation states. |
-| **5 - conditional consolidation** | Remaining 4. Required-values summary, 5. Mapping starter, and 7. Field-specific rule effects | Improve the current flows only where user evidence shows repeated work or navigation friction. Reuse the implemented default capture, catalogues, transformation-impact snapshot, and workbook. |
+| **1 - next** | 3. Relational identity proof with 6. Nested relationship resolution | Extend the existing bounded Stage 3 check to the parent-, company-, and relationship-backed identities that still defer risk until Final review. Add protected unresolved-choice review without exposing keys in ordinary projections. |
+| **2** | 2. Source-aware supporting-data closure | Join accepted physical and derived tables, optional-field intent, Recipe requirements, and reviewed Odoo-source edge meaning into the existing bounded dependency plan. Do not add another relationship-policy engine. |
+| **3** | 10. Migration intent over the current load cockpit | Compare the exact Final review result with explicit business expectations, then present those expectations with the implemented dependency, journal, recovery, and reconciliation states. |
+| **4 - conditional consolidation** | Remaining 1. All-stage issue drawer, 4. Required-values summary, 5. Mapping starter, and 7. Field-specific rule effects | Improve the current flows only where user evidence shows repeated work or navigation friction. Reuse persisted stage counts, implemented default capture, catalogues, transformation-impact snapshot, and workbook. |
 | **Delivered foundation** | 9. Shared comparison and reviewed set-aside | Preserve one Stage 4-to-Stage 5 comparison and the reviewed safe-remainder contract. No later slice adds another target scan. |
 | **Delivered foundation** | 8. Bounded root-cause repair | Preserve the publication-time cause counts and membership index. No browser route recomputes dependency closure or numeric evidence. |
 

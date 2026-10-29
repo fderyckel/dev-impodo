@@ -140,6 +140,22 @@
               </a>
             {% endif %}
 
+            {% if navigation.workflow_issue_href %}
+              <a
+                class="sidebar-link"
+                href="{{ navigation.workflow_issue_href }}"
+                title="Open current migration issues"
+              >
+                {{ app_icon("exclamation-diamond") }}
+                <span class="nav-label workflow-stage-copy">
+                  <strong>Migration issues</strong>
+                  <small>
+                    {% if navigation.workflow_issue_must_fix_count %}{{ navigation.workflow_issue_must_fix_count }} Must fix{% endif %}{% if navigation.workflow_issue_must_fix_count and navigation.workflow_issue_review_count %} · {% endif %}{% if navigation.workflow_issue_review_count %}{{ navigation.workflow_issue_review_count }} to review{% endif %}
+                  </small>
+                </span>
+              </a>
+            {% endif %}
+
             <ol class="sidebar-workflow">
               {% for stage in navigation.stages %}
                 <li class="sidebar-stage {{ stage.status }}{% if stage.active %} active{% endif %}">

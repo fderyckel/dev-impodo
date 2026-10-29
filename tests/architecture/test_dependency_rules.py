@@ -22,6 +22,7 @@ FORBIDDEN_IMPORTS = {
 ADAPTER_CONSTRUCTION_MODULES = frozenset(
     {
         "impodo.web.composition.local_app",
+        "impodo.web.composition.server_linux_admin",
         "impodo.web.composition.server_linux_migration",
         "impodo.web.composition.server_linux_runtime",
         "impodo.web.capability_builders",

@@ -270,9 +270,9 @@ class DurablePreflightScaleTests(unittest.TestCase):
                 # registry, Workspace, DataVersion, and protected-store path,
                 # plus a small fixture margin; repeated repository calls must
                 # not restore the former per-call connection pattern.
-                self.assertLessEqual(metrics["database_connection_count"], 18)
+                self.assertLessEqual(metrics["database_connection_count"], 17)
                 self.assertGreater(metrics["database_schema_check_count"], 0)
-                self.assertLessEqual(metrics["database_schema_check_count"], 16)
+                self.assertLessEqual(metrics["database_schema_check_count"], 4)
                 self.assertEqual(metrics["database_lock_retry_count"], 0)
                 self.assertTrue(metrics["status_completed"])
                 phases = metrics["phases"]
@@ -342,7 +342,7 @@ class DurablePreflightScaleTests(unittest.TestCase):
                 )
                 self.assertLessEqual(
                     routes["compare_start"]["database_schema_check_count"],
-                    8,
+                    2,
                 )
                 self.assertLessEqual(
                     routes["summary_action_rich"]["database_connection_count"],
@@ -350,15 +350,15 @@ class DurablePreflightScaleTests(unittest.TestCase):
                 )
                 self.assertLessEqual(
                     routes["summary_action_rich"]["database_schema_check_count"],
-                    32,
+                    2,
                 )
                 self.assertLessEqual(
                     routes["load_review"]["database_connection_count"],
-                    8,
+                    7,
                 )
                 self.assertLessEqual(
                     routes["load_review"]["database_schema_check_count"],
-                    12,
+                    2,
                 )
 
             self.assertEqual(

@@ -172,6 +172,8 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Use this key for checking and loading", target_form.text)
         self.assertIn('value="vault"', target_form.text)
         self.assertIn("Not available", target_form.text)
+        self.assertIn("Save securely on this computer", target_form.text)
+        self.assertNotIn("Windows Credential Manager", target_form.text)
         self.assertNotIn('name="write_api_key"', target_form.text)
 
         tested = self.client.post(
@@ -390,6 +392,11 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             "Loading key:</strong> Saved on this computer",
             status_page.text,
         )
+        self.assertIn(
+            "This key will remain available after Impodo closes.",
+            status_page.text,
+        )
+        self.assertNotIn("Windows Credential Manager", status_page.text)
         self.assertIn(
             "Stage 6 without asking you to enter it again",
             status_page.text,

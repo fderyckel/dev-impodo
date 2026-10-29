@@ -12,8 +12,13 @@ status: current
 defines the target shared-server authority boundary. The local Linux trial now
 implements the Organization-scoped Project catalogue, immutable cross-store
 receipts, fenced Workspace leases, and receipt-projection current pointers in
-PostgreSQL. Accounts, remote request identity, the shared worker, and the
-operator-facing administration process are not implemented yet.
+PostgreSQL. It also implements the one-time first Platform Administrator,
+slow password hash, bounded bootstrap security event, platform password
+verification, policy rehash, and persistent account and source throttles.
+It also implements digest-only one-time token persistence, opaque reset
+requests, and atomic Platform Administrator password-reset consumption.
+Customer-account activation, remote request identity, the shared worker, and
+browser administration are not implemented yet.
 
 The current local Windows product remains authoritative through its contained
 DuckDB stores, protected artifact stores, Windows Credential Manager bindings,
@@ -22,18 +27,33 @@ local fact. A future local composition may pass an implicit reserved
 Organization identity through portable interfaces, but it does not expose
 Organization administration to the local user.
 
-The local Linux trial uses PostgreSQL control schema version `4`. Its bounded
+The local Linux trial uses PostgreSQL control schema version `7`. Its bounded
 reconciliation read verifies receipt hashes and current pointers without
 opening DuckDB. Its governed rebuild service accepts only a missing projection
 for an already committed data-plane receipt. It never repeats the data-plane
-command or derives approvals and Odoo outcomes from display status.
+command or derives approvals and Odoo outcomes from display status. The
+first-operator repository separately serializes empty-state bootstrap and
+commits the operator, globally unique login identity, password identity, and
+non-sensitive event atomically. The authentication repository reads a
+credential and both lock scopes in one short-lived transaction. Password
+verification and rehashing run after that transaction closes. A second
+short-lived transaction appends the bounded outcome, advances or clears the
+throttles, and compare-and-swaps a stale password revision when needed.
+The account-recovery repository separately replaces an outstanding reset token
+under a subject lock and stores only its purpose-bound digest. Consumption
+compares the issued password and security revisions, updates both revisions,
+consumes the token, revokes sibling tokens, and appends the bounded event in
+one transaction. Raw tokens and complete links never enter PostgreSQL or
+security events. The schema also reserves the activation purpose, but no
+current customer principal is eligible for it; customer-account creation and
+activation remain owned by the later administration work package.
 
 This document refines [ADR-017](../decisions/README.md#adr-017--organization-scoped-postgresql-control-and-duckdb-data-planes)
 and the
 [Linux server architecture plan](../plans/07-vm-deployment-duckdb-worker-management.md).
-This acceptance authorizes Phase 1 composition and request-identity work. It
-does not authorize a PostgreSQL schema or data migration ahead of the later
-phase gates.
+This acceptance authorized Phase 1 composition and request-identity work. The
+current PostgreSQL increments were implemented only after their later phase
+gates opened.
 
 ## Authority rules
 
@@ -61,7 +81,7 @@ schema design remains a later phase.
 
 | Fact | Command that changes it | Recovery rule |
 | --- | --- | --- |
-| Organization identity, display label, state, and policy revision | Platform bootstrap or governed platform administration. | Retry the immutable command ID. A duplicate identifier returns the existing matching result; different input conflicts. |
+| Organization identity, display label, state, and policy revision | Governed platform administration. First-operator bootstrap creates no Organization. | Retry the immutable command ID. A duplicate identifier returns the existing matching result; different input conflicts. |
 | Customer user and exactly one `organization_id` | Organization administrator creates, disables, restores, or renames an account. | Account identity and email constraints reject conflicting reuse. No partial second membership is possible because membership is scalar. |
 | Password verifier, reset nonce, MFA-ready state, session, and revocation | Authentication and Organization administration services. | Store only slow password-verifier output and hashed single-use tokens. Revoke ambiguous sessions; never reconstruct them from browser state. |
 | Role definition and immutable role revision | Organization administrator publishes a role revision. | Current pointer advances only after the revision commits. Retry by command ID; never edit an accepted revision in place. |

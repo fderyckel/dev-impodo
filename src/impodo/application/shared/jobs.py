@@ -6,11 +6,14 @@ from collections.abc import Callable
 from typing import Protocol
 
 from impodo.domain.shared.jobs import (
+    DurableJobAttempt,
     DurableJobRequest,
     JobCancellation,
+    JobCancellationReceipt,
     JobInterruption,
     JobProgress,
     JobRecord,
+    JobRecoveryDecision,
     JobRequest,
     JobResultIdentity,
     JobStateTransition,
@@ -38,6 +41,10 @@ class DurableJobControl(Protocol):
         """Create or reuse one exact durable job request."""
         ...
 
+    def record_attempt(self, attempt: DurableJobAttempt) -> None:
+        """Persist one worker identity, fence, and bounded heartbeat."""
+        ...
+
     def record_transition(self, transition: JobStateTransition) -> None:
         """Append one valid compare-and-swap lifecycle transition."""
         ...
@@ -50,8 +57,19 @@ class DurableJobControl(Protocol):
         """Record cooperative cancellation for the current attempt."""
         ...
 
+    def record_cancellation_disposition(
+        self,
+        receipt: JobCancellationReceipt,
+    ) -> None:
+        """Retain the cooperative cancellation outcome in job history."""
+        ...
+
+    def record_recovery_decision(self, decision: JobRecoveryDecision) -> None:
+        """Retain the receipt-backed decision for one expired attempt."""
+        ...
+
     def record_interruption(self, interruption: JobInterruption) -> None:
-        """Record loss of a worker before a terminal result."""
+        """Interrupt only an expired attempt proven to have no receipt."""
         ...
 
     def record_result(self, result: JobResultIdentity) -> None:

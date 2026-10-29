@@ -100,6 +100,15 @@ class ServerMigrationSettings:
     secret_provider: SecretProviderSettings
 
 
+@dataclass(frozen=True, slots=True)
+class ServerAdminSettings:
+    """Hold only the settings and runtime secret needed by admin commands."""
+
+    deployment_id: str
+    postgres_dsn_file: PurePosixPath
+    secret_provider: SecretProviderSettings
+
+
 _REQUIRED_KEYS = frozenset(
     {
         "IMPODO_DEPLOYMENT_ID",
@@ -141,6 +150,20 @@ _MIGRATION_OPTIONAL_KEYS = frozenset(
     }
 )
 _MIGRATION_ALLOWED_KEYS = _MIGRATION_REQUIRED_KEYS | _MIGRATION_OPTIONAL_KEYS
+_ADMIN_REQUIRED_KEYS = frozenset(
+    {
+        "IMPODO_DEPLOYMENT_ID",
+        "IMPODO_POSTGRES_DSN_FILE",
+        "IMPODO_SECRET_PROVIDER",
+    }
+)
+_ADMIN_OPTIONAL_KEYS = frozenset(
+    {
+        "IMPODO_SECRET_ROOT",
+        "IMPODO_SECRET_PROVIDER_CONFIG_FILE",
+    }
+)
+_ADMIN_ALLOWED_KEYS = _ADMIN_REQUIRED_KEYS | _ADMIN_OPTIONAL_KEYS
 
 
 def _required(environment: Mapping[str, str], key: str) -> str:
@@ -583,6 +606,32 @@ def load_server_migration_settings(
     return settings
 
 
+def load_server_admin_settings(
+    environment: Mapping[str, str] | None = None,
+) -> ServerAdminSettings:
+    """Parse the narrow non-HTTP admin settings and reject web settings."""
+
+    values = os.environ if environment is None else environment
+    _validate_setting_names(
+        values,
+        required_keys=_ADMIN_REQUIRED_KEYS,
+        allowed_keys=_ADMIN_ALLOWED_KEYS,
+    )
+    settings = ServerAdminSettings(
+        deployment_id=_deployment_id(values),
+        postgres_dsn_file=_posix_path(
+            _required(values, "IMPODO_POSTGRES_DSN_FILE"),
+            key="IMPODO_POSTGRES_DSN_FILE",
+        ),
+        secret_provider=_secret_provider(values),
+    )
+    _assert_file_secret_references(
+        settings.secret_provider,
+        (settings.postgres_dsn_file,),
+    )
+    return settings
+
+
 __all__ = [
     "SERVER_GID",
     "SERVER_UID",
@@ -590,10 +639,12 @@ __all__ = [
     "OdooNetworkPolicy",
     "SecretProviderKind",
     "SecretProviderSettings",
+    "ServerAdminSettings",
     "ServerConfigurationError",
     "ServerLogLevel",
     "ServerMigrationSettings",
     "ServerSettings",
+    "load_server_admin_settings",
     "load_server_migration_settings",
     "load_server_settings",
 ]

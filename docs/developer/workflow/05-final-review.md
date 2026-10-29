@@ -86,6 +86,24 @@ shared-server adapter must keep the same post-publication, authorized bounded
 query boundary and must not open worker-held DuckDB state while an operation is
 active.
 
+Final-review publication derives its own compact issue counts from the complete
+decision set before the rows are streamed to DuckDB. Every blocking technical
+code is retained, even when one record has several blockers; ambiguous target
+matches receive their stable review code. Odoo-source refresh blockers use the
+same aggregate from their already projected rows. The aggregate lives in the
+readiness report header, contains no record identity or field value, and adds
+no browser-time Odoo call or database query.
+
+The summary presenter merges those counts with the preparation causes through
+`WorkflowIssueProjection`. Its cards show the cause, owner, affected record
+type and count, preserved work, and required recheck outside the paged decision
+table. Opening a Final-review card adds its stable issue code to the existing
+bounded readiness-row query. The query still uses one retained DuckDB
+connection for its count and page; it does not load the complete decision set
+or create a separate issue store. Reports saved before this aggregate existed
+remain actionable through their dataset-level blocked and ambiguous totals
+until the next comparison publishes cause-specific counts.
+
 Prepared numeric-capacity advisories reuse this same projection. Their cards
 show captured total digits and scale, the highest required scale, and compact
 overflow counts without exposing a prepared value. The primary action opens
@@ -221,6 +239,8 @@ defined by the [reviewed deferred record groups contract](../contracts/deferred-
 | Comparison orchestration | [`PreflightService`](../../../src/impodo/application/preflight_service.py) |
 | Persisted complete-run quality causes | [`QualityRepository`](../../../src/impodo/adapters/duckdb/quality_repository.py) |
 | Prepared-quality issue presentation | [`_quality_workflow_issue_summary`](../../../src/impodo/web/presenters/summary.py) and [`WorkflowIssueProjection`](../../../src/impodo/application/workspace/issues.py) |
+| Final-review issue counts and presentation | [`readiness_issue_counts`](../../../src/impodo/domain/preflight/reports.py), [`PreflightRepository.get_readiness_rows`](../../../src/impodo/adapters/duckdb/preflight_repository.py), and [`_readiness_workflow_issue_summary`](../../../src/impodo/web/presenters/summary.py) |
+| Final-review issue aggregation tests | [`test_reports.py`](../../../tests/domain/preflight/test_reports.py) |
 | Compact execution projection | [`navigation.py`](../../../src/impodo/application/workspace/execution/navigation.py) and [`PreflightRepository`](../../../src/impodo/adapters/duckdb/preflight_repository.py) |
 | Compact review consumption and full confirmation | [`ExecutionService`](../../../src/impodo/application/workspace/execution/service.py) |
 | Bounded shared navigation | [`WorkspaceNavigationQueryService`](../../../src/impodo/application/workspace/navigation.py) and [`WorkspaceNavigationRepository`](../../../src/impodo/adapters/duckdb/navigation_repository.py) |
