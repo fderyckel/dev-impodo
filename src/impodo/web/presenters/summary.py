@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from time import perf_counter
 from urllib.parse import urlencode
+from uuid import uuid4
 
 from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -124,6 +125,7 @@ def _render_target(
         local_stack_return_to="target",
         local_stack_resume_compare=False,
         local_stack_resume_ready=False,
+        comparison_operation_id=str(uuid4()),
         setup_attention_requested=setup_attention_requested,
         error=error,
         status_code=status_code,
@@ -315,6 +317,7 @@ def _render_normalization(
             else None
         ),
         automatic_record_count=automatic_record_count,
+        comparison_operation_id=str(uuid4()),
         error=error,
         status_code=status_code,
     )
@@ -716,6 +719,7 @@ def _render_summary(
         request,
         "workspace_summary.html",
         workspace_state=workspace_state,
+        comparison_operation_id=str(uuid4()),
         revision=revision,
         submission=submission,
         staging=staging,

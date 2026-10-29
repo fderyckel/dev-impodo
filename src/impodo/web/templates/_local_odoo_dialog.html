@@ -207,6 +207,7 @@
     {% if local_stack_resume_compare %}
       <form method="post" action="/workspaces/{{ workspace_id }}/summary/compare" data-preflight-compare>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
         <button class="button primary" type="submit" {% if not local_stack_resume_ready %}disabled{% endif %}>
           Continue comparison
         </button>

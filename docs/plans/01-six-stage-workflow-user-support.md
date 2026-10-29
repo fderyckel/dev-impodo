@@ -8,8 +8,9 @@ and 10 now have useful implemented foundations, while Proposal 9 is complete.
 The shared root-cause correction journey from Proposals 1 and 8 now covers
 Stages 4 and 5 as well as the earlier Stage 2 adapter. The exact prepared-value
 precision pass is implemented as bounded, value-free worker evidence. The next
-delivery should add bounded cause-specific drill-down and the remaining issue
-adapters. It should then complete the relational identity and relationship gaps
+delivery should add the remaining issue adapters. The bounded cause-specific
+drill-down is now implemented over a publication-time membership index. The
+plan should then complete the relational identity and relationship gaps
 from Proposals 3 and 6, the source-aware supporting-data closure from Proposal
 2, and the migration-intent part of Proposal 10. Do not build parallel
 replacements for the implemented default, mapping-impact, comparison, or
@@ -128,7 +129,7 @@ delivery summary recorded:
 | **5. Mapping starter** | Stage 2 matching-rule suggestions, generated-table relationship suggestions, recommended authoring order, scalar catalogue tools, and checked coverage evidence provide several safe starting points. | Add only evidence-backed suggestions that remove a demonstrated operator burden. A broad automatic field mapper is no longer a prerequisite for this plan. |
 | **6. Relationship simulator** | Direct scalar Many2one and Many2many keys, three resolver origins, constant references, parent counts, case-only protection, and inverse One2many guidance are current. | Add protected unresolved-choice review, nested relational keys, and resolver-backed components of the dataset's own identity. |
 | **7. Rule effects** | The optional **Review rule effects** page and matching review workbook already show changed, fallback, blank, invalid, supplied, and unchanged outcomes for the checked revision. | Prefer field-specific links and compact context over duplicating the complete preview inside every field card. |
-| **8. Root-cause repair** | Prepare data persists causal dependency evidence, publishes direct and transitive impact counts, and checks exact post-transformation Decimal values against schema-bound Odoo capacity. Stages 4 and 5 project value-free cards with the saved rule, Odoo-schema alternative, and recheck. Browser paging does not rescan the issue graph or numeric values. | Add bounded cause-specific record drill-down if the data manager needs to inspect the full closure behind a card. |
+| **8. Root-cause repair** | Prepare data persists causal dependency evidence, publishes direct and transitive impact counts, checks exact post-transformation Decimal values against schema-bound Odoo capacity, and indexes every direct or dependency-affected row for bounded drill-down. Stages 4 and 5 project value-free cards with the saved rule, Odoo-schema alternative, recheck, and paged affected-record action. Browser paging does not rescan the issue graph or numeric values. | Complete for current preparation causes. Extend the shared issue projection only when another stage has authoritative evidence to contribute. |
 | **9. Shared comparison** | The single Stage 4-to-Stage 5 comparison and reviewed deferred-record-group workflow are complete. | Preserve this owner; do not add another target scan. |
 | **10. Intent and cockpit** | Load already has dependency groups, bounded blockers, durable row journals, unknown-outcome states, read-back-gated recovery, reconciliation, and progressive relationship status. | Add the explicit business-intent contract and present it together with the existing execution and recovery evidence. |
 
@@ -253,7 +254,7 @@ stages.
 | **1. Source data** | The data manager confirms physical and reviewed derived tables as immutable Data version evidence. Odoo-source capture stores a generic decision for each reviewed relationship edge and builds guided plans from those decisions. | File-source business scope and derived-table intent do not yet feed one complete Stage 2 dependency plan, so a supporting incoming table can still be discovered late. |
 | **2. Odoo data** | Impodo captures Odoo 19 models, fields, requirements, selections, relationships, defaults, and optional uniqueness metadata. It now derives direct required supporting relationships and inverse-owned child data, then confirms one matching rule for every selected writable record type. | The first slice does not yet pair optional relationships with accepted source or Recipe intent, authorize arbitrary supporting reads, or prove that current source and target values are populated and unique. |
 | **3. Match data** | The data manager defines row inclusion, record identity, scalar values, transformations, defaults, and relationships. Impodo checks direct identity and relationship health, predicts source-backed numeric precision loss, and can show rule effects in a browser review and workbook. | Relational identity components and nested relationship keys still stop at aggregate guidance. Protected unresolved choices and a compact cross-table coverage view remain missing. |
-| **4. Prepare data** | Impodo applies the confirmed mapping to every accepted row, accounts for every row, resolves source duplicates, evaluates incoming relationships, checks exact prepared numeric capacity, freezes normalization decisions, and publishes complete-run cause counts for the shared repair queue. | The cards do not yet offer a cause-specific bounded drill-down. |
+| **4. Prepare data** | Impodo applies the confirmed mapping to every accepted row, accounts for every row, resolves source duplicates, evaluates incoming relationships, checks exact prepared numeric capacity, freezes normalization decisions, publishes complete-run cause counts, and offers an indexed cause-specific record drill-down for the shared repair queue. | The remaining preparation improvements depend on the relational-identity and supporting-data evidence still missing upstream, not another issue store. |
 | **5. Final review** | Impodo reads current Odoo evidence, classifies every eligible prepared row, produces the final action queue and execution snapshot, can retain a reviewed safe remainder, and reuses the Stage 4 repair projection for preparation causes. | Indirect identities and target-only relationships that the early checks cannot prove may still first become visible here. Final-review-only blockers do not yet all use the cross-stage issue journey. |
 | **6. Load into Odoo** | Impodo revalidates the reviewed target scope, writes in dependency order, journals each attempted row, requires read-back before recovery, and verifies the result through reconciliation. | Recovery is already evidence-led. The main remaining gap is an explicit business-intent comparison that catches a technically valid load whose create, update, field, or relationship effects contradict the migration purpose. |
 
@@ -876,8 +877,9 @@ paged. Match data also scans current frozen source-backed scalar rules for
 potential numeric precision loss. Preparation now complements that prediction
 with exact post-transformation Decimal checks for mapped writable numeric fields.
 It publishes a value-free advisory with captured capacity and aggregate impact;
-Final review remains authoritative for actual writes. A cause-specific bounded
-record drill-down remains proposed.
+Final review remains authoritative for actual writes. Each current cause card
+now opens an authorized, bounded page of its direct and dependency-affected
+records.
 
 **Owning stage:** Prepare data.  
 **User impact:** **9/10**.
@@ -888,11 +890,11 @@ Impodo now extends the earlier page-scoped cause summary into one complete-run
 projection before it lists the paged records. Each inherited finding retains a
 portable causal row identity and a parent-or-child direction. Quality
 publication uses one recursive set operation to derive the distinct parent,
-child, and sibling closure for every direct cause, then stores only compact
-counts and no source values. The browser performs no graph walk and opens no
-additional DuckDB connection. A later drill-down may filter authorized paged
-row evidence by cause, but it must reuse this persisted closure meaning rather
-than recompute the graph in the request.
+child, and sibling closure for every direct cause. It stores compact counts and
+a value-free `(run, cause, row, impact kind)` membership index. The browser
+filters that persisted index in bounded pages; it performs no graph walk or
+prepared-value scan and the repository read uses one DuckDB connection and one
+schema check.
 
 The current Match data scan predicts numeric precision loss for frozen
 source-backed scalar rules and can direct the user to an explicit rounding
@@ -930,9 +932,11 @@ Owner: Product data manager
 Next action: Open Product relationship rule
 ```
 
-The complete affected-record list should remain available through bounded
-paging. The main page should focus on the few causes that unlock the largest
-number of records.
+The complete affected-record list is available through **Review affected
+records** and bounded paging. Each row states whether the finding is direct or
+whether a parent, child, or sibling was affected through the saved dependency
+closure. The main page remains focused on the few causes that unlock the
+largest number of records.
 
 Show numeric-capacity cards in the same action queue. For example:
 
@@ -948,10 +952,10 @@ Actions: Adjust the number rule | Review Odoo field precision
 
 The user can fix one cause instead of interpreting many consequential errors.
 Current preparation now makes the complete dependency impact, correction
-route, and exact prepared-value capacity advisory actionable. The pass closes
-the gap left by the earlier source-backed prediction without misclassifying an
-unchanged value as an intended-write blocker. A cause-specific drill-down would
-make the counted closure directly inspectable without enlarging the main page.
+route, exact prepared-value capacity advisory, and counted closure actionable.
+The pass closes the gap left by the earlier source-backed prediction without
+misclassifying an unchanged value as an intended-write blocker or enlarging the
+main page.
 
 ### Acceptance checks
 
@@ -960,6 +964,10 @@ make the counted closure directly inspectable without enlarging the main page.
   propagation.
 - Missing-parent groups distinguish the direct child finding from every parent,
   sibling, or dependent record set aside because of it.
+- Each current cause card pages the same persisted direct and dependency
+  membership used for its counts; the request does not traverse causal links.
+- A cause page is bound to the authorized workspace's current quality run and
+  uses one bounded synchronous local page operation.
 - The local Decimal check uses the exact prepared value and captured `digits`
   metadata and labels its result as potential until the intended write set is
   known.
@@ -1137,12 +1145,13 @@ the highest-risk stage, so it receives a near-maximum score.
 
 | Priority | Proposals | Reason |
 | --- | --- | --- |
-| **1 - next** | 8. Bounded root-cause drill-down with remaining 1. Cross-stage issue adapters | Dependency impact, prepared-value capacity, preserved work, correction actions, and required rechecks are current for preparation causes. Keep closure detail bounded and extend the shared issue contract only to remaining authoritative stage evidence. |
+| **1 - next** | Remaining 1. Cross-stage issue adapters | Dependency impact, prepared-value capacity, preserved work, correction actions, required rechecks, and bounded closure detail are current for preparation causes. Extend the shared issue contract only to remaining authoritative stage evidence. |
 | **2** | 3. Relational identity proof with 6. Nested relationship resolution | Extend the existing bounded Stage 3 check to the parent-, company-, and relationship-backed identities that still defer risk until Final review. Add protected unresolved-choice review without exposing keys in ordinary projections. |
 | **3** | 2. Source-aware supporting-data closure | Join accepted physical and derived tables, optional-field intent, Recipe requirements, and reviewed Odoo-source edge meaning into the existing bounded dependency plan. Do not add another relationship-policy engine. |
 | **4** | 10. Migration intent over the current load cockpit | Compare the exact Final review result with explicit business expectations, then present those expectations with the implemented dependency, journal, recovery, and reconciliation states. |
 | **5 - conditional consolidation** | Remaining 4. Required-values summary, 5. Mapping starter, and 7. Field-specific rule effects | Improve the current flows only where user evidence shows repeated work or navigation friction. Reuse the implemented default capture, catalogues, transformation-impact snapshot, and workbook. |
 | **Delivered foundation** | 9. Shared comparison and reviewed set-aside | Preserve one Stage 4-to-Stage 5 comparison and the reviewed safe-remainder contract. No later slice adds another target scan. |
+| **Delivered foundation** | 8. Bounded root-cause repair | Preserve the publication-time cause counts and membership index. No browser route recomputes dependency closure or numeric evidence. |
 
 This sequence supersedes the older assumption that Proposals 4, 5, 7, and the
 load cockpit all start from zero. Their current foundations reduce the

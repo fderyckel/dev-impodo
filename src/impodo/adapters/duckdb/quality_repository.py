@@ -164,6 +164,13 @@ def _materialize_quality_cause_members(
               JOIN parsed_issue AS inherited
                 ON inherited.caused_by_row_id = walk.current_row_id
              WHERE inherited.dependency_impact IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM parsed_issue AS direct_issue
+                    WHERE direct_issue.cause_key = walk.cause_key
+                      AND direct_issue.row_id = inherited.row_id
+                      AND direct_issue.caused_by_row_id IS NULL
+               )
         ),
         classified_impact AS (
             SELECT cause_key, current_row_id,

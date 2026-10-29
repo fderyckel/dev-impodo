@@ -50,6 +50,7 @@ TRUE_PROJECT_ID_TYPES = frozenset(
     {
         "application/data_version/source_packages.py::DataVersionSourcePackage",
         "application/data_version/source_packages.py::WorkspaceSourceProjection",
+        "application/preflight_attempts.py::PreflightComparisonRequest",
         "domain/data_version/models.py::DataVersion",
         "web/project_listing.py::UnavailableProjectSummary",
         "domain/cutover/models.py::ApplicationQualificationEvidence",
@@ -161,6 +162,10 @@ CURRENT_IDENTITY_SURFACES = {
         (
             "src/impodo/domain/project/foundation.py",
             "class MigrationOperationIntent",
+        ),
+        (
+            "src/impodo/application/preflight_attempts.py",
+            "class PreflightComparisonRequest",
         ),
         (
             "src/impodo/application/workspace/service.py",

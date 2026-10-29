@@ -15,6 +15,7 @@ from impodo.application.correction_jobs import (
     CorrectionWork,
 )
 from impodo.application.odoo_source_capture_service import OdooSourceCapturePort
+from impodo.application.preflight_attempts import PreflightComparisonRequest
 from impodo.application.preflight_jobs import (
     PreflightJob,
     PreflightWork,
@@ -115,6 +116,15 @@ class PreparationJobRuntime(Protocol):
 class PreflightJobRuntime(Protocol):
     """Schedule and inspect read-only Odoo comparisons for browser routes."""
 
+    def reserve(
+        self,
+        request: PreflightComparisonRequest,
+        migration_project_name: str,
+        *,
+        access_context: WorkspaceAccessContext,
+        actor: Actor,
+    ) -> PreflightJob: ...
+
     def enqueue(
         self,
         workspace_id: str,
@@ -122,6 +132,7 @@ class PreflightJobRuntime(Protocol):
         *,
         access_context: WorkspaceAccessContext,
         work: PreflightWork,
+        operation_id: str | None = None,
     ) -> PreflightJob: ...
 
     def get(self, workspace_id: str, job_id: str) -> PreflightJob: ...

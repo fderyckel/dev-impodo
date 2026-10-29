@@ -17,6 +17,23 @@ T = TypeVar("T")
 DatabaseScope = Callable[[], AbstractContextManager[None]]
 
 
+def _run_in_database_scope_sync[**P, T](
+    database_scope: DatabaseScope,
+    function: Callable[P, T],
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> T:
+    """Run one synchronous callable inside one bounded database scope."""
+
+    with database_scope():
+        result = function(*args, **kwargs)
+        if isawaitable(result):
+            if iscoroutine(result):
+                result.close()
+            raise TypeError("Local database work must use a synchronous callable")
+        return result
+
+
 async def _run_in_database_scope[**P, T](
     database_scope: DatabaseScope,
     function: Callable[P, T],
@@ -25,18 +42,13 @@ async def _run_in_database_scope[**P, T](
 ) -> T:
     """Keep the database scope and synchronous callable on one worker."""
 
-    def invoke() -> T:
-        with database_scope():
-            result = function(*args, **kwargs)
-            if isawaitable(result):
-                if iscoroutine(result):
-                    result.close()
-                raise TypeError(
-                    "Local database work must use a synchronous callable"
-                )
-            return result
-
-    return await run_in_threadpool(invoke)
+    return await run_in_threadpool(
+        _run_in_database_scope_sync,
+        database_scope,
+        function,
+        *args,
+        **kwargs,
+    )
 
 
 async def run_page_read[**P, T](
@@ -68,6 +80,24 @@ async def run_local_operation[**P, T](
     """
 
     return await _run_in_database_scope(
+        retain_databases_for_operation,
+        function,
+        *args,
+        **kwargs,
+    )
+
+
+def run_local_operation_sync[**P, T](
+    function: Callable[P, T], *args: P.args, **kwargs: P.kwargs
+) -> T:
+    """Run one local command on the current worker in a bounded scope.
+
+    Background workers use this form because they are already off the web event
+    loop. The scope is still closed before the worker performs remote I/O or
+    reports completion.
+    """
+
+    return _run_in_database_scope_sync(
         retain_databases_for_operation,
         function,
         *args,

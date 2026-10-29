@@ -51,6 +51,7 @@
         {% elif recovery and recovery.action_kind == 'retry' %}
           <form method="post" action="/workspaces/{{ job.workspace_id }}/summary/compare">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
             <button class="button primary" type="submit">{{ recovery.action_label }}</button>
           </form>
         {% elif recovery and recovery.action_href %}

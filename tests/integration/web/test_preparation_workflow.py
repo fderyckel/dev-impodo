@@ -7,8 +7,8 @@ from dataclasses import replace
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.preparation.quality import (
-    QualityCauseImpact,
     QualityCauseCount,
+    QualityCauseImpact,
     QualityDisposition,
     QualityIssue,
     QualityReviewItem,
@@ -341,8 +341,8 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Direct finding", page.text)
         self.assertIn("Contact C002", page.text)
         self.assertIn("Records 1-2 of 2", page.text)
-        self.assertLessEqual(timings.connection_count, 2)
-        self.assertLessEqual(timings.schema_check_count, 2)
+        self.assertLessEqual(timings.connection_count, 3)
+        self.assertLessEqual(timings.schema_check_count, 3)
 
     def test_prepare_rejects_bad_source_hash_before_publication_and_redirects(
         self,

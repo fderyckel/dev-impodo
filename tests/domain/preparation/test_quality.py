@@ -1938,15 +1938,17 @@ class QualityStoreTests(unittest.TestCase):
         self.assertEqual(cause.affected_child_count, 1)
         self.assertEqual(cause.affected_sibling_count, 1)
         self.assertTrue(cause.cause_key.startswith("sha256:"))
-        with collect_duckdb_request_timings() as timings:
-            with retain_databases_for_read():
-                first_cause_page = self.quality.get_quality_cause_review_page(
-                    self.workspace_state.workspace_id,
-                    published.run_id,
-                    cause.cause_key,
-                    page=1,
-                    page_size=2,
-                )
+        with (
+            collect_duckdb_request_timings() as timings,
+            retain_databases_for_read(),
+        ):
+            first_cause_page = self.quality.get_quality_cause_review_page(
+                self.workspace_state.workspace_id,
+                published.run_id,
+                cause.cause_key,
+                page=1,
+                page_size=2,
+            )
         second_cause_page = self.quality.get_quality_cause_review_page(
             self.workspace_state.workspace_id,
             published.run_id,

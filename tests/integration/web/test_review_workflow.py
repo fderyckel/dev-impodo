@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import time
-from threading import Event
+from threading import Event, get_ident
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.preflight_jobs import PreflightJobManager
+from impodo.web.composition.page_reads import (
+    run_local_operation as run_bounded_local_operation,
+)
+from impodo.web.routers import preflight as preflight_router
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     ConnectorAuthenticationError,
@@ -31,10 +36,32 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context.preflight_jobs = manager
         started = Event()
         release = Event()
+        event_loop_threads = []
+        callback_threads = []
+        operation_id = "70000000-0000-4000-8000-000000000001"
 
-        def compare(_workspace_id, *, reader, actor, progress):
+        async def observe_start_callback(function):
+            event_loop_threads.append(get_ident())
+
+            def invoke():
+                callback_threads.append(get_ident())
+                return function()
+
+            return await run_bounded_local_operation(invoke)
+
+        def compare(
+            _workspace_id,
+            *,
+            reader,
+            actor,
+            progress,
+            local_operation,
+            operation_id,
+        ):
             self.assertEqual(actor, resolve_local_actor(context))
             self.assertIsNotNone(reader)
+            self.assertIsNotNone(local_operation)
+            self.assertTrue(operation_id)
             progress("READING")
             started.set()
             release.wait(timeout=30)
@@ -47,6 +74,11 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             with (
                 patch.object(context.preflight, "compare", side_effect=compare),
                 patch.object(
+                    context.preflight,
+                    "comparison_input_hash",
+                    return_value="sha256:" + "1" * 64,
+                ),
+                patch.object(
                     context.execution,
                     "current_preview",
                     return_value=None,
@@ -55,25 +87,45 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                     "impodo.web.routers.preflight._rebind_remote_read_access",
                     return_value=None,
                 ),
+                patch.object(
+                    preflight_router,
+                    "run_local_operation",
+                    side_effect=observe_start_callback,
+                ),
             ):
-                started_response = self.client.post(
-                    f"/workspaces/{workspace_state.workspace_id}/summary/compare",
-                    data={
-                        "csrf_token": self.csrf,
-                        "read_api_key": "replacement-read-key",
-                        "read_api_key_storage": "session",
-                    },
-                    headers=POST_HEADERS,
-                    follow_redirects=False,
-                )
+                with collect_duckdb_request_timings() as start_timings:
+                    started_response = self.client.post(
+                        f"/workspaces/{workspace_state.workspace_id}/summary/compare",
+                        data={
+                            "csrf_token": self.csrf,
+                            "operation_id": operation_id,
+                            "read_api_key": "replacement-read-key",
+                            "read_api_key_storage": "session",
+                        },
+                        headers=POST_HEADERS,
+                        follow_redirects=False,
+                    )
                 self.assertEqual(started_response.status_code, 303)
                 self.assertIn("/preflight/", started_response.headers["location"])
                 self.assertTrue(started.wait(timeout=10))
+                self.assertEqual(len(event_loop_threads), 1)
+                self.assertEqual(len(callback_threads), 1)
+                self.assertNotEqual(event_loop_threads, callback_threads)
+                self.assertGreater(start_timings.connection_count, 0)
+                # The request middleware and callback touch the registry,
+                # Workspace reference, Workspace engine, and protected secret
+                # owners. Retention keeps repeated repository calls within
+                # those owners below this route-specific physical ceiling.
+                self.assertLessEqual(start_timings.connection_count, 6)
+                self.assertLessEqual(start_timings.schema_check_count, 3)
 
                 progress_page = self.client.get(started_response.headers["location"])
                 repeated = self.client.post(
                     f"/workspaces/{workspace_state.workspace_id}/summary/compare",
-                    data={"csrf_token": self.csrf},
+                    data={
+                        "csrf_token": self.csrf,
+                        "operation_id": operation_id,
+                    },
                     headers=POST_HEADERS,
                     follow_redirects=False,
                 )
@@ -130,7 +182,17 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         manager = PreflightJobManager()
         context.preflight_jobs = manager
 
-        def compare(_workspace_id, *, reader, actor, progress):
+        def compare(
+            _workspace_id,
+            *,
+            reader,
+            actor,
+            progress,
+            local_operation,
+            operation_id,
+        ):
+            self.assertIsNotNone(local_operation)
+            self.assertTrue(operation_id)
             return SimpleNamespace(
                 run_id="50000000-0000-4000-8000-000000000002",
                 attention_count=36,
@@ -139,6 +201,11 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         try:
             with (
                 patch.object(context.preflight, "compare", side_effect=compare),
+                patch.object(
+                    context.preflight,
+                    "comparison_input_hash",
+                    return_value="sha256:" + "2" * 64,
+                ),
                 patch(
                     "impodo.web.routers.preflight._rebind_remote_read_access",
                     return_value=None,
@@ -213,8 +280,17 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         workspace_state, schema = self._frozen_odoo_source_workspace()
 
-        def compare_with_reader(_project_id, *, reader, actor):
+        def compare_with_reader(
+            _project_id,
+            *,
+            reader,
+            actor,
+            local_operation,
+            operation_id,
+        ):
             self.assertEqual(actor, resolve_local_actor(context))
+            self.assertIsNotNone(local_operation)
+            self.assertTrue(operation_id)
             return reader(
                 PreflightRequirementPlan((), (), (), source_record_count=0)
             )

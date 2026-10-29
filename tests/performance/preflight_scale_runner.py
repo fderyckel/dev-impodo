@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import asdict
 from decimal import Decimal
 from pathlib import Path
 from threading import Event
@@ -21,6 +22,9 @@ if sys.platform != "win32":
 from impodo.adapters.artifacts.reporting import WORKBOOK_NAME, write_review_workbook
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
+from impodo.application.preflight_timing import (
+    collect_preflight_publication_timings,
+)
 from impodo.application import preflight_service as preflight_module
 from impodo.application.preflight_service import (
     EXECUTION_SNAPSHOT_NAME,
@@ -33,6 +37,7 @@ from impodo.domain.shared.models import (
     ModelMetadata,
     TargetFingerprint,
     TargetRecord,
+    canonical_json_text,
     target_identity_hash,
 )
 from impodo.web.app import create_local_app
@@ -75,7 +80,7 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
     request_counts: dict[str, int] = {}
     phases: dict[str, float] = {}
     phase_rss_mib: dict[str, float] = {}
-    comparison_metrics: dict[str, float | int] = {}
+    comparison_metrics: dict[str, object] = {}
     request_probes: dict[str, dict[str, object]] = {}
     reading_started = Event()
     release_reader = Event()
@@ -206,7 +211,10 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
     def compare_with_metrics(*args, **kwargs):
         wall_started = perf_counter()
         cpu_started = process_time()
-        with collect_duckdb_request_timings() as database_timings:
+        with (
+            collect_duckdb_request_timings() as database_timings,
+            collect_preflight_publication_timings() as publication_timings,
+        ):
             try:
                 return original_compare(*args, **kwargs)
             finally:
@@ -226,6 +234,12 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
                         ),
                         "database_schema_ms": database_timings.schema_ms,
                         "elapsed_seconds": perf_counter() - wall_started,
+                        "publication_timings_ms": dict(
+                            publication_timings.milliseconds
+                        ),
+                        "publication_timing_calls": dict(
+                            publication_timings.calls
+                        ),
                     }
                 )
 
@@ -352,7 +366,13 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
                     "health_active",
                     lambda: client.get("/health"),
                 )
-                assert progress_response.status_code == 200
+                if progress_response.status_code != 200:
+                    raise AssertionError(
+                        "Active progress request failed with "
+                        f"{progress_response.status_code}; url={progress_url}; location="
+                        f"{progress_response.headers.get('location', '')}; "
+                        f"body={progress_response.text[-2_000:]}"
+                    )
                 assert status_response.status_code == 200
                 assert status_response.json()["status"] not in {
                     "FAILED",
@@ -447,7 +467,45 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
             """,
             [report.run_id, report.run_id, report.run_id],
         ).fetchone()
+        decision_edges = connection.execute(
+            """
+            (SELECT ordinal, decision_json
+               FROM preflight_decision
+              WHERE run_id = ?
+              ORDER BY ordinal
+              LIMIT 1)
+            UNION ALL
+            (SELECT ordinal, decision_json
+               FROM preflight_decision
+              WHERE run_id = ?
+              ORDER BY ordinal DESC
+              LIMIT 1)
+            ORDER BY ordinal
+            """,
+            [report.run_id, report.run_id],
+        ).fetchall()
     assert stored is not None
+    first_page = context.preflight.readiness_rows(
+        workspace_id,
+        report.run_id,
+        page=1,
+        page_size=1,
+    )
+    last_page = context.preflight.readiness_rows(
+        workspace_id,
+        report.run_id,
+        page=row_count,
+        page_size=1,
+    )
+    decision_json_edges_match = bool(
+        len(decision_edges) == 2
+        and tuple(int(item[0]) for item in decision_edges)
+        == (0, row_count - 1)
+        and str(decision_edges[0][1])
+        == canonical_json_text(asdict(first_page.items[0]))
+        and str(decision_edges[1][1])
+        == canonical_json_text(asdict(last_page.items[0]))
+    )
 
     with context.artifacts.materialize_report(
         workspace_id, report.run_id, MANIFEST_NAME
@@ -496,6 +554,7 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
         "workbook_bytes": workbook_bytes,
         "workbook_seconds": workbook_seconds,
         "persisted_decisions": int(stored[0]),
+        "decision_json_edges_match": decision_json_edges_match,
         "persisted_snapshots": int(stored[1]),
         "readiness_runs": int(stored[3]),
         "unchanged": report.unchanged_count,

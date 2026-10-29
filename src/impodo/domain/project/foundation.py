@@ -69,6 +69,7 @@ class MigrationOperationKind(StrEnum):
     TEST_RUN_ACTIVATE = "TEST_RUN_ACTIVATE"
     PRODUCTION_RUN_SETUP = "PRODUCTION_RUN_SETUP"
     PRODUCTION_RUN_ACTIVATE = "PRODUCTION_RUN_ACTIVATE"
+    PREFLIGHT_COMPARE = "PREFLIGHT_COMPARE"
 
 
 class MigrationOperationState(StrEnum):
@@ -94,6 +95,7 @@ class MigrationOperationIntent:
     state: MigrationOperationState
     stage: str
     detail: Mapping[str, object]
+    result: Mapping[str, object]
     last_error: str
     actor: ActorIdentity
     created_at: datetime

@@ -55,8 +55,9 @@ batched issue rows have been stored. Inherited issues retain one causal row
 identity and a parent-or-child direction. `QualityRepository` performs one
 recursive set operation inside the publication transaction: it groups direct
 causes, walks the persisted causal links, and counts distinct parents,
-children, and siblings made unsafe by each cause. It stores only the compact
-result in `quality_evidence_projection`.
+children, and siblings made unsafe by each cause. It stores the compact result
+in `quality_evidence_projection` and the value-free run/cause/row/impact
+membership in `quality_cause_member`.
 
 The projection keeps the dataset, stable reason, representative message, rule
 family, outcome policy, correction owner, affected fields, direct affected
@@ -68,7 +69,7 @@ in row-specific detail are counted once. The preparation owner therefore scans
 and closes the issue graph once; browser pages do not repeat it or load every
 issue into Python. A current browser read asks for the projection through the
 existing bounded quality-page query. Historical projections without the
-enriched counts remain readable and are not rewritten.
+enriched counts or membership index remain readable and are not rewritten.
 
 Stages 4 and 5 project those counts through the shared read-only
 `WorkflowIssueProjection`. The projection orders root findings before inherited
@@ -80,6 +81,14 @@ data-check decision when the saved schema can identify it. This does not create
 a second issue store and adds no page-read query. A numeric-capacity card opens
 the exact scalar rule and offers a second non-mutating route to the captured
 Odoo field precision.
+
+**Review affected records** uses the stable cause key from that projection.
+`get_quality_cause_review_page` filters the publication-time membership index,
+orders by dataset and source row, and reconstructs only one bounded page with
+its saved issues. Sparse clean-row defaults and stored exceptions retain their
+existing meaning. The route runs as one bounded synchronous page operation;
+it does not recurse over causal links, rescan prepared values, contact Odoo, or
+introduce a cross-request DuckDB connection cache.
 
 Before quality evaluation, `PreparationService` validates the local schema or
 remote worker precision packet against the submitted mapping hash. It derives

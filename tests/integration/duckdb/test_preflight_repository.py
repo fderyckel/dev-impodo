@@ -1,21 +1,26 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from contextlib import contextmanager
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import duckdb
 
-from impodo.adapters.duckdb.preflight_repository import PreflightRepository
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
+from impodo.adapters.duckdb.preflight_repository import PreflightRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
-from impodo.application.workspace.execution.navigation import ExecutionPreviewSummary
+from impodo.application.workspace.execution.navigation import (
+    ExecutionPreviewSummary,
+    ExecutionReviewBlockerSummary,
+    ExecutionReviewDependencySummary,
+    ExecutionReviewProjection,
+    ExecutionReviewSnapshot,
+)
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.workspace.workbench import WorkspaceState
-from tests.support.paths import REPOSITORY_ROOT
 
 
 RUN_ID = "00000000-0000-4000-8000-000000000001"
@@ -137,10 +142,7 @@ class PreflightRepositoryReadinessRowTests(unittest.TestCase):
 
 class DeferredScopeProjectionTests(unittest.TestCase):
     def setUp(self) -> None:
-        (REPOSITORY_ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(
-            dir=REPOSITORY_ROOT / ".tmp"
-        )
+        self.temporary = tempfile.TemporaryDirectory()
         database = DuckDbWorkspaceDatabase(self.temporary.name)
         self.workspaces = WorkspaceStateRepository(database)
         self.repository = PreflightRepository(database, self.workspaces)
@@ -163,7 +165,7 @@ class DeferredScopeProjectionTests(unittest.TestCase):
                 """
                 INSERT INTO preflight_execution_projection VALUES (
                     ?, ?, ?, 'BLOCKED', 4, 1, 0, 1, 0, 0,
-                    ?, '19.0', '', '', '', '', FALSE, 1
+                    ?, '19.0', '', '', '', '', FALSE, 1, ''
                 )
                 """,
                 [
@@ -197,11 +199,34 @@ class DeferredScopeProjectionTests(unittest.TestCase):
             read_context_hash="",
             execution_shape_ready=True,
         )
+        review = ExecutionReviewProjection(
+            summary=summary,
+            snapshot=ExecutionReviewSnapshot(
+                preflight_run_id=self.run_id,
+                semantic_hash=summary.snapshot_hash,
+                root_hash=summary.snapshot_root_hash,
+                target_hash=summary.target_hash,
+                target_database="target",
+                target_odoo_version="19.0",
+                counts={
+                    "CREATE": 2,
+                    "UPDATE": 1,
+                    "UNCHANGED": 0,
+                    "BLOCKED": 0,
+                    "AMBIGUOUS": 0,
+                },
+            ),
+            datasets=(),
+            dependency_summary=ExecutionReviewDependencySummary(),
+            blocker_summary=ExecutionReviewBlockerSummary(),
+            deferred_create_count=0,
+        )
 
         self.repository.save_deferred_scope_projection(
             self.workspace.workspace_id,
             self.run_id,
             execution_summary=summary,
+            execution_review=review,
             decision_hash="sha256:" + "6" * 64,
             actor=LOCAL_ACTOR,
         )
@@ -238,6 +263,11 @@ class DeferredScopeProjectionTests(unittest.TestCase):
             ("DEFERRED_SCOPE_ACCEPTED", "sha256:" + "6" * 64),
         )
         self.assertEqual(approval, ("APPROVED",))
+        restored = self.repository.get_execution_review_projection(
+            self.workspace.workspace_id,
+            self.run_id,
+        )
+        self.assertEqual(restored, review)
 
 
 if __name__ == "__main__":

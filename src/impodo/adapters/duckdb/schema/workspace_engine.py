@@ -241,6 +241,7 @@ _PREFLIGHT_EXECUTION_PROJECTION_COLUMNS = (
     "read_context_hash",
     "execution_shape_ready",
     "contract_version",
+    "review_json",
 )
 _SCHEMA_MIGRATION_COLUMNS = SCHEMA_MIGRATION_COLUMNS
 _WORKSPACE_ENGINE_TABLES = frozenset(
@@ -1541,6 +1542,19 @@ def _upgrade_workspace_engine_v17_to_v18(
     )
 
 
+def _upgrade_workspace_engine_v18_to_v19(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add the bounded Check changes projection to current preflight facts."""
+
+    connection.execute(
+        """
+        ALTER TABLE preflight_execution_projection
+            ADD COLUMN review_json VARCHAR DEFAULT '';
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -1609,5 +1623,9 @@ WORKSPACE_ENGINE_UPGRADES = {
     17: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v17-to-v18-quality-cause-members",
         apply=_upgrade_workspace_engine_v17_to_v18,
+    ),
+    18: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v18-to-v19-preflight-review-projection",
+        apply=_upgrade_workspace_engine_v18_to_v19,
     ),
 }

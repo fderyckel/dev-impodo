@@ -20,7 +20,11 @@ from datetime import UTC, datetime
 from itertools import islice
 from uuid import UUID
 
-from impodo.application.workspace.execution.navigation import ExecutionPreviewSummary
+from impodo.application.preflight_timing import timed_preflight_publication
+from impodo.application.workspace.execution.navigation import (
+    ExecutionPreviewSummary,
+    ExecutionReviewProjection,
+)
 from impodo.domain.odoo.contracts import (
     MetadataSnapshot,
     RecordSnapshot,
@@ -112,6 +116,80 @@ class PreflightRepository(DuckDbRepository):
         )
         return ReadinessReport.from_json(values[0]) if values else None
 
+    def get_current_readiness_report(
+        self,
+        workspace_id: str,
+    ) -> ReadinessReport | None:
+        """Return the current pointer's report for startup reconciliation."""
+
+        values = self._read_json_rows(
+            workspace_id,
+            """
+            SELECT run.report_json
+              FROM preflight_current AS current
+              JOIN readiness_run AS run ON run.run_id = current.run_id
+             WHERE current.singleton_id = 1
+            """,
+            [],
+        )
+        return ReadinessReport.from_json(values[0]) if values else None
+
+    def get_execution_review_projection(
+        self,
+        workspace_id: str,
+        run_id: str,
+    ) -> ExecutionReviewProjection | None:
+        """Read one bounded review projection plus current run status."""
+
+        try:
+            canonical_run_id = str(UUID(run_id))
+        except (ValueError, AttributeError) as error:
+            raise WorkspaceError("Readiness run identifier is invalid") from error
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            row = connection.execute(
+                """
+                SELECT projection.review_json,
+                       execution.run_id, execution.status,
+                       reconciliation.status
+                  FROM preflight_current AS current
+                  JOIN preflight_execution_projection AS projection
+                    ON projection.run_id = current.run_id
+                  LEFT JOIN execution_current AS execution_pointer
+                    ON execution_pointer.singleton_id = 1
+                  LEFT JOIN execution_run AS execution
+                    ON execution.run_id = execution_pointer.run_id
+                   AND execution.snapshot_hash = projection.snapshot_hash
+                  LEFT JOIN reconciliation_current AS reconciliation_pointer
+                    ON reconciliation_pointer.singleton_id = 1
+                  LEFT JOIN reconciliation_run AS reconciliation
+                    ON reconciliation.reconciliation_id =
+                       reconciliation_pointer.reconciliation_id
+                   AND reconciliation.execution_run_id = execution.run_id
+                 WHERE current.singleton_id = 1
+                   AND projection.run_id = ?
+                """,
+                [canonical_run_id],
+            ).fetchone()
+        if row is None or not str(row[0] or ""):
+            return None
+        try:
+            projection = ExecutionReviewProjection.from_json(str(row[0]))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise WorkspaceError(
+                "Stored execution review projection is invalid"
+            ) from error
+        if projection.summary.preflight_run_id != canonical_run_id:
+            raise WorkspaceError("Stored execution review projection changed")
+        return projection.with_runtime(
+            current_run_id=str(row[1] or ""),
+            current_execution_status=str(row[2] or ""),
+            reconciliation_status=str(row[3] or ""),
+        )
+
     def get_record_snapshot(
         self,
         workspace_id: str,
@@ -158,6 +236,7 @@ class PreflightRepository(DuckDbRepository):
         record_snapshot: RecordSnapshot,
         actor: Actor,
         execution_summary: ExecutionPreviewSummary | None = None,
+        execution_review: ExecutionReviewProjection | None = None,
     ) -> None:
         """Atomically publish a report, rows, snapshots, pointer, and audit event.
 
@@ -191,6 +270,17 @@ class PreflightRepository(DuckDbRepository):
             or execution_summary.comparison_status != report.status
         ):
             raise WorkspaceError("Execution preview projection is invalid")
+        if (execution_summary is None) != (execution_review is None) or (
+            execution_review is not None
+            and (
+                execution_review.summary != execution_summary
+                or execution_review.current_run_id
+                or execution_review.current_execution_status
+                or execution_review.reconciliation_status
+                or execution_review.scope_error
+            )
+        ):
+            raise WorkspaceError("Execution review projection is invalid")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
@@ -303,22 +393,25 @@ class PreflightRepository(DuckDbRepository):
                         "Approve the prepared data before saving an Odoo comparison"
                     )
                 revision = self._workspace_revision(connection)
-                connection.execute(
-                    """
-                    INSERT INTO readiness_run (
-                        run_id, mapping_id, mapping_version,
-                        mapping_content_hash, target_hash, staging_run_id,
-                        staging_content_hash, quality_run_id,
-                        quality_content_hash, checked_at, checked_by,
-                        report_json, normalization_run_id,
-                        normalization_content_hash,
-                        normalization_lifecycle_version,
-                        eligible_dataset_hash, frozen_input_hash,
-                        requirement_plan_hash, metadata_snapshot_hash,
-                        record_snapshot_hash, result_hash, manifest_hash
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
+                with timed_preflight_publication("report_header_encoding"):
+                    report_json = replace(report, rows=()).to_json()
+                with timed_preflight_publication("report_header_insertion"):
+                    connection.execute(
+                        """
+                        INSERT INTO readiness_run (
+                            run_id, mapping_id, mapping_version,
+                            mapping_content_hash, target_hash, staging_run_id,
+                            staging_content_hash, quality_run_id,
+                            quality_content_hash, checked_at, checked_by,
+                            report_json, normalization_run_id,
+                            normalization_content_hash,
+                            normalization_lifecycle_version,
+                            eligible_dataset_hash, frozen_input_hash,
+                            requirement_plan_hash, metadata_snapshot_hash,
+                            record_snapshot_hash, result_hash, manifest_hash
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
                         canonical_run_id,
                         report.mapping_id,
                         report.mapping_version,
@@ -330,7 +423,7 @@ class PreflightRepository(DuckDbRepository):
                         report.quality_content_hash,
                         report.checked_at.isoformat(),
                         report.checked_by,
-                        replace(report, rows=()).to_json(),
+                        report_json,
                         canonical_normalization_run_id,
                         report.normalization_content_hash,
                         report.normalization_lifecycle_version,
@@ -341,9 +434,10 @@ class PreflightRepository(DuckDbRepository):
                         report.record_snapshot_hash,
                         report.result_hash,
                         report.manifest_hash,
-                    ],
-                )
-                dataset_values = [
+                        ],
+                    )
+                with timed_preflight_publication("dataset_row_encoding"):
+                    dataset_values = [
                         [
                             canonical_run_id,
                             ordinal,
@@ -353,49 +447,62 @@ class PreflightRepository(DuckDbRepository):
                         for ordinal, item in enumerate(report.datasets)
                     ]
                 if dataset_values:
-                    connection.executemany(
-                        """
-                        INSERT INTO preflight_dataset
-                        VALUES (?, ?, ?, ?)
-                        """,
-                        dataset_values,
-                    )
+                    with timed_preflight_publication("dataset_row_insertion"):
+                        connection.executemany(
+                            """
+                            INSERT INTO preflight_dataset
+                            VALUES (?, ?, ?, ?)
+                            """,
+                            dataset_values,
+                        )
                 row_iterator = iter(decision_rows)
                 inserted_decisions = 0
                 while batch := tuple(
                     islice(row_iterator, PREFLIGHT_ROW_BATCH_SIZE)
                 ):
-                    connection.executemany(
-                        """
-                        INSERT INTO preflight_decision (
-                            run_id, ordinal, source_trace_id, dataset,
-                            source_row, status, decision_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        [
+                    with timed_preflight_publication("decision_row_encoding"):
+                        decision_batch_json = json.dumps(
                             [
-                                canonical_run_id,
-                                inserted_decisions + offset,
-                                item.source_trace_id,
-                                item.dataset,
-                                item.source_row,
-                                item.status,
-                                canonical_json_text(asdict(item)),
-                            ]
-                            for offset, item in enumerate(batch)
-                        ],
-                    )
+                                {
+                                    "run_id": canonical_run_id,
+                                    "ordinal": inserted_decisions + offset,
+                                    "source_trace_id": item.source_trace_id,
+                                    "dataset": item.dataset,
+                                    "source_row": item.source_row,
+                                    "status": item.status,
+                                    "decision_json": canonical_json_text(
+                                        asdict(item)
+                                    ),
+                                }
+                                for offset, item in enumerate(batch)
+                            ],
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
+                    with timed_preflight_publication("decision_row_insertion"):
+                        connection.execute(
+                            """
+                            INSERT INTO preflight_decision (
+                                run_id, ordinal, source_trace_id, dataset,
+                                source_row, status, decision_json
+                            )
+                            SELECT value->>'run_id',
+                                   CAST(value->>'ordinal' AS BIGINT),
+                                   value->>'source_trace_id', value->>'dataset',
+                                   CAST(value->>'source_row' AS BIGINT),
+                                   value->>'status', value->>'decision_json'
+                              FROM json_each(?)
+                             ORDER BY CAST(key AS BIGINT)
+                            """,
+                            [decision_batch_json],
+                        )
                     inserted_decisions += len(batch)
                 if inserted_decisions != decision_count:
                     raise WorkspaceError(
                         "Readiness decision count changed during publication"
                     )
-                connection.executemany(
-                    """
-                    INSERT INTO preflight_target_snapshot
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    [
+                with timed_preflight_publication("target_snapshot_encoding"):
+                    target_snapshot_values = [
                         [
                             canonical_run_id,
                             "metadata",
@@ -410,25 +517,40 @@ class PreflightRepository(DuckDbRepository):
                             report.record_snapshot_hash,
                             record_snapshot_json(record_snapshot),
                         ],
-                    ],
-                )
-                if execution_summary is not None:
-                    connection.execute(
+                    ]
+                with timed_preflight_publication("target_snapshot_insertion"):
+                    connection.executemany(
                         """
-                        INSERT INTO preflight_execution_projection (
-                            run_id, snapshot_hash, snapshot_root_hash,
-                            comparison_status, create_count, update_count,
-                            unchanged_count, blocked_count, ambiguous_count,
-                            relationship_blocker_count, target_hash,
-                            target_odoo_version, read_credential_binding_hash,
-                            read_principal_hash, read_permission_hash,
-                            read_context_hash, execution_shape_ready,
-                            contract_version
-                        ) VALUES (
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                        )
+                        INSERT INTO preflight_target_snapshot
+                        VALUES (?, ?, ?, ?)
                         """,
-                        [
+                        target_snapshot_values,
+                    )
+                if execution_summary is not None and execution_review is not None:
+                    with timed_preflight_publication(
+                        "execution_projection_encoding"
+                    ):
+                        review_json = execution_review.to_json()
+                    with timed_preflight_publication(
+                        "execution_projection_insertion"
+                    ):
+                        connection.execute(
+                            """
+                            INSERT INTO preflight_execution_projection (
+                                run_id, snapshot_hash, snapshot_root_hash,
+                                comparison_status, create_count, update_count,
+                                unchanged_count, blocked_count, ambiguous_count,
+                                relationship_blocker_count, target_hash,
+                                target_odoo_version,
+                                read_credential_binding_hash,
+                                read_principal_hash, read_permission_hash,
+                                read_context_hash, execution_shape_ready,
+                                contract_version, review_json
+                            ) VALUES (
+                                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                            )
+                            """,
+                            [
                             canonical_run_id,
                             execution_summary.snapshot_hash,
                             execution_summary.snapshot_root_hash,
@@ -447,8 +569,9 @@ class PreflightRepository(DuckDbRepository):
                             execution_summary.read_context_hash,
                             execution_summary.execution_shape_ready,
                             execution_summary.contract_version,
-                        ],
-                    )
+                            review_json,
+                            ],
+                        )
                 stored = connection.execute(
                     """
                     SELECT
@@ -481,12 +604,13 @@ class PreflightRepository(DuckDbRepository):
                             canonical_run_id,
                         ],
                     )
-                connection.execute(
-                    """
-                    INSERT OR REPLACE INTO preflight_current VALUES (1, ?)
-                    """,
-                    [canonical_run_id],
-                )
+                with timed_preflight_publication("current_pointer_update"):
+                    connection.execute(
+                        """
+                        INSERT OR REPLACE INTO preflight_current VALUES (1, ?)
+                        """,
+                        [canonical_run_id],
+                    )
                 connection.execute(
                     """
                     INSERT INTO preflight_transition VALUES (?, ?, ?, ?, ?)
@@ -529,6 +653,7 @@ class PreflightRepository(DuckDbRepository):
         run_id: str,
         *,
         execution_summary: ExecutionPreviewSummary,
+        execution_review: ExecutionReviewProjection,
         decision_hash: str,
         actor: Actor,
     ) -> None:
@@ -541,6 +666,11 @@ class PreflightRepository(DuckDbRepository):
             raise WorkspaceError("Readiness run identifier is invalid") from error
         if (
             execution_summary.preflight_run_id != canonical_run_id
+            or execution_review.summary != execution_summary
+            or execution_review.current_run_id
+            or execution_review.current_execution_status
+            or execution_review.reconciliation_status
+            or execution_review.scope_error
             or execution_summary.comparison_status != "READY"
             or execution_summary.has_attention
             or not decision_hash.startswith("sha256:")
@@ -561,22 +691,29 @@ class PreflightRepository(DuckDbRepository):
                     raise WorkspaceError(
                         "The reviewed set-aside scope is no longer current"
                     )
-                connection.execute(
-                    """
-                    UPDATE preflight_execution_projection
-                       SET snapshot_hash = ?, snapshot_root_hash = ?,
-                           comparison_status = ?, create_count = ?,
-                           update_count = ?, unchanged_count = ?,
-                           blocked_count = ?, ambiguous_count = ?,
-                           relationship_blocker_count = ?, target_hash = ?,
-                           target_odoo_version = ?,
-                           read_credential_binding_hash = ?,
-                           read_principal_hash = ?, read_permission_hash = ?,
-                           read_context_hash = ?, execution_shape_ready = ?,
-                           contract_version = ?
-                     WHERE run_id = ?
-                    """,
-                    [
+                with timed_preflight_publication(
+                    "execution_projection_encoding"
+                ):
+                    review_json = execution_review.to_json()
+                with timed_preflight_publication(
+                    "execution_projection_insertion"
+                ):
+                    connection.execute(
+                        """
+                        UPDATE preflight_execution_projection
+                           SET snapshot_hash = ?, snapshot_root_hash = ?,
+                               comparison_status = ?, create_count = ?,
+                               update_count = ?, unchanged_count = ?,
+                               blocked_count = ?, ambiguous_count = ?,
+                               relationship_blocker_count = ?, target_hash = ?,
+                               target_odoo_version = ?,
+                               read_credential_binding_hash = ?,
+                               read_principal_hash = ?, read_permission_hash = ?,
+                               read_context_hash = ?, execution_shape_ready = ?,
+                               contract_version = ?, review_json = ?
+                         WHERE run_id = ?
+                        """,
+                        [
                         execution_summary.snapshot_hash,
                         execution_summary.snapshot_root_hash,
                         execution_summary.comparison_status,
@@ -594,9 +731,10 @@ class PreflightRepository(DuckDbRepository):
                         execution_summary.read_context_hash,
                         execution_summary.execution_shape_ready,
                         execution_summary.contract_version,
+                        review_json,
                         canonical_run_id,
-                    ],
-                )
+                        ],
+                    )
                 saved = connection.execute(
                     """
                     SELECT snapshot_hash, comparison_status

@@ -11,6 +11,13 @@ from urllib.error import URLError
 from uuid import uuid4
 
 from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.application.workspace.execution.navigation import (
+    ExecutionPreviewSummary,
+    ExecutionReviewBlockerSummary,
+    ExecutionReviewDependencySummary,
+    ExecutionReviewProjection,
+    ExecutionReviewSnapshot,
+)
 from impodo.application.workspace.execution.service import (
     ExecutionService,
     _execution_blocker_summary,
@@ -743,6 +750,88 @@ class ExecutionServiceTests(unittest.TestCase):
             CapabilityAuthorizationPolicy(),
         )
         return service, journal, transfer_snapshot
+
+    def test_current_review_never_materializes_execution_snapshot_rows(self):
+        workspace_id = str(uuid4())
+        workspace = WorkspaceState(
+            workspace_id=workspace_id,
+            name="Bounded review",
+            source_system="CSV",
+            status=WorkspaceStatus.REGISTERED,
+            odoo_connection_mode=OdooConnectionMode.LOCAL,
+            odoo_base_url="http://127.0.0.1:8069",
+            odoo_database="odoo19_disposable",
+        )
+        target_hash = target_identity_hash(
+            connection_mode="LOCAL",
+            base_url=workspace.odoo_base_url,
+            database=workspace.odoo_database,
+        )
+        run_id = str(uuid4())
+        summary = ExecutionPreviewSummary(
+            preflight_run_id=run_id,
+            snapshot_hash=HASH,
+            snapshot_root_hash=HASH,
+            comparison_status="READY",
+            create_count=1,
+            update_count=0,
+            unchanged_count=2,
+            blocked_count=0,
+            ambiguous_count=0,
+            relationship_blocker_count=0,
+            target_hash=target_hash,
+            target_odoo_version="19.0",
+            read_credential_binding_hash="",
+            read_principal_hash="",
+            read_permission_hash="",
+            read_context_hash="",
+            execution_shape_ready=True,
+        )
+        projection = ExecutionReviewProjection(
+            summary=summary,
+            snapshot=ExecutionReviewSnapshot(
+                preflight_run_id=run_id,
+                semantic_hash=HASH,
+                root_hash=HASH,
+                target_hash=target_hash,
+                target_database="odoo19_disposable",
+                target_odoo_version="19.0",
+                counts={
+                    "CREATE": 1,
+                    "UPDATE": 0,
+                    "UNCHANGED": 2,
+                    "BLOCKED": 0,
+                    "AMBIGUOUS": 0,
+                },
+            ),
+            datasets=(),
+            dependency_summary=ExecutionReviewDependencySummary(),
+            blocker_summary=ExecutionReviewBlockerSummary(),
+            deferred_create_count=0,
+        )
+
+        def fail_full_snapshot(_workspace_id):
+            self.fail("Check changes must not load the execution snapshot")
+
+        preflight = SimpleNamespace(
+            current_execution_review_projection=lambda _workspace_id: projection,
+            current_execution_snapshot=fail_full_snapshot,
+        )
+        service = ExecutionService(
+            SimpleNamespace(get=lambda _workspace_id: workspace),
+            preflight,
+            _Journal(),
+            CapabilityAuthorizationPolicy(),
+        )
+
+        review = service.current_review(workspace_id, actor=LOCAL_ACTOR)
+
+        self.assertEqual(review, projection)
+        self.assertTrue(review.can_load if review is not None else False)
+        self.assertEqual(
+            ExecutionReviewProjection.from_json(projection.to_json()),
+            projection,
+        )
 
     def test_target_precision_loss_blocks_load_before_odoo_write(self):
         snapshot = _snapshot()

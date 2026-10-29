@@ -109,6 +109,7 @@ def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("DROP TABLE IF EXISTS odoo_relationship_scope_revision")
     connection.execute("DROP TABLE IF EXISTS cross_store_data_receipt")
     connection.execute("DROP TABLE IF EXISTS workspace_fence")
+    connection.execute("DROP TABLE IF EXISTS quality_cause_member")
     connection.execute("DROP TABLE IF EXISTS test_run_parameter_values")
     connection.execute("DROP TABLE IF EXISTS test_run_setup_binding")
     connection.execute("DROP TABLE schema_migration")
@@ -452,6 +453,11 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         17,
                         18,
                         "workspace-engine-v17-to-v18-quality-cause-members",
+                    ),
+                    (
+                        18,
+                        19,
+                        "workspace-engine-v18-to-v19-preflight-review-projection",
                     ),
                 ],
             )

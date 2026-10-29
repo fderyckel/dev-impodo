@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -20,7 +20,13 @@ from impodo.application.preflight_service import (
     PreflightService,
     _validate_snapshot_projection,
 )
-from impodo.application.workspace.execution.navigation import ExecutionPreviewSummary
+from impodo.application.workspace.execution.navigation import (
+    ExecutionPreviewSummary,
+    ExecutionReviewBlockerSummary,
+    ExecutionReviewDependencySummary,
+    ExecutionReviewProjection,
+    ExecutionReviewSnapshot,
+)
 from impodo.domain.errors import ReadinessError
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
@@ -32,7 +38,6 @@ from impodo.domain.odoo.contracts import (
     record_snapshot_json,
     record_snapshot_payload,
 )
-from impodo.domain.preflight.reports import ReadinessReport
 from impodo.domain.preflight.deferred_scope import (
     DeferredIssue,
     DeferredIssueGroup,
@@ -40,6 +45,7 @@ from impodo.domain.preflight.deferred_scope import (
     DeferredOmittedRow,
     DeferredScopePreview,
 )
+from impodo.domain.preflight.reports import ReadinessReport
 from impodo.domain.shared.access import (
     Actor,
     ActorIdentity,
@@ -165,6 +171,28 @@ class PreflightPublicationTests(unittest.TestCase):
             identity=ActorIdentity("test", "manager", "Data manager"),
             capabilities=frozenset({Capability.PREFLIGHT_RUN}),
         )
+        execution_review = ExecutionReviewProjection(
+            summary=execution_summary,
+            snapshot=ExecutionReviewSnapshot(
+                preflight_run_id=run_id,
+                semantic_hash=execution_summary.snapshot_hash,
+                root_hash=execution_summary.snapshot_root_hash,
+                target_hash=execution_summary.target_hash,
+                target_database="odoo19_test",
+                target_odoo_version="19.0",
+                counts={
+                    "CREATE": 1,
+                    "UPDATE": 1,
+                    "UNCHANGED": 0,
+                    "BLOCKED": 0,
+                    "AMBIGUOUS": 0,
+                },
+            ),
+            datasets=(),
+            dependency_summary=ExecutionReviewDependencySummary(),
+            blocker_summary=ExecutionReviewBlockerSummary(),
+            deferred_create_count=0,
+        )
 
         with (
             patch(
@@ -174,6 +202,10 @@ class PreflightPublicationTests(unittest.TestCase):
             patch(
                 "impodo.application.preflight_service.build_execution_preview_summary",
                 return_value=execution_summary,
+            ),
+            patch(
+                "impodo.application.preflight_service.build_execution_review_projection",
+                return_value=execution_review,
             ),
         ):
             acceptance = service.accept_deferred_scope(
@@ -257,7 +289,7 @@ class PreflightPublicationTests(unittest.TestCase):
             target_odoo_version="19.0",
             target_snapshot_at="2026-08-05T12:00:00Z",
             target_module_versions={},
-            checked_at=datetime.now(timezone.utc),
+            checked_at=datetime.now(UTC),
             checked_by="Test operator",
             datasets=(),
             rows=(),
@@ -317,6 +349,26 @@ class PreflightPublicationTests(unittest.TestCase):
             capabilities=frozenset({Capability.PREFLIGHT_RUN}),
         )
         phases = []
+        phase_events = []
+        local_scope_active = False
+        operation_id = str(uuid4())
+
+        def local_operation(function):
+            nonlocal local_scope_active
+
+            self.assertFalse(local_scope_active)
+            phase_events.append("local:start")
+            local_scope_active = True
+            try:
+                return function()
+            finally:
+                local_scope_active = False
+                phase_events.append("local:end")
+
+        def read_remote(_requirements):
+            self.assertFalse(local_scope_active)
+            phase_events.append("remote")
+            return metadata, records
 
         with (
             patch(
@@ -342,6 +394,10 @@ class PreflightPublicationTests(unittest.TestCase):
                     relationship_plan=SimpleNamespace(
                         blocker_count=0,
                         blockers=(),
+                        components=(),
+                        completions=(),
+                        completion_count=0,
+                        edge_count=0,
                     ),
                     target_odoo_version="19.0",
                     read_credential_binding_hash="",
@@ -354,9 +410,11 @@ class PreflightPublicationTests(unittest.TestCase):
         ):
             service.compare(
                 workspace_id,
-                reader=MagicMock(return_value=(metadata, records)),
+                reader=read_remote,
                 actor=actor,
                 progress=phases.append,
+                local_operation=local_operation,
+                operation_id=operation_id,
             )
 
         self.assertEqual(artifacts.write_report.call_count, 2)
@@ -379,10 +437,16 @@ class PreflightPublicationTests(unittest.TestCase):
             phases,
             ["VERIFYING", "READING", "COMPARING", "BUILDING", "PUBLISHING"],
         )
+        self.assertEqual(
+            phase_events,
+            ["local:start", "local:end", "remote", "local:start", "local:end"],
+        )
         execution_summary = (
             repositories[6]
             .save_readiness_report.call_args.kwargs["execution_summary"]
         )
+        saved_report = repositories[6].save_readiness_report.call_args.args[1]
+        self.assertEqual(saved_report.operation_id, operation_id)
         self.assertEqual(execution_summary.preflight_run_id, report.run_id)
         self.assertEqual(
             execution_summary.snapshot_hash,

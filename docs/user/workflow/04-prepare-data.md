@@ -80,6 +80,13 @@ action opens the corresponding decision. Opening it does not change accepted
 source data or saved rules. Save a deliberate correction and then prepare the
 complete data again.
 
+Select **Review affected records** to inspect the complete set behind one
+card. The paged list labels a record as a **Direct finding**, **Affected
+parent**, **Affected child**, or **Affected sibling**. It shows only saved
+prepared-data evidence and does not rerun preparation, read Odoo, or change a
+source or rule. Return to the card's correction action, make the deliberate
+change, and prepare the complete data again.
+
 For a mapped number, a card can say **Prepared value exceeds Odoo precision**.
 This means an exact prepared value needs more decimal places or total digits
 than the captured Odoo field allows. The card shows the captured capacity and

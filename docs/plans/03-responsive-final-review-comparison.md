@@ -8,13 +8,13 @@ status: current
 
 ## Status, reader, and decision
 
-**Status:** Re-baselined against the checkout on 2026-10-28. This revision
-replaces the earlier single-store recovery proposal in this file. Background
-comparison, atomic DuckDB report publication, compact navigation facts,
-operation-aware liveness, and one-pass snapshot totals are current. A durable
-local comparison attempt, a compact **Check changes** page, measured
-publication qualification, and the later shared-server job integration remain
-open.
+**Status:** Re-baselined against the checkout on 2026-10-28. Work packages 1
+through 5 were verified on 2026-10-29. Background comparison, atomic DuckDB
+report publication, compact navigation and **Check changes** projections,
+operation-aware liveness, one-pass snapshot totals, bounded local comparison
+database lifetimes, restart-safe local comparison attempts, and measured bulk
+decision publication are current. Only the shared-server job integration
+remains open, gated by its accepted server prerequisites.
 
 This plan is for maintainers who will finish Final review without merging the
 local and shared-server persistence models. It remains the third item in the
@@ -194,6 +194,8 @@ in the Phase 6 migration order.
 
 ## Work package 1 - Establish a trustworthy baseline
 
+**Implementation status:** Complete and verified on 2026-10-28.
+
 Measure the current local paths before refactoring them:
 
 - `GET /workspaces/{workspace_id}/summary` in an action-rich state;
@@ -223,6 +225,16 @@ gate.
 
 ## Work package 2 - Bound local route and worker database lifetimes
 
+**Implementation status:** Complete and verified on 2026-10-29. The repeated
+25,000-row fresh-process probe preserved one semantic result hash and every
+expected decision. The median comparison used 10 physical DuckDB connections,
+down from the 69-connection baseline. The compare-start request used 6
+connections, down from 15. Median peak RSS was 444.75 MiB, compared with
+419.36 MiB before the split; this records the bounded memory cost of carrying
+the immutable prepared input across the remote-I/O boundary. The structural
+tests enforce 12 comparison connections and 8 compare-start connections as
+fixture-derived ceilings rather than wall-clock thresholds.
+
 Refactor the local start path into explicit phases:
 
 1. One `run_local_operation` callback resolves the request actor and Workspace
@@ -251,6 +263,21 @@ owners used by the fixture. Do not copy a ceiling from another route.
 
 ## Work package 3 - Add durable local comparison attempts
 
+**Implementation status:** Complete and verified on 2026-10-29. The browser
+form now supplies one canonical operation ID, and the bounded start operation
+reserves its semantic input in the existing local DuckDB registry before the
+worker is enqueued. Exact replay returns the same attempt; changed meaning or
+a second pending writer fails closed. Coarse phases and safe terminal codes are
+value-free. The readiness report header binds the operation ID without
+changing the manifest or execution-snapshot semantic hashes.
+
+Local startup reconciliation now verifies the matching current readiness
+report, manifest, and execution snapshot before it commits an unfinished
+attempt. A missing matching report becomes an interrupted retryable attempt;
+changed current bindings become stale. The previous current report remains
+owned by the existing atomic Workspace publication. No PostgreSQL dependency
+was added to local mode.
+
 Add `PREFLIGHT_COMPARE` or an equivalently specific operation kind to the local
 restart-safe operation seam. Extend the route form or command request with a
 canonical operation ID. The first submission reserves the intent. An exact
@@ -273,6 +300,18 @@ Do not add a local PostgreSQL service, server lease, Organization dashboard, or
 remote scheduler to finish this work package.
 
 ## Work package 4 - Make **Check changes** use a compact review projection
+
+**Implementation status:** Complete and verified on 2026-10-29. Publication
+now stores the value-free, versioned review projection atomically with the
+complete report and execution projection. It bounds load-order and blocker
+groups to five each, retains only display and binding facts, and overlays the
+current execution and reconciliation status at read time. `GET .../load/review`
+uses that projection in one page-read operation and makes zero complete
+execution-snapshot reads. The 25,000-row probe used 6 physical DuckDB
+connections and 10 schema checks for the page. Confirmation and every
+write-authorizing boundary continue to load and validate the complete
+snapshot. Historical current reports without the projection redirect to one
+explicit **Compare with Odoo again** action.
 
 Extend the existing hash-bound execution projection with only the information
 the pre-load review page needs:
@@ -312,6 +351,31 @@ closed with one explicit **Compare with Odoo again** action. Do not silently
 rebuild a new projection from changed evidence during a page read.
 
 ## Work package 5 - Optimize publication only from measurements
+
+**Implementation status:** Complete and verified on 2026-10-29. A value-free,
+allowlisted collector now records serialization, artifact, row insertion,
+projection, pointer, and local-attempt-finalization timings without retaining
+identifiers, paths, SQL, credentials, or row values. Three repeated 25,000-row
+runs first measured row-oriented decision insertion as the publication
+bottleneck: the median full comparison was 18.056 seconds, publication was
+13.651 seconds, and decision insertion was 13.424 seconds.
+
+The adopted path encodes at most 1,000 canonical rows into one bounded JSON
+batch and uses DuckDB `json_each` for one ordered `INSERT ... SELECT` per
+batch. It remains inside the existing atomic transaction and verifies the
+inserted count before advancing the current pointer. On the same fixture, the
+three-run median full comparison fell to 4.693 seconds, publication to 0.332
+seconds, and decision insertion to 79.025 milliseconds. The result hash,
+25,000 canonical decisions, first and last stored decision JSON, two target
+snapshots, and connector shape remained identical; no lock retries occurred.
+Median peak RSS was 445.84 MiB, 3.75 MiB above the measured row-wise path.
+
+After durable attempt writes from work package 3 are included, the complete
+comparison uses 16 physical DuckDB connections and 16 schema checks, while
+compare-start uses 9 connections and 7 schema checks. Those current totals are
+expected phase ownership, not a reversal of the work-package-2 database-
+lifetime split. Active progress, status, and authenticated health use no
+DuckDB connection or schema check in the scale probe.
 
 Add privacy-safe timings inside the publication owner for:
 

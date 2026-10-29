@@ -76,7 +76,8 @@ def create_preflight_schema(connection: duckdb.DuckDBPyConnection) -> None:
             read_permission_hash VARCHAR NOT NULL,
             read_context_hash VARCHAR NOT NULL,
             execution_shape_ready BOOLEAN NOT NULL,
-            contract_version INTEGER NOT NULL
+            contract_version INTEGER NOT NULL,
+            review_json VARCHAR NOT NULL
         );
         """
     )

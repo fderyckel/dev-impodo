@@ -13,7 +13,9 @@ See ``docs/architecture/python-code-map.md`` and
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from types import SimpleNamespace
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import (
@@ -48,6 +50,7 @@ from ...application.odoo_read_failures import (
     OdooReadWorkflowError,
     classify_odoo_read_failure,
 )
+from ...application.preflight_attempts import PreflightComparisonRequest
 from ...application.preflight_jobs import (
     PreflightJob,
     PreflightJobNotFoundError,
@@ -55,10 +58,16 @@ from ...application.preflight_jobs import (
     PreflightJobStateError,
     PreflightPhase,
 )
-from ...application.preflight_service import MANIFEST_NAME
+from ...application.preflight_service import MANIFEST_NAME, LocalPreflightOperation
 from ...domain.errors import ReadinessError
 from ...domain.preflight.deferred_scope import DeferredScopeEvidenceError
 from ...domain.run.models import MigrationRunPurpose
+from ...domain.workspace.contracts import OdooSchemaCatalog
+from ..composition.page_reads import (
+    run_local_operation,
+    run_local_operation_sync,
+    run_page_read,
+)
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
@@ -72,6 +81,7 @@ from ..run_commands import (
 )
 from ..security import require_session
 from ..target_credentials import (
+    TargetCredential,
     TargetCredentialRole,
     audit_stored_target_credential,
     get_target_credential,
@@ -97,45 +107,53 @@ def _read_key_persistence(form) -> bool:
 def _rebind_remote_read_access(
     context: WebContext,
     workspace_state,
-    credential,
+    credential: TargetCredential,
     *,
     actor: Actor,
+    schema_catalog: OdooSchemaCatalog | None,
+    local_operation: LocalPreflightOperation,
 ):
     """Verify and rebind a replacement key without recapturing semantic state."""
 
     if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
         return None
-    schema = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
-    if schema is None or credential.binding_hash == schema.read_credential_binding_hash:
+    if (
+        schema_catalog is None
+        or credential.binding_hash == schema_catalog.read_credential_binding_hash
+    ):
         return None
-    probe_models = tuple(sorted(model.name for model in schema.models))
+    probe_models = tuple(sorted(model.name for model in schema_catalog.models))
     identity = context.read_identity_probe(
         workspace_state,
         credential.secret,
         probe_models,
     )
     snapshot = context.schema_reader(workspace_state, credential.secret)
-    try:
-        context.schema_workspace.rebind_current_access(
-            workspace_state.workspace_id,
-            snapshot,
-            read_credential_binding_hash=credential.binding_hash,
-            read_identity=identity,
-            actor=actor,
+
+    def publish_verified_access():
+        try:
+            context.schema_workspace.rebind_current_access(
+                workspace_state.workspace_id,
+                snapshot,
+                read_credential_binding_hash=credential.binding_hash,
+                read_identity=identity,
+                actor=actor,
+            )
+        except WorkspaceDatabaseBusyError:
+            raise
+        except WorkspaceError as error:
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.SCHEMA_EVIDENCE_STALE,
+                "The Odoo fields or read access changed; refresh Odoo data before "
+                "comparing again.",
+            ) from error
+        context.remote_connections.mark_checked(
+            workspace_state,
+            snapshot.fingerprint,
+            identity,
         )
-    except WorkspaceDatabaseBusyError:
-        raise
-    except WorkspaceError as error:
-        raise OdooReadWorkflowError(
-            OdooReadFailureCode.SCHEMA_EVIDENCE_STALE,
-            "The Odoo fields or read access changed; refresh Odoo data before "
-            "comparing again.",
-        ) from error
-    context.remote_connections.mark_checked(
-        workspace_state,
-        snapshot.fingerprint,
-        identity,
-    )
+
+    local_operation(publish_verified_access)
     return identity
 
 
@@ -168,66 +186,136 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         _secure_form(
             request,
             form,
-            {"csrf_token", "read_api_key", "read_api_key_storage"},
+            {
+                "csrf_token",
+                "operation_id",
+                "read_api_key",
+                "read_api_key_storage",
+            },
         )
-        workspace_state = context.queries.get(workspace_id)
-        actor = request_identity(request, context.identity_resolver).actor
-        credential_owner = context.target_credential_workspace(
-            workspace_id,
-            workspace_state=workspace_state,
-            actor=actor,
-        )
+        operation_id = _text(form, "operation_id") or str(uuid4())
         verified_read_identity = None
         completed_without_load = False
         preview = None
         run = None
 
-        def reader(requirements):
-            return _read_readiness_snapshots(
-                context,
-                workspace_state,
-                requirements,
-                actor=actor,
-                verified_read_identity=verified_read_identity,
+        try:
+            submitted_key = _text(form, "read_api_key")
+            persist_submitted_key = (
+                _read_key_persistence(form) if submitted_key else False
             )
 
-        try:
-            access_context = context.workspace_access.resolve(
-                workspace_id,
-                actor=actor,
-                capability=Capability.PREFLIGHT_RUN,
-            )
-            submitted_key = _text(form, "read_api_key")
-            if submitted_key:
-                if (
-                    workspace_state.odoo_connection_mode
-                    is not OdooConnectionMode.REMOTE
-                ):
-                    raise OdooReadWorkflowError(
-                        OdooReadFailureCode.CONNECTION_DETAILS_INVALID,
-                        "A read-only API key can be entered here only for Remote Odoo.",
-                    )
-                credential = store_target_credential(
-                    context.secret_store,
-                    credential_owner,
-                    TargetCredentialRole.READ,
-                    submitted_key,
-                    persistent=_read_key_persistence(form),
+            def bind_start():
+                actor = request_identity(request, context.identity_resolver).actor
+                access_context = context.workspace_access.resolve(
+                    workspace_id,
+                    actor=actor,
+                    capability=Capability.PREFLIGHT_RUN,
                 )
-                audit_stored_target_credential(
-                    context.workspace_states,
-                    workspace_state,
-                    TargetCredentialRole.READ,
-                    credential,
+                workspace_state = context.queries.get(workspace_id)
+                credential_owner = context.target_credential_workspace(
+                    workspace_id,
+                    workspace_state=workspace_state,
                     actor=actor,
                 )
-                context.remote_connections.clear(workspace_id)
-            else:
-                credential = get_target_credential(
-                    context.secret_store,
-                    credential_owner,
-                    TargetCredentialRole.READ,
+                if submitted_key:
+                    if (
+                        workspace_state.odoo_connection_mode
+                        is not OdooConnectionMode.REMOTE
+                    ):
+                        raise OdooReadWorkflowError(
+                            OdooReadFailureCode.CONNECTION_DETAILS_INVALID,
+                            "A read-only API key can be entered here only for "
+                            "Remote Odoo.",
+                        )
+                    credential = store_target_credential(
+                        context.secret_store,
+                        credential_owner,
+                        TargetCredentialRole.READ,
+                        submitted_key,
+                        persistent=persist_submitted_key,
+                    )
+                    audit_stored_target_credential(
+                        context.workspace_states,
+                        workspace_state,
+                        TargetCredentialRole.READ,
+                        credential,
+                        actor=actor,
+                    )
+                    context.remote_connections.clear(workspace_id)
+                else:
+                    credential = get_target_credential(
+                        context.secret_store,
+                        credential_owner,
+                        TargetCredentialRole.READ,
+                    )
+                schema_catalog = (
+                    context.queries.get_odoo_schema_catalog(workspace_id)
+                    if credential is not None
+                    and workspace_state.odoo_connection_mode
+                    is OdooConnectionMode.REMOTE
+                    else None
                 )
+                if context.preflight_jobs is not None:
+                    migration_workspace = context.migration_workspaces.get(
+                        workspace_id,
+                        actor=actor,
+                    )
+                    comparison_request = PreflightComparisonRequest(
+                        operation_id=operation_id,
+                        project_id=access_context.project_id,
+                        workspace_id=workspace_id,
+                        semantic_input_hash=(
+                            context.preflight.comparison_input_hash(
+                                workspace_id,
+                                read_credential_binding_hash=(
+                                    credential.binding_hash
+                                    if credential is not None
+                                    else ""
+                                ),
+                            )
+                        ),
+                        workspace_revision=(
+                            migration_workspace.optimistic_revision
+                        ),
+                        data_version_id=access_context.data_version_id,
+                        migration_run_id=access_context.migration_run_id,
+                        recipe_application_id=(
+                            access_context.recipe_application_id
+                        ),
+                        requested_at=datetime.now(UTC),
+                    )
+                    context.preflight_jobs.reserve(
+                        comparison_request,
+                        workspace_state.name,
+                        access_context=access_context,
+                        actor=actor,
+                    )
+                return (
+                    workspace_state,
+                    actor,
+                    access_context,
+                    credential,
+                    schema_catalog,
+                )
+
+            (
+                workspace_state,
+                actor,
+                access_context,
+                credential,
+                schema_catalog,
+            ) = await run_local_operation(bind_start)
+
+            def reader(requirements):
+                return _read_readiness_snapshots(
+                    context,
+                    workspace_state,
+                    requirements,
+                    actor=actor,
+                    verified_read_identity=verified_read_identity,
+                )
+
             if context.preflight_jobs is not None:
                 def compare_in_background(report_progress):
                     nonlocal verified_read_identity
@@ -238,6 +326,8 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                             workspace_state,
                             credential,
                             actor=actor,
+                            schema_catalog=schema_catalog,
+                            local_operation=run_local_operation_sync,
                         )
                     report = context.preflight.compare(
                         workspace_id,
@@ -246,6 +336,13 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                         progress=lambda phase: report_progress(
                             PreflightPhase(phase)
                         ),
+                        local_operation=run_local_operation_sync,
+                        operation_id=operation_id,
+                    )
+                    receipt = (
+                        context.preflight.comparison_receipt(report)
+                        if getattr(report, "operation_id", "")
+                        else None
                     )
                     completed_without_load = False
                     preview = None
@@ -310,6 +407,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                                 "Odoo already matches this Recipe. "
                                 "No load confirmation was needed."
                             ),
+                            receipt=receipt,
                         )
                     if report.attention_count:
                         return PreflightJobResult(
@@ -323,6 +421,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                                 f"{'s' if report.attention_count != 1 else ''} "
                                 "needing attention. Review them before loading."
                             ),
+                            receipt=receipt,
                         )
                     return PreflightJobResult(
                         preflight_run_id=report.run_id,
@@ -330,6 +429,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                         completion_message=(
                             "Prepared data compared with Odoo. Nothing was changed."
                         ),
+                        receipt=receipt,
                     )
 
                 job = context.preflight_jobs.enqueue(
@@ -337,6 +437,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     workspace_state.name,
                     access_context=access_context,
                     work=compare_in_background,
+                    operation_id=operation_id,
                 )
                 return RedirectResponse(
                     _preflight_progress_url(workspace_id, job.job_id),
@@ -349,13 +450,19 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     workspace_state,
                     credential,
                     actor=actor,
+                    schema_catalog=schema_catalog,
+                    local_operation=run_local_operation_sync,
                 )
-            report = await run_in_threadpool(
-                context.preflight.compare,
-                workspace_id,
-                reader=reader,
-                actor=actor,
-            )
+            def compare_with_bounded_local_phases():
+                return context.preflight.compare(
+                    workspace_id,
+                    reader=reader,
+                    actor=actor,
+                    local_operation=run_local_operation_sync,
+                    operation_id=operation_id,
+                )
+
+            report = await run_in_threadpool(compare_with_bounded_local_phases)
             if access_context.recipe_application_id is not None:
                 preview = await run_in_threadpool(
                     context.execution.current_preview,
@@ -408,7 +515,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     )
                     completed_without_load = True
         except LocalOdooRecoveryRequired as error:
-            return await run_in_threadpool(
+            return await run_page_read(
                 _render_summary,
                 request,
                 context,
@@ -431,7 +538,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             PreflightJobStateError,
             OSError,
         ) as error:
-            return await run_in_threadpool(
+            return await run_page_read(
                 _render_summary,
                 request,
                 context,
@@ -961,6 +1068,7 @@ def _render_preflight_progress(request: Request, job: PreflightJob):
         migration_context={"project_id": job.access_context.project_id},
         job=job,
         recovery=recovery,
+        comparison_operation_id=str(uuid4()),
     )
 
 

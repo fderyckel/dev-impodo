@@ -46,6 +46,11 @@ aside through dependency propagation. Open each row to review all findings and
 use its source row, field name, owner, and correction route to fix the cause
 upstream.
 
+Use **Review affected records** on a cause card when you need the complete
+paged list behind its totals. The page distinguishes the direct finding from
+parents, children, and siblings set aside through the saved dependency
+closure. Opening it makes no Odoo request and changes no saved decision.
+
 A prepared-value precision advisory does not itself stop comparison. It shows
 the Odoo field capacity captured during matching and opens either the exact
 number rule or **Odoo data**. Final review then applies the authoritative check
@@ -55,8 +60,10 @@ silently.
 
 The progress page reports elapsed time during work that has no honest row
 percentage. Delayed progress updates do not start another comparison. Selecting
-**Compare with Odoo** again while the same workspace already has an active
-comparison returns to that attempt.
+**Compare with Odoo** again from the same page while the same workspace already
+has that active comparison returns to the same attempt. If Impodo restarts,
+reopening the progress page shows either the verified saved result or an
+interrupted attempt that you can safely retry.
 
 The affected-group preview is calculated from the saved comparison. It shows
 the prepared count, records already set aside during preparation, records that
@@ -69,9 +76,18 @@ asks you to review it again.
 ![Reviewing complete affected groups before accepting a reduced load.](../../images/user/16c-review-affected-groups.png)
 
 If Impodo closes before the comparison is saved, the previously current review
-remains unchanged. Reopen **Final review** and compare again. A completed report
-is published atomically, so an interrupted attempt cannot make a partial review
-current.
+remains unchanged. The old progress page identifies the attempt as interrupted;
+reopen **Final review** and compare again. If the complete report was saved just
+before shutdown, Impodo verifies it and recovers that success instead. A
+completed report is published atomically, so an interrupted attempt cannot make
+a partial review current.
+
+After a ready comparison, **Check changes** opens the saved bounded summary of
+datasets, write totals, load order, and blockers. The final confirmation still
+checks the exact complete saved load before anything can change in Odoo. A
+review created by an older Impodo version may not contain the bounded summary;
+in that case Impodo asks you to **Compare with Odoo again** instead of rebuilding
+the review from possibly changed data.
 
 The workbook opens with **Review overview**, which tells you what will happen,
 whether anything needs attention, and what you should do next. Use **Needs

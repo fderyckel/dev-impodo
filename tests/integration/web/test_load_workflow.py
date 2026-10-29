@@ -355,7 +355,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             ),
         ):
             page = self.client.get(
-                f"/workspaces/{workspace_state.workspace_id}/load"
+                f"/workspaces/{workspace_state.workspace_id}/load/outcome"
                 "?rows_page=2&rows_per_page=20"
             )
 
@@ -434,7 +434,12 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 type(context.execution),
                 "current_preview",
                 return_value=preview,
-            ),
+            ) as current_preview,
+            patch.object(
+                type(context.execution),
+                "current_review",
+                return_value=preview,
+            ) as current_review,
             patch.object(
                 type(context.reconciliation),
                 "current",
@@ -445,6 +450,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 review = self.client.get(
                     f"/workspaces/{workspace_state.workspace_id}/load/review"
                 )
+            review_full_preview_calls = current_preview.call_count
             confirm = self.client.get(
                 f"/workspaces/{workspace_state.workspace_id}/load/confirm"
             )
@@ -493,6 +499,9 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             )
 
         self.assertEqual(review.status_code, 200)
+        self.assertGreaterEqual(current_review.call_count, 3)
+        self.assertGreaterEqual(current_preview.call_count, 2)
+        self.assertEqual(review_full_preview_calls, 0)
         self.assertIn("Check what will change in Odoo", review.text)
         self.assertIn("Nothing is written from this page", review.text)
         self.assertIn("What Impodo will load first", review.text)
@@ -500,8 +509,8 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("BOM Lines", review.text)
         self.assertNotIn('name="write_api_key"', review.text)
         self.assertGreater(review_timings.connection_count, 0)
-        self.assertLessEqual(review_timings.connection_count, 75)
-        self.assertLessEqual(review_timings.schema_check_count, 16)
+        self.assertLessEqual(review_timings.connection_count, 20)
+        self.assertLessEqual(review_timings.schema_check_count, 12)
         self.assertEqual(review_timings.lock_retry_count, 0)
         self.assertEqual(confirm.status_code, 200)
         self.assertIn("Load 3 records into migration", confirm.text)

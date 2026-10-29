@@ -11,6 +11,7 @@ shared:
   code_references:
     - src/impodo/web/composition/page_reads.py::run_page_read
     - src/impodo/web/composition/page_reads.py::run_local_operation
+    - src/impodo/web/composition/page_reads.py::run_local_operation_sync
   tests:
     - tests/integration/web/test_page_reads.py
     - tests/integration/duckdb/test_page_read_connections.py
@@ -534,7 +535,10 @@ stages:
       - src/impodo/application/workspace/preparation/quality_service.py::QualityService
       - src/impodo/adapters/duckdb/preparation_quality_index.py::PreparationQualityIndex
       - src/impodo/adapters/duckdb/quality_repository.py::_read_complete_quality_cause_counts
+      - src/impodo/adapters/duckdb/quality_repository.py::_materialize_quality_cause_members
+      - src/impodo/adapters/duckdb/quality_repository.py::QualityRepository.get_quality_cause_review_page
       - src/impodo/domain/preparation/quality.py::QualityCauseCount
+      - src/impodo/domain/preparation/quality.py::QualityCauseImpact
       - src/impodo/domain/preparation/quality.py::QualityDependencyImpact
       - src/impodo/domain/target_numeric_precision.py::PreparedNumericField
       - src/impodo/domain/target_numeric_precision.py::PreparedNumericPrecisionFinding
@@ -593,16 +597,25 @@ stages:
       - src/impodo/web/templates/workspace_preflight_progress.html
       - src/impodo/web/templates/workspace_deferred_scope.html
     code_references:
+      - src/impodo/application/preflight_attempts.py::PreflightComparisonRequest
+      - src/impodo/application/preflight_attempts.py::PreflightComparisonReceipt
       - src/impodo/application/preflight_jobs.py::PreflightJobManager
+      - src/impodo/application/preflight_timing.py::collect_preflight_publication_timings
       - src/impodo/application/preflight_service.py::PreflightService
       - src/impodo/application/preflight_service.py::PreflightService.compare
       - src/impodo/application/preflight_service.py::PreflightService.deferred_scope_review
       - src/impodo/application/preflight_service.py::PreflightService.accept_deferred_scope
       - src/impodo/application/workspace/execution/navigation.py::ExecutionPreviewSummary
+      - src/impodo/application/workspace/execution/navigation.py::ExecutionReviewProjection
+      - src/impodo/application/workspace/execution/navigation.py::build_execution_review_projection
+      - src/impodo/application/workspace/execution/service.py::ExecutionService.current_review
       - src/impodo/application/workspace/navigation.py::WorkspaceNavigationQueryService
+      - src/impodo/web/presenters/summary.py::_render_quality_cause
       - src/impodo/adapters/duckdb/navigation_repository.py::WorkspaceNavigationRepository
+      - src/impodo/adapters/duckdb/foundation_operation_intents.py::FoundationOperationIntents.reserve_preflight_comparison
       - src/impodo/application/preflight_service.py::PreflightService.review_workbook_evidence
       - src/impodo/domain/execution/planner.py::plan_preflight_requirements
+      - src/impodo/application/odoo_comparison_service.py::prepare_odoo_comparison
       - src/impodo/application/odoo_comparison_service.py::build_odoo_comparison_publication
       - src/impodo/domain/preflight/reports.py::review_workbook_cell_feedback
       - src/impodo/domain/preflight/reports.py::review_workbook_action_priority
@@ -629,6 +642,8 @@ stages:
       - tests/integration/web/test_deferred_scope_presenter.py
       - tests/integration/web/test_deferred_scope_routes.py
       - tests/integration/duckdb/test_preflight_repository.py
+      - tests/integration/duckdb/test_preflight_attempts.py
+      - tests/integration/duckdb/test_forward_upgrades.py
       - tests/integration/duckdb/test_navigation_repository.py
       - tests/architecture/test_workspace_navigation_boundaries.py
       - tests/integration/web/test_recipe_comparison_recovery.py

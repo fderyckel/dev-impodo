@@ -538,7 +538,11 @@ def create_local_app(
         if preparation_jobs_enabled
         else None
     )
-    preflight_jobs = PreflightJobManager() if preflight_jobs_enabled else None
+    preflight_jobs = (
+        PreflightJobManager(foundation_repository)
+        if preflight_jobs_enabled
+        else None
+    )
 
     def accept_odoo_capture_publication(
         workspace_id: str,
@@ -732,6 +736,10 @@ def create_local_app(
             lambda job, actor: publish_preparation_progress(
                 context, job, actor=actor,
             )
+        )
+    if preflight_jobs is not None:
+        preflight_jobs.reconcile_pending(
+            context.preflight.recover_comparison_receipt
         )
     if load_jobs is not None:
         load_jobs.set_status_listener(

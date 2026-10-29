@@ -59,7 +59,12 @@ Quality publication groups direct causes across the complete run and derives
 their transitive dependency impact. The compact projection counts distinct
 parents, children, and siblings made unsafe by each direct cause. It does not
 replace the row findings: the browser continues to show every finding on each
-record and keeps detail access bounded and paged.
+record and keeps detail access bounded and paged. During the same transaction,
+`quality_cause_member` stores only the run, stable cause key, row identity, and
+`DIRECT`, `PARENT`, `CHILD`, or `SIBLING` impact kind. It stores no source or
+prepared value. New cause cards use that key to open the complete closure in
+bounded pages. Historical projections without the index remain readable and
+do not advertise unavailable detail.
 
 The `TARGET_NUMERIC_PRECISION_LOSS` cause is a non-blocking `ADVISORY` during
 preparation. The worker checks each exact prepared Decimal for a mapped,
@@ -104,9 +109,12 @@ schema hash. Stored JSON rows expose only selected mapped values to the worker;
 clean native rows project the same narrow fields from verified prepared
 Parquet. No browser request repeats this scan. Evidence writes are bounded and
 batched. The dependency-impact closure is one recursive set operation inside
-the publication transaction and is persisted with the existing compact cause
-projection. Browser reads do not traverse the graph or open another DuckDB
-connection. Eligible Odoo reads are planned by model and paged; there is no
+the publication transaction and is persisted as the compact cause projection
+plus the normalized cause-membership index. The cause-detail repository read
+filters that index, reconstructs only the requested sparse or materialized
+quality rows, and resolves their saved findings inside one DuckDB connection
+and one schema check. Browser reads do not traverse the graph or rescan numeric
+values. Eligible Odoo reads are planned by model and paged; there is no
 connector or database query per source row. Measured row limits and workstation
 results belong in testing and reports.
 

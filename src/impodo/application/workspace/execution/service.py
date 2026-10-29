@@ -11,7 +11,10 @@ from decimal import Decimal
 from typing import Any, Protocol
 from uuid import uuid4
 
-from impodo.application.workspace.execution.navigation import ExecutionNavigationState
+from impodo.application.workspace.execution.navigation import (
+    ExecutionNavigationState,
+    ExecutionReviewProjection,
+)
 from impodo.domain.execution.dependency_scheduler import dependency_component_pages
 from impodo.domain.execution.models import (
     MAX_CREATE_BATCH_ROWS,
@@ -208,6 +211,13 @@ class ExecutionSnapshotRepository(Protocol):
         preflight_run_id: str,
     ) -> ExecutionSnapshot:
         """Return the exact snapshot bound to a historical comparison."""
+        ...
+
+    def current_execution_review_projection(
+        self,
+        workspace_id: str,
+    ) -> ExecutionReviewProjection | None:
+        """Return bounded Check changes facts without snapshot rows."""
         ...
 
 
@@ -533,6 +543,34 @@ class ExecutionService:
             dependency_summary=_execution_dependency_summary(snapshot),
             blocker_summary=_execution_blocker_summary(snapshot),
             prior_interrupted_run=prior,
+        )
+
+    def current_review(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+    ) -> ExecutionReviewProjection | None:
+        """Validate the bounded Check changes projection for browser display."""
+
+        projection = self.preflight.current_execution_review_projection(workspace_id)
+        if projection is None:
+            return None
+        workspace_state = self.workspaces.get(workspace_id)
+        validated = self.navigation_preview(
+            ExecutionNavigationState(
+                summary=projection.summary,
+                execution_run_id=projection.current_run_id,
+                execution_status=projection.current_execution_status,
+                reconciliation_status=projection.reconciliation_status,
+            ),
+            workspace_state=workspace_state,
+            actor=actor,
+        )
+        return projection.with_scope_error(
+            validated.scope_error,
+            code=_execution_scope_error_code(validated.scope_error),
+            credential_refresh_required=validated.credential_refresh_required,
         )
 
     def navigation_preview(

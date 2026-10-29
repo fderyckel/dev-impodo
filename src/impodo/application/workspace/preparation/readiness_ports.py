@@ -12,7 +12,10 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Protocol
 
 from impodo.application.data_version.inspection import SourceFileCatalog
-from impodo.application.workspace.execution.navigation import ExecutionPreviewSummary
+from impodo.application.workspace.execution.navigation import (
+    ExecutionPreviewSummary,
+    ExecutionReviewProjection,
+)
 from impodo.domain.cutover.governance import DryRun
 from impodo.domain.derived_value_artifact import DerivedValueArtifact
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
@@ -627,6 +630,21 @@ class PreflightRepository(Protocol):
         """Return the current report only when every supplied binding matches."""
         ...
 
+    def get_current_readiness_report(
+        self,
+        workspace_id: str,
+    ) -> ReadinessReport | None:
+        """Return the current report without asserting current input bindings."""
+        ...
+
+    def get_execution_review_projection(
+        self,
+        workspace_id: str,
+        run_id: str,
+    ) -> ExecutionReviewProjection | None:
+        """Return the bounded Check changes projection for one exact run."""
+        ...
+
     def save_readiness_report(
         self,
         workspace_id: str,
@@ -638,6 +656,7 @@ class PreflightRepository(Protocol):
         record_snapshot: RecordSnapshot,
         actor: Actor,
         execution_summary: ExecutionPreviewSummary | None = None,
+        execution_review: ExecutionReviewProjection | None = None,
     ) -> None:
         """Atomically store header, streamed rows, snapshots, pointer, and audit."""
         ...
@@ -648,6 +667,7 @@ class PreflightRepository(Protocol):
         run_id: str,
         *,
         execution_summary: ExecutionPreviewSummary,
+        execution_review: ExecutionReviewProjection,
         decision_hash: str,
         actor: Actor,
     ) -> None:

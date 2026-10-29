@@ -34,6 +34,7 @@ from impodo.application.scenarios import (
     ScenarioReconciliationEvidence,
     ScenarioWorkflowFailure,
 )
+from impodo.application.workspace.execution.navigation import ExecutionReviewProjection
 from impodo.application.workspace.execution.reconciliation import ReconciliationService
 from impodo.application.workspace.execution.service import (
     ExecutionService,
@@ -135,6 +136,15 @@ class _ScenarioExecutionSnapshots:
         ):
             raise WorkspaceError("Scenario execution snapshot is missing or changed")
         return self.snapshot
+
+    def current_execution_review_projection(
+        self,
+        workspace_id: str,
+    ) -> ExecutionReviewProjection | None:
+        """Scenarios exercise commands, not the browser review projection."""
+
+        del workspace_id
+        return None
 
 
 @dataclass(frozen=True, slots=True)

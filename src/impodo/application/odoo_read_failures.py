@@ -37,6 +37,7 @@ class OdooReadFailureCode(StrEnum):
     PREPARED_EVIDENCE_STALE = "PREPARED_EVIDENCE_STALE"
     LOCAL_PROFILE_REQUIRED = "LOCAL_ODOO_PROFILE_REQUIRED"
     COMPARISON_STORAGE_FAILED = "COMPARISON_STORAGE_FAILED"
+    COMPARISON_INTERRUPTED = "COMPARISON_INTERRUPTED"
     UNEXPECTED_COMPARISON_FAILURE = "UNEXPECTED_COMPARISON_FAILURE"
 
 
@@ -161,6 +162,10 @@ _RECOVERY = {
         RecoveryOwner.SUPPORT,
         OdooReadRecoveryKind.VIEW_SUPPORT_DETAILS,
     ),
+    OdooReadFailureCode.COMPARISON_INTERRUPTED: (
+        RecoveryOwner.FINAL_REVIEW,
+        OdooReadRecoveryKind.RETRY_COMPARISON,
+    ),
     OdooReadFailureCode.UNEXPECTED_COMPARISON_FAILURE: (
         RecoveryOwner.SUPPORT,
         OdooReadRecoveryKind.VIEW_SUPPORT_DETAILS,
@@ -211,4 +216,20 @@ def classify_odoo_read_failure(error: Exception) -> OdooReadFailure:
         recovery=recovery,
         support_code=support_code,
         support_reference=str(getattr(error, "support_reference", "")),
+    )
+
+
+def odoo_read_failure_from_code(code: str) -> OdooReadFailure:
+    """Restore one persisted safe code without reconstructing exception text."""
+
+    try:
+        failure_code = OdooReadFailureCode(code)
+    except ValueError:
+        failure_code = OdooReadFailureCode.UNEXPECTED_COMPARISON_FAILURE
+    owner, recovery = _RECOVERY[failure_code]
+    return OdooReadFailure(
+        code=failure_code,
+        owner=owner,
+        recovery=recovery,
+        support_code=failure_code.value,
     )

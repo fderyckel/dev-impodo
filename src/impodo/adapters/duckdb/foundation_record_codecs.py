@@ -402,6 +402,10 @@ class FoundationRecordCodecs(FoundationRepositoryMixin):
                 json.loads(str(value["detail_json"])),
                 "operation detail",
             ),
+            result=FoundationRecordCodecs._stored_mapping(
+                json.loads(str(value["result_json"])),
+                "operation result",
+            ),
             last_error=str(value["last_error"]),
             actor=ActorIdentity(
                 issuer=str(value["actor_issuer"]),

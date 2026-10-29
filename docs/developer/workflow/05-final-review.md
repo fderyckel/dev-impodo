@@ -32,16 +32,38 @@ Credential-bearing reader closures remain only in process memory; job state and
 status responses contain no credential or business value.
 
 `PreflightService.compare` emits coarse `VERIFYING`, `READING`, `COMPARING`,
-`BUILDING`, and `PUBLISHING` phases. They are operational progress, not durable
-comparison evidence. A success status names the published preflight run and
-continues to the load review. Failures retain the existing typed Odoo read
-classification and safe recovery presentation. Rapid repeat submissions reuse
-the active attempt. After a process restart, unfinished in-memory job state is
-gone; the existing atomic report publication still leaves either the previous
-current report or the complete new report, never a partial current report.
+`BUILDING`, and `PUBLISHING` phases. They are value-free durable progress, not
+detailed comparison evidence. The form supplies a canonical operation ID. The
+start callback hashes the bounded current Workspace, mapping, staging, quality,
+normalization, target, and read-credential bindings and reserves
+`PREFLIGHT_COMPARE` in the local registry before enqueue. Exact replay reuses
+the active or terminal attempt; changed meaning under the same operation ID and
+a second pending Workspace writer fail closed.
+
+A success status names the published preflight run and continues to the load
+review. Failures retain the existing typed Odoo read classification and safe
+recovery presentation. The readiness report header retains the operation ID,
+while the canonical manifest, classifications, decision order, and execution
+snapshot hash remain unchanged. At local startup, unfinished registry intents
+are reconciled against the matching current readiness report and verified
+artifact hashes. A matching complete publication becomes successful; a missing
+publication becomes interrupted and retryable; changed bindings become stale.
+The progress route reconstructs this bounded attempt projection without loading
+the manifest, execution snapshot, or target snapshots.
 
 Tests may disable the manager and exercise the synchronous compatibility path.
 Both paths call the same comparison service and publication transaction.
+
+The compare route resolves the authorized Workspace, current evidence
+bindings, and read credential inside one `run_local_operation` callback. It
+closes that scope before enqueueing the background attempt. The worker uses
+`run_local_operation_sync` because it is already off the event loop.
+`PreflightService.compare` loads and verifies the complete frozen input in one
+bounded local phase, calls the approved Odoo reader with no retained local
+database owner, and classifies and publishes the returned snapshots in a
+second bounded local phase. Replacement-key verification follows the same
+rule: remote identity and schema probes finish before the verified binding is
+published in a local operation.
 
 Quality publication stores complete-run cause counts by dataset, reason, rule
 family, policy, owner, and affected field. It also stores the distinct parent,
@@ -55,6 +77,15 @@ row table still renders every saved issue instead of collapsing the record to
 its first issue. Stable reason and rule identifiers remain under **Support
 details**.
 
+Cards from a newly published quality run also expose **Review affected
+records**. The route binds the selected cause to the current quality-run ID
+from the authorized navigation snapshot, then pages the persisted direct,
+parent, child, and sibling membership. It reads committed local data-plane
+evidence only; it neither repeats preparation nor contacts Odoo. A future
+shared-server adapter must keep the same post-publication, authorized bounded
+query boundary and must not open worker-held DuckDB state while an operation is
+active.
+
 Prepared numeric-capacity advisories reuse this same projection. Their cards
 show captured total digits and scale, the highest required scale, and compact
 overflow counts without exposing a prepared value. The primary action opens
@@ -67,12 +98,16 @@ fields that the comparison would actually CREATE or UPDATE.
 requests, captures the target fingerprint and snapshot, performs offline
 classification, and publishes the report and execution snapshot atomically.
 For file-source comparisons, the same publication transaction stores an
-`ExecutionPreviewSummary`. This scalar projection contains only the current
+`ExecutionPreviewSummary` and versioned `ExecutionReviewProjection`. The
+scalar projection contains only the current
 preflight identifier, snapshot and target bindings, disposition totals,
 blocker totals, credential identity hashes, and execution-shape readiness.
 Shared navigation reads this projection; it never opens the execution snapshot
-or comparison manifest. The projection is display-only and cannot authorize a
-load.
+or comparison manifest. The review projection adds bounded per-dataset totals,
+five load-order groups, five blocker groups, omitted-group counts, and their
+current bindings. **Check changes** reads it without opening the complete
+execution snapshot. Both projections are display-only and cannot authorize a
+load; confirmation and submission still validate the complete snapshot.
 For a nullable self-referencing identity scope, `plan_preflight_requirements`
 builds one exact name-and-lineage domain expression for each prepared record.
 The expression ends with an unset parent at the root, and the planner batches
@@ -187,8 +222,13 @@ defined by the [reviewed deferred record groups contract](../contracts/deferred-
 | Persisted complete-run quality causes | [`QualityRepository`](../../../src/impodo/adapters/duckdb/quality_repository.py) |
 | Prepared-quality issue presentation | [`_quality_workflow_issue_summary`](../../../src/impodo/web/presenters/summary.py) and [`WorkflowIssueProjection`](../../../src/impodo/application/workspace/issues.py) |
 | Compact execution projection | [`navigation.py`](../../../src/impodo/application/workspace/execution/navigation.py) and [`PreflightRepository`](../../../src/impodo/adapters/duckdb/preflight_repository.py) |
+| Compact review consumption and full confirmation | [`ExecutionService`](../../../src/impodo/application/workspace/execution/service.py) |
 | Bounded shared navigation | [`WorkspaceNavigationQueryService`](../../../src/impodo/application/workspace/navigation.py) and [`WorkspaceNavigationRepository`](../../../src/impodo/adapters/duckdb/navigation_repository.py) |
 | Background comparison control | [`preflight_jobs.py`](../../../src/impodo/application/preflight_jobs.py) |
+| Durable comparison request and receipt | [`preflight_attempts.py`](../../../src/impodo/application/preflight_attempts.py) |
+| Value-free publication measurements | [`preflight_timing.py`](../../../src/impodo/application/preflight_timing.py) |
+| Local attempt persistence | [`foundation_operation_intents.py`](../../../src/impodo/adapters/duckdb/foundation_operation_intents.py) |
+| Durable attempt verification | [`test_preflight_attempts.py`](../../../tests/integration/duckdb/test_preflight_attempts.py) |
 | Bounded requirement planning | [`planner.py`](../../../src/impodo/domain/execution/planner.py) |
 | Protected Odoo comparison | [`odoo_comparison_service.py`](../../../src/impodo/application/odoo_comparison_service.py) |
 | Protected comparison contract | [`odoo_comparison.py`](../../../src/impodo/domain/odoo_comparison.py) |
@@ -269,10 +309,18 @@ health and progress endpoints responsive without weakening the full snapshot
 validation at load submission.
 
 An ordinary Authoring comparison does not materialize the full execution
-preview again after publication. The browser loads it when **Check changes**
-opens. The post-comparison preview remains required for a Recipe Test
-application because that path can prove that no load is needed and complete
-through read-back automatically.
+preview again after publication. **Check changes** reads the compact review
+projection; confirmation is the first browser boundary that reloads the exact
+complete snapshot. The post-comparison preview remains required for a Recipe
+Test application because that path can prove that no load is needed and
+complete through read-back automatically.
+
+Decision rows are serialized into bounded 1,000-row canonical JSON batches and
+inserted through DuckDB `json_each` in ordinal order. Every batch remains in
+the report's existing atomic transaction, and the repository verifies the
+complete row count before publishing the current pointer. The publication
+timing collector accepts only allowlisted value-free phase names and elapsed
+durations; the opt-in scale harness uses it to retain raw repeated evidence.
 
 Workbook creation may load the complete eligible prepared set once because the
 XLSX output contains one review row per decision. It may also load the complete
@@ -301,6 +349,7 @@ contact Odoo while writing them.
 - [`tests/integration/web/test_deferred_scope_presenter.py`](../../../tests/integration/web/test_deferred_scope_presenter.py)
 - [`tests/integration/web/test_deferred_scope_routes.py`](../../../tests/integration/web/test_deferred_scope_routes.py)
 - [`tests/integration/duckdb/test_preflight_repository.py`](../../../tests/integration/duckdb/test_preflight_repository.py)
+- [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/integration/duckdb/test_navigation_repository.py`](../../../tests/integration/duckdb/test_navigation_repository.py)
 - [`tests/architecture/test_workspace_navigation_boundaries.py`](../../../tests/architecture/test_workspace_navigation_boundaries.py)
 - [Recipe comparison and shared-key recovery](../../../tests/integration/web/test_recipe_comparison_recovery.py)

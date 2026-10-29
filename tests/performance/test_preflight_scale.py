@@ -52,6 +52,9 @@ def summarize_runs(runs: Sequence[dict[str, object]]) -> dict[str, object]:
     if not runs:
         raise ValueError("At least one preflight baseline run is required")
     phase_names = set.intersection(*(set(dict(run["phases"])) for run in runs))
+    publication_phase_names = set.intersection(
+        *(set(dict(run.get("publication_timings_ms", {}))) for run in runs)
+    )
     route_names = set.intersection(*(set(dict(run["route_baselines"])) for run in runs))
     return {
         "median_metrics": {
@@ -61,6 +64,13 @@ def summarize_runs(runs: Sequence[dict[str, object]]) -> dict[str, object]:
         "median_phase_seconds": {
             name: statistics.median(float(dict(run["phases"])[name]) for run in runs)
             for name in sorted(phase_names)
+        },
+        "median_publication_ms": {
+            name: statistics.median(
+                float(dict(run.get("publication_timings_ms", {}))[name])
+                for run in runs
+            )
+            for name in sorted(publication_phase_names)
         },
         "median_route_elapsed_ms": {
             name: statistics.median(
@@ -81,6 +91,7 @@ class PreflightScaleHarnessTests(unittest.TestCase):
             {
                 **{name: float(index) for name in _SUMMARY_METRICS},
                 "phases": {"engine": float(index)},
+                "publication_timings_ms": {"decision_row_insertion": float(index)},
                 "route_baselines": {
                     "health_active": {"client_elapsed_ms": float(index)}
                 },
@@ -93,6 +104,10 @@ class PreflightScaleHarnessTests(unittest.TestCase):
         self.assertEqual(summary["run_count"], 3)
         self.assertEqual(summary["median_metrics"]["elapsed_seconds"], 2.0)
         self.assertEqual(summary["median_phase_seconds"], {"engine": 2.0})
+        self.assertEqual(
+            summary["median_publication_ms"],
+            {"decision_row_insertion": 2.0},
+        )
         self.assertEqual(
             summary["median_route_elapsed_ms"],
             {"health_active": 2.0},
@@ -234,6 +249,7 @@ class DurablePreflightScaleTests(unittest.TestCase):
                     metrics["persisted_decisions"],
                     PREFLIGHT_SCALE_ROWS,
                 )
+                self.assertTrue(metrics["decision_json_edges_match"])
                 self.assertEqual(metrics["unchanged"], PREFLIGHT_SCALE_ROWS)
                 self.assertEqual(metrics["persisted_snapshots"], 2)
                 self.assertEqual(metrics["readiness_runs"], 1)
@@ -249,7 +265,12 @@ class DurablePreflightScaleTests(unittest.TestCase):
                 self.assertRegex(metrics["execution_snapshot_hash"], r"^sha256:")
                 self.assertGreater(metrics["workbook_bytes"], 0)
                 self.assertGreater(metrics["database_connection_count"], 0)
-                self.assertLessEqual(metrics["database_connection_count"], 70)
+                # Preparation, publication, and protected evidence use bounded
+                # operation scopes. Allow one physical owner per distinct
+                # registry, Workspace, DataVersion, and protected-store path,
+                # plus a small fixture margin; repeated repository calls must
+                # not restore the former per-call connection pattern.
+                self.assertLessEqual(metrics["database_connection_count"], 18)
                 self.assertGreater(metrics["database_schema_check_count"], 0)
                 self.assertLessEqual(metrics["database_schema_check_count"], 16)
                 self.assertEqual(metrics["database_lock_retry_count"], 0)
@@ -266,6 +287,23 @@ class DurablePreflightScaleTests(unittest.TestCase):
                     "publish_evidence",
                 ):
                     self.assertIn(phase, phases)
+                publication_timings = metrics["publication_timings_ms"]
+                for phase in (
+                    "execution_snapshot_serialization",
+                    "manifest_serialization",
+                    "manifest_artifact_write",
+                    "execution_snapshot_artifact_write",
+                    "dataset_row_encoding",
+                    "dataset_row_insertion",
+                    "decision_row_encoding",
+                    "decision_row_insertion",
+                    "target_snapshot_encoding",
+                    "target_snapshot_insertion",
+                    "execution_projection_encoding",
+                    "execution_projection_insertion",
+                    "current_pointer_update",
+                ):
+                    self.assertIn(phase, publication_timings)
                 routes = metrics["route_baselines"]
                 self.assertEqual(routes["compare_start"]["status_code"], 303)
                 self.assertEqual(routes["progress_active"]["status_code"], 200)
@@ -300,11 +338,11 @@ class DurablePreflightScaleTests(unittest.TestCase):
                 )
                 self.assertLessEqual(
                     routes["compare_start"]["database_connection_count"],
-                    16,
+                    10,
                 )
                 self.assertLessEqual(
                     routes["compare_start"]["database_schema_check_count"],
-                    2,
+                    8,
                 )
                 self.assertLessEqual(
                     routes["summary_action_rich"]["database_connection_count"],
@@ -316,11 +354,11 @@ class DurablePreflightScaleTests(unittest.TestCase):
                 )
                 self.assertLessEqual(
                     routes["load_review"]["database_connection_count"],
-                    75,
+                    8,
                 )
                 self.assertLessEqual(
                     routes["load_review"]["database_schema_check_count"],
-                    16,
+                    12,
                 )
 
             self.assertEqual(

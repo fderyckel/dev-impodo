@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import unittest
+from contextlib import contextmanager
 from unittest.mock import MagicMock, Mock
 from uuid import uuid4
 
@@ -82,7 +82,7 @@ class WorkspaceNavigationRepositoryTests(unittest.TestCase):
                 """
                 INSERT INTO preflight_execution_projection VALUES (
                     ?, ?, ?, 'READY', 3, 2, 1, 0, 0, 0,
-                    ?, '19.0', '', '', '', '', TRUE, 1
+                    ?, '19.0', '', '', '', '', TRUE, 1, ''
                 )
                 """,
                 [run_id, HASH, HASH, HASH],
@@ -151,7 +151,7 @@ class WorkspaceNavigationRepositoryTests(unittest.TestCase):
                 """
                 INSERT INTO preflight_execution_projection VALUES (
                     ?, ?, ?, 'INVALID', 1, 0, 0, 0, 0, 0,
-                    ?, '19.0', '', '', '', '', TRUE, 1
+                    ?, '19.0', '', '', '', '', TRUE, 1, ''
                 )
                 """,
                 [run_id, HASH, HASH, HASH],

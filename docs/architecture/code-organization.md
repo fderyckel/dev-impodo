@@ -196,6 +196,7 @@ scope. Choose the scope from the route's responsibility:
 | --- | --- | --- |
 | Read and render one local page | `run_page_read` | All synchronous repository reads, presenter work, navigation composition, and template rendering for that response. |
 | Execute one local command | `run_local_operation` | The complete synchronous command, including its independent repository transactions and any local read-back required for its result. |
+| Execute one local command from a worker that is already off the event loop | `run_local_operation_sync` | One complete local phase. The worker releases the scope before remote I/O, progress publication, or its next local phase. |
 
 Non-blocking session and transport checks remain outside the helper. Any
 synchronous repository-backed authorization belongs inside the bounded

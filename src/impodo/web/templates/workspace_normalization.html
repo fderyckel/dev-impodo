@@ -51,6 +51,7 @@
       <div class="next-action-buttons">
         <form method="post" action="/workspaces/{{ workspace_id }}/summary/compare" data-preflight-compare>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
           <button class="button primary" type="submit">Compare with Odoo</button>
           <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
         </form>

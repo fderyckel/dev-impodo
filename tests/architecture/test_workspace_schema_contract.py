@@ -22,7 +22,7 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
                 ).fetchone(),
                 (SCHEMA_GENERATION, SCHEMA_VERSION),
             )
-            self.assertEqual(SCHEMA_VERSION, 18)
+            self.assertEqual(SCHEMA_VERSION, 19)
             tables = {
                 item[0] for item in connection.execute("SHOW TABLES").fetchall()
             }
@@ -86,6 +86,7 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
                     "read_context_hash",
                     "execution_shape_ready",
                     "contract_version",
+                    "review_json",
                 ),
             )
         finally:

@@ -1,12 +1,16 @@
 """Page-read workers keep blocking database work off the event loop."""
 
 import asyncio
+import unittest
 from contextlib import contextmanager
 from threading import Event, get_ident
-import unittest
 from unittest.mock import patch
 
-from impodo.web.composition.page_reads import run_local_operation, run_page_read
+from impodo.web.composition.page_reads import (
+    run_local_operation,
+    run_local_operation_sync,
+    run_page_read,
+)
 
 
 class PageReadWorkerTests(unittest.IsolatedAsyncioTestCase):
@@ -56,9 +60,14 @@ class PageReadWorkerTests(unittest.IsolatedAsyncioTestCase):
         def fail():
             raise ValueError("invalid saved evidence")
 
-        with patch("impodo.web.composition.page_reads.retain_databases_for_read", scope):
-            with self.assertRaisesRegex(ValueError, "invalid saved evidence"):
-                await run_page_read(fail)
+        with (
+            patch(
+                "impodo.web.composition.page_reads.retain_databases_for_read",
+                scope,
+            ),
+            self.assertRaisesRegex(ValueError, "invalid saved evidence"),
+        ):
+            await run_page_read(fail)
         self.assertEqual(closed, [True])
 
     async def test_local_operation_uses_bounded_worker_scope(self) -> None:
@@ -104,11 +113,35 @@ class PageReadWorkerTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "impodo.web.composition.page_reads.retain_databases_for_operation",
             scope,
+        ), self.assertRaisesRegex(
+            TypeError,
+            "must use a synchronous callable",
         ):
-            with self.assertRaisesRegex(
-                TypeError,
-                "must use a synchronous callable",
-            ):
-                await run_local_operation(unsupported)
+            await run_local_operation(unsupported)
 
         self.assertEqual(events, ["open", "close"])
+
+    def test_background_local_operation_uses_current_worker_scope(self) -> None:
+        worker_thread = get_ident()
+        events = []
+
+        @contextmanager
+        def scope():
+            events.append(("open", get_ident()))
+            try:
+                yield
+            finally:
+                events.append(("close", get_ident()))
+
+        def operate():
+            events.append(("operate", get_ident()))
+            return "saved"
+
+        with patch(
+            "impodo.web.composition.page_reads.retain_databases_for_operation",
+            scope,
+        ):
+            self.assertEqual(run_local_operation_sync(operate), "saved")
+
+        self.assertEqual([name for name, _ in events], ["open", "operate", "close"])
+        self.assertEqual({thread for _, thread in events}, {worker_thread})

@@ -8,7 +8,7 @@ facts; source values and numeric Odoo IDs remain in protected evidence.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -39,6 +39,7 @@ from impodo.domain.odoo.contracts import (
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import (
     FieldMetadata,
+    PreparedRecord,
     TargetRecord,
     assert_no_numeric_odoo_ids,
     canonical_json_bytes,
@@ -46,6 +47,7 @@ from impodo.domain.shared.models import (
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
+    SourceDataset,
     SourceSelection,
 )
 from impodo.domain.workspace.errors import WorkspaceError
@@ -56,7 +58,11 @@ from impodo.domain.workspace.reference_keys import (
 from impodo.domain.workspace.workbench import WorkspaceState
 
 from ..domain.errors import ReadinessError
-from ..domain.mapping.contracts import MappingDefinition, MappingTargetMode
+from ..domain.mapping.contracts import (
+    DatasetMapping,
+    MappingDefinition,
+    MappingTargetMode,
+)
 from ..domain.odoo_comparison import (
     OdooComparisonArtifact,
     OdooComparisonError,
@@ -84,12 +90,6 @@ from .odoo_provenance_service import (
 ODOO_COMPARISON_ARTIFACT_NAME = "impodo_odoo_comparison.protected.json"
 ODOO_COMPARISON_CHUNK_SIZE = 500
 
-OdooComparisonReader = Callable[
-    [PreflightRequirementPlan],
-    tuple[MetadataSnapshot, RecordSnapshot],
-]
-
-
 @dataclass(frozen=True, slots=True)
 class OdooComparisonPublication:
     """Portable and protected outputs awaiting one current-pointer publish."""
@@ -103,7 +103,27 @@ class OdooComparisonPublication:
     artifact: OdooComparisonArtifact
 
 
-def build_odoo_comparison_publication(
+@dataclass(frozen=True, slots=True)
+class OdooComparisonPreparation:
+    """Immutable local evidence and the exact remote read plan."""
+
+    workspace_state: WorkspaceState
+    frozen: FrozenPreflightInput
+    dataset_mapping: DatasetMapping
+    dataset: SourceDataset
+    binding: OdooSourceBinding
+    manifest: OdooCaptureManifest
+    baselines: dict[int, dict[str, object]]
+    origins: dict[int, tuple[int, datetime | None]]
+    prepared: tuple[PreparedRecord, ...]
+    approved_fields: tuple[str, ...]
+    fields: tuple[str, ...]
+    requirements: PreflightRequirementPlan
+    origin_set_hash: str
+    run_id: str
+
+
+def prepare_odoo_comparison(
     *,
     workspace_state: WorkspaceState,
     frozen: FrozenPreflightInput,
@@ -111,16 +131,14 @@ def build_odoo_comparison_publication(
     source_snapshots: tuple[SourceSnapshot, ...],
     artifacts: DataVersionSourceArtifactStore,
     provenance: OdooProvenanceService,
-    reader: OdooComparisonReader,
     actor: Actor,
     run_id: str,
-) -> OdooComparisonPublication:
-    """Verify protected origins, read exact IDs in chunks, and classify rows.
+) -> OdooComparisonPreparation:
+    """Verify protected origins and build one exact, bounded remote read plan.
 
-    The caller publishes the returned bundle atomically with its current
-    pointer.  This function does not mutate a workspace.  It fails if the
-    source capture, frozen prepared input, live schema, or requested record set
-    no longer agree.
+    This phase performs local protected-evidence reads only. The returned
+    immutable bundle can cross the remote-I/O boundary after every local
+    database owner has been released.
     """
 
     dataset_mapping, dataset, binding = _pinned_context(frozen, selection)
@@ -186,17 +204,54 @@ def build_odoo_comparison_publication(
         if version_decision.allowed and odoo_major_version is not None
         else None
     )
-    metadata, records = reader(
-        PreflightRequirementPlan(
-            metadata_requests=metadata_requests,
-            record_requests=record_requests,
-            reference_requirements=(),
-            source_record_count=len(prepared),
-            reference_policy_hash=(
-                current_reference_policy_hash or REFERENCE_POLICY_HASH
-            ),
-        )
+    requirements = PreflightRequirementPlan(
+        metadata_requests=metadata_requests,
+        record_requests=record_requests,
+        reference_requirements=(),
+        source_record_count=len(prepared),
+        reference_policy_hash=(current_reference_policy_hash or REFERENCE_POLICY_HASH),
     )
+    return OdooComparisonPreparation(
+        workspace_state=workspace_state,
+        frozen=frozen,
+        dataset_mapping=dataset_mapping,
+        dataset=dataset,
+        binding=binding,
+        manifest=manifest,
+        baselines=baselines,
+        origins=origins,
+        prepared=prepared,
+        approved_fields=approved_fields,
+        fields=fields,
+        requirements=requirements,
+        origin_set_hash=origin_set_hash,
+        run_id=run_id,
+    )
+
+
+def build_odoo_comparison_publication(
+    *,
+    preparation: OdooComparisonPreparation,
+    provenance: OdooProvenanceService,
+    metadata: MetadataSnapshot,
+    records: RecordSnapshot,
+    actor: Actor,
+) -> OdooComparisonPublication:
+    """Classify a completed remote read into one unpublished local bundle."""
+
+    workspace_state = preparation.workspace_state
+    frozen = preparation.frozen
+    dataset = preparation.dataset
+    binding = preparation.binding
+    manifest = preparation.manifest
+    baselines = preparation.baselines
+    origins = preparation.origins
+    prepared = preparation.prepared
+    approved_fields = preparation.approved_fields
+    fields = preparation.fields
+    record_requests = preparation.requirements.record_requests
+    origin_set_hash = preparation.origin_set_hash
+    run_id = preparation.run_id
     metadata, records = bind_snapshot_hashes(metadata, records)
     _validate_live_binding(
         workspace_state,
@@ -207,7 +262,7 @@ def build_odoo_comparison_publication(
         has_record_requests=bool(record_requests),
     )
 
-    captured_fields = _captured_fields(captured_schema, binding.model)
+    captured_fields = _captured_fields(frozen.captured_schema, binding.model)
     live_fields = metadata.models.get(binding.model)
     schema_changed = live_fields is None or any(
         not _same_write_field(captured_fields.get(name), live_fields.fields.get(name))

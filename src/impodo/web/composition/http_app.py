@@ -233,6 +233,8 @@ def install_http_application(
         trusted_job_path = (
             len(parts) >= 4 and parts[2] == "preparation"
         ) or (
+            len(parts) >= 4 and parts[2] == "preflight"
+        ) or (
             len(parts) >= 5 and parts[2:4] == ["load", "progress"]
         ) or (
             len(parts) >= 5 and parts[2:4] == ["sources", "odoo-capture"]

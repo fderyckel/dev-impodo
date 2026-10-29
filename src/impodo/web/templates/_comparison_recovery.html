@@ -25,6 +25,7 @@
       class="remote-read-recovery-form"
     >
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
       <label>
         {{ comparison_recovery.credential_label }}
         <input
@@ -62,6 +63,7 @@
   {% elif comparison_recovery.action_kind == 'retry' %}
     <form method="post" action="{{ comparison_recovery.action_href }}" data-preflight-compare>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
       <button class="button primary" type="submit">
         {{ comparison_recovery.action_label }}
       </button>

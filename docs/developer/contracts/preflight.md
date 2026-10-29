@@ -160,6 +160,45 @@ reconciliation remain separate states. Any changed source, schema, mapping,
 prepared evidence, target fingerprint, or dependency order makes the result
 stale.
 
+The local browser resolves authorization, Workspace lineage, current evidence
+bindings, read credential, canonical comparison operation, and bounded semantic
+input hash inside one local operation before it enqueues work. The existing
+local registry operation-intent table owns value-free phases and the verified
+result receipt; the Workspace engine continues to own the complete readiness
+report and current pointer. The report header binds the operation ID, but the
+portable manifest and execution snapshot hashes do not include control-plane
+progress.
+
+The comparison worker then uses three explicit phases. It loads
+and verifies the complete frozen input inside one local operation, releases
+every retained database owner before the bounded Odoo read, and classifies and
+publishes the returned snapshots inside a second local operation. Repository
+transactions remain independent until the preflight repository opens the
+atomic publication transaction. No local database owner may cross the remote
+Odoo boundary. Startup recovery marks an unfinished intent successful only
+after the matching current report and immutable artifacts pass their hashes;
+otherwise it records an interrupted or stale terminal state and leaves the
+previous current pointer unchanged.
+
+The same publication transaction stores a versioned compact review projection
+beside the scalar execution projection. It contains bounded per-dataset counts,
+at most five load-order groups, at most five blocker groups, omitted-group
+counts, and the hashes and credential bindings needed to prove that it belongs
+to the current execution snapshot. It contains no source row, business
+identity, field value, numeric Odoo identifier, credential, authorization
+object, or write payload. The **Check changes** route reads this projection
+without opening the complete execution snapshot. Load confirmation, submission,
+execution, recovery, and reconciliation still reload and validate the complete
+snapshot. A historical current report without a compatible compact projection
+fails closed and requires a new comparison.
+
+Decision publication encodes canonical rows in bounded batches of 1,000 and
+uses an ordered DuckDB `INSERT ... SELECT` over each batch within the existing
+single report transaction. Publication verifies the final inserted row count
+before the current pointer advances. Timing diagnostics accept only
+allowlisted phase names, elapsed durations, and call counts; they cannot retain
+Workspace identifiers, paths, SQL, credentials, or row values.
+
 ## Related documentation
 
 - [Final review implementation](../workflow/05-final-review.md)

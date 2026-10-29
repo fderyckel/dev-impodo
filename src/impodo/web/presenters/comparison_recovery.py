@@ -100,6 +100,14 @@ _COPY: dict[OdooReadFailureCode, tuple[str, str, str]] = {
         "Review support details",
         "Impodo could not safely read or save the local comparison evidence.",
     ),
+    OdooReadFailureCode.COMPARISON_INTERRUPTED: (
+        "Comparison was interrupted",
+        "Try the comparison again",
+        (
+            "Impodo stopped before it could finish this read-only comparison. "
+            "Your previously saved comparison is unchanged."
+        ),
+    ),
     OdooReadFailureCode.UNEXPECTED_COMPARISON_FAILURE: (
         "Impodo could not complete the comparison",
         "Review support details",

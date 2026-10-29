@@ -633,29 +633,80 @@ def build_execution_router(
             status_code=status_code,
         )
 
+    def render_review(request: Request, workspace_id: str):
+        """Render Check changes from bounded persisted facts only."""
+
+        actor = request_identity(request, context.identity_resolver).actor
+        navigation_snapshot = context.navigation.get_for_workspace(
+            workspace_id,
+            actor=actor,
+        )
+        preview = context.execution.current_review(workspace_id, actor=actor)
+        if preview is None:
+            if navigation_snapshot.facts.execution_state is not None:
+                _flash(
+                    request,
+                    "This saved comparison needs the new review summary. "
+                    "Compare with Odoo again before checking changes.",
+                )
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/summary",
+                status_code=303,
+            )
+        return _render(
+            request,
+            "workspace_load.html",
+            workspace_state=navigation_snapshot.workspace_state,
+            preview=preview,
+            dependency_summary=preview.dependency_summary,
+            blocker_summary=preview.blocker_summary,
+            reconciliation=None,
+            interrupted_load=(
+                getattr(preview, "current_execution_status", "")
+                == ExecutionRunStatus.RUNNING.value
+            ),
+            load_step="review",
+            has_stored_write_key=False,
+            recovery_check=None,
+            completion_warning=None,
+            completion_warning_code=None,
+            _workspace_navigation_facts=navigation_snapshot.facts,
+        )
+
+    def load_destination(request: Request, workspace_id: str) -> str:
+        """Choose the load page from bounded navigation facts."""
+
+        actor = request_identity(request, context.identity_resolver).actor
+        snapshot = context.navigation.get_for_workspace(
+            workspace_id,
+            actor=actor,
+        )
+        preview = snapshot.facts.execution_preview
+        if preview is None:
+            return f"/workspaces/{workspace_id}/summary"
+        if preview.current_run is not None:
+            destination = f"/workspaces/{workspace_id}/load/outcome"
+            return (
+                f"{destination}?{request.url.query}"
+                if request.url.query
+                else destination
+            )
+        return f"/workspaces/{workspace_id}/load/review"
+
     @router.get("/workspaces/{workspace_id}/load")
     async def load_landing(request: Request, workspace_id: str):
         require_session(request)
-        actor = request_identity(request, context.identity_resolver).actor
         active_job = _manager(context).active(workspace_id)
         if active_job is not None:
             return RedirectResponse(
                 _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        preview = await run_in_threadpool(
-            context.execution.current_preview,
+        destination = await run_page_read(
+            load_destination,
+            request,
             workspace_id,
-            actor=actor,
         )
-        if preview is None:
-            destination = f"/workspaces/{workspace_id}/summary"
-        elif preview.current_run is not None:
-            destination = f"/workspaces/{workspace_id}/load/outcome"
-            if request.url.query:
-                destination = f"{destination}?{request.url.query}"
-        else:
-            destination = f"/workspaces/{workspace_id}/load/review"
         return RedirectResponse(destination, status_code=303)
 
     @router.get(
@@ -670,12 +721,7 @@ def build_execution_router(
                 _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        return await run_in_threadpool(
-            render,
-            request,
-            workspace_id,
-            step="review",
-        )
+        return await run_page_read(render_review, request, workspace_id)
 
     @router.get(
         "/workspaces/{workspace_id}/load/confirm",

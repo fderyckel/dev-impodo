@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime
 from enum import StrEnum
+from uuid import UUID
 
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import (
@@ -311,10 +312,18 @@ class ReadinessReport:
     datasets: tuple[ReadinessDataset, ...]
     rows: tuple[ReadinessRow, ...]
     contract_version: int = READINESS_CONTRACT_VERSION
+    operation_id: str = ""
 
     def __post_init__(self) -> None:
         if self.contract_version != READINESS_CONTRACT_VERSION:
             raise ValueError("Readiness report contract version is unsupported")
+        if self.operation_id:
+            try:
+                canonical_operation_id = str(UUID(self.operation_id))
+            except (ValueError, AttributeError) as error:
+                raise ValueError("Readiness operation identifier is invalid") from error
+            if canonical_operation_id != self.operation_id:
+                raise ValueError("Readiness operation identifier is invalid")
 
     @property
     def ready_count(self) -> int:
@@ -397,6 +406,7 @@ class ReadinessReport:
         """Load the exact current report contract."""
 
         payload = json.loads(value)
+        payload.setdefault("operation_id", "")
         _require_dataclass_fields(payload, ReadinessReport, "readiness report")
         for item in payload["datasets"]:
             _require_dataclass_fields(item, ReadinessDataset, "readiness dataset")
@@ -437,6 +447,7 @@ class ReadinessReport:
             datasets=tuple(ReadinessDataset(**item) for item in payload["datasets"]),
             rows=tuple(ReadinessRow(**item) for item in payload["rows"]),
             contract_version=int(payload["contract_version"]),
+            operation_id=str(payload["operation_id"]),
         )
 
 
