@@ -44,6 +44,9 @@ from impodo.application.workspace.mapping.incoming_dependencies import (
     repair_unambiguous_incoming_dependencies,
 )
 from impodo.domain.matching_order import (
+    MatchingIdentityChoiceCause,
+    MatchingIdentityChoiceFilter,
+    MatchingIdentityChoicePage,
     MatchingOrderCheckStatus,
     MatchingOrderVersionConflict,
 )
@@ -55,7 +58,11 @@ from impodo.domain.run.contracts import (
     RecipeApplicationStatus,
 )
 from impodo.domain.shared.access import Actor, Capability
-from impodo.domain.workspace.contracts import MappingWorkingDraft
+from impodo.domain.workspace.contracts import (
+    MappingWorkingDraft,
+    OdooSchemaCatalog,
+    SourceSelection,
+)
 from impodo.domain.workspace.derived_entities import (
     derived_dataset_links,
     related_dataset_links,
@@ -153,6 +160,17 @@ from ..security import require_csrf, require_session
 from ..source_stage_gate import source_stage_redirect
 
 _ROW_REVIEW_FAILURE_CODE = "MAPPING_ROW_REVIEW_FAILED"
+_IDENTITY_CHOICE_CAUSE_LABELS = {
+    MatchingIdentityChoiceCause.AMBIGUOUS_TARGET: "Several Odoo records match",
+    MatchingIdentityChoiceCause.MISSING_TARGET: "No Odoo record matches",
+    MatchingIdentityChoiceCause.AMBIGUOUS_INCOMING: (
+        "Several incoming records match"
+    ),
+    MatchingIdentityChoiceCause.MISSING_INCOMING: "No incoming record matches",
+    MatchingIdentityChoiceCause.MISSING_TARGET_AND_INCOMING: (
+        "No Odoo or incoming record matches"
+    ),
+}
 
 
 def _require_selected_company_scopes(
@@ -322,6 +340,90 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 else ""
             ),
         )
+
+    @router.get(
+        "/workspaces/{workspace_id}/mapping/identity-choices",
+        response_class=HTMLResponse,
+    )
+    async def review_workspace_identity_choices(
+        request: Request,
+        workspace_id: str,
+    ):
+        """Show one authorized page of protected relational identity choices."""
+
+        require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
+        active_url = _active_preparation_url(context, workspace_id)
+        if active_url:
+            return RedirectResponse(active_url, status_code=303)
+        dataset_id = request.query_params.get("dataset", "").strip()[:500]
+        target_field = request.query_params.get("field", "").strip()[:200]
+        cause = request.query_params.get("cause", "").strip()
+        if cause not in {item.value for item in MatchingIdentityChoiceCause}:
+            cause = ""
+        after = _optional_nonnegative_query_int(request.query_params.get("after"))
+        before = _optional_nonnegative_query_int(request.query_params.get("before"))
+        filters = MatchingIdentityChoiceFilter(
+            dataset_id=dataset_id,
+            target_field=target_field,
+            cause=cause,
+        )
+
+        def render_identity_choices() -> Response:
+            selection = context.queries.get_mapping_source_selection(workspace_id)
+            schema = context.queries.get_odoo_schema_catalog(workspace_id)
+            governance = context.queries.get_schema_governance(workspace_id)
+            draft = context.queries.get_mapping_working_draft(workspace_id)
+            workspace_state = context.queries.get(workspace_id)
+            if selection is None or schema is None or workspace_state is None:
+                raise WorkspaceError(
+                    "Choose and confirm the source and Odoo data before reviewing"
+                )
+            page = context.matching_order.identity_choice_review_page(
+                workspace_id,
+                selection,
+                schema,
+                governance,
+                draft,
+                filters,
+                page_size=100,
+                after=after,
+                before=before,
+                actor=actor,
+            )
+            page_context = _identity_choice_page_context(
+                workspace_id,
+                selection,
+                schema,
+                draft,
+                filters,
+                page,
+            )
+            response = _render(
+                request,
+                "mapping/identity_choice_review.html",
+                workspace_state=workspace_state,
+                workspace_id=workspace_id,
+                page=page,
+                rows=page_context["rows"],
+                filters=filters,
+                dataset_options=page_context["dataset_options"],
+                field_options=page_context["field_options"],
+                cause_options=page_context["cause_options"],
+                previous_url=page_context["previous_url"],
+                next_url=page_context["next_url"],
+            )
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        try:
+            return await run_page_read(render_identity_choices)
+        except (ValueError, WorkspaceError) as error:
+            _flash(request, str(error))
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/mapping",
+                status_code=303,
+            )
 
     @router.post("/workspaces/{workspace_id}/mapping/order")
     async def save_workspace_matching_order(
@@ -2631,6 +2733,133 @@ def _checked_mapping_return_url(
     if validation.status.value == "INVALID":
         return f"{_mapping_return_url(request, workspace_id)}#next-step-blockers"
     return success_url
+
+
+def _identity_choice_page_context(
+    workspace_id: str,
+    selection: SourceSelection,
+    schema: OdooSchemaCatalog,
+    draft: MappingWorkingDraft | None,
+    filters: MatchingIdentityChoiceFilter,
+    page: MatchingIdentityChoicePage,
+) -> dict[str, object]:
+    """Project protected rows into bounded, data-manager-facing labels."""
+
+    datasets = {item.dataset_id: item for item in selection.datasets}
+    dataset_indexes = {
+        item.dataset_id: index for index, item in enumerate(selection.datasets)
+    }
+    mappings = {
+        item.dataset_id: item
+        for item in (draft.definition.datasets if draft is not None else ())
+    }
+    models = {item.name: item for item in schema.models}
+
+    def field_label(model_name: str, field_name: str) -> str:
+        model = models.get(model_name)
+        field = next(
+            (
+                item
+                for item in (model.fields if model is not None else ())
+                if item.name == field_name
+            ),
+            None,
+        )
+        return field.label if field is not None else field_name
+
+    row_views = []
+    for row in page.rows:
+        dataset = datasets.get(row.dataset_id)
+        mapping = mappings.get(row.dataset_id)
+        target_model = mapping.target_model if mapping is not None else ""
+        related_model = models.get(row.related_model)
+        dataset_index = dataset_indexes.get(row.dataset_id, 0)
+        row_views.append(
+            {
+                "dataset_name": dataset.name if dataset is not None else row.dataset_id,
+                "target_field_label": field_label(target_model, row.target_field),
+                "target_field": row.target_field,
+                "related_model_label": (
+                    related_model.label if related_model is not None else row.related_model
+                ),
+                "key_values": tuple(
+                    {
+                        "label": field_label(row.related_model, field_name),
+                        "field": field_name,
+                        "value": value,
+                    }
+                    for field_name, value in zip(
+                        row.related_fields,
+                        row.key,
+                        strict=True,
+                    )
+                ),
+                "cause_label": _IDENTITY_CHOICE_CAUSE_LABELS[row.cause],
+                "target_match_count": row.target_match_count,
+                "incoming_match_count": row.incoming_match_count,
+                "edit_url": (
+                    f"/workspaces/{workspace_id}/mapping?"
+                    f"mapping_dataset={dataset_index}#target-identity-{dataset_index}"
+                ),
+            }
+        )
+
+    field_options: dict[str, str] = {}
+    for mapping in mappings.values():
+        model = models.get(mapping.target_model)
+        labels = {
+            item.name: item.label
+            for item in (model.fields if model is not None else ())
+        }
+        for component in (*mapping.target_identity, *mapping.target_scope):
+            if component.resolver is None:
+                continue
+            for target_field_name in component.target_fields:
+                field_options.setdefault(
+                    target_field_name,
+                    labels.get(target_field_name, target_field_name),
+                )
+
+    base_parameters = {
+        "dataset": filters.dataset_id,
+        "field": filters.target_field,
+        "cause": filters.cause,
+    }
+
+    def page_url(*, after_value=None, before_value=None) -> str:
+        parameters = {
+            **base_parameters,
+            "after": str(after_value) if after_value is not None else "",
+            "before": str(before_value) if before_value is not None else "",
+        }
+        encoded = urlencode(
+            {name: value for name, value in parameters.items() if value}
+        )
+        base = f"/workspaces/{workspace_id}/mapping/identity-choices"
+        return f"{base}?{encoded}" if encoded else base
+
+    return {
+        "workspace_id": workspace_id,
+        "page": page,
+        "rows": tuple(row_views),
+        "filters": filters,
+        "dataset_options": tuple(selection.datasets),
+        "field_options": tuple(sorted(field_options.items(), key=lambda item: item[1])),
+        "cause_options": tuple(
+            (item.value, _IDENTITY_CHOICE_CAUSE_LABELS[item])
+            for item in MatchingIdentityChoiceCause
+        ),
+        "previous_url": (
+            page_url(before_value=page.previous_before)
+            if page.previous_before is not None
+            else ""
+        ),
+        "next_url": (
+            page_url(after_value=page.next_after)
+            if page.next_after is not None
+            else ""
+        ),
+    }
 
 
 def _current_mapping_review_evidence(context: WebContext, workspace_id: str):

@@ -5,6 +5,11 @@ work in the Impodo browser. Impodo can read, prepare, load, recover, and verify
 supported Odoo 19 and final Odoo 20 targets. Odoo 20 Production remains
 disabled and requires a separate promotion decision.
 
+Select the question mark beside an Impodo page title to open the matching user
+guide on GitHub in a new tab. Your current Impodo page and unsaved entries stay
+available in the original tab. **Help and guides** in the sidebar lists every
+current user guide, including tutorials and installation instructions.
+
 Start with [Create a data project](getting-started.md). When you create or
 change the rules in an Authoring workspace, follow its six stages:
 

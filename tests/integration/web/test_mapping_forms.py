@@ -51,6 +51,7 @@ from impodo.domain.schema.governance import (
     BusinessKeyStatus,
     SchemaGovernance,
 )
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.workspace.contracts import (
     SchemaField,
@@ -166,7 +167,14 @@ class OrderedTextStepFormTests(unittest.TestCase):
         )
 
         overrides, notice = _missing_parent_exclusion_draft(
-            request, context, "workspace", selection, definition, 0, False
+            request,
+            context,
+            "workspace",
+            selection,
+            definition,
+            0,
+            False,
+            actor=LOCAL_ACTOR,
         )
 
         condition = overrides["operations-id"].conditions[0]
@@ -214,7 +222,14 @@ class OrderedTextStepFormTests(unittest.TestCase):
         ),))
 
         overrides, notice = _collision_exclusion_draft(
-            request, context, "workspace", selection, definition, 0, False
+            request,
+            context,
+            "workspace",
+            selection,
+            definition,
+            0,
+            False,
+            actor=LOCAL_ACTOR,
         )
 
         policy = overrides["lines-id"]
@@ -265,7 +280,14 @@ class OrderedTextStepFormTests(unittest.TestCase):
         ),))
 
         overrides, notice = _collision_exclusion_draft(
-            request, context, "workspace", selection, definition, 0, False
+            request,
+            context,
+            "workspace",
+            selection,
+            definition,
+            0,
+            False,
+            actor=LOCAL_ACTOR,
         )
 
         self.assertEqual(overrides, {})

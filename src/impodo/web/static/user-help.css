@@ -1,0 +1,127 @@
+.page-help-fallback {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 2.75rem;
+  margin-bottom: .5rem;
+}
+.heading-with-user-help {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .45rem;
+}
+
+.heading-with-user-help h1 {
+  margin-bottom: 0;
+}
+
+.user-help-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 2.75rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.user-help-link:hover {
+  background: var(--impodo-soft);
+  color: var(--impodo-charcoal-dark);
+}
+
+.user-help-link:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.user-help-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.user-help-group {
+  min-width: 0;
+  margin: 0;
+}
+
+.user-help-list {
+  display: grid;
+  gap: .75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.user-help-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid var(--line);
+  padding-top: .75rem;
+}
+
+.user-help-list li > div {
+  min-width: 0;
+}
+
+.user-help-list p {
+  margin: .2rem 0 0;
+  color: var(--muted);
+}
+
+.user-help-list-link {
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+@media (max-width: 860px) {
+  .user-help-groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .user-help-page .brand-tagline {
+    display: none;
+  }
+
+  .user-help-page .boundary {
+    flex: 0 1 9rem;
+    min-width: 0;
+    justify-content: flex-end;
+    text-align: right;
+  }
+
+  .user-help-page .page-shell {
+    max-width: calc(100vw - 2rem);
+  }
+
+  .user-help-heading,
+  .user-help-heading > div,
+  .user-help-groups,
+  .user-help-group {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .user-help-heading h1,
+  .user-help-list strong,
+  .user-help-list p {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 420px) {
+  .user-help-page .boundary {
+    display: none;
+  }
+
+  .user-help-page .page-shell {
+    width: min(22rem, calc(100vw - 2rem));
+  }
+}

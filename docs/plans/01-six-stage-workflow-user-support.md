@@ -11,10 +11,14 @@ preparation causes in Stages 4 and 5, and Final-review-only blockers. Current
 Stage 3 counts also remain visible in workspace navigation without opening a
 second issue store. The exact prepared-value precision pass is implemented as
 bounded, value-free worker evidence, and cause-specific drill-down uses
-publication-time membership and readiness projections. The next delivery
-should complete the relational identity and relationship gaps from Proposals
-3 and 6, followed by the source-aware supporting-data closure from Proposal 2
-and the migration-intent part of Proposal 10. Do not build parallel
+publication-time membership and readiness projections. The bounded Stage 3
+check now also proves governed Many2one components in a dataset's own identity,
+including recursively nested governed Many2one key components.
+An authorized, freshness-checked page exposes only the bounded protected
+unresolved choices for that current check. Source-backed Many2one relationship
+health now uses the same recursive key tree. The next delivery should complete
+the source-aware supporting-data closure from Proposal 2, followed by the
+migration-intent part of Proposal 10. Do not build parallel
 replacements for the implemented default, mapping-impact, comparison, or
 load-recovery flows.
 
@@ -154,6 +158,100 @@ and does not decode protected key values. A future shared-server adapter may
 carry the same two counts and verified evidence pointer in PostgreSQL, but a
 server page must not open worker-held DuckDB evidence.
 
+### Implemented seventh slice
+
+The explicit Stage 3 live check now proves a dataset identity whose key or
+scope contains one governed Many2one component. The planner reads the complete
+owner key through a dotted related-business-key domain, reads the related
+records by their confirmed key and scope, and compares the owner identity in
+memory with a protected symbolic related key. Target-only, incoming-only, and
+target-first resolver origins retain their existing meaning. Numeric Odoo IDs
+remain confined to the protected target snapshot and never become portable
+identity evidence.
+
+Related reads remain grouped by model, governed rule, scope, and distinct key.
+The source side now reuses a broader row-aligned dataset projection when a
+later identity or relationship probe needs only a subset of its columns. This
+avoids an extra DuckDB scan in the common identity-plus-relationship path and
+does not introduce a process-wide connection cache.
+
+Missing or ambiguous related identity choices make the aggregate identity
+explicitly not checkable. Their values and cause-specific match counts are
+stored only in the protected check snapshot; ordinary cards, navigation, and
+shared-server-safe projections still expose counts and correction routes only.
+The next slice below adds the authorized paged review of those protected
+choices. A related business key that itself contains another relation,
+protected duplicate-group review, and target-wide blank inventory remain
+planned.
+
+### Implemented eighth slice
+
+Stage 3 now provides **Review unresolved identity choices** when one governed
+Many2one component cannot be proved uniquely. Check publication validates and
+normalizes the protected choice rows in the same transaction as the protected
+snapshot and current-check pointer. The page shows at most 100 rows, supports
+allowlisted table, owner-field, and cause filters, and links each row back to
+the exact matching rule. It never publishes numeric Odoo IDs.
+
+The application query requires `PROTECTED_EVIDENCE_READ` and rechecks the
+source, schema, governance, draft, target, credential, principal, permission,
+and context bindings before it reads a page. Paging uses the normalized index;
+it does not decode the complete protected snapshot or contact Odoo. The route
+runs inside one bounded page-read operation and keeps ordinary identity cards,
+workspace navigation, and shared-server-safe projections value-free.
+
+This is a deployment-neutral use case rather than permission for a Linux web
+process to open worker DuckDB state. The local adapter owns the current DuckDB
+projection. A future shared-server adapter must publish and page an equivalent
+bounded protected projection only after verifying the worker receipt. Nested
+related identity keys were the next slice recorded below; duplicate-group
+review and target-wide blank inventory remain planned.
+
+### Implemented ninth slice
+
+The Stage 3 identity probe now follows a governed Many2one business key whose
+own key or scope contains another governed Many2one. It builds a depth-limited
+tree from the saved dataset identity components, flattens only scalar leaves
+for bounded Odoo domains, and resolves target relation IDs bottom-up in memory.
+The complete nested token then enters the existing owner-identity classifier;
+no display name or numeric Odoo ID becomes portable evidence.
+
+Metadata and record requirements remain merged by model and field in the one
+immutable check plan. Distinct leaf keys are deduplicated and chunked outside
+source-row loops, while the row-aligned source projection cache reuses broader
+dataset reads. Five related-key levels and 50,000 distinct values per node are
+hard limits. A cycle, ambiguous saved shape, deeper chain, or unsupported field
+stops before source or Odoo reads and remains explicitly not checkable.
+
+Nested leaf failures reuse the existing protected choice projection. The page
+shows the deepest dotted owner-field path and leaf business-key fields, while
+ordinary cards, navigation, and shared-server-safe projections remain
+value-free. The local DuckDB ownership and Linux worker-receipt boundary are
+unchanged. Saved relationship-field health still supports direct scalar
+related keys; the tenth slice below extends that simulator to the nested tree.
+
+### Implemented tenth slice
+
+Source-backed Many2one relationship health now reuses the recursive key tree
+from the ninth slice. The prepared check normalizes the complete leaf key once,
+resolves nested target records bottom-up, and passes protected portable tokens
+to the existing aggregate classifier. Target-only, incoming-only, and
+target-first origins retain their precedence, including nested case-only,
+missing, and ambiguous outcomes.
+
+The immutable requirement plan merges identity and relationship metadata by
+model, deduplicates scalar leaf keys, and chunks them outside row loops. The
+row-aligned source cache reuses a broader identity projection when the
+relationship needs the same or fewer columns. A 1,000-row focused fixture uses
+three source projections and fewer than 30 bounded Odoo record requests. A
+cycle stops before either source or Odoo evidence is read.
+
+Public relationship health remains aggregate-only. Protected keys stay in the
+existing worker evidence, and this slice adds no browser route, DuckDB
+repository, shared-server projection, or permission for a Linux web process to
+open worker-held evidence. Nested Many2many and constant-provider keys remain
+explicitly outside this Many2one slice.
+
 ### Additional current foundations found during reassessment
 
 The current checkout contains more of the intended workflow than the original
@@ -163,10 +261,10 @@ delivery summary recorded:
 | --- | --- | --- |
 | **1. Issue register** | Stage 2, current Stage 3 identity and relationship findings, complete-run Stage 4 preparation causes, and both preparation and comparison blockers in Stage 5 use the shared `WorkflowIssueProjection`. Stage 3 current counts persist in workspace navigation through a bounded freshness-checked read. | If evidence shows the need for one all-stage drawer, aggregate the already-persisted stage counts without moving detailed worker evidence into PostgreSQL or creating a second issue authority. |
 | **2. Supporting data** | File-source Stage 2 derives direct required relationships and inverse-owned children. The Odoo-source path already stores generic reviewed decisions for each relationship edge and builds guided capture plans. | Reuse that edge evidence. Add accepted or derived source-table intent, optional-field intent, Recipe closure, and explicit supporting-read authorization for file-source authoring. |
-| **3. Identity proof** | Direct scalar identities are checked against included source rows and current target evidence. | Prove relational key and scope components, expose protected duplicate-group review, and forecast update versus unchanged only when complete mapped evidence exists. |
+| **3. Identity proof** | Direct scalar identities and recursively nested governed Many2one key or scope components are checked against included source rows and current target evidence. Current unresolved relational choices have an authorized, freshness-checked protected paged review. | Add duplicate-group review and update-versus-unchanged forecasting only when complete mapped evidence exists. |
 | **4. Required values** | Authoring can identify required-field blockers, check bounded Odoo defaults, review one or several defaults, save the chosen disposition, and run one complete mapping check. | Consolidate these decisions into one clear checklist. Do not create a second default-capture workflow. |
 | **5. Mapping starter** | Stage 2 matching-rule suggestions, generated-table relationship suggestions, recommended authoring order, scalar catalogue tools, and checked coverage evidence provide several safe starting points. | Add only evidence-backed suggestions that remove a demonstrated operator burden. A broad automatic field mapper is no longer a prerequisite for this plan. |
-| **6. Relationship simulator** | Direct scalar Many2one and Many2many keys, three resolver origins, constant references, parent counts, case-only protection, and inverse One2many guidance are current. | Add protected unresolved-choice review, nested relational keys, and resolver-backed components of the dataset's own identity. |
+| **6. Relationship simulator** | Direct scalar Many2one and Many2many keys, recursively nested source-backed Many2one keys, three resolver origins, constant references, parent counts, case-only protection, inverse One2many guidance, recursive dataset identity components, and protected unresolved-choice paging are current. | Consider nested Many2many or constant-provider keys only if authoring evidence justifies a portable source contract for them. |
 | **7. Rule effects** | The optional **Review rule effects** page and matching review workbook already show changed, fallback, blank, invalid, supplied, and unchanged outcomes for the checked revision. | Prefer field-specific links and compact context over duplicating the complete preview inside every field card. |
 | **8. Root-cause repair** | Prepare data persists causal dependency evidence, publishes direct and transitive impact counts, checks exact post-transformation Decimal values against schema-bound Odoo capacity, and indexes every direct or dependency-affected row for bounded drill-down. Stages 4 and 5 project value-free cards with the saved rule, Odoo-schema alternative, recheck, and paged affected-record action. Browser paging does not rescan the issue graph or numeric values. | Complete for current preparation causes. Extend the shared issue projection only when another stage has authoritative evidence to contribute. |
 | **9. Shared comparison** | The single Stage 4-to-Stage 5 comparison and reviewed deferred-record-group workflow are complete. | Preserve this owner; do not add another target scan. |
@@ -292,7 +390,7 @@ stages.
 | --- | --- | --- |
 | **1. Source data** | The data manager confirms physical and reviewed derived tables as immutable Data version evidence. Odoo-source capture stores a generic decision for each reviewed relationship edge and builds guided plans from those decisions. | File-source business scope and derived-table intent do not yet feed one complete Stage 2 dependency plan, so a supporting incoming table can still be discovered late. |
 | **2. Odoo data** | Impodo captures Odoo 19 models, fields, requirements, selections, relationships, defaults, and optional uniqueness metadata. It now derives direct required supporting relationships and inverse-owned child data, then confirms one matching rule for every selected writable record type. | The first slice does not yet pair optional relationships with accepted source or Recipe intent, authorize arbitrary supporting reads, or prove that current source and target values are populated and unique. |
-| **3. Match data** | The data manager defines row inclusion, record identity, scalar values, transformations, defaults, and relationships. Impodo checks direct identity and relationship health, predicts source-backed numeric precision loss, and can show rule effects in a browser review and workbook. | Relational identity components and nested relationship keys still stop at aggregate guidance. Protected unresolved choices and a compact cross-table coverage view remain missing. |
+| **3. Match data** | The data manager defines row inclusion, record identity, scalar values, transformations, defaults, and relationships. Impodo checks direct and recursively nested relational identity, direct and recursively nested source-backed Many2one relationship health, predicts source-backed numeric precision loss, and can show protected unresolved identity choices, rule effects, and a workbook. | A compact cross-table coverage view remains missing. Nested Many2many and constant-provider keys remain conditional rather than required. |
 | **4. Prepare data** | Impodo applies the confirmed mapping to every accepted row, accounts for every row, resolves source duplicates, evaluates incoming relationships, checks exact prepared numeric capacity, freezes normalization decisions, publishes complete-run cause counts, and offers an indexed cause-specific record drill-down for the shared repair queue. | The remaining preparation improvements depend on the relational-identity and supporting-data evidence still missing upstream, not another issue store. |
 | **5. Final review** | Impodo reads current Odoo evidence, classifies every eligible prepared row, produces the final action queue and execution snapshot, can retain a reviewed safe remainder, reuses the Stage 4 repair projection, and publishes every Final-review-only blocking cause through the shared issue journey. | Indirect identities and target-only relationships that the early checks cannot prove may still first become visible here. Move those decisions earlier only with authoritative Stage 3 evidence; do not duplicate the target comparison. |
 | **6. Load into Odoo** | Impodo revalidates the reviewed target scope, writes in dependency order, journals each attempted row, requires read-back before recovery, and verifies the result through reconciliation. | Recovery is already evidence-led. The main remaining gap is an explicit business-intent comparison that catches a technically valid load whose create, update, field, or relationship effects contradict the migration purpose. |
@@ -573,10 +671,11 @@ receives the maximum impact score. A correct dependency plan still needs Stage
 
 ## Proposal 3: Prove matching identities against current data
 
-**Delivery status:** Direct scalar identity proof and the Stage 3 Identity
-health UI are implemented. Relational key/scope proof, protected duplicate
-group review, target-wide blank inventory, and update-versus-unchanged
-forecasting remain proposed.
+**Delivery status:** Direct scalar identity proof, recursively nested governed
+Many2one key/scope proof, the Stage 3 Identity health UI, and the protected
+unresolved-choice page are implemented. The protected duplicate-group page,
+target-wide blank inventory, and update-versus-unchanged forecasting remain
+proposed.
 
 **Owning stages:** Odoo data and Match data.  
 **User impact:** **10/10**.
@@ -762,13 +861,14 @@ suggestion accelerates work but cannot prove that current values are safe.
 **Owning stage:** Match data.  
 **User impact:** **10/10**.
 
-**Current delivery:** The first field-mapping slice is implemented. Direct
-scalar Many2one and Many2many related keys, all three resolver origins,
-constant existing-record providers, required-parent counts, case-only
-protection, aggregate correction routes, and inverse One2many guidance are
-current. Protected unresolved-value review and nested relational keys remain
-planned. Resolver-backed components of the dataset's own identity also remain
-planned.
+**Current delivery:** Direct scalar Many2one and Many2many related keys, all
+three resolver origins, constant existing-record providers, required-parent
+counts, case-only protection, aggregate correction routes, and inverse
+One2many guidance are current. The same bounded check now proves recursively
+nested resolver-backed components of the dataset's own identity and
+source-backed Many2one relationship fields. Protected unresolved-value paging
+is current. Nested Many2many and constant-provider keys remain conditional on
+a clear portable authoring contract.
 
 ### Process improvement
 
@@ -1187,9 +1287,9 @@ the highest-risk stage, so it receives a near-maximum score.
 
 | Priority | Proposals | Reason |
 | --- | --- | --- |
-| **1 - next** | 3. Relational identity proof with 6. Nested relationship resolution | Extend the existing bounded Stage 3 check to the parent-, company-, and relationship-backed identities that still defer risk until Final review. Add protected unresolved-choice review without exposing keys in ordinary projections. |
-| **2** | 2. Source-aware supporting-data closure | Join accepted physical and derived tables, optional-field intent, Recipe requirements, and reviewed Odoo-source edge meaning into the existing bounded dependency plan. Do not add another relationship-policy engine. |
-| **3** | 10. Migration intent over the current load cockpit | Compare the exact Final review result with explicit business expectations, then present those expectations with the implemented dependency, journal, recovery, and reconciliation states. |
+| **1 - next** | 2. Source-aware supporting-data closure | Join accepted physical and derived tables, optional-field intent, Recipe requirements, and reviewed Odoo-source edge meaning into the existing bounded dependency plan. Do not add another relationship-policy engine. |
+| **2** | 10. Migration intent over the current load cockpit | Compare the exact Final review result with explicit business expectations, then present those expectations with the implemented dependency, journal, recovery, and reconciliation states. |
+| **3 - conditional** | Remaining 6. Nested Many2many or constant-provider keys | Add only after a portable source contract and operator need are demonstrated; do not infer compound members from display text. |
 | **4 - conditional consolidation** | Remaining 1. All-stage issue drawer, 4. Required-values summary, 5. Mapping starter, and 7. Field-specific rule effects | Improve the current flows only where user evidence shows repeated work or navigation friction. Reuse persisted stage counts, implemented default capture, catalogues, transformation-impact snapshot, and workbook. |
 | **Delivered foundation** | 9. Shared comparison and reviewed set-aside | Preserve one Stage 4-to-Stage 5 comparison and the reviewed safe-remainder contract. No later slice adds another target scan. |
 | **Delivered foundation** | 8. Bounded root-cause repair | Preserve the publication-time cause counts and membership index. No browser route recomputes dependency closure or numeric evidence. |

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from typing import Any
+from urllib.parse import urlencode
 
 from impodo.domain.matching_order import (
     MatchingIdentityNotCheckableReason,
@@ -19,11 +20,15 @@ _UNCHECKED_MESSAGES = {
         "Confirm this Odoo matching rule before testing current records."
     ),
     MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY: (
-        "This identity depends on a related Odoo record. Impodo will prove "
-        "that complete scope in the relationship-checking slice."
+        "This identity depends on a related Odoo record without a direct "
+        "governed business-key projection."
+    ),
+    MatchingIdentityNotCheckableReason.RELATIONAL_IDENTITY_UNRESOLVED: (
+        "A related identity value is missing or ambiguous in its saved "
+        "Odoo-first or incoming-table rule. Review that relationship."
     ),
     MatchingIdentityNotCheckableReason.UNSUPPORTED_TARGET_FIELD: (
-        "This matching field type is not included in the direct identity check yet."
+        "This matching field type is not included in the bounded identity check yet."
     ),
     MatchingIdentityNotCheckableReason.SOURCE_EVIDENCE_UNAVAILABLE: (
         "Impodo could not read the required columns from the current frozen source."
@@ -64,6 +69,7 @@ def identity_health_view(
         _identity_card(
             view,
             current_results.get(view["source"].dataset_id),
+            workspace_id=workspace_id,
             has_check=live_check is not None,
             live_check_current=live_check_current,
             running=running,
@@ -84,7 +90,7 @@ def identity_health_view(
             else (
                 "Save the current matching choices before checking Odoo."
                 if not working_draft_is_current
-                else "One read-only check tests every saved direct identity."
+                else "One read-only check tests every supported saved identity."
             )
         ),
     }
@@ -94,6 +100,7 @@ def _identity_card(
     view: dict[str, Any],
     result: MatchingIdentityResult | None,
     *,
+    workspace_id: str,
     has_check: bool,
     live_check_current: bool,
     running: bool,
@@ -120,6 +127,16 @@ def _identity_card(
         schema_changed=schema_changed,
     )
     result_counts = result if result is not None and result.checked else None
+    review_choices_url = ""
+    if (
+        result is not None
+        and result.not_checkable_reason
+        is MatchingIdentityNotCheckableReason.RELATIONAL_IDENTITY_UNRESOLVED
+    ):
+        review_choices_url = (
+            f"/workspaces/{workspace_id}/mapping/identity-choices?"
+            + urlencode({"dataset": source.dataset_id})
+        )
     target_fields = (
         result.target_fields
         if result is not None
@@ -173,6 +190,7 @@ def _identity_card(
             result_counts.expected_existing_count if result_counts else 0
         ),
         "blocked_count": result_counts.blocked_count if result_counts else 0,
+        "review_choices_url": review_choices_url,
         "edit_url": f"{view['edit_url']}#target-identity-{view['index']}",
     }
 

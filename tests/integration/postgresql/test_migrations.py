@@ -418,8 +418,88 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertNotIn("raw_token", schema)
         self.assertNotIn("activation_link", schema)
         self.assertNotIn("GRANT DELETE", schema)
+
+    def test_server_session_schema_is_digest_only_bounded_and_no_delete(self) -> None:
+        migration = POSTGRESQL_MIGRATIONS[7]
+        schema = "\n".join(statement.query for statement in migration.statements)
+
+        self.assertIn("impodo_control.server_session", schema)
+        self.assertIn("handle_digest bytea NOT NULL UNIQUE", schema)
+        self.assertIn("csrf_digest bytea NOT NULL", schema)
+        self.assertIn("octet_length(handle_digest) = 32", schema)
+        self.assertIn("state IN ('ACTIVE', 'REVOKED')", schema)
+        self.assertIn("idle_expires_at", schema)
+        self.assertIn("absolute_expires_at", schema)
+        self.assertIn("security_revision", schema)
+        self.assertIn("actor_administrator_id", schema)
+        self.assertIn("SESSION_ROTATED", schema)
+        self.assertIn("UPDATE (handle_digest, csrf_digest", schema)
+        self.assertNotIn("raw_handle", schema)
+        self.assertNotIn("csrf_token", schema)
+        self.assertNotIn("GRANT DELETE", schema)
         self.assertNotIn("UPDATE (token_digest", schema)
         self.assertNotIn("UPDATE (principal_kind", schema)
+
+    def test_customer_administration_schema_is_tenant_scoped_and_no_delete(
+        self,
+    ) -> None:
+        migration = POSTGRESQL_MIGRATIONS[8]
+        schema = "\n".join(statement.query for statement in migration.statements)
+
+        for table in (
+            "customer_user",
+            "customer_user_password_identity",
+            "organization_administrator_assignment",
+            "identity_administration_event",
+        ):
+            self.assertIn(f"impodo_control.{table}", schema)
+        self.assertIn("organization_id varchar(200) NOT NULL", schema)
+        self.assertIn("PENDING_ACTIVATION", schema)
+        self.assertIn("ORGANIZATION_ADMINISTRATOR", schema)
+        self.assertIn("CUSTOMER_USER", schema)
+        self.assertIn("login_identity_exact_subject_check", schema)
+        self.assertIn(
+            "REFERENCES impodo_control.login_identity "
+            "(principal_kind, principal_id)",
+            schema,
+        )
+        self.assertIn("identity_administration_event_organization_time_idx", schema)
+        self.assertIn("issued_by_principal_kind", schema)
+        self.assertIn("issued_by_principal_id", schema)
+        self.assertIn("REVOKE UPDATE ON impodo_control.organization", schema)
+        self.assertIn("UPDATE (display_name, status, policy_revision", schema)
+        self.assertNotIn("raw_token", schema)
+        self.assertNotIn("activation_link", schema)
+        self.assertNotIn("GRANT DELETE", schema)
+
+    def test_customer_administrator_assignment_is_bound_to_tenant_and_kind(
+        self,
+    ) -> None:
+        migration = POSTGRESQL_MIGRATIONS[9]
+        schema = "\n".join(statement.query for statement in migration.statements)
+
+        self.assertIn(
+            "UNIQUE (organization_id, user_id, principal_kind)",
+            schema,
+        )
+        self.assertIn("UNIQUE (user_id, principal_kind)", schema)
+        self.assertIn("login_identity_customer_kind_fk", schema)
+        self.assertIn("organization_administrator_assignment_tenant_kind_fk", schema)
+        self.assertIn(
+            "CHECK (principal_kind = 'ORGANIZATION_ADMINISTRATOR')",
+            schema,
+        )
+        self.assertIn(
+            "REVOKE UPDATE ON "
+            "impodo_control.organization_administrator_assignment",
+            schema,
+        )
+        self.assertIn(
+            "UPDATE (user_id, assignment_revision, "
+            "assigned_by_administrator_id, assigned_at)",
+            schema,
+        )
+        self.assertNotIn("GRANT DELETE", schema)
 
     def test_default_psycopg_session_is_bounded_and_transactional(self) -> None:
         connection = Mock()

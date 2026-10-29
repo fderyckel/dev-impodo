@@ -12,6 +12,11 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from impodo.domain.matching_order import (
+    MAX_MATCHING_IDENTITY_CHOICE_PAGE_SIZE,
+    MatchingIdentityChoice,
+    MatchingIdentityChoiceCause,
+    MatchingIdentityChoiceFilter,
+    MatchingIdentityChoicePage,
     MatchingOrderCheck,
     MatchingOrderCheckAttempt,
     MatchingOrderCheckPhase,
@@ -20,7 +25,7 @@ from impodo.domain.matching_order import (
     MatchingOrderVersionConflict,
 )
 from impodo.domain.schema.governance import SchemaGovernance
-from impodo.domain.serialization import content_hash
+from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
@@ -30,7 +35,21 @@ from impodo.domain.workspace.contracts import (
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
+from .constants import DUCKDB_JSON_BATCH_MAX_BYTES
 from .repository import DuckDbRepository
+from .serialization import iter_encoded_json_batches
+
+_IDENTITY_CHOICE_JSON_STRUCTURE = canonical_json([{
+    "ordinal": "BIGINT",
+    "dataset_id": "VARCHAR",
+    "target_field": "VARCHAR",
+    "related_model": "VARCHAR",
+    "related_fields_json": "VARCHAR",
+    "key_json": "VARCHAR",
+    "cause": "VARCHAR",
+    "target_match_count": "BIGINT",
+    "incoming_match_count": "BIGINT",
+}])
 
 
 class MatchingOrderSourceProjection(Protocol):
@@ -332,6 +351,22 @@ class MatchingOrderRepository(DuckDbRepository):
             protected_payload = json.loads(protected_snapshot_json)
         except json.JSONDecodeError as error:
             raise WorkspaceError("Matching-order protected evidence is invalid") from error
+        if not isinstance(protected_payload, dict):
+            raise WorkspaceError("Matching-order protected evidence is invalid")
+        raw_choices = protected_payload.get("unresolved_identity_choices", [])
+        if not isinstance(raw_choices, list) or not all(
+            isinstance(item, dict) for item in raw_choices
+        ):
+            raise WorkspaceError("Matching-order identity choices are invalid")
+        try:
+            identity_choices = tuple(
+                MatchingIdentityChoice.from_protected_dict(item, ordinal=ordinal)
+                for ordinal, item in enumerate(raw_choices)
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise WorkspaceError(
+                "Matching-order identity choices are invalid"
+            ) from error
         snapshot_hash = content_hash(protected_payload)
         projected_selection = (
             self._source_projection.get_mapping_source_selection(workspace_id)
@@ -426,6 +461,11 @@ class MatchingOrderRepository(DuckDbRepository):
                 connection.execute(
                     "INSERT INTO matching_order_protected_snapshot VALUES (?, ?, ?)",
                     [check.check_id, snapshot_hash, protected_snapshot_json],
+                )
+                self._insert_identity_choices(
+                    connection,
+                    check.check_id,
+                    identity_choices,
                 )
                 status = (
                     MatchingOrderCheckStatus.SUCCEEDED
@@ -571,6 +611,187 @@ class MatchingOrderRepository(DuckDbRepository):
             """,
         )
         return MatchingOrderCheck.from_json(values[0]) if values else None
+
+    def get_identity_choice_review_page(
+        self,
+        workspace_id: str,
+        check_id: str,
+        filters: MatchingIdentityChoiceFilter,
+        *,
+        page_size: int,
+        after: int | None = None,
+        before: int | None = None,
+    ) -> MatchingIdentityChoicePage:
+        """Read one protected page without decoding the complete snapshot."""
+
+        if (
+            page_size < 1
+            or page_size > MAX_MATCHING_IDENTITY_CHOICE_PAGE_SIZE
+        ):
+            raise WorkspaceError("Matching identity choice page size is invalid")
+        if after is not None and before is not None:
+            raise WorkspaceError("Choose only one identity choice page direction")
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            current = connection.execute(
+                "SELECT check_id FROM matching_order_check_current "
+                "WHERE singleton_id = 1"
+            ).fetchone()
+            if current is None or str(current[0]) != check_id:
+                raise WorkspaceError(
+                    "Check current data again before reviewing identity choices"
+                )
+            where_sql, parameters = self._identity_choice_where(filters)
+            matching = connection.execute(
+                f"""
+                SELECT COUNT(*)
+                  FROM matching_order_protected_identity_choice
+                 WHERE check_id = ? AND {where_sql}
+                """,
+                [check_id, *parameters],
+            ).fetchone()
+            matching_count = int(matching[0]) if matching else 0
+            cursor_sql = ""
+            cursor_parameters: list[object] = []
+            order = "ASC"
+            if after is not None:
+                cursor_sql = " AND ordinal > ?"
+                cursor_parameters.append(after)
+            elif before is not None:
+                cursor_sql = " AND ordinal < ?"
+                cursor_parameters.append(before)
+                order = "DESC"
+            result = connection.execute(
+                f"""
+                SELECT ordinal, dataset_id, target_field, related_model,
+                       related_fields_json, key_json, cause,
+                       target_match_count, incoming_match_count
+                  FROM matching_order_protected_identity_choice
+                 WHERE check_id = ? AND {where_sql}{cursor_sql}
+                 ORDER BY ordinal {order}
+                 LIMIT ?
+                """,
+                [
+                    check_id,
+                    *parameters,
+                    *cursor_parameters,
+                    page_size,
+                ],
+            ).fetchall()
+            if order == "DESC":
+                result.reverse()
+            ordinals = [int(item[0]) for item in result]
+            if ordinals:
+                preceding = connection.execute(
+                    f"""
+                    SELECT COUNT(*)
+                      FROM matching_order_protected_identity_choice
+                     WHERE check_id = ? AND {where_sql} AND ordinal < ?
+                    """,
+                    [check_id, *parameters, ordinals[0]],
+                ).fetchone()
+                start_position = int(preceding[0]) + 1 if preceding else 1
+            else:
+                start_position = 0
+        rows = tuple(self._identity_choice_from_record(item) for item in result)
+        end_position = start_position + len(rows) - 1 if rows else 0
+        return MatchingIdentityChoicePage(
+            rows=rows,
+            matching_count=matching_count,
+            start_position=start_position,
+            end_position=end_position,
+            previous_before=(
+                ordinals[0] if ordinals and start_position > 1 else None
+            ),
+            next_after=(
+                ordinals[-1]
+                if ordinals and end_position < matching_count
+                else None
+            ),
+        )
+
+    @staticmethod
+    def _insert_identity_choices(
+        connection,
+        check_id: str,
+        choices: tuple[MatchingIdentityChoice, ...],
+    ) -> None:
+        """Normalize protected choice rows inside the publish transaction."""
+
+        transport_rows = (
+            {
+                "ordinal": item.ordinal,
+                "dataset_id": item.dataset_id,
+                "target_field": item.target_field,
+                "related_model": item.related_model,
+                "related_fields_json": canonical_json(list(item.related_fields)),
+                "key_json": canonical_json(list(item.key)),
+                "cause": item.cause.value,
+                "target_match_count": item.target_match_count,
+                "incoming_match_count": item.incoming_match_count,
+            }
+            for item in choices
+        )
+        for batch in iter_encoded_json_batches(
+            transport_rows,
+            max_rows=1_000,
+            max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+        ):
+            connection.execute(
+                """
+                INSERT INTO matching_order_protected_identity_choice (
+                    check_id, ordinal, dataset_id, target_field,
+                    related_model, related_fields_json, key_json, cause,
+                    target_match_count, incoming_match_count
+                )
+                SELECT ?, item.ordinal, item.dataset_id, item.target_field,
+                       item.related_model, item.related_fields_json,
+                       item.key_json, item.cause, item.target_match_count,
+                       item.incoming_match_count
+                  FROM (
+                    SELECT unnest(from_json_strict(CAST(? AS JSON), ?)) AS item
+                  )
+                """,
+                [check_id, batch.payload, _IDENTITY_CHOICE_JSON_STRUCTURE],
+            )
+
+    @staticmethod
+    def _identity_choice_where(
+        filters: MatchingIdentityChoiceFilter,
+    ) -> tuple[str, list[object]]:
+        clauses = ["1 = 1"]
+        parameters: list[object] = []
+        if filters.dataset_id:
+            clauses.append("dataset_id = ?")
+            parameters.append(filters.dataset_id)
+        if filters.target_field:
+            clauses.append("target_field = ?")
+            parameters.append(filters.target_field)
+        if filters.cause:
+            clauses.append("cause = ?")
+            parameters.append(filters.cause)
+        return " AND ".join(clauses), parameters
+
+    @staticmethod
+    def _identity_choice_from_record(record) -> MatchingIdentityChoice:
+        related_fields = json.loads(str(record[4]))
+        key = json.loads(str(record[5]))
+        if not isinstance(related_fields, list) or not isinstance(key, list):
+            raise WorkspaceError("Stored matching identity choice is invalid")
+        return MatchingIdentityChoice(
+            ordinal=int(record[0]),
+            dataset_id=str(record[1]),
+            target_field=str(record[2]),
+            related_model=str(record[3]),
+            related_fields=tuple(str(item) for item in related_fields),
+            key=tuple(str(item) for item in key),
+            cause=MatchingIdentityChoiceCause(str(record[6])),
+            target_match_count=int(record[7]),
+            incoming_match_count=int(record[8]),
+        )
 
     def _read_attempt_rows(
         self,

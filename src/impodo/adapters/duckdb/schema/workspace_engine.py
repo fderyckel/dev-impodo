@@ -138,6 +138,18 @@ _MATCHING_ORDER_CHECK_ATTEMPT_COLUMNS = (
     "updated_at",
     "finished_at",
 )
+_MATCHING_ORDER_PROTECTED_IDENTITY_CHOICE_COLUMNS = (
+    "check_id",
+    "ordinal",
+    "dataset_id",
+    "target_field",
+    "related_model",
+    "related_fields_json",
+    "key_json",
+    "cause",
+    "target_match_count",
+    "incoming_match_count",
+)
 _ROW_INCLUSION_REVIEW_COLUMNS = (
     "snapshot_hash",
     "identity_hash",
@@ -259,6 +271,7 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "matching_order_preference", "matching_order_check",
         "matching_order_check_active", "matching_order_check_attempt",
         "matching_order_check_current", "matching_order_protected_snapshot",
+        "matching_order_protected_identity_choice",
         "mapping_row_inclusion_confirmation", "mapping_row_inclusion_current",
         "mapping_row_inclusion_review", "mapping_row_inclusion_review_row",
         "mapping_working_draft", "normalization_current", "normalization_effect",
@@ -551,6 +564,24 @@ class WorkspaceEngineSchemaMixin:
                 snapshot_hash VARCHAR NOT NULL,
                 snapshot_json VARCHAR NOT NULL
             );
+
+            CREATE TABLE matching_order_protected_identity_choice (
+                check_id VARCHAR NOT NULL,
+                ordinal BIGINT NOT NULL,
+                dataset_id VARCHAR NOT NULL,
+                target_field VARCHAR NOT NULL,
+                related_model VARCHAR NOT NULL,
+                related_fields_json VARCHAR NOT NULL,
+                key_json VARCHAR NOT NULL,
+                cause VARCHAR NOT NULL,
+                target_match_count BIGINT NOT NULL,
+                incoming_match_count BIGINT NOT NULL,
+                PRIMARY KEY (check_id, ordinal)
+            );
+            CREATE INDEX matching_order_protected_identity_choice_lookup
+                ON matching_order_protected_identity_choice (
+                    check_id, dataset_id, target_field, cause, ordinal
+                );
 
             CREATE TABLE retired_evidence (
                 evidence_type VARCHAR NOT NULL,
@@ -1086,6 +1117,10 @@ class WorkspaceEngineSchemaMixin:
                 _MATCHING_ORDER_CHECK_ATTEMPT_COLUMNS,
             ),
             (
+                "matching_order_protected_identity_choice",
+                _MATCHING_ORDER_PROTECTED_IDENTITY_CHOICE_COLUMNS,
+            ),
+            (
                 "mapping_row_inclusion_review",
                 _ROW_INCLUSION_REVIEW_COLUMNS,
             ),
@@ -1568,6 +1603,34 @@ def _upgrade_workspace_engine_v18_to_v19(
     )
 
 
+def _upgrade_workspace_engine_v19_to_v20(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add the bounded protected unresolved identity-choice projection."""
+
+    connection.execute(
+        """
+        CREATE TABLE matching_order_protected_identity_choice (
+            check_id VARCHAR NOT NULL,
+            ordinal BIGINT NOT NULL,
+            dataset_id VARCHAR NOT NULL,
+            target_field VARCHAR NOT NULL,
+            related_model VARCHAR NOT NULL,
+            related_fields_json VARCHAR NOT NULL,
+            key_json VARCHAR NOT NULL,
+            cause VARCHAR NOT NULL,
+            target_match_count BIGINT NOT NULL,
+            incoming_match_count BIGINT NOT NULL,
+            PRIMARY KEY (check_id, ordinal)
+        );
+        CREATE INDEX matching_order_protected_identity_choice_lookup
+            ON matching_order_protected_identity_choice (
+                check_id, dataset_id, target_field, cause, ordinal
+            );
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES = {
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
@@ -1640,5 +1703,11 @@ WORKSPACE_ENGINE_UPGRADES = {
     18: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v18-to-v19-preflight-review-projection",
         apply=_upgrade_workspace_engine_v18_to_v19,
+    ),
+    19: ForwardSchemaUpgrade(
+        migration_id=(
+            "workspace-engine-v19-to-v20-matching-identity-choice-review"
+        ),
+        apply=_upgrade_workspace_engine_v19_to_v20,
     ),
 }

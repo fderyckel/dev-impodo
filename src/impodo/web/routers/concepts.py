@@ -19,5 +19,10 @@ def build_concepts_router() -> APIRouter:
         require_session(request)
         return _render(request, "concepts.html")
 
+    @router.get("/help", response_class=HTMLResponse)
+    async def user_help_page(request: Request):
+        require_session(request)
+        return _render(request, "help.html")
+
     return router
 

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Help and user guides &middot; Impodo{% endblock %}
+{% block body_class %}user-help-page{% endblock %}
+{% block content %}
+  {% from "_user_help.html" import user_help_link with context %}
+  <div class="page-heading user-help-heading">
+    <div>
+      <p class="eyebrow">Help</p>
+      <h1>Find the guide for your current task</h1>
+      <p>Open the version of the user documentation that matches this Impodo build. Each guide opens on GitHub in a new tab, so your current work stays available here.</p>
+    </div>
+  </div>
+
+  <div class="user-help-groups">
+    {% for group in user_help_groups %}
+      <section class="form-card user-help-group" aria-labelledby="user-help-group-{{ loop.index }}">
+        <div class="section-heading">
+          <div>
+            <h2 id="user-help-group-{{ loop.index }}">{{ group.title }}</h2>
+            <p>{{ group.description }}</p>
+          </div>
+        </div>
+        <ul class="user-help-list">
+          {% for target_id in group.target_ids %}
+            {% set target = user_help_by_id[target_id] %}
+            <li>
+              <div>
+                <strong>{{ target.title }}</strong>
+                <p>{{ target.description }}</p>
+              </div>
+              {{ user_help_link(target, "user-help-list-link") }}
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endfor %}
+  </div>
+{% endblock %}

@@ -122,15 +122,24 @@ any connector call. The same plan owns early direct identity proof and table
 ordering; Stage 3 does not add a second Odoo comparison or connector path.
 
 For each saved file-source dataset, the service first requires the exact
-confirmed governance key and scope. A direct identity is eligible only when
-every component maps one frozen source column to one non-relational Odoo
-`char`, `text`, `selection`, `integer`, `date`, or `datetime` field. The source
-projection applies the saved `RowInclusionPolicy`, so the result describes the
-rows the Recipe would process. A related or resolver-backed key or scope is
-recorded as `INDIRECT_IDENTITY`; it is never reduced to an unscoped name. A
-missing rule, unsupported field, unavailable frozen snapshot, pinned Odoo
-selection, or changed Odoo field contract also produces an explicit
-aggregate-only not-checkable result.
+confirmed governance key and scope. A direct component maps one frozen source
+column to one Odoo `char`, `text`, `selection`, `integer`, `date`, or
+`datetime` field. The same check can prove governed Many2one identity or scope
+components recursively. Every node must use a confirmed related-model business
+key and an unambiguous saved dataset identity shape. The planner flattens only
+the scalar leaves for bounded dotted domains, merges every model and field into
+the existing requirement plan, and rebuilds nested protected symbolic keys in
+memory before owner classification. Numeric relation IDs remain local to that
+in-memory join.
+
+Recursion is capped at five related-key levels and rejects cycles before any
+source or Odoo read. Distinct leaf keys retain the 50,000-value evidence cap.
+The source projection applies the saved `RowInclusionPolicy` and the existing
+row-aligned projection cache, so the result describes the rows the Recipe
+would process without adding a source-row or relation-row request loop. A
+missing or ambiguous shape, unsupported field, unavailable frozen snapshot,
+pinned Odoo selection, or changed Odoo field contract produces an explicit
+aggregate-only not-checkable result; no path reduces it to an unscoped name.
 
 `classify_matching_identity` counts blank source rows, repeated source groups
 and rows, exact target keys, ambiguous target keys, new candidates, existing
@@ -140,13 +149,19 @@ this early plan reads identity fields only. Records hidden from the current
 read user are outside the observed target snapshot; presentation therefore
 states the visibility boundary instead of classifying them as inaccessible.
 
-The same prepared check now simulates every saved Many2one or Many2many field
-mapping whose related key and scope use direct scalar fields. It supports
-`TARGET_CATALOG`, `DATASET`, and `TARGET_THEN_DATASET`, including constant
-existing-record providers. `CategoricalCoverageService.source_included_key_tuples`
-applies the owner dataset's `RowInclusionPolicy`; incoming candidate keys use
-the related dataset's policy. The application counts source-row occurrences
-but sends only distinct keys to Odoo.
+The same prepared check simulates saved Many2one and Many2many field mappings
+whose related key and scope use direct scalar fields. A source-backed
+Many2one can also use the same recursive governed key tree as dataset identity
+proof. `TARGET_CATALOG`, `DATASET`, and `TARGET_THEN_DATASET` retain their
+existing precedence. Constant existing-record providers and Many2many fields
+remain on the direct-key path.
+
+`CategoricalCoverageService.source_included_key_tuples` applies the owner
+dataset's `RowInclusionPolicy`; incoming candidate keys use the related
+dataset's policy. The application counts source-row occurrences but sends only
+distinct scalar leaves to Odoo. It rebuilds the nested portable token in
+memory before passing one-component protected keys to
+`classify_relationship_health`.
 
 `relationship_health.py` owns the pure classification. It keeps exact target,
 exact incoming, missing, ambiguous, case-only, incomplete compound-key, and
@@ -158,22 +173,24 @@ order service projects checked incoming results back to the conservative
 authoring-order hint share evidence without sharing responsibilities.
 
 Target read requests are grouped by related model, ordered governed key and
-scope fields, and field types. Keys are deduplicated across relationship
-fields, then chunked by `MAX_KEYS_PER_RECORD_REQUEST`. Text keys use bounded
-`=ilike` candidate reads so the classifier can distinguish an exact value from
-a case-only near match. Dataset-only resolvers perform no relationship-record
-read. Metadata requests remain merged by model. There is no source-row request
-loop, and more than 50,000 distinct relationship or incoming keys produces an
-explicit aggregate-only not-checkable result.
+scope leaves, and field types. Keys are deduplicated across identity and
+relationship probes, then chunked by `MAX_KEYS_PER_RECORD_REQUEST`. Text leaves
+use bounded `=ilike` candidate reads so the classifier can distinguish an
+exact nested token from a case-only near match. A dataset-only node performs
+no target-record read for that node. Metadata requests remain merged by model,
+and the row-aligned source projection cache reuses identity evidence when the
+relationship needs a subset of the same columns. There is no source-row or
+relation-row request loop. More than 50,000 distinct source or incoming keys at
+one node produces an explicit aggregate-only not-checkable result.
 
 One2many remains owned by the child's inverse Many2one. The simulator records
 `ONE2MANY_INVERSE_REQUIRED`, and the presenter links to the selected child
 dataset and inverse field when that route is available. A missing incoming
-dataset, indirect related identity, relational related-key component,
-unconfirmed target matching rule, unavailable source snapshot, or changed Odoo
-field contract is also reported as not checkable instead of being guessed.
-This slice does not yet make a resolver-backed component of the dataset's own
-identity checkable.
+dataset, unconfirmed nested rule, ambiguous saved identity shape, cycle,
+depth-limit breach, unsupported field, unavailable source snapshot, or changed
+Odoo field contract is reported as not checkable instead of being guessed.
+Many2many and constant-provider nested keys remain outside this recursive
+Many2one slice.
 
 `POST /workspaces/{workspace_id}/mapping/order/check` requires the
 authenticated workspace session, same-origin form policy, CSRF,
@@ -191,10 +208,33 @@ with the Stage 2 catalog before classifying values. Only complete unique target
 coverage removes a conservative incoming dependency. Mixed, incoming,
 missing, ambiguous, schema-changed, and unchecked outcomes retain it. Exact
 source identity and relationship keys and target records are serialized only
-into the protected workspace snapshot row. The public `MatchingOrderCheck`
+into the protected workspace snapshot row. At publication,
+`MatchingOrderRepository` also validates and normalizes unresolved relational
+identity choices into
+`matching_order_protected_identity_choice` in the same transaction. The
+indexed rows bind to the check ID and retain only the dataset, owner field,
+related model and fields, symbolic key, cause, and target/incoming counts. The
+public `MatchingOrderCheck`
 contains `MatchingIdentityResult` and `RelationshipHealthResult` aggregates,
 order-only relationship aggregates, hashes, and the proposed dataset order
 without key values or numeric Odoo IDs.
+
+`GET /workspaces/{workspace_id}/mapping/identity-choices` requires
+`PROTECTED_EVIDENCE_READ`. `MatchingOrderService.identity_choice_review_page`
+first rechecks the source, schema, governance, draft, target, credential,
+principal, permission, and context bindings, then asks the repository for at
+most 100 current rows. Dataset, owner-field, cause, and ordinal predicates are
+allowlisted; cursor paging decodes only the selected rows and never parses the
+complete protected snapshot. The route performs its reads and render inside
+one page-read operation, makes no Odoo call, sets `Cache-Control: no-store`,
+and does not mutate mapping meaning.
+
+The application port is deployment-neutral. The local adapter owns the DuckDB
+projection. A Linux/shared-server adapter must page an equivalent verified,
+bounded protected projection after worker receipt publication; a server web
+process must not open worker-held DuckDB evidence. Aggregate cards and
+navigation remain value-free in both deployments.
+
 The
 [identity-health presenter](../../../src/impodo/web/presenters/identity_health.py)
 projects those results into **Suggested**, **Chosen - not tested**, **Tested on
@@ -629,6 +669,8 @@ validation result for the malformed formula.
 | Matching-order preference contract | [`MatchingOrderPreference`](../../../src/impodo/domain/matching_order.py) |
 | Matching-order preference persistence | [`MatchingOrderRepository`](../../../src/impodo/adapters/duckdb/matching_order_repository.py) |
 | Matching-order check schema and forward migration | [`workspace_engine.py`](../../../src/impodo/adapters/duckdb/schema/workspace_engine.py) |
+| Protected unresolved-identity page | [`identity_choice_review.html`](../../../src/impodo/web/templates/mapping/identity_choice_review.html) |
+| Protected unresolved-identity browser evidence | [`test_identity_choice_review.py`](../../../tests/integration/web/test_identity_choice_review.py) |
 | Mapping contracts | [`contracts.py`](../../../src/impodo/domain/mapping/contracts.py) |
 | Constant relationship validation | [`relationships.py`](../../../src/impodo/domain/mapping/validation/relationships.py) |
 | Mapping mutation receipts and conflicts | [`mutations.py`](../../../src/impodo/domain/mapping/mutations.py) |

@@ -45,11 +45,21 @@ identities need a stronger source identifier or later duplicate resolution.
 Ambiguous Odoo identities need a stronger governed Odoo matching rule. Run the
 check again after saving the correction.
 
-This first identity check does not simplify a complete scoped rule. When an
-identity includes a related record, such as **Category Name within Parent
-Category** or a company relationship, the card remains **Chosen - not tested**
-until Impodo's relationship check can prove the related part. Impodo never
-tests only the name and presents that as proof of the complete identity.
+The check can also prove related-record components in a complete identity,
+such as **Product Reference within Company**, when every related record in the
+chain has a confirmed business key. Impodo follows the saved related identity
+from the deepest key back to the owner and tests the complete owner identity;
+it never tests only a displayed name as if that proved the scoped rule. If a
+related key is missing or ambiguous, select **Review unresolved identity
+choices**. The protected review shows the deepest unresolved field path, at
+most 100 choices at a time, and the Odoo and incoming match counts. You can
+filter by table, identity field, or reason, then return to the exact matching
+rule. Paging and filtering do not contact Odoo; save the correction and run
+**Check saved identities** again.
+
+Impodo limits this early proof to five related-key levels. A cycle, a deeper
+chain, or a related key whose saved structure is ambiguous remains **Chosen -
+not tested**. It is never flattened into an unsafe text-only comparison.
 
 Odoo counts reflect the records visible to the current read user and company
 context. The check cannot claim that an access-hidden record is absent. A
@@ -97,12 +107,16 @@ source and Odoo keys stay in protected evidence; the browser and portable
 Recipe contain only aggregate counts. **Prepare data** and **Final review**
 still perform the authoritative row and destination checks.
 
-This first relationship-simulator slice checks saved Many2one and Many2many
-field mappings whose related matching rule uses direct scalar key fields. A
-relationship that depends on another related key is shown as **Chosen - not
-tested**. A relational component of the dataset's own identity also remains
-**Chosen - not tested**; Impodo does not reduce it to an unsafe name-only
-check.
+The relationship simulator follows a saved, source-backed Many2one field when
+its related matching rule contains another governed Many2one key. For example,
+it can check **Product Reference within Company** as one complete relationship
+choice. It reports whether each choice uses an existing Odoo record, falls back
+to the selected incoming table, differs only by letter case, is missing, or is
+ambiguous. The same five-level and cycle limits described above apply.
+
+Many2many fields and constant existing-record choices still require direct
+scalar related keys for this early check. **Prepare data** and **Final review**
+remain authoritative for every relationship.
 
 ![Relationship health identifies a missing fictional parent before preparation.](../../images/user/11h-mapping-relationship-health.png)
 

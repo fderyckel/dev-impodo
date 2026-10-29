@@ -13,6 +13,7 @@ import yaml
 
 from deploy.local_rehearsal import (
     SECRET_FILENAMES,
+    prepare_identifier_digest_key,
     prepare_local_secrets,
     prepare_platform_admin_secret,
 )
@@ -298,6 +299,7 @@ class LinuxContainerContractTests(unittest.TestCase):
                 "postgres-runtime-dsn",
                 "postgres-migration-dsn",
                 "platform-admin-password",
+                "identifier-digest-key",
             },
         )
         for value in secrets_config.values():
@@ -312,7 +314,7 @@ class LinuxContainerContractTests(unittest.TestCase):
         self.assertNotIn("SUPERUSER PASSWORD", role_init)
 
         provisioner = SECRET_PROVISIONER.read_text(encoding="utf-8")
-        self.assertEqual(provisioner.count("-o 0 -g 10001 -m 0440"), 3)
+        self.assertEqual(provisioner.count("-o 0 -g 10001 -m 0440"), 4)
         self.assertIn('postgres_uid="$(id -u postgres)"', provisioner)
         self.assertEqual(provisioner.count("-m 0400 \\"), 3)
         self.assertIn("-o 0 -g 0 -m 0644", provisioner)
@@ -412,6 +414,27 @@ class LinuxContainerContractTests(unittest.TestCase):
             self.assertEqual(len(created), len(SECRET_FILENAMES))
             with self.assertRaises(FileExistsError):
                 prepare_platform_admin_secret(secret_directory)
+
+    def test_older_rehearsal_can_add_only_the_identifier_digest_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            secret_directory = Path(temporary_directory) / "secrets"
+            prepare_local_secrets(secret_directory)
+            digest_key = secret_directory / "identifier-digest-key"
+            original_runtime_dsn = (
+                secret_directory / "postgres-runtime-dsn"
+            ).read_bytes()
+            digest_key.unlink()
+
+            added = prepare_identifier_digest_key(secret_directory)
+
+            self.assertEqual(added, digest_key)
+            self.assertGreaterEqual(len(added.read_text(encoding="utf-8").strip()), 32)
+            self.assertEqual(
+                (secret_directory / "postgres-runtime-dsn").read_bytes(),
+                original_runtime_dsn,
+            )
+            with self.assertRaises(FileExistsError):
+                prepare_identifier_digest_key(secret_directory)
 
 
 if __name__ == "__main__":

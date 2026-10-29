@@ -18,9 +18,12 @@ from impodo.domain.execution.planner import (
 from impodo.domain.mapping.contracts import (
     MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES,
     DatasetMapping,
+    IdentityComponentMapping,
+    IdentityNullPolicy,
     MappingDefinition,
     MappingTargetMode,
     RelationshipMapping,
+    RelationshipResolver,
     RelationshipValueSource,
     ResolverOrigin,
     RowInclusionPolicy,
@@ -28,6 +31,8 @@ from impodo.domain.mapping.contracts import (
 )
 from impodo.domain.matching_order import (
     MatchingIdentityCheckStatus,
+    MatchingIdentityChoiceFilter,
+    MatchingIdentityChoicePage,
     MatchingIdentityNotCheckableReason,
     MatchingIdentityResult,
     MatchingOrderCheck,
@@ -185,6 +190,19 @@ class MatchingOrderPreferenceRepository(Protocol):
         """Return the last published check for matching-order presentation."""
         ...
 
+    def get_identity_choice_review_page(
+        self,
+        workspace_id: str,
+        check_id: str,
+        filters: MatchingIdentityChoiceFilter,
+        *,
+        page_size: int,
+        after: int | None = None,
+        before: int | None = None,
+    ) -> MatchingIdentityChoicePage:
+        """Return one protected page for the exact current live check."""
+        ...
+
 
 class MatchingOrderSourceKeys(Protocol):
     """Read exact frozen source key tuples without publishing them."""
@@ -236,6 +254,7 @@ class RelationshipHealthLiveProbe:
     blank_row_count: int
     incomplete_row_count: int
     incoming_key_counts: tuple[tuple[tuple[str, ...], int], ...]
+    relational_key_probe: IdentityRelationalLiveProbe | None = None
 
     @property
     def source_keys(self) -> tuple[tuple[str, ...], ...]:
@@ -246,14 +265,100 @@ class RelationshipHealthLiveProbe:
 
 @dataclass(frozen=True, slots=True)
 class MatchingIdentityLiveProbe:
-    """One exact saved direct identity and its ephemeral source keys."""
+    """One exact saved identity and its ephemeral source keys."""
 
     dataset_id: str
     target_model: str
     target_fields: tuple[str, ...]
     source_keys: tuple[tuple[str | None, ...], ...]
+    domain_fields: tuple[str, ...]
+    domain_keys: tuple[tuple[str | None, ...], ...]
+    relational_components: tuple[IdentityRelationalLiveProbe, ...]
     mode: MappingTargetMode
     on_existing: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class IdentityRelationalLiveProbe:
+    """One bounded governed Many2one key, including nested key components."""
+
+    target_field: str
+    target_index: int
+    resolver_origin: ResolverOrigin
+    related_model: str
+    related_fields: tuple[str, ...]
+    related_field_types: tuple[str, ...]
+    source_widths: tuple[int, ...]
+    source_keys: tuple[tuple[str, ...], ...]
+    incoming_key_counts: tuple[tuple[tuple[str, ...], int], ...]
+    nested_components: tuple[IdentityRelationalLiveProbe, ...] = ()
+    incoming_dataset_id: str | None = None
+    incoming_columns: tuple[str, ...] = ()
+    incoming_row_inclusion: RowInclusionPolicy | None = None
+    value_mappings: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceTupleCacheEntry:
+    dataset_id: str
+    row_inclusion: RowInclusionPolicy
+    columns: tuple[str, ...]
+    rows: tuple[tuple[str | None, ...], ...]
+
+
+class _MatchingSourceTupleCache:
+    """Reuse one broader source projection for narrower Stage 3 checks."""
+
+    def __init__(self, reader: MatchingOrderSourceKeys) -> None:
+        self._reader = reader
+        self._entries: list[_SourceTupleCacheEntry] = []
+
+    def read(
+        self,
+        workspace_id: str,
+        dataset_id: str,
+        columns: tuple[str, ...],
+        row_inclusion: RowInclusionPolicy,
+        *,
+        identity: bool,
+    ) -> tuple[tuple[str | None, ...], ...]:
+        """Return a row-aligned projection, slicing a cached superset when safe."""
+
+        for entry in self._entries:
+            if (
+                entry.dataset_id != dataset_id
+                or entry.row_inclusion != row_inclusion
+                or any(column not in entry.columns for column in columns)
+            ):
+                continue
+            indexes = tuple(entry.columns.index(column) for column in columns)
+            return tuple(
+                tuple(row[index] for index in indexes) for row in entry.rows
+            )
+        rows = (
+            self._reader.source_identity_key_tuples(
+                workspace_id,
+                dataset_id,
+                columns,
+                row_inclusion,
+            )
+            if identity
+            else self._reader.source_included_key_tuples(
+                workspace_id,
+                dataset_id,
+                columns,
+                row_inclusion,
+            )
+        )
+        self._entries.append(
+            _SourceTupleCacheEntry(
+                dataset_id=dataset_id,
+                row_inclusion=row_inclusion,
+                columns=columns,
+                rows=rows,
+            )
+        )
+        return rows
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +392,21 @@ _IDENTITY_CHECK_FIELD_TYPES = frozenset(
     {"char", "date", "datetime", "integer", "selection", "text"}
 )
 _RELATIONSHIP_CHECK_FIELD_TYPES = _IDENTITY_CHECK_FIELD_TYPES
+_MAX_RELATIONAL_IDENTITY_DEPTH = 5
+
+
+class _IdentityPlanError(Exception):
+    """Stop one live identity probe without weakening its matching rule."""
+
+    def __init__(
+        self,
+        reason: MatchingIdentityNotCheckableReason,
+        *,
+        evidence_limit: bool = False,
+    ) -> None:
+        super().__init__(reason.value)
+        self.reason = reason
+        self.evidence_limit = evidence_limit
 
 
 class MatchingOrderService:
@@ -549,14 +669,17 @@ class MatchingOrderService:
             if item.status is BusinessKeyStatus.CONFIRMED
         }
         schema_by_model = {item.name: item for item in schema.models}
+        source_cache = _MatchingSourceTupleCache(self._source_keys)
         identity_probes: list[MatchingIdentityLiveProbe] = []
         identity_results: list[MatchingIdentityResult] = []
         for dataset in draft.definition.datasets:
             probe, result = self._identity_probe(
                 workspace_id,
                 dataset,
+                mapping_by_id,
                 schema_by_model,
                 confirmed_keys,
+                source_cache,
             )
             if probe is not None:
                 identity_probes.append(probe)
@@ -573,6 +696,7 @@ class MatchingOrderService:
                     mapping_by_id,
                     schema_by_model,
                     confirmed_keys,
+                    source_cache,
                 )
                 if probe is not None:
                     relationship_probes.append(probe)
@@ -581,9 +705,22 @@ class MatchingOrderService:
 
         fields_by_model: dict[str, set[str]] = defaultdict(set)
         for probe in relationship_probes:
-            fields_by_model[probe.target_model].update(probe.target_fields)
+            if probe.relational_key_probe is None:
+                fields_by_model[probe.target_model].update(probe.target_fields)
+            else:
+                for nested in _walk_relational_probes(
+                    probe.relational_key_probe
+                ):
+                    fields_by_model[nested.related_model].update(
+                        nested.related_fields
+                    )
         for probe in identity_probes:
             fields_by_model[probe.target_model].update(probe.target_fields)
+            for component in probe.relational_components:
+                for nested in _walk_relational_probes(component):
+                    fields_by_model[nested.related_model].update(
+                        nested.related_fields
+                    )
         metadata_requests = tuple(
             MetadataRequest(model=model, fields=tuple(sorted(fields)))
             for model, fields in sorted(fields_by_model.items())
@@ -598,20 +735,42 @@ class MatchingOrderService:
             set[tuple[str, ...]],
         ] = defaultdict(set)
         for probe in relationship_probes:
-            if probe.resolver_origin is ResolverOrigin.DATASET:
+            if probe.relational_key_probe is not None:
+                for nested in _walk_relational_probes(
+                    probe.relational_key_probe
+                ):
+                    if nested.resolver_origin is ResolverOrigin.DATASET:
+                        continue
+                    rule = (
+                        nested.related_model,
+                        _relational_leaf_fields(nested),
+                        _relational_leaf_types(nested),
+                    )
+                    relationship_keys_by_rule[rule].update(nested.source_keys)
                 continue
-            related_fields = {
-                item.name: item
-                for item in schema_by_model[probe.target_model].fields
-            }
-            rule = (
-                probe.target_model,
-                probe.target_fields,
-                tuple(
-                    related_fields[field].type for field in probe.target_fields
-                ),
-            )
-            relationship_keys_by_rule[rule].update(probe.source_keys)
+            if probe.resolver_origin is not ResolverOrigin.DATASET:
+                related_fields = {
+                    item.name: item
+                    for item in schema_by_model[probe.target_model].fields
+                }
+                rule = (
+                    probe.target_model,
+                    probe.target_fields,
+                    tuple(
+                        related_fields[field].type
+                        for field in probe.target_fields
+                    ),
+                )
+                relationship_keys_by_rule[rule].update(probe.source_keys)
+        for probe in identity_probes:
+            for component in probe.relational_components:
+                for nested in _walk_relational_probes(component):
+                    rule = (
+                        nested.related_model,
+                        _relational_leaf_fields(nested),
+                        _relational_leaf_types(nested),
+                    )
+                    relationship_keys_by_rule[rule].update(nested.source_keys)
         for (
             target_model,
             target_fields,
@@ -639,10 +798,10 @@ class MatchingOrderService:
                     record_requests.append(request)
         for probe in identity_probes:
             for domain in _matching_key_domain_chunks(
-                probe.target_fields,
+                probe.domain_fields,
                 (
                     tuple(str(value) for value in key)
-                    for key in probe.source_keys
+                    for key in probe.domain_keys
                     if all(value is not None for value in key)
                 ),
             ):
@@ -754,6 +913,48 @@ class MatchingOrderService:
         preferences, authorization = self._preference_dependencies()
         authorization.require(actor, Capability.MAPPING_EDIT, workspace_id=workspace_id)
         return preferences.get_current_check(workspace_id)
+
+    def identity_choice_review_page(
+        self,
+        workspace_id: str,
+        selection: SourceSelection,
+        schema: OdooSchemaCatalog,
+        governance: SchemaGovernance | None,
+        draft: MappingWorkingDraft | None,
+        filters: MatchingIdentityChoiceFilter,
+        *,
+        page_size: int,
+        after: int | None = None,
+        before: int | None = None,
+        actor: Actor,
+    ) -> MatchingIdentityChoicePage:
+        """Read current protected relational choices after exact authorization."""
+
+        preferences, authorization = self._preference_dependencies()
+        authorization.require(
+            actor,
+            Capability.PROTECTED_EVIDENCE_READ,
+            workspace_id=workspace_id,
+        )
+        check = preferences.get_current_check(workspace_id)
+        if check is None or not self.check_is_current(
+            check,
+            selection,
+            schema,
+            governance,
+            draft,
+        ):
+            raise WorkspaceError(
+                "Check current data again before reviewing identity choices"
+            )
+        return preferences.get_identity_choice_review_page(
+            workspace_id,
+            check.check_id,
+            filters,
+            page_size=page_size,
+            after=after,
+            before=before,
+        )
 
     def active_check_attempt(
         self,
@@ -1007,9 +1208,25 @@ class MatchingOrderService:
                             "source_keys": [
                                 list(key) for key in item.source_keys
                             ],
+                            "relational_components": [
+                                _protected_relational_probe_shape(component)
+                                for component in item.relational_components
+                            ],
                         }
                         for item in prepared.identity_probes
                     ],
+                    "unresolved_identity_choices": (
+                        []
+                        if schema_changed
+                        else [
+                            choice
+                            for probe in prepared.identity_probes
+                            for choice in _unresolved_identity_choices(
+                                probe,
+                                records,
+                            )
+                        ]
+                    ),
                 }
             )
             attempt = replace(
@@ -1063,6 +1280,7 @@ class MatchingOrderService:
         mappings: dict[str, DatasetMapping],
         schema_by_model,
         confirmed_keys,
+        source_cache: _MatchingSourceTupleCache,
     ) -> tuple[RelationshipHealthLiveProbe | None, RelationshipHealthResult | None]:
         """Prepare one relationship simulation or one explicit safe reason."""
 
@@ -1114,7 +1332,12 @@ class MatchingOrderService:
             or owner_field.relation != related_model
         ):
             return unchecked(RelationshipHealthNotCheckableReason.MAPPING_INCOMPLETE)
-        key_fields, scope_fields = relationship_target_fields(relationship)
+        key_fields, scope_fields = (
+            _dataset_identity_fields(dependency)
+            if resolver.origin is ResolverOrigin.DATASET
+            and dependency is not None
+            else relationship_target_fields(relationship)
+        )
         target_fields = (*key_fields, *scope_fields)
         if not key_fields:
             return unchecked(RelationshipHealthNotCheckableReason.MAPPING_INCOMPLETE)
@@ -1131,12 +1354,35 @@ class MatchingOrderService:
         )
         if any(
             field not in schema_fields
-            or schema_fields[field].type not in _RELATIONSHIP_CHECK_FIELD_TYPES
+            or schema_fields[field].type
+            not in {*_RELATIONSHIP_CHECK_FIELD_TYPES, "many2one"}
             or schema_fields[field].exportable is False
             for field in target_fields
         ):
             return unchecked(
                 RelationshipHealthNotCheckableReason.UNSUPPORTED_RELATIONSHIP
+            )
+        nested_key = any(
+            schema_fields[field].type == "many2one" for field in target_fields
+        )
+        if nested_key:
+            if (
+                relationship.kind != "many2one"
+                or relationship.value_source is not RelationshipValueSource.SOURCE
+            ):
+                return unchecked(
+                    RelationshipHealthNotCheckableReason.UNSUPPORTED_RELATIONSHIP
+                )
+            return self._nested_relationship_probe(
+                workspace_id,
+                owner,
+                relationship,
+                mappings,
+                schema_by_model,
+                confirmed_keys,
+                source_cache,
+                target_fields=target_fields,
+                required=required,
             )
 
         if relationship.value_source is RelationshipValueSource.SOURCE:
@@ -1175,22 +1421,21 @@ class MatchingOrderService:
                 return unchecked(
                     RelationshipHealthNotCheckableReason.RELATED_IDENTITY_UNAVAILABLE
                 )
-        source_keys = self._source_keys
-        if source_keys is None:
-            raise RuntimeError("Matching-order source-key reader is not configured")
         try:
-            raw_source = source_keys.source_included_key_tuples(
+            raw_source = source_cache.read(
                 workspace_id,
                 owner.dataset_id,
                 source_columns,
                 owner.row_inclusion,
+                identity=False,
             )
             raw_incoming = (
-                source_keys.source_included_key_tuples(
+                source_cache.read(
                     workspace_id,
                     dependency.dataset_id,
                     incoming_columns,
                     dependency.row_inclusion,
+                    identity=False,
                 )
                 if dependency is not None and incoming_columns
                 else ()
@@ -1237,14 +1482,437 @@ class MatchingOrderService:
             incoming_key_counts=tuple(sorted(incoming_key_counts.items())),
         ), None
 
+    def _nested_relationship_probe(
+        self,
+        workspace_id: str,
+        owner: DatasetMapping,
+        relationship: RelationshipMapping,
+        mappings: dict[str, DatasetMapping],
+        schema_by_model,
+        confirmed_keys,
+        source_cache: _MatchingSourceTupleCache,
+        *,
+        target_fields: tuple[str, ...],
+        required: bool,
+    ) -> tuple[RelationshipHealthLiveProbe | None, RelationshipHealthResult | None]:
+        """Prepare nested Many2one health from the shared recursive key tree."""
+
+        resolver = relationship.resolver
+        dependency = (
+            mappings.get(resolver.dataset_id) if resolver.dataset_id else None
+        )
+        related_model = resolver.model or (
+            dependency.target_model if dependency is not None else ""
+        )
+
+        def unchecked(
+            reason: RelationshipHealthNotCheckableReason,
+        ) -> tuple[None, RelationshipHealthResult]:
+            return None, _not_checkable_relationship_result(
+                owner_dataset_id=owner.dataset_id,
+                target_field=relationship.target_field,
+                relationship_kind=relationship.kind,
+                resolver_origin=resolver.origin,
+                related_model=related_model or "unknown",
+                dependency_dataset_id=resolver.dataset_id,
+                required=required,
+                reason=reason,
+            )
+
+        try:
+            skeleton = self._identity_relational_skeleton(
+                IdentityComponentMapping(
+                    source_column_keys=relationship.source_column_keys,
+                    target_fields=(relationship.target_field,),
+                    resolver=resolver,
+                ),
+                parent_model=owner.target_model,
+                target_index=0,
+                mappings=mappings,
+                schema_by_model=schema_by_model,
+                confirmed_keys=confirmed_keys,
+            )
+        except _IdentityPlanError as error:
+            return unchecked(_relationship_plan_error_reason(error))
+        if skeleton.related_fields != target_fields:
+            return unchecked(
+                RelationshipHealthNotCheckableReason.RELATED_IDENTITY_UNAVAILABLE
+            )
+
+        try:
+            raw_source = source_cache.read(
+                workspace_id,
+                owner.dataset_id,
+                relationship.source_column_keys,
+                owner.row_inclusion,
+                identity=False,
+            )
+        except WorkspaceError:
+            return unchecked(
+                RelationshipHealthNotCheckableReason.SOURCE_EVIDENCE_UNAVAILABLE
+            )
+        (
+            raw_source_key_counts,
+            blank_row_count,
+            incomplete_row_count,
+        ) = _relationship_source_key_counts(
+            relationship,
+            raw_source,
+            target_fields=target_fields,
+            expected_width=sum(skeleton.source_widths),
+        )
+        source_key_counts: Counter[tuple[str, ...]] = Counter()
+        for source_key, count in raw_source_key_counts.items():
+            normalized = _normalized_relational_source_key(
+                skeleton,
+                source_key,
+                apply_current_translation=False,
+            )
+            if normalized is None:
+                incomplete_row_count += count
+            else:
+                source_key_counts[normalized] += count
+        if len(source_key_counts) > MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES:
+            return unchecked(
+                RelationshipHealthNotCheckableReason.EVIDENCE_LIMIT_EXCEEDED
+            )
+        try:
+            relational_key_probe = self._materialize_identity_relational_probe(
+                workspace_id,
+                skeleton,
+                tuple(source_key_counts),
+                source_cache,
+            )
+        except WorkspaceError:
+            return unchecked(
+                RelationshipHealthNotCheckableReason.SOURCE_EVIDENCE_UNAVAILABLE
+            )
+        except _IdentityPlanError as error:
+            return unchecked(_relationship_plan_error_reason(error))
+        return RelationshipHealthLiveProbe(
+            owner_dataset_id=owner.dataset_id,
+            dependency_dataset_id=resolver.dataset_id,
+            target_field=relationship.target_field,
+            relationship_kind=relationship.kind,
+            resolver_origin=resolver.origin,
+            required=required,
+            target_model=related_model,
+            target_fields=target_fields,
+            source_row_count=len(raw_source),
+            source_key_counts=tuple(sorted(source_key_counts.items())),
+            blank_row_count=blank_row_count,
+            incomplete_row_count=incomplete_row_count,
+            incoming_key_counts=relational_key_probe.incoming_key_counts,
+            relational_key_probe=relational_key_probe,
+        ), None
+
+    def _identity_relational_skeleton(
+        self,
+        component: IdentityComponentMapping,
+        *,
+        parent_model: str,
+        target_index: int,
+        mappings: dict[str, DatasetMapping],
+        schema_by_model,
+        confirmed_keys,
+        depth: int = 1,
+        ancestors: tuple[tuple[str, tuple[str, ...]], ...] = (),
+    ) -> IdentityRelationalLiveProbe:
+        """Build one depth-limited related-key shape before reading source rows."""
+
+        resolver = component.resolver
+        if resolver is None or len(component.target_fields) != 1:
+            raise _IdentityPlanError(
+                MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY
+            )
+        if depth > _MAX_RELATIONAL_IDENTITY_DEPTH:
+            raise _IdentityPlanError(
+                MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY
+            )
+        dependency = (
+            mappings.get(resolver.dataset_id) if resolver.dataset_id else None
+        )
+        parent_schema = schema_by_model.get(parent_model)
+        parent_fields = {
+            item.name: item
+            for item in (parent_schema.fields if parent_schema is not None else ())
+        }
+        target_field = component.target_fields[0]
+        parent_field = parent_fields.get(target_field)
+        related_model = resolver.model or (
+            dependency.target_model if dependency is not None else ""
+        ) or (parent_field.relation if parent_field is not None else "")
+        if (
+            parent_field is None
+            or parent_field.type != "many2one"
+            or parent_field.relation != related_model
+            or parent_field.exportable is False
+        ):
+            raise _IdentityPlanError(
+                MatchingIdentityNotCheckableReason.UNSUPPORTED_TARGET_FIELD
+            )
+
+        if resolver.origin is ResolverOrigin.DATASET:
+            if dependency is None or dependency.target_model != related_model:
+                raise _IdentityPlanError(
+                    MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY
+                )
+            related_components = (
+                *dependency.target_identity,
+                *dependency.target_scope,
+            )
+            related_key_fields, related_scope_fields = _dataset_identity_fields(
+                dependency
+            )
+        else:
+            related_key_fields = tuple(
+                item.target_field for item in resolver.key_mappings
+            )
+            related_scope_fields = tuple(
+                item.target_field for item in resolver.scope_mappings
+            )
+            related_fields = (*related_key_fields, *related_scope_fields)
+            shape_candidates = tuple(
+                item
+                for item in mappings.values()
+                if item.target_model == related_model
+                and _dataset_identity_fields(item)
+                == (related_key_fields, related_scope_fields)
+            )
+            if dependency is not None:
+                if dependency not in shape_candidates:
+                    raise _IdentityPlanError(
+                        MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY
+                    )
+                related_components = (
+                    *dependency.target_identity,
+                    *dependency.target_scope,
+                )
+            elif len(shape_candidates) == 1:
+                shape = shape_candidates[0]
+                related_components = (*shape.target_identity, *shape.target_scope)
+            else:
+                related_components = tuple(
+                    IdentityComponentMapping(
+                        source_column_keys=(item.source_column_key,),
+                        target_fields=(item.target_field,),
+                    )
+                    for item in (*resolver.key_mappings, *resolver.scope_mappings)
+                )
+
+        related_fields = (*related_key_fields, *related_scope_fields)
+        if not related_key_fields or (
+            related_model,
+            related_key_fields,
+            related_scope_fields,
+        ) not in confirmed_keys:
+            raise _IdentityPlanError(
+                MatchingIdentityNotCheckableReason.UNCONFIRMED_MATCHING_RULE
+            )
+        if tuple(
+            field
+            for item in related_components
+            for field in item.target_fields
+        ) != related_fields:
+            raise _IdentityPlanError(
+                MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY
+            )
+        signature = (related_model, related_fields)
+        if signature in ancestors:
+            raise _IdentityPlanError(
+                MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY
+            )
+
+        related_schema = schema_by_model.get(related_model)
+        related_schema_fields = {
+            item.name: item
+            for item in (
+                related_schema.fields if related_schema is not None else ()
+            )
+        }
+        related_field_types: list[str] = []
+        source_widths: list[int] = []
+        nested_components: list[IdentityRelationalLiveProbe] = []
+        related_index = 0
+        for related_component in related_components:
+            if related_component.resolver is None:
+                if len(related_component.source_column_keys) != len(
+                    related_component.target_fields
+                ):
+                    raise _IdentityPlanError(
+                        MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY
+                    )
+                for field_name in related_component.target_fields:
+                    field = related_schema_fields.get(field_name)
+                    if (
+                        field is None
+                        or field.type not in _IDENTITY_CHECK_FIELD_TYPES
+                        or field.exportable is False
+                    ):
+                        raise _IdentityPlanError(
+                            MatchingIdentityNotCheckableReason.UNSUPPORTED_TARGET_FIELD
+                        )
+                    related_field_types.append(field.type)
+                    source_widths.append(1)
+                    related_index += 1
+                continue
+            if (
+                len(related_component.target_fields) != 1
+                or related_component.null_policy
+                is IdentityNullPolicy.EXPLICIT_SCOPE_NULL
+            ):
+                raise _IdentityPlanError(
+                    MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY
+                )
+            nested = self._identity_relational_skeleton(
+                related_component,
+                parent_model=related_model,
+                target_index=related_index,
+                mappings=mappings,
+                schema_by_model=schema_by_model,
+                confirmed_keys=confirmed_keys,
+                depth=depth + 1,
+                ancestors=(*ancestors, signature),
+            )
+            nested_width = sum(nested.source_widths)
+            if len(related_component.source_column_keys) != nested_width:
+                raise _IdentityPlanError(
+                    MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY
+                )
+            related_field_types.append("many2one")
+            source_widths.append(nested_width)
+            nested_components.append(nested)
+            related_index += 1
+
+        if len(component.source_column_keys) != sum(source_widths):
+            raise _IdentityPlanError(
+                MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY
+            )
+        incoming_columns = (
+            tuple(
+                column
+                for item in (
+                    *dependency.target_identity,
+                    *dependency.target_scope,
+                )
+                for column in item.source_column_keys
+            )
+            if dependency is not None
+            else ()
+        )
+        if resolver.origin in {
+            ResolverOrigin.DATASET,
+            ResolverOrigin.TARGET_THEN_DATASET,
+        } and (
+            dependency is None
+            or not incoming_columns
+            or len(incoming_columns) != sum(source_widths)
+        ):
+            raise _IdentityPlanError(
+                MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY
+            )
+        return IdentityRelationalLiveProbe(
+            target_field=target_field,
+            target_index=target_index,
+            resolver_origin=resolver.origin,
+            related_model=related_model,
+            related_fields=related_fields,
+            related_field_types=tuple(related_field_types),
+            source_widths=tuple(source_widths),
+            source_keys=(),
+            incoming_key_counts=(),
+            nested_components=tuple(nested_components),
+            incoming_dataset_id=(
+                dependency.dataset_id if dependency is not None else None
+            ),
+            incoming_columns=incoming_columns,
+            incoming_row_inclusion=(
+                dependency.row_inclusion if dependency is not None else None
+            ),
+            value_mappings=tuple(
+                (item.source_value, item.target_value)
+                for item in resolver.value_mappings
+            ),
+        )
+
+    def _materialize_identity_relational_probe(
+        self,
+        workspace_id: str,
+        skeleton: IdentityRelationalLiveProbe,
+        source_keys: tuple[tuple[str, ...], ...],
+        source_cache: _MatchingSourceTupleCache,
+    ) -> IdentityRelationalLiveProbe:
+        """Attach bounded incoming evidence to one recursive key shape."""
+
+        distinct_source_keys = tuple(sorted(set(source_keys)))
+        if len(distinct_source_keys) > MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES:
+            raise _IdentityPlanError(
+                MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY,
+                evidence_limit=True,
+            )
+        incoming_counts: Counter[tuple[str, ...]] = Counter()
+        if skeleton.incoming_dataset_id and skeleton.incoming_columns:
+            incoming_rows = source_cache.read(
+                workspace_id,
+                skeleton.incoming_dataset_id,
+                skeleton.incoming_columns,
+                skeleton.incoming_row_inclusion or RowInclusionPolicy(),
+                identity=False,
+            )
+            incoming_counts.update(
+                normalized
+                for row in incoming_rows
+                if (
+                    normalized := _normalized_relational_source_key(
+                        skeleton,
+                        row,
+                        apply_current_translation=False,
+                    )
+                )
+                is not None
+            )
+        if len(incoming_counts) > MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES:
+            raise _IdentityPlanError(
+                MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY,
+                evidence_limit=True,
+            )
+
+        nested_by_index = {
+            item.target_index: item for item in skeleton.nested_components
+        }
+        nested_components: list[IdentityRelationalLiveProbe] = []
+        offset_by_index = _relational_source_offsets(skeleton.source_widths)
+        for index, nested in sorted(nested_by_index.items()):
+            start = offset_by_index[index]
+            stop = start + skeleton.source_widths[index]
+            nested_keys = tuple(
+                sorted({key[start:stop] for key in source_keys})
+            )
+            nested_components.append(
+                self._materialize_identity_relational_probe(
+                    workspace_id,
+                    nested,
+                    nested_keys,
+                    source_cache,
+                )
+            )
+        return replace(
+            skeleton,
+            source_keys=distinct_source_keys,
+            incoming_key_counts=tuple(sorted(incoming_counts.items())),
+            nested_components=tuple(nested_components),
+        )
+
     def _identity_probe(
         self,
         workspace_id: str,
         dataset: DatasetMapping,
+        mappings: dict[str, DatasetMapping],
         schema_by_model,
         confirmed_keys,
+        source_cache: _MatchingSourceTupleCache,
     ) -> tuple[MatchingIdentityLiveProbe | None, MatchingIdentityResult | None]:
-        """Prepare one direct identity or one explicit unchecked result."""
+        """Prepare one governed scalar/relational identity live check."""
 
         if not dataset.target_model:
             return None, None
@@ -1290,43 +1958,79 @@ class MatchingOrderService:
                     MatchingIdentityNotCheckableReason.UNCONFIRMED_MATCHING_RULE
                 ),
             )
-        source_by_target = _direct_identity_source_columns(dataset)
-        source_columns = tuple(
-            source_by_target.get(field_name, "")
-            for field_name in target_fields
-        )
-        if any(not item for item in source_columns):
+        model = schema_by_model.get(dataset.target_model)
+        fields = {item.name: item for item in model.fields} if model else {}
+
+        source_columns: list[str] = []
+        domain_fields: list[str] = []
+        relational_plans: list[IdentityRelationalLiveProbe] = []
+        target_index = 0
+        for component in (*dataset.target_identity, *dataset.target_scope):
+            component_source_columns = component.source_column_keys
+            source_columns.extend(component_source_columns)
+            if component.resolver is None:
+                if len(component_source_columns) != len(component.target_fields):
+                    return None, _not_checkable_identity_result(
+                        dataset_id=dataset.dataset_id,
+                        target_model=dataset.target_model,
+                        target_fields=target_fields,
+                        reason=MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY,
+                    )
+                if any(
+                    field_name not in fields
+                    or fields[field_name].type not in _IDENTITY_CHECK_FIELD_TYPES
+                    or fields[field_name].exportable is False
+                    for field_name in component.target_fields
+                ):
+                    return None, _not_checkable_identity_result(
+                        dataset_id=dataset.dataset_id,
+                        target_model=dataset.target_model,
+                        target_fields=target_fields,
+                        reason=(
+                            MatchingIdentityNotCheckableReason.UNSUPPORTED_TARGET_FIELD
+                        ),
+                    )
+                domain_fields.extend(component.target_fields)
+                target_index += len(component.target_fields)
+                continue
+
+            try:
+                plan = self._identity_relational_skeleton(
+                    component,
+                    parent_model=dataset.target_model,
+                    target_index=target_index,
+                    mappings=mappings,
+                    schema_by_model=schema_by_model,
+                    confirmed_keys=confirmed_keys,
+                )
+            except _IdentityPlanError as error:
+                return None, _not_checkable_identity_result(
+                    dataset_id=dataset.dataset_id,
+                    target_model=dataset.target_model,
+                    target_fields=target_fields,
+                    reason=error.reason,
+                )
+            domain_fields.extend(
+                f"{plan.target_field}.{field_name}"
+                for field_name in _relational_leaf_fields(plan)
+            )
+            relational_plans.append(plan)
+            target_index += 1
+
+        if not source_columns or len(source_columns) != len(set(source_columns)):
             return None, _not_checkable_identity_result(
                 dataset_id=dataset.dataset_id,
                 target_model=dataset.target_model,
                 target_fields=target_fields,
                 reason=MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY,
             )
-        model = schema_by_model.get(dataset.target_model)
-        fields = {item.name: item for item in model.fields} if model else {}
-        if any(
-            field_name not in fields
-            or fields[field_name].type not in _IDENTITY_CHECK_FIELD_TYPES
-            or fields[field_name].exportable is False
-            for field_name in target_fields
-        ):
-            return None, _not_checkable_identity_result(
-                dataset_id=dataset.dataset_id,
-                target_model=dataset.target_model,
-                target_fields=target_fields,
-                reason=(
-                    MatchingIdentityNotCheckableReason.UNSUPPORTED_TARGET_FIELD
-                ),
-            )
-        source_key_reader = self._source_keys
-        if source_key_reader is None:
-            raise RuntimeError("Matching-order source-key reader is not configured")
         try:
-            source_keys = source_key_reader.source_identity_key_tuples(
+            raw_source_keys = source_cache.read(
                 workspace_id,
                 dataset.dataset_id,
-                source_columns,
+                tuple(source_columns),
                 dataset.row_inclusion,
+                identity=True,
             )
         except WorkspaceError:
             return None, _not_checkable_identity_result(
@@ -1337,12 +2041,82 @@ class MatchingOrderService:
                     MatchingIdentityNotCheckableReason.SOURCE_EVIDENCE_UNAVAILABLE
                 ),
             )
+
+        source_keys: list[tuple[str | None, ...]] = []
+        domain_keys: list[tuple[str | None, ...]] = []
+        relational_source_keys: list[list[tuple[str, ...]]] = [
+            [] for _item in relational_plans
+        ]
+        relational_plan_by_target_index = {
+            plan.target_index: (index, plan)
+            for index, plan in enumerate(relational_plans)
+        }
+        for row in raw_source_keys:
+            owner_key: list[str | None] = []
+            domain_key: list[str | None] = []
+            source_offset = 0
+            current_target_index = 0
+            for component in (*dataset.target_identity, *dataset.target_scope):
+                width = len(component.source_column_keys)
+                values = tuple(row[source_offset : source_offset + width])
+                source_offset += width
+                if component.resolver is None:
+                    owner_key.extend(values)
+                    domain_key.extend(values)
+                    current_target_index += len(component.target_fields)
+                    continue
+                plan_index, plan = relational_plan_by_target_index[
+                    current_target_index
+                ]
+                normalized = _normalized_relational_source_key(
+                    plan,
+                    values,
+                    apply_current_translation=True,
+                )
+                token = (
+                    _relational_probe_source_token(plan, normalized)
+                    if normalized is not None
+                    else None
+                )
+                owner_key.append(token)
+                domain_key.extend(normalized or values)
+                if token is not None and normalized is not None:
+                    relational_source_keys[plan_index].append(normalized)
+                current_target_index += 1
+            source_keys.append(tuple(owner_key))
+            domain_keys.append(tuple(domain_key))
+
+        relational_components: list[IdentityRelationalLiveProbe] = []
+        try:
+            for plan_index, plan in enumerate(relational_plans):
+                relational_components.append(
+                    self._materialize_identity_relational_probe(
+                        workspace_id,
+                        plan,
+                        tuple(relational_source_keys[plan_index]),
+                        source_cache,
+                    )
+                )
+        except (WorkspaceError, _IdentityPlanError) as error:
+            return None, _not_checkable_identity_result(
+                dataset_id=dataset.dataset_id,
+                target_model=dataset.target_model,
+                target_fields=target_fields,
+                reason=(
+                    error.reason
+                    if isinstance(error, _IdentityPlanError)
+                    else MatchingIdentityNotCheckableReason.SOURCE_EVIDENCE_UNAVAILABLE
+                ),
+            )
         return (
             MatchingIdentityLiveProbe(
                 dataset_id=dataset.dataset_id,
                 target_model=dataset.target_model,
                 target_fields=target_fields,
-                source_keys=source_keys,
+                source_keys=tuple(source_keys),
+                domain_fields=tuple(domain_fields),
+                domain_keys=tuple(domain_keys),
+                relational_components=tuple(relational_components),
                 mode=dataset.mode,
                 on_existing=dataset.on_existing,
             ),
@@ -1512,11 +2286,197 @@ def _direct_identity_source_columns(
     return result
 
 
+def _dataset_identity_fields(
+    dataset: DatasetMapping,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return the ordered governed key and scope fields of one dataset."""
+
+    return (
+        tuple(
+            field
+            for component in dataset.target_identity
+            for field in component.target_fields
+        ),
+        tuple(
+            field
+            for component in dataset.target_scope
+            for field in component.target_fields
+        ),
+    )
+
+
+def _relational_source_offsets(widths: tuple[int, ...]) -> tuple[int, ...]:
+    """Return deterministic starts for one flattened recursive source key."""
+
+    result: list[int] = []
+    offset = 0
+    for width in widths:
+        result.append(offset)
+        offset += width
+    return tuple(result)
+
+
+def _relational_leaf_fields(
+    probe: IdentityRelationalLiveProbe,
+) -> tuple[str, ...]:
+    """Flatten a related key to dotted scalar leaves for one bounded domain."""
+
+    nested_by_index = {
+        item.target_index: item for item in probe.nested_components
+    }
+    result: list[str] = []
+    for index, field in enumerate(probe.related_fields):
+        nested = nested_by_index.get(index)
+        if nested is None:
+            result.append(field)
+            continue
+        result.extend(
+            f"{field}.{leaf}" for leaf in _relational_leaf_fields(nested)
+        )
+    return tuple(result)
+
+
+def _walk_relational_probes(
+    probe: IdentityRelationalLiveProbe,
+) -> tuple[IdentityRelationalLiveProbe, ...]:
+    """Return one deterministic pre-order traversal of a related-key tree."""
+
+    return (
+        probe,
+        *(
+            nested
+            for child in sorted(
+                probe.nested_components,
+                key=lambda item: item.target_index,
+            )
+            for nested in _walk_relational_probes(child)
+        ),
+    )
+
+
+def _relational_leaf_types(
+    probe: IdentityRelationalLiveProbe,
+) -> tuple[str, ...]:
+    """Flatten the scalar leaf types in the same order as dotted fields."""
+
+    nested_by_index = {
+        item.target_index: item for item in probe.nested_components
+    }
+    result: list[str] = []
+    for index, field_type in enumerate(probe.related_field_types):
+        nested = nested_by_index.get(index)
+        if nested is None:
+            result.append(field_type)
+        else:
+            result.extend(_relational_leaf_types(nested))
+    return tuple(result)
+
+
+def _normalized_relational_source_key(
+    probe: IdentityRelationalLiveProbe,
+    values: tuple[str | None, ...],
+    *,
+    apply_current_translation: bool,
+) -> tuple[str, ...] | None:
+    """Normalize one flattened key while retaining recursive component shape."""
+
+    if len(values) != sum(probe.source_widths):
+        return None
+    normalized_values = tuple(
+        None if value is None else str(value).strip() for value in values
+    )
+    if any(not value for value in normalized_values):
+        return None
+    result = tuple(str(value) for value in normalized_values)
+    if apply_current_translation and probe.value_mappings:
+        translations = dict(probe.value_mappings)
+        result = (translations.get(result[0], result[0]), *result[1:])
+
+    nested_by_index = {
+        item.target_index: item for item in probe.nested_components
+    }
+    offsets = _relational_source_offsets(probe.source_widths)
+    rebuilt: list[str] = []
+    for index, width in enumerate(probe.source_widths):
+        start = offsets[index]
+        part = result[start : start + width]
+        nested = nested_by_index.get(index)
+        if nested is None:
+            rebuilt.extend(part)
+            continue
+        nested_key = _normalized_relational_source_key(
+            nested,
+            part,
+            apply_current_translation=True,
+        )
+        if nested_key is None:
+            return None
+        rebuilt.extend(nested_key)
+    return tuple(rebuilt)
+
+
+def _relational_probe_source_token(
+    probe: IdentityRelationalLiveProbe,
+    source_key: tuple[str, ...],
+) -> str | None:
+    """Rebuild one portable nested token from flattened protected leaves."""
+
+    if len(source_key) != sum(probe.source_widths):
+        return None
+    nested_by_index = {
+        item.target_index: item for item in probe.nested_components
+    }
+    offsets = _relational_source_offsets(probe.source_widths)
+    components: list[object | None] = []
+    for index, width in enumerate(probe.source_widths):
+        start = offsets[index]
+        part = source_key[start : start + width]
+        nested = nested_by_index.get(index)
+        if nested is None:
+            if width != 1:
+                return None
+            components.append(part[0])
+        else:
+            components.append(_relational_probe_source_token(nested, part))
+    return _relational_identity_token(tuple(components))
+
+
+def _translated_identity_values(
+    values: tuple[str | None, ...],
+    resolver: RelationshipResolver,
+) -> tuple[str | None, ...]:
+    """Apply the reviewed single-key translation used by a resolver."""
+
+    if not values or not resolver.value_mappings or values[0] is None:
+        return values
+    translations = {
+        item.source_value: item.target_value for item in resolver.value_mappings
+    }
+    return (translations.get(values[0], values[0]), *values[1:])
+
+
+def _relational_identity_token(
+    values: tuple[object | None, ...],
+) -> str | None:
+    """Encode one protected related business key without using its Odoo ID."""
+
+    if not values or any(
+        value is None or value is False or not str(value).strip()
+        for value in values
+    ):
+        return None
+    normalized = tuple(str(value).strip() for value in values)
+    if len(normalized) == 1:
+        return normalized[0]
+    return canonical_json(list(normalized))
+
+
 def _relationship_source_key_counts(
     relationship: RelationshipMapping,
     rows: Iterable[tuple[str | None, ...]],
     *,
     target_fields: tuple[str, ...],
+    expected_width: int | None = None,
 ) -> tuple[Counter[tuple[str, ...]], int, int]:
     """Reduce included source rows to bounded choice counts and row causes."""
 
@@ -1564,7 +2524,9 @@ def _relationship_source_key_counts(
             for value in choices:
                 source_counts[(translations.get(value, value),)] += 1
             continue
-        if len(row) != len(target_fields) or any(value is None for value in row):
+        if len(row) != (expected_width or len(target_fields)) or any(
+            value is None for value in row
+        ):
             incomplete_rows += 1
             continue
         key = tuple(str(value) for value in row)
@@ -1730,10 +2692,41 @@ def _classify_relationship_probe(
     probe: RelationshipHealthLiveProbe,
     snapshot: RecordSnapshot,
 ) -> RelationshipHealthResult:
-    target_keys = tuple(
-        tuple(record.values.get(field) for field in probe.target_fields)
-        for record in snapshot.records.get(probe.target_model, ())
-    )
+    source_key_counts = dict(probe.source_key_counts)
+    incoming_key_counts = dict(probe.incoming_key_counts)
+    if probe.relational_key_probe is None:
+        target_keys = tuple(
+            tuple(record.values.get(field) for field in probe.target_fields)
+            for record in snapshot.records.get(probe.target_model, ())
+        )
+    else:
+        relational = probe.relational_key_probe
+        target_indexes: dict[
+            int,
+            tuple[Counter[str], dict[int, str]],
+        ] = {}
+        _target_counts, token_by_id = _relational_probe_target_index(
+            relational,
+            snapshot,
+            target_indexes,
+        )
+        target_keys = tuple((token,) for token in token_by_id.values())
+        tokenized_source: Counter[tuple[str, ...]] = Counter()
+        for key, count in source_key_counts.items():
+            token = _relational_probe_source_token(relational, key)
+            if token is not None:
+                tokenized_source[(token,)] += count
+        tokenized_incoming: Counter[tuple[str, ...]] = Counter()
+        for key, count in incoming_key_counts.items():
+            token = _relational_probe_source_token(relational, key)
+            if token is not None and _relational_nested_parts_are_resolved(
+                relational,
+                key,
+                target_indexes,
+            ):
+                tokenized_incoming[(token,)] += count
+        source_key_counts = dict(tokenized_source)
+        incoming_key_counts = dict(tokenized_incoming)
     return classify_relationship_health(
         owner_dataset_id=probe.owner_dataset_id,
         target_field=probe.target_field,
@@ -1743,11 +2736,11 @@ def _classify_relationship_probe(
         dependency_dataset_id=probe.dependency_dataset_id,
         required=probe.required,
         source_row_count=probe.source_row_count,
-        source_key_counts=dict(probe.source_key_counts),
+        source_key_counts=source_key_counts,
         blank_row_count=probe.blank_row_count,
         incomplete_row_count=probe.incomplete_row_count,
         target_keys=target_keys,
-        incoming_key_counts=dict(probe.incoming_key_counts),
+        incoming_key_counts=incoming_key_counts,
     )
 
 
@@ -1810,23 +2803,359 @@ def _not_checkable_relationship_result(
     )
 
 
+def _relationship_plan_error_reason(
+    error: _IdentityPlanError,
+) -> RelationshipHealthNotCheckableReason:
+    """Project recursive identity planning failures into relationship health."""
+
+    if error.evidence_limit:
+        return RelationshipHealthNotCheckableReason.EVIDENCE_LIMIT_EXCEEDED
+    if (
+        error.reason
+        is MatchingIdentityNotCheckableReason.UNCONFIRMED_MATCHING_RULE
+    ):
+        return RelationshipHealthNotCheckableReason.UNCONFIRMED_MATCHING_RULE
+    if (
+        error.reason
+        is MatchingIdentityNotCheckableReason.UNSUPPORTED_TARGET_FIELD
+    ):
+        return RelationshipHealthNotCheckableReason.UNSUPPORTED_RELATIONSHIP
+    return RelationshipHealthNotCheckableReason.RELATED_IDENTITY_UNAVAILABLE
+
+
+def _relational_probe_target_index(
+    probe: IdentityRelationalLiveProbe,
+    snapshot: RecordSnapshot,
+    cache: dict[int, tuple[Counter[str], dict[int, str]]],
+) -> tuple[Counter[str], dict[int, str]]:
+    """Build one recursive target token index once per related-key node."""
+
+    cache_key = id(probe)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    nested_by_index = {
+        item.target_index: item for item in probe.nested_components
+    }
+    nested_tokens_by_index: dict[int, dict[int, str]] = {}
+    for index, nested in sorted(nested_by_index.items()):
+        _counts, token_by_id = _relational_probe_target_index(
+            nested,
+            snapshot,
+            cache,
+        )
+        nested_tokens_by_index[index] = token_by_id
+
+    token_counts: Counter[str] = Counter()
+    token_by_id: dict[int, str] = {}
+    for record in snapshot.records.get(probe.related_model, ()):
+        components: list[object | None] = []
+        unresolved_relation = False
+        for index, field in enumerate(probe.related_fields):
+            nested = nested_by_index.get(index)
+            if nested is None:
+                components.append(record.values.get(field))
+                continue
+            relation_id = _many2one_record_id(record.values.get(field))
+            if relation_id is None:
+                components.append(None)
+                continue
+            token = nested_tokens_by_index[index].get(relation_id)
+            if token is None:
+                unresolved_relation = True
+                break
+            components.append(token)
+        if unresolved_relation:
+            continue
+        token = _relational_identity_token(tuple(components))
+        if token is None:
+            continue
+        token_counts[token] += 1
+        token_by_id[record.odoo_id] = token
+
+    result = (token_counts, token_by_id)
+    cache[cache_key] = result
+    return result
+
+
+def _relational_source_key_is_resolved(
+    probe: IdentityRelationalLiveProbe,
+    source_key: tuple[str, ...],
+    target_indexes: dict[int, tuple[Counter[str], dict[int, str]]],
+) -> bool:
+    """Check one flattened key against every resolver node without new reads."""
+
+    if len(source_key) != sum(probe.source_widths):
+        return False
+    nested_by_index = {
+        item.target_index: item for item in probe.nested_components
+    }
+    offsets = _relational_source_offsets(probe.source_widths)
+    for index, nested in nested_by_index.items():
+        start = offsets[index]
+        stop = start + probe.source_widths[index]
+        if not _relational_source_key_is_resolved(
+            nested,
+            source_key[start:stop],
+            target_indexes,
+        ):
+            return False
+
+    token_counts, _token_by_id = target_indexes[id(probe)]
+    incoming_counts = dict(probe.incoming_key_counts)
+    source_token = _relational_probe_source_token(probe, source_key)
+    if source_token is None:
+        return False
+    target_count = token_counts[source_token]
+    incoming_count = incoming_counts.get(source_key, 0)
+    if target_count > 1:
+        return False
+    if probe.resolver_origin is ResolverOrigin.TARGET_CATALOG:
+        return target_count == 1
+    if probe.resolver_origin is ResolverOrigin.DATASET:
+        return incoming_count == 1
+    return target_count == 1 or (target_count == 0 and incoming_count == 1)
+
+
+def _relational_nested_parts_are_resolved(
+    probe: IdentityRelationalLiveProbe,
+    source_key: tuple[str, ...],
+    target_indexes: dict[int, tuple[Counter[str], dict[int, str]]],
+) -> bool:
+    """Require nested components before an incoming parent can be usable."""
+
+    if len(source_key) != sum(probe.source_widths):
+        return False
+    offsets = _relational_source_offsets(probe.source_widths)
+    for nested in probe.nested_components:
+        start = offsets[nested.target_index]
+        stop = start + probe.source_widths[nested.target_index]
+        if not _relational_source_key_is_resolved(
+            nested,
+            source_key[start:stop],
+            target_indexes,
+        ):
+            return False
+    return True
+
+
+def _relational_probe_resolution(
+    probe: IdentityRelationalLiveProbe,
+    snapshot: RecordSnapshot,
+) -> tuple[bool, Counter[str], dict[int, str]]:
+    """Resolve one related-key tree bottom-up from a bounded target snapshot."""
+
+    target_indexes: dict[int, tuple[Counter[str], dict[int, str]]] = {}
+    token_counts, token_by_id = _relational_probe_target_index(
+        probe,
+        snapshot,
+        target_indexes,
+    )
+    resolved = all(
+        _relational_source_key_is_resolved(
+            probe,
+            source_key,
+            target_indexes,
+        )
+        for source_key in probe.source_keys
+    )
+    return resolved, token_counts, token_by_id
+
+
 def _classify_identity_probe(
     probe: MatchingIdentityLiveProbe,
     snapshot: RecordSnapshot,
 ) -> MatchingIdentityResult:
-    target_keys = tuple(
-        tuple(record.values.get(field) for field in probe.target_fields)
-        for record in snapshot.records.get(probe.target_model, ())
-    )
+    relational_by_index = {
+        item.target_index: item for item in probe.relational_components
+    }
+    related_tokens_by_component: dict[int, dict[int, str]] = {}
+    for component in probe.relational_components:
+        resolved, _counts, token_by_id = _relational_probe_resolution(
+            component,
+            snapshot,
+        )
+        if not resolved:
+            return _not_checkable_identity_result(
+                dataset_id=probe.dataset_id,
+                target_model=probe.target_model,
+                target_fields=probe.target_fields,
+                reason=(
+                    MatchingIdentityNotCheckableReason.RELATIONAL_IDENTITY_UNRESOLVED
+                ),
+            )
+        related_tokens_by_component[component.target_index] = token_by_id
+
+    target_keys: list[tuple[object | None, ...]] = []
+    for record in snapshot.records.get(probe.target_model, ()):
+        values: list[object | None] = []
+        unresolved_target_relation = False
+        for index, field in enumerate(probe.target_fields):
+            component = relational_by_index.get(index)
+            if component is None:
+                values.append(record.values.get(field))
+                continue
+            relation_id = _many2one_record_id(record.values.get(field))
+            if relation_id is None:
+                values.append(None)
+                continue
+            token_by_id = related_tokens_by_component[index]
+            token = token_by_id.get(relation_id)
+            if token is None:
+                unresolved_target_relation = True
+                break
+            values.append(token)
+        if unresolved_target_relation:
+            return _not_checkable_identity_result(
+                dataset_id=probe.dataset_id,
+                target_model=probe.target_model,
+                target_fields=probe.target_fields,
+                reason=(
+                    MatchingIdentityNotCheckableReason.RELATIONAL_IDENTITY_UNRESOLVED
+                ),
+            )
+        target_keys.append(tuple(values))
     return classify_matching_identity(
         dataset_id=probe.dataset_id,
         target_model=probe.target_model,
         target_fields=probe.target_fields,
         source_keys=probe.source_keys,
-        target_keys=target_keys,
+        target_keys=tuple(target_keys),
         mode=probe.mode,
         on_existing=probe.on_existing,
     )
+
+
+def _unresolved_identity_choices(
+    probe: MatchingIdentityLiveProbe,
+    snapshot: RecordSnapshot,
+) -> tuple[dict[str, object], ...]:
+    """Build protected, value-bearing causes for relational identity review."""
+
+    result: list[dict[str, object]] = []
+    for component in probe.relational_components:
+        result.extend(
+            _unresolved_relational_choices(
+                dataset_id=probe.dataset_id,
+                probe=component,
+                snapshot=snapshot,
+                field_path=component.target_field,
+            )
+        )
+    deduplicated = {
+        canonical_json(item): item for item in result
+    }
+    return tuple(deduplicated[key] for key in sorted(deduplicated))
+
+
+def _protected_relational_probe_shape(
+    probe: IdentityRelationalLiveProbe,
+) -> dict[str, object]:
+    """Describe a recursive protected probe without duplicating key values."""
+
+    return {
+        "target_field": probe.target_field,
+        "resolver_origin": probe.resolver_origin.value,
+        "related_model": probe.related_model,
+        "related_fields": list(probe.related_fields),
+        "leaf_fields": list(_relational_leaf_fields(probe)),
+        "nested_components": [
+            _protected_relational_probe_shape(item)
+            for item in sorted(
+                probe.nested_components,
+                key=lambda item: item.target_index,
+            )
+        ],
+    }
+
+
+def _unresolved_relational_choices(
+    *,
+    dataset_id: str,
+    probe: IdentityRelationalLiveProbe,
+    snapshot: RecordSnapshot,
+    field_path: str,
+) -> tuple[dict[str, object], ...]:
+    """Return deepest actionable failures before reporting their parent key."""
+
+    nested_choices = tuple(
+        choice
+        for nested in sorted(
+            probe.nested_components,
+            key=lambda item: item.target_index,
+        )
+        for choice in _unresolved_relational_choices(
+            dataset_id=dataset_id,
+            probe=nested,
+            snapshot=snapshot,
+            field_path=f"{field_path}.{nested.target_field}",
+        )
+    )
+    if nested_choices:
+        return nested_choices
+
+    _resolved, target_counts, _token_by_id = _relational_probe_resolution(
+        probe,
+        snapshot,
+    )
+    incoming_counts = dict(probe.incoming_key_counts)
+    result: list[dict[str, object]] = []
+    for source_key in probe.source_keys:
+        source_token = _relational_probe_source_token(probe, source_key)
+        if source_token is None:
+            continue
+        target_count = target_counts[source_token]
+        incoming_count = incoming_counts.get(source_key, 0)
+        if target_count > 1:
+            cause = "ambiguous_target"
+        elif probe.resolver_origin is ResolverOrigin.TARGET_CATALOG:
+            cause = "missing_target" if target_count == 0 else ""
+        elif probe.resolver_origin is ResolverOrigin.DATASET:
+            cause = (
+                "ambiguous_incoming"
+                if incoming_count > 1
+                else "missing_incoming"
+                if incoming_count == 0
+                else ""
+            )
+        else:
+            cause = (
+                "ambiguous_incoming"
+                if target_count == 0 and incoming_count > 1
+                else "missing_target_and_incoming"
+                if target_count == 0 and incoming_count == 0
+                else ""
+            )
+        if not cause:
+            continue
+        result.append(
+            {
+                "dataset_id": dataset_id,
+                "target_field": field_path,
+                "related_model": probe.related_model,
+                "related_fields": list(_relational_leaf_fields(probe)),
+                "key": list(source_key),
+                "cause": cause,
+                "target_match_count": target_count,
+                "incoming_match_count": incoming_count,
+            }
+        )
+    return tuple(result)
+
+
+def _many2one_record_id(value: object) -> int | None:
+    """Return one ephemeral Odoo relation ID from a search-read value."""
+
+    raw = value[0] if isinstance(value, (list, tuple)) and value else value
+    if raw is None or raw is False or isinstance(raw, bool):
+        return None
+    if not isinstance(raw, (int, str)):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _not_checkable_identity_result(

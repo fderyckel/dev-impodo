@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Review identity choices &middot; {{ migration_project.display_name }} &middot; Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Stage 3 of 6 &middot; Identity choices</p>
+      <h1>Review unresolved identity choices</h1>
+      <p>These protected values come from the latest saved-identity check. Filters and page turns do not contact Odoo or change the matching rule.</p>
+    </div>
+    <span class="status review">Needs attention</span>
+  </div>
+
+  <section class="form-card">
+    <form class="impact-tools" method="get" action="/workspaces/{{ workspace_id }}/mapping/identity-choices">
+      <label>
+        Table
+        <select name="dataset">
+          <option value="">All tables</option>
+          {% for dataset in dataset_options %}
+            <option value="{{ dataset.dataset_id }}" {% if filters.dataset_id == dataset.dataset_id %}selected{% endif %}>{{ dataset.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Identity field
+        <select name="field">
+          <option value="">All identity fields</option>
+          {% for value, label in field_options %}
+            <option value="{{ value }}" {% if filters.target_field == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Reason
+        <select name="cause">
+          <option value="">All reasons</option>
+          {% for value, label in cause_options %}
+            <option value="{{ value }}" {% if filters.cause == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="actions impact-filter-actions">
+        <button class="button primary" type="submit">Apply filters</button>
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/identity-choices">Clear</a>
+      </div>
+    </form>
+
+    <p class="muted" role="status">
+      {% if page.matching_count %}Showing {{ page.start_position }}&ndash;{{ page.end_position }} of {{ page.matching_count }} unresolved choices.{% else %}No unresolved choices match the current filters.{% endif %}
+    </p>
+    {% if rows %}
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr><th>Table</th><th>Identity component</th><th>Business key</th><th>Reason</th><th>Matches found</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td>{{ row.dataset_name }}</td>
+                <td>
+                  <strong>{{ row.target_field_label }}</strong>
+                  <small class="muted"><code>{{ row.target_field }}</code> through {{ row.related_model_label }}</small>
+                </td>
+                <td>
+                  {% for value in row.key_values %}
+                    <div><strong>{{ value.label }}:</strong> <code>{{ value.value }}</code></div>
+                  {% endfor %}
+                </td>
+                <td><span class="status review">{{ row.cause_label }}</span></td>
+                <td>
+                  <div>Odoo: {{ row.target_match_count }}</div>
+                  <div>Incoming: {{ row.incoming_match_count }}</div>
+                </td>
+                <td><a class="button secondary compact" href="{{ row.edit_url }}">Review matching rule</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+    {% if previous_url or next_url %}
+      <nav class="impact-pagination" aria-label="Unresolved identity choice pages">
+        {% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Previous 100</a>{% endif %}
+        <span class="muted">Up to 100 choices per page</span>
+        {% if next_url %}<a class="button secondary" href="{{ next_url }}">Next 100</a>{% endif %}
+      </nav>
+    {% endif %}
+  </section>
+
+  <div class="actions">
+    <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping#identity-health-title">Return to Match data</a>
+  </div>
+{% endblock %}

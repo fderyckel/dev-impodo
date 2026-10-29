@@ -90,6 +90,7 @@ services:
       - postgres-runtime-dsn
       - postgres-migration-dsn
       - platform-admin-password
+      - identifier-digest-key
     volumes:
       - ./local-rehearsal/provision-runtime-secrets.sh:/opt/impodo/provision-runtime-secrets.sh:ro
       - ./postgres/init/010-impodo-roles.sh:/opt/impodo/010-impodo-roles.sh:ro
@@ -266,6 +267,8 @@ secrets:
     file: ./.local/secrets/postgres-migration-dsn
   platform-admin-password:
     file: ./.local/secrets/platform-admin-password
+  identifier-digest-key:
+    file: ./.local/secrets/identifier-digest-key
 
 volumes:
   postgres-data: {}

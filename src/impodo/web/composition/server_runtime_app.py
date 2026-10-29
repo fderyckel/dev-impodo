@@ -15,6 +15,9 @@ from impodo.web.composition.server_active_work import (
 )
 from impodo.web.composition.server_control_app import create_server_control_app
 from impodo.web.composition.server_runtime import ServerRuntimeCoordinator
+from impodo.web.composition.server_session_http import (
+    ServerBrowserSecurityMiddleware,
+)
 
 _HEALTH_PATHS = frozenset({"/health/live", "/health/ready"})
 _UNAVAILABLE_HEADERS = {
@@ -63,6 +66,8 @@ class ServerActiveWorkMiddleware:
 
 def create_server_runtime_control_app(
     runtime: ServerRuntimeCoordinator,
+    *,
+    public_url: str | None = None,
 ) -> FastAPI:
     """Start and drain the runtime outside the ASGI event-loop thread."""
 
@@ -77,6 +82,8 @@ def create_server_runtime_control_app(
 
     app = create_server_control_app(runtime.snapshot, lifespan=lifespan)
     app.add_middleware(ServerActiveWorkMiddleware, runtime=runtime)
+    if public_url is not None:
+        app.add_middleware(ServerBrowserSecurityMiddleware, public_url=public_url)
     return app
 
 

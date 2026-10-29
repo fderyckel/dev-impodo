@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime
 
+from impodo.adapters.identity.secure_recovery_tokens import HmacIdentifierDigester
 from impodo.application.identity.authentication_service import (
     PlatformAuthenticationService,
 )
@@ -192,6 +193,34 @@ class PlatformAuthenticationServiceTests(unittest.TestCase):
         self.assertIsNotNone(rehash_event)
         assert rehash_event is not None
         self.assertEqual(rehash_event.kind, SecurityEventKind.PASSWORD_REHASHED.value)
+
+    def test_browser_composition_can_key_the_low_entropy_account_digest(self) -> None:
+        repository = _Repository(_attempt(_credential()))
+        digester = HmacIdentifierDigester(b"deployment-key" + b"x" * 32)
+        service = PlatformAuthenticationService(
+            repository,
+            _PasswordPolicy(verified=True),
+            identifier_digester=digester,
+            clock=lambda: NOW,
+            identifier_factory=lambda: "event-1",
+        )
+
+        service.authenticate(
+            PlatformAuthenticationCommand(
+                login_email="operator@example.test",
+                password="fictional-login-password",
+                source_digest=SOURCE_DIGEST,
+            ),
+            deployment_id="local-trial",
+        )
+
+        self.assertEqual(
+            repository.loads[0]["account_digest"],
+            digester.digest(
+                "operator@example.test",
+                scope="authentication-account",
+            ),
+        )
 
     def test_unknown_wrong_inactive_and_invalid_identifier_share_one_response(
         self,

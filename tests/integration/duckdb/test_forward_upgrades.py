@@ -97,6 +97,9 @@ def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("DROP TABLE IF EXISTS matching_order_preference")
     connection.execute("DROP TABLE IF EXISTS matching_order_check_active")
     connection.execute("DROP TABLE IF EXISTS matching_order_check_current")
+    connection.execute(
+        "DROP TABLE IF EXISTS matching_order_protected_identity_choice"
+    )
     connection.execute("DROP TABLE IF EXISTS matching_order_protected_snapshot")
     connection.execute("DROP TABLE IF EXISTS matching_order_check_attempt")
     connection.execute("DROP TABLE IF EXISTS matching_order_check")
@@ -458,6 +461,11 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         18,
                         19,
                         "workspace-engine-v18-to-v19-preflight-review-projection",
+                    ),
+                    (
+                        19,
+                        20,
+                        "workspace-engine-v19-to-v20-matching-identity-choice-review",
                     ),
                 ],
             )

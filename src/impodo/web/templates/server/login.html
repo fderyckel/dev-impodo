@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign in · Impodo administration</title>
+  </head>
+  <body>
+    <main>
+      <h1>Impodo administration</h1>
+      <p>Sign in with the Platform Administrator created during bootstrap.</p>
+      {% if error %}<p role="alert">{{ error }}</p>{% endif %}
+      <form method="post" action="/login">
+        <label for="login-email">Login email</label>
+        <input id="login-email" name="login_email" type="email" autocomplete="username" required>
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button type="submit">Sign in</button>
+      </form>
+      <p>This local trial permits password-only administrator access. Internet deployment remains blocked until privileged WebAuthn is enforced.</p>
+    </main>
+  </body>
+</html>

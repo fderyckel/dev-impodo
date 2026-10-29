@@ -192,6 +192,8 @@ class PostgreSQLAccountRecoveryTests(unittest.TestCase):
         self.assertIn("security_revision = security_revision + 1", queries)
         self.assertIn("state = 'CONSUMED'", queries)
         self.assertIn("token_id <> %s", queries)
+        self.assertIn("impodo_control.server_session", queries)
+        self.assertIn("revocation_reason = 'PASSWORD_RESET'", queries)
         self.assertTrue(session.committed)
         self.assertFalse(session.rolled_back)
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -282,10 +282,147 @@ class MatchingIdentityNotCheckableReason(StrEnum):
     MAPPING_INCOMPLETE = "MAPPING_INCOMPLETE"
     UNCONFIRMED_MATCHING_RULE = "UNCONFIRMED_MATCHING_RULE"
     INDIRECT_IDENTITY = "INDIRECT_IDENTITY"
+    RELATIONAL_IDENTITY_UNRESOLVED = "RELATIONAL_IDENTITY_UNRESOLVED"
     UNSUPPORTED_TARGET_FIELD = "UNSUPPORTED_TARGET_FIELD"
     SOURCE_EVIDENCE_UNAVAILABLE = "SOURCE_EVIDENCE_UNAVAILABLE"
     ODOO_PINNED_SELECTION = "ODOO_PINNED_SELECTION"
     ODOO_SCHEMA_CHANGED = "ODOO_SCHEMA_CHANGED"
+
+
+MAX_MATCHING_IDENTITY_CHOICE_PAGE_SIZE = 100
+
+
+class MatchingIdentityChoiceCause(StrEnum):
+    """Closed protected vocabulary for an unresolved relational key."""
+
+    AMBIGUOUS_TARGET = "ambiguous_target"
+    MISSING_TARGET = "missing_target"
+    AMBIGUOUS_INCOMING = "ambiguous_incoming"
+    MISSING_INCOMING = "missing_incoming"
+    MISSING_TARGET_AND_INCOMING = "missing_target_and_incoming"
+
+
+@dataclass(frozen=True, slots=True)
+class MatchingIdentityChoice:
+    """One protected unresolved choice from a relational identity check."""
+
+    ordinal: int
+    dataset_id: str
+    target_field: str
+    related_model: str
+    related_fields: tuple[str, ...]
+    key: tuple[str, ...]
+    cause: MatchingIdentityChoiceCause
+    target_match_count: int
+    incoming_match_count: int
+
+    def __post_init__(self) -> None:
+        if self.ordinal < 0:
+            raise WorkspaceError("Matching identity choice position is invalid")
+        for attribute, value, label, maximum in (
+            ("dataset_id", self.dataset_id, "dataset", 500),
+            ("target_field", self.target_field, "target field", 200),
+            ("related_model", self.related_model, "related model", 200),
+        ):
+            cleaned = value.strip()
+            if not cleaned or len(cleaned) > maximum:
+                raise WorkspaceError(f"Matching identity choice {label} is invalid")
+            object.__setattr__(self, attribute, cleaned)
+        related_fields = tuple(item.strip() for item in self.related_fields)
+        if (
+            not related_fields
+            or len(related_fields) != len(set(related_fields))
+            or any(not item or len(item) > 200 for item in related_fields)
+        ):
+            raise WorkspaceError("Matching identity choice fields are invalid")
+        if (
+            len(self.key) != len(related_fields)
+            or any(not isinstance(item, str) or len(item) > 4_096 for item in self.key)
+        ):
+            raise WorkspaceError("Matching identity choice key is invalid")
+        if self.target_match_count < 0 or self.incoming_match_count < 0:
+            raise WorkspaceError("Matching identity choice counts are invalid")
+        object.__setattr__(self, "related_fields", related_fields)
+        object.__setattr__(self, "cause", MatchingIdentityChoiceCause(self.cause))
+
+    @classmethod
+    def from_protected_dict(
+        cls,
+        payload: Mapping[str, object],
+        *,
+        ordinal: int,
+    ) -> MatchingIdentityChoice:
+        """Validate one value-bearing row from the protected snapshot."""
+
+        expected = {
+            "dataset_id",
+            "target_field",
+            "related_model",
+            "related_fields",
+            "key",
+            "cause",
+            "target_match_count",
+            "incoming_match_count",
+        }
+        if set(payload) != expected:
+            raise WorkspaceError("Matching identity choice fields are invalid")
+        dataset_id = payload["dataset_id"]
+        target_field = payload["target_field"]
+        related_model = payload["related_model"]
+        cause = payload["cause"]
+        related_fields = payload["related_fields"]
+        key = payload["key"]
+        if (
+            not isinstance(dataset_id, str)
+            or not isinstance(target_field, str)
+            or not isinstance(related_model, str)
+            or not isinstance(cause, str)
+            or not isinstance(related_fields, list)
+            or not all(isinstance(item, str) for item in related_fields)
+            or not isinstance(key, list)
+            or not all(isinstance(item, str) for item in key)
+            or type(payload["target_match_count"]) is not int
+            or type(payload["incoming_match_count"]) is not int
+        ):
+            raise WorkspaceError("Matching identity choice values are invalid")
+        return cls(
+            ordinal=ordinal,
+            dataset_id=dataset_id,
+            target_field=target_field,
+            related_model=related_model,
+            related_fields=tuple(related_fields),
+            key=tuple(key),
+            cause=MatchingIdentityChoiceCause(cause),
+            target_match_count=int(payload["target_match_count"]),
+            incoming_match_count=int(payload["incoming_match_count"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class MatchingIdentityChoiceFilter:
+    """Allowlisted filters for a protected unresolved-choice page."""
+
+    dataset_id: str = ""
+    target_field: str = ""
+    cause: str = ""
+
+    def __post_init__(self) -> None:
+        if self.cause:
+            MatchingIdentityChoiceCause(self.cause)
+        if len(self.dataset_id) > 500 or len(self.target_field) > 200:
+            raise WorkspaceError("Matching identity choice filter is too long")
+
+
+@dataclass(frozen=True, slots=True)
+class MatchingIdentityChoicePage:
+    """One bounded page of protected unresolved relational identity keys."""
+
+    rows: tuple[MatchingIdentityChoice, ...]
+    matching_count: int
+    start_position: int
+    end_position: int
+    previous_before: int | None
+    next_after: int | None
 
 
 def _matching_count(payload: dict[str, object], key: str) -> int:

@@ -53,8 +53,23 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
                 <option value="accounts">Customer accounts</option>
                 <option value="parties">Party details</option>
               </select>
-              <select data-group-primary-key>
-                <option value="accounts|account" selected>Account</option>
+              <select data-group-primary-key data-test-primary-key="current">
+                <option value="">Choose a field</option>
+                <optgroup label="Customer accounts" data-group-primary-key-dataset="accounts">
+                  <option value="accounts|account" data-dataset-id="accounts" selected>Customer accounts &middot; Account</option>
+                </optgroup>
+                <optgroup label="Party details" data-group-primary-key-dataset="parties">
+                  <option value="parties|party" data-dataset-id="parties">Party details &middot; Party</option>
+                </optgroup>
+              </select>
+              <select data-group-primary-key data-test-primary-key="retained-mismatch">
+                <option value="">Not used</option>
+                <optgroup label="Customer accounts" data-group-primary-key-dataset="accounts">
+                  <option value="accounts|account" data-dataset-id="accounts">Customer accounts &middot; Account</option>
+                </optgroup>
+                <optgroup label="Party details" data-group-primary-key-dataset="parties">
+                  <option value="parties|party" data-dataset-id="parties" selected>Party details &middot; Party</option>
+                </optgroup>
               </select>
               <input type="checkbox" name="group_addition" value="1" data-group-addition data-dataset-id="parties">
               <select data-group-addition-key data-dataset-id="parties">
@@ -248,6 +263,44 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
         )
         self.assertEqual(visible_empty.count(), 2)
         self.assertTrue(visible_empty.first.is_enabled())
+        self.assertEqual(self.errors, [])
+
+    def test_grouped_join_limits_primary_keys_to_the_selected_primary_table(self):
+        self.page.goto(
+            "http://127.0.0.1:12345/derived-entities#combine-source-tables"
+        )
+        form = self.page.locator("[data-exact-join-group-form]")
+        primary = form.locator("[data-group-primary-dataset]")
+        primary_key = form.locator('[data-test-primary-key="current"]')
+        retained_mismatch = form.locator(
+            '[data-test-primary-key="retained-mismatch"]'
+        )
+        account_option = primary_key.locator('[value="accounts|account"]')
+        party_option = primary_key.locator('[value="parties|party"]')
+
+        self.assertEqual(primary_key.input_value(), "accounts|account")
+        self.assertEqual(retained_mismatch.input_value(), "")
+        self.assertFalse(account_option.is_disabled())
+        self.assertTrue(party_option.is_disabled())
+        self.assertEqual(
+            primary_key.locator("option:checked").inner_text(),
+            "Customer accounts · Account",
+        )
+
+        primary.select_option("parties")
+        self.assertEqual(primary_key.input_value(), "")
+        self.assertTrue(account_option.is_disabled())
+        self.assertFalse(party_option.is_disabled())
+
+        primary_key.select_option("parties|party")
+        self.assertEqual(primary_key.input_value(), "parties|party")
+        self.assertEqual(
+            primary_key.locator("option:checked").inner_text(),
+            "Party details · Party",
+        )
+
+        primary.select_option("accounts")
+        self.assertEqual(primary_key.input_value(), "")
         self.assertEqual(self.errors, [])
 
     def test_exact_join_summary_stacks_at_narrow_width(self):

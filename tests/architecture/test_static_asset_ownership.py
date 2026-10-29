@@ -20,6 +20,7 @@ class StaticAssetOwnershipTests(unittest.TestCase):
             "/components.css",
             "/workflow-pages.css",
             "/concept-help.css",
+            "/user-help.css",
         )
 
         positions = [template.index(style) for style in styles]
@@ -27,6 +28,7 @@ class StaticAssetOwnershipTests(unittest.TestCase):
         self.assertIn("/app.js", template)
         self.assertIn("/server-recovery.js", template)
         self.assertIn("/operation-state.js", template)
+        self.assertIn("/user-help.js", template)
         self.assertLess(
             template.index("/app.js"),
             template.index("/server-recovery.js"),

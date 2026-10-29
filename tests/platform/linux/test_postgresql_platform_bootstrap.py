@@ -145,6 +145,7 @@ class PostgreSQLPlatformBootstrapLiveTests(unittest.TestCase):
                 "occurred_at",
                 "principal_hint_digest",
                 "source_digest",
+                "actor_administrator_id",
             ),
         )
 

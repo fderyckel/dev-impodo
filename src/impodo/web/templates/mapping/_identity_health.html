@@ -55,6 +55,9 @@
             {% endif %}
           {% endif %}
 
+          {% if item.review_choices_url %}
+            <a class="button primary compact" href="{{ item.review_choices_url }}">Review unresolved identity choices</a>
+          {% endif %}
           <a class="button secondary compact" href="{{ item.edit_url }}">Review matching rule</a>
         </article>
       {% endfor %}

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import unittest
 from dataclasses import replace
 from datetime import UTC, datetime
-import unittest
 from uuid import uuid4
 
 from impodo.application.workspace.mapping.order_service import MatchingOrderService
@@ -20,17 +20,26 @@ from impodo.domain.mapping.contracts import (
 )
 from impodo.domain.matching_order import (
     MatchingIdentityCheckStatus,
+    MatchingIdentityChoiceFilter,
     MatchingIdentityNotCheckableReason,
     MatchingOrderCheckStatus,
     MatchingOrderRelationshipOutcome,
 )
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
+from impodo.domain.relationship_health import RelationshipHealthNotCheckableReason
 from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
     SchemaGovernance,
 )
-from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.domain.shared.access import (
+    LOCAL_ACTOR,
+    Actor,
+    ActorIdentity,
+    AuthorizationError,
+    Capability,
+    CapabilityAuthorizationPolicy,
+)
 from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
@@ -111,6 +120,35 @@ class _Repository:
 
 
 class MatchingOrderLiveCheckTests(unittest.TestCase):
+    def test_identity_choice_review_requires_protected_evidence_capability(
+        self,
+    ) -> None:
+        evidence = _evidence()
+        service = MatchingOrderService(
+            _Repository(),
+            CapabilityAuthorizationPolicy(),
+        )
+        mapping_only_actor = Actor(
+            identity=ActorIdentity(
+                issuer="test",
+                subject_id="mapping-only",
+                display_name="Mapping operator",
+            ),
+            capabilities=frozenset({Capability.MAPPING_EDIT}),
+        )
+
+        with self.assertRaises(AuthorizationError):
+            service.identity_choice_review_page(
+                evidence.workspace_id,
+                evidence.selection,
+                evidence.schema,
+                evidence.governance,
+                evidence.draft,
+                MatchingIdentityChoiceFilter(),
+                page_size=100,
+                actor=mapping_only_actor,
+            )
+
     def test_bounded_plan_removes_edge_only_when_all_keys_are_in_odoo(self) -> None:
         evidence = _evidence()
         keys = _Keys(
@@ -184,7 +222,7 @@ class MatchingOrderLiveCheckTests(unittest.TestCase):
             plan.record_requests[0].domain,
             ("|", ["ref", "=ilike", "P001"], ["ref", "=ilike", "P002"]),
         )
-        self.assertEqual(len(keys.calls), 3)
+        self.assertEqual(len(keys.calls), 2)
         self.assertEqual(
             repository.check.relationship_results[0].outcome,
             MatchingOrderRelationshipOutcome.TARGET,
@@ -218,6 +256,681 @@ class MatchingOrderLiveCheckTests(unittest.TestCase):
         self.assertNotIn('"id":71', repository.check.to_json())
         self.assertIn("P001", repository.protected)
         self.assertIn('"id":71', repository.protected)
+
+    def test_relational_identity_scope_is_proved_with_grouped_reads(self) -> None:
+        evidence = _evidence()
+        bom, article = evidence.draft.definition.datasets
+        relationship = bom.relationships[0]
+        scoped_bom = replace(
+            bom,
+            source_identity_column_keys=("column:bom", "column:article"),
+            target_scope=(
+                IdentityComponentMapping(
+                    source_column_keys=("column:article",),
+                    target_fields=("product_tmpl_id",),
+                    resolver=relationship.resolver,
+                ),
+            ),
+        )
+        evidence.draft = replace(
+            evidence.draft,
+            definition=replace(
+                evidence.draft.definition,
+                datasets=(scoped_bom, article),
+            ),
+        )
+        evidence.governance = replace(
+            evidence.governance,
+            business_keys=(
+                *evidence.governance.business_keys,
+                BusinessKeyDefinition(
+                    key_id="bom:code-product",
+                    model="mrp.bom",
+                    key_fields=("code",),
+                    scope_fields=("product_tmpl_id",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+        )
+        evidence.draft = replace(
+            evidence.draft,
+            definition=replace(
+                evidence.draft.definition,
+                schema_hash=evidence.governance.content_hash,
+            ),
+        )
+        keys = _Keys(
+            {
+                (
+                    "dataset:bom",
+                    ("column:bom", "column:article"),
+                ): (("B001", "P001"), ("B002", "P002")),
+                ("dataset:article", ("column:article-code",)): (
+                    ("P001",),
+                    ("P002",),
+                ),
+            }
+        )
+        repository = _Repository()
+        service = MatchingOrderService(
+            repository,
+            CapabilityAuthorizationPolicy(),
+            keys,
+        )
+        local = service.recommend(
+            evidence.selection,
+            evidence.schema,
+            evidence.draft.definition,
+        )
+        prepared = service.prepare_live_check(
+            evidence.workspace_id,
+            evidence.selection,
+            evidence.schema,
+            evidence.governance,
+            evidence.draft,
+            local,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(len(keys.calls), 2)
+        self.assertEqual(
+            {item.model: item.fields for item in prepared.requirements.metadata_requests},
+            {
+                "mrp.bom": ("code", "product_tmpl_id"),
+                "product.template": ("ref",),
+            },
+        )
+        bom_request = next(
+            item
+            for item in prepared.requirements.record_requests
+            if item.model == "mrp.bom"
+        )
+        self.assertIn(
+            ["product_tmpl_id.ref", "=", "P001"],
+            bom_request.domain,
+        )
+
+        def reader(_requirements):
+            metadata = MetadataSnapshot(
+                fingerprint=evidence.fingerprint,
+                models={
+                    "mrp.bom": ModelMetadata(
+                        model="mrp.bom",
+                        description="BOM",
+                        fields={
+                            "code": FieldMetadata(name="code", type="char"),
+                            "product_tmpl_id": FieldMetadata(
+                                name="product_tmpl_id",
+                                type="many2one",
+                                relation="product.template",
+                            ),
+                        },
+                    ),
+                    "product.template": ModelMetadata(
+                        model="product.template",
+                        description="Product",
+                        fields={"ref": FieldMetadata(name="ref", type="char")},
+                    ),
+                },
+            )
+            records = RecordSnapshot(
+                fingerprint=evidence.fingerprint,
+                records={
+                    "mrp.bom": (
+                        TargetRecord(
+                            "mrp.bom",
+                            81,
+                            {"code": "B001", "product_tmpl_id": [71, "P001"]},
+                        ),
+                    ),
+                    "product.template": (
+                        TargetRecord("product.template", 71, {"ref": "P001"}),
+                    ),
+                },
+                requested_fields={
+                    "mrp.bom": ("code", "product_tmpl_id"),
+                    "product.template": ("ref",),
+                },
+            )
+            return metadata, records
+
+        service._run_live_check(prepared, reader)
+
+        results = {
+            item.dataset_id: item for item in repository.check.identity_results
+        }
+        self.assertEqual(
+            results["dataset:bom"].status,
+            MatchingIdentityCheckStatus.CHECKED,
+        )
+        self.assertEqual(results["dataset:bom"].expected_existing_count, 1)
+        self.assertEqual(results["dataset:bom"].expected_new_count, 1)
+        self.assertEqual(results["dataset:bom"].blocked_count, 0)
+        self.assertNotIn("P001", repository.check.to_json())
+        self.assertIn('"target_field":"product_tmpl_id"', repository.protected)
+        self.assertIn('"unresolved_identity_choices":[]', repository.protected)
+
+        bom_probe = next(
+            item
+            for item in prepared.identity_probes
+            if item.dataset_id == "dataset:bom"
+        )
+        target_only_probe = replace(
+            bom_probe,
+            relational_components=(
+                replace(
+                    bom_probe.relational_components[0],
+                    resolver_origin=ResolverOrigin.TARGET_CATALOG,
+                ),
+            ),
+        )
+        service._run_live_check(
+            replace(
+                prepared,
+                check_id=str(uuid4()),
+                identity_probes=tuple(
+                    target_only_probe
+                    if item.dataset_id == target_only_probe.dataset_id
+                    else item
+                    for item in prepared.identity_probes
+                ),
+            ),
+            reader,
+        )
+
+        unresolved = {
+            item.dataset_id: item for item in repository.check.identity_results
+        }
+        self.assertEqual(
+            unresolved["dataset:bom"].not_checkable_reason,
+            MatchingIdentityNotCheckableReason.RELATIONAL_IDENTITY_UNRESOLVED,
+        )
+        self.assertIn('"cause":"missing_target"', repository.protected)
+        self.assertIn('"key":["P002"]', repository.protected)
+
+    def test_nested_identity_and_many2one_health_use_grouped_bottom_up_reads(
+        self,
+    ) -> None:
+        evidence = _evidence()
+        original_bom, original_article = evidence.draft.definition.datasets
+        company_source = _source(
+            "dataset:company",
+            "companies",
+            ("column:company-code",),
+        )
+        article_source = _source(
+            "dataset:article",
+            "articles",
+            ("column:article-code", "column:article-company"),
+        )
+        bom_source = _source(
+            "dataset:bom",
+            "boms",
+            ("column:bom", "column:article", "column:bom-company"),
+        )
+        evidence.selection = replace(
+            evidence.selection,
+            datasets=(bom_source, article_source, company_source),
+        )
+        company_field = SchemaField(
+            name="company_id",
+            label="Company",
+            type="many2one",
+            required=False,
+            readonly=False,
+            relation="res.company",
+            relation_field=None,
+            selection=(),
+        )
+        company_code = SchemaField(
+            name="code",
+            label="Code",
+            type="char",
+            required=False,
+            readonly=False,
+            relation=None,
+            relation_field=None,
+            selection=(),
+        )
+        product_model, bom_model = evidence.schema.models
+        evidence.schema = replace(
+            evidence.schema,
+            models=(
+                replace(
+                    product_model,
+                    fields=(*product_model.fields, company_field),
+                ),
+                bom_model,
+                SchemaModel("res.company", "Company", (company_code,)),
+            ),
+        )
+        company_mapping = DatasetMapping(
+            dataset_id=company_source.dataset_id,
+            target_model="res.company",
+            source_identity_column_keys=("column:company-code",),
+            target_identity=(
+                IdentityComponentMapping(
+                    source_column_keys=("column:company-code",),
+                    target_fields=("code",),
+                ),
+            ),
+        )
+        company_resolver = RelationshipResolver(
+            origin=ResolverOrigin.TARGET_CATALOG,
+            model="res.company",
+            key_mappings=(
+                ReferenceKeyMapping("column:article-company", "code"),
+            ),
+        )
+        article_mapping = replace(
+            original_article,
+            source_identity_column_keys=(
+                "column:article-code",
+                "column:article-company",
+            ),
+            target_scope=(
+                IdentityComponentMapping(
+                    source_column_keys=("column:article-company",),
+                    target_fields=("company_id",),
+                    resolver=company_resolver,
+                ),
+            ),
+        )
+        product_resolver = RelationshipResolver(
+            origin=ResolverOrigin.TARGET_THEN_DATASET,
+            dataset_id=article_source.dataset_id,
+            model="product.template",
+            key_mappings=(
+                ReferenceKeyMapping("column:article", "ref"),
+            ),
+            scope_mappings=(
+                ReferenceKeyMapping("column:bom-company", "company_id"),
+            ),
+        )
+        bom_mapping = replace(
+            original_bom,
+            source_identity_column_keys=(
+                "column:bom",
+                "column:article",
+                "column:bom-company",
+            ),
+            target_scope=(
+                IdentityComponentMapping(
+                    source_column_keys=(
+                        "column:article",
+                        "column:bom-company",
+                    ),
+                    target_fields=("product_tmpl_id",),
+                    resolver=product_resolver,
+                ),
+            ),
+            relationships=(
+                RelationshipMapping(
+                    target_field="product_tmpl_id",
+                    kind="many2one",
+                    source_column_keys=(
+                        "column:article",
+                        "column:bom-company",
+                    ),
+                    resolver=product_resolver,
+                    required=True,
+                ),
+            ),
+        )
+        evidence.governance = replace(
+            evidence.governance,
+            permitted_models=("mrp.bom", "product.template", "res.company"),
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="company:code",
+                    model="res.company",
+                    key_fields=("code",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+                BusinessKeyDefinition(
+                    key_id="product:ref-company",
+                    model="product.template",
+                    key_fields=("ref",),
+                    scope_fields=("company_id",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+                BusinessKeyDefinition(
+                    key_id="bom:code-product",
+                    model="mrp.bom",
+                    key_fields=("code",),
+                    scope_fields=("product_tmpl_id",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+        )
+        evidence.draft = replace(
+            evidence.draft,
+            definition=replace(
+                evidence.draft.definition,
+                schema_hash=evidence.governance.content_hash,
+                datasets=(bom_mapping, article_mapping, company_mapping),
+            ),
+        )
+        nested_row_count = 1_000
+        nested_bom_rows = tuple(
+            (f"B{index:04d}", f"P{index:04d}", "BE")
+            for index in range(nested_row_count)
+        )
+        nested_article_rows = tuple(
+            (f"P{index:04d}", "BE") for index in range(nested_row_count)
+        )
+        keys = _Keys(
+            {
+                (
+                    "dataset:bom",
+                    ("column:bom", "column:article", "column:bom-company"),
+                ): nested_bom_rows,
+                (
+                    "dataset:article",
+                    ("column:article-code", "column:article-company"),
+                ): nested_article_rows,
+                ("dataset:company", ("column:company-code",)): (("BE",),),
+            }
+        )
+        repository = _Repository()
+        service = MatchingOrderService(
+            repository,
+            CapabilityAuthorizationPolicy(),
+            keys,
+        )
+        local = service.recommend(
+            evidence.selection,
+            evidence.schema,
+            evidence.draft.definition,
+        )
+        prepared = service.prepare_live_check(
+            evidence.workspace_id,
+            evidence.selection,
+            evidence.schema,
+            evidence.governance,
+            evidence.draft,
+            local,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(len(keys.calls), 3)
+        self.assertEqual(
+            {item.model: item.fields for item in prepared.requirements.metadata_requests},
+            {
+                "mrp.bom": ("code", "product_tmpl_id"),
+                "product.template": ("company_id", "ref"),
+                "res.company": ("code",),
+            },
+        )
+        self.assertLess(len(prepared.requirements.record_requests), 30)
+        product_request = next(
+            item
+            for item in prepared.requirements.record_requests
+            if item.model == "product.template"
+            and any("company_id.code" in str(term) for term in item.domain)
+        )
+        self.assertIn("company_id.code", str(product_request.domain))
+
+        def reader(
+            _requirements,
+            *,
+            include_company=True,
+            include_products=True,
+            company_code_value="BE",
+        ):
+            metadata = MetadataSnapshot(
+                fingerprint=evidence.fingerprint,
+                models={
+                    "mrp.bom": ModelMetadata(
+                        model="mrp.bom",
+                        description="BOM",
+                        fields={
+                            "code": FieldMetadata(name="code", type="char"),
+                            "product_tmpl_id": FieldMetadata(
+                                name="product_tmpl_id",
+                                type="many2one",
+                                relation="product.template",
+                            ),
+                        },
+                    ),
+                    "product.template": ModelMetadata(
+                        model="product.template",
+                        description="Product",
+                        fields={
+                            "company_id": FieldMetadata(
+                                name="company_id",
+                                type="many2one",
+                                relation="res.company",
+                            ),
+                            "ref": FieldMetadata(name="ref", type="char"),
+                        },
+                    ),
+                    "res.company": ModelMetadata(
+                        model="res.company",
+                        description="Company",
+                        fields={"code": FieldMetadata(name="code", type="char")},
+                    ),
+                },
+            )
+            records = RecordSnapshot(
+                fingerprint=evidence.fingerprint,
+                records={
+                    "mrp.bom": (
+                        TargetRecord(
+                            "mrp.bom",
+                            81,
+                            {"code": "B0000", "product_tmpl_id": [71, "P0000"]},
+                        ),
+                    ),
+                    "product.template": (
+                        tuple(
+                            TargetRecord(
+                                "product.template",
+                                71 + index,
+                                {
+                                    "ref": f"P{index:04d}",
+                                    "company_id": [91, company_code_value],
+                                },
+                            )
+                            for index in range(nested_row_count)
+                        )
+                        if include_products
+                        else ()
+                    ),
+                    "res.company": (
+                        (
+                            TargetRecord(
+                                "res.company",
+                                91,
+                                {"code": company_code_value},
+                            ),
+                        )
+                        if include_company
+                        else ()
+                    ),
+                },
+                requested_fields={
+                    "mrp.bom": ("code", "product_tmpl_id"),
+                    "product.template": ("company_id", "ref"),
+                    "res.company": ("code",),
+                },
+            )
+            return metadata, records
+
+        service._run_live_check(prepared, reader)
+        results = {
+            item.dataset_id: item for item in repository.check.identity_results
+        }
+        self.assertEqual(
+            results["dataset:bom"].status,
+            MatchingIdentityCheckStatus.CHECKED,
+        )
+        self.assertEqual(results["dataset:bom"].expected_existing_count, 1)
+        self.assertEqual(
+            results["dataset:bom"].expected_new_count,
+            nested_row_count - 1,
+        )
+        relationship_health = repository.check.relationship_health_results[0]
+        self.assertTrue(relationship_health.ready)
+        self.assertEqual(relationship_health.target_count, nested_row_count)
+        self.assertEqual(relationship_health.incoming_count, 0)
+
+        service._run_live_check(
+            replace(prepared, check_id=str(uuid4())),
+            lambda requirements: reader(requirements, include_products=False),
+        )
+        incoming_health = repository.check.relationship_health_results[0]
+        self.assertTrue(incoming_health.ready)
+        self.assertEqual(incoming_health.target_count, 0)
+        self.assertEqual(incoming_health.incoming_count, nested_row_count)
+
+        service._run_live_check(
+            replace(prepared, check_id=str(uuid4())),
+            lambda requirements: reader(
+                requirements,
+                company_code_value="be",
+            ),
+        )
+        case_health = repository.check.relationship_health_results[0]
+        self.assertFalse(case_health.ready)
+        self.assertEqual(case_health.case_mismatch_count, nested_row_count)
+
+        service._run_live_check(
+            replace(prepared, check_id=str(uuid4())),
+            lambda requirements: reader(requirements, include_company=False),
+        )
+        unresolved = {
+            item.dataset_id: item for item in repository.check.identity_results
+        }
+        self.assertEqual(
+            unresolved["dataset:bom"].not_checkable_reason,
+            MatchingIdentityNotCheckableReason.RELATIONAL_IDENTITY_UNRESOLVED,
+        )
+        missing_health = repository.check.relationship_health_results[0]
+        self.assertFalse(missing_health.ready)
+        self.assertEqual(missing_health.missing_count, nested_row_count)
+        self.assertIn(
+            '"target_field":"product_tmpl_id.company_id"',
+            repository.protected,
+        )
+        self.assertIn('"related_model":"res.company"', repository.protected)
+
+    def test_recursive_identity_cycle_stops_before_source_or_odoo_reads(self) -> None:
+        evidence = _evidence()
+        bom, article = evidence.draft.definition.datasets
+        product_model, bom_model = evidence.schema.models
+        parent_field = SchemaField(
+            name="parent_id",
+            label="Parent product",
+            type="many2one",
+            required=False,
+            readonly=False,
+            relation="product.template",
+            relation_field=None,
+            selection=(),
+        )
+        evidence.schema = replace(
+            evidence.schema,
+            models=(
+                replace(
+                    product_model,
+                    fields=(*product_model.fields, parent_field),
+                ),
+                bom_model,
+            ),
+        )
+        recursive_resolver = RelationshipResolver(
+            origin=ResolverOrigin.TARGET_CATALOG,
+            model="product.template",
+            key_mappings=(
+                ReferenceKeyMapping("column:article-code", "ref"),
+            ),
+            scope_mappings=(
+                ReferenceKeyMapping("column:article-code", "parent_id"),
+            ),
+        )
+        article = replace(
+            article,
+            target_scope=(
+                IdentityComponentMapping(
+                    source_column_keys=(
+                        "column:article-code",
+                        "column:article-code",
+                    ),
+                    target_fields=("parent_id",),
+                    resolver=recursive_resolver,
+                ),
+            ),
+        )
+        evidence.governance = replace(
+            evidence.governance,
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="product:recursive",
+                    model="product.template",
+                    key_fields=("ref",),
+                    scope_fields=("parent_id",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+        )
+        evidence.draft = replace(
+            evidence.draft,
+            definition=replace(
+                evidence.draft.definition,
+                schema_hash=evidence.governance.content_hash,
+                datasets=(
+                    replace(
+                        bom,
+                        relationships=(
+                            RelationshipMapping(
+                                target_field="product_tmpl_id",
+                                kind="many2one",
+                                source_column_keys=("column:article",),
+                                resolver=recursive_resolver,
+                            ),
+                        ),
+                    ),
+                    article,
+                ),
+            ),
+        )
+        keys = _Keys({})
+        service = MatchingOrderService(
+            _Repository(),
+            CapabilityAuthorizationPolicy(),
+            keys,
+        )
+        local = service.recommend(
+            evidence.selection,
+            evidence.schema,
+            evidence.draft.definition,
+        )
+        prepared = service.prepare_live_check(
+            evidence.workspace_id,
+            evidence.selection,
+            evidence.schema,
+            evidence.governance,
+            evidence.draft,
+            local,
+            actor=LOCAL_ACTOR,
+        )
+
+        article_result = next(
+            item
+            for item in prepared.identity_results
+            if item.dataset_id == "dataset:article"
+        )
+        self.assertEqual(
+            article_result.not_checkable_reason,
+            MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY,
+        )
+        self.assertEqual(
+            prepared.relationship_health_results[0].not_checkable_reason,
+            RelationshipHealthNotCheckableReason.RELATED_IDENTITY_UNAVAILABLE,
+        )
+        self.assertEqual(keys.calls, [])
+        self.assertEqual(prepared.requirements.record_requests, ())
 
     def test_schema_change_stops_before_relationship_classification(self) -> None:
         evidence = _evidence()

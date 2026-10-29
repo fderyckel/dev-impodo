@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+  {% from "_user_help.html" import user_help_link with context %}
   {% macro app_icon(name, class_name="") -%}
     <svg class="ui-icon {{ class_name }}" aria-hidden="true" focusable="false">
       <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#{{ name }}"></use>
@@ -9,6 +10,7 @@
   {% set navigation = workspace_navigation if workspace_navigation is defined else none %}
   {% set projects_active = not navigation and current_path == "/projects" %}
   {% set concepts_active = current_path == "/concepts" %}
+  {% set help_active = current_path == "/help" %}
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -19,10 +21,12 @@
     <link rel="stylesheet" href="{{ url_for('static', path='/components.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', path='/workflow-pages.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', path='/concept-help.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='/user-help.css') }}">
     {% block page_styles %}{% endblock %}
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
     <script src="{{ url_for('static', path='/server-recovery.js') }}" defer></script>
     <script src="{{ url_for('static', path='/operation-state.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/user-help.js') }}" defer></script>
     {% block page_scripts %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
@@ -82,8 +86,18 @@
             title="How Impodo organizes your migration"
             {% if concepts_active %}aria-current="page"{% endif %}
           >
-            {{ app_icon("question-circle") }}
+            {{ app_icon("info-circle") }}
             <span class="nav-label">Concepts</span>
+          </a>
+
+          <a
+            class="sidebar-link{% if help_active %} active{% endif %}"
+            href="/help"
+            title="Help and user guides"
+            {% if help_active %}aria-current="page"{% endif %}
+          >
+            {{ app_icon("question-circle") }}
+            <span class="nav-label">Help and guides</span>
           </a>
 
           {% if navigation %}
@@ -315,6 +329,11 @@
                   <code>{{ support_error }}</code>
                 </details>
               {% endif %}
+            </div>
+          {% endif %}
+          {% if page_help_target %}
+            <div class="page-help-fallback" data-page-help-slot>
+              {{ user_help_link(page_help_target, "page-help-link") }}
             </div>
           {% endif %}
           {% block content %}{% endblock %}

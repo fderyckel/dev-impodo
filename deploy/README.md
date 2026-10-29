@@ -10,9 +10,11 @@ status: partial
 
 This rehearsal lets a developer find image, configuration, secret-mount,
 migration, health, network, and persistence defects before Impodo is installed
-on a remote Debian or Ubuntu host. It starts the lifecycle-only server and can
-run the opt-in first-operator bootstrap command. It does not enable login,
-Projects, Organizations, migration workflows, workers, or Odoo connectivity.
+on a remote Debian or Ubuntu host. It starts the shared-server health and
+Platform Administrator browser routes and can run the opt-in first-operator
+bootstrap command. The Platform Administrator can sign in, list Organizations,
+create an Organization, and sign out. Customer login, Projects, migration
+workflows, workers, and Odoo connectivity remain unavailable.
 
 The current delivery mode is a local trial. No remote Impodo server is
 allocated. This runbook therefore supports repeatable local development; it is
@@ -43,10 +45,10 @@ development evidence; it does not qualify a supported Linux host.
 Create one internally consistent secret set:
 
 ```sh
-.venv/bin/python deploy/local_rehearsal.py
+.tools/uv/uv run --frozen python deploy/local_rehearsal.py
 ```
 
-The command writes six files below the ignored `deploy/.local/secrets`
+The command writes seven files below the ignored `deploy/.local/secrets`
 directory. It prints no secret value and refuses to replace an existing set.
 Remove that directory deliberately before generating a new empty rehearsal.
 
@@ -55,7 +57,17 @@ fictional Platform Administrator password without replacing its database
 credentials:
 
 ```sh
-.venv/bin/python deploy/local_rehearsal.py --platform-admin-only
+.tools/uv/uv run --frozen python deploy/local_rehearsal.py --platform-admin-only
+docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml run --rm --no-deps volume-provisioner
+```
+
+If an existing rehearsal has the six-file set that includes the Platform
+Administrator password, add only the deployment-keyed identifier digest
+secret. This preserves every database credential and the existing
+administrator password:
+
+```sh
+.tools/uv/uv run --frozen python deploy/local_rehearsal.py --identifier-digest-key-only
 docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml run --rm --no-deps volume-provisioner
 ```
 
@@ -70,8 +82,9 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 ```
 
 The topology initializes PostgreSQL, creates the fixed runtime and migration
-roles, applies the current migration suffix through schema version `7`, starts
-the lifecycle-only web process, and then starts the loopback TLS proxy. The
+roles, applies the current migration suffix through schema version `10`, starts
+the authenticated Platform administration web process, and then starts the
+loopback TLS proxy. The
 worker remains disabled behind the `worker` profile because its durable
 runtime is not implemented. The first-operator command remains disabled behind
 the `admin` profile until a developer invokes it explicitly. The
@@ -92,7 +105,7 @@ The two responses contain only generic status. The service list must show no
 published web, worker, or PostgreSQL port.
 
 Run the migration command twice after the initial start. Both runs must report
-schema version `7` and apply no new migration:
+schema version `10` and apply no new migration:
 
 ```sh
 docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml run --rm migrate
@@ -112,10 +125,12 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 ```
 
 The first run must report completion. Repeating the command must refuse with
-exit code `78` because one active Platform Administrator now exists. The
-administrator cannot log in through HTTP yet. The password-verification
-foundation exists, but a browser login route, sessions, Organizations, and
-the administration browser are later Phase 4 work.
+exit code `78` because one active Platform Administrator now exists. Open
+`https://localhost:8443/login` and sign in with the fictional email and the
+generated Platform Administrator password. The browser can list and create
+Organizations, and **Sign out** revokes the exact current session. The
+customer-user list, activation and reset forms, customer session actions, and
+security-history pages remain later Work Package 4.5 increments.
 
 Confirm that the application runs as the fixed unprivileged identity and that
 its application tree is not writable. Then add a fictional marker to the
@@ -148,7 +163,7 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml exec web test -r /var/lib/impodo/artifacts/.local-rehearsal-marker
 ```
 
-The final migration result must still report schema version `7` with no newly
+The final migration result must still report schema version `10` with no newly
 applied migration, and the final marker check must pass. Together these prove
 that the PostgreSQL and artifact volumes survived container recreation. No
 customer file belongs in this rehearsal.

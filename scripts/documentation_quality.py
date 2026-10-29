@@ -21,6 +21,11 @@ from urllib.parse import unquote
 
 import yaml
 
+from impodo.web.presenters.user_help import (
+    PAGE_HELP_ID_BY_TEMPLATE,
+    USER_HELP_BY_ID,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = Path("docs/workflow.yml")
@@ -446,6 +451,109 @@ def _validate_user_screenshot_coverage(repo_root: Path) -> list[DocumentationIss
     return issues
 
 
+def _validate_user_help_coverage(
+    repo_root: Path,
+    stages: Sequence[Mapping[str, object]],
+) -> list[DocumentationIssue]:
+    """Keep every user guide reachable from its owning browser context."""
+
+    issues: list[DocumentationIssue] = []
+    manifest_path = "docs/workflow.yml"
+    actual_documents = {
+        path.relative_to(repo_root).as_posix()
+        for path in (repo_root / "docs/user").rglob("*.md")
+        if path.is_file()
+    }
+    registered_documents = {
+        target.document_path for target in USER_HELP_BY_ID.values()
+    }
+    for path in sorted(actual_documents - registered_documents):
+        issues.append(
+            DocumentationIssue(path, "user guide has no in-product help target")
+        )
+    for path in sorted(registered_documents - actual_documents):
+        issues.append(
+            DocumentationIssue(
+                "src/impodo/web/presenters/user_help.py",
+                f"help target references missing user guide {path!r}",
+            )
+        )
+
+    for target in USER_HELP_BY_ID.values():
+        path = repo_root / target.document_path
+        if target.fragment and path.is_file():
+            if target.fragment not in _heading_anchors(path):
+                issues.append(
+                    DocumentationIssue(
+                        target.document_path,
+                        f"help target has missing Markdown anchor {target.fragment!r}",
+                    )
+                )
+
+    for template_name, help_id in PAGE_HELP_ID_BY_TEMPLATE.items():
+        if help_id not in USER_HELP_BY_ID:
+            issues.append(
+                DocumentationIssue(
+                    "src/impodo/web/presenters/user_help.py",
+                    f"template {template_name!r} uses unknown help id {help_id!r}",
+                )
+            )
+        template_path = repo_root / "src/impodo/web/templates" / template_name
+        if not template_path.is_file():
+            issues.append(
+                DocumentationIssue(
+                    "src/impodo/web/presenters/user_help.py",
+                    f"help mapping references missing template {template_name!r}",
+                )
+            )
+
+    template_prefix = "src/impodo/web/templates/"
+    for stage in stages:
+        stage_id = str(stage.get("id", ""))
+        help_id = stage.get("help_id")
+        if not isinstance(help_id, str) or help_id not in USER_HELP_BY_ID:
+            issues.append(
+                DocumentationIssue(
+                    manifest_path,
+                    f"stage {stage_id!r} requires a registered help_id",
+                )
+            )
+            continue
+        target = USER_HELP_BY_ID[help_id]
+        user_doc = str(stage.get("user_doc", ""))
+        if target.document_path != user_doc:
+            issues.append(
+                DocumentationIssue(
+                    manifest_path,
+                    f"stage {stage_id!r} help target {target.document_path!r} "
+                    f"does not match user_doc {user_doc!r}",
+                )
+            )
+        for raw_template in stage.get("templates", []):
+            template = str(raw_template)
+            if not template.startswith(template_prefix):
+                continue
+            template_name = template.removeprefix(template_prefix)
+            mapped_help_id = PAGE_HELP_ID_BY_TEMPLATE.get(template_name)
+            if mapped_help_id is None:
+                issues.append(
+                    DocumentationIssue(
+                        manifest_path,
+                        f"stage {stage_id!r} template {template_name!r} has no "
+                        "page-level help",
+                    )
+                )
+            elif mapped_help_id != help_id and template_name != "workspace_derived_entities.html":
+                issues.append(
+                    DocumentationIssue(
+                        manifest_path,
+                        f"stage {stage_id!r} template {template_name!r} uses help "
+                        f"{mapped_help_id!r} instead of {help_id!r}",
+                    )
+                )
+    return issues
+
+
 def validate_repository(
     repo_root: Path = ROOT,
     manifest_path: Path = DEFAULT_MANIFEST,
@@ -477,6 +585,7 @@ def validate_repository(
         issues.extend(_validate_stage(repo_root, stage))
     issues.extend(_validate_contract_structure(repo_root, stages))
     issues.extend(_validate_user_screenshot_coverage(repo_root))
+    issues.extend(_validate_user_help_coverage(repo_root, stages))
 
     navigation = tuple(
         (str(stage["id"]), int(stage["order"]), str(stage["label"]))

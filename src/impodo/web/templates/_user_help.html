@@ -1,0 +1,15 @@
+{% macro user_help_link(target, class_name="") -%}
+  <a
+    class="user-help-link {{ class_name }}"
+    href="{{ target.url }}"
+    target="_blank"
+    rel="noopener noreferrer"
+    title="Open {{ target.title }} on GitHub"
+    aria-label="{{ target.accessible_name }}"
+    data-user-help-id="{{ target.help_id }}"
+  >
+    <svg class="ui-icon" aria-hidden="true" focusable="false">
+      <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#question-circle"></use>
+    </svg>
+  </a>
+{%- endmacro %}

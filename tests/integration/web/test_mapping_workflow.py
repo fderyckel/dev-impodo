@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from io import BytesIO
 from time import sleep
 from types import SimpleNamespace
@@ -43,7 +43,6 @@ from tests.support.browser_scenarios import (
     IdentityComponentMapping,
     MappingTargetMode,
     MappingValidationStatus,
-    MetadataSnapshot,
     ModelMetadata,
     OdooConnectionMode,
     OdooReadCredentialMissingError,
@@ -55,8 +54,6 @@ from tests.support.browser_scenarios import (
     RelationshipMapping,
     RelationshipResolver,
     ResolverOrigin,
-    ScalarFieldMapping,
-    TargetFieldHandling,
     TargetRecord,
     ValueMapping,
     _browser_schema,
@@ -1463,7 +1460,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             read_principal_hash=schema.read_principal_hash,
             read_permission_hash=schema.read_permission_hash,
             read_context_hash=schema.read_context_hash,
-            captured_at=datetime.now(timezone.utc),
+            captured_at=datetime.now(UTC),
             choices=(
                 SupportingLookupChoice(
                     portable_supporting_value(

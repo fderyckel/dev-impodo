@@ -2,23 +2,38 @@
 
 ## Purpose
 
-Use **Separate combined information** when a denormalized source file contains
-information that should become more than one Odoo record type. Impodo saves
-the rule and keeps the confirmed source unchanged.
+Use **Separate combined information** when the confirmed source does not yet
+have the tables you need for mapping. Information may be split across several
+tables, repeated in one field, or repeated across several rows. Impodo saves
+how you want to arrange that information and keeps the confirmed source
+unchanged.
 
-The browser supports five shapes:
+Choose the shape that matches how the source information is arranged:
 
-1. **Several tables describe the same records.** One primary table and up to
-   nine partial source views become one logical dataset in one review.
-2. **Advanced: combine two tables.** Two partial views become one logical
-   dataset when an explicit pairwise structural step is needed.
-3. **One field contains reusable values.** Repeated values become one related
-   table, while the original rows remain available for mapping.
-4. **Several fields form a hierarchy.** Two to five ordered source fields
-   become one related hierarchy and one relationship value on the original
-   rows.
-5. **Several rows describe the same record.** Impodo creates one table with one
-   row per group and another table that retains every source row.
+1. **Several tables describe the same records.** Choose this when one primary
+   table and up to nine other tables contain different details about the same
+   records. Impodo combines them into one logical dataset for one review. For
+   example, a customer table contains names and email addresses, while separate
+   address and payment-term tables use the same customer ID. Impodo produces
+   one customer dataset with those details together.
+2. **Advanced: combine two tables.** Choose this when exactly two partial
+   tables must become one visible intermediate dataset for another preparation
+   step. For example, Impodo can combine a product-details table with a
+   product-prices table into `products_with_prices`, which a later rule can
+   use.
+3. **One field contains reusable values.** Choose this when repeated values in
+   one field should become reusable records. For example, many product rows
+   contain the category `Office Furniture`. Impodo creates that category once
+   in a related table and keeps the original product rows available for
+   mapping.
+4. **Several fields form a hierarchy.** Choose this when two to five fields
+   describe ordered levels. For example, employee rows contain `Region`,
+   `Country`, and `Office`. Impodo creates those levels in one related
+   hierarchy and adds the matching relationship value to each employee row.
+5. **Several rows describe the same record.** Choose this when one record is
+   repeated across several source rows. For example, every row for sales order
+   `1001` contains one order line. Impodo creates one table with one row for
+   order `1001` and another table that keeps every order-line row.
 
 These rules currently work with confirmed tables from uploaded files. During
 preparation, Impodo applies the rule to every row, not only the rows shown in

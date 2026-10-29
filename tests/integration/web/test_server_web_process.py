@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import signal
+import unittest
 from pathlib import PurePosixPath
 from threading import Event, Thread
-import unittest
 from unittest.mock import Mock, patch
 
+from fastapi import APIRouter
 from fastapi.testclient import TestClient
 
 from impodo.web.composition.server_active_work import (
@@ -166,6 +167,8 @@ class ServerWebProcessTests(unittest.TestCase):
         runtime = _runtime()
         app = create_server_runtime_control_app(runtime)
         server = Mock()
+        administration_dependencies = Mock()
+        administration_router = APIRouter()
         with (
             patch(
                 "impodo.web.composition.server_linux_web."
@@ -176,7 +179,17 @@ class ServerWebProcessTests(unittest.TestCase):
                 "impodo.web.composition.server_linux_web."
                 "create_server_runtime_control_app",
                 return_value=app,
-            ),
+            ) as create_app,
+            patch(
+                "impodo.web.composition.server_linux_web."
+                "create_file_secret_server_administration_dependencies",
+                return_value=administration_dependencies,
+            ) as create_administration_dependencies,
+            patch(
+                "impodo.web.composition.server_linux_web."
+                "create_server_administration_router",
+                return_value=administration_router,
+            ) as create_administration_router,
             patch(
                 "impodo.web.composition.server_linux_web."
                 "create_production_uvicorn_server",
@@ -185,6 +198,14 @@ class ServerWebProcessTests(unittest.TestCase):
         ):
             run_file_secret_linux_server_web(_settings())
 
+        create_app.assert_called_once_with(
+            runtime,
+            public_url="https://impodo.example.test",
+        )
+        create_administration_dependencies.assert_called_once_with(_settings())
+        create_administration_router.assert_called_once_with(
+            administration_dependencies
+        )
         create_server.assert_called_once_with(
             app,
             _settings(),

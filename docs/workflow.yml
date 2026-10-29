@@ -31,6 +31,7 @@ stages:
   - id: setup
     order: 0
     label: Data project and authoring workspace setup
+    help_id: getting-started
     navigation: false
     user_doc: docs/user/getting-started.md
     developer_doc: docs/developer/workflow/00-project-setup.md
@@ -76,9 +77,11 @@ stages:
       - src/impodo/application/odoo_connection_service.py::OdooConnectionTestService
       - src/impodo/web/presenters/navigation.py::build_workspace_navigation
       - src/impodo/web/presenters/concepts.py::ConceptHelp
+      - src/impodo/web/presenters/user_help.py::UserHelpTarget
       - src/impodo/web/presenters/recipes.py::build_recipe_definition_view
     tests:
       - tests/integration/web/test_concept_help.py
+      - tests/integration/web/test_user_help.py
       - tests/application/project/test_authoring.py
       - tests/architecture/test_identity_semantics.py
       - tests/application/workspace/test_access.py
@@ -99,6 +102,7 @@ stages:
   - id: source
     order: 1
     label: Source data
+    help_id: source-data
     navigation: true
     variants:
       file:
@@ -210,6 +214,7 @@ stages:
   - id: integrated-test
     order: 7
     label: Integrated multi-Recipe Test run
+    help_id: integrated-test-runs
     navigation: false
     user_doc: docs/user/guides/integrated-test-runs.md
     developer_doc: docs/developer/workflow/07-integrated-test-runs.md
@@ -295,6 +300,7 @@ stages:
   - id: integrated-qualification
     order: 8
     label: Integrated Test qualification
+    help_id: qualify-integrated-test
     navigation: false
     user_doc: docs/user/guides/qualify-integrated-test.md
     developer_doc: docs/developer/workflow/08-integrated-qualification.md
@@ -319,6 +325,7 @@ stages:
   - id: production-rollout
     order: 9
     label: Production rollout with latest data
+    help_id: production-rollout
     navigation: false
     user_doc: docs/user/guides/production-rollout.md
     developer_doc: docs/developer/workflow/09-production-rollout.md
@@ -350,6 +357,7 @@ stages:
   - id: odoo
     order: 2
     label: Odoo data
+    help_id: odoo-data
     navigation: true
     variants:
       file:
@@ -405,6 +413,7 @@ stages:
   - id: match
     order: 3
     label: Match data
+    help_id: match-data
     navigation: true
     user_doc: docs/user/workflow/03-match-data.md
     developer_doc: docs/developer/workflow/03-match-data.md
@@ -420,6 +429,7 @@ stages:
       - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService
       - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.prepare_live_check
       - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.start_live_check
+      - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.identity_choice_review_page
       - src/impodo/adapters/duckdb/matching_order_repository.py::MatchingOrderRepository
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService.prepare_mapping_review_rows
@@ -448,6 +458,7 @@ stages:
       - src/impodo/domain/matching_order.py::MatchingOrderPreference
       - src/impodo/domain/matching_order.py::MatchingOrderCheck
       - src/impodo/domain/matching_order.py::MatchingIdentityResult
+      - src/impodo/domain/matching_order.py::MatchingIdentityChoicePage
       - src/impodo/domain/matching_order.py::classify_matching_identity
       - src/impodo/domain/matching_order.py::live_matching_order_recommendation
       - src/impodo/domain/relationship_health.py::RelationshipHealthResult
@@ -455,6 +466,7 @@ stages:
       - src/impodo/application/workspace/mapping/health_issues.py::matching_health_issue_counts
       - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v11_to_v12
       - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v12_to_v13
+      - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v19_to_v20
       - src/impodo/domain/execution/planner.py::plan_record_requests
       - src/impodo/domain/preparation/preflight.py::PreflightEngine
       - src/impodo/domain/execution_snapshot.py::build_execution_snapshot
@@ -492,6 +504,7 @@ stages:
       - tests/integration/web/test_mapping_impact_presenter.py
       - tests/integration/web/test_mapping_workflow.py
       - tests/integration/web/test_identity_health_presenter.py
+      - tests/integration/web/test_identity_choice_review.py
       - tests/integration/web/test_relationship_health_presenter.py
       - tests/application/workspace/mapping/test_matching_health_issues.py
       - tests/integration/web/test_matching_health_issues_presenter.py
@@ -522,6 +535,7 @@ stages:
   - id: prepare
     order: 4
     label: Prepare data
+    help_id: prepare-data
     navigation: true
     user_doc: docs/user/workflow/04-prepare-data.md
     developer_doc: docs/developer/workflow/04-prepare-data.md
@@ -593,6 +607,7 @@ stages:
   - id: review
     order: 5
     label: Final review
+    help_id: final-review
     navigation: true
     user_doc: docs/user/workflow/05-final-review.md
     developer_doc: docs/developer/workflow/05-final-review.md
@@ -668,6 +683,7 @@ stages:
   - id: load
     order: 6
     label: Load into Odoo
+    help_id: load-into-odoo
     navigation: true
     user_doc: docs/user/workflow/06-load-into-odoo.md
     developer_doc: docs/developer/workflow/06-load-into-odoo.md

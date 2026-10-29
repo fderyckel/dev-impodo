@@ -21,8 +21,10 @@ rehearsals remain open. The current delivery mode is local trial only because
 no remote Impodo server is allocated. Local Phase 3 persistence increments may
 proceed after the local trial continuation gate below, but this does not pass
 the Phase 2 supported-host exit gate or authorize a shared release. The current
-supported Impodo product remains the local application; the health-only
-container is qualification infrastructure, not a shared multi-user release.
+supported Impodo product remains the local application; the container has
+progressed beyond health-only behavior to a limited Platform administration
+trial, but it is still qualification infrastructure rather than a shared
+multi-user release.
 
 This document is for maintainers who will implement and review the shared
 server profile. The parent
@@ -1219,7 +1221,7 @@ Current status: Psycopg 3 is selected and locked for the trial. The migration
 and startup paths use short-lived, bounded sessions and translate driver
 failures without exposing connection details. The connection-pool decision is
 deferred until the first concurrent catalogue repository is implemented; no
-unused process-wide pool is introduced for the health-only runtime.
+unused process-wide pool is introduced for the server runtime.
 
 ### Work package 3.2 - Create the initial control-plane schema
 
@@ -1614,13 +1616,12 @@ can pass security acceptance. TOTP alone does not satisfy that release gate.
 WebAuthn enrollment and enforcement remain implementation work, so the gate is
 currently blocked.
 
-This increment does not expose an HTTP login/reset route or create a session.
-There is also no pending customer account to activate: the schema and service
-contract support the token purpose, but work package 4.4 must bind activation
-issuance and consumption atomically to customer-user creation, and work package
-4.5 must present that authorized link once. Treating the already-active
-Platform Administrator or a deactivated account as pending activation would
-be incorrect. The server therefore remains suitable only for the local trial.
+This increment does not expose an HTTP login or reset route. Work package 4.4
+now binds activation issuance and consumption atomically to a pending customer
+account. Work package 4.5 must still present that authorized link once and add
+the browser route that consumes it. Treating the already-active Platform
+Administrator or a deactivated account as pending activation remains
+incorrect. The server therefore remains suitable only for the local trial.
 
 ### Work package 4.3 - Implement server sessions
 
@@ -1635,6 +1636,48 @@ be incorrect. The server therefore remains suitable only for the local trial.
   Trust proxy headers only from configured proxy addresses.
 - Provide one bounded current-session view and an administrator session-revoke
   command.
+
+Current local-trial status: implemented and verified on 2026-10-29 at the
+session-foundation boundary. Immutable migration `8` adds digest-only opaque
+server sessions with principal and optional Organization binding,
+authentication method, security revision, creation and last-use times, idle
+and absolute expiry, bounded WebAuthn elevation, revocation reason, and
+optimistic revision. The runtime role can select, insert, and update only the
+named lifecycle columns; it cannot delete a session or rewrite its subject,
+creation time, or security revision.
+
+The application service creates a fresh selector and independent CSRF secret
+without accepting an anonymous browser identifier, resolves a bounded current
+view, rotates both secrets only after WebAuthn elevation, and exposes an exact
+administrator revocation command. PostgreSQL stores only domain-separated
+SHA-256 digests. Each operation owns one short-lived connection and
+transaction; there is no pool or process-wide database connection. Password
+reset revokes the subject's active sessions in the same transaction as the
+password, security revision, token, and reset event changes.
+
+The Linux web composition now applies exact external-host and unsafe-request
+Origin checks, no-store, framing, content-type, referrer, CSP, and permissions
+headers. The handle cookie helper enforces the `__Host-` prefix, `Secure`,
+`HttpOnly`, `SameSite=Lax`, `/` path, and no Domain attribute. Uvicorn continues
+to accept forwarded headers only from the configured proxy CIDRs. Health
+routes remain available to the internal container probe without weakening
+the external browser policy.
+
+The focused suite covers generation and proof, secret-safe representations,
+creation, CSRF validation, idle and security-revision revocation, WebAuthn
+rotation, stale administrative revocation, password-reset revocation, schema
+grants, cookie attributes, host and Origin rejection, and browser response
+headers. The exact image applied the version `7` to `8` suffix once and
+replayed it with no changes. A sanitized live lifecycle then proved create,
+CSRF-bound resolve, rotation, rejection of the old handle, revocation,
+digest-only storage, and runtime-role delete denial before all containers
+returned healthy.
+
+This work deliberately does not add an HTTP login, logout, reset, or session
+administration route. Work package 4.4 now persists customer and Organization
+Administrator principals, but the browser cannot authenticate them yet.
+Therefore the server is still a loopback-only trial and the Internet security
+gate remains blocked on WebAuthn enrollment and route enforcement.
 
 ### Work package 4.4 - Implement Organization and user administration services
 
@@ -1653,6 +1696,51 @@ no Project list, artifact, protected evidence, target credential, or migration
 role automatically. An Organization Administrator manages only their own
 Organization.
 
+Current local-trial status: implemented and verified on 2026-10-29 at the
+administration-service boundary. Immutable migration `9` adds scalar
+Organization membership for customer accounts, separate customer password
+identities, globally unique login identities, one administrator assignment per
+Organization, and tenant-scoped administration events. Immutable migration
+`10` binds the assignment and login identity to the same customer account,
+Organization, and principal kind. The runtime role cannot hard-delete these
+facts or rewrite an assignment outside its named lifecycle columns.
+
+`IdentityAdministrationService` now creates, renames, suspends, reactivates,
+and advances policy for an Organization. A Platform Administrator can assign
+or replace the Organization Administrator, but cannot use the customer-user,
+event, or session query contracts. An active Organization Administrator can
+create and manage ordinary users only inside their own Organization. Each
+mutation carries the Organization, subject, and expected optimistic revision
+into the same SQL predicate. Suspension, deactivation, password reset,
+administrator replacement, Organization suspension, and policy revision
+revoke the applicable active sessions in the same transaction.
+
+Customer creation stores a pending account and purpose-bound activation-token
+digest atomically, then returns the raw token only after commit. Activation
+stores the first slow password hash and consumes the one-use token in the same
+transaction. Authorized reset issuance replaces an outstanding reset token.
+Reset consumption compares the issued password and security revisions,
+updates the password, advances the security revision, consumes and revokes
+tokens, and revokes sessions atomically. Organization-wide and user-filtered
+security-event queries and Organization session queries use bounded,
+deterministic keyset pagination.
+
+Every repository call opens and closes one short-lived runtime-role
+transaction. There is no connection pool or cross-request PostgreSQL or
+DuckDB connection cache. The focused source and repository suite covers
+tenant authority, token secrecy, optimistic predicates, assignment, and
+migration invariants. A Linux-only disposable PostgreSQL test then completed
+Organization creation, administrator assignment and activation, ordinary-user
+creation and activation, session listing and revocation, reset, suspension,
+event queries, runtime delete denial, and database rejection of a cross-kind
+administrator assignment. The persistent local image advanced from schema
+version `8` through `9` and `10`; both immediate replays applied no migration.
+
+This work deliberately adds no route, presenter, template, customer login, or
+delivery channel. Work package 4.5 still owns the administration dashboard and
+the browser activation, reset, and session actions. Remote Debian and Ubuntu
+qualification and the privileged WebAuthn release gate also remain open.
+
 ### Work package 4.5 - Build the administration dashboard
 
 Add server-only routes, presenters, and templates for:
@@ -1667,6 +1755,45 @@ The dashboard has no Organization switcher. A customer session is permanently
 bound to its one Organization. Destructive actions name the affected user or
 Organization, explain the effect, require a fresh CSRF-protected confirmation,
 and preserve audit identity.
+
+Current local-trial status: the Platform Administrator slice is implemented
+and verified on 2026-10-29. `POST /login` applies the existing generic
+authentication response and protects both the account hint and proxy-resolved
+source with deployment-keyed, scope-separated HMAC-SHA-256. Successful login
+creates a fresh opaque session. The browser receives an HTTP-only `__Host-`
+handle cookie and a separate `__Host-` CSRF cookie. Host and unsafe-request
+Origin checks remain mandatory.
+
+`GET /admin/organizations` resolves the current Platform Administrator session
+and returns one bounded Organization page ordered by display name and stable
+identity. `POST /admin/organizations` validates the session-bound CSRF token
+before it creates the Organization. `POST /logout` revokes the exact touched
+session under its current optimistic revision and clears both cookies. The
+page states that a Platform Administrator receives no customer Project or
+artifact access.
+
+The async routes put each complete synchronous service sequence in one
+thread-pool callback. Each repository call opens and closes its own
+short-lived PostgreSQL transaction. This browser slice opens no DuckDB
+connection and introduces no process-wide database connection or pool. Focused
+route tests verify the thread boundary, cookie separation, CSRF enforcement,
+exact logout revocation, and role summary. Application and repository tests
+cover the keyed account digest and stable Organization keyset.
+
+The rebuilt local image stayed healthy behind the loopback TLS proxy on schema
+version `10`; an immediate migration replay applied nothing. A sanitized live
+request loaded `/login`, authenticated with the protected fictional bootstrap
+secret, followed the `303` redirect, and loaded the Organization dashboard
+with status `200`. The CSRF-protected create form added the fictional
+`local-browser-trial` Organization, the next page read displayed it, and
+**Sign out** left the exact newest session stored as `REVOKED` for the bounded
+administrator reason.
+
+Work Package 4.5 remains partial. Customer and Organization Administrator
+login, the user list and detail pages, activation and reset forms, customer
+session revocation, Organization lifecycle confirmations, and bounded security
+history are still missing. The browser also has no WebAuthn enrollment or
+privilege-elevation route, so the Internet security gate remains blocked.
 
 ### Work package 4.6 - Test authentication and administration
 
@@ -1849,11 +1976,20 @@ mismatch or unavailable check requires review. An `INTERRUPTED` transition now
 requires the retained recovery-decision identity, so a restart cannot infer
 that state from process loss alone.
 
-This increment does not satisfy the Phase 6 entry gate. It adds no PostgreSQL
-job table, claim query, worker process, route, scheduler, or Final review server
-adapter while Phase 4 identity and Phase 5 scoped authorization remain
-incomplete. Those dependencies must still pass before the contract is wired to
-server execution.
+The third portable increment binds the existing frozen Final review comparison
+request to `DurableJobRequest` through `DurablePreflightSubmission`. It derives
+the Organization, Project, Workspace, operation, semantic hash, requester,
+request time, and authorization receipt from verified application facts. It
+represents the immutable worker command only by its hash, rechecks Final review
+authority before enqueue, and rejects a returned reservation that substitutes
+any request fact. It adds no credential, callback, path, database owner,
+PostgreSQL adapter, route, or worker.
+
+These portable increments do not satisfy the Phase 6 entry gate. They add no
+PostgreSQL job table, claim query, worker process, route, scheduler, or Final
+review server adapter while Phase 4 identity and Phase 5 scoped authorization
+remain incomplete. Those dependencies must still pass before the contract is
+wired to server execution.
 
 Extend the portable job contract and PostgreSQL schema with:
 
@@ -1920,6 +2056,28 @@ Migrate and qualify each family separately:
 6. **Load, correction, and reconciliation** retain journal-before-write,
    exact target binding, unknown-outcome stop, and manual recovery. These job
    types do not reuse preparation cancellation semantics blindly.
+
+The Preflight migration in item 4 owns the remaining shared-server Final review
+work. Its route must authorize before storage access, reserve one
+Organization-scoped idempotency key, and retain only an opaque secret reference
+and generation. Its worker must recheck authority, resolve only the leased
+Workspace, prove the current fencing token before data commit and receipt
+publication, and close PostgreSQL transactions before Odoo or DuckDB work.
+
+The Workspace transaction must publish the comparison and its immutable
+`DataPlaneOperationReceipt` together. PostgreSQL must derive the bounded ready
+or review-required projection from that exact receipt. It may retain bounded
+counts, readiness, target-binding hash, artifact identities, and the current
+receipt hash. It must not retain comparison rows, target snapshots, the
+execution schedule, protected values, credentials, or a complete report.
+
+Qualification must inject failure before and after the DuckDB commit, artifact
+publication, data-plane receipt, PostgreSQL projection, and progress update. A
+stale worker must be unable to become current. Another Organization must be
+unable to list, poll, download, or recover an attempt by guessing its IDs. A
+committed data-plane receipt with a missing projection must complete without
+repeating the comparison or its Odoo reads. Progress and result discovery must
+use bounded PostgreSQL queries and open no Workspace DuckDB database.
 
 Remove or restrict each process-local manager only after its server replacement
 passes contract, restart, and browser tests. The local composition may continue

@@ -30,7 +30,10 @@ _IDENTITY_REVIEW_CAUSES = {
         "The Odoo matching rule is not confirmed"
     ),
     MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY.value: (
-        "The identity contains a related-record component"
+        "A related identity component has no direct governed projection"
+    ),
+    MatchingIdentityNotCheckableReason.RELATIONAL_IDENTITY_UNRESOLVED.value: (
+        "A related identity value is missing or ambiguous"
     ),
     MatchingIdentityNotCheckableReason.UNSUPPORTED_TARGET_FIELD.value: (
         "The identity uses a field that this bounded check cannot test"

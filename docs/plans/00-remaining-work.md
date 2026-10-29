@@ -35,65 +35,61 @@ does not override this list.
    the owning correction, and states which evidence remains safe. Finish the
    root-cause correction routes first. Add migration intent and the load
    cockpit after the safe technical scope is known.
-2. **Make [Final review comparison recoverable](03-responsive-final-review-comparison.md).**
-   This remains important because a data manager should not lose a long Odoo
-   comparison after a restart or wait on an unnecessarily large review page.
-   Complete durable attempts and the bounded load preview before optimizing
-   publication from measurements.
-3. **Complete [hierarchy-root and grouped-cause qualification](04-hierarchy-root-null-scope-and-load-order.md).**
+2. **Complete [hierarchy-root and grouped-cause qualification](04-hierarchy-root-null-scope-and-load-order.md).**
    This remains important for categories, bills of materials, and other parent
    structures. It lets the data manager correct one missing or ambiguous
    parent instead of reviewing thousands of repeated downstream consequences.
-4. **Broaden the [Odoo-to-Odoo migration](05-odoo-to-odoo-migration.md).**
+3. **Broaden the [Odoo-to-Odoo migration](05-odoo-to-odoo-migration.md).**
    This remains a high-value feature. Extend the qualified Contact path to
    Product, bills of materials, empty destinations, interruption, and recovery
-   after the hierarchy and Final review foundations above are reliable.
-5. **Add [exact-record repair for known load fallout](06-load-fallout-source-cell-workbook.md).**
+   after the hierarchy qualification is reliable. The local Final review
+   recovery and bounded review foundations are already implemented.
+4. **Add [exact-record repair for known load fallout](06-load-fallout-source-cell-workbook.md).**
    This remains important even though it is not the normal path. When a load
    partly fails, repairing only the reviewed target records can save a data
    manager from rebuilding and repeating the complete migration. Product
    ownership must activate the writer because uncertain outcomes and
    concurrent target edits require strict safeguards.
-6. **Continue the [shared-server implementation](07-linux-server-postgresql-duckdb-implementation.md).**
+5. **Continue the [shared-server implementation](07-linux-server-postgresql-duckdb-implementation.md).**
    A shared server remains strategically important for collaboration, durable
    work, central access, and returning to long-running results. It no longer
    ranks first merely because backend work has started. Continue bounded local
    persistence without displacing the higher direct workflow improvements,
    and do not claim a shared release before the supported-host gate passes.
-7. **Complete the [end-to-end trial and scenario lifecycle](08-end-to-end-trial-and-scenario-qualification.md).**
+6. **Complete the [end-to-end trial and scenario lifecycle](08-end-to-end-trial-and-scenario-qualification.md).**
    This remains important for confidence, training, recovery, and repeatable
    Product and bill-of-material evidence. Its developer regression value is
    substantial, but the normal data-manager workflow above should improve
    before more scheduling and scenario infrastructure is added.
-8. **Qualify [workflow responsiveness and recovery across platforms](09-responsive-workflow-liveness-and-navigation.md).**
+7. **Qualify [workflow responsiveness and recovery across platforms](09-responsive-workflow-liveness-and-navigation.md).**
    This remains important because slow or apparently frozen pages undermine
    confidence. Measure the implemented path first and add a cache or process
    split only when the retained evidence shows a user-visible need.
-9. **Finish [macOS Match data save qualification](10-resilient-match-data-saving.md).**
+8. **Finish [macOS Match data save qualification](10-resilient-match-data-saving.md).**
     This remains important for data managers who use macOS, especially for
     uncertain saves, stale tabs, and restart recovery. The behavior is already
     implemented, so this item closes supported-platform evidence rather than
     adding another workflow.
-10. **Finish the bounded [preparation correctness and measurement work](11-preparation-efficiency-and-storage.md).**
+9. **Finish the bounded [preparation correctness and measurement work](11-preparation-efficiency-and-storage.md).**
     This remains important where large or error-heavy datasets block current
     work. Complete consumer boundaries, bounded finding publication, browser
     recovery, and reproducible measurements. Keep the separate 100,000-row
     mixed and related expansion deferred until real migration demand justifies
     it.
-11. **Close [Match data ordering qualification](12-smart-match-data-ordering.md).**
+10. **Close [Match data ordering qualification](12-smart-match-data-ordering.md).**
     The implemented ordering is useful, but the remaining work is primarily
     documentation, visual acceptance, and measurement. Do not redesign the
     algorithm without evidence of a data-manager problem.
-12. **Close [row-inclusion visual qualification](13-source-row-inclusion-rules.md).**
+11. **Close [row-inclusion visual qualification](13-source-row-inclusion-rules.md).**
     Guided inclusion is already available and useful. Finish the authenticated
     examples and documentation. Native execution remains conditional unless
     the bounded fallback becomes a measured release blocker.
-13. **Activate the remaining [Odoo 20 Production promotion](14-odoo-19-and-20-support.md)
+12. **Activate the remaining [Odoo 20 Production promotion](14-odoo-19-and-20-support.md)
     only when product demand requires it.** Ordinary Odoo 19 and Odoo 20 work
     is already supported. The remaining Production matrix is important for an
     organization that needs that exact release path, but it should not outrank
     improvements that help every current migration.
-14. **Continue [execution-service maintainability](15-maintainable-code-and-execution-services.md)
+13. **Continue [execution-service maintainability](15-maintainable-code-and-execution-services.md)
     alongside the product work it protects.** This remains important because
     unclear ownership makes safe changes slower and riskier. It is supporting
     work rather than a standalone data-manager feature, so extract the focused
@@ -107,7 +103,7 @@ deployment.
 ## Files that are not separate implementation items
 
 - [Linux server deployment with PostgreSQL control and DuckDB workers](07-vm-deployment-duckdb-worker-management.md)
-  remains the target architecture for item 7. Do not implement it as a second
+  remains the target architecture for item 5. Do not implement it as a second
   server track. Keep it aligned with the detailed plan, then retire duplicated
   delivery detail when current architecture documentation owns the decisions.
 - This file, `00-remaining-work.md`, is the roadmap and ordering authority. It is
@@ -116,7 +112,7 @@ deployment.
   remains useful historical evidence. It requires no implementation.
 - The [local empty-server container rehearsal](91-2026-10-27-local-empty-server-container-rehearsal.md)
   remains useful current qualification evidence until supported-host evidence
-  supersedes it. Its open findings belong to item 7 rather than a separate
+  supersedes it. Its open findings belong to item 5 rather than a separate
   implementation stream.
 
 ## Local execution constraint
@@ -144,6 +140,12 @@ tests.
 The Stage 1 and Stage 2 page-loading plan was also retired after its implemented
 batches were verified in the current code and workflow documentation. Its only
 open platform measurements already belong to the shared responsiveness plan.
+
+The 2026-10-29 review retired the completed local Final review recovery and
+performance plan. The current user guide, developer workflow, preflight
+contract, workflow registry, code map, and focused tests own its implemented
+behavior. The detailed shared-server plan now owns the still-planned
+PostgreSQL job and worker migration for Final review.
 
 ## Current implemented boundary
 
@@ -579,7 +581,7 @@ limits.
 
 The former “conditional hosted composition” track is no longer deferred. The
 shared-server architecture is approved and retains bounded local trial work as
-item 7 in the current product-value order. Corporate identity providers remain
+item 5 in the current product-value order. Corporate identity providers remain
 sequenced after the first server release; they are not a prerequisite for the
 current container or PostgreSQL phases.
 

@@ -172,6 +172,14 @@ _REVOKE_OTHER_TOKENS_QUERY: LiteralString = (
     "WHERE principal_kind = 'PLATFORM_ADMINISTRATOR'\n"
     "  AND principal_id = %s AND token_id <> %s AND state = 'ISSUED'"
 )
+_REVOKE_PASSWORD_RESET_SESSIONS_QUERY: LiteralString = (
+    "UPDATE impodo_control.server_session\n"
+    "SET state = 'REVOKED', revoked_at = %s,\n"
+    "    revocation_reason = 'PASSWORD_RESET', elevated_until = NULL,\n"
+    "    optimistic_revision = optimistic_revision + 1\n"
+    "WHERE principal_kind = 'PLATFORM_ADMINISTRATOR'\n"
+    "  AND principal_id = %s AND state = 'ACTIVE'"
+)
 
 
 class PostgreSQLAccountRecoverySession(Protocol):
@@ -515,6 +523,10 @@ class PsycopgAccountRecoveryRepository:
                 != 1
             ):
                 raise _PasswordResetNotCompleted("Account recovery did not complete")
+            session.execute(
+                _REVOKE_PASSWORD_RESET_SESSIONS_QUERY,
+                (mutation.occurred_at, administrator_id),
+            )
             session.execute(
                 _REVOKE_OTHER_TOKENS_QUERY,
                 (

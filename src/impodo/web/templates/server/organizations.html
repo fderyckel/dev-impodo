@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Organizations · Impodo administration</title>
+  </head>
+  <body>
+    <header>
+      <strong>Impodo administration</strong>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Sign out</button>
+      </form>
+    </header>
+    <main>
+      <h1>Organizations</h1>
+      <p>Role: Platform Administrator. This role receives no customer Project or artifact access.</p>
+
+      <section aria-labelledby="create-organization-heading">
+        <h2 id="create-organization-heading">Create an Organization</h2>
+        <form method="post" action="/admin/organizations">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label for="organization-id">Organization ID</label>
+          <input id="organization-id" name="organization_id" pattern="[a-z0-9][a-z0-9-]*[a-z0-9]|[a-z0-9]" required>
+          <label for="display-name">Display name</label>
+          <input id="display-name" name="display_name" maxlength="200" required>
+          <button type="submit">Create Organization</button>
+        </form>
+      </section>
+
+      <section aria-labelledby="organization-list-heading">
+        <h2 id="organization-list-heading">Current Organizations</h2>
+        {% if page.items %}
+          <table>
+            <thead>
+              <tr><th>Name</th><th>ID</th><th>Status</th><th>Policy revision</th></tr>
+            </thead>
+            <tbody>
+              {% for organization in page.items %}
+                <tr>
+                  <td>{{ organization.display_name }}</td>
+                  <td>{{ organization.organization_id }}</td>
+                  <td>{{ organization.status.value }}</td>
+                  <td>{{ organization.policy_revision }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p>No Organizations have been created.</p>
+        {% endif %}
+        {% if page.next_after_display_name %}
+          <form method="get" action="/admin/organizations">
+            <input type="hidden" name="after_display_name" value="{{ page.next_after_display_name }}">
+            <input type="hidden" name="after_organization_id" value="{{ page.next_after_organization_id }}">
+            <button type="submit">Next page</button>
+          </form>
+        {% endif %}
+      </section>
+    </main>
+  </body>
+</html>

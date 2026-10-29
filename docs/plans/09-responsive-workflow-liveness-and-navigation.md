@@ -56,8 +56,11 @@ release evidence. Do not report an unmeasured target as an achieved guarantee.
   tests before enabling it.
 - Measure comparison, load confirmation, execution, and reconciliation
   separately. Move credential-free CPU work to a bounded process only when the
-  measurements show a need. The [Final review follow-up](03-responsive-final-review-comparison.md)
-  owns remaining comparison receipt, preview, and publication work.
+  measurements show a need. The current
+  [Final review developer workflow](../developer/workflow/05-final-review.md)
+  owns the implemented local boundaries. The
+  [shared-server plan](07-linux-server-postgresql-duckdb-implementation.md)
+  owns the future PostgreSQL job and worker migration.
 - Repeat the [macOS save qualification](10-resilient-match-data-saving.md),
   including concurrent catalogue readers from separate editor identities.
 

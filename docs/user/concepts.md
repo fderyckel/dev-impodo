@@ -7,7 +7,7 @@ status: current
 
 Use this page when you want to understand what Impodo keeps, what you can
 reuse, and why Test and Production remain separate. The same explanations are
-available from the **Concepts** link in Impodo and from the question-mark help
+available from the **Concepts** link in Impodo and from the information help
 beside selected headings.
 
 ![The Concepts page explains data projects, data versions, workspaces, Recipes, and migration runs in one relationship model.](../images/user/01b-impodo-concepts.png)
@@ -72,11 +72,16 @@ not treat Test data, credentials, approvals, or results as Production evidence.
 
 ## Using contextual help
 
-Select a question-mark help link to open the explanation for that concept.
+Select an information help link to open the explanation for that concept.
 Press **Escape** or select **Close** to return to the same page and control. If
 JavaScript is unavailable, the link opens the matching section of the full
 Concepts page instead. Opening or closing help changes no project data or
 evidence.
+
+Select the question mark beside a page title to open the matching user guide
+on GitHub in a new tab. **Help and guides** in the sidebar lists all current
+guides. Opening documentation sends no project, workspace, source, or Odoo
+value to GitHub.
 
 ## Related documentation
 

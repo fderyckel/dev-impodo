@@ -17,6 +17,7 @@ SECRET_FILENAMES = (
     "postgres-runtime-dsn",
     "postgres-migration-dsn",
     "platform-admin-password",
+    "identifier-digest-key",
 )
 
 
@@ -73,6 +74,7 @@ def prepare_local_secrets(directory: Path) -> tuple[Path, ...]:
     runtime_password = _new_password()
     migration_password = _new_password()
     platform_admin_password = _new_password()
+    identifier_digest_key = secrets.token_urlsafe(48)
     values = (
         postgres_bootstrap_password,
         runtime_password,
@@ -80,6 +82,7 @@ def prepare_local_secrets(directory: Path) -> tuple[Path, ...]:
         _dsn("impodo_runtime", runtime_password),
         _dsn("impodo_migrator", migration_password),
         platform_admin_password,
+        identifier_digest_key,
     )
     created: list[Path] = []
     try:
@@ -107,6 +110,20 @@ def prepare_platform_admin_secret(directory: Path) -> Path:
     return target
 
 
+def prepare_identifier_digest_key(directory: Path) -> Path:
+    """Add only the deployment-keyed identifier digest secret safely."""
+
+    _prepare_directory(directory)
+    target = directory / "identifier-digest-key"
+    if target.exists():
+        raise FileExistsError(
+            "Local rehearsal identifier digest key already exists; "
+            "refusing to overwrite it"
+        )
+    _write_secret(target, secrets.token_urlsafe(48))
+    return target
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the bounded local-rehearsal secret command."""
 
@@ -118,6 +135,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_SECRET_DIRECTORY,
         help="ignored directory that will receive the fictional secret files",
+    )
+    parser.add_argument(
+        "--identifier-digest-key-only",
+        action="store_true",
+        help="add only the missing identifier digest key to an older rehearsal",
     )
     parser.add_argument(
         "--platform-admin-only",
@@ -132,8 +154,12 @@ def main() -> int:
 
     arguments = build_parser().parse_args()
     try:
+        if arguments.platform_admin_only and arguments.identifier_digest_key_only:
+            raise ValueError("Choose only one single-secret preparation option")
         if arguments.platform_admin_only:
             created = (prepare_platform_admin_secret(arguments.directory),)
+        elif arguments.identifier_digest_key_only:
+            created = (prepare_identifier_digest_key(arguments.directory),)
         else:
             created = prepare_local_secrets(arguments.directory)
     except (FileExistsError, OSError, ValueError) as error:

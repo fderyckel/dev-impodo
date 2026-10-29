@@ -149,7 +149,7 @@ connections and performs no schema check or retry. Connection checks remain
 purpose-specific and do not perform model discovery. Mapping, preparation,
 comparison, and Odoo access remain batched rather than per row.
 
-## Data-manager concept help
+## Data-manager concept and guide help
 
 The browser uses the common terms **data project**, **data version**,
 **workspace**, **Recipe**, **Recipe version**, **Test run**, **Recipe work
@@ -167,6 +167,19 @@ Each contextual control is a normal deep link before JavaScript enhancement.
 The generic listener opens the matching native dialog when supported and
 returns focus to the link after close. The full page, dialog, and related links
 therefore use one reviewed registry without adding a database or N+1 path.
+
+`UserHelpTarget` provides a separate, static registry for GitHub user guides.
+Every template registered in `docs/workflow.yml` resolves one page-level help
+target before rendering. The normal external link exists without JavaScript;
+the bounded `user-help.js` enhancement only moves it beside the first page
+heading. It does not fetch documentation or project state.
+
+The authenticated `/help` page lists every current page below `docs/user/`.
+The page opens no registry, workspace database, protected evidence, or Odoo
+boundary. Release builds derive links from their version tag. Development
+builds use `main`. The URL builder accepts reviewed documentation paths only
+and never copies request, Project, Workspace, source, Odoo, or credential data
+into a GitHub URL.
 
 ## Code references
 
@@ -195,6 +208,7 @@ therefore use one reviewed registry without adding a database or N+1 path.
 | Bounded navigation query | [`WorkspaceNavigationQueryService`](../../../src/impodo/application/workspace/navigation.py) and [`WorkspaceNavigationRepository`](../../../src/impodo/adapters/duckdb/navigation_repository.py) |
 | Navigation presentation | [`build_workspace_navigation`](../../../src/impodo/web/presenters/navigation.py) |
 | Data-manager concept registry | [`ConceptHelp`](../../../src/impodo/web/presenters/concepts.py) |
+| Data-manager guide registry | [`UserHelpTarget`](../../../src/impodo/web/presenters/user_help.py) |
 | Read-only Concepts route | [`concepts.py`](../../../src/impodo/web/routers/concepts.py) |
 | Local service composition | [`local_app.py`](../../../src/impodo/web/composition/local_app.py) |
 | Shared HTTP and route installation | [`http_app.py`](../../../src/impodo/web/composition/http_app.py) |
@@ -211,6 +225,7 @@ therefore use one reviewed registry without adding a database or N+1 path.
 - [`tests/architecture/test_workspace_navigation_boundaries.py`](../../../tests/architecture/test_workspace_navigation_boundaries.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/integration/web/test_concept_help.py`](../../../tests/integration/web/test_concept_help.py)
+- [`tests/integration/web/test_user_help.py`](../../../tests/integration/web/test_user_help.py)
 - [`tests/integration/protected_evidence/test_project_security.py`](../../../tests/integration/protected_evidence/test_project_security.py)
 - [`tests/application/workspace/test_odoo_connection.py`](../../../tests/application/workspace/test_odoo_connection.py)
 - [`tests/integration/web/test_target_workflow.py`](../../../tests/integration/web/test_target_workflow.py)

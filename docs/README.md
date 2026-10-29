@@ -90,9 +90,6 @@ The current delivery sequence is:
 - [Generic Odoo-to-Odoo migration](plans/05-odoo-to-odoo-migration.md) retains
   Product, bill-of-material, empty-destination, interruption, recovery, and
   measured multi-model qualification beyond the completed Contact vertical.
-- [Final review recovery and performance](plans/03-responsive-final-review-comparison.md)
-  retains durable comparison attempts, compact review completion, and measured
-  publication qualification.
 - [Maintainable code and focused execution services](plans/15-maintainable-code-and-execution-services.md)
   retains the execution and reconciliation boundary refactor after the quality
   and dependency guardrails were delivered.

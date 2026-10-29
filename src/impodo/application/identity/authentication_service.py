@@ -10,6 +10,7 @@ from impodo.application.identity.authentication_ports import (
     PasswordAuthenticationPolicy,
     PlatformAuthenticationRepository,
 )
+from impodo.application.identity.recovery_ports import IdentifierDigester
 from impodo.domain.identity.authentication import (
     AUTHENTICATION_REJECTED_MESSAGE,
     AuthenticationSecurityEvent,
@@ -45,12 +46,14 @@ class PlatformAuthenticationService:
         password_policy: PasswordAuthenticationPolicy,
         *,
         throttle_policy: AuthenticationThrottlePolicy | None = None,
+        identifier_digester: IdentifierDigester | None = None,
         clock: Callable[[], datetime] | None = None,
         identifier_factory: Callable[[], str] | None = None,
     ) -> None:
         self._repository = repository
         self._password_policy = password_policy
         self._throttle_policy = throttle_policy or AuthenticationThrottlePolicy()
+        self._identifier_digester = identifier_digester
         self._clock = clock or (lambda: datetime.now(UTC))
         self._identifier_factory = identifier_factory or (lambda: str(uuid4()))
 
@@ -67,7 +70,14 @@ class PlatformAuthenticationService:
             raise ValueError("authentication clock must return an aware datetime")
         source_digest = validate_authentication_digest(command.source_digest)
         normalized_login_email = _normalize_for_lookup(command.login_email)
-        account_digest = authentication_identifier_digest(normalized_login_email)
+        account_digest = (
+            self._identifier_digester.digest(
+                normalized_login_email,
+                scope="authentication-account",
+            )
+            if self._identifier_digester is not None
+            else authentication_identifier_digest(normalized_login_email)
+        )
         attempt = self._repository.load_attempt(
             normalized_login_email=normalized_login_email,
             account_digest=account_digest,

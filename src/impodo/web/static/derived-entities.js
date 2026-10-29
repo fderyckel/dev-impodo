@@ -153,6 +153,22 @@ document.addEventListener("DOMContentLoaded", () => {
     const syncGroupFields = ({ resetRecommendations = false } = {}) => {
       const participants = selectedParticipants();
       const primaryId = primary?.value || "";
+      for (const key of primaryKeys) {
+        const selectedDatasetId = key.selectedOptions[0]?.dataset.datasetId;
+        if (selectedDatasetId && selectedDatasetId !== primaryId) {
+          key.value = "";
+        }
+        for (const option of key.querySelectorAll("option[data-dataset-id]")) {
+          const available = option.dataset.datasetId === primaryId;
+          option.hidden = !available;
+          option.disabled = !available;
+        }
+        for (const group of key.querySelectorAll("[data-group-primary-key-dataset]")) {
+          const available = group.dataset.groupPrimaryKeyDataset === primaryId;
+          group.hidden = !available;
+          group.disabled = !available;
+        }
+      }
       const activeAdditions = additions.filter((item) => item.checked);
       const labelCounts = new Map();
       for (const row of rows) {

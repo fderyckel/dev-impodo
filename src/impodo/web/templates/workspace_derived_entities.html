@@ -304,7 +304,7 @@
                       <td>
                         <select name="primary_key_field_{{ loop.index }}" data-group-primary-key{% if loop.first %} required{% endif %}>
                           <option value="">{{ "Choose a field" if loop.first else "Not used" }}</option>
-                          {% for view in join_group_dataset_views %}<optgroup label="{{ view.dataset.name }}">{% for column_view in view.columns %}{% set token = view.dataset.dataset_id ~ '|' ~ column_view.column.stable_key %}<option value="{{ token }}"{% if key[0] == token or (key[0] == column_view.column.stable_key and join_group_form.primary_dataset_id == view.dataset.dataset_id) %} selected{% endif %}>{{ column_view.column.source_name }}</option>{% endfor %}</optgroup>{% endfor %}
+                          {% for view in join_group_dataset_views %}<optgroup label="{{ view.dataset.name }}" data-group-primary-key-dataset="{{ view.dataset.dataset_id }}">{% for column_view in view.columns %}{% set token = view.dataset.dataset_id ~ '|' ~ column_view.column.stable_key %}<option value="{{ token }}" data-dataset-id="{{ view.dataset.dataset_id }}"{% if key[0] == token or (key[0] == column_view.column.stable_key and join_group_form.primary_dataset_id == view.dataset.dataset_id) %} selected{% endif %}>{{ view.dataset.name }} &middot; {{ column_view.column.source_name }}</option>{% endfor %}</optgroup>{% endfor %}
                         </select>
                       </td>
                       <td>

@@ -50,6 +50,8 @@ class LoginPrincipalKind(StrEnum):
     """Name principal kinds with a globally unique login identity."""
 
     PLATFORM_ADMINISTRATOR = "PLATFORM_ADMINISTRATOR"
+    ORGANIZATION_ADMINISTRATOR = "ORGANIZATION_ADMINISTRATOR"
+    CUSTOMER_USER = "CUSTOMER_USER"
 
 
 class RecoveryTokenPurpose(StrEnum):

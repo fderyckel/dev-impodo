@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import json
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
@@ -12,8 +13,16 @@ from impodo.adapters.duckdb.matching_order_repository import (
 from impodo.adapters.duckdb.workspace_state_repository import (
     WorkspaceStateRepository,
 )
+from impodo.domain.mapping.contracts import (
+    DatasetMapping,
+    IdentityComponentMapping,
+    MappingDefinition,
+    ResolverOrigin,
+)
 from impodo.domain.matching_order import (
     MatchingIdentityCheckStatus,
+    MatchingIdentityChoiceCause,
+    MatchingIdentityChoiceFilter,
     MatchingIdentityResult,
     MatchingOrderCheck,
     MatchingOrderCheckAttempt,
@@ -21,12 +30,6 @@ from impodo.domain.matching_order import (
     MatchingOrderCheckStatus,
     MatchingOrderPreference,
     MatchingOrderVersionConflict,
-)
-from impodo.domain.mapping.contracts import (
-    DatasetMapping,
-    IdentityComponentMapping,
-    MappingDefinition,
-    ResolverOrigin,
 )
 from impodo.domain.relationship_health import (
     RelationshipHealthResult,
@@ -51,13 +54,11 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus
-from tests.support.paths import REPOSITORY_ROOT
 
 
 class MatchingOrderRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
-        (REPOSITORY_ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=REPOSITORY_ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.database = DuckDbWorkspaceDatabase(self.temporary.name)
         self.workspace_id = str(uuid4())
         WorkspaceStateRepository(self.database).initialize_workbench(
@@ -348,10 +349,45 @@ class MatchingOrderRepositoryTests(unittest.TestCase):
             ),
         )
 
+        protected_snapshot = {
+            "source_keys": [["SECRET-KEY"]],
+            "unresolved_identity_choices": [
+                {
+                    "dataset_id": "dataset:a",
+                    "target_field": "country_id",
+                    "related_model": "res.country",
+                    "related_fields": ["code"],
+                    "key": ["LU"],
+                    "cause": "ambiguous_target",
+                    "target_match_count": 2,
+                    "incoming_match_count": 0,
+                },
+                {
+                    "dataset_id": "dataset:a",
+                    "target_field": "country_id",
+                    "related_model": "res.country",
+                    "related_fields": ["code"],
+                    "key": ["BE"],
+                    "cause": "missing_target",
+                    "target_match_count": 0,
+                    "incoming_match_count": 0,
+                },
+                {
+                    "dataset_id": "dataset:b",
+                    "target_field": "parent_id",
+                    "related_model": "x.b",
+                    "related_fields": ["code"],
+                    "key": ["PARENT-1"],
+                    "cause": "ambiguous_incoming",
+                    "target_match_count": 0,
+                    "incoming_match_count": 2,
+                },
+            ],
+        }
         status = self.repository.publish_check(
             self.workspace_id,
             check,
-            protected_snapshot_json='{"source_keys":[["SECRET-KEY"]]}',
+            protected_snapshot_json=json.dumps(protected_snapshot),
             actor=LOCAL_ACTOR,
         )
 
@@ -373,8 +409,43 @@ class MatchingOrderRepositoryTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertNotIn("SECRET-KEY", public_json)
         self.assertIn("SECRET-KEY", protected_json)
+        self.assertNotIn("PARENT-1", public_json)
         self.assertIn('"expected_existing_count":1', public_json)
         self.assertIn('"missing_count":1', public_json)
+
+        first_page = self.repository.get_identity_choice_review_page(
+            self.workspace_id,
+            check.check_id,
+            MatchingIdentityChoiceFilter(),
+            page_size=2,
+        )
+        self.assertEqual(tuple(item.key for item in first_page.rows), (("LU",), ("BE",)))
+        self.assertEqual(first_page.matching_count, 3)
+        self.assertEqual((first_page.start_position, first_page.end_position), (1, 2))
+        self.assertIsNone(first_page.previous_before)
+        self.assertEqual(first_page.next_after, 1)
+
+        second_page = self.repository.get_identity_choice_review_page(
+            self.workspace_id,
+            check.check_id,
+            MatchingIdentityChoiceFilter(),
+            page_size=2,
+            after=first_page.next_after,
+        )
+        self.assertEqual(tuple(item.key for item in second_page.rows), (("PARENT-1",),))
+        self.assertEqual(second_page.previous_before, 2)
+        self.assertIsNone(second_page.next_after)
+
+        filtered = self.repository.get_identity_choice_review_page(
+            self.workspace_id,
+            check.check_id,
+            MatchingIdentityChoiceFilter(
+                cause=MatchingIdentityChoiceCause.AMBIGUOUS_TARGET.value
+            ),
+            page_size=2,
+        )
+        self.assertEqual(filtered.matching_count, 1)
+        self.assertEqual(filtered.rows[0].key, ("LU",))
 
     def _semantic_rows(self):
         tables = (
