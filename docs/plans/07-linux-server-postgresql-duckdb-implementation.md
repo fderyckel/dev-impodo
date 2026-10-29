@@ -1756,13 +1756,15 @@ bound to its one Organization. Destructive actions name the affected user or
 Organization, explain the effect, require a fresh CSRF-protected confirmation,
 and preserve audit identity.
 
-Current local-trial status: the Platform Administrator slice is implemented
-and verified on 2026-10-29. `POST /login` applies the existing generic
-authentication response and protects both the account hint and proxy-resolved
-source with deployment-keyed, scope-separated HMAC-SHA-256. Successful login
-creates a fresh opaque session. The browser receives an HTTP-only `__Host-`
-handle cookie and a separate `__Host-` CSRF cookie. Host and unsafe-request
-Origin checks remain mandatory.
+Current local-trial status: the Platform and Organization Administrator read
+slices are implemented and verified on 2026-10-29. `POST /login` applies one
+generic authentication response and protects both the account hint and
+proxy-resolved source with deployment-keyed, scope-separated HMAC-SHA-256.
+Successful login creates a fresh opaque session permanently bound to its
+administrator identity and, for a customer administrator, its exact
+Organization. The browser receives an HTTP-only `__Host-` handle cookie and a
+separate `__Host-` CSRF cookie. Host and unsafe-request Origin checks remain
+mandatory.
 
 `GET /admin/organizations` resolves the current Platform Administrator session
 and returns one bounded Organization page ordered by display name and stable
@@ -1771,6 +1773,22 @@ before it creates the Organization. `POST /logout` revokes the exact touched
 session under its current optimistic revision and clears both cookies. The
 page states that a Platform Administrator receives no customer Project or
 artifact access.
+
+`GET /admin/users` and `GET /admin/users/{user_id}` require an active,
+exactly assigned Organization Administrator. The Organization comes only from
+the resolved session; neither route accepts a tenant selector or Organization
+identifier from the browser. List ordering is stable by display name and user
+identity, and a continuation carries only an opaque user identity that is
+resolved again under the same Organization predicate. Detail misses and
+cross-Organization identities share the same bounded `404`. A valid session on
+the wrong administrator surface receives `403` without being revoked.
+
+PostgreSQL schema version `11` binds every Organization Administrator session
+to the exact customer membership and principal kind, applies the same tenant
+binding to administration-event subjects, and stores customer authentication
+and session events in a bounded digest-only server-security table. Session
+resolution fails closed after assignment replacement, Organization suspension,
+or a security-revision change.
 
 The async routes put each complete synchronous service sequence in one
 thread-pool callback. Each repository call opens and closes its own
@@ -1781,19 +1799,24 @@ exact logout revocation, and role summary. Application and repository tests
 cover the keyed account digest and stable Organization keyset.
 
 The rebuilt local image stayed healthy behind the loopback TLS proxy on schema
-version `10`; an immediate migration replay applied nothing. A sanitized live
-request loaded `/login`, authenticated with the protected fictional bootstrap
-secret, followed the `303` redirect, and loaded the Organization dashboard
-with status `200`. The CSRF-protected create form added the fictional
-`local-browser-trial` Organization, the next page read displayed it, and
-**Sign out** left the exact newest session stored as `REVOKED` for the bounded
-administrator reason.
+version `11`; an immediate migration replay applied nothing. The earlier
+Platform Administrator trial loaded the Organization dashboard, created the
+fictional `local-browser-trial` Organization through its CSRF-protected form,
+and retained the exact signed-out session as `REVOKED`. A second sanitized live
+trial created and activated a fictional Organization Administrator through the
+implemented service boundary without printing its raw activation token. Login
+redirected to `/admin/users`; the list and exact detail returned `200`, the
+Platform Organization route returned `403`, an unavailable user returned
+`404`, and CSRF-protected logout revoked the exact session. The bounded
+security events were `PASSWORD_REHASHED`, `AUTHENTICATION_SUCCEEDED`,
+`SESSION_CREATED`, and `SESSION_REVOKED`.
 
-Work Package 4.5 remains partial. Customer and Organization Administrator
-login, the user list and detail pages, activation and reset forms, customer
-session revocation, Organization lifecycle confirmations, and bounded security
-history are still missing. The browser also has no WebAuthn enrollment or
-privilege-elevation route, so the Internet security gate remains blocked.
+Work Package 4.5 remains partial. Customer User login, browser assignment and
+activation/reset forms, customer-account mutations, customer-session
+revocation, Organization lifecycle confirmations, and bounded security history
+are still missing. Project access and role summaries are read-only until Phase
+5. The browser also has no WebAuthn enrollment or privilege-elevation route, so
+the Internet security gate remains blocked.
 
 ### Work package 4.6 - Test authentication and administration
 

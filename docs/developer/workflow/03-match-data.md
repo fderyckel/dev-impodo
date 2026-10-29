@@ -527,8 +527,27 @@ through existing-target business keys, and `target_then_dataset` checks the
 target before it falls back to the incoming dataset. A one2many relationship
 is represented through the child dataset's inverse many2one field; Impodo
 never writes it as an independently owned list. Dynamic value matching reads
-one frozen source column and fetches target choices in batches. It persists
+one effective source column and fetches target choices in batches. It persists
 portable codes or business keys, never numeric Odoo IDs.
+
+`CategoricalCoverageService` uses `LogicalSourceValues` for reviewed grouped
+exact-join outputs. `JoinedMappingSourceValues` verifies the saved review,
+rule hashes, and every participating immutable snapshot before reading. The
+same projection supports source choices, categorical validation, and identity
+key reads. Categorical scan contract v5 binds joined results to the effective
+selection and all participating physical snapshot hashes. Uncovered explicit
+matches remain blocking findings, and stale join evidence requires review.
+
+The DuckDB reader projects only requested output columns and necessary join
+keys, scanning each participant once into a narrow temporary table. It
+aggregates dialog choices in SQL and returns at most the choice limit plus
+one overflow value. Validation reads all needed categorical columns together
+in logical row order. Each execution owns one 256 MB, two-thread connection;
+the route releases its local operation before contacting Odoo. Original
+snapshot columns keep their existing Polars reader. Unsupported derivation
+shapes still report their capability limitation rather than claiming coverage.
+Related model names and field names come from captured metadata and governed
+business keys; this source reader has no model-specific branches.
 
 Relational components inside `target_identity` and `target_scope` use the same
 three origins. The guided identity form stores `identity_origin_*`,
@@ -685,6 +704,11 @@ validation result for the malformed formula.
 | Guided rows-to-use controls | [`_row_inclusion.html`](../../../src/impodo/web/templates/mapping/_row_inclusion.html) and [`mapping-row-inclusion.js`](../../../src/impodo/web/static/mapping-row-inclusion.js) |
 | Checked-row review page | [`row_inclusion_review.html`](../../../src/impodo/web/templates/mapping/row_inclusion_review.html) |
 | Categorical source-domain scan | [`CategoricalCoverageService`](../../../src/impodo/application/workspace/mapping/categorical_coverage.py) |
+| Logical source-value read contract | [`LogicalSourceValues`](../../../src/impodo/application/workspace/mapping/logical_source_values.py) |
+| Reviewed joined mapping values | [`JoinedMappingSourceValues`](../../../src/impodo/adapters/duckdb/mapping_source_values.py) |
+| Narrow joined projection and SQL choice counts | [`DuckDbGroupedExactJoinSource`](../../../src/impodo/adapters/duckdb/grouped_exact_join_source.py) |
+| Joined value and scale qualification | [`test_joined_mapping_values.py`](../../../tests/integration/artifacts/test_joined_mapping_values.py) |
+| Generic joined Many2one route qualification | [`test_joined_value_matching.py`](../../../tests/integration/web/test_joined_value_matching.py) |
 | Native scalar-provider compiler | [`columnar_transformation.py`](../../../src/impodo/domain/compiler/columnar_transformation.py) |
 | Row relationship preparation | [`source.py`](../../../src/impodo/domain/preparation/source.py) |
 | Rule-impact service | [`TransformationImpactService`](../../../src/impodo/application/workspace/mapping/transformation_impact.py) |

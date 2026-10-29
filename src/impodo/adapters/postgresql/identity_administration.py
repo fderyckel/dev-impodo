@@ -28,7 +28,10 @@ from impodo.domain.identity.administration import (
     AdministrationEventView,
     AdministrationSecurityEvent,
     CustomerCredentialMutation,
+    CustomerUserDetailQuery,
+    CustomerUserListQuery,
     CustomerUserMutationCommand,
+    CustomerUserPage,
     CustomerUserRecord,
     CustomerUserStatus,
     CustomerUserView,
@@ -175,6 +178,26 @@ _LOAD_CUSTOMER_USER_QUERY: LiteralString = (
     "       principal_kind, status, security_revision, optimistic_revision\n"
     "FROM impodo_control.customer_user\n"
     "WHERE organization_id = %s AND user_id = %s\nFOR UPDATE"
+)
+_LOAD_CUSTOMER_CURSOR_QUERY: LiteralString = (
+    "SELECT display_name, user_id\n"
+    "FROM impodo_control.customer_user\n"
+    "WHERE organization_id = %s AND user_id = %s"
+)
+_LIST_CUSTOMER_USERS_QUERY: LiteralString = (
+    "SELECT user_id, organization_id, normalized_login_email, display_name,\n"
+    "       principal_kind, status, security_revision, optimistic_revision\n"
+    "FROM impodo_control.customer_user\n"
+    "WHERE organization_id = %s\n"
+    "  AND (%s::text IS NULL OR status = %s)\n"
+    "  AND (%s::text IS NULL OR (display_name, user_id) > (%s, %s))\n"
+    "ORDER BY display_name ASC, user_id ASC\nLIMIT %s"
+)
+_GET_CUSTOMER_USER_QUERY: LiteralString = (
+    "SELECT user_id, organization_id, normalized_login_email, display_name,\n"
+    "       principal_kind, status, security_revision, optimistic_revision\n"
+    "FROM impodo_control.customer_user\n"
+    "WHERE organization_id = %s AND user_id = %s"
 )
 _SET_CUSTOMER_USER_STATUS_QUERY: LiteralString = (
     "UPDATE impodo_control.customer_user\n"
@@ -553,6 +576,77 @@ class PsycopgIdentityAdministrationRepository:
 
         return self._run("identity_admin.list_organizations", read)
 
+    def list_customer_users(
+        self,
+        query: CustomerUserListQuery,
+    ) -> CustomerUserPage:
+        """Read one authorized tenant page using an identity-only cursor."""
+
+        def read(session: _MeasuredSession) -> CustomerUserPage:
+            _authorize_actor(
+                session,
+                query.actor,
+                organization_id=query.organization_id,
+            )
+            after_display_name = None
+            after_user_id = None
+            if query.after_user_id is not None:
+                cursor = session.fetch_one(
+                    _LOAD_CUSTOMER_CURSOR_QUERY,
+                    (query.organization_id, query.after_user_id),
+                )
+                if cursor is None:
+                    raise IdentityAdministrationNotFoundError(
+                        "Customer account cursor is not available"
+                    )
+                after_display_name = _str(cursor[0])
+                after_user_id = str(cursor[1])
+            status = query.status.value if query.status is not None else None
+            rows = session.fetch_rows(
+                _LIST_CUSTOMER_USERS_QUERY,
+                (
+                    query.organization_id,
+                    status,
+                    status,
+                    after_user_id,
+                    after_display_name,
+                    after_user_id,
+                    query.page_size + 1,
+                ),
+            )
+            items = tuple(_decode_customer(row) for row in rows[: query.page_size])
+            has_more = len(rows) > query.page_size
+            return CustomerUserPage(
+                items=items,
+                next_after_user_id=(items[-1].user_id if items and has_more else None),
+            )
+
+        return self._run("identity_admin.list_customer_users", read)
+
+    def get_customer_user(
+        self,
+        query: CustomerUserDetailQuery,
+    ) -> CustomerUserView:
+        """Read one exact customer account with the tenant in the predicate."""
+
+        def read(session: _MeasuredSession) -> CustomerUserView:
+            _authorize_actor(
+                session,
+                query.actor,
+                organization_id=query.organization_id,
+            )
+            row = session.fetch_one(
+                _GET_CUSTOMER_USER_QUERY,
+                (query.organization_id, query.user_id),
+            )
+            if row is None:
+                raise IdentityAdministrationNotFoundError(
+                    "Customer account is not available"
+                )
+            return _decode_customer(row)
+
+        return self._run("identity_admin.get_customer_user", read)
+
     def rename_organization(
         self,
         command: RenameOrganizationCommand,
@@ -919,6 +1013,7 @@ class PsycopgIdentityAdministrationRepository:
             if (
                 context is None
                 or context.user.status is not CustomerUserStatus.ACTIVE
+                or context.user.principal_kind is not LoginPrincipalKind.CUSTOMER_USER
                 or context.organization_status is not OrganizationStatus.ACTIVE
                 or context.user.optimistic_revision != command.expected_revision
             ):

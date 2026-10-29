@@ -16,6 +16,8 @@ from impodo.domain.identity.administration import (
     AdministrationEventQuery,
     AdministrationSecurityEvent,
     CustomerCredentialMutation,
+    CustomerUserDetailQuery,
+    CustomerUserListQuery,
     CustomerUserMutationCommand,
     CustomerUserRecord,
     CustomerUserStatus,
@@ -202,6 +204,73 @@ class PostgreSQLIdentityAdministrationTests(unittest.TestCase):
         self.assertIn("ORDER BY display_name ASC, organization_id ASC", query_event[1])
         self.assertEqual(query_event[2], ("Able", "Able", "able", 3))
         self.assertTrue(session.committed)
+
+    def test_customer_user_list_and_detail_keep_tenant_in_every_predicate(self) -> None:
+        list_session = _Session(
+            responses=[("ACTIVE", "ACTIVE")],
+            rows=[
+                (
+                    _customer_row(),
+                    (
+                        ADMIN_ID,
+                        "acme",
+                        "admin@example.test",
+                        "Administrator",
+                        "ORGANIZATION_ADMINISTRATOR",
+                        "ACTIVE",
+                        1,
+                        1,
+                    ),
+                )
+            ],
+        )
+        page = _repository(list_session).list_customer_users(
+            CustomerUserListQuery(
+                actor=_organization_actor(),
+                organization_id="acme",
+                page_size=10,
+            )
+        )
+
+        self.assertEqual(len(page.items), 2)
+        list_query = next(
+            event for event in list_session.events if event[0] == "fetch_rows"
+        )
+        self.assertIn("WHERE organization_id = %s", list_query[1])
+        self.assertIn("ORDER BY display_name ASC, user_id ASC", list_query[1])
+        self.assertEqual(list_query[2][0], "acme")
+
+        detail_session = _Session(
+            responses=[("ACTIVE", "ACTIVE"), _customer_row()]
+        )
+        user = _repository(detail_session).get_customer_user(
+            CustomerUserDetailQuery(
+                actor=_organization_actor(),
+                organization_id="acme",
+                user_id=USER_ID,
+            )
+        )
+        self.assertEqual(user.user_id, USER_ID)
+        detail_query = detail_session.events[-1]
+        self.assertIn("organization_id = %s AND user_id = %s", detail_query[1])
+        self.assertEqual(detail_query[2], ("acme", USER_ID))
+
+    def test_customer_user_cursor_is_resolved_only_inside_the_session_tenant(self) -> None:
+        session = _Session(responses=[("ACTIVE", "ACTIVE"), None])
+
+        with self.assertRaises(IdentityAdministrationNotFoundError):
+            _repository(session).list_customer_users(
+                CustomerUserListQuery(
+                    actor=_organization_actor(),
+                    organization_id="acme",
+                    after_user_id=USER_ID,
+                )
+            )
+
+        cursor_query = session.events[-1]
+        self.assertIn("organization_id = %s AND user_id = %s", cursor_query[1])
+        self.assertEqual(cursor_query[2], ("acme", USER_ID))
+        self.assertTrue(session.rolled_back)
 
     def test_initial_administrator_assignment_advances_org_and_records_assignment(
         self,

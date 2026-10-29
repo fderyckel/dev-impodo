@@ -57,11 +57,15 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             progress,
             local_operation,
             operation_id,
+            comparison_request,
+            current_read_credential_binding_hash,
         ):
             self.assertEqual(actor, resolve_local_actor(context))
             self.assertIsNotNone(reader)
             self.assertIsNotNone(local_operation)
             self.assertTrue(operation_id)
+            self.assertEqual(comparison_request.operation_id, operation_id)
+            self.assertIsNotNone(current_read_credential_binding_hash)
             progress("READING")
             started.set()
             release.wait(timeout=30)
@@ -190,6 +194,8 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             progress,
             local_operation,
             operation_id,
+            comparison_request,
+            current_read_credential_binding_hash,
         ):
             self.assertIsNotNone(local_operation)
             self.assertTrue(operation_id)

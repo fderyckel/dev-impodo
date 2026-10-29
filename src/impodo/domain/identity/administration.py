@@ -312,6 +312,60 @@ class CustomerUserView:
 
 
 @dataclass(frozen=True, slots=True)
+class CustomerUserListQuery:
+    """Read one tenant-bound customer-user page with an opaque identity cursor."""
+
+    actor: AdministrationActor
+    organization_id: str
+    status: CustomerUserStatus | None = None
+    page_size: int = 50
+    after_user_id: str | None = None
+
+    def __post_init__(self) -> None:
+        _validate_organization_id(self.organization_id)
+        if self.after_user_id is not None:
+            _validate_uuid(self.after_user_id)
+        if (
+            self.actor.principal_kind
+            is not LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR
+            or self.actor.organization_id != self.organization_id
+            or not 1 <= self.page_size <= 100
+        ):
+            raise IdentityAdministrationNotFoundError(
+                "Customer accounts are not available"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class CustomerUserPage:
+    """Return a deterministic tenant-bound customer-user page."""
+
+    items: tuple[CustomerUserView, ...]
+    next_after_user_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class CustomerUserDetailQuery:
+    """Read one exact customer account inside the actor's Organization."""
+
+    actor: AdministrationActor
+    organization_id: str
+    user_id: str
+
+    def __post_init__(self) -> None:
+        _validate_organization_id(self.organization_id)
+        _validate_uuid(self.user_id)
+        if (
+            self.actor.principal_kind
+            is not LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR
+            or self.actor.organization_id != self.organization_id
+        ):
+            raise IdentityAdministrationNotFoundError(
+                "Customer account is not available"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class ProvisionedCustomerUserResult:
     """Disclose one activation token only after customer creation commits."""
 
@@ -516,7 +570,10 @@ __all__ = [
     "CreateCustomerUserCommand",
     "CreateOrganizationCommand",
     "CustomerCredentialMutation",
+    "CustomerUserDetailQuery",
+    "CustomerUserListQuery",
     "CustomerUserMutationCommand",
+    "CustomerUserPage",
     "CustomerUserRecord",
     "CustomerUserStatus",
     "CustomerUserView",

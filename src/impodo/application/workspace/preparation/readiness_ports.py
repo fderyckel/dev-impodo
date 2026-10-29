@@ -657,8 +657,14 @@ class PreflightRepository(Protocol):
         actor: Actor,
         execution_summary: ExecutionPreviewSummary | None = None,
         execution_review: ExecutionReviewProjection | None = None,
+        expected_workspace_revision: int | None = None,
     ) -> None:
-        """Atomically store header, streamed rows, snapshots, pointer, and audit."""
+        """Atomically store evidence, optionally requiring the reserved revision.
+
+        A later registration-file refresh failure raises
+        ``PreflightPublicationCommittedError``; it must not trigger cleanup of
+        the already committed comparison artifacts.
+        """
         ...
 
     def save_deferred_scope_projection(

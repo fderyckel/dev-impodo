@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.odoo.contracts import ConnectorTransportError
+from impodo.domain.shared.access import Actor, ActorIdentity, Capability
 from impodo.domain.workspace.errors import OdooModelCatalogRefreshRequired
 from impodo.web.routers.schema import (
     _capture_selected_schema_sync,
@@ -208,7 +209,11 @@ class SelectedSchemaCaptureTests(unittest.TestCase):
         ):
             with self.subTest(operation=operation):
                 workspace = SimpleNamespace(workspace_id="fictional-workspace")
-                context = SimpleNamespace(schema_workspace=Mock(), actor=object())
+                context = SimpleNamespace(schema_workspace=Mock())
+                actor = Actor(
+                    ActorIdentity("organization", "schema-reader", "Data manager"),
+                    frozenset({Capability.SCHEMA_DISCOVER, Capability.SCHEMA_GOVERN}),
+                )
                 schema = object()
                 save = getattr(context.schema_workspace, operation)
                 save.side_effect = [OdooModelCatalogRefreshRequired("stale"), schema]
@@ -221,12 +226,12 @@ class SelectedSchemaCaptureTests(unittest.TestCase):
                 ) as read, patch(
                     "impodo.web.routers.schema._refresh_model_catalog_sync"
                 ) as refresh:
-                    self.assertIs(load(context, workspace), schema)
+                    self.assertIs(load(context, workspace, actor=actor), schema)
                 self.assertEqual(read.call_count, 2)
-                refresh.assert_called_once_with(context, workspace)
+                refresh.assert_called_once_with(context, workspace, actor=actor)
                 save.assert_called_with(
                     workspace.workspace_id, "fresh-fields",
                     read_credential_binding_hash="fresh-binding",
-                    read_identity="fresh-identity", actor=resolve_local_actor(context),
+                    read_identity="fresh-identity", actor=actor,
                 )
                 getattr(context.schema_workspace, other).assert_not_called()

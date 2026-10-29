@@ -7,6 +7,7 @@ from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 from impodo.application.run.recipe_run_jobs import RecipeRunJobPhase
+from impodo.web.composition.local_identity import LocalRequestIdentityResolver
 from impodo.web.routers.schema import _perform_run_odoo_check
 from impodo.web.run_urls import RunSetupKind
 from tests.support.identity import resolve_local_actor
@@ -30,7 +31,7 @@ class RecipeRunOdooProgressTests(TestCase):
         schema = SimpleNamespace(pending_refresh=None)
         result = SimpleNamespace(applications=())
         context = SimpleNamespace(
-            actor=object(),
+            identity_resolver=LocalRequestIdentityResolver(),
             queries=SimpleNamespace(get_odoo_schema_catalog=lambda _workspace_id: None),
             run_planning=SimpleNamespace(
                 target_evidence_from_workspace=lambda *_args, **_kwargs: (

@@ -1,11 +1,11 @@
 """Database lifetimes for synchronous page reads, using real DuckDB files."""
 
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from unittest.mock import patch
 
 import duckdb
@@ -34,7 +34,9 @@ class PageReadConnectionTests(unittest.TestCase):
 
     def read(self) -> int:
         with self.factory.connect(self.path) as connection:
-            return connection.execute("SELECT sum(value) FROM values_to_read").fetchone()[0]
+            return connection.execute(
+                "SELECT sum(value) FROM values_to_read"
+            ).fetchone()[0]
 
     def test_nested_reads_open_once_and_next_request_observes_changes(self) -> None:
         with collect_duckdb_request_timings() as timings:
@@ -50,7 +52,9 @@ class PageReadConnectionTests(unittest.TestCase):
                 self.assertEqual(self.read(), 3)
             self.assertEqual(timings.connection_count, 3)
 
-    def test_repository_transactions_remain_independent_and_failed_work_rolls_back(self) -> None:
+    def test_repository_transactions_remain_independent_and_failed_work_rolls_back(
+        self,
+    ) -> None:
         with retain_databases_for_read():
             with self.factory.connect(self.path) as first:
                 first.begin()
@@ -58,21 +62,25 @@ class PageReadConnectionTests(unittest.TestCase):
                 self.assertEqual(self.read(), 1)
                 first.commit()
             self.assertEqual(self.read(), 3)
-            with self.assertRaisesRegex(ValueError, "failed work"):
-                with self.factory.connect(self.path) as failed:
-                    failed.begin()
-                    failed.execute("INSERT INTO values_to_read VALUES (10)")
-                    raise ValueError("failed work")
+            with (
+                self.assertRaisesRegex(ValueError, "failed work"),
+                self.factory.connect(self.path) as failed,
+            ):
+                failed.begin()
+                failed.execute("INSERT INTO values_to_read VALUES (10)")
+                raise ValueError("failed work")
             self.assertEqual(self.read(), 3)
 
     def test_local_operation_reuses_owner_for_committed_write_and_read(self) -> None:
-        with collect_duckdb_request_timings() as timings:
-            with retain_databases_for_operation():
-                with self.factory.connect(self.path) as connection:
-                    connection.begin()
-                    connection.execute("INSERT INTO values_to_read VALUES (2)")
-                    connection.commit()
-                self.assertEqual(self.read(), 3)
+        with (
+            collect_duckdb_request_timings() as timings,
+            retain_databases_for_operation(),
+        ):
+            with self.factory.connect(self.path) as connection:
+                connection.begin()
+                connection.execute("INSERT INTO values_to_read VALUES (2)")
+                connection.commit()
+            self.assertEqual(self.read(), 3)
 
         self.assertEqual(timings.connection_count, 1)
 
@@ -85,13 +93,19 @@ class PageReadConnectionTests(unittest.TestCase):
             opened.append(result)
             return result
 
-        with patch("impodo.adapters.duckdb.unit_of_work.duckdb.connect", side_effect=connect):
-            with self.assertRaisesRegex(ValueError, "render failed"):
-                with retain_databases_for_read():
-                    self.read()
-                    with self.factory.connect(self.path.with_name("second.duckdb")) as other:
-                        other.execute("SELECT 1")
-                    raise ValueError("render failed")
+        with patch(
+            "impodo.adapters.duckdb.unit_of_work.duckdb.connect", side_effect=connect
+        ):
+            with (
+                self.assertRaisesRegex(ValueError, "render failed"),
+                retain_databases_for_read(),
+            ):
+                self.read()
+                with self.factory.connect(
+                    self.path.with_name("second.duckdb")
+                ) as other:
+                    other.execute("SELECT 1")
+                raise ValueError("render failed")
             self.assertEqual(len(opened), 2)
             for connection in opened:
                 with self.assertRaises(duckdb.ConnectionException):
@@ -100,17 +114,19 @@ class PageReadConnectionTests(unittest.TestCase):
             self.assertEqual(len(opened), 3)
 
     def test_other_threads_do_not_inherit_retained_handles(self) -> None:
-        with ThreadPoolExecutor(max_workers=1) as workers:
-            with retain_databases_for_read():
-                self.assertEqual(self.read(), 1)
+        with (
+            ThreadPoolExecutor(max_workers=1) as workers,
+            retain_databases_for_read(),
+        ):
+            self.assertEqual(self.read(), 1)
 
-                def other_thread():
-                    with collect_duckdb_request_timings() as timings:
-                        self.assertEqual(self.read(), 1)
-                        self.assertEqual(self.read(), 1)
-                        return timings.connection_count
+            def other_thread():
+                with collect_duckdb_request_timings() as timings:
+                    self.assertEqual(self.read(), 1)
+                    self.assertEqual(self.read(), 1)
+                    return timings.connection_count
 
-                self.assertEqual(workers.submit(other_thread).result(timeout=10), 2)
+            self.assertEqual(workers.submit(other_thread).result(timeout=10), 2)
 
     def test_another_process_can_open_the_file_after_each_read(self) -> None:
         for fail in (False, True):
@@ -122,32 +138,70 @@ class PageReadConnectionTests(unittest.TestCase):
             except ValueError:
                 pass
             result = subprocess.run(
-                [sys.executable, "-c", (
-                    "import duckdb, sys; "
-                    "c = duckdb.connect(sys.argv[1]); "
-                    "assert c.execute('SELECT sum(value) FROM values_to_read').fetchone() == (1,); "
-                    "c.close()"
-                ), str(self.path)],
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import duckdb, sys; "
+                        "c = duckdb.connect(sys.argv[1]); "
+                        "assert c.execute('SELECT sum(value) FROM values_to_read').fetchone() == (1,); "
+                        "c.close()"
+                    ),
+                    str(self.path),
+                ],
                 capture_output=True,
+                check=False,
                 text=True,
                 timeout=10,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_config_overrides_are_not_silently_ignored_by_reuse(self) -> None:
-        with retain_databases_for_read():
+    def test_config_overrides_reopen_an_inactive_retained_owner(self) -> None:
+        with (
+            collect_duckdb_request_timings() as timings,
+            retain_databases_for_read(),
+        ):
+            with (
+                self.factory.connect(self.path) as initial,
+                validate_schema_once_for_operation(
+                    initial,
+                    "workspace-v1",
+                ) as required,
+            ):
+                self.assertTrue(required)
+            with self.factory.connect(self.path, threads="3") as configured:
+                self.assertEqual(
+                    configured.execute("SELECT current_setting('threads')").fetchone(),
+                    (3,),
+                )
+                with validate_schema_once_for_operation(
+                    configured,
+                    "workspace-v1",
+                ) as required:
+                    self.assertTrue(required)
+            with (
+                self.factory.connect(self.path) as reopened,
+                validate_schema_once_for_operation(
+                    reopened,
+                    "workspace-v1",
+                ) as required,
+            ):
+                self.assertTrue(required)
             self.assertEqual(self.read(), 1)
-            with self.assertRaises(duckdb.ConnectionException):
-                with self.factory.connect(self.path, threads="3"):
-                    self.fail("An incompatible database configuration was reused")
 
-    def test_schema_validation_is_reused_only_for_the_same_scoped_database(self) -> None:
+        self.assertEqual(timings.connection_count, 3)
+
+    def test_schema_validation_is_reused_only_for_the_same_scoped_database(
+        self,
+    ) -> None:
         second_path = self.path.with_name("second.duckdb")
 
         with retain_databases_for_read():
-            with self.factory.connect(self.path) as first:
-                with validate_schema_once_for_operation(first, "workspace-v1") as required:
-                    self.assertTrue(required)
+            with (
+                self.factory.connect(self.path) as first,
+                validate_schema_once_for_operation(first, "workspace-v1") as required,
+            ):
+                self.assertTrue(required)
             with self.factory.connect(self.path) as repeated:
                 with validate_schema_once_for_operation(
                     repeated,
@@ -159,37 +213,44 @@ class PageReadConnectionTests(unittest.TestCase):
                     "workspace-v2",
                 ) as required:
                     self.assertTrue(required)
-            with self.factory.connect(second_path) as second:
-                with validate_schema_once_for_operation(
+            with (
+                self.factory.connect(second_path) as second,
+                validate_schema_once_for_operation(
                     second,
                     "workspace-v1",
-                ) as required:
-                    self.assertTrue(required)
+                ) as required,
+            ):
+                self.assertTrue(required)
 
-        with self.factory.connect(self.path) as unscoped:
-            with validate_schema_once_for_operation(
+        with (
+            self.factory.connect(self.path) as unscoped,
+            validate_schema_once_for_operation(
                 unscoped,
                 "workspace-v1",
-            ) as required:
-                self.assertTrue(required)
+            ) as required,
+        ):
+            self.assertTrue(required)
 
     def test_failed_schema_validation_is_not_reused(self) -> None:
         with retain_databases_for_read():
-            with self.factory.connect(self.path) as failed:
-                with self.assertRaisesRegex(ValueError, "invalid schema"):
-                    with validate_schema_once_for_operation(
-                        failed,
-                        "workspace-v1",
-                    ) as required:
-                        self.assertTrue(required)
-                        raise ValueError("invalid schema")
-            with self.factory.connect(self.path) as retried:
-                with validate_schema_once_for_operation(
+            with (
+                self.factory.connect(self.path) as failed,
+                self.assertRaisesRegex(ValueError, "invalid schema"),
+                validate_schema_once_for_operation(
+                    failed,
+                    "workspace-v1",
+                ) as required,
+            ):
+                self.assertTrue(required)
+                raise ValueError("invalid schema")
+            with (
+                self.factory.connect(self.path) as retried,
+                validate_schema_once_for_operation(
                     retried,
                     "workspace-v1",
-                ) as required:
-                    self.assertTrue(required)
-
+                ) as required,
+            ):
+                self.assertTrue(required)
 
 
 if __name__ == "__main__":

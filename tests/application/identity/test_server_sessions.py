@@ -111,6 +111,42 @@ class ServerSessionServiceTests(unittest.TestCase):
         self.assertEqual(repository.events[0].kind.value, "SESSION_CREATED")
         self.assertIsNone(record.elevated_until)
 
+    def test_create_accepts_tenant_bound_organization_administrator_only(self) -> None:
+        repository = _Repository()
+        service = _service(repository)
+        organization_subject = SessionSubject(
+            principal_kind=LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR,
+            principal_id=ADMINISTRATOR_ID,
+            organization_id="acme",
+        )
+
+        credentials = service.create(
+            CreateServerSessionCommand(
+                subject=organization_subject,
+                authentication_method=SessionAuthenticationMethod.PASSWORD,
+                security_revision=3,
+            ),
+            deployment_id="local-trial",
+        )
+
+        self.assertEqual(credentials.session.subject, organization_subject)
+        assert repository.created is not None
+        self.assertEqual(repository.created.subject.organization_id, "acme")
+
+        with self.assertRaises(ServerSessionInputError):
+            service.create(
+                CreateServerSessionCommand(
+                    subject=SessionSubject(
+                        principal_kind=LoginPrincipalKind.CUSTOMER_USER,
+                        principal_id=ADMINISTRATOR_ID,
+                        organization_id="acme",
+                    ),
+                    authentication_method=SessionAuthenticationMethod.PASSWORD,
+                    security_revision=3,
+                ),
+                deployment_id="local-trial",
+            )
+
     def test_access_requires_matching_handle_and_csrf_without_leaking_reason(self) -> None:
         repository = _Repository()
         service = _service(repository)

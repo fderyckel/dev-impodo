@@ -263,17 +263,16 @@ class RotateServerSessionCommand:
 
 @dataclass(frozen=True, slots=True)
 class RevokeServerSessionCommand:
-    """Revoke an exact session under optimistic concurrency."""
+    """Revoke an exact self-session under optimistic concurrency."""
 
-    actor_administrator_id: str
+    actor: SessionSubject
     session_id: str
     expected_revision: int
     reason: SessionRevocationReason = SessionRevocationReason.ADMINISTRATOR
 
     def __post_init__(self) -> None:
         if (
-            not self.actor_administrator_id
-            or _SESSION_ID_PATTERN.fullmatch(self.session_id) is None
+            _SESSION_ID_PATTERN.fullmatch(self.session_id) is None
             or self.expected_revision <= 0
         ):
             raise ServerSessionInputError("Session revocation command is invalid")
@@ -286,8 +285,8 @@ class SessionSecurityEvent:
     event_id: str
     deployment_id: str
     kind: SecurityEventKind
-    subject_administrator_id: str | None
-    actor_administrator_id: str | None
+    subject: SessionSubject | None
+    actor: SessionSubject | None
     occurred_at: datetime
 
     def __post_init__(self) -> None:

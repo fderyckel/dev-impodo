@@ -10,7 +10,10 @@ from impodo.domain.identity.administration import (
     AdministrationEventQuery,
     AdministrationSecurityEvent,
     CustomerCredentialMutation,
+    CustomerUserDetailQuery,
+    CustomerUserListQuery,
     CustomerUserMutationCommand,
+    CustomerUserPage,
     CustomerUserRecord,
     CustomerUserStatus,
     CustomerUserView,
@@ -76,6 +79,16 @@ class IdentityAdministrationRepository(Protocol):
         record: CustomerUserRecord,
         issue: RecoveryTokenIssue,
         event: AdministrationSecurityEvent,
+    ) -> CustomerUserView: ...
+
+    def list_customer_users(
+        self,
+        query: CustomerUserListQuery,
+    ) -> CustomerUserPage: ...
+
+    def get_customer_user(
+        self,
+        query: CustomerUserDetailQuery,
     ) -> CustomerUserView: ...
 
     def replace_organization_administrator(

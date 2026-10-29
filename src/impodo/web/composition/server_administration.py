@@ -15,6 +15,11 @@ from starlette.datastructures import FormData
 from impodo.domain.identity.administration import (
     AdministrationActor,
     CreateOrganizationCommand,
+    CustomerUserDetailQuery,
+    CustomerUserListQuery,
+    CustomerUserPage,
+    CustomerUserStatus,
+    CustomerUserView,
     IdentityAdministrationConflictError,
     IdentityAdministrationInputError,
     IdentityAdministrationNotFoundError,
@@ -24,14 +29,14 @@ from impodo.domain.identity.administration import (
     OrganizationPage,
     OrganizationView,
 )
-from impodo.domain.identity.authentication import (
-    PlatformAuthenticationCommand,
-    PlatformAuthenticationRejectedError,
-    PlatformAuthenticationResult,
-    PlatformAuthenticationStorageError,
-    PlatformAuthenticationUnavailableError,
-)
 from impodo.domain.identity.recovery import LoginPrincipalKind
+from impodo.domain.identity.server_authentication import (
+    ServerAuthenticationCommand,
+    ServerAuthenticationRejectedError,
+    ServerAuthenticationResult,
+    ServerAuthenticationStorageError,
+    ServerAuthenticationUnavailableError,
+)
 from impodo.domain.identity.sessions import (
     SESSION_REJECTED_MESSAGE,
     AccessServerSessionCommand,
@@ -57,19 +62,23 @@ _AUTHENTICATION_ERROR = "Login was not accepted."
 _UNAVAILABLE_ERROR = "Administration is temporarily unavailable."
 
 
-class ServerPlatformAuthenticator(Protocol):
-    """Authenticate one Platform Administrator."""
+class ServerRoleForbiddenError(RuntimeError):
+    """Keep a valid session while denying the other administrator boundary."""
+
+
+class ServerAuthenticator(Protocol):
+    """Authenticate one supported shared-server administrator."""
 
     def authenticate(
         self,
-        command: PlatformAuthenticationCommand,
+        command: ServerAuthenticationCommand,
         *,
         deployment_id: str,
-    ) -> PlatformAuthenticationResult: ...
+    ) -> ServerAuthenticationResult: ...
 
 
 class ServerSessionManager(Protocol):
-    """Create, resolve, and revoke Platform Administrator sessions."""
+    """Create, resolve, and revoke supported administrator sessions."""
 
     def create(
         self,
@@ -88,8 +97,8 @@ class ServerSessionManager(Protocol):
     ) -> None: ...
 
 
-class ServerOrganizationAdministration(Protocol):
-    """Read and create Organizations for one Platform Administrator."""
+class ServerIdentityAdministration(Protocol):
+    """Expose bounded Platform and Organization administration reads."""
 
     def list_organizations(self, query: OrganizationListQuery) -> OrganizationPage: ...
 
@@ -99,6 +108,10 @@ class ServerOrganizationAdministration(Protocol):
         *,
         deployment_id: str,
     ) -> OrganizationView: ...
+
+    def list_customer_users(self, query: CustomerUserListQuery) -> CustomerUserPage: ...
+
+    def get_customer_user(self, query: CustomerUserDetailQuery) -> CustomerUserView: ...
 
 
 class ServerIdentifierDigester(Protocol):
@@ -111,9 +124,9 @@ class ServerIdentifierDigester(Protocol):
 class ServerAdministrationDependencies:
     """Bind authenticated dashboard services without process-wide connections."""
 
-    authenticator: ServerPlatformAuthenticator
+    authenticator: ServerAuthenticator
     sessions: ServerSessionManager
-    organizations: ServerOrganizationAdministration
+    organizations: ServerIdentityAdministration
     identifier_digester: ServerIdentifierDigester
     templates: Jinja2Templates
     deployment_id: str
@@ -128,8 +141,17 @@ def create_server_administration_router(
     router = APIRouter(include_in_schema=False)
 
     @router.get("/")
-    async def server_root() -> RedirectResponse:
-        return RedirectResponse("/admin/organizations", status_code=303)
+    async def server_root(request: Request) -> RedirectResponse:
+        handle = request.cookies.get(SERVER_SESSION_COOKIE_NAME, "")
+        try:
+            destination = await run_in_threadpool(
+                _home_for_session,
+                dependencies,
+                handle,
+            )
+        except (ServerSessionRejectedError, ServerSessionStorageError, ServerSessionUnavailableError):
+            return _login_redirect()
+        return RedirectResponse(destination, status_code=303)
 
     @router.get("/login")
     async def login_form(request: Request) -> Response:
@@ -158,7 +180,7 @@ def create_server_administration_router(
                 password,
                 source_digest,
             )
-        except PlatformAuthenticationRejectedError:
+        except ServerAuthenticationRejectedError:
             return _template(
                 dependencies,
                 request,
@@ -167,8 +189,8 @@ def create_server_administration_router(
                 status_code=401,
             )
         except (
-            PlatformAuthenticationStorageError,
-            PlatformAuthenticationUnavailableError,
+            ServerAuthenticationStorageError,
+            ServerAuthenticationUnavailableError,
             ServerSessionStorageError,
             ServerSessionUnavailableError,
         ):
@@ -179,7 +201,7 @@ def create_server_administration_router(
                 {"error": _UNAVAILABLE_ERROR},
                 status_code=503,
             )
-        response = RedirectResponse("/admin/organizations", status_code=303)
+        response = RedirectResponse(_home_path(credentials.session), status_code=303)
         set_server_session_cookie(
             response,
             credentials,
@@ -208,6 +230,14 @@ def create_server_administration_router(
             IdentityAdministrationNotFoundError,
         ):
             return _login_redirect()
+        except ServerRoleForbiddenError:
+            return _template(
+                dependencies,
+                request,
+                "server/error.html",
+                {"message": "This administrator role cannot open Organizations.", "back_url": "/"},
+                status_code=403,
+            )
         except IdentityAdministrationInputError:
             return _template(
                 dependencies,
@@ -263,6 +293,14 @@ def create_server_administration_router(
             IdentityAdministrationNotFoundError,
         ):
             return _login_redirect()
+        except ServerRoleForbiddenError:
+            return _template(
+                dependencies,
+                request,
+                "server/error.html",
+                {"message": "This administrator role cannot create Organizations.", "back_url": "/"},
+                status_code=403,
+            )
         except IdentityAdministrationInputError:
             return _template(
                 dependencies,
@@ -293,6 +331,113 @@ def create_server_administration_router(
                 status_code=503,
             )
         return RedirectResponse("/admin/organizations", status_code=303)
+
+    @router.get("/admin/users")
+    async def users(
+        request: Request,
+        after_user_id: str | None = None,
+        status: str | None = None,
+    ) -> Response:
+        handle = request.cookies.get(SERVER_SESSION_COOKIE_NAME, "")
+        csrf_token = request.cookies.get(SERVER_CSRF_COOKIE_NAME, "")
+        try:
+            session, page = await run_in_threadpool(
+                _load_users,
+                dependencies,
+                handle,
+                after_user_id,
+                status,
+            )
+        except ServerSessionRejectedError:
+            return _login_redirect()
+        except ServerRoleForbiddenError:
+            return _template(
+                dependencies,
+                request,
+                "server/error.html",
+                {"message": "This administrator role cannot open customer users.", "back_url": "/"},
+                status_code=403,
+            )
+        except (IdentityAdministrationInputError, IdentityAdministrationNotFoundError):
+            return _template(
+                dependencies,
+                request,
+                "server/error.html",
+                {"message": "The customer-user page cursor is invalid.", "back_url": "/admin/users"},
+                status_code=400,
+            )
+        except (
+            ServerSessionStorageError,
+            ServerSessionUnavailableError,
+            IdentityAdministrationStorageError,
+            IdentityAdministrationUnavailableError,
+        ):
+            return _template(
+                dependencies,
+                request,
+                "server/error.html",
+                {"message": _UNAVAILABLE_ERROR, "back_url": "/admin/users"},
+                status_code=503,
+            )
+        if not csrf_token:
+            return _login_redirect()
+        return _template(
+            dependencies,
+            request,
+            "server/users.html",
+            {"csrf_token": csrf_token, "page": page, "session": session, "status": status},
+        )
+
+    @router.get("/admin/users/{user_id}")
+    async def user_detail(request: Request, user_id: str) -> Response:
+        handle = request.cookies.get(SERVER_SESSION_COOKIE_NAME, "")
+        csrf_token = request.cookies.get(SERVER_CSRF_COOKIE_NAME, "")
+        try:
+            session, user = await run_in_threadpool(
+                _load_user,
+                dependencies,
+                handle,
+                user_id,
+            )
+        except ServerSessionRejectedError:
+            return _login_redirect()
+        except ServerRoleForbiddenError:
+            return _template(
+                dependencies,
+                request,
+                "server/error.html",
+                {"message": "This administrator role cannot open customer users.", "back_url": "/"},
+                status_code=403,
+            )
+        except (IdentityAdministrationInputError, IdentityAdministrationNotFoundError):
+            return _template(
+                dependencies,
+                request,
+                "server/error.html",
+                {"message": "Customer user not found.", "back_url": "/admin/users"},
+                status_code=404,
+            )
+        except (
+            ServerSessionStorageError,
+            ServerSessionUnavailableError,
+            IdentityAdministrationStorageError,
+            IdentityAdministrationUnavailableError,
+        ):
+            return _template(
+                dependencies,
+                request,
+                "server/error.html",
+                {"message": _UNAVAILABLE_ERROR, "back_url": "/admin/users"},
+                status_code=503,
+            )
+        if not csrf_token:
+            return _login_redirect()
+        return _template(
+            dependencies,
+            request,
+            "server/user_detail.html",
+            {"csrf_token": csrf_token, "session": session, "user": user},
+        )
 
     @router.post("/logout")
     async def logout(request: Request) -> Response:
@@ -327,7 +472,7 @@ def _authenticate_and_create_session(
     source_digest: str,
 ) -> ServerSessionCredentials:
     authenticated = dependencies.authenticator.authenticate(
-        PlatformAuthenticationCommand(
+        ServerAuthenticationCommand(
             login_email=login_email,
             password=password,
             source_digest=source_digest,
@@ -337,9 +482,9 @@ def _authenticate_and_create_session(
     return dependencies.sessions.create(
         CreateServerSessionCommand(
             subject=SessionSubject(
-                principal_kind=LoginPrincipalKind.PLATFORM_ADMINISTRATOR,
-                principal_id=authenticated.administrator_id,
-                organization_id=None,
+                principal_kind=authenticated.principal_kind,
+                principal_id=authenticated.principal_id,
+                organization_id=authenticated.organization_id,
             ),
             authentication_method=SessionAuthenticationMethod.PASSWORD,
             security_revision=authenticated.security_revision,
@@ -390,6 +535,48 @@ def _create_organization(
     )
 
 
+def _load_users(
+    dependencies: ServerAdministrationDependencies,
+    handle: str,
+    after_user_id: str | None,
+    status: str | None,
+) -> tuple[CurrentSessionView, CustomerUserPage]:
+    session = dependencies.sessions.access(AccessServerSessionCommand(handle=handle))
+    actor = _organization_actor(session)
+    try:
+        status_filter = CustomerUserStatus(status) if status else None
+    except ValueError as error:
+        raise IdentityAdministrationInputError(
+            "Customer account status filter is invalid"
+        ) from error
+    page = dependencies.organizations.list_customer_users(
+        CustomerUserListQuery(
+            actor=actor,
+            organization_id=actor.organization_id or "",
+            status=status_filter,
+            after_user_id=after_user_id,
+        )
+    )
+    return session, page
+
+
+def _load_user(
+    dependencies: ServerAdministrationDependencies,
+    handle: str,
+    user_id: str,
+) -> tuple[CurrentSessionView, CustomerUserView]:
+    session = dependencies.sessions.access(AccessServerSessionCommand(handle=handle))
+    actor = _organization_actor(session)
+    user = dependencies.organizations.get_customer_user(
+        CustomerUserDetailQuery(
+            actor=actor,
+            organization_id=actor.organization_id or "",
+            user_id=user_id,
+        )
+    )
+    return session, user
+
+
 def _revoke_current_session(
     dependencies: ServerAdministrationDependencies,
     handle: str,
@@ -402,10 +589,9 @@ def _revoke_current_session(
             require_csrf=True,
         )
     )
-    actor = _platform_actor(session)
     dependencies.sessions.revoke(
         RevokeServerSessionCommand(
-            actor_administrator_id=actor.principal_id,
+            actor=session.subject,
             session_id=session.session_id,
             expected_revision=session.optimistic_revision,
         ),
@@ -415,12 +601,43 @@ def _revoke_current_session(
 
 def _platform_actor(session: CurrentSessionView) -> AdministrationActor:
     if session.subject.principal_kind is not LoginPrincipalKind.PLATFORM_ADMINISTRATOR:
-        raise ServerSessionRejectedError(SESSION_REJECTED_MESSAGE)
+        raise ServerRoleForbiddenError
     return AdministrationActor(
         principal_kind=session.subject.principal_kind,
         principal_id=session.subject.principal_id,
         organization_id=None,
     )
+
+
+def _organization_actor(session: CurrentSessionView) -> AdministrationActor:
+    if (
+        session.subject.principal_kind
+        is not LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR
+        or session.subject.organization_id is None
+    ):
+        raise ServerRoleForbiddenError
+    return AdministrationActor(
+        principal_kind=session.subject.principal_kind,
+        principal_id=session.subject.principal_id,
+        organization_id=session.subject.organization_id,
+    )
+
+
+def _home_for_session(
+    dependencies: ServerAdministrationDependencies,
+    handle: str,
+) -> str:
+    return _home_path(
+        dependencies.sessions.access(AccessServerSessionCommand(handle=handle))
+    )
+
+
+def _home_path(session: CurrentSessionView) -> str:
+    if session.subject.principal_kind is LoginPrincipalKind.PLATFORM_ADMINISTRATOR:
+        return "/admin/organizations"
+    if session.subject.principal_kind is LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR:
+        return "/admin/users"
+    raise ServerSessionRejectedError(SESSION_REJECTED_MESSAGE)
 
 
 def _login_redirect() -> RedirectResponse:

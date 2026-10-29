@@ -96,6 +96,7 @@ class WorkspaceNavigationRepositoryTests(unittest.TestCase):
             directory.__truediv__.return_value = database_path
             database_path.is_file.return_value = True
             repository = object.__new__(WorkspaceNavigationRepository)
+            repository._source_projections = None
             repository.workspace_directory = Mock(return_value=directory)
             repository._connect = Mock(
                 side_effect=lambda _path: _keep_open(connection)

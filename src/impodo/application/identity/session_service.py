@@ -26,6 +26,7 @@ from impodo.domain.identity.sessions import (
     ServerSessionRejectedError,
     SessionAuthenticationMethod,
     SessionSecurityEvent,
+    SessionSubject,
 )
 
 
@@ -55,7 +56,10 @@ class ServerSessionService:
     ) -> ServerSessionCredentials:
         """Create fresh credentials without accepting an anonymous browser handle."""
 
-        if command.subject.principal_kind is not LoginPrincipalKind.PLATFORM_ADMINISTRATOR:
+        if command.subject.principal_kind not in {
+            LoginPrincipalKind.PLATFORM_ADMINISTRATOR,
+            LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR,
+        }:
             raise ServerSessionInputError("Session subject is not supported")
         created_at = self._aware_now()
         material = self._secret_factory.create()
@@ -82,8 +86,8 @@ class ServerSessionService:
             self._event(
                 deployment_id=deployment_id,
                 kind=SecurityEventKind.SESSION_CREATED,
-                subject_administrator_id=command.subject.principal_id,
-                actor_administrator_id=None,
+                subject=command.subject,
+                actor=None,
                 occurred_at=created_at,
             ),
         )
@@ -140,8 +144,8 @@ class ServerSessionService:
             event=self._event(
                 deployment_id=deployment_id,
                 kind=SecurityEventKind.SESSION_ROTATED,
-                subject_administrator_id=None,
-                actor_administrator_id=None,
+                subject=None,
+                actor=None,
                 occurred_at=rotated_at,
             ),
         )
@@ -167,8 +171,8 @@ class ServerSessionService:
             self._event(
                 deployment_id=deployment_id,
                 kind=SecurityEventKind.SESSION_REVOKED,
-                subject_administrator_id=None,
-                actor_administrator_id=command.actor_administrator_id,
+                subject=None,
+                actor=command.actor,
                 occurred_at=revoked_at,
             ),
             revoked_at=revoked_at,
@@ -185,16 +189,16 @@ class ServerSessionService:
         *,
         deployment_id: str,
         kind: SecurityEventKind,
-        subject_administrator_id: str | None,
-        actor_administrator_id: str | None,
+        subject: SessionSubject | None,
+        actor: SessionSubject | None,
         occurred_at: datetime,
     ) -> SessionSecurityEvent:
         return SessionSecurityEvent(
             event_id=self._identifier_factory(),
             deployment_id=deployment_id,
             kind=kind,
-            subject_administrator_id=subject_administrator_id,
-            actor_administrator_id=actor_administrator_id,
+            subject=subject,
+            actor=actor,
             occurred_at=occurred_at,
         )
 

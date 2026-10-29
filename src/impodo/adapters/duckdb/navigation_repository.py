@@ -1,11 +1,15 @@
-"""Read scalar workflow-navigation evidence in one workspace transaction."""
+"""Read compact navigation facts and verified DataVersion source references."""
 
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import duckdb
 
+from impodo.application.data_version.source_packages import (
+    WorkspaceSourceProjectionRepository,
+)
 from impodo.application.workspace.execution.navigation import (
     ExecutionNavigationState,
     ExecutionPreviewSummary,
@@ -101,8 +105,33 @@ def read_execution_navigation_state(
 class WorkspaceNavigationRepository(DuckDbRepository):
     """Own the bounded, display-only workspace navigation read model."""
 
-    def __init__(self, database: DuckDbWorkspaceDatabase) -> None:
+    def __init__(
+        self,
+        database: DuckDbWorkspaceDatabase,
+        source_projections: WorkspaceSourceProjectionRepository | None = None,
+    ) -> None:
         super().__init__(database)
+        self._source_projections = source_projections
+
+    def _with_projected_source(
+        self, facts: WorkspaceNavigationFacts
+    ) -> WorkspaceNavigationFacts:
+        """Read only verified source-manifest identities for Recipe workspaces."""
+
+        if facts.source_selection_hash or self._source_projections is None:
+            return facts
+        projection = self._source_projections.get_workspace_source_projection(
+            facts.workspace_id
+        )
+        if projection is None:
+            return facts
+        hashes = {
+            str(item.manifest.get("physical_selection_hash", ""))
+            for item in projection.datasets
+        }
+        if len(hashes) != 1 or not next(iter(hashes)):
+            raise WorkspaceError("Projected source selection identity is incomplete")
+        return replace(facts, source_selection_hash=next(iter(hashes)))
 
     def get(self, workspace_id: str) -> WorkspaceNavigationFacts:
         database_path = (
@@ -116,14 +145,14 @@ class WorkspaceNavigationRepository(DuckDbRepository):
                 connection.begin()
                 facts = self._read_facts(connection, workspace_id)
                 connection.rollback()
-                return facts
+                return self._with_projected_source(facts)
         except (duckdb.Error, TypeError, ValueError) as error:
             raise WorkspaceError(
                 "Stored workflow navigation evidence is invalid"
             ) from error
 
     def get_snapshot(self, workspace_id: str) -> WorkspaceNavigationSnapshot:
-        """Read workspace state and navigation facts in one transaction."""
+        """Read engine facts together, then verify any frozen source reference."""
 
         database_path = (
             self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -140,7 +169,9 @@ class WorkspaceNavigationRepository(DuckDbRepository):
                 )
                 facts = self._read_facts(connection, workspace_id)
                 connection.rollback()
-                return WorkspaceNavigationSnapshot(workspace_state, facts)
+                return WorkspaceNavigationSnapshot(
+                    workspace_state, self._with_projected_source(facts)
+                )
         except (duckdb.Error, TypeError, ValueError) as error:
             raise WorkspaceError(
                 "Stored workflow navigation evidence is invalid"

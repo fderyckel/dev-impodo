@@ -24,6 +24,10 @@ from impodo.domain.project.foundation import (
 from impodo.domain.shared.access import Actor
 
 
+class PreflightPublicationCommittedError(RuntimeError):
+    """Report a failed registration-file refresh after evidence committed."""
+
+
 @dataclass(frozen=True, slots=True)
 class PreflightComparisonRequest:
     """Bind one browser submission to its current bounded evidence meaning."""
@@ -37,6 +41,7 @@ class PreflightComparisonRequest:
     migration_run_id: str
     recipe_application_id: str | None
     requested_at: datetime
+    read_credential_binding_hash: str = ""
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -50,6 +55,10 @@ class PreflightComparisonRequest:
         if self.recipe_application_id is not None:
             require_uuid(self.recipe_application_id, "recipe_application_id")
         require_hash(self.semantic_input_hash, "semantic_input_hash")
+        if self.read_credential_binding_hash:
+            require_hash(
+                self.read_credential_binding_hash, "read_credential_binding_hash"
+            )
         require_revision(self.workspace_revision, "workspace_revision")
         require_aware(self.requested_at, "requested_at")
 
@@ -151,4 +160,5 @@ __all__ = [
     "PreflightAttemptStore",
     "PreflightComparisonReceipt",
     "PreflightComparisonRequest",
+    "PreflightPublicationCommittedError",
 ]

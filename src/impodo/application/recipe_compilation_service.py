@@ -1487,10 +1487,33 @@ class RecipeCompiler:
         if plan is None:
             return {"rules": [], "dataset_uses": []}
         by_name = {item.name: item.dataset_id for item in datasets}
+        raw_rules = tuple(plan.to_dict(include_hash=False)["rules"])
+        grouped_outputs: dict[str, list[tuple[int, str]]] = {}
+        for raw in raw_rules:
+            raw_group_id = raw.get("group_id")
+            if not isinstance(raw_group_id, str):
+                continue
+            grouped_outputs.setdefault(raw_group_id, []).append(
+                (
+                    int(raw.get("group_step", 0)),
+                    str(raw.get("output_dataset_name", "prepared")),
+                )
+            )
+        logical_group_ids = {
+            group_id: "preparation-group:"
+            + ".".join(
+                _token(output_name)
+                for _, output_name in sorted(outputs)
+            )
+            for group_id, outputs in grouped_outputs.items()
+        }
         rules = []
-        for raw in plan.to_dict(include_hash=False)["rules"]:
+        for raw in raw_rules:
             value = dict(raw)
             value.pop("rule_id", None)
+            raw_group_id = value.pop("group_id", None)
+            if isinstance(raw_group_id, str):
+                value["logical_group_id"] = logical_group_ids[raw_group_id]
             output_name = str(value.get("output_dataset_name", "prepared"))
             value["logical_rule_id"] = (
                 f"preparation:{_token(str(value.get('kind', 'rule')))}."

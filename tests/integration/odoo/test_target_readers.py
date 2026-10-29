@@ -66,7 +66,6 @@ from impodo.web.target_credentials import (
     TargetCredentialRole,
     store_target_credential,
 )
-from tests.support.identity import resolve_local_actor
 
 HASH = "sha256:" + "1" * 64
 
@@ -883,7 +882,7 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
             workspace,
             schema,
             requirements,
-            actor=resolve_local_actor(context),
+            actor=LOCAL_ACTOR,
         )
 
         self.assertEqual(len(calls), 1)
@@ -1124,7 +1123,7 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
             workspace,
             schema,
             datasets,
-            actor=resolve_local_actor(context),
+            actor=LOCAL_ACTOR,
         )
 
         self.assertEqual(len(calls), 1)
@@ -1243,7 +1242,7 @@ class ScopedRelationshipChoiceTests(unittest.TestCase):
                     key_id="calendar-within-company", model="resource.calendar",
                     key_fields=("name",), scope_fields=("company_id",),
                 ),
-                actor=resolve_local_actor(context),
+                actor=LOCAL_ACTOR,
             )
         self.assertFalse(reused)
         self.assertEqual(ambiguous, ())

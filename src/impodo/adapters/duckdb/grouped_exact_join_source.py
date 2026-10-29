@@ -7,13 +7,14 @@ bounded pages.  Connections are request-scoped and are never cached.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
 import duckdb
 
+from impodo.application.shared.columnar_runtime import configure_columnar_runtime
 from impodo.application.workspace.preparation.grouped_exact_join_preparation import (
     BoundedExactJoinGroup,
     GroupedExactJoinBatch,
@@ -32,8 +33,18 @@ from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
 from .database import DuckDbWorkspaceDatabase
 from .exact_join_group_evaluator import parsed_join_key_expression
 
+configure_columnar_runtime()
+
+import polars as pl
+
 _SOURCE_MEMORY_LIMIT = "256MB"
 _SOURCE_THREADS = "2"
+# Match Python str.strip(), including Unicode and control whitespace.
+_CHOICE_WHITESPACE = (
+    "\t\n\v\f\r\x1c\x1d\x1e\x1f \x85\xa0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +73,94 @@ class DuckDbGroupedExactJoinSource(GroupedExactJoinSourcePort):
 
     def __init__(self, database: DuckDbWorkspaceDatabase) -> None:
         self._connection_factory = database.connection_factory
+
+    def project_values(
+        self,
+        *,
+        group: BoundedExactJoinGroup,
+        physical_selection: SourceSelection,
+        effective_dataset: SourceDataset,
+        snapshots: Mapping[str, SourceSnapshot],
+        paths: Mapping[str, Path],
+        column_keys: Sequence[str],
+        maximum_values: int | None = None,
+    ) -> pl.DataFrame:
+        """Project narrow joined values, optionally aggregating choices in SQL.
+
+        Raw snapshot value strings preserve the categorical scanner's existing
+        semantics. No rich rows or unrelated output columns are materialized.
+        """
+
+        keys = tuple(column_keys)
+        columns = {column.stable_key: column for column in effective_dataset.columns}
+        if (
+            not keys
+            or len(set(keys)) != len(keys)
+            or any(key not in columns for key in keys)
+        ):
+            raise SourceLoadError("Choose current logical source columns")
+        if maximum_values is not None and (len(keys) != 1 or maximum_values < 1):
+            raise ValueError("Choice aggregation requires one column and a positive limit")
+        shape = _execution_shape(group, physical_selection, effective_dataset)
+        by_name = {projection.output_name: projection for projection in shape.projections}
+        shape = _ExecutionShape(
+            shape.primary_dataset_id,
+            shape.participant_ids,
+            shape.keys_by_dataset,
+            shape.key_value_types,
+            tuple(by_name[columns[key].source_name] for key in keys),
+        )
+        needed = _needed_columns(shape)
+        with self._connection_factory.connect(
+            Path(":memory:"),
+            memory_limit=_SOURCE_MEMORY_LIMIT,
+            threads=_SOURCE_THREADS,
+            preserve_insertion_order=False,
+            enable_external_access=True,
+        ) as connection:
+            try:
+                tables = {}
+                for index, dataset_id in enumerate(shape.participant_ids):
+                    table = f"_impodo_grouped_values_{index}"
+                    _create_narrow_input(
+                        connection,
+                        table_name=table,
+                        path=paths[dataset_id],
+                        snapshot=snapshots[dataset_id],
+                        needed_column_keys=needed[dataset_id],
+                        key_column_keys=shape.keys_by_dataset[dataset_id],
+                        key_value_types=shape.key_value_types,
+                    )
+                    tables[dataset_id] = table
+                query = _joined_query(
+                    shape, snapshots, tables,
+                    value_keys=keys,
+                    ordered=maximum_values is None,
+                )
+                parameters = []
+                if maximum_values is not None:
+                    query = f"""
+                        WITH choices AS (
+                            SELECT trim({_identifier(keys[0])}, ?) AS value
+                              FROM ({query}) AS joined_values
+                        )
+                        SELECT value, count(*) AS count
+                          FROM choices
+                         WHERE value IS NOT NULL AND value <> ''
+                         GROUP BY 1
+                         ORDER BY 1
+                         LIMIT {maximum_values + 1}
+                    """
+                    parameters = [_CHOICE_WHITESPACE]
+                    result_keys = ("value", "count")
+                else:
+                    result_keys = keys
+                rows = connection.execute(query, parameters).fetchall()
+                if maximum_values is None and len(rows) != effective_dataset.row_count:
+                    raise SourceLoadError("The reviewed joined row count changed")
+                return pl.DataFrame(rows, schema=list(result_keys), orient="row")
+            except duckdb.Error as error:
+                raise SourceLoadError("Impodo could not read the reviewed joined values") from error
 
     def iter_batches(
         self,
@@ -277,6 +376,9 @@ def _joined_query(
     shape: _ExecutionShape,
     snapshots: Mapping[str, SourceSnapshot],
     tables: Mapping[str, str],
+    *,
+    value_keys: tuple[str, ...] | None = None,
+    ordered: bool = True,
 ) -> str:
     aliases = {
         dataset_id: f"input_{index}"
@@ -298,21 +400,29 @@ def _joined_query(
         for dataset_id in shape.participant_ids
     )
     value_items: list[str] = []
-    for projection in shape.projections:
+    for index, projection in enumerate(shape.projections):
         snapshot_columns = {
             column.stable_key: column
             for column in snapshots[projection.origin.dataset_id].schema.columns
         }
         column = snapshot_columns[projection.origin.column_key]
         alias = aliases[projection.origin.dataset_id]
-        value_items.extend(
-            (f"{alias}.value_{column.ordinal}", f"{alias}.kind_{column.ordinal}")
-        )
+        if value_keys is None:
+            value_items.extend(
+                (f"{alias}.value_{column.ordinal}", f"{alias}.kind_{column.ordinal}")
+            )
+        else:
+            value_items.append(
+                f"{alias}.value_{column.ordinal} AS {_identifier(value_keys[index])}"
+            )
+    selected = ", ".join(value_items)
+    if value_keys is None:
+        selected = f"{source_rows}, {selected}"
     return f"""
-        SELECT {source_rows}, {", ".join(value_items)}
+        SELECT {selected}
           FROM {tables[shape.primary_dataset_id]} AS {primary_alias}
           {" ".join(joins)}
-         ORDER BY {primary_alias}.source_row
+         {f'ORDER BY {primary_alias}.source_row' if ordered else ''}
     """
 
 

@@ -206,6 +206,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             )
 
             def bind_start():
+                comparison_request = None
                 actor = request_identity(request, context.identity_resolver).actor
                 access_context = context.workspace_access.resolve(
                     workspace_id,
@@ -284,6 +285,9 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                             access_context.recipe_application_id
                         ),
                         requested_at=datetime.now(UTC),
+                        read_credential_binding_hash=(
+                            credential.binding_hash if credential is not None else ""
+                        ),
                     )
                     context.preflight_jobs.reserve(
                         comparison_request,
@@ -297,6 +301,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     access_context,
                     credential,
                     schema_catalog,
+                    comparison_request,
                 )
 
             (
@@ -305,6 +310,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 access_context,
                 credential,
                 schema_catalog,
+                comparison_request,
             ) = await run_local_operation(bind_start)
 
             def reader(requirements):
@@ -315,6 +321,16 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     actor=actor,
                     verified_read_identity=verified_read_identity,
                 )
+
+            def current_read_binding():
+                current = get_target_credential(
+                    context.secret_store,
+                    context.target_credential_workspace(
+                        workspace_id, workspace_state=workspace_state, actor=actor
+                    ),
+                    TargetCredentialRole.READ,
+                )
+                return current.binding_hash if current is not None else ""
 
             if context.preflight_jobs is not None:
                 def compare_in_background(report_progress):
@@ -338,9 +354,13 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                         ),
                         local_operation=run_local_operation_sync,
                         operation_id=operation_id,
+                        comparison_request=comparison_request,
+                        current_read_credential_binding_hash=current_read_binding,
                     )
                     receipt = (
-                        context.preflight.comparison_receipt(report)
+                        run_local_operation_sync(
+                            lambda: context.preflight.comparison_receipt(report)
+                        )
                         if getattr(report, "operation_id", "")
                         else None
                     )

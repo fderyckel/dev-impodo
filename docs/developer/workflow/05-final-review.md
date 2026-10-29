@@ -10,7 +10,8 @@ status: current
 
 Final review captures current target evidence, compares it with eligible
 prepared rows, classifies every row, and publishes portable review artifacts
-and the exact execution snapshot.
+for the current DataVersion. File-source comparisons also publish the exact
+execution snapshot.
 
 It is read-only with respect to Odoo and does not authorize a write.
 
@@ -40,6 +41,14 @@ normalization, target, and read-credential bindings and reserves
 the active or terminal attempt; changed meaning under the same operation ID and
 a second pending Workspace writer fail closed.
 
+The worker checks that reserved meaning before loading frozen input, after
+loading it, and before publishing the returned Odoo evidence. Publication also
+requires the prepared Workspace revision inside its database transaction. A
+queued or in-flight input change therefore cannot publish a comparison under
+the earlier operation's meaning.
+The browser worker supplies a fresh read of the saved credential generation
+inside each local check, so a queued or in-flight key change is rejected too.
+
 A success status names the published preflight run and continues to the load
 review. Failures retain the existing typed Odoo read classification and safe
 recovery presentation. The readiness report header retains the operation ID,
@@ -50,6 +59,19 @@ artifact hashes. A matching complete publication becomes successful; a missing
 publication becomes interrupted and retryable; changed bindings become stale.
 The progress route reconstructs this bounded attempt projection without loading
 the manifest, execution snapshot, or target snapshots.
+
+Receipt verification follows the source's artifact contract. A file-source
+receipt verifies the canonical manifest and complete execution snapshot. A
+pinned Odoo-source receipt verifies the redacted manifest, its report bindings,
+and the encrypted comparison artifact's byte hash without decrypting business
+values. That source policy produces no execution snapshot.
+
+The report transaction commits before registration files are refreshed. If
+that later refresh fails, the repository raises
+`PreflightPublicationCommittedError`. The service preserves the committed
+artifacts and returns the saved report for normal receipt verification and
+restart recovery. A failure before commit still rolls back the transaction
+and removes only the new attempt's artifacts.
 
 Tests may disable the manager and exercise the synchronous compatibility path.
 Both paths call the same comparison service and publication transaction.
@@ -205,6 +227,12 @@ store inside a request authorized for the application workspace. This keeps a
 saved comparison readable and prevents an available shared key from being
 misreported as missing. Reconnection still verifies unchanged schema and access
 meaning before a new comparison can use the replacement credential generation.
+
+Recipe workspace navigation also resolves the frozen source through the
+verified DataVersion source projection. It requires matching package and
+dataset snapshot hashes and uses their common physical-selection hash. It
+does not require a duplicate local source selection, copy source rows, or
+reopen uploaded files.
 
 ### Reviewed deferred record groups
 
@@ -365,6 +393,8 @@ contact Odoo while writing them.
 - [`tests/integration/odoo/test_connectors.py`](../../../tests/integration/odoo/test_connectors.py)
 - [`tests/application/workspace/review/test_odoo_comparison.py`](../../../tests/application/workspace/review/test_odoo_comparison.py)
 - [`tests/integration/web/test_review_workflow.py`](../../../tests/integration/web/test_review_workflow.py)
+- [`tests/integration/web/test_recipe_comparison_recovery.py`](../../../tests/integration/web/test_recipe_comparison_recovery.py)
+- [`tests/integration/web/test_odoo_transfer_journey.py`](../../../tests/integration/web/test_odoo_transfer_journey.py)
 - [`tests/integration/web/test_summary_presenter.py`](../../../tests/integration/web/test_summary_presenter.py)
 - [`tests/integration/web/test_deferred_scope_presenter.py`](../../../tests/integration/web/test_deferred_scope_presenter.py)
 - [`tests/integration/web/test_deferred_scope_routes.py`](../../../tests/integration/web/test_deferred_scope_routes.py)

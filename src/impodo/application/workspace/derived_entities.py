@@ -276,6 +276,147 @@ class DerivedEntityWorkspaceService:
         self.artifacts = artifacts
         self.group_evaluator = group_evaluator
 
+    def get_derived_entity_plan(
+        self,
+        workspace_id: str,
+    ) -> DerivedEntityPlan | None:
+        """Return the current plan through the application-owned repository port."""
+
+        return self.derived_entities.get_derived_entity_plan(workspace_id)
+
+    def save_derived_entity_plan(
+        self,
+        workspace_id: str,
+        plan: DerivedEntityPlan,
+        *,
+        expected_parent_version: int | None,
+        actor: Actor,
+    ) -> None:
+        """Publish Recipe preparation with fresh source-specific join evidence."""
+
+        self.authorization.require(
+            actor,
+            Capability.NORMALIZATION_DECIDE,
+            workspace_id=workspace_id,
+        )
+        reviewed_plan = self._review_recipe_join_group(workspace_id, plan)
+        self.derived_entities.save_derived_entity_plan(
+            workspace_id,
+            reviewed_plan,
+            expected_parent_version=expected_parent_version,
+            actor=actor,
+        )
+
+    def _review_recipe_join_group(
+        self,
+        workspace_id: str,
+        plan: DerivedEntityPlan,
+    ) -> DerivedEntityPlan:
+        if (
+            plan.join_reviews
+            or not plan.rules
+            or any(not isinstance(rule, ExactJoinRule) for rule in plan.rules)
+        ):
+            return plan
+        rules = tuple(
+            sorted(
+                (rule for rule in plan.rules if isinstance(rule, ExactJoinRule)),
+                key=lambda rule: rule.group_step or 0,
+            )
+        )
+        group_ids = {rule.group_id for rule in rules}
+        if (
+            len(group_ids) != 1
+            or None in group_ids
+            or tuple(rule.group_step for rule in rules)
+            != tuple(range(1, len(rules) + 1))
+        ):
+            return plan
+        selection, current = self._join_context(
+            workspace_id,
+            require_materialized_scale=self.group_evaluator is None,
+        )
+        if current is not None:
+            raise WorkspaceError(
+                "The source-preparation plan was modified by another request; reload it"
+            )
+        if plan.source_selection_hash != selection.content_hash:
+            raise WorkspaceError(
+                "The source-preparation plan is stale; rebuild it from the frozen datasets"
+            )
+        first = rules[0]
+        request = ExactJoinGroupRequest(
+            output_dataset_name=rules[-1].output_dataset_name,
+            primary_dataset_id=first.left_dataset_id,
+            primary_key_column_keys=tuple(key.left_column_key for key in first.keys),
+            key_value_types=tuple(key.value_type for key in first.keys),
+            additions=tuple(
+                ExactJoinGroupAddition(
+                    dataset_id=rule.right_dataset_id,
+                    key_column_keys=tuple(key.right_column_key for key in rule.keys),
+                    kind=rule.kind,
+                    require_all_rows=rule.require_all_right_rows,
+                )
+                for rule in rules
+            ),
+            projections=(),
+            group_id=str(first.group_id),
+        )
+        if self.group_evaluator is None:
+            tables, snapshots = self._load_join_tables(workspace_id, selection)
+            preview = self._review_join_group(
+                request,
+                rules,
+                selection,
+                None,
+                tables,
+            )
+        else:
+            with self._materialize_join_group_inputs(
+                workspace_id,
+                selection,
+                request,
+            ) as (snapshots_by_id, paths):
+                preview = self.group_evaluator.review(
+                    request=request,
+                    rules=rules,
+                    selection=selection,
+                    snapshots=snapshots_by_id,
+                    paths=paths,
+                )
+            snapshots = tuple(
+                snapshots_by_id[item.dataset_id] for item in selection.datasets
+            )
+        if not preview.can_save:
+            findings = tuple(
+                finding for review in preview.reviews for finding in review.findings
+            )
+            raise WorkspaceError(
+                "The Recipe's complete combination cannot be applied: "
+                + "; ".join(findings)
+            )
+        snapshot_evidence = tuple(
+            ExactJoinInputSnapshotEvidence(
+                dataset_id=item.dataset_id,
+                logical_hash=item.logical_hash,
+                parquet_sha256=item.parquet_sha256,
+            )
+            for item in snapshots
+        )
+        return replace(
+            plan,
+            join_reviews=tuple(
+                SavedExactJoinReview(
+                    rule_id=rule.rule_id,
+                    rule_hash=content_hash(rule.to_dict()),
+                    source_selection_hash=selection.content_hash,
+                    input_snapshots=snapshot_evidence,
+                    review=review,
+                )
+                for rule, review in zip(rules, preview.reviews, strict=True)
+            ),
+        )
+
     def preview_join(
         self,
         workspace_id: str,
@@ -354,9 +495,7 @@ class DerivedEntityWorkspaceService:
                 rules,
             )
         else:
-            if set(dataset_uses) != {
-                item.dataset_id for item in selection.datasets
-            }:
+            if set(dataset_uses) != {item.dataset_id for item in selection.datasets}:
                 raise WorkspaceError(
                     "Source dataset-use policies must cover every frozen physical dataset"
                 )
@@ -450,9 +589,7 @@ class DerivedEntityWorkspaceService:
             )
         if not preview.can_save:
             findings = tuple(
-                finding
-                for review in preview.reviews
-                for finding in review.findings
+                finding for review in preview.reviews for finding in review.findings
             )
             raise WorkspaceError(
                 "The complete combination cannot be saved: " + "; ".join(findings)
@@ -574,25 +711,17 @@ class DerivedEntityWorkspaceService:
                 raise WorkspaceError("Choose only current physical added tables")
             if addition.dataset_id in participant_ids:
                 raise WorkspaceError("Choose every participating table only once")
-            if len(addition.key_column_keys) != len(
-                request.primary_key_column_keys
-            ):
+            if len(addition.key_column_keys) != len(request.primary_key_column_keys):
                 raise WorkspaceError(
                     "Confirm every shared key field for each added table"
                 )
             participant_ids.append(addition.dataset_id)
 
-        primary_columns = {
-            item.stable_key: item for item in primary.columns
-        }
-        if any(
-            key not in primary_columns for key in request.primary_key_column_keys
-        ):
+        primary_columns = {item.stable_key: item for item in primary.columns}
+        if any(key not in primary_columns for key in request.primary_key_column_keys):
             raise WorkspaceError("Choose primary key fields from the primary table")
 
-        selected: list[
-            tuple[ExactJoinGroupProjection, str, str]
-        ] = []
+        selected: list[tuple[ExactJoinGroupProjection, str, str]] = []
         selected_sources: set[tuple[str, str]] = set()
         output_names: set[str] = set()
         namespace = UUID(request.group_id)
@@ -628,9 +757,7 @@ class DerivedEntityWorkspaceService:
                     f"field:{source.dataset_id}:{source_column.stable_key}",
                 )
             )
-            selected.append(
-                (projection, output_key, source_column.candidate_type)
-            )
+            selected.append((projection, output_key, source_column.candidate_type))
         if not selected:
             raise WorkspaceError("Choose at least one output field")
 
@@ -1083,9 +1210,7 @@ class DerivedEntityWorkspaceService:
             raise WorkspaceError(
                 "The source-preparation plan is stale; rebuild it from the frozen datasets"
             )
-        if set(dataset_uses) != {
-            item.dataset_id for item in selection.datasets
-        }:
+        if set(dataset_uses) != {item.dataset_id for item in selection.datasets}:
             raise WorkspaceError(
                 "Source dataset-use policies must cover every frozen physical dataset"
             )
@@ -1723,9 +1848,7 @@ class DerivedEntityWorkspaceService:
         remaining = tuple(
             item for item in current.rules if item.rule_id not in remove_ids
         )
-        for removed in (
-            item for item in current.rules if item.rule_id in remove_ids
-        ):
+        for removed in (item for item in current.rules if item.rule_id in remove_ids):
             if not isinstance(
                 removed,
                 (ExactJoinRule, UnionAllRule, GroupAggregateRule),
@@ -1783,7 +1906,9 @@ class DerivedEntityWorkspaceService:
         )
 
     def preview_rules(
-        self, rules: tuple[LookupRule | RelatedDatasetRule, ...], *,
+        self,
+        rules: tuple[LookupRule | RelatedDatasetRule, ...],
+        *,
         selection: SourceSelection | None,
         catalogs: tuple[SourceFileCatalogView, ...],
     ) -> tuple[DerivedRulePreview, ...]:
@@ -1796,11 +1921,13 @@ class DerivedEntityWorkspaceService:
                 if selection is None:
                     raise WorkspaceError(
                         "Freeze source datasets before deriving entities"
-                        if lookup else "Freeze source datasets before separating related data"
+                        if lookup
+                        else "Freeze source datasets before separating related data"
                     )
                 preview = (
                     preview_derived_entities(rule, selection, catalogs)
-                    if lookup else preview_related_datasets(rule, selection, catalogs)
+                    if lookup
+                    else preview_related_datasets(rule, selection, catalogs)
                 )
                 results.append(DerivedRulePreview(rule, preview))
             except WorkspaceError as error:
@@ -1822,6 +1949,3 @@ class DerivedEntityWorkspaceService:
             selection,
             self.sources.get_source_catalogs(workspace_id),
         )
-
-
-

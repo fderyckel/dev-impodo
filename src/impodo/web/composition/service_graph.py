@@ -119,6 +119,11 @@ from impodo.application.workspace.access import (
     WorkspaceAccessRepository,
     WorkspaceAccessService,
 )
+from impodo.application.workspace.derived_entities import (
+    DerivedEntityRepository,
+    DerivedEntityWorkspaceService,
+    ExactJoinGroupEvaluator,
+)
 from impodo.application.workspace.execution.reconciliation import (
     ReconciliationExecutionRepository,
     ReconciliationResultRepository,
@@ -134,6 +139,9 @@ from impodo.application.workspace.execution.service import (
 from impodo.application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
     CategoricalSourceRepository,
+)
+from impodo.application.workspace.mapping.logical_source_values import (
+    LogicalSourceValues,
 )
 from impodo.application.workspace.mapping.numeric_precision_coverage import (
     NumericPrecisionCoverageService,
@@ -426,6 +434,7 @@ class AuthoringMappingPorts(
 
 class AuthoringDerivedPorts(
     RecipeAuthoringPreparationRepository,
+    DerivedEntityRepository,
     TransformationImpactDerivedRepository,
     Protocol,
 ):
@@ -623,6 +632,8 @@ def build_authoring_service_graph(
     recipes: RecipeRepository,
     artifacts: GovernedArtifactStores,
     capture_filters: OdooCaptureFilterStore,
+    logical_source_values: LogicalSourceValues | None = None,
+    exact_join_groups: ExactJoinGroupEvaluator | None = None,
 ) -> AuthoringServiceGraph:
     """Wire source, Recipe, and Match data without choosing storage adapters."""
 
@@ -663,7 +674,9 @@ def build_authoring_service_graph(
         source_projections,
         source_workspace,
     )
-    categorical_coverage = CategoricalCoverageService(sources, artifacts)
+    categorical_coverage = CategoricalCoverageService(
+        sources, artifacts, logical_source_values
+    )
     numeric_precision_coverage = NumericPrecisionCoverageService(
         sources,
         artifacts,
@@ -673,6 +686,7 @@ def build_authoring_service_graph(
         sources,
         schemas,
         foundation.workspace_access,
+        derived_entities=derived_entities,
     )
     mapping_workspace = MappingWorkspaceService(
         mapping_sources,
@@ -705,12 +719,19 @@ def build_authoring_service_graph(
         foundation.workspace_access,
         categorical_coverage,
     )
+    recipe_preparation = DerivedEntityWorkspaceService(
+        sources,
+        derived_entities,
+        foundation.workspace_access,
+        artifacts,
+        exact_join_groups,
+    )
     recipe_application = RecipeApplicationService(
         sources=mapping_sources,
         schemas=schemas,
         schema_workspace=schema_workspace,
         references=references,
-        preparation=derived_entities,
+        preparation=recipe_preparation,
         mappings=mapping_workspace,
         categorical=categorical_coverage,
         application_state=recipe_applications,

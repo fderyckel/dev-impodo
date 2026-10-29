@@ -11,6 +11,7 @@ from fastapi.responses import PlainTextResponse
 
 from impodo.domain.preflight.deferred_scope import DeferredScopeEvidenceError
 from impodo.domain.shared.access import Capability, LOCAL_ACTOR
+from impodo.web.composition.local_identity import LocalRequestIdentityResolver
 from impodo.web.routers.preflight import build_preflight_router
 
 
@@ -28,7 +29,7 @@ class DeferredScopeRouteTests(unittest.TestCase):
             preview=self.preview,
         )
         self.context = SimpleNamespace(
-            actor=LOCAL_ACTOR,
+            identity_resolver=LocalRequestIdentityResolver(),
             workspace_access=MagicMock(),
             preflight=MagicMock(),
         )

@@ -513,7 +513,8 @@ class RecipeSourceCompositionRoundTripTests(unittest.TestCase):
         self.assertFalse(rebuilt_first.map_output)
         self.assertTrue(rebuilt_second.map_output)
         self.assertTrue(rebuilt_first.require_unique_left)
-        self.assertEqual(rebuilt_first.group_id, group_id)
+        self.assertNotEqual(rebuilt_first.group_id, group_id)
+        self.assertEqual(rebuilt_first.group_id, rebuilt_second.group_id)
         self.assertEqual(rebuilt_second.group_step, 2)
         self.assertEqual(
             rebuilt_second.left_dataset_id,

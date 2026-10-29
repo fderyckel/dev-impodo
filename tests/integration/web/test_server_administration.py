@@ -13,12 +13,15 @@ from fastapi.testclient import TestClient
 
 from impodo.adapters.identity.secure_recovery_tokens import HmacIdentifierDigester
 from impodo.domain.identity.administration import (
+    CustomerUserPage,
+    CustomerUserStatus,
+    CustomerUserView,
     OrganizationPage,
     OrganizationStatus,
     OrganizationView,
 )
-from impodo.domain.identity.authentication import PlatformAuthenticationResult
 from impodo.domain.identity.recovery import LoginPrincipalKind
+from impodo.domain.identity.server_authentication import ServerAuthenticationResult
 from impodo.domain.identity.sessions import (
     CurrentSessionView,
     ServerSessionCredentials,
@@ -39,17 +42,23 @@ ROOT = Path(__file__).resolve().parents[3]
 NOW = datetime(2026, 10, 29, 20, 0, tzinfo=UTC)
 ADMINISTRATOR_ID = "10000000-0000-4000-8000-000000000001"
 SESSION_ID = "20000000-0000-4000-8000-000000000002"
+CUSTOMER_ID = "30000000-0000-4000-8000-000000000003"
 HANDLE = f"{SESSION_ID}.opaque-handle"
 CSRF_TOKEN = "independent-csrf-token"
 
 
-def _session(*, optimistic_revision: int = 1) -> CurrentSessionView:
+def _session(
+    *,
+    optimistic_revision: int = 1,
+    principal_kind: LoginPrincipalKind = LoginPrincipalKind.PLATFORM_ADMINISTRATOR,
+    organization_id: str | None = None,
+) -> CurrentSessionView:
     return CurrentSessionView(
         session_id=SESSION_ID,
         subject=SessionSubject(
-            principal_kind=LoginPrincipalKind.PLATFORM_ADMINISTRATOR,
+            principal_kind=principal_kind,
             principal_id=ADMINISTRATOR_ID,
-            organization_id=None,
+            organization_id=organization_id,
         ),
         authentication_method=SessionAuthenticationMethod.PASSWORD,
         security_revision=3,
@@ -66,12 +75,16 @@ class _Authenticator:
     def __init__(self) -> None:
         self.commands = []
         self.called_on_event_loop = False
+        self.principal_kind = LoginPrincipalKind.PLATFORM_ADMINISTRATOR
+        self.organization_id = None
 
     def authenticate(self, command, *, deployment_id):
         self.commands.append((command, deployment_id))
         self.called_on_event_loop = _has_running_event_loop()
-        return PlatformAuthenticationResult(
-            administrator_id=ADMINISTRATOR_ID,
+        return ServerAuthenticationResult(
+            principal_kind=self.principal_kind,
+            principal_id=ADMINISTRATOR_ID,
+            organization_id=self.organization_id,
             security_revision=3,
             authenticated_at=NOW,
             password_rehashed=False,
@@ -90,7 +103,10 @@ class _Sessions:
         return ServerSessionCredentials(
             handle=HANDLE,
             csrf_token=CSRF_TOKEN,
-            session=_session(),
+            session=_session(
+                principal_kind=command.subject.principal_kind,
+                organization_id=command.subject.organization_id,
+            ),
         )
 
     def access(self, command):
@@ -100,7 +116,12 @@ class _Sessions:
             command.require_csrf and command.csrf_token != CSRF_TOKEN
         ):
             raise ServerSessionRejectedError("Session is not available")
-        return _session(optimistic_revision=len(self.accesses))
+        command, _deployment_id = self.create_command
+        return _session(
+            optimistic_revision=len(self.accesses),
+            principal_kind=command.subject.principal_kind,
+            organization_id=command.subject.organization_id,
+        )
 
     def revoke(self, command, *, deployment_id):
         self.revocations.append((command, deployment_id))
@@ -138,6 +159,37 @@ class _Organizations:
             display_name=command.display_name,
             status=OrganizationStatus.ACTIVE,
             policy_revision=1,
+            optimistic_revision=1,
+        )
+
+    def list_customer_users(self, query):
+        self.user_queries = getattr(self, "user_queries", [])
+        self.user_queries.append(query)
+        return CustomerUserPage(
+            items=(
+                CustomerUserView(
+                    user_id=CUSTOMER_ID,
+                    organization_id=query.organization_id,
+                    normalized_login_email="user@example.test",
+                    display_name="Fictional user",
+                    principal_kind=LoginPrincipalKind.CUSTOMER_USER,
+                    status=CustomerUserStatus.ACTIVE,
+                    security_revision=1,
+                    optimistic_revision=1,
+                ),
+            ),
+            next_after_user_id=None,
+        )
+
+    def get_customer_user(self, query):
+        return CustomerUserView(
+            user_id=query.user_id,
+            organization_id=query.organization_id,
+            normalized_login_email="user@example.test",
+            display_name="Fictional user",
+            principal_kind=LoginPrincipalKind.CUSTOMER_USER,
+            status=CustomerUserStatus.ACTIVE,
+            security_revision=1,
             optimistic_revision=1,
         )
 
@@ -249,7 +301,7 @@ class ServerAdministrationTests(unittest.TestCase):
         self.assertEqual(response.headers["location"], "/login")
         command, deployment_id = self.sessions.revocations[0]
         self.assertEqual(command.session_id, SESSION_ID)
-        self.assertEqual(command.actor_administrator_id, ADMINISTRATOR_ID)
+        self.assertEqual(command.actor.principal_id, ADMINISTRATOR_ID)
         self.assertEqual(deployment_id, "local-trial")
 
     def test_invalid_keyset_cursor_is_a_bounded_bad_request(self) -> None:
@@ -262,6 +314,33 @@ class ServerAdministrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("page cursor is invalid", response.text)
         self.assertEqual(self.client.cookies[SERVER_CSRF_COOKIE_NAME], CSRF_TOKEN)
+
+    def test_organization_administrator_is_bound_to_user_routes(self) -> None:
+        self.authenticator.principal_kind = LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR
+        self.authenticator.organization_id = "acme"
+
+        login = self.client.post(
+            "/login",
+            data={
+                "login_email": "administrator@acme.example.test",
+                "password": "fictional-login-password",
+            },
+            headers={"Origin": "https://impodo.example.test"},
+        )
+        page = self.client.get("/admin/users")
+        detail = self.client.get(f"/admin/users/{CUSTOMER_ID}")
+        forbidden = self.client.get("/admin/organizations")
+
+        self.assertEqual(login.status_code, 303)
+        self.assertEqual(login.headers["location"], "/admin/users")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Fictional user", page.text)
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn("user@example.test", detail.text)
+        self.assertEqual(forbidden.status_code, 403)
+        query = self.organizations.user_queries[0]
+        self.assertEqual(query.organization_id, "acme")
+        self.assertEqual(query.actor.organization_id, "acme")
 
     def _login(self) -> None:
         response = self.client.post(

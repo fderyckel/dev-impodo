@@ -23,7 +23,10 @@ from impodo.domain.identity.administration import (
     CreateCustomerUserCommand,
     CreateOrganizationCommand,
     CustomerCredentialMutation,
+    CustomerUserDetailQuery,
+    CustomerUserListQuery,
     CustomerUserMutationCommand,
+    CustomerUserPage,
     CustomerUserRecord,
     CustomerUserStatus,
     CustomerUserView,
@@ -217,6 +220,22 @@ class IdentityAdministrationService:
             activation_token=token,
             expires_at=issue.expires_at,
         )
+
+    def list_customer_users(
+        self,
+        query: CustomerUserListQuery,
+    ) -> CustomerUserPage:
+        """Return one deterministic page inside the actor's Organization."""
+
+        return self._repository.list_customer_users(query)
+
+    def get_customer_user(
+        self,
+        query: CustomerUserDetailQuery,
+    ) -> CustomerUserView:
+        """Return one exact tenant-bound customer account."""
+
+        return self._repository.get_customer_user(query)
 
     def replace_organization_administrator(
         self,

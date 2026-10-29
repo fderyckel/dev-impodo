@@ -17,15 +17,17 @@ slow password hash, bounded bootstrap security event, platform password
 verification, policy rehash, and persistent account and source throttles.
 It also implements digest-only one-time token persistence, opaque reset
 requests, and atomic Platform Administrator password-reset consumption.
-It now implements digest-only opaque Platform Administrator sessions,
-transaction-bound expiry and revocation, WebAuthn elevation rotation, and
-browser host, Origin, framing, and cache controls. It also implements
+It now implements digest-only opaque Platform and Organization Administrator
+sessions, transaction-bound expiry and revocation, WebAuthn elevation
+rotation, and browser host, Origin, framing, and cache controls. It also implements
 Organization and customer-account lifecycle services, pending-account
 activation, authorized reset, tenant-scoped event queries, and session
 administration. The Platform Administrator can now sign in through the server
-browser, list Organizations, create one Organization, and sign out. Customer
-request identity, customer administration pages, the shared worker, and the
-remaining browser administration journey are not implemented yet.
+browser, list Organizations, create one Organization, and sign out. An active,
+exactly assigned Organization Administrator can sign in, list and inspect the
+ordinary users in only that Organization, and sign out. Customer User request
+identity, customer-account mutation pages, the shared worker, and the remaining
+browser administration journey are not implemented yet.
 
 The current local Windows product remains authoritative through its contained
 DuckDB stores, protected artifact stores, Windows Credential Manager bindings,
@@ -34,7 +36,7 @@ local fact. A future local composition may pass an implicit reserved
 Organization identity through portable interfaces, but it does not expose
 Organization administration to the local user.
 
-The local Linux trial uses PostgreSQL control schema version `10`. Its bounded
+The local Linux trial uses PostgreSQL control schema version `11`. Its bounded
 reconciliation read verifies receipt hashes and current pointers without
 opening DuckDB. Its governed rebuild service accepts only a missing projection
 for an already committed data-plane receipt. It never repeats the data-plane
@@ -55,8 +57,9 @@ security events. Customer-account creation now binds that activation purpose
 to one pending account. Activation stores the initial slow password hash and
 consumes the token in the same transaction.
 The server-session repository stores only independent handle and CSRF digests,
-checks the current account state and security revision under the session lock,
-and atomically touches, rotates, expires, or revokes the row. Password reset
+binds each customer session to its exact Organization membership, checks the
+current account state, assignment, Organization status, and security revision
+under the session lock, and atomically touches, rotates, expires, or revokes the row. Password reset
 revokes active sessions in its existing atomic transaction. Runtime grants do
 not permit session deletion or subject, creation-time, or security-revision
 rewrites. Every call opens and closes one bounded Psycopg transaction; no
@@ -76,11 +79,14 @@ user predicate.
 
 The server browser protects low-entropy login and source hints with a
 deployment-keyed, scope-separated HMAC before it calls authentication
-persistence. A successful Platform Administrator login creates a fresh opaque
-session and an independent CSRF secret. The browser stores only the opaque
-handle in the HTTP-only cookie. Organization reads and creates run outside the
-event-loop thread, and the repository opens and closes one short PostgreSQL
-transaction for each service operation. These routes do not open DuckDB.
+persistence. A successful Platform or Organization Administrator login creates
+a fresh opaque session and an independent CSRF secret. The browser stores only
+the opaque handle in the HTTP-only cookie. Organization and customer-user
+reads and Organization creation run outside the event-loop thread, and the
+repository opens and closes one short PostgreSQL transaction for each service
+operation. These routes do not open DuckDB. A valid session for the wrong
+administrator role receives `403` without being revoked or silently
+redirected into the other authority surface.
 
 This document refines [ADR-017](../decisions/README.md#adr-017--organization-scoped-postgresql-control-and-duckdb-data-planes)
 and the

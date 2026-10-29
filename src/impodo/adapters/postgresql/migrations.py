@@ -906,6 +906,87 @@ _GRANT_ORGANIZATION_ADMINISTRATOR_ASSIGNMENT_UPDATE_QUERY: LiteralString = (
     "assigned_by_administrator_id, assigned_at) "
     "ON impodo_control.organization_administrator_assignment TO impodo_runtime"
 )
+_BIND_CUSTOMER_SESSION_TENANT_QUERY: LiteralString = (
+    "ALTER TABLE impodo_control.server_session\n"
+    "ADD CONSTRAINT server_session_exact_subject_check CHECK ("
+    "(principal_kind = 'PLATFORM_ADMINISTRATOR' "
+    "AND organization_id IS NULL) OR "
+    "(principal_kind IN ('ORGANIZATION_ADMINISTRATOR', 'CUSTOMER_USER') "
+    "AND organization_id IS NOT NULL)),\n"
+    "ADD CONSTRAINT server_session_customer_tenant_kind_fk "
+    "FOREIGN KEY (organization_id, principal_id, principal_kind) "
+    "REFERENCES impodo_control.customer_user "
+    "(organization_id, user_id, principal_kind) ON DELETE RESTRICT"
+)
+_ADD_CUSTOMER_USER_TENANT_IDENTITY_QUERY: LiteralString = (
+    "ALTER TABLE impodo_control.customer_user\n"
+    "ADD CONSTRAINT customer_user_organization_user_key "
+    "UNIQUE (organization_id, user_id)"
+)
+_BIND_ADMINISTRATION_EVENT_TENANT_QUERY: LiteralString = (
+    "ALTER TABLE impodo_control.identity_administration_event\n"
+    "ADD CONSTRAINT identity_administration_event_subject_tenant_fk "
+    "FOREIGN KEY (organization_id, subject_user_id) "
+    "REFERENCES impodo_control.customer_user (organization_id, user_id) "
+    "ON DELETE RESTRICT"
+)
+_CREATE_CUSTOMER_USER_DISPLAY_INDEX_QUERY: LiteralString = (
+    "CREATE INDEX customer_user_organization_display_idx\n"
+    "ON impodo_control.customer_user "
+    "(organization_id, display_name, user_id)"
+)
+_CREATE_SERVER_SECURITY_EVENT_QUERY: LiteralString = (
+    "CREATE TABLE impodo_control.server_security_event (\n"
+    "    event_id uuid PRIMARY KEY,\n"
+    "    deployment_id varchar(63) NOT NULL "
+    "CHECK (deployment_id <> '' AND deployment_id = btrim(deployment_id)),\n"
+    "    event_kind varchar(64) NOT NULL "
+    "CHECK (event_kind IN ("
+    "'AUTHENTICATION_SUCCEEDED', 'AUTHENTICATION_REJECTED', "
+    "'PASSWORD_REHASHED', 'SESSION_CREATED', 'SESSION_ROTATED', "
+    "'SESSION_REVOKED')),\n"
+    "    principal_kind varchar(32),\n"
+    "    principal_id uuid,\n"
+    "    organization_id varchar(200),\n"
+    "    principal_hint_digest varchar(71) "
+    "CHECK (principal_hint_digest IS NULL OR "
+    "principal_hint_digest ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    source_digest varchar(71) "
+    "CHECK (source_digest IS NULL OR source_digest ~ '^sha256:[0-9a-f]{64}$'),\n"
+    "    occurred_at timestamp with time zone NOT NULL,\n"
+    "    FOREIGN KEY (principal_kind, principal_id) "
+    "REFERENCES impodo_control.login_identity "
+    "(principal_kind, principal_id) ON DELETE RESTRICT,\n"
+    "    FOREIGN KEY (organization_id) "
+    "REFERENCES impodo_control.organization (organization_id) "
+    "ON DELETE RESTRICT,\n"
+    "    FOREIGN KEY (organization_id, principal_id, principal_kind) "
+    "REFERENCES impodo_control.customer_user "
+    "(organization_id, user_id, principal_kind) ON DELETE RESTRICT,\n"
+    "    CHECK ((principal_kind IS NULL) = (principal_id IS NULL)),\n"
+    "    CHECK ((principal_kind = 'PLATFORM_ADMINISTRATOR' "
+    "AND organization_id IS NULL) OR "
+    "(principal_kind IN ('ORGANIZATION_ADMINISTRATOR', 'CUSTOMER_USER') "
+    "AND organization_id IS NOT NULL) OR "
+    "(principal_kind IS NULL AND organization_id IS NULL)),\n"
+    "    CHECK ((event_kind IN ('AUTHENTICATION_SUCCEEDED', "
+    "'AUTHENTICATION_REJECTED', 'PASSWORD_REHASHED') "
+    "AND principal_hint_digest IS NOT NULL AND source_digest IS NOT NULL) OR "
+    "(event_kind IN ('SESSION_CREATED', 'SESSION_ROTATED', "
+    "'SESSION_REVOKED') AND principal_kind IS NOT NULL "
+    "AND principal_hint_digest IS NULL AND source_digest IS NULL))\n"
+    ")"
+)
+_CREATE_SERVER_SECURITY_EVENT_ORGANIZATION_INDEX_QUERY: LiteralString = (
+    "CREATE INDEX server_security_event_organization_time_idx\n"
+    "ON impodo_control.server_security_event "
+    "(organization_id, occurred_at DESC, event_id DESC) "
+    "WHERE organization_id IS NOT NULL"
+)
+_GRANT_SERVER_SECURITY_EVENT_QUERY: LiteralString = (
+    "GRANT SELECT, INSERT ON impodo_control.server_security_event "
+    "TO impodo_runtime"
+)
 _UPDATE_CONTRACT_QUERY: LiteralString = (
     "UPDATE impodo_control.schema_contract\n"
     "SET version = %s, updated_at = transaction_timestamp()\n"
@@ -1192,6 +1273,21 @@ _MIGRATION_0010_STATEMENTS = (
         (10, "control", "impodo-control-v1", 9),
     ),
 )
+_MIGRATION_0011_STATEMENTS = (
+    PostgreSQLMigrationStatement(_ADD_CUSTOMER_USER_TENANT_IDENTITY_QUERY),
+    PostgreSQLMigrationStatement(_BIND_CUSTOMER_SESSION_TENANT_QUERY),
+    PostgreSQLMigrationStatement(_BIND_ADMINISTRATION_EVENT_TENANT_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_CUSTOMER_USER_DISPLAY_INDEX_QUERY),
+    PostgreSQLMigrationStatement(_CREATE_SERVER_SECURITY_EVENT_QUERY),
+    PostgreSQLMigrationStatement(
+        _CREATE_SERVER_SECURITY_EVENT_ORGANIZATION_INDEX_QUERY
+    ),
+    PostgreSQLMigrationStatement(_GRANT_SERVER_SECURITY_EVENT_QUERY),
+    PostgreSQLMigrationStatement(
+        _UPDATE_CONTRACT_QUERY,
+        (11, "control", "impodo-control-v1", 10),
+    ),
+)
 
 POSTGRESQL_MIGRATIONS = (
     PostgreSQLMigrationDefinition(
@@ -1253,6 +1349,12 @@ POSTGRESQL_MIGRATIONS = (
         name="bind-customer-administrator-tenant-and-kind",
         checksum="5382f483a0fae5183f3ee5fc234208721762452cee53c002a93adfff7c2f78cc",
         statements=_MIGRATION_0010_STATEMENTS,
+    ),
+    PostgreSQLMigrationDefinition(
+        version=11,
+        name="bind-customer-sessions-and-server-security-events",
+        checksum="5a070c836776133546a1861d67132f85cbd11711b3f7c350aefb56f5468a0fcf",
+        statements=_MIGRATION_0011_STATEMENTS,
     ),
 )
 

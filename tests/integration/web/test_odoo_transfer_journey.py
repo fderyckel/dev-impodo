@@ -5,10 +5,15 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
+from uuid import uuid4
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.application.odoo_comparison_service import ODOO_COMPARISON_ARTIFACT_NAME
+from impodo.application.odoo_read_failures import OdooReadWorkflowError
+from impodo.application.preflight_attempts import PreflightComparisonRequest
+from impodo.application.preflight_jobs import PreflightJobManager
 from impodo.application.preflight_service import MANIFEST_NAME
 from impodo.domain.odoo.contracts import RecordSnapshot
 from impodo.domain.odoo_comparison import OdooComparisonOutcome
@@ -1107,6 +1112,34 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(report.create_count, 0)
         self.assertEqual(report.update_count, 2)
         self.assertEqual(report.blocked_count, 0)
+        context = self.app.state.context
+        receipt = context.preflight.comparison_receipt(report)
+        self.assertEqual(receipt.preflight_run_id, report.run_id)
+        self.assertEqual(receipt.execution_snapshot_hash, "")
+        workspace = context.migration_workspaces.get(workspace_id, actor=resolve_local_actor(context))
+        context.migration_projects.repository.reserve_preflight_comparison(
+            PreflightComparisonRequest(
+                operation_id=report.operation_id, project_id=workspace.project_id,
+                workspace_id=workspace_id, data_version_id=workspace.data_version_id,
+                migration_run_id=workspace.migration_run_id, recipe_application_id=workspace.recipe_application_id,
+                workspace_revision=workspace.optimistic_revision,
+                semantic_input_hash=context.preflight.comparison_input_hash(workspace_id, read_credential_binding_hash=""),
+                requested_at=datetime.now(UTC),
+            ), actor=resolve_local_actor(context))
+        recovered_manager = PreflightJobManager(context.migration_projects.repository)
+        recovered_manager.reconcile_pending(context.preflight.recover_comparison_receipt)
+        self.assertEqual(recovered_manager.get(workspace_id, report.operation_id).status.value, "SUCCEEDED")
+        self.assertIsNone(context.preflight.recover_comparison_receipt(workspace_id, str(uuid4())))
+        with context.artifacts.materialize_report(workspace_id, report.run_id, ODOO_COMPARISON_ARTIFACT_NAME) as path:
+            encrypted = path.read_bytes()
+        context.artifacts.delete_report(workspace_id, report.run_id, ODOO_COMPARISON_ARTIFACT_NAME)
+        context.artifacts.write_report(workspace_id, report.run_id, ODOO_COMPARISON_ARTIFACT_NAME, b"altered encrypted evidence")
+        with self.assertRaises(OdooReadWorkflowError):
+            context.preflight.comparison_receipt(report)
+        context.artifacts.delete_report(workspace_id, report.run_id, ODOO_COMPARISON_ARTIFACT_NAME)
+        with self.assertRaises(OdooReadWorkflowError):
+            context.preflight.recover_comparison_receipt(workspace_id, report.operation_id)
+        context.artifacts.write_report(workspace_id, report.run_id, ODOO_COMPARISON_ARTIFACT_NAME, encrypted)
         protected_comparison = (
             self.app.state.context.preflight.current_odoo_comparison(
                 workspace_id,

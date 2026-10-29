@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from itertools import islice
 from uuid import UUID
 
+from impodo.application.preflight_attempts import PreflightPublicationCommittedError
 from impodo.application.preflight_timing import timed_preflight_publication
 from impodo.application.workspace.execution.navigation import (
     ExecutionPreviewSummary,
@@ -237,6 +238,7 @@ class PreflightRepository(DuckDbRepository):
         actor: Actor,
         execution_summary: ExecutionPreviewSummary | None = None,
         execution_review: ExecutionReviewProjection | None = None,
+        expected_workspace_revision: int | None = None,
     ) -> None:
         """Atomically publish a report, rows, snapshots, pointer, and audit event.
 
@@ -393,6 +395,11 @@ class PreflightRepository(DuckDbRepository):
                         "Approve the prepared data before saving an Odoo comparison"
                     )
                 revision = self._workspace_revision(connection)
+                if (
+                    expected_workspace_revision is not None
+                    and revision != expected_workspace_revision
+                ):
+                    raise WorkspaceError("Comparison inputs changed before publication")
                 with timed_preflight_publication("report_header_encoding"):
                     report_json = replace(report, rows=()).to_json()
                 with timed_preflight_publication("report_header_insertion"):
@@ -645,7 +652,12 @@ class PreflightRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
-        self._workspaces.synchronize_registration_artifacts(workspace_id)
+        try:
+            self._workspaces.synchronize_registration_artifacts(workspace_id)
+        except Exception as error:
+            raise PreflightPublicationCommittedError(
+                "Comparison committed before registration-file refresh failed"
+            ) from error
 
     def save_deferred_scope_projection(
         self,

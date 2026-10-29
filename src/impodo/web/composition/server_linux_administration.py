@@ -15,11 +15,11 @@ from impodo.adapters.identity.secure_sessions import SecureSessionSecretFactory
 from impodo.adapters.postgresql.identity_administration import (
     PsycopgIdentityAdministrationRepository,
 )
-from impodo.adapters.postgresql.platform_authentication import (
-    PsycopgPlatformAuthenticationRepository,
-)
 from impodo.adapters.postgresql.platform_sessions import (
     PsycopgServerSessionRepository,
+)
+from impodo.adapters.postgresql.server_authentication import (
+    PsycopgServerAuthenticationRepository,
 )
 from impodo.adapters.postgresql.startup import PostgreSQLDsnError
 from impodo.adapters.secrets.linux_files import (
@@ -30,8 +30,8 @@ from impodo.adapters.secrets.linux_files import (
 from impodo.application.identity.administration_service import (
     IdentityAdministrationService,
 )
-from impodo.application.identity.authentication_service import (
-    PlatformAuthenticationService,
+from impodo.application.identity.server_authentication_service import (
+    ServerAuthenticationService,
 )
 from impodo.application.identity.session_service import ServerSessionService
 from impodo.domain.identity.sessions import ServerSessionPolicy
@@ -96,8 +96,8 @@ def create_file_secret_server_administration_dependencies(
     session_policy = ServerSessionPolicy()
     package_directory = Path(__file__).resolve().parents[1]
     return ServerAdministrationDependencies(
-        authenticator=PlatformAuthenticationService(
-            PsycopgPlatformAuthenticationRepository(
+        authenticator=ServerAuthenticationService(
+            PsycopgServerAuthenticationRepository(
                 read_dsn,
                 settings.postgres_dsn_file,
             ),

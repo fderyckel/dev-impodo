@@ -28,6 +28,7 @@ from impodo.domain.identity.sessions import (
 
 NOW = datetime(2026, 10, 29, 18, 0, tzinfo=UTC)
 ADMINISTRATOR_ID = "10000000-0000-4000-8000-000000000001"
+ORGANIZATION_ADMINISTRATOR_ID = "40000000-0000-4000-8000-000000000004"
 SESSION_ID = "20000000-0000-4000-8000-000000000002"
 
 
@@ -98,13 +99,39 @@ def _record() -> ServerSessionRecord:
     )
 
 
+def _organization_subject() -> SessionSubject:
+    return SessionSubject(
+        principal_kind=LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR,
+        principal_id=ORGANIZATION_ADMINISTRATOR_ID,
+        organization_id="acme",
+    )
+
+
+def _organization_record() -> ServerSessionRecord:
+    record = _record()
+    return ServerSessionRecord(
+        session_id=record.session_id,
+        subject=_organization_subject(),
+        authentication_method=record.authentication_method,
+        security_revision=record.security_revision,
+        handle_digest=record.handle_digest,
+        csrf_digest=record.csrf_digest,
+        created_at=record.created_at,
+        last_seen_at=record.last_seen_at,
+        idle_expires_at=record.idle_expires_at,
+        absolute_expires_at=record.absolute_expires_at,
+        elevated_until=record.elevated_until,
+        optimistic_revision=record.optimistic_revision,
+    )
+
+
 def _event(kind: SecurityEventKind) -> SessionSecurityEvent:
     return SessionSecurityEvent(
         event_id="30000000-0000-4000-8000-000000000003",
         deployment_id="local-trial",
         kind=kind,
-        subject_administrator_id=None,
-        actor_administrator_id=None,
+        subject=None,
+        actor=None,
         occurred_at=NOW,
     )
 
@@ -113,7 +140,6 @@ def _row(
     *,
     state: str = "ACTIVE",
     idle_expires_at: datetime | None = None,
-    current_security_revision: int = 3,
 ) -> tuple[object, ...]:
     return (
         "PLATFORM_ADMINISTRATOR",
@@ -130,9 +156,19 @@ def _row(
         NOW + timedelta(hours=12),
         None,
         1,
-        "ACTIVE",
-        current_security_revision,
     )
+
+
+def _platform_responses(
+    row: tuple[object, ...],
+    *,
+    current_security_revision: int = 3,
+) -> list[tuple[object, ...]]:
+    return [
+        ("PLATFORM_ADMINISTRATOR", ADMINISTRATOR_ID, None),
+        ("ACTIVE", current_security_revision),
+        row,
+    ]
 
 
 class PostgreSQLServerSessionTests(unittest.TestCase):
@@ -155,8 +191,67 @@ class PostgreSQLServerSessionTests(unittest.TestCase):
         self.assertTrue(session.committed)
         self.assertFalse(session.rolled_back)
 
+    def test_customer_session_rechecks_tenant_assignment_and_uses_generic_event(self) -> None:
+        create_session = _Session(responses=[("ACTIVE", 3, "ACTIVE")])
+        _repository(create_session).create(
+            _organization_record(),
+            _event(SecurityEventKind.SESSION_CREATED),
+        )
+
+        create_queries = "\n".join(event[1] for event in create_session.events)
+        self.assertIn("organization_administrator_assignment", create_queries)
+        self.assertIn("server_security_event", create_queries)
+        session_insert = next(
+            event
+            for event in create_session.events
+            if "INSERT INTO impodo_control.server_session" in event[1]
+        )
+        self.assertIn("acme", session_insert[2])
+
+        customer_row = list(_row())
+        customer_row[0] = "ORGANIZATION_ADMINISTRATOR"
+        customer_row[1] = ORGANIZATION_ADMINISTRATOR_ID
+        customer_row[2] = "acme"
+        resolve_session = _Session(
+            responses=[
+                (
+                    "ORGANIZATION_ADMINISTRATOR",
+                    ORGANIZATION_ADMINISTRATOR_ID,
+                    "acme",
+                ),
+                ("ACTIVE", 3, "ACTIVE"),
+                tuple(customer_row),
+            ],
+            affected=[1],
+        )
+        current = _repository(resolve_session).resolve(
+            proof=SessionProof(session_id=SESSION_ID, handle_digest=b"h" * 32),
+            accessed_at=NOW + timedelta(minutes=1),
+            proposed_idle_expires_at=NOW + timedelta(minutes=31),
+        )
+        assert current is not None
+        self.assertEqual(current.subject.organization_id, "acme")
+
+        replaced = _Session(
+            responses=[
+                (
+                    "ORGANIZATION_ADMINISTRATOR",
+                    ORGANIZATION_ADMINISTRATOR_ID,
+                    "acme",
+                ),
+                None,
+            ]
+        )
+        self.assertIsNone(
+            _repository(replaced).resolve(
+                proof=SessionProof(session_id=SESSION_ID, handle_digest=b"h" * 32),
+                accessed_at=NOW,
+                proposed_idle_expires_at=NOW + timedelta(minutes=30),
+            )
+        )
+
     def test_resolve_touches_valid_session_but_bad_csrf_does_not_mutate(self) -> None:
-        valid_session = _Session(responses=[_row()], affected=[1])
+        valid_session = _Session(responses=_platform_responses(_row()), affected=[1])
         current = _repository(valid_session).resolve(
             proof=SessionProof(
                 session_id=SESSION_ID,
@@ -173,7 +268,7 @@ class PostgreSQLServerSessionTests(unittest.TestCase):
             any("SET last_seen_at" in event[1] for event in valid_session.events)
         )
 
-        invalid_session = _Session(responses=[_row()])
+        invalid_session = _Session(responses=_platform_responses(_row()))
         rejected = _repository(invalid_session).resolve(
             proof=SessionProof(
                 session_id=SESSION_ID,
@@ -192,13 +287,20 @@ class PostgreSQLServerSessionTests(unittest.TestCase):
     def test_expiry_or_security_revision_change_revokes_in_same_transaction(self) -> None:
         for row, reason in (
             (_row(idle_expires_at=NOW), SessionRevocationReason.EXPIRED),
-            (
-                _row(current_security_revision=4),
-                SessionRevocationReason.SECURITY_REVISION,
-            ),
+            (_row(), SessionRevocationReason.SECURITY_REVISION),
         ):
             with self.subTest(reason=reason):
-                session = _Session(responses=[row], affected=[1])
+                session = _Session(
+                    responses=_platform_responses(
+                        row,
+                        current_security_revision=(
+                            4
+                            if reason is SessionRevocationReason.SECURITY_REVISION
+                            else 3
+                        ),
+                    ),
+                    affected=[1],
+                )
                 current = _repository(session).resolve(
                     proof=SessionProof(
                         session_id=SESSION_ID,
@@ -218,7 +320,7 @@ class PostgreSQLServerSessionTests(unittest.TestCase):
                 self.assertTrue(session.committed)
 
     def test_rotation_is_atomic_and_stale_admin_revocation_rolls_back(self) -> None:
-        session = _Session(responses=[_row()], affected=[1])
+        session = _Session(responses=_platform_responses(_row()), affected=[1])
         rotated = _repository(session).rotate(
             proof=SessionProof(session_id=SESSION_ID, handle_digest=b"h" * 32),
             replacement=SessionSecretMaterial(
@@ -242,11 +344,11 @@ class PostgreSQLServerSessionTests(unittest.TestCase):
         self.assertIn("SET handle_digest", queries)
         self.assertIn("SESSION_ROTATED", str(tuple(event[2] for event in session.events)))
 
-        stale = _Session(responses=[("ACTIVE", 3), _row()])
+        stale = _Session(responses=_platform_responses(_row()))
         with self.assertRaises(ServerSessionConflictError):
             _repository(stale).revoke(
                 RevokeServerSessionCommand(
-                    actor_administrator_id=ADMINISTRATOR_ID,
+                    actor=_subject(),
                     session_id=SESSION_ID,
                     expected_revision=99,
                 ),

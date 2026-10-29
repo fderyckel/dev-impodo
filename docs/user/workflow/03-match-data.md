@@ -332,6 +332,19 @@ the supporting record type to the migration scope. A changed relationship,
 key, or Odoo field contract blocks the check and returns ownership to this
 stage.
 
+If you combined files with **Several tables describe the same records**,
+**Match values** reads the choices in the final combined table. Rows from an
+added table that did not match a primary row do not add choices or increase
+their counts. **Check matches** uses the same combined values and reports any
+populated choice that still needs a match.
+
+This works for linked single-record fields, including custom fields, using
+the related Odoo record type and its reviewed matching rule. For example, a
+source classification code can match an existing classification with a
+different name. You do not need a special rule built into Impodo for that
+source column. Review the matching rule and company scope before choosing
+the destination records.
+
 ### Combine source columns into one text field
 
 For an Odoo text field, select **Combine source columns** when one target value

@@ -179,7 +179,11 @@ class PostgreSQLPlatformSessionLiveTests(unittest.TestCase):
         )
         service.revoke(
             RevokeServerSessionCommand(
-                actor_administrator_id=ADMINISTRATOR_ID,
+                actor=SessionSubject(
+                    principal_kind=LoginPrincipalKind.PLATFORM_ADMINISTRATOR,
+                    principal_id=ADMINISTRATOR_ID,
+                    organization_id=None,
+                ),
                 session_id=current.session_id,
                 expected_revision=current.optimistic_revision,
             ),

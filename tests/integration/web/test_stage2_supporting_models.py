@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from unittest.mock import patch
 from uuid import uuid4
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.adapters.duckdb.unit_of_work import retain_databases_for_read
 from impodo.domain.odoo.contracts import MetadataSnapshot
 from impodo.domain.shared.models import FieldMetadata, ModelMetadata, TargetRecord
 from impodo.domain.workspace.contracts import SourceSelection
@@ -104,6 +107,43 @@ class StageTwoSupportingModelBrowserTests(ProjectSetupBrowserTestCase):
             read_credential_binding_hash=credential_hash,
             actor=resolve_local_actor(context),
         )
+
+        saved_source = context.schema_workspace.sources.get_source_selection(
+            workspace.workspace_id
+        )
+        saved_schema = context.schema_workspace.schemas.get_odoo_schema_catalog(
+            workspace.workspace_id
+        )
+        actor = resolve_local_actor(context)
+        with (
+            patch.object(
+                context.schema_workspace.sources, "get_source_catalogs",
+                side_effect=AssertionError("catalogue preview forbidden"),
+            ),
+            patch.object(
+                context.schema_workspace.sources, "get_mapping_source_selection",
+                side_effect=AssertionError("mapping projection forbidden"),
+            ),
+            collect_duckdb_request_timings() as timings,
+            retain_databases_for_read(),
+        ):
+            proposal = context.schema_workspace.supporting_data_plan(
+                workspace.workspace_id,
+                expected_source_selection_hash=saved_source.content_hash,
+                expected_schema_hash=saved_schema.content_hash,
+                expected_preparation_hash=None,
+                actor=actor,
+            )
+        self.assertTrue(proposal.complete)
+        self.assertEqual(
+            {item.related_model for item in proposal.edges},
+            {"product.category", "uom.uom"},
+        )
+        # Current lineage resolution owns the registry, canonical Workspace,
+        # Data version package, and workspace engine. Each opens once.
+        self.assertEqual(timings.connection_count, 4)
+        self.assertLessEqual(timings.schema_check_count, 4)
+        self.assertEqual(timings.lock_retry_count, 0)
 
         page = self.client.get(f"/workspaces/{workspace.workspace_id}/schema")
 

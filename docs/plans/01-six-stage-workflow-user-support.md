@@ -16,11 +16,21 @@ check now also proves governed Many2one components in a dataset's own identity,
 including recursively nested governed Many2one key components.
 An authorized, freshness-checked page exposes only the bounded protected
 unresolved choices for that current check. Source-backed Many2one relationship
-health now uses the same recursive key tree. The next delivery should complete
-the source-aware supporting-data closure from Proposal 2, followed by the
+health now uses the same recursive key tree. Slice 11 now provides the pure
+source-aware dependency planner and its authorized application query. The next
+delivery is Slice 12's reviewed supporting choices and exact read authorization,
+followed by Recipe closure from Proposal 2 and the
 migration-intent part of Proposal 10. Do not build parallel
 replacements for the implemented default, mapping-impact, comparison, or
 load-recovery flows.
+
+The remaining work is specified in **Remaining implementation slices** below.
+Slice 11 is implemented; Slices 12 through 16 complete the two outstanding safety
+capabilities. Slices
+17 through 21 cover the remaining protected-review, interface, and acceptance
+commitments.
+Conditional extensions have explicit entry conditions and are not silently
+counted as delivered. Slices 12 through 21 remain proposed.
 
 The current supported product remains the local application. The shared-server
 track has completed its contract and composition phases and has started a
@@ -39,6 +49,11 @@ The decision is to improve both the process and the browser together. A new
 check without a clear correction route leaves the data manager blocked. A new
 screen without authoritative evidence can create false confidence. Each
 proposal therefore pairs one process change with one interface change.
+
+The implementation summaries record the boundary at each increment. Later
+summaries supersede earlier statements that relational identity or protected
+choice review was still missing. The current foundations table and remaining
+slices define the present completion boundary.
 
 ### Implemented first slice
 
@@ -252,6 +267,28 @@ repository, shared-server projection, or permission for a Linux web process to
 open worker-held evidence. Nested Many2many and constant-provider keys remain
 explicitly outside this Many2one slice.
 
+### Implemented eleventh slice
+
+The pure version-1 supporting-data planner now pairs accepted physical and
+derived table descriptors with explicit dataset/model and relationship intent.
+Saved lookup rules retain their target-model hint and existing generated
+dataset identity. Similar names never establish a binding. The walk keeps
+each parent-field edge, follows only uniquely proposed incoming models,
+deduplicates cycles, and reports ambiguous choices, unavailable metadata,
+invalid intent, or hard limits as an incomplete proposal.
+
+`SchemaWorkspaceService.supporting_data_plan` authorizes the Actor before four
+bulk metadata reads. It requires current source, schema, preparation, workspace,
+and target bindings. Descriptor construction avoids source-row evaluation,
+catalogue previews, mapping projections, and Odoo calls. The composed local
+test opens each of its four existing stores once inside a retained read scope.
+The application depends on injected ports and adds no worker database access
+to Linux web requests.
+
+The current browser preview, Stage 2 gate, write scope, reference authorization,
+and Odoo-source relationship decisions keep their existing owners. Saved
+reviewed decisions and the corresponding browser journey belong to Slice 12.
+
 ### Additional current foundations found during reassessment
 
 The current checkout contains more of the intended workflow than the original
@@ -260,11 +297,11 @@ delivery summary recorded:
 | Proposal | Current implementation | Remaining decision |
 | --- | --- | --- |
 | **1. Issue register** | Stage 2, current Stage 3 identity and relationship findings, complete-run Stage 4 preparation causes, and both preparation and comparison blockers in Stage 5 use the shared `WorkflowIssueProjection`. Stage 3 current counts persist in workspace navigation through a bounded freshness-checked read. | If evidence shows the need for one all-stage drawer, aggregate the already-persisted stage counts without moving detailed worker evidence into PostgreSQL or creating a second issue authority. |
-| **2. Supporting data** | File-source Stage 2 derives direct required relationships and inverse-owned children. The Odoo-source path already stores generic reviewed decisions for each relationship edge and builds guided capture plans. | Reuse that edge evidence. Add accepted or derived source-table intent, optional-field intent, Recipe closure, and explicit supporting-read authorization for file-source authoring. |
-| **3. Identity proof** | Direct scalar identities and recursively nested governed Many2one key or scope components are checked against included source rows and current target evidence. Current unresolved relational choices have an authorized, freshness-checked protected paged review. | Add duplicate-group review and update-versus-unchanged forecasting only when complete mapped evidence exists. |
+| **2. Supporting data** | The current Stage 2 page derives direct required relationships and inverse-owned children. A separate authorized query now builds a bounded physical/derived source-aware proposal from exact intent. The Odoo-source path owns its reviewed edge decisions; exact supporting-read authorization and bulk Recipe requirement extraction also exist in their current consumers. | Save reviewed file-source choices and connect their exact reads and Recipe closure to the Stage 2 journey. Extend the existing authorization contract instead of creating another policy engine. |
+| **3. Identity proof** | Direct scalar identities and recursively nested governed Many2one key or scope components are checked against included source rows and current target evidence. Current unresolved relational choices have an authorized, freshness-checked protected paged review. | Add protected duplicate-group review. Keep target-wide blank inventory and early update-versus-unchanged forecasts conditional on their extra evidence requirements. |
 | **4. Required values** | Authoring can identify required-field blockers, check bounded Odoo defaults, review one or several defaults, save the chosen disposition, and run one complete mapping check. | Consolidate these decisions into one clear checklist. Do not create a second default-capture workflow. |
 | **5. Mapping starter** | Stage 2 matching-rule suggestions, generated-table relationship suggestions, recommended authoring order, scalar catalogue tools, and checked coverage evidence provide several safe starting points. | Add only evidence-backed suggestions that remove a demonstrated operator burden. A broad automatic field mapper is no longer a prerequisite for this plan. |
-| **6. Relationship simulator** | Direct scalar Many2one and Many2many keys, recursively nested source-backed Many2one keys, three resolver origins, constant references, parent counts, case-only protection, inverse One2many guidance, recursive dataset identity components, and protected unresolved-choice paging are current. | Consider nested Many2many or constant-provider keys only if authoring evidence justifies a portable source contract for them. |
+| **6. Relationship simulator** | Direct scalar Many2one and Many2many keys, recursively nested source-backed Many2one keys, three resolver origins, constant references, parent counts, case-only protection, inverse One2many guidance, and recursive dataset identity components are current. Protected unresolved-choice paging currently covers relational identity components. | Add protected unresolved relationship-field review; the current card links to the rule editor. Consider nested Many2many or constant-provider keys only if authoring evidence justifies a portable source contract for them. |
 | **7. Rule effects** | The optional **Review rule effects** page and matching review workbook already show changed, fallback, blank, invalid, supplied, and unchanged outcomes for the checked revision. | Prefer field-specific links and compact context over duplicating the complete preview inside every field card. |
 | **8. Root-cause repair** | Prepare data persists causal dependency evidence, publishes direct and transitive impact counts, checks exact post-transformation Decimal values against schema-bound Odoo capacity, and indexes every direct or dependency-affected row for bounded drill-down. Stages 4 and 5 project value-free cards with the saved rule, Odoo-schema alternative, recheck, and paged affected-record action. Browser paging does not rescan the issue graph or numeric values. | Complete for current preparation causes. Extend the shared issue projection only when another stage has authoritative evidence to contribute. |
 | **9. Shared comparison** | The single Stage 4-to-Stage 5 comparison and reviewed deferred-record-group workflow are complete. | Preserve this owner; do not add another target scan. |
@@ -558,9 +595,12 @@ safety evidence rather than detecting a new class of unsafe write by itself.
 **Delivery status:** Direct required-relationship and inverse-child derivation
 from the live schema, plus the Stage 2 review UI, are implemented. The
 Odoo-source path also implements generic per-edge relationship decisions and
-guided capture plans. Source-table pairing, optional-field intent, explicit
-reuse authorization, file-source Recipe closure, and value-level proof remain
-proposed.
+guided capture plans. Slice 11 now provides source-table candidates and exact
+optional-field intent through an authorized proposal query. Saving and exposing
+reviewed file-source reuse choices and Recipe closure remain proposed.
+Exact supporting-read policies already exist; the remaining work
+must connect to them. Stage 3 already proves supported identity and relationship
+values, while Final review owns the complete fresh comparison.
 
 **Owning stages:** Source data and Odoo data.  
 **User impact:** **10/10**.
@@ -621,7 +661,7 @@ For example:
 | --- | --- | --- |
 | Products | Product Categories | Migrate the incoming Categories table |
 | Products | Units of Measure | Reuse checked existing Odoo Units |
-| Bills of Materials | Products | Use the incoming Products table first, otherwise existing Odoo Products |
+| Bills of Materials | Products | Reuse existing Odoo Products first, otherwise use the incoming Products table |
 | Bills of Materials | Company | Use the checked Odoo company context |
 
 Each unresolved row should offer a constrained business action such as
@@ -867,8 +907,11 @@ counts, case-only protection, aggregate correction routes, and inverse
 One2many guidance are current. The same bounded check now proves recursively
 nested resolver-backed components of the dataset's own identity and
 source-backed Many2one relationship fields. Protected unresolved-value paging
-is current. Nested Many2many and constant-provider keys remain conditional on
-a clear portable authoring contract.
+is current for relational identity components. Relationship-field health
+currently offers aggregate counts and a correction link to the rule editor;
+its protected value-level review remains proposed. Nested Many2many and
+constant-provider keys remain conditional on a clear portable authoring
+contract.
 
 ### Process improvement
 
@@ -1289,8 +1332,9 @@ the highest-risk stage, so it receives a near-maximum score.
 | --- | --- | --- |
 | **1 - next** | 2. Source-aware supporting-data closure | Join accepted physical and derived tables, optional-field intent, Recipe requirements, and reviewed Odoo-source edge meaning into the existing bounded dependency plan. Do not add another relationship-policy engine. |
 | **2** | 10. Migration intent over the current load cockpit | Compare the exact Final review result with explicit business expectations, then present those expectations with the implemented dependency, journal, recovery, and reconciliation states. |
-| **3 - conditional** | Remaining 6. Nested Many2many or constant-provider keys | Add only after a portable source contract and operator need are demonstrated; do not infer compound members from display text. |
-| **4 - conditional consolidation** | Remaining 1. All-stage issue drawer, 4. Required-values summary, 5. Mapping starter, and 7. Field-specific rule effects | Improve the current flows only where user evidence shows repeated work or navigation friction. Reuse persisted stage counts, implemented default capture, catalogues, transformation-impact snapshot, and workbook. |
+| **3** | Remaining 3 and 6. Protected duplicate and relationship review | Make repeated source identities, observed ambiguous target groups, and unresolved relationship-field choices actionable through the existing protected review boundary. |
+| **4** | Remaining 4, 5, and 7. Required values, coverage, and rule-effect links | Add compact projections and correction links over the existing validation, default, catalogue, and transformation-impact evidence. |
+| **5 - conditional extensions** | Remaining 1, 3, 5, and 6 | Require demonstrated need and a suitable evidence contract before adding a combined issue drawer, target-wide inventory, early write forecasts, bulk mapping suggestions, or nested collection and constant keys. |
 | **Delivered foundation** | 9. Shared comparison and reviewed set-aside | Preserve one Stage 4-to-Stage 5 comparison and the reviewed safe-remainder contract. No later slice adds another target scan. |
 | **Delivered foundation** | 8. Bounded root-cause repair | Preserve the publication-time cause counts and membership index. No browser route recomputes dependency closure or numeric evidence. |
 
@@ -1299,6 +1343,386 @@ load cockpit all start from zero. Their current foundations reduce the
 remaining work and let the next slice focus on the most expensive user problem:
 finding one cause, opening the right decision, and knowing what must be checked
 again.
+
+## Remaining implementation slices
+
+This is the proposed delivery order as of 2026-10-29. The slice numbers
+continue the delivered increments above. Slice 11 is implemented. The next
+implementation should start with Slice 12. Each slice must leave its affected behavior and the full
+repository gate green before the next slice begins.
+
+### What is actually left
+
+| Remaining outcome | Slices | Completion evidence |
+| --- | --- | --- |
+| Impodo explains which accepted tables and existing Odoo records support the selected business records. | 11–13 | Reviewed, bounded dependency decisions feed Stage 2 and existing downstream checks for both physical and derived source tables. |
+| Impodo rejects technically valid writes that contradict the approved migration purpose. | 14–16 | A saved business-intent revision is assessed against the exact execution snapshot, enforced before writes, and displayed with the existing journal and reconciliation states. |
+| The data manager can inspect repeated identity groups early. | 17 | Authorized, current, paged duplicate-group evidence explains the source or observed-target cause. |
+| The data manager can inspect unresolved choices in a saved relationship field. | 18 | Protected current pages show the actual choice and cause rather than linking only to the rule editor. |
+| The data manager can see required-value coverage and open the effect of an edited rule directly. | 19–20 | Compact current summaries reuse existing evidence and lead to the exact correction or review page. |
+| The whole workflow has a verified completion boundary. | 21 | One end-to-end scenario proves the new decisions, interruption behavior, freshness, and performance structure. Conditional scope has an explicit disposition. |
+
+### Slice 11: Build the source-aware supporting-data plan
+
+**Delivery:** Implemented on 2026-10-29. The pure planner, descriptor builder,
+authorized query, composition injection, focused behavior tests, and local
+physical-connection regression are current. Browser decision persistence and
+supporting-read authorization remain Slice 12 responsibilities.
+
+The data manager should see why Products need Categories or why Bill of
+Material Lines need a parent, using the accepted Data version as evidence.
+
+- Extend `derive_supporting_model_dependencies` through a pure, versioned plan
+  that accepts the selected business models, captured schema, accepted
+  physical and derived dataset descriptors, and explicit relationship intent.
+  Preserve the current direct-dependency result for existing callers.
+- Pair incoming candidates only from confirmed model bindings, saved derived
+  relationship rules, or other explicit source intent. A similar table or
+  column label alone is not proof. Several compatible candidates remain an
+  unresolved choice.
+- Include an optional Many2one or Many2many only when a saved source choice,
+  mapping, or Recipe requirement says that it will be populated. An available
+  column alone does not authorize that choice.
+- Retain each parent-field edge, proposed role, reason, candidate dataset, and
+  evidence binding. Keep separate edges when the same model serves different
+  business purposes. Follow only justified incoming dependencies, deduplicate
+  repeated paths, and return an explicit incomplete result at versioned node,
+  edge, or depth limits.
+- Read accepted descriptors and rules in bulk. The pure planner reads no source
+  rows, opens no database, and makes no Odoo call. Lock its hard limits in tests
+  before exposing the plan in Slice 12.
+
+Primary owners are
+[`supporting_models.py`](../../src/impodo/domain/workspace/supporting_models.py),
+the accepted-source and derived-rule query ports, and
+[`schema_workspace_service.py`](../../src/impodo/application/schema_workspace_service.py).
+Tests must cover a physical Categories table, a generated Categories table,
+conflicting candidates, custom models, optional unused fields, inverse child
+ownership, cycles, deterministic ordering, and unchanged write scope.
+
+**Exit:** The application can explain a complete or explicitly incomplete
+dependency proposal from current accepted evidence. It has not approved a
+suggestion or granted a supporting read.
+
+### Slice 12: Save reviewed supporting choices and authorize their reads
+
+The data manager should resolve each business question once in Stage 2.
+
+- Add versioned per-edge decisions to the existing **Supporting data Impodo
+  found** journey. Choices cover an accepted incoming table, existing Odoo
+  records, a checked default, Odoo ownership, or an unused optional field.
+  Support only the resolver precedence already implemented downstream.
+- Save the complete decision in DuckDB or an immutable artifact through an
+  application port. Bind it to the source selection, derived rules, business
+  scope, schema, and reviewed policy. Reject stale or conflicting submissions;
+  retries must not create another decision or widen scope.
+- Require an explicit reviewed write-scope change before incoming records can
+  become writable. Supporting reuse authorizes only the exact relationship,
+  key, scope, display fields, purpose, target, and qualified Odoo version.
+  Extend `GovernedReferenceRequest` and its existing policy only where needed.
+- Run supporting metadata or value capture only from an explicit action. Group
+  compatible requests by model and rule. Separate the local input read, remote
+  Odoo work, and local evidence publication into bounded operations.
+- Make required unresolved or stale choices block Stage 2 confirmation in the
+  application service as well as the page. Project the cause and correction
+  through `WorkflowIssueProjection`. Metadata availability alone is not a
+  value-level relationship proof; Stage 3 keeps that responsibility.
+
+Extend the supporting-model browser tests, reference-policy tests, and schema
+governance tests. Include authorization denial before evidence access, forged
+read scope, stale forms, duplicate submissions, unavailable defaults, and a
+source change between proposal and confirmation. Record a physical-connection
+ceiling from the actual page's distinct database owners. Page rendering makes
+zero Odoo calls and performs no per-field repository reads.
+
+**Exit:** A file-source user can resolve supporting-data choices without
+manually adding a read-only reference model to the writable catalogue.
+
+### Slice 13: Complete Recipe closure and downstream freshness
+
+A saved Recipe should carry the same supporting meaning into another suitable
+Data version without repeating technical configuration.
+
+- Reuse the bulk, hash-verified requirement extraction in
+  [`RunOdooRequirementsUseCase`](../../src/impodo/application/run/odoo_requirements.py).
+  Share its portable extraction where needed rather than invoking run-owned
+  setup from Authoring or building another Recipe dependency parser.
+- Merge exact Recipe requirements with the source-aware edge plan. Retain the
+  selected Recipe revision and every originating relationship. Expose a
+  conflict when accepted source intent, reviewed scope, and Recipe meaning
+  disagree; do not select a winner automatically.
+- Reuse accepted Odoo-source edge decisions through their existing owner.
+  Preserve the distinction between full incoming migration, identity and
+  required-value preservation, destination reuse, and an ignored optional link.
+- Pass the reviewed plan to existing mapping, supporting-lookup, Recipe
+  compilation, and preparation consumers through their ports. A changed source,
+  derived rule, Recipe revision, schema, target, principal, permission, or
+  company context invalidates only evidence that depends on it and names the
+  required recheck.
+- Publish compact counts, state, and evidence pointers with committed evidence.
+  A future server projection advances only after its worker receipt is
+  verified. Rebuilding a missing projection must not repeat Odoo capture.
+
+Extend the existing Recipe-requirement, Recipe-compilation, source-scope, and
+supporting-lookup tests. Prove that several Recipes share one bulk revision
+read and deduplicated supporting requests, while their reasons remain visible.
+Include a rejected Recipe hash, overlapping requirements, changed derived
+data, and the Products/Bill of Materials scenario with explicit reuse and
+incoming decisions.
+
+**Exit:** Proposal 2 has one complete decision journey across accepted source,
+reviewed dependencies, Recipe reuse, and downstream value checks.
+
+### Slice 14: Define and persist business intent
+
+The data manager should be able to say “Update Contacts, create no Products,
+and leave Product prices unchanged” before approving a load.
+
+- Add a versioned domain contract for allowed create/update modes by record
+  type, fields and relationship operations that may change, and optional
+  minimum and maximum create/update counts. Zero is an explicit requirement;
+  an omitted limit means that no count expectation was supplied.
+- Keep business intent separate from `project_operation_intent`, which records
+  operational idempotency and recovery. Save immutable intent revisions and
+  their author through an authorized application command with an expected
+  revision. Store detailed rules in the data plane.
+- Validate that intent can only narrow the currently supported write scope.
+  Existing source-mode, Odoo-version, default, and create-only field policies
+  remain the outer constraints. Choosing upsert cannot enable an unavailable
+  execution path.
+- Distinguish a reusable expectation from its later run-specific assessment
+  and approval. Saving or editing an expectation does not approve a comparison.
+  Specify how historical workspaces acquire their first explicit revision;
+  do not silently approve missing intent during a schema upgrade.
+
+Pure domain tests cover zero versus unspecified limits, contradictory ranges,
+unsupported fields or operations, and deterministic serialization. Repository
+and application tests cover round-trip integrity, ownership, authorization,
+concurrent edits, idempotency, and historical evidence. This slice need not
+expose a load action until enforcement is ready.
+
+**Exit:** Business expectations have one portable, reviewable contract and one
+authoritative persisted revision. They grant no write permission.
+
+### Slice 15: Assess intent and enforce it before execution
+
+Final review should catch an unexpected create or field change even when its
+individual rows pass every technical check.
+
+- Derive observed creates, updates, affected fields, and relationship operations
+  from the exact execution snapshot. Count all intended writes, including
+  supporting creates and deferred relationship completion, without counting
+  the same business record twice. Count a reused reference as a read, not as
+  an update to that reference.
+- Build the assessment while comparison evidence is in memory. If only an
+  expectation changes, reassess the saved verified snapshot in one bounded
+  local operation. No new Odoo scan is needed.
+- Persist an immutable assessment bound to the intent revision, prepared
+  result, target, comparison, reduced-scope decision, and execution snapshot.
+  A sidecar assessment can bind the existing snapshot hash without changing
+  historical snapshot meaning or introducing circular hashes.
+- A deviation blocks approval. The operator must correct the input or save and
+  review a new explicit expectation. Confirming individual rows or setting
+  aside groups cannot acknowledge the deviation implicitly. A reduced scope
+  requires a new assessment, including any minimum-count rule.
+- Require the current assessment at confirmation, enqueue, and worker entry
+  before the journal or writer is constructed. Recheck authority and hashes at
+  the existing load boundary. An already-started journal retains its approved
+  intent; later edits apply to a later run. Recovery must continue the same
+  approved run and its current recovery assessment.
+
+Primary owners are
+[`preflight_service.py`](../../src/impodo/application/preflight_service.py),
+the existing preflight publication transaction,
+[`ExecutionService`](../../src/impodo/application/workspace/execution/service.py),
+and the existing load-job and confirmation routes. Extend their tests with an
+unexpected Product create, a forbidden price update, an allowed Contact range,
+supporting creates, a changed snapshot, set-aside groups, a queued stale
+approval, repeated submission, and interrupted recovery. Every rejected case
+must prove zero writes; pre-execution rejection must also prove no new journal.
+
+**Exit:** The service enforces the approved business purpose independently of
+browser controls, while the existing comparison and recovery remain authoritative.
+
+### Slice 16: Show expected versus found in the current load journey
+
+- Add the intent editor and **Expected versus found** assessment to Final
+  review, with one correction action for each deviation. Show which rules were
+  specified and which counts have no expectation.
+- Extend the existing `ExecutionReviewProjection` at publication time with
+  bounded assessment state, counts, and verified hashes. The ordinary review
+  and navigation pages read that projection; they do not decode every row or
+  rebuild field sets on each request. Keep complete intent and approval detail
+  behind an authorized bounded evidence query.
+- Bind confirmation to the exact reviewed intent and snapshot. Show record
+  types, creates, updates, fields, relationships, and target context using the
+  existing review evidence. Continue to derive progress, unknown outcomes,
+  recovery actions, and completion from the journal and reconciliation.
+- Exercise keyboard and focus behavior, narrow screens, stale tabs, delayed
+  jobs, repeated clicks, and interruption. Refresh the owning workflow
+  screenshots only after the implemented page has passed those checks.
+
+A route test must assert business output and the expected physical-connection
+and schema-check ceilings. Compare fixture request counts with the existing
+load-review path. Measure the same state on a restarted local build before
+claiming a live latency improvement.
+
+**Exit:** Proposal 10 has a complete visible and enforced workflow over the
+current execution cockpit, including no-change runs and recovery.
+
+### Slice 17: Review duplicate identity groups through protected paging
+
+- Publish normalized duplicate-group membership while the existing explicit
+  Stage 3 check has its source and target indexes in memory. Retain complete
+  key and scope semantics, including recursive identities, and the check's
+  current row and distinct-key limits.
+- Extend the protected identity-review use case and index with source-repeat
+  and observed-target-ambiguity filters. Require `PROTECTED_EVIDENCE_READ`,
+  current bindings, deterministic group membership, and bounded row paging.
+  Numeric Odoo IDs remain protected and absent from the browser result.
+- Explain that duplicate source rows need a business decision. Opening a group
+  cannot merge rows, choose the first target, or approve a collision decision.
+  The existing preparation duplicate-resolution owner remains authoritative.
+- Read only the persisted index on page navigation. Add no Odoo call, full
+  snapshot decode, source rescan, or new worker database access from a server
+  page. Target results describe only keys observed by the bounded check.
+
+Extend the current identity-choice review, matching-order repository, and
+identity-health tests. Include a group larger than one page, mixed compound
+scopes, access denial before detail access, stale evidence, and nested keys.
+
+**Exit:** Proposal 3's duplicate-review action is usable. A complete target
+blank inventory and an early update forecast remain separate conditional work.
+
+### Slice 18: Review unresolved relationship-field choices
+
+- During explicit check publication, classify and index missing, ambiguous,
+  case-only, and incomplete choices from the existing relationship probes.
+  Preserve the owner dataset and field, resolver origin, related key and scope,
+  and affected-row count. Include nested source-backed Many2one probes and
+  currently supported direct-key Many2many probes.
+- Reuse the protected paged-query pattern from identity review. Show the
+  protected business choice and reason only after authorization and freshness
+  checks. Keep ordinary cards and navigation aggregate-only.
+- Add a distinct **Review unresolved choices** page action to the relationship
+  card and retain **Change matching rule** as its separate correction action.
+  Opening either action does not pick a target or save another provider.
+- Normalize complete review evidence at publication time and page its index.
+  Do not reconstruct it from the entire protected snapshot on each request.
+  Historical checks without the new index require a fresh explicit check.
+
+Tests must cover every supported resolver origin, target-first precedence,
+optional blanks, compound and nested keys, repeated Many2many members, groups
+larger than one page, stale evidence, and access denial. Assert count agreement
+with the aggregate card, zero numeric IDs in page output, zero page-triggered
+Odoo calls, and a database-connection ceiling based on the page's owners.
+
+**Exit:** Proposal 6's current supported relationship shapes have an actionable
+protected review page. Conditional key shapes remain explicitly not checkable.
+
+### Slice 19: Unify required values and mapping coverage
+
+- Project a **Required values** checklist from captured requirements, current
+  field dispositions, mapping validation, and checked-default evidence. Show
+  source, fixed value, checked default, Odoo-managed, or missing for each field.
+- Link directly to the saved source-value, constant, relationship, or default
+  decision. Reuse grouped default acceptance and its one complete validation.
+- Build a compact cross-table coverage view from the same current evidence.
+  Separate chosen, checked, missing, and stale states; a percentage must never
+  disguise a missing identity or required parent. Do not promise affected-create
+  counts before a current comparison can establish them.
+- Fetch field and default evidence in bulk within the current page operation.
+  Opening the checklist starts no default capture, Odoo call, or source-row
+  evaluation.
+
+Extend default-recovery and mapping-workflow tests with missing, supplied,
+Odoo-managed, unavailable, and stale cases. Verify one grouped validation,
+stable correction anchors, and no growth in database connections per field.
+
+**Exit:** Proposal 4 and the coverage part of Proposal 5 have one clear entry
+point over the existing checks. Bulk field suggestions remain conditional.
+
+### Slice 20: Link edited fields to current rule effects
+
+- Add a compact field summary and exact filter link to **Review rule effects**
+  from the existing checked transformation-impact snapshot.
+- Show current or stale status and existing changed, fallback, invalid, blank,
+  supplied, and unchanged counts. Keep representative values on the already
+  authorized review page and preserve Odoo-source redaction.
+- Read a bulk bounded summary for the visible fields. Do not evaluate rules,
+  create another snapshot, or query once per card when opening the editor.
+- Keep saving, checking, warning acknowledgement, and confirmation as their
+  current distinct actions.
+
+Extend impact-presenter, impact-repository, and mapping-workflow tests. Assert
+agreement with the existing report and workbook, stale status after a draft
+change, correct field filters, and the page's physical-connection ceiling.
+
+**Exit:** Proposal 7 is complete without adding another preview engine.
+
+### Slice 21: Qualify and close the workflow plan
+
+Run the end-to-end scenario below with accepted physical and derived tables,
+an applied Recipe, mixed incoming and reused relationships, an unresolved
+dependency, a duplicate group, precision loss, reviewed set-aside groups,
+unexpected creates, a forbidden field update, a no-change result, and one
+interrupted load. Prove correction ownership, preserved work, and the exact
+required recheck at every blocked step.
+
+Keep a release checklist that maps every proposal's acceptance checks to
+focused test evidence. The existing 1,000-row recursive-key fixture is a
+regression reference for its own path; it is not a latency budget for unrelated
+routes. Add an opt-in 25,000-row dependency and intent qualification using
+synthetic data, and record its duration, database opens, schema checks, Odoo
+requests, and memory use separately from live results. Hard-limit and batching
+tests remain deterministic; CI does not assert wall-clock timings.
+
+**Exit:** Slices 11–20 pass their focused tests and the repository gate. Every
+conditional item below is either implemented with its own evidence or explicitly
+deferred by the product owner. Report core safety completion separately from
+full-plan completion until that disposition exists. A local qualification does
+not declare the shared-server release qualified.
+
+### Conditional work that must retain an explicit status
+
+| Item | Start only when | Existing owner to preserve |
+| --- | --- | --- |
+| Nested Many2many and constant-provider keys | A concrete operator case has an explicit portable contract for each member's complete key, scope, ordering, and normalization. | The recursive governed key planner and current relationship classifier. |
+| Target-wide blank-key inventory | A separately approved bounded scan can define complete coverage under the read user's access and company context. | The read-only Odoo requirement planner; an unmatched requested key never proves target-wide absence. |
+| Early update-versus-unchanged forecasting | A complete mapped-value and target snapshot already exists for the same evidence revision. | The current Final review classification; identity counts alone cannot establish field changes. |
+| A combined all-stage issue drawer | Observed navigation friction justifies combining the persisted stage summaries. | `WorkflowIssueProjection` and each stage's authoritative evidence. |
+| A reviewed bulk mapping starter | A repeated operator task remains after Recipes, catalogue tools, and current suggestions are used. | The working draft, existing suggestion policies, complete validation, and human confirmation. |
+
+### Performance and remote/Linux checks for every remaining slice
+
+- Record the baseline of each affected route or command before implementation.
+  Use privacy-safe diagnostics for a running build and isolated fixtures for
+  structural assertions; never open a live DuckDB file from another process
+  merely to benchmark it.
+- Use `run_page_read` for a complete synchronous local page operation and
+  `run_local_operation` for a command. End the operation before remote calls,
+  awaits, or job dispatch. Derive connection and schema-check ceilings from
+  the actual database owners; do not introduce cross-request connections.
+- Build detailed membership, coverage, and intent aggregates at evidence
+  publication or explicit reassessment. Browser requests consume bounded
+  current projections and indexed detail. No slice adds source-row Odoo calls,
+  source-row database opens, or another normal Final review scan.
+- Authorize the request's Actor and Project before evidence access. Test the
+  local adapter with the implicit operator and the shared contract with scoped
+  named actors. Shared services receive ports from composition; they do not
+  infer deployment mode or accept the local administrator bypass on a server.
+- Keep dependency decisions, intent rules, assessments, approvals, row detail,
+  and protected keys in DuckDB or immutable/protected artifacts. PostgreSQL may
+  retain only allowed bounded state, counts, operation identity, pointers, and
+  verified receipt hashes. A Linux web request does not open worker DuckDB.
+- Keep a server adapter checklist for each new port and receipt. Durable
+  dispatch, leases, fencing, projection repair, and hosted authorization are
+  integrated and qualified in the shared-server plan when those owners are
+  ready. Local slices must not claim those integrations from fake-port tests.
+- Each implementation updates its owning current documentation only after
+  verification. Run focused behavior and performance checks, documentation
+  checks, Python quality after a Python change, and the complete repository
+  gate. Record every failed or omitted qualification explicitly.
 
 ## End-to-end acceptance scenario
 

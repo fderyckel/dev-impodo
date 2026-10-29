@@ -387,6 +387,9 @@ stages:
       - src/impodo/application/workspace/issues.py::WorkflowIssueProjection
       - src/impodo/domain/workspace/business_keys.py::assess_business_key_recommendation
       - src/impodo/domain/workspace/supporting_models.py::derive_supporting_model_dependencies
+      - src/impodo/domain/workspace/supporting_plan.py::plan_supporting_data
+      - src/impodo/domain/workspace/supporting_sources.py::supporting_source_descriptors
+      - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.supporting_data_plan
       - src/impodo/web/presenters/schema.py::_schema_key_views
       - src/impodo/web/presenters/supporting_models.py::supporting_model_plan_view
       - scripts/capture_stage2_matching_rule_screenshots.py::capture
@@ -395,6 +398,9 @@ stages:
       - tests/integration/odoo/test_local_reader.py
       - tests/domain/workspace/test_business_keys.py
       - tests/domain/workspace/test_supporting_models.py
+      - tests/domain/workspace/test_supporting_plan.py
+      - tests/domain/workspace/test_supporting_sources.py
+      - tests/application/workspace/test_supporting_data_plan.py
       - tests/application/workspace/test_workflow_issues.py
       - tests/application/workspace/test_schema_governance.py
       - tests/integration/web/test_schema_presenter.py
@@ -434,6 +440,9 @@ stages:
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService.prepare_mapping_review_rows
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService
+      - src/impodo/application/workspace/mapping/logical_source_values.py::LogicalSourceValues
+      - src/impodo/adapters/duckdb/mapping_source_values.py::JoinedMappingSourceValues
+      - src/impodo/adapters/duckdb/grouped_exact_join_source.py::DuckDbGroupedExactJoinSource.project_values
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_key_tuples
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_identity_key_tuples
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_included_key_tuples
@@ -503,6 +512,8 @@ stages:
       - tests/application/workspace/test_derived_entities.py
       - tests/integration/web/test_mapping_impact_presenter.py
       - tests/integration/web/test_mapping_workflow.py
+      - tests/integration/web/test_joined_value_matching.py
+      - tests/integration/artifacts/test_joined_mapping_values.py
       - tests/integration/web/test_identity_health_presenter.py
       - tests/integration/web/test_identity_choice_review.py
       - tests/integration/web/test_relationship_health_presenter.py
@@ -622,6 +633,7 @@ stages:
     code_references:
       - src/impodo/application/preflight_attempts.py::PreflightComparisonRequest
       - src/impodo/application/preflight_attempts.py::PreflightComparisonReceipt
+      - src/impodo/application/preflight_attempts.py::PreflightPublicationCommittedError
       - src/impodo/application/preflight_jobs.py::PreflightJobManager
       - src/impodo/application/preflight_timing.py::collect_preflight_publication_timings
       - src/impodo/application/preflight_service.py::PreflightService
@@ -674,6 +686,7 @@ stages:
       - tests/integration/duckdb/test_navigation_repository.py
       - tests/architecture/test_workspace_navigation_boundaries.py
       - tests/integration/web/test_recipe_comparison_recovery.py
+      - tests/integration/web/test_odoo_transfer_journey.py
       - tests/domain/preparation/test_target_first_relationships.py
     contracts:
       - docs/developer/contracts/preflight.md

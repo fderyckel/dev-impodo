@@ -62,7 +62,7 @@ def derive_supporting_model_dependencies(
             field_type=field.type,
             relation_model=field.relation,
             required=field.required,
-            role=_supporting_role(field),
+            role=supporting_model_role(field),
         )
         for model in captured
         for field in model.fields
@@ -123,7 +123,7 @@ def _is_direct_dependency(
     )
 
 
-def _supporting_role(field: SchemaField) -> SupportingModelRole:
+def supporting_model_role(field: SchemaField) -> SupportingModelRole:
     """Classify from captured behavior without model-specific assumptions."""
 
     if field.related is True:
@@ -147,5 +147,6 @@ __all__ = [
     "SupportingModelDependency",
     "SupportingModelRole",
     "derive_supporting_model_dependencies",
+    "supporting_model_role",
     "unavailable_required_supporting_dependencies",
 ]

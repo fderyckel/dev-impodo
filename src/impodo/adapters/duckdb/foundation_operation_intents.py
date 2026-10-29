@@ -111,6 +111,7 @@ class FoundationOperationIntents(FoundationRepositoryMixin):
                 "migration_run_id": request.migration_run_id,
                 "recipe_application_id": request.recipe_application_id,
                 "requested_at": request.requested_at.isoformat(),
+                "read_credential_binding_hash": request.read_credential_binding_hash,
             },
             actor=actor,
         )

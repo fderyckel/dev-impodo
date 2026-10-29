@@ -90,6 +90,10 @@ before shutdown, Impodo verifies it and recovers that success instead. A
 completed report is published atomically, so an interrupted attempt cannot make
 a partial review current.
 
+If the comparison inputs change while an attempt is queued or running, Impodo
+rejects that attempt and keeps the previous saved review. Reopen **Final
+review** and compare again using the current inputs.
+
 After a ready comparison, **Check changes** opens the saved bounded summary of
 datasets, write totals, load order, and blockers. The final confirmation still
 checks the exact complete saved load before anything can change in Odoo. A

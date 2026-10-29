@@ -303,9 +303,11 @@ def _publish_snapshot(
     artifacts: LocalArtifactStore,
     selection: SourceSelection,
     dataset: SourceDataset,
+    *,
+    rows=None,
 ) -> SourceSnapshot:
     schema = source_snapshot_schema(dataset)
-    values = {
+    values = rows if rows is not None else {
         "primary": ((1, "Alpha"), (2, "Beta"), (3, "Gamma")),
         "regions": ((1, "BE"), (2, "FR"), (3, "NL")),
         "emails": (
@@ -315,7 +317,7 @@ def _publish_snapshot(
         ),
     }[dataset.name]
     with artifacts.prepare_source_snapshot(selection.data_version_id) as workspace:
-        writer = SourceSnapshotCandidateWriter(workspace, schema, batch_rows=3)
+        writer = SourceSnapshotCandidateWriter(workspace, schema, batch_rows=2048)
         writer.append_source_rows(
             tuple(
                 SourceRow(

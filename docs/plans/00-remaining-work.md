@@ -42,8 +42,7 @@ does not override this list.
 3. **Broaden the [Odoo-to-Odoo migration](05-odoo-to-odoo-migration.md).**
    This remains a high-value feature. Extend the qualified Contact path to
    Product, bills of materials, empty destinations, interruption, and recovery
-   after the hierarchy qualification is reliable. The local Final review
-   recovery and bounded review foundations are already implemented.
+   after the hierarchy qualification is reliable.
 4. **Add [exact-record repair for known load fallout](06-load-fallout-source-cell-workbook.md).**
    This remains important even though it is not the normal path. When a load
    partly fails, repairing only the reviewed target records can save a data
@@ -140,12 +139,6 @@ tests.
 The Stage 1 and Stage 2 page-loading plan was also retired after its implemented
 batches were verified in the current code and workflow documentation. Its only
 open platform measurements already belong to the shared responsiveness plan.
-
-The 2026-10-29 review retired the completed local Final review recovery and
-performance plan. The current user guide, developer workflow, preflight
-contract, workflow registry, code map, and focused tests own its implemented
-behavior. The detailed shared-server plan now owns the still-planned
-PostgreSQL job and worker migration for Final review.
 
 ## Current implemented boundary
 

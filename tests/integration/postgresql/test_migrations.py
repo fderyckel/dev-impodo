@@ -501,6 +501,25 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         )
         self.assertNotIn("GRANT DELETE", schema)
 
+    def test_customer_sessions_and_events_are_bound_to_one_tenant(self) -> None:
+        migration = POSTGRESQL_MIGRATIONS[10]
+        schema = "\n".join(statement.query for statement in migration.statements)
+
+        self.assertIn("server_session_exact_subject_check", schema)
+        self.assertIn("server_session_customer_tenant_kind_fk", schema)
+        self.assertIn(
+            "FOREIGN KEY (organization_id, principal_id, principal_kind)",
+            schema,
+        )
+        self.assertIn("identity_administration_event_subject_tenant_fk", schema)
+        self.assertIn("customer_user_organization_display_idx", schema)
+        self.assertIn("impodo_control.server_security_event", schema)
+        self.assertIn("principal_hint_digest", schema)
+        self.assertIn("source_digest", schema)
+        self.assertIn("server_security_event_organization_time_idx", schema)
+        self.assertNotIn("GRANT DELETE", schema)
+        self.assertNotIn("GRANT UPDATE", schema)
+
     def test_default_psycopg_session_is_bounded_and_transactional(self) -> None:
         connection = Mock()
         with patch(

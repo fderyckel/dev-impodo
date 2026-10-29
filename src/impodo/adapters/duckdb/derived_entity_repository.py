@@ -11,6 +11,8 @@ See ``docs/user/guides/related-tables.md`` and
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import SourceSelection
 from impodo.domain.workspace.derived_entities import (
@@ -24,8 +26,25 @@ from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from .repository import DuckDbRepository
 
 
+class DerivedEntitySourceProjectionReader(Protocol):
+    """Read the immutable physical source selected for one workspace."""
+
+    def get_source_selection(
+        self,
+        workspace_id: str,
+    ) -> SourceSelection | None: ...
+
+
 class DerivedEntityRepository(DuckDbRepository):
     """Own immutable derived-plan history and its single current pointer."""
+
+    def __init__(
+        self,
+        database,
+        source_projection: DerivedEntitySourceProjectionReader | None = None,
+    ) -> None:
+        super().__init__(database)
+        self._source_projection = source_projection
 
     def get_derived_entity_plan(
         self,
@@ -56,6 +75,11 @@ class DerivedEntityRepository(DuckDbRepository):
         """Append one exact plan revision and invalidate mapping/staging."""
 
         self._assert_workspace_mutable(workspace_id)
+        projected_selection = (
+            self._source_projection.get_source_selection(workspace_id)
+            if self._source_projection is not None
+            else None
+        )
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
@@ -65,10 +89,13 @@ class DerivedEntityRepository(DuckDbRepository):
                 "SELECT selection_json FROM source_selection WHERE singleton_id = 1"
             ).fetchone()
             if selection_row is None:
-                raise WorkspaceError(
-                    "Freeze source datasets before deriving entities"
-                )
-            selection = SourceSelection.from_json(str(selection_row[0]))
+                if projected_selection is None:
+                    raise WorkspaceError(
+                        "Freeze source datasets before deriving entities"
+                    )
+                selection = projected_selection
+            else:
+                selection = SourceSelection.from_json(str(selection_row[0]))
             if (
                 plan.workspace_id != workspace_id
                 or plan.source_selection_hash != selection.content_hash

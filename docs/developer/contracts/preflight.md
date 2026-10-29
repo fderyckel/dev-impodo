@@ -178,6 +178,14 @@ report and current pointer. The report header binds the operation ID, but the
 portable manifest and execution snapshot hashes do not include control-plane
 progress.
 
+The reserved semantic hash and read-credential binding travel with the worker
+request. The worker rejects changed meaning before reading Odoo and before
+publication; the publication transaction also requires the prepared Workspace
+revision. A changed queued or in-flight input must leave the earlier current
+report intact.
+The browser worker reads the current saved credential generation again inside
+these local checks rather than reusing only its enqueue-time value.
+
 The comparison worker then uses three explicit phases. It loads
 and verifies the complete frozen input inside one local operation, releases
 every retained database owner before the bounded Odoo read, and classifies and
@@ -188,6 +196,17 @@ Odoo boundary. Startup recovery marks an unfinished intent successful only
 after the matching current report and immutable artifacts pass their hashes;
 otherwise it records an interrupted or stale terminal state and leaves the
 previous current pointer unchanged.
+
+Receipt verification uses the source-specific artifact contract. File sources
+require the verified canonical manifest and matching complete execution
+snapshot. Pinned Odoo sources require the `odoo-pinned-comparison-v1` manifest,
+its report bindings, and the matching encrypted comparison artifact hash. They
+require no execution snapshot and no protected-value decryption for recovery.
+
+A registration-file refresh happens after the publication transaction commits.
+Its failure is a distinct `PreflightPublicationCommittedError` outcome and must
+never delete committed artifacts or undo the saved report. A transaction
+failure still rolls back and removes only that attempt's uncommitted artifacts.
 
 The same publication transaction stores a versioned compact review projection
 beside the scalar execution projection. It contains bounded per-dataset counts,

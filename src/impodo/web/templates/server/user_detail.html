@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ user.display_name }} · Impodo administration</title>
+  </head>
+  <body>
+    <header>
+      <strong>Impodo administration</strong>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Sign out</button>
+      </form>
+    </header>
+    <main>
+      <p><a href="/admin/users">Back to Users</a></p>
+      <h1>{{ user.display_name }}</h1>
+      <dl>
+        <dt>Login email</dt><dd>{{ user.normalized_login_email }}</dd>
+        <dt>Account kind</dt><dd>{{ user.principal_kind.value }}</dd>
+        <dt>Status</dt><dd>{{ user.status.value }}</dd>
+        <dt>Security revision</dt><dd>{{ user.security_revision }}</dd>
+      </dl>
+      {% if user.principal_kind.value == 'CUSTOMER_USER' %}
+        <p>Lifecycle, password-reset, and session actions will appear here in the next dashboard increment.</p>
+      {% else %}
+        <p>The assigned Organization Administrator cannot administer its own privileged account from this page.</p>
+      {% endif %}
+      <section aria-labelledby="access-summary-heading">
+        <h2 id="access-summary-heading">Project access</h2>
+        <p>Project roles and access summaries are not editable until Phase 5.</p>
+      </section>
+    </main>
+  </body>
+</html>

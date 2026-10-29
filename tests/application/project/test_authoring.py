@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import unittest
@@ -497,7 +498,11 @@ class ProjectAuthoringTests(unittest.TestCase):
             / (("b" * 64) + ".parquet")
         )
         artifact.parent.mkdir(parents=True, exist_ok=True)
-        long_artifact = Path("\\\\?\\" + str(artifact.resolve()))
+        long_artifact = (
+            Path("\\\\?\\" + str(artifact.resolve()))
+            if os.name == "nt"
+            else artifact
+        )
         long_artifact.write_bytes(b"test artifact")
 
         self.projects.delete(

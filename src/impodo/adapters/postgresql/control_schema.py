@@ -1,7 +1,7 @@
 """Name the PostgreSQL control schema and its least-privilege roles."""
 
 POSTGRESQL_CONTROL_SCHEMA_GENERATION = "impodo-control-v1"
-POSTGRESQL_CONTROL_SCHEMA_VERSION = 10
+POSTGRESQL_CONTROL_SCHEMA_VERSION = 11
 POSTGRESQL_MIGRATION_ROLE = "impodo_migrator"
 POSTGRESQL_RUNTIME_ROLE = "impodo_runtime"
 

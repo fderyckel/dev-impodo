@@ -1,4 +1,4 @@
-"""Persist bounded Platform Administrator server-session transitions."""
+"""Persist bounded shared-server administrator session transitions."""
 
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ from impodo.adapters.postgresql.transaction_metrics import (
     PostgreSQLTransactionOutcome,
     report_postgresql_transaction_metric,
 )
-from impodo.domain.identity.bootstrap import PlatformAdministratorStatus
 from impodo.domain.identity.recovery import LoginPrincipalKind
 from impodo.domain.identity.sessions import (
     CurrentSessionView,
@@ -44,11 +43,22 @@ POSTGRESQL_SESSION_LOCK_TIMEOUT_MILLISECONDS = 5_000
 POSTGRESQL_SESSION_STATEMENT_TIMEOUT_MILLISECONDS = 10_000
 POSTGRESQL_SESSION_CONNECTION_BUDGET = 1
 
-_LOCK_SUBJECT_QUERY: LiteralString = (
+_LOCK_PLATFORM_SUBJECT_QUERY: LiteralString = (
     "SELECT status, security_revision\n"
     "FROM impodo_control.platform_administrator\n"
     "WHERE administrator_id = %s\n"
     "FOR UPDATE"
+)
+_LOCK_ORGANIZATION_ADMINISTRATOR_QUERY: LiteralString = (
+    "SELECT u.status, u.security_revision, o.status\n"
+    "FROM impodo_control.customer_user AS u\n"
+    "JOIN impodo_control.organization AS o\n"
+    "  ON o.organization_id = u.organization_id\n"
+    "JOIN impodo_control.organization_administrator_assignment AS a\n"
+    "  ON a.organization_id = u.organization_id AND a.user_id = u.user_id\n"
+    "WHERE u.user_id = %s AND u.organization_id = %s\n"
+    "  AND u.principal_kind = 'ORGANIZATION_ADMINISTRATOR'\n"
+    "FOR UPDATE OF u, o, a"
 )
 _INSERT_SESSION_QUERY: LiteralString = (
     "INSERT INTO impodo_control.server_session (\n"
@@ -66,18 +76,26 @@ _INSERT_SESSION_EVENT_QUERY: LiteralString = (
     "    actor_administrator_id, occurred_at\n"
     ") VALUES (%s, %s, %s, %s, %s, %s)"
 )
+_INSERT_CUSTOMER_SESSION_EVENT_QUERY: LiteralString = (
+    "INSERT INTO impodo_control.server_security_event (\n"
+    "    event_id, deployment_id, event_kind, principal_kind, principal_id,\n"
+    "    organization_id, principal_hint_digest, source_digest, occurred_at\n"
+    ") VALUES (%s, %s, %s, %s, %s, %s, NULL, NULL, %s)"
+)
+_LOAD_SESSION_SUBJECT_QUERY: LiteralString = (
+    "SELECT principal_kind, principal_id, organization_id\n"
+    "FROM impodo_control.server_session\n"
+    "WHERE session_id = %s"
+)
 _LOAD_SESSION_QUERY: LiteralString = (
     "SELECT s.principal_kind, s.principal_id, s.organization_id,\n"
     "       s.handle_digest, s.csrf_digest, s.authentication_method,\n"
     "       s.security_revision, s.state, s.created_at, s.last_seen_at,\n"
     "       s.idle_expires_at, s.absolute_expires_at, s.elevated_until,\n"
-    "       s.optimistic_revision, a.status, a.security_revision\n"
+    "       s.optimistic_revision\n"
     "FROM impodo_control.server_session AS s\n"
-    "JOIN impodo_control.platform_administrator AS a\n"
-    "  ON s.principal_kind = 'PLATFORM_ADMINISTRATOR'\n"
-    " AND a.administrator_id = s.principal_id\n"
     "WHERE s.session_id = %s\n"
-    "FOR UPDATE OF s, a"
+    "FOR UPDATE OF s"
 )
 _TOUCH_SESSION_QUERY: LiteralString = (
     "UPDATE impodo_control.server_session\n"
@@ -260,20 +278,15 @@ class PsycopgServerSessionRepository:
         """Create one active session only for the locked current subject state."""
 
         def persist(session: _MeasuredServerSession) -> None:
-            subject = _decode_subject_status(
-                session.fetch_one(_LOCK_SUBJECT_QUERY, (record.subject.principal_id,))
-            )
+            subject = _lock_subject(session, record.subject)
             if (
                 subject is None
-                or subject[0] is not PlatformAdministratorStatus.ACTIVE
+                or not subject[0]
                 or subject[1] != record.security_revision
             ):
                 raise ServerSessionConflictError("Session subject changed")
             session.execute(_INSERT_SESSION_QUERY, _record_parameters(record))
-            session.execute(
-                _INSERT_SESSION_EVENT_QUERY,
-                _event_parameters(event, record.subject.principal_id),
-            )
+            _insert_session_event(session, event, record.subject)
 
         self._run("server_session.create", persist)
 
@@ -287,10 +300,7 @@ class PsycopgServerSessionRepository:
         """Resolve, validate, and touch one opaque session in one transaction."""
 
         def resolve_one(session: _MeasuredServerSession) -> CurrentSessionView | None:
-            context = _decode_session_context(
-                proof.session_id,
-                session.fetch_one(_LOAD_SESSION_QUERY, (proof.session_id,)),
-            )
+            context = _load_session_context(session, proof.session_id)
             if (
                 context is None
                 or context.state is not SessionState.ACTIVE
@@ -348,10 +358,7 @@ class PsycopgServerSessionRepository:
         """Rotate both browser secrets and establish bounded elevation."""
 
         def rotate_one(session: _MeasuredServerSession) -> CurrentSessionView | None:
-            context = _decode_session_context(
-                proof.session_id,
-                session.fetch_one(_LOAD_SESSION_QUERY, (proof.session_id,)),
-            )
+            context = _load_session_context(session, proof.session_id)
             if (
                 context is None
                 or context.state is not SessionState.ACTIVE
@@ -387,10 +394,7 @@ class PsycopgServerSessionRepository:
                 != 1
             ):
                 raise ServerSessionConflictError("Session changed during rotation")
-            session.execute(
-                _INSERT_SESSION_EVENT_QUERY,
-                _event_parameters(event, context.subject.principal_id),
-            )
+            _insert_session_event(session, event, context.subject)
             return context.view(
                 authentication_method=authentication_method,
                 last_seen_at=rotated_at,
@@ -408,32 +412,20 @@ class PsycopgServerSessionRepository:
         *,
         revoked_at: datetime,
     ) -> None:
-        """Revoke one exact session after locking the active administrator actor."""
+        """Revoke one exact self-session under its current subject binding."""
 
         def revoke_one(session: _MeasuredServerSession) -> None:
-            actor = _decode_subject_status(
-                session.fetch_one(
-                    _LOCK_SUBJECT_QUERY,
-                    (command.actor_administrator_id,),
-                )
-            )
-            if actor is None or actor[0] is not PlatformAdministratorStatus.ACTIVE:
-                raise ServerSessionConflictError("Session revocation actor changed")
-            context = _decode_session_context(
-                command.session_id,
-                session.fetch_one(_LOAD_SESSION_QUERY, (command.session_id,)),
-            )
+            context = _load_session_context(session, command.session_id)
             if (
                 context is None
                 or context.state is not SessionState.ACTIVE
+                or context.subject != command.actor
+                or not context.subject_active
                 or context.optimistic_revision != command.expected_revision
             ):
                 raise ServerSessionConflictError("Session changed before revocation")
             _revoke_loaded(session, context, command.reason, revoked_at)
-            session.execute(
-                _INSERT_SESSION_EVENT_QUERY,
-                _event_parameters(event, context.subject.principal_id),
-            )
+            _insert_session_event(session, event, context.subject)
 
         self._run("server_session.revoke", revoke_one)
 
@@ -520,7 +512,7 @@ class _SessionContext:
         absolute_expires_at: datetime,
         elevated_until: datetime | None,
         optimistic_revision: int,
-        subject_status: PlatformAdministratorStatus,
+        subject_active: bool,
         current_security_revision: int,
     ) -> None:
         self.session_id = session_id
@@ -536,7 +528,7 @@ class _SessionContext:
         self.absolute_expires_at = absolute_expires_at
         self.elevated_until = elevated_until
         self.optimistic_revision = optimistic_revision
-        self.subject_status = subject_status
+        self.subject_active = subject_active
         self.current_security_revision = current_security_revision
 
     def view(
@@ -562,27 +554,96 @@ class _SessionContext:
         )
 
 
-def _decode_subject_status(
+def _lock_subject(
+    session: _MeasuredServerSession,
+    subject: SessionSubject,
+) -> tuple[bool, int] | None:
+    if subject.principal_kind is LoginPrincipalKind.PLATFORM_ADMINISTRATOR:
+        row = session.fetch_one(
+            _LOCK_PLATFORM_SUBJECT_QUERY,
+            (subject.principal_id,),
+        )
+        if row is None:
+            return None
+        try:
+            if len(row) != 2:
+                raise TypeError
+            return _string(row[0]) == "ACTIVE", _integer(row[1])
+        except (TypeError, ValueError) as error:
+            raise ServerSessionStorageError(
+                "Session subject state is invalid"
+            ) from error
+    if subject.principal_kind is LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR:
+        if subject.organization_id is None:
+            return None
+        row = session.fetch_one(
+            _LOCK_ORGANIZATION_ADMINISTRATOR_QUERY,
+            (subject.principal_id, subject.organization_id),
+        )
+        if row is None:
+            return None
+        try:
+            if len(row) != 3:
+                raise TypeError
+            return (
+                _string(row[0]) == "ACTIVE" and _string(row[2]) == "ACTIVE",
+                _integer(row[1]),
+            )
+        except (TypeError, ValueError) as error:
+            raise ServerSessionStorageError(
+                "Session subject state is invalid"
+            ) from error
+    return None
+
+
+def _load_session_context(
+    session: _MeasuredServerSession,
+    session_id: str,
+) -> _SessionContext | None:
+    subject = _decode_session_subject(
+        session.fetch_one(_LOAD_SESSION_SUBJECT_QUERY, (session_id,))
+    )
+    if subject is None:
+        return None
+    subject_state = _lock_subject(session, subject)
+    if subject_state is None:
+        return None
+    return _decode_session_context(
+        session_id,
+        session.fetch_one(_LOAD_SESSION_QUERY, (session_id,)),
+        expected_subject=subject,
+        subject_state=subject_state,
+    )
+
+
+def _decode_session_subject(
     row: tuple[object, ...] | None,
-) -> tuple[PlatformAdministratorStatus, int] | None:
+) -> SessionSubject | None:
     if row is None:
         return None
     try:
-        if len(row) != 2 or not isinstance(row[0], str) or not isinstance(row[1], int):
+        if len(row) != 3:
             raise TypeError
-        return PlatformAdministratorStatus(row[0]), row[1]
-    except (TypeError, ValueError) as error:
-        raise ServerSessionStorageError("Session subject state is invalid") from error
+        return SessionSubject(
+            principal_kind=LoginPrincipalKind(_string(row[0])),
+            principal_id=str(row[1]),
+            organization_id=None if row[2] is None else _string(row[2]),
+        )
+    except (TypeError, ValueError, ServerSessionError) as error:
+        raise ServerSessionStorageError("Stored session subject is invalid") from error
 
 
 def _decode_session_context(
     session_id: str,
     row: tuple[object, ...] | None,
+    *,
+    expected_subject: SessionSubject,
+    subject_state: tuple[bool, int],
 ) -> _SessionContext | None:
     if row is None:
         return None
     try:
-        if len(row) != 16:
+        if len(row) != 14:
             raise TypeError
         principal_kind = LoginPrincipalKind(_string(row[0]))
         principal_id = str(row[1])
@@ -598,15 +659,16 @@ def _decode_session_context(
         absolute_expires_at = _datetime(row[11])
         elevated_until = None if row[12] is None else _datetime(row[12])
         optimistic_revision = _integer(row[13])
-        subject_status = PlatformAdministratorStatus(_string(row[14]))
-        current_security_revision = _integer(row[15])
+        subject = SessionSubject(
+            principal_kind=principal_kind,
+            principal_id=principal_id,
+            organization_id=organization_id,
+        )
+        if subject != expected_subject:
+            raise TypeError
         return _SessionContext(
             session_id=session_id,
-            subject=SessionSubject(
-                principal_kind=principal_kind,
-                principal_id=principal_id,
-                organization_id=organization_id,
-            ),
+            subject=subject,
             handle_digest=handle_digest,
             csrf_digest=csrf_digest,
             authentication_method=authentication_method,
@@ -618,8 +680,8 @@ def _decode_session_context(
             absolute_expires_at=absolute_expires_at,
             elevated_until=elevated_until,
             optimistic_revision=optimistic_revision,
-            subject_status=subject_status,
-            current_security_revision=current_security_revision,
+            subject_active=subject_state[0],
+            current_security_revision=subject_state[1],
         )
     except (TypeError, ValueError, ServerSessionError) as error:
         raise ServerSessionStorageError("Stored server session is invalid") from error
@@ -640,7 +702,7 @@ def _rejection_reason(
 ) -> SessionRevocationReason | None:
     if context.state is not SessionState.ACTIVE:
         return None
-    if context.subject_status is not PlatformAdministratorStatus.ACTIVE:
+    if not context.subject_active:
         return SessionRevocationReason.ACCOUNT_SUSPENDED
     if context.security_revision != context.current_security_revision:
         return SessionRevocationReason.SECURITY_REVISION
@@ -691,17 +753,42 @@ def _record_parameters(record: ServerSessionRecord) -> tuple[object, ...]:
     )
 
 
-def _event_parameters(
+def _insert_session_event(
+    session: _MeasuredServerSession,
     event: SessionSecurityEvent,
-    subject_administrator_id: str,
-) -> tuple[object, ...]:
-    return (
-        event.event_id,
-        event.deployment_id,
-        event.kind.value,
-        subject_administrator_id,
-        event.actor_administrator_id,
-        event.occurred_at,
+    subject: SessionSubject,
+) -> None:
+    if subject.principal_kind is LoginPrincipalKind.PLATFORM_ADMINISTRATOR:
+        actor_id = (
+            event.actor.principal_id
+            if event.actor is not None
+            and event.actor.principal_kind
+            is LoginPrincipalKind.PLATFORM_ADMINISTRATOR
+            else None
+        )
+        session.execute(
+            _INSERT_SESSION_EVENT_QUERY,
+            (
+                event.event_id,
+                event.deployment_id,
+                event.kind.value,
+                subject.principal_id,
+                actor_id,
+                event.occurred_at,
+            ),
+        )
+        return
+    session.execute(
+        _INSERT_CUSTOMER_SESSION_EVENT_QUERY,
+        (
+            event.event_id,
+            event.deployment_id,
+            event.kind.value,
+            subject.principal_kind.value,
+            subject.principal_id,
+            subject.organization_id,
+            event.occurred_at,
+        ),
     )
 
 

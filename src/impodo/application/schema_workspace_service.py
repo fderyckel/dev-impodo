@@ -41,12 +41,23 @@ from impodo.domain.workspace.contracts import (
     SchemaOrigin,
     SourceSelection,
 )
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from impodo.domain.workspace.errors import (
     OdooModelCatalogRefreshRequired,
     WorkspaceError,
 )
 from impodo.domain.workspace.supporting_models import (
     unavailable_required_supporting_dependencies,
+)
+from impodo.domain.workspace.supporting_plan import (
+    SupportingDataPlan,
+    SupportingDatasetIntent,
+    SupportingRelationshipIntent,
+    plan_supporting_data,
+)
+from impodo.domain.workspace.supporting_sources import (
+    SupportingSourceLimitError,
+    supporting_source_descriptors,
 )
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
@@ -85,6 +96,14 @@ class SourceSelectionReader(Protocol):
 
     def get_source_selection(self, workspace_id: str) -> SourceSelection | None:
         """Return frozen Source data evidence required before schema capture."""
+        ...
+
+
+class SupportingPreparationReader(Protocol):
+    """Read the saved source rules once without opening source artifacts."""
+
+    def get_derived_entity_plan(self, workspace_id: str) -> DerivedEntityPlan | None:
+        """Return the current source-preparation metadata revision."""
         ...
 
 
@@ -206,11 +225,80 @@ class SchemaWorkspaceService:
         sources: SourceSelectionReader,
         schemas: SchemaWorkspaceRepository,
         authorization: WorkspaceAuthorizationPolicy,
+        *,
+        derived_entities: SupportingPreparationReader | None = None,
     ) -> None:
         self.workspaces = workspaces
         self.sources = sources
         self.schemas = schemas
         self.authorization = authorization
+        self.derived_entities = derived_entities
+
+    def supporting_data_plan(
+        self,
+        workspace_id: str,
+        *,
+        expected_source_selection_hash: str,
+        expected_schema_hash: str,
+        expected_preparation_hash: str | None,
+        dataset_intents: tuple[SupportingDatasetIntent, ...] = (),
+        relationship_intents: tuple[SupportingRelationshipIntent, ...] = (),
+        actor: Actor,
+    ) -> SupportingDataPlan:
+        """Propose file-source dependencies from four bulk metadata reads.
+
+        Call inside one synchronous local read operation. The injected ports
+        also allow a server worker to supply verified evidence; the service
+        neither selects a database adapter nor grants supporting-read access.
+        Intent inputs are explicit proposals, not saved scope decisions.
+        """
+        self.authorization.require(
+            actor, Capability.PROJECT_VIEW, workspace_id=workspace_id,
+        )
+        workspace = self.workspaces.get(workspace_id)
+        if workspace.source_mode is not SourceMode.FILE:
+            raise WorkspaceError(
+                "Odoo-source dependencies use the reviewed relationship scope"
+            )
+        if self.derived_entities is None:
+            raise WorkspaceError("Supporting source planning is not configured")
+        selection = self.sources.get_source_selection(workspace_id)
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+        preparation = self.derived_entities.get_derived_entity_plan(workspace_id)
+        if selection is None or schema is None:
+            raise WorkspaceError(
+                "Accept source data and capture Odoo details before planning support"
+            )
+        preparation_hash = preparation.content_hash if preparation is not None else None
+        if (
+            selection.content_hash != expected_source_selection_hash
+            or schema.content_hash != expected_schema_hash
+            or preparation_hash != expected_preparation_hash
+        ):
+            raise WorkspaceError(
+                "Supporting-data inputs changed; review the current proposal again"
+            )
+        if preparation is not None and preparation.workspace_id != workspace_id:
+            raise WorkspaceError("Source preparation belongs to another workspace")
+        if schema.connection_target_hash != _target_identity_hash(workspace):
+            raise WorkspaceError("Odoo details do not match the current target")
+        limited = False
+        try:
+            descriptors = supporting_source_descriptors(selection, preparation)
+        except SupportingSourceLimitError:
+            descriptors = ()
+            limited = True
+        return plan_supporting_data(
+            selected_models=tuple(workspace.intended_models),
+            models=schema.models,
+            datasets=descriptors,
+            source_selection_hash=selection.content_hash,
+            schema_hash=schema.content_hash,
+            preparation_hash=preparation_hash,
+            dataset_intents=dataset_intents,
+            relationship_intents=relationship_intents,
+            input_limited=limited,
+        )
 
     def discover_models(
         self,

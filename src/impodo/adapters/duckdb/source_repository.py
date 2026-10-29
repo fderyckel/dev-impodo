@@ -74,6 +74,13 @@ class WorkspaceSourceProjectionReader(Protocol):
         """Return the selected logical datasets without copying source data."""
         ...
 
+    def get_current_source_snapshots(
+        self,
+        workspace_id: str,
+    ) -> tuple[SourceSnapshot, ...]:
+        """Return snapshot manifests owned by the projected DataVersion."""
+        ...
+
 
 class SourceRepository(DuckDbRepository):
     """Own current Source data evidence and its invalidation boundary."""
@@ -561,7 +568,7 @@ class SourceRepository(DuckDbRepository):
     ) -> tuple[SourceSnapshot, ...]:
         """Return current immutable snapshot manifests by dataset identity."""
 
-        return tuple(
+        snapshots = tuple(
             SourceSnapshot.from_json(value)
             for value in self._read_json_rows(
                 workspace_id,
@@ -573,6 +580,11 @@ class SourceRepository(DuckDbRepository):
                  ORDER BY current.dataset_id
                 """,
             )
+        )
+        if snapshots or self._mapping_source_projection is None:
+            return snapshots
+        return self._mapping_source_projection.get_current_source_snapshots(
+            workspace_id
         )
 
     def find_source_snapshot(

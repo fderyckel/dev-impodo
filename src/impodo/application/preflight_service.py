@@ -93,7 +93,11 @@ from .odoo_read_failures import (
     OdooReadFailureCode,
     OdooReadWorkflowError,
 )
-from .preflight_attempts import PreflightComparisonReceipt
+from .preflight_attempts import (
+    PreflightComparisonReceipt,
+    PreflightComparisonRequest,
+    PreflightPublicationCommittedError,
+)
 from .preflight_timing import timed_preflight_publication
 from .workspace.execution.navigation import (
     ExecutionReviewProjection,
@@ -402,15 +406,16 @@ class PreflightService:
                 "The comparison does not contain a durable operation identity."
             )
         try:
-            manifest, _content = self._verified_manifest(report)
-            evidence = _portable_mapping(
-                manifest["preflight_evidence"],
-                "Preflight evidence",
-            )
-            execution_snapshot_hash = str(
-                evidence.get("execution_snapshot_hash", "")
-            )
-            if execution_snapshot_hash:
+            workspace = self.workspaces.get(report.workspace_id)
+            execution_snapshot_hash = ""
+            if workspace.source_mode is SourceMode.ODOO:
+                self._verify_odoo_receipt_artifacts(report)
+            else:
+                manifest, _content = self._verified_manifest(report)
+                evidence = _portable_mapping(
+                    manifest["preflight_evidence"], "Preflight evidence"
+                )
+                execution_snapshot_hash = str(evidence["execution_snapshot_hash"])
                 snapshot = self._full_execution_snapshot(
                     report.workspace_id,
                     report.run_id,
@@ -444,6 +449,39 @@ class PreflightService:
             manifest_hash=report.manifest_hash,
             execution_snapshot_hash=execution_snapshot_hash,
         )
+
+    def _verify_odoo_receipt_artifacts(self, report: ReadinessReport) -> None:
+        """Verify the pinned manifest and encrypted evidence without decryption."""
+
+        with self.artifacts.materialize_report(
+            report.workspace_id, report.run_id, MANIFEST_NAME
+        ) as path:
+            content = path.read_bytes()
+        manifest = _portable_mapping(
+            json.loads(content), "Odoo comparison manifest"
+        )
+        evidence = _portable_mapping(
+            manifest["preflight_evidence"], "Odoo evidence"
+        )
+        if (
+            "sha256:" + sha256(content).hexdigest() != report.manifest_hash
+            or manifest.get("contract") != "odoo-pinned-comparison-v1"
+            or manifest.get("workspace_id") != report.workspace_id
+            or manifest.get("run_id") != report.run_id
+            or manifest.get("status") != report.status
+            or evidence.get("frozen_input_hash") != report.frozen_input_hash
+            or evidence.get("metadata_snapshot_hash") != report.metadata_snapshot_hash
+            or evidence.get("record_snapshot_hash") != report.record_snapshot_hash
+        ):
+            raise ValueError("Pinned comparison manifest differs from its report")
+        with self.artifacts.materialize_report(
+            report.workspace_id, report.run_id, ODOO_COMPARISON_ARTIFACT_NAME
+        ) as path:
+            encrypted = path.read_bytes()
+        if "sha256:" + sha256(encrypted).hexdigest() != evidence.get(
+            "protected_artifact_hash"
+        ):
+            raise ValueError("Protected comparison artifact differs from its manifest")
 
     def recover_comparison_receipt(
         self,
@@ -1043,6 +1081,8 @@ class PreflightService:
         progress: PreflightProgress | None = None,
         local_operation: LocalPreflightOperation | None = None,
         operation_id: str = "",
+        comparison_request: PreflightComparisonRequest | None = None,
+        current_read_credential_binding_hash: Callable[[], str] | None = None,
     ) -> ReadinessReport:
         """Compare approved rows without invoking preparation or source loading.
 
@@ -1050,23 +1090,78 @@ class PreflightService:
         read with no retained local owner, and one bounded local classification
         and publication phase. A failed database publication removes otherwise
         orphaned artifacts and leaves the previous current report unchanged.
+        The optional credential-generation reader runs only in the local phases.
         """
 
         run_local = local_operation or _direct_local_operation
         _report_progress(progress, "VERIFYING")
-        prepared = run_local(lambda: self._prepare_comparison(workspace_id, actor))
+
+        def prepare() -> PreparedPreflightComparison:
+            self.authorization.require(
+                actor, Capability.PREFLIGHT_RUN, workspace_id=workspace_id
+            )
+            self._require_reserved_comparison(
+                workspace_id, operation_id, comparison_request,
+                current_read_credential_binding_hash,
+            )
+            prepared = self._prepare_comparison(workspace_id, actor)
+            self._require_reserved_comparison(
+                workspace_id, operation_id, comparison_request,
+                current_read_credential_binding_hash,
+            )
+            return prepared
+
+        prepared = run_local(prepare)
         _report_progress(progress, "READING")
         metadata, records = reader(prepared.requirements)
-        return run_local(
-            lambda: self._publish_comparison(
+
+        def publish() -> ReadinessReport:
+            self._require_reserved_comparison(
+                workspace_id, operation_id, comparison_request,
+                current_read_credential_binding_hash,
+            )
+            return self._publish_comparison(
                 prepared,
                 metadata,
                 records,
                 actor=actor,
                 progress=progress,
                 operation_id=operation_id,
+                expected_workspace_revision=(
+                    prepared.workspace_state.revision
+                    if comparison_request is not None else None
+                ),
             )
-        )
+
+        return run_local(publish)
+
+    def _require_reserved_comparison(
+        self,
+        workspace_id: str,
+        operation_id: str,
+        request: PreflightComparisonRequest | None,
+        current_read_credential_binding_hash: Callable[[], str] | None,
+    ) -> None:
+        """Reject changed queued inputs before reads or comparison publication."""
+
+        if request is None:
+            return
+        if (
+            request.workspace_id != workspace_id
+            or request.operation_id != operation_id
+            or self.comparison_input_hash(
+                workspace_id,
+                read_credential_binding_hash=(
+                    current_read_credential_binding_hash()
+                    if current_read_credential_binding_hash is not None
+                    else request.read_credential_binding_hash
+                ),
+            ) != request.semantic_input_hash
+        ):
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.PREPARED_EVIDENCE_STALE,
+                "The comparison inputs changed after this attempt was reserved. Compare again.",
+            )
 
     def _prepare_comparison(
         self,
@@ -1147,6 +1242,7 @@ class PreflightService:
         actor: Actor,
         progress: PreflightProgress | None,
         operation_id: str,
+        expected_workspace_revision: int | None = None,
     ) -> ReadinessReport:
         """Classify and publish a completed remote read in one local phase."""
 
@@ -1158,6 +1254,7 @@ class PreflightService:
                 actor=actor,
                 progress=progress,
                 operation_id=operation_id,
+                expected_workspace_revision=expected_workspace_revision,
             )
         workspace_state = prepared.workspace_state
         workspace_id = prepared.workspace_id
@@ -1302,7 +1399,12 @@ class PreflightService:
                 record_snapshot=records,
                 execution_summary=execution_summary,
                 execution_review=execution_review,
+                expected_workspace_revision=expected_workspace_revision,
                 actor=actor,
+            )
+        except PreflightPublicationCommittedError:
+            logging.getLogger(__name__).warning(
+                "Comparison committed; registration-file refresh needs retry"
             )
         except Exception:
             for filename in (MANIFEST_NAME, EXECUTION_SNAPSHOT_NAME):
@@ -1386,6 +1488,7 @@ class PreflightService:
         actor: Actor,
         progress: PreflightProgress | None = None,
         operation_id: str = "",
+        expected_workspace_revision: int | None = None,
     ) -> ReadinessReport:
         """Publish a read-only pinned comparison without portable Odoo IDs."""
 
@@ -1425,7 +1528,12 @@ class PreflightService:
                 decision_count=len(publication.rows),
                 metadata_snapshot=publication.metadata_snapshot,
                 record_snapshot=publication.redacted_record_snapshot,
+                expected_workspace_revision=expected_workspace_revision,
                 actor=actor,
+            )
+        except PreflightPublicationCommittedError:
+            logging.getLogger(__name__).warning(
+                "Comparison committed; registration-file refresh needs retry"
             )
         except Exception:
             for filename in (MANIFEST_NAME, ODOO_COMPARISON_ARTIFACT_NAME):

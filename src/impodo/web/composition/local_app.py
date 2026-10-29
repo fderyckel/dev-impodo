@@ -88,6 +88,7 @@ from ...adapters.duckdb.mapping_field_catalog_repository import (
     MappingFieldCatalogRepository,
 )
 from ...adapters.duckdb.mapping_repository import MappingRepository
+from ...adapters.duckdb.mapping_source_values import JoinedMappingSourceValues
 from ...adapters.duckdb.matching_order_repository import MatchingOrderRepository
 from ...adapters.duckdb.migration_run_planning_repository import (
     MigrationRunPlanningRepository,
@@ -283,9 +284,7 @@ def create_local_app(
         """Build the local JSON-2 capture adapter from one selected target."""
 
         if workspace_state.odoo_connection_mode is None:
-            raise WorkspaceStateError(
-                "Configure the Odoo target before source capture"
-            )
+            raise WorkspaceStateError("Configure the Odoo target before source capture")
         return Json2OdooSourceCapture(
             Json2Config(
                 base_url=workspace_state.odoo_base_url,
@@ -311,7 +310,13 @@ def create_local_app(
         foundation_repository,
     )
     recipe_compilation_repository = RecipeCompilationRepository(database)
-    derived_entity_repository = DerivedEntityRepository(database)
+    workspace_physical_sources = WorkspaceMappingSourceProjection(
+        foundation_repository,
+    )
+    derived_entity_repository = DerivedEntityRepository(
+        database,
+        workspace_physical_sources,
+    )
     workspace_mapping_sources = WorkspaceMappingSourceProjection(
         foundation_repository,
         derived_entity_repository,
@@ -323,9 +328,7 @@ def create_local_app(
         foundation=foundation_repository,
     )
     local_schema_repository = SchemaRepository(database)
-    run_planning_repository = MigrationRunPlanningRepository(
-        foundation_repository
-    )
+    run_planning_repository = MigrationRunPlanningRepository(foundation_repository)
     schema_repository = RunAwareSchemaRepository(
         local_schema_repository,
         run_planning_repository,
@@ -423,6 +426,13 @@ def create_local_app(
     )
     recipe_application_state = RecipeQualitySeedRepository(database, database)
     authoring_services = build_authoring_service_graph(
+        exact_join_groups=DuckDbExactJoinGroupEvaluator(database),
+        logical_source_values=JoinedMappingSourceValues(
+            source_repository,
+            derived_entity_repository,
+            artifacts,
+            DuckDbGroupedExactJoinSource(database),
+        ),
         foundation=foundation_services,
         foundation_repository=foundation_repository,
         authorization=resolved_authorization,
@@ -445,9 +455,7 @@ def create_local_app(
         artifacts=artifacts,
         capture_filters=odoo_capture_filters,
     )
-    data_version_source_projection = (
-        authoring_services.data_version_source_projection
-    )
+    data_version_source_projection = authoring_services.data_version_source_projection
     run_services = build_run_service_graph(
         foundation=foundation_services,
         authoring=authoring_services,
@@ -539,9 +547,7 @@ def create_local_app(
         else None
     )
     preflight_jobs = (
-        PreflightJobManager(foundation_repository)
-        if preflight_jobs_enabled
-        else None
+        PreflightJobManager(foundation_repository) if preflight_jobs_enabled else None
     )
 
     def accept_odoo_capture_publication(
@@ -580,9 +586,7 @@ def create_local_app(
         # integrations on the established full-read path unless they opt in
         # with an explicit session factory.
         resolved_schema_read_session_factory = None
-    resolved_readback_reader_factory = (
-        readback_reader_factory or _readback_reader
-    )
+    resolved_readback_reader_factory = readback_reader_factory or _readback_reader
     protected_correction_store = ProtectedCorrectionStore(
         ProtectedProjectEvidenceStore(project_root, resolved_secret_store)
     )
@@ -657,7 +661,7 @@ def create_local_app(
                 mapping_sources=workspace_mapping_sources,
             ),
             workspace_owners=foundation_repository,
-            navigation=WorkspaceNavigationRepository(database),
+            navigation=WorkspaceNavigationRepository(database, foundation_repository),
             workspace_catalogs=workspace_state_repository,
             source_catalogs=source_repository,
             derived_sources=source_repository,
@@ -719,9 +723,7 @@ def create_local_app(
             readback_reader_factory=resolved_readback_reader_factory,
             local_target=LocalTargetRuntime(
                 stack=local_stack_service or LocalStackService(),
-                metadata_reader=(
-                    local_odoo_reader or LocalOdooMetadataReader()
-                ),
+                metadata_reader=(local_odoo_reader or LocalOdooMetadataReader()),
             ),
             remote_connections=RemoteConnectionStatusService(),
         ),
@@ -729,18 +731,20 @@ def create_local_app(
     if preparation_jobs is not None:
         preparation_jobs.set_result_reader(
             lambda job, actor: context.preparation_recovery.current(
-                job.workspace_id, job.workspace.mapping_content_hash, actor=actor,
+                job.workspace_id,
+                job.workspace.mapping_content_hash,
+                actor=actor,
             )
         )
         preparation_jobs.set_status_listener(
             lambda job, actor: publish_preparation_progress(
-                context, job, actor=actor,
+                context,
+                job,
+                actor=actor,
             )
         )
     if preflight_jobs is not None:
-        preflight_jobs.reconcile_pending(
-            context.preflight.recover_comparison_receipt
-        )
+        preflight_jobs.reconcile_pending(context.preflight.recover_comparison_receipt)
     if load_jobs is not None:
         load_jobs.set_status_listener(
             lambda job, actor: publish_load_progress(context, job, actor=actor)

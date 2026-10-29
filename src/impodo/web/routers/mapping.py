@@ -758,7 +758,6 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
         require_session(request)
         actor = request_identity(request, context.identity_resolver).actor
-        _require_mapping_idle(context, workspace_id)
         form = await request.form()
         _secure_form(
             request,
@@ -782,36 +781,32 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 "constant_relationship",
             }:
                 raise WorkspaceError("Choose a supported Odoo field")
-            selection = context.queries.get_mapping_source_selection(workspace_id)
-            schema = context.queries.get_odoo_schema_catalog(workspace_id)
-            governance = context.queries.get_schema_governance(workspace_id)
-            if selection is None or schema is None:
-                raise WorkspaceError(
-                    "Freeze the source and confirm the Odoo schema first"
-                )
             dataset_id = _text(form, "dataset_id")
             source_column_key = _text(form, "source_column_key")
-            source_dataset = next(
-                (item for item in selection.datasets if item.dataset_id == dataset_id),
-                None,
-            )
-            if source_dataset is None or (
-                kind != "constant_relationship"
-                and source_column_key
-                not in {item.stable_key for item in source_dataset.columns}
-            ):
-                raise WorkspaceError("Choose one current source column")
-            source_choices = (
-                ()
-                if kind == "constant_relationship"
-                else await run_in_threadpool(
-                    _source_value_choices,
-                    context,
-                    workspace_id,
-                    dataset_id,
-                    source_column_key,
+
+            def load_source_choices():
+                _require_mapping_idle(context, workspace_id)
+                workspace_state = context.queries.get(workspace_id)
+                selection = context.queries.get_mapping_source_selection(workspace_id)
+                schema = context.queries.get_odoo_schema_catalog(workspace_id)
+                governance = context.queries.get_schema_governance(workspace_id)
+                if selection is None or schema is None:
+                    raise WorkspaceError("Freeze the source and confirm the Odoo schema first")
+                source_dataset = next(
+                    (item for item in selection.datasets if item.dataset_id == dataset_id),
+                    None,
                 )
-            )
+                if source_dataset is None or (
+                    kind != "constant_relationship"
+                    and source_column_key not in {item.stable_key for item in source_dataset.columns}
+                ):
+                    raise WorkspaceError("Choose one current source column")
+                choices = () if kind == "constant_relationship" else _source_value_choices(
+                    context, workspace_id, dataset_id, source_column_key,
+                )
+                return workspace_state, schema, governance, choices
+
+            workspace_state, schema, governance, source_choices = await run_local_operation(load_source_choices)
             target_model = _text(form, "target_model")
             target_field = _text(form, "target_field")
             model = next(
@@ -870,7 +865,6 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     raise WorkspaceError(
                         "Choose how the related Odoo record is identified first"
                     )
-                workspace_state = context.queries.get(workspace_id)
                 (
                     target_choices,
                     ambiguous_values,

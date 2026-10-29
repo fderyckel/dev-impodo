@@ -82,8 +82,8 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 ```
 
 The topology initializes PostgreSQL, creates the fixed runtime and migration
-roles, applies the current migration suffix through schema version `10`, starts
-the authenticated Platform administration web process, and then starts the
+roles, applies the current migration suffix through schema version `11`, starts
+the authenticated Platform and Organization administration web process, and then starts the
 loopback TLS proxy. The
 worker remains disabled behind the `worker` profile because its durable
 runtime is not implemented. The first-operator command remains disabled behind
@@ -105,7 +105,7 @@ The two responses contain only generic status. The service list must show no
 published web, worker, or PostgreSQL port.
 
 Run the migration command twice after the initial start. Both runs must report
-schema version `10` and apply no new migration:
+schema version `11` and apply no new migration:
 
 ```sh
 docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml run --rm migrate
@@ -128,8 +128,10 @@ The first run must report completion. Repeating the command must refuse with
 exit code `78` because one active Platform Administrator now exists. Open
 `https://localhost:8443/login` and sign in with the fictional email and the
 generated Platform Administrator password. The browser can list and create
-Organizations, and **Sign out** revokes the exact current session. The
-customer-user list, activation and reset forms, customer session actions, and
+Organizations, and **Sign out** revokes the exact current session. A separately
+provisioned, active, and exactly assigned Organization Administrator can use the
+same login page to list and inspect ordinary users in only that Organization.
+The activation and reset forms, account and customer-session actions, and
 security-history pages remain later Work Package 4.5 increments.
 
 Confirm that the application runs as the fixed unprivileged identity and that
@@ -163,7 +165,7 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml exec web test -r /var/lib/impodo/artifacts/.local-rehearsal-marker
 ```
 
-The final migration result must still report schema version `10` with no newly
+The final migration result must still report schema version `11` with no newly
 applied migration, and the final marker check must pass. Together these prove
 that the PostgreSQL and artifact volumes survived container recreation. No
 customer file belongs in this rehearsal.

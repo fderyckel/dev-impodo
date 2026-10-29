@@ -58,6 +58,49 @@ scope. The detailed edge decision remains in the source relationship review.
 Opening the page remains local: this projection is not persisted and makes no
 Odoo request.
 
+### Source-aware supporting proposal query
+
+`SchemaWorkspaceService.supporting_data_plan` now provides a separate,
+read-only application query for file-source dependency proposals. It authorizes
+the supplied Actor before reading the current workspace, accepted source
+selection, captured schema, and saved source-preparation plan. The caller must
+supply the expected source, schema, and preparation hashes. Changed inputs,
+another workspace's preparation, or a changed target reject the query.
+
+`supporting_sources.py` describes physical tables and saved lookup, hierarchy,
+split, and structural outputs from metadata. It reuses the existing generated
+dataset identities and map-eligibility rules. It does not evaluate source rows,
+build previews, load source artifacts, or obtain a mapping-source selection.
+Saved lookup rules provide their explicit target-model hint. Physical and
+structural tables require an explicit dataset/model intent; similar labels do
+not establish a binding. Query intents are proposals bound to these exact
+inputs, not persisted scope decisions.
+
+`supporting_plan.py` indexes those descriptors and captured models once. It
+retains each required, inverse-owned, or explicitly intended relationship edge.
+Optional fields enter the proposal only through exact relationship intent.
+The walk follows uniquely proposed incoming models, preserves repeated uses of
+one related model as separate field edges, and deduplicates cycles. Ambiguous
+tables, unavailable incoming metadata, invalid intent, and limit exhaustion
+produce an explicitly incomplete result. A complete proposal does not prove
+relationship values or authorize reads, writes, or a stage transition.
+
+Contract version 1 permits 100 reached models, 1,000 relationship edges, five
+dependency expansions from the selected roots, 1,000 dataset descriptors, and
+200 source-preparation rules. Existing checked defaults and Odoo-managed
+fields retain their direct-classifier meaning. The current Stage 2 browser
+continues to use its direct supporting preview and existing confirmation gate.
+The query does not change that browser contract or Odoo-source edge ownership.
+
+The composition injects source, schema, preparation, workspace, and
+authorization ports. There is no PostgreSQL or DuckDB dependency in the
+application query or pure planner. A local caller owns one synchronous read
+operation. A shared-server caller must supply authorized verified evidence
+through its adapters; this query does not permit a Linux web request to open
+worker-owned DuckDB state.
+
+### Capture and refresh
+
 For a non-Production target, the connection form can explicitly keep the same
 submitted or already stored secret for later loading. `target.py` writes two
 target-bound vault envelopes with distinct `READ` and `WRITE` roles and audits
@@ -208,6 +251,7 @@ remains outside the migration write scope.
 | Schema governance | [`governance.py`](../../../src/impodo/domain/schema/governance.py) |
 | Matching-rule recommendations | [`business_keys.py`](../../../src/impodo/domain/workspace/business_keys.py) |
 | Supporting-model derivation | [`supporting_models.py`](../../../src/impodo/domain/workspace/supporting_models.py) |
+| Source-aware dependency proposal | [`supporting_plan.py`](../../../src/impodo/domain/workspace/supporting_plan.py) and [`supporting_sources.py`](../../../src/impodo/domain/workspace/supporting_sources.py) |
 | Governed supporting references | [`reference_keys.py`](../../../src/impodo/domain/workspace/reference_keys.py) |
 | Workflow issue projection | [`issues.py`](../../../src/impodo/application/workspace/issues.py) |
 | Browser routes | [`schema.py`](../../../src/impodo/web/routers/schema.py) |
@@ -314,6 +358,14 @@ Supporting-model derivation is one bounded pass over the captured fields plus
 local catalogue joins. It performs no recursive graph walk and adds no network,
 per-model, per-field, or per-row request.
 
+The separate source-aware proposal query makes four bulk application reads,
+independent of table row counts or dependency-edge counts. In the composed
+local fixture, one retained read operation opens the registry, canonical
+Workspace, Data version, and workspace engine once each. Its regression test
+requires four physical connections, at most four schema checks, and zero lock
+retries. This is structural fixture evidence, not a live latency claim. The
+planner makes no database or Odoo call and adds no work to the current page.
+
 Read capability is explicit and narrow: model catalogue, metadata, target
 fingerprint, and planned record requests. Batch metadata and record reads by
 model. Never call `fields_get`, selection providers, or relationship catalogues
@@ -341,6 +393,9 @@ scope.
 - [`tests/application/workspace/test_schema_governance.py`](../../../tests/application/workspace/test_schema_governance.py)
 - [`tests/domain/workspace/test_business_keys.py`](../../../tests/domain/workspace/test_business_keys.py)
 - [`tests/domain/workspace/test_supporting_models.py`](../../../tests/domain/workspace/test_supporting_models.py)
+- [`tests/domain/workspace/test_supporting_plan.py`](../../../tests/domain/workspace/test_supporting_plan.py)
+- [`tests/domain/workspace/test_supporting_sources.py`](../../../tests/domain/workspace/test_supporting_sources.py)
+- [`tests/application/workspace/test_supporting_data_plan.py`](../../../tests/application/workspace/test_supporting_data_plan.py)
 - [`tests/application/workspace/test_workflow_issues.py`](../../../tests/application/workspace/test_workflow_issues.py)
 - [`tests/integration/web/test_schema_presenter.py`](../../../tests/integration/web/test_schema_presenter.py)
 - [`tests/integration/web/test_stage12_page_loading.py`](../../../tests/integration/web/test_stage12_page_loading.py)

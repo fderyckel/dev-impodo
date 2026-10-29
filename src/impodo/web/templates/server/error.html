@@ -9,7 +9,7 @@
     <main>
       <h1>Administration action</h1>
       <p role="alert">{{ message }}</p>
-      <p><a href="/admin/organizations">Return to Organizations</a></p>
+      <p><a href="{{ back_url|default('/admin/organizations') }}">Return to administration</a></p>
     </main>
   </body>
 </html>

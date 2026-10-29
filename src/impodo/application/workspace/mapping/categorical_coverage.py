@@ -52,13 +52,15 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 
+from .logical_source_values import LogicalSourceValues
+
 configure_columnar_runtime()
 
 import polars as pl
 
 CATEGORICAL_SCAN_CONTRACT_HASH = content_hash(
     {
-        "contract_version": 4,
+        "contract_version": 5,
         "input": "source_snapshot_value_columns",
         "blank": "trimmed_empty_excluded",
         "grouping": "exact_utf8_tuple",
@@ -71,6 +73,7 @@ CATEGORICAL_SCAN_CONTRACT_HASH = content_hash(
         },
         "dataset_reads": "one_projected_scan",
         "derived_exact_business_key": "covered_without_physical_projection",
+        "joined_values": "reviewed_narrow_projection_with_all_input_snapshot_hashes",
     }
 )
 CATEGORICAL_PROVIDER_SEMANTICS_HASH = content_hash(
@@ -167,9 +170,11 @@ class CategoricalCoverageService:
         self,
         sources: CategoricalSourceRepository,
         artifacts: DataVersionSourceArtifactStore,
+        logical_values: LogicalSourceValues | None = None,
     ) -> None:
         self.sources = sources
         self.artifacts = artifacts
+        self.logical_values = logical_values
 
     def source_value_choices(
         self,
@@ -179,7 +184,7 @@ class CategoricalCoverageService:
     ) -> tuple[dict[str, object], ...]:
         """Return bounded choices without materializing rich source rows."""
 
-        selection = self.sources.get_source_selection(workspace_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
         if selection is None:
             raise WorkspaceError("Frozen source evidence is incomplete")
         dataset = next(
@@ -187,20 +192,29 @@ class CategoricalCoverageService:
             None,
         )
         if dataset is None:
-            raise WorkspaceError(
-                "Value matching is available for original frozen datasets"
-            )
+            raise WorkspaceError("Choose a current mapping dataset")
         if source_column_key not in {
             item.stable_key for item in dataset.columns
         }:
             raise WorkspaceError("Choose one current source column")
-        frame = self._scan_dataset(
-            workspace_id,
-            selection,
-            dataset_id,
-            (source_column_key,),
-        )
-        counts = _single_column_counts(frame, source_column_key)
+        physical = self.sources.get_source_selection(workspace_id)
+        if (
+            self.logical_values is not None
+            and physical is not None
+            and dataset_id not in {item.dataset_id for item in physical.datasets}
+        ):
+            counts = self.logical_values.counts(
+                workspace_id,
+                selection,
+                dataset_id,
+                source_column_key,
+                MAX_VALUE_MAPPINGS,
+            )
+        else:
+            frame = self._scan_dataset(
+                workspace_id, selection, dataset_id, (source_column_key,),
+            )
+            counts = _single_column_counts(frame, source_column_key)
         if len(counts) > MAX_VALUE_MAPPINGS:
             raise WorkspaceError(
                 "This column has too many distinct choices for quick matching"
@@ -231,7 +245,7 @@ class CategoricalCoverageService:
 
         if maximum_distinct_values < 1:
             raise ValueError("maximum_distinct_values must be positive")
-        selection = self.sources.get_source_selection(workspace_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
         if selection is None:
             raise WorkspaceError("Frozen source evidence is incomplete")
         dataset = next(
@@ -239,9 +253,7 @@ class CategoricalCoverageService:
             None,
         )
         if dataset is None:
-            raise WorkspaceError(
-                "Destination matching is available for original frozen datasets"
-            )
+            raise WorkspaceError("Choose a current mapping dataset")
         if source_column_key not in {
             item.stable_key for item in dataset.columns
         }:
@@ -278,7 +290,7 @@ class CategoricalCoverageService:
         relationship resolver. Callers must not persist the returned values.
         """
 
-        selection = self.sources.get_source_selection(workspace_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
         if selection is None:
             raise WorkspaceError("Frozen source evidence is incomplete")
         dataset = next(
@@ -320,7 +332,7 @@ class CategoricalCoverageService:
         keys = tuple(source_column_keys)
         if not keys or len(keys) != len(set(keys)):
             raise WorkspaceError("Choose current source matching columns")
-        selection = self.sources.get_source_selection(workspace_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
         if selection is None:
             raise WorkspaceError("Frozen source evidence is incomplete")
         dataset = next(
@@ -334,7 +346,7 @@ class CategoricalCoverageService:
         )
         if dataset is None or any(key not in available for key in keys):
             raise WorkspaceError(
-                "Live ordering is available for original frozen matching columns"
+                "Choose current source matching columns"
             )
         frame = self._scan_dataset(workspace_id, selection, dataset_id, keys)
         result: list[tuple[str | None, ...]] = []
@@ -373,7 +385,7 @@ class CategoricalCoverageService:
             or any(not isinstance(number, int) or number < 1 for number in excluded)
         ):
             raise WorkspaceError("Choose current source matching columns")
-        selection = self.sources.get_source_selection(workspace_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
         if selection is None:
             raise WorkspaceError("Frozen source evidence is incomplete")
         dataset = next(
@@ -516,7 +528,7 @@ class CategoricalCoverageService:
         keys = tuple(source_column_keys)
         if len(keys) != len(set(keys)):
             raise WorkspaceError("Choose current source matching columns")
-        selection = self.sources.get_source_selection(workspace_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
         if selection is None:
             raise WorkspaceError("Frozen source evidence is incomplete")
         dataset = next(
@@ -537,7 +549,7 @@ class CategoricalCoverageService:
         projected = tuple(dict.fromkeys((*keys, *condition_keys)))
         if dataset is None or any(key not in available for key in projected):
             raise WorkspaceError(
-                "Current-data checking is available for original frozen columns"
+                "Choose current source matching columns"
             )
         scan_keys = projected
         if not scan_keys:
@@ -588,6 +600,7 @@ class CategoricalCoverageService:
         issues: list[MappingValidationIssue] = []
         physical_selection = None
         selection_dataset_ids: set[str] = set()
+        joined_values_supported = False
         if by_dataset:
             physical_selection = self.sources.get_source_selection(workspace_id)
             if physical_selection is None:
@@ -595,6 +608,12 @@ class CategoricalCoverageService:
             selection_dataset_ids = {
                 item.dataset_id for item in physical_selection.datasets
             }
+            if self.logical_values is not None and any(
+                dataset_id not in selection_dataset_ids for dataset_id in by_dataset
+            ):
+                joined_values_supported = self.logical_values.supports(
+                    workspace_id, selection,
+                )
         for dataset_id in sorted(by_dataset):
             dataset_fields = by_dataset[dataset_id]
             physical_dataset = (
@@ -645,7 +664,7 @@ class CategoricalCoverageService:
                     }
                 )
             )
-            if dataset_id not in selection_dataset_ids:
+            if dataset_id not in selection_dataset_ids and not joined_values_supported:
                 for item in scan_fields:
                     results.append(_unsupported_result(item))
                     issues.append(
@@ -666,7 +685,7 @@ class CategoricalCoverageService:
                 )
             frame = self._scan_dataset(
                 workspace_id,
-                physical_selection,
+                selection if joined_values_supported else physical_selection,
                 dataset_id,
                 source_keys,
             )
@@ -696,7 +715,7 @@ class CategoricalCoverageService:
                     "parquet_sha256": item.parquet_sha256,
                 }
                 for item in snapshots
-                if item.dataset_id in by_dataset
+                if item.dataset_id in by_dataset or joined_values_supported
             ),
             scan_contract_hash=CATEGORICAL_SCAN_CONTRACT_HASH,
             provider_and_normalization_semantics_hash=(
@@ -727,6 +746,17 @@ class CategoricalCoverageService:
         dataset_id: str,
         source_column_keys: Sequence[str],
     ) -> pl.DataFrame:
+        physical = self.sources.get_source_selection(workspace_id)
+        if (
+            self.logical_values is not None
+            and physical is not None
+            and dataset_id not in {item.dataset_id for item in physical.datasets}
+        ):
+            return self.logical_values.project(
+                workspace_id, selection, dataset_id, source_column_keys,
+            )
+        if physical is not None:
+            selection = physical
         dataset = next(
             (item for item in selection.datasets if item.dataset_id == dataset_id),
             None,

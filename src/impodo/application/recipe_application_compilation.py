@@ -940,11 +940,26 @@ class RecipeApplicationCompiler:
                     if semantic_uses
                     else str(uuid4())
                 )
+                logical_group_id = str(raw.get("logical_group_id", "")).strip()
+                group_id = (
+                    str(
+                        uuid5(
+                            NAMESPACE_URL,
+                            (
+                                f"impodo:{project_id}:{source.data_version_id}:"
+                                f"source-preparation-group:{logical_group_id}"
+                            ),
+                        )
+                    )
+                    if logical_group_id
+                    else None
+                )
                 try:
                     rule = self._preparation_rule(
                         raw,
                         resolved_bindings,
                         rule_id=rule_id,
+                        group_id=group_id,
                     )
                 except KeyError:
                     continue
@@ -1010,10 +1025,18 @@ class RecipeApplicationCompiler:
         )
         return plan
 
-    def _preparation_rule(self, raw, bindings, *, rule_id=None):
+    def _preparation_rule(
+        self,
+        raw,
+        bindings,
+        *,
+        rule_id=None,
+        group_id=None,
+    ):
         value = dict(raw)
         value.pop("logical_rule_id", None)
         value.pop("logical_output_dataset_id", None)
+        value.pop("logical_group_id", None)
         kind = str(value.pop("kind", ""))
         rule_id = str(rule_id or uuid4())
         if kind == "lookup":
@@ -1128,7 +1151,9 @@ class RecipeApplicationCompiler:
                 require_unique_left=bool(value.get("require_unique_left", False)),
                 map_output=bool(value.get("map_output", True)),
                 group_id=(
-                    str(value["group_id"])
+                    str(group_id)
+                    if group_id is not None
+                    else str(value["group_id"])
                     if value.get("group_id") is not None
                     else None
                 ),

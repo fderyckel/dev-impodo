@@ -169,6 +169,22 @@ class DuckDbConnectionFactory:
         else:
             key = (path.resolve(), tuple(sorted(config.items())))
             if key not in retained:
+                active_keys = set(_read_databases.cursor_database_keys.values())
+                validated_schemas = _read_databases.validated_schemas
+                for existing_key, existing_connection in tuple(retained.items()):
+                    if (
+                        existing_key[0] != key[0]
+                        or existing_key == key
+                        or existing_key in active_keys
+                    ):
+                        continue
+                    existing_connection.close()
+                    del retained[existing_key]
+                    validated_schemas.difference_update(
+                        marker
+                        for marker in tuple(validated_schemas)
+                        if marker[0] == existing_key
+                    )
                 retained[key] = self._connect_with_lock_wait(path, config)
                 _read_databases.stack.callback(retained[key].close)
             connection = retained[key].cursor()
