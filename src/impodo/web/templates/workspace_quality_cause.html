@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Affected records - {{ migration_project.display_name }} - Impodo{% endblock %}
 {% block content %}
+  {% from "_user_help.html" import decision_help with context %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Prepared-data finding</p>
@@ -27,7 +28,7 @@
     <div class="page-heading compact">
       <div>
         <p class="eyebrow">Affected records</p>
-        <h2 id="affected-records-title">Records behind this finding</h2>
+        <h2 id="affected-records-title">Records behind this finding {{ decision_help("preparation-findings") }}</h2>
         {% if review_page.matching_count %}
           <p class="muted">Records {{ row_start }}-{{ row_end }} of {{ review_page.matching_count }}</p>
         {% endif %}

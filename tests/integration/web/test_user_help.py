@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -13,12 +14,14 @@ from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.web.app import create_local_app
 from impodo.web.presenters.user_help import (
+    DECISION_HELP_BY_ID,
     PAGE_HELP_ID_BY_TEMPLATE,
     USER_HELP_BY_ID,
     USER_HELP_TARGETS,
     UserHelpScope,
     installed_documentation_ref,
 )
+from tests.support.browser_scenarios import ProjectSetupBrowserTestCase
 from tests.support.paths import REPOSITORY_ROOT
 
 
@@ -63,16 +66,39 @@ class UserHelpRegistryTests(unittest.TestCase):
                     self.assertIn(template_name, PAGE_HELP_ID_BY_TEMPLATE)
 
     def test_release_builds_use_the_matching_tag(self) -> None:
+        installed = MagicMock(version="1.4.2")
+        installed.read_text.return_value = None
         with patch(
-            "impodo.web.presenters.user_help.version",
-            return_value="1.4.2",
+            "impodo.web.presenters.user_help.distribution",
+            return_value=installed,
         ):
             self.assertEqual(installed_documentation_ref(), "v1.4.2")
+            installed.version = "0.0.0"
+            self.assertEqual(installed_documentation_ref(), "main")
+
+    def test_editable_checkouts_use_current_guides_after_a_release(self) -> None:
+        installed = MagicMock(version="26.10.4")
+        installed.read_text.return_value = '{"dir_info": {"editable": true}}'
         with patch(
-            "impodo.web.presenters.user_help.version",
-            return_value="0.0.0",
+            "impodo.web.presenters.user_help.distribution",
+            return_value=installed,
         ):
             self.assertEqual(installed_documentation_ref(), "main")
+
+    def test_documentation_gate_rejects_a_removed_heading_or_placement(self) -> None:
+        from scripts.documentation_quality import validate_repository
+
+        targets = dict(DECISION_HELP_BY_ID)
+        targets["rows-to-use"] = replace(
+            targets["rows-to-use"],
+            fragment="removed-help-section",
+            template_names=(),
+        )
+        with patch("scripts.documentation_quality.DECISION_HELP_BY_ID", targets):
+            messages = tuple(issue.message for issue in validate_repository(REPOSITORY_ROOT))
+
+        self.assertTrue(any("removed-help-section" in message for message in messages))
+        self.assertTrue(any("registered template placements" in message for message in messages))
 
 
 class UserHelpBrowserTests(unittest.TestCase):
@@ -197,6 +223,50 @@ class UserHelpBrowserTests(unittest.TestCase):
         self.assertIn("@media (max-width: 860px)", response.text)
         self.assertIn("grid-template-columns: minmax(0, 1fr)", response.text)
         self.assertIn("overflow-wrap: anywhere", response.text)
+
+
+class DecisionHelpBrowserTests(ProjectSetupBrowserTestCase):
+    """Keep anchored guidance beside real decisions without changing saved work."""
+
+    def test_schema_and_mapping_links_keep_the_saved_choices(self) -> None:
+        workspace_id, _dataset, _key = self._mapping_ready_workspace(scalar_field_count=1)
+        context = self.app.state.context
+        draft = context.queries.get_mapping_working_draft(workspace_id)
+        calls = (tuple(self.schema_calls), tuple(self.readiness_calls))
+
+        for area, help_ids in (
+            ("schema", ("odoo-identity",)),
+            ("mapping", ("source-identity", "target-identity", "rows-to-use", "field-values", "relationships")),
+        ):
+            with self.subTest(area=area):
+                response = self.client.get(f"/workspaces/{workspace_id}/{area}")
+                self.assertEqual(response.status_code, 200)
+                for help_id in help_ids:
+                    target = DECISION_HELP_BY_ID[help_id]
+                    self.assertIn(f'data-user-help-id="{help_id}"', response.text)
+                    self.assertIn(f'href="{target.url}"', response.text)
+                    self.assertIn(f'aria-label="{target.accessible_name}"', response.text)
+
+        self.assertEqual(context.queries.get_mapping_working_draft(workspace_id), draft)
+        self.assertEqual((tuple(self.schema_calls), tuple(self.readiness_calls)), calls)
+
+    def test_recovery_guidance_does_not_assess_or_resume_the_load(self) -> None:
+        from tests.integration.web.test_load_recovery import LoadRecoveryBrowserTests
+
+        fixture = LoadRecoveryBrowserTests()
+        fixture.setUp()
+        self.addCleanup(fixture.tearDown)
+        with fixture.recovery_context():
+            response = fixture.client.get(
+                f"/workspaces/{fixture.workspace.workspace_id}/load/outcome"
+            )
+
+        target = DECISION_HELP_BY_ID["load-recovery"]
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(f'href="{target.url}"', response.text)
+        self.assertIn('target="_blank"', response.text)
+        self.assertIn('rel="noopener noreferrer"', response.text)
+        self.assertEqual(fixture.events, [])
 
 
 if __name__ == "__main__":

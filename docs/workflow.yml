@@ -78,6 +78,7 @@ stages:
       - src/impodo/web/presenters/navigation.py::build_workspace_navigation
       - src/impodo/web/presenters/concepts.py::ConceptHelp
       - src/impodo/web/presenters/user_help.py::UserHelpTarget
+      - scripts/capture_contextual_user_help.py::capture
       - src/impodo/web/presenters/recipes.py::build_recipe_definition_view
     tests:
       - tests/integration/web/test_concept_help.py

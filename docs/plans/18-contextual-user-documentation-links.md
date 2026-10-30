@@ -12,8 +12,10 @@ status: active
 2026-10-29. Every registered workflow template now resolves a static guide,
 the authenticated **Help and guides** page lists every current user document,
 release builds use version-matched GitHub links, and documentation checks fail
-for an unowned guide or workflow template. Decision-level anchors beside the
-most difficult controls remain proposed.
+for an unowned guide or workflow template. On 2026-10-30, 17 reviewed section
+targets were added beside source organization, Odoo scope and identity,
+matching decisions, preparation review, comparison blockers, affected groups,
+and load order, confirmation, recovery, correction, and verification.
 
 This plan is for the product owner and the developers who maintain Impodo's
 browser workflow and user documentation. It defines how a data manager should
@@ -45,7 +47,7 @@ should not need to search the documentation tree. They should select the help
 link beside the relationship decision and arrive at **How do I connect a field
 to another record?** in the Match data questions-and-answers guide.
 
-## Current foundation and gap
+## Foundation and original gap
 
 Impodo already has a useful contextual concept-help pattern. Selected project,
 Test, and Production headings show an information control that opens a local
@@ -53,11 +55,10 @@ dialog. The full **Concepts** page provides a no-JavaScript fallback. This
 pattern proves the visual language, keyboard behavior, focus return, and
 minimum touch target.
 
-The current pattern does not provide systematic access to the GitHub user
-guides. The six Authoring stages, supporting guides, and detailed Match data
-questions do not share one documentation-link contract. A documentation page
-can therefore be added or renamed without any check that a data manager can
-reach it from Impodo.
+Before this implementation, concept help did not provide systematic access
+to the GitHub user guides. The six Authoring stages, supporting guides, and
+detailed Match data questions had no shared documentation-link contract.
+The static page and decision registries now give those links one owner.
 
 `docs/workflow.yml` already pairs the implemented setup, Authoring stages,
 integrated Test, qualification, and Production pages with their owning user
@@ -237,10 +238,10 @@ icon can open the relevant question in the questions-and-answers tutorial.
    registry data and must not add a repository open, DuckDB connection, schema
    check, or Odoo call.
 
-### Delivery 2: Difficult decisions — proposed
+### Delivery 2: Difficult decisions — implemented
 
-Add local anchored links to the decisions that data managers most often need
-to understand before they can continue safely:
+Local anchored links now cover the decisions that data managers most often
+need to understand before they can continue safely:
 
 1. source-table and related-table composition;
 2. Odoo scope and business identity;
@@ -249,8 +250,12 @@ to understand before they can continue safely:
 5. Final review blockers and deferred groups; and
 6. load order, confirmation, recovery, correction, and verification.
 
-Review each screen at normal and narrow widths. Remove a local icon when the
-same help is already obvious from the page-level guide and nearby text.
+`DECISION_HELP_TARGETS` names each guide section and its template placements.
+The documentation gate checks both directions: an unknown rendered help ID
+fails, and a registered target fails when its heading or placement disappears.
+The browser capture helper exercises a new tab, an unsaved row-selection
+choice, keyboard focus, and the 44-pixel link target at desktop and phone
+widths. Future additions should follow the same decision-based placement rule.
 
 ### Delivery 3: Supporting guides and reverse completeness — implemented
 

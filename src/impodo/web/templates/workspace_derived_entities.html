@@ -4,6 +4,7 @@
   <script src="{{ url_for('static', path='/derived-entities.js') }}" defer></script>
 {% endblock %}
 {% block content %}
+  {% from "_user_help.html" import decision_help with context %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_RUN_SETUP' %}Fresh data · Source organization{% else %}Stage 1 of 6 · Optional source organization{% endif %}</p>
@@ -39,7 +40,7 @@
     </details>
 
     <section class="form-card">
-      <h2>What does your source contain?</h2>
+      <h2>What does your source contain? {{ decision_help("source-composition") }}</h2>
       <div class="actions">
         <button class="button primary" type="button" data-derived-entity-target="combine-source-tables">Several tables describe the same records</button>
         <button class="button primary" type="button" data-derived-entity-target="lookup-extraction">One field contains reusable values</button>

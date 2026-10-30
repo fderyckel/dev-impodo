@@ -5,6 +5,7 @@
   <script src="{{ url_for('static', path='/review.js') }}" defer></script>
 {% endblock %}
 {% block content %}
+  {% from "_user_help.html" import decision_help with context %}
   <div class="page-heading" data-normalization-review data-normalization-position-key="{{ workspace_id }}">
     <div>
       <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load · Approve prepared data{% else %}Stage 4 of 6 · Prepare data{% endif %}</p>
@@ -92,7 +93,7 @@
     <section class="next-action-card ready" aria-labelledby="prepared-next-title">
       <div>
         <p class="eyebrow">Next action</p>
-        <h2 id="prepared-next-title">Approve all prepared data</h2>
+        <h2 id="prepared-next-title">Approve all prepared data {{ decision_help("prepared-data-approval") }}</h2>
         <p>
           Review the groups below. Approval
           {% if normalization.decisions_left %}accepts {{ normalization.decisions_left }} remaining change{{ "s" if normalization.decisions_left != 1 else "" }} and {% endif %}

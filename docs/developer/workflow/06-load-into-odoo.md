@@ -14,6 +14,13 @@ and reconciles affected records through a separate read capability.
 
 It does not provide a generic Odoo client or whole-migration rollback.
 
+## Contextual user guidance
+
+Load-order, confirmation, recovery, verification, and correction headings
+link directly to their user-guide sections. The shared
+[guide-help contract](00-project-setup.md#data-manager-concept-and-guide-help)
+owns these static links and their coverage checks.
+
 ## Entry conditions
 
 The current final-review report must be `READY`; its execution snapshot,

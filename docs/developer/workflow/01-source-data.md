@@ -17,6 +17,13 @@ and current transformation evidence.
 It does not apply the final mapping, publish canonical staging, or perform an
 Odoo write.
 
+## Contextual user guidance
+
+The source-organization choice links to the related-tables guide through the
+static `source-composition` help target. The shared
+[guide-help contract](00-project-setup.md#data-manager-concept-and-guide-help)
+owns its external-link behavior and coverage checks.
+
 ## Entry conditions
 
 The workspace is `REGISTERED`. File mode requires contained registered files.

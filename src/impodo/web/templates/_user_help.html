@@ -13,3 +13,7 @@
     </svg>
   </a>
 {%- endmacro %}
+
+{% macro decision_help(help_id) -%}
+  {{ user_help_link(decision_help_by_id[help_id], "decision-help-link") }}
+{%- endmacro %}

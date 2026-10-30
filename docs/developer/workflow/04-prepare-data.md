@@ -17,6 +17,13 @@ Preparation itself is target-independent and must not contact Odoo. After the
 prepared result is approved, the Stage 4 page may hand the workspace to the
 single read-only comparison owned by Final review.
 
+## Contextual user guidance
+
+The affected-records finding and prepared-data approval headings link to the
+relevant user-guide sections. The shared
+[guide-help contract](00-project-setup.md#data-manager-concept-and-guide-help)
+owns these static links and their coverage checks.
+
 ## Entry conditions
 
 The current mapping revision must have matching validation and submission

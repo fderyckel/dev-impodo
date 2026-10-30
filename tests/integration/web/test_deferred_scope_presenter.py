@@ -15,6 +15,7 @@ from impodo.domain.preflight.deferred_scope import (
     DeferredScopePreview,
 )
 from impodo.domain.shared.access import ActorIdentity
+from impodo.web.presenters.user_help import DECISION_HELP_BY_ID
 from tests.support.paths import REPOSITORY_ROOT
 
 
@@ -99,6 +100,8 @@ class DeferredScopePresenterTests(unittest.TestCase):
             csrf_token="csrf",
             workspace_id="workspace-1",
             migration_project=SimpleNamespace(display_name="Test project"),
+            decision_help_by_id=DECISION_HELP_BY_ID,
+            url_for=lambda _name, *, path: f"/static{path}",
         )
 
     def test_safe_preview_shows_exact_impact_and_explicit_acceptance(self) -> None:
@@ -106,6 +109,7 @@ class DeferredScopePresenterTests(unittest.TestCase):
 
         self.assertIn("Preview affected groups", html)
         self.assertIn("Set aside affected groups for this load", html)
+        self.assertIn(DECISION_HELP_BY_ID["affected-groups"].url, html)
         self.assertIn("<strong>4</strong>", html)
         self.assertIn("<strong>2</strong>", html)
         self.assertIn("source row 17", html)

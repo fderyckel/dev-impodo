@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Correct completed Odoo load · Impodo{% endblock %}
 {% block content %}
+  {% from "_user_help.html" import decision_help with context %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Completed Odoo load</p>
@@ -36,7 +37,7 @@
   {% else %}
     <section class="overview-stage-list" aria-labelledby="correction-steps-title">
       <div class="section-heading">
-        <div><p class="eyebrow">Focused workflow</p><h2 id="correction-steps-title">Correct the rules, then review the result</h2></div>
+        <div><p class="eyebrow">Focused workflow</p><h2 id="correction-steps-title">Correct the rules, then review the result {{ decision_help("load-correction") }}</h2></div>
       </div>
       <ol class="overview-stages">
         <li class="overview-stage {% if correction.has_current_plan %}complete{% else %}current{% endif %}">

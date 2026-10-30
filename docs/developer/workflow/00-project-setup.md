@@ -177,9 +177,22 @@ heading. It does not fetch documentation or project state.
 The authenticated `/help` page lists every current page below `docs/user/`.
 The page opens no registry, workspace database, protected evidence, or Odoo
 boundary. Release builds derive links from their version tag. Development
-builds use `main`. The URL builder accepts reviewed documentation paths only
-and never copies request, Project, Workspace, source, Odoo, or credential data
-into a GitHub URL.
+builds and editable source checkouts use `main`. The URL builder accepts
+reviewed documentation paths only and never copies request, Project,
+Workspace, source, Odoo, or credential data into a GitHub URL.
+
+`DECISION_HELP_TARGETS` reuses those guides with a reviewed section anchor and
+explicit template placements. Selected source, Odoo, matching, preparation,
+comparison, and load headings render the same external-link macro directly.
+The documentation gate rejects a missing anchor, unknown decision help ID,
+or a registered placement that no longer renders its link. These links add
+only static template data; the existing request and database scopes still own
+the complete page operation.
+
+Run [`capture_contextual_user_help.py`](../../../scripts/capture_contextual_user_help.py)
+with Playwright and installed Edge to recreate the authenticated fictional
+screenshots and verify new-tab behavior, unsaved row choices, keyboard focus,
+and phone-width placement.
 
 ## Code references
 

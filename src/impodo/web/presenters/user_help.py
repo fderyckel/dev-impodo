@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, replace
 from enum import StrEnum
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, distribution
 from types import MappingProxyType
 from typing import Final
 from urllib.parse import quote
@@ -30,6 +31,7 @@ class UserHelpTarget:
     scope: UserHelpScope
     description: str
     fragment: str = ""
+    template_names: tuple[str, ...] = ()
 
     def github_url(self, *, documentation_ref: str | None = None) -> str:
         """Build the reviewed GitHub URL without request or workspace data."""
@@ -39,8 +41,7 @@ class UserHelpTarget:
         encoded_path = quote(self.document_path, safe="/")
         suffix = f"#{quote(self.fragment, safe='-_')}" if self.fragment else ""
         return (
-            f"{GITHUB_REPOSITORY_URL}/blob/{encoded_reference}/"
-            f"{encoded_path}{suffix}"
+            f"{GITHUB_REPOSITORY_URL}/blob/{encoded_reference}/{encoded_path}{suffix}"
         )
 
     @property
@@ -69,8 +70,16 @@ def installed_documentation_ref() -> str:
     """Use a matching release tag, or current development documentation."""
 
     try:
-        installed_version = version("impodo")
+        installed = distribution("impodo")
     except PackageNotFoundError:
+        return "main"
+    installed_version = installed.version
+    try:
+        source = json.loads(installed.read_text("direct_url.json") or "{}")
+    except json.JSONDecodeError:
+        source = {}
+    directory = source.get("dir_info") if isinstance(source, dict) else None
+    if isinstance(directory, dict) and directory.get("editable") is True:
         return "main"
     if installed_version == "0.0.0" or ".dev" in installed_version:
         return "main"
@@ -258,6 +267,154 @@ USER_HELP_GROUPS = (
         target_ids=("install-windows", "install-macos"),
     ),
 )
+
+
+def _decision_help(
+    help_id: str,
+    guide_id: str,
+    title: str,
+    fragment: str,
+    *template_names: str,
+) -> UserHelpTarget:
+    """Reuse a reviewed guide for one decision and its rendered placements."""
+
+    return replace(
+        USER_HELP_BY_ID[guide_id],
+        help_id=help_id,
+        title=title,
+        scope=UserHelpScope.CONTEXTUAL,
+        fragment=fragment,
+        template_names=template_names,
+    )
+
+
+DECISION_HELP_TARGETS = (
+    _decision_help(
+        "source-composition",
+        "related-tables",
+        "Choose how to separate source information",
+        "purpose",
+        "workspace_derived_entities.html",
+    ),
+    _decision_help(
+        "odoo-scope",
+        "odoo-data",
+        "Choose Odoo record types and supporting data",
+        "choose-record-types-and-supporting-data",
+        "workspace_schema.html",
+    ),
+    _decision_help(
+        "odoo-identity",
+        "odoo-data",
+        "Choose how existing records are found",
+        "choose-how-existing-records-are-found",
+        "workspace_schema.html",
+    ),
+    _decision_help(
+        "source-identity",
+        "match-data-questions",
+        "Identify each incoming row safely",
+        "how-do-i-identify-each-incoming-row-safely",
+        "mapping/_dataset.html",
+    ),
+    _decision_help(
+        "target-identity",
+        "match-data",
+        "Check how Odoo records are identified",
+        "check-identity-health-before-matching-fields",
+        "mapping/_dataset.html",
+    ),
+    _decision_help(
+        "rows-to-use",
+        "match-data",
+        "Choose which source rows to use",
+        "choose-which-source-rows-belong-to-the-migration",
+        "mapping/_row_inclusion.html",
+    ),
+    _decision_help(
+        "field-values",
+        "match-data-questions",
+        "Choose how to fill an Odoo field",
+        "how-can-i-fill-a-normal-odoo-field",
+        "mapping/_dataset.html",
+    ),
+    _decision_help(
+        "relationships",
+        "match-data-questions",
+        "Connect a field to another record",
+        "how-do-i-connect-a-field-to-another-record",
+        "mapping/_relationship_fields.html",
+    ),
+    _decision_help(
+        "preparation-findings",
+        "prepare-data",
+        "Resolve preparation findings",
+        "needs-attention",
+        "workspace_quality_cause.html",
+    ),
+    _decision_help(
+        "prepared-data-approval",
+        "prepare-data",
+        "Review prepared values before approval",
+        "what-to-check",
+        "workspace_normalization.html",
+    ),
+    _decision_help(
+        "comparison-blockers",
+        "final-review",
+        "Understand comparison blockers",
+        "understand-comparison-blockers",
+        "workspace_summary.html",
+    ),
+    _decision_help(
+        "affected-groups",
+        "final-review",
+        "Set aside complete affected groups",
+        "set-aside-complete-affected-groups",
+        "workspace_deferred_scope.html",
+    ),
+    _decision_help(
+        "load-order",
+        "load-into-odoo",
+        "Understand the order of related records",
+        "how-impodo-handles-related-records",
+        "workspace_load.html",
+        "workspace_transfer_order.html",
+    ),
+    _decision_help(
+        "load-confirmation",
+        "load-into-odoo",
+        "Confirm the reviewed Odoo load",
+        "steps-in-impodo",
+        "workspace_load.html",
+    ),
+    _decision_help(
+        "load-recovery",
+        "load-into-odoo",
+        "Recover an interrupted load",
+        "recover-an-interrupted-load",
+        "workspace_load.html",
+    ),
+    _decision_help(
+        "load-verification",
+        "load-into-odoo",
+        "Check the values saved in Odoo",
+        "what-to-check",
+        "workspace_load.html",
+    ),
+    _decision_help(
+        "load-correction",
+        "load-into-odoo",
+        "Correct a verified Authoring load",
+        "correct-a-verified-authoring-load",
+        "workspace_correction.html",
+    ),
+)
+
+DECISION_HELP_BY_ID = MappingProxyType(
+    {target.help_id: target for target in DECISION_HELP_TARGETS}
+)
+
 
 PAGE_HELP_ID_BY_TEMPLATE = MappingProxyType(
     {

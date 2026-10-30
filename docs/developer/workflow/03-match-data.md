@@ -29,6 +29,13 @@ mapping definition, Recipe, compiled plan, or execution snapshot. A custom
 sequence is isolated, workspace-local presentation state rather than portable
 mapping meaning.
 
+## Contextual user guidance
+
+Source identity, Odoo identity, row inclusion, field values, and relationship
+headings each link to a reviewed guide section. The shared
+[guide-help contract](00-project-setup.md#data-manager-concept-and-guide-help)
+owns the static destinations and template-placement checks.
+
 ## Entry conditions
 
 A frozen source selection and captured Odoo schema are required. File-source

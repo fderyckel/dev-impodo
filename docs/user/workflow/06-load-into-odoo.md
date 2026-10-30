@@ -362,6 +362,11 @@ choosing a unique key, or making a relationship optional. Resolve the listed
 issue in the earlier workflow, then compare again. Support details remain
 bounded and do not expose source values or internal row identifiers.
 
+### Recover an interrupted load
+
+The question mark beside **Reconnect and check recovery** or **Recovery ready**
+opens these steps while keeping the interrupted-load page available.
+
 Do not blindly retry a timeout, connection reset, HTTP 422, or other unknown
 write outcome. First inspect the execution journal and reconcile the target.
 For an Odoo-to-Odoo transfer whose page shows **Interrupted transfer**, select

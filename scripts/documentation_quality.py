@@ -22,6 +22,7 @@ from urllib.parse import unquote
 import yaml
 
 from impodo.web.presenters.user_help import (
+    DECISION_HELP_BY_ID,
     PAGE_HELP_ID_BY_TEMPLATE,
     USER_HELP_BY_ID,
 )
@@ -479,7 +480,7 @@ def _validate_user_help_coverage(
             )
         )
 
-    for target in USER_HELP_BY_ID.values():
+    for target in (*USER_HELP_BY_ID.values(), *DECISION_HELP_BY_ID.values()):
         path = repo_root / target.document_path
         if target.fragment and path.is_file():
             if target.fragment not in _heading_anchors(path):
@@ -489,6 +490,32 @@ def _validate_user_help_coverage(
                         f"help target has missing Markdown anchor {target.fragment!r}",
                     )
                 )
+
+    template_root = repo_root / "src/impodo/web/templates"
+    placements: dict[str, set[str]] = {}
+    for template_path in sorted(template_root.rglob("*.html")):
+        template_name = template_path.relative_to(template_root).as_posix()
+        for help_id in re.findall(
+            r'decision_help\("([^\"]+)"\)',
+            template_path.read_text(encoding="utf-8"),
+        ):
+            placements.setdefault(help_id, set()).add(template_name)
+    for help_id in sorted(placements.keys() - DECISION_HELP_BY_ID.keys()):
+        issues.append(
+            DocumentationIssue(
+                "src/impodo/web/templates",
+                f"template uses unknown decision help id {help_id!r}",
+            )
+        )
+    for help_id, target in DECISION_HELP_BY_ID.items():
+        if not target.fragment or placements.get(help_id, set()) != set(target.template_names):
+            issues.append(
+                DocumentationIssue(
+                    "src/impodo/web/presenters/user_help.py",
+                    f"decision help {help_id!r} requires a section anchor and "
+                    "its registered template placements",
+                )
+            )
 
     for template_name, help_id in PAGE_HELP_ID_BY_TEMPLATE.items():
         if help_id not in USER_HELP_BY_ID:

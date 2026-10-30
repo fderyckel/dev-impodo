@@ -21,6 +21,7 @@ from impodo.domain.preparation.quality import (
     QualityRuleFamily,
 )
 from impodo.web.presenters.summary import _render_normalization
+from impodo.web.presenters.user_help import DECISION_HELP_BY_ID
 from tests.support.paths import REPOSITORY_ROOT
 
 
@@ -113,6 +114,8 @@ class NormalizationSetAsideTests(unittest.TestCase):
                 data_classification=SimpleNamespace(value=self.classification)
             ),
             workspace_navigation=SimpleNamespace(journey="AUTHORING"),
+            decision_help_by_id=DECISION_HELP_BY_ID,
+            url_for=lambda _name, *, path: f"/static{path}",
         )
         return html, values
 

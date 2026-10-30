@@ -51,6 +51,11 @@ paged list behind its totals. The page distinguishes the direct finding from
 parents, children, and siblings set aside through the saved dependency
 closure. Opening it makes no Odoo request and changes no saved decision.
 
+### Understand comparison blockers
+
+Use the question mark beside the blocked-record action to open this
+explanation. Follow the correction action in Impodo, then repeat the comparison.
+
 After comparison, **Migration issues** also summarizes blockers that Final
 review found only against current Odoo evidence. These cards remain complete
 when the checked-row table is filtered or paged. A card states the cause,
@@ -72,6 +77,11 @@ percentage. Delayed progress updates do not start another comparison. Selecting
 has that active comparison returns to the same attempt. If Impodo restarts,
 reopening the progress page shows either the verified saved result or an
 interrupted attempt that you can safely retry.
+
+### Set aside complete affected groups
+
+The question mark beside **Choose the groups to preview** opens this
+explanation before you decide which complete groups to keep out of the load.
 
 The affected-group preview is calculated from the saved comparison. It shows
 the prepared count, records already set aside during preparation, records that

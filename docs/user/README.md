@@ -10,6 +10,10 @@ guide on GitHub in a new tab. Your current Impodo page and unsaved entries stay
 available in the original tab. **Help and guides** in the sidebar lists every
 current user guide, including tutorials and installation instructions.
 
+Question marks beside selected decisions open the relevant section of a guide.
+Use them when choosing record identities or relationships, setting rows aside,
+confirming a load, or recovering interrupted work.
+
 Start with [Create a data project](getting-started.md). When you create or
 change the rules in an Authoring workspace, follow its six stages:
 

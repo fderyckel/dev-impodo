@@ -23,7 +23,12 @@ from ..target_credentials import (
 from .concepts import CONCEPTS, CONCEPTS_BY_SLUG
 from .navigation import build_workspace_navigation
 from .setup import build_workspace_setup_view
-from .user_help import USER_HELP_BY_ID, USER_HELP_GROUPS, page_help_for_template
+from .user_help import (
+    DECISION_HELP_BY_ID,
+    USER_HELP_BY_ID,
+    USER_HELP_GROUPS,
+    page_help_for_template,
+)
 
 
 def _render(
@@ -180,6 +185,7 @@ def _render(
         "page_help_target": page_help_for_template(template_name),
         "user_help_by_id": USER_HELP_BY_ID,
         "user_help_groups": USER_HELP_GROUPS,
+        "decision_help_by_id": DECISION_HELP_BY_ID,
         **context,
     }
     started = perf_counter()

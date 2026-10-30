@@ -1,3 +1,4 @@
+        {% from "_user_help.html" import decision_help with context %}
         {% set dataset_index = view.index %}
         <section
           class="form-card mapping-dataset"
@@ -89,7 +90,7 @@
           <div class="identity-pair">
             <section class="identity-panel" aria-labelledby="source-identity-{{ dataset_index }}">
               <p class="eyebrow">Source</p>
-              <h3 id="source-identity-{{ dataset_index }}">Which column uniquely identifies each row?</h3>
+              <h3 id="source-identity-{{ dataset_index }}">Which column uniquely identifies each row? {{ decision_help("source-identity") }}</h3>
               <p class="muted">Choose one column, or a combination when one column is not enough.</p>
               <label>
                 Unique row identifier
@@ -107,7 +108,7 @@
 
             <section class="identity-panel" aria-labelledby="target-identity-{{ dataset_index }}">
               <p class="eyebrow">Odoo</p>
-              <h3 id="target-identity-{{ dataset_index }}">How should Impodo find the same record in Odoo?</h3>
+              <h3 id="target-identity-{{ dataset_index }}">How should Impodo find the same record in Odoo? {{ decision_help("target-identity") }}</h3>
               <p class="muted">Choose the matching rule, then connect each Odoo matching field to your source.</p>
               {% if view.business_keys %}
                 <label>
@@ -186,7 +187,7 @@
 
           {% if view.active %}
             <div class="mapping-table-fields-heading">
-              <h3 id="scalar-fields-{{ dataset_index }}">Choose what goes into each Odoo field</h3>
+              <h3 id="scalar-fields-{{ dataset_index }}">Choose what goes into each Odoo field {{ decision_help("field-values") }}</h3>
               <button
                 class="button secondary mapping-table-fields-toggle"
                 type="button"

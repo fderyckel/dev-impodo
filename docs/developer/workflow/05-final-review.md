@@ -15,6 +15,13 @@ execution snapshot.
 
 It is read-only with respect to Odoo and does not authorize a write.
 
+## Contextual user guidance
+
+The blocked-record action and affected-group preview each link to their own
+user-guide section. The shared
+[guide-help contract](00-project-setup.md#data-manager-concept-and-guide-help)
+owns these static links and their coverage checks.
+
 ## Entry conditions
 
 Prepared, quality, resolution, and normalization evidence must be complete and

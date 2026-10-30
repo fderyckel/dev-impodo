@@ -19,6 +19,13 @@ destination-read checks and records where the captured metadata came from.
 It does not read an unrestricted business-record export and does not expose a
 generic RPC escape hatch.
 
+## Contextual user guidance
+
+The record-scope and matching-rule headings link to their own user-guide
+sections through `odoo-scope` and `odoo-identity`. The shared
+[guide-help contract](00-project-setup.md#data-manager-concept-and-guide-help)
+owns these static links and their coverage checks.
+
 ## Entry conditions
 
 File mode requires frozen source data before Stage 2 metadata capture. Shared

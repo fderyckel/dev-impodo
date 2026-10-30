@@ -336,7 +336,7 @@
         <p>
           The earlier Odoo check did not finish. Impodo kept your
           {{ relationship_scope.root_models|length }} main record type{% if relationship_scope.root_models|length != 1 %}s{% endif %}
-          and did not publish a partial field list or capture plan.
+          and did not save a partial field list or capture plan.
         </p>
         <p><strong>Main record types kept:</strong> {{ relationship_root_labels|join(', ') }}</p>
         <form method="post" action="/workspaces/{{ workspace_id }}/sources/odoo-related-data" data-single-submit>

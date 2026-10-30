@@ -37,7 +37,7 @@
       <p class="muted" data-odoo-capture-accounting>{{ job.page_count }} record page(s){% if job.relationship_check_page_count %} · {{ job.relationship_check_page_count }} relationship check page(s){% endif %} · {{ "{:,}".format(job.response_bytes) }} response bytes · {{ "{:,}".format(job.normalized_bytes) }} normalized bytes</p>
       <details class="technical-evidence">
         <summary>Support details</summary>
-        <p>Record values are read once. For linked-record captures, Impodo then repeats the protected relationship check before publication so changed links cannot enter the frozen version. This check reads identifiers, timestamps, and selected links; it does not download or serialize the business values again.</p>
+        <p>Record values are read once. For linked-record captures, Impodo then repeats the protected relationship check before making the Data version current so changed links cannot enter it. This check reads identifiers, timestamps, and selected links; it does not download or serialize the business values again.</p>
       </details>
     </section>
 

@@ -45,6 +45,8 @@ same secret. Production continues to require a separate limited write key.
 
 ## Steps in Impodo
 
+### Choose record types and supporting data
+
 1. Open **Odoo data**. In an Odoo-source project this is shown first as
    **Odoo source data**.
 2. Select **Show available Odoo data**.
@@ -94,6 +96,14 @@ required collections and incompatible policies remain named exceptions with
 no preselected answer.
 
 ![Impodo previewing Keep linked value for direct Product relationships.](../../images/user/08c-odoo-supporting-data.png)
+
+### Choose how existing records are found
+
+Select the question mark beside **Tell Impodo how to find existing records**
+to open this explanation while keeping your matching choices available in
+Impodo.
+
+![A question mark beside the Odoo matching-rule heading opens the explanation for choosing record identities.](../../images/user/08h-odoo-decision-help.png)
 
 The matching-rule summary separates **Suggested**, **Confirmed**, **Changed**,
 and **Needs attention** record types. When every card has a proposed or saved

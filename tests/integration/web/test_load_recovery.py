@@ -70,6 +70,8 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
         self.preview = SimpleNamespace(
             snapshot=self.snapshot, api_scope=SimpleNamespace(models=()),
             scope_error="", current_run=self.run, can_load=False, datasets=(),
+            dependency_summary=None, blocker_summary=None,
+            current_execution_status=ExecutionRunStatus.RUNNING.value,
         )
         self.read_identity = OdooReadIdentity(
             target_hash=self.snapshot.target_hash, principal_hash="sha256:" + "d" * 64,
@@ -136,6 +138,8 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
                 mocks[name] = stack.enter_context(patch.object(owner, method, **kwargs))
             patched("preview", type(context.execution), "current_preview",
                     **({"side_effect": preview_reader} if preview_reader else {"return_value": self.preview}))
+            patched("bounded_review", type(context.execution), "current_review",
+                    return_value=self.preview)
             patched("current", type(context.reconciliation), "current", return_value=None)
             patched("assess", type(context.reconciliation), "assess_recovery", side_effect=assessment)
             patched("review", type(context.execution), "review_recovery",

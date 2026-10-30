@@ -27,6 +27,7 @@ from scripts.capture_match_data_recovery_screenshots import (
     _stop_server,
 )
 from tests.support.browser_scenarios import ProjectSetupBrowserTestCase
+from tests.support.identity import resolve_local_actor
 
 
 DEFAULT_OUTPUT = (
@@ -120,7 +121,9 @@ def capture(output: Path, *, browser_channel: str) -> None:
         )
         context = fixture.app.state.context
         workspace_state = context.queries.get(workspace_id)
-        navigation_facts = context.navigation.get(workspace_state)
+        navigation_facts = context.navigation.get(
+            workspace_state, actor=resolve_local_actor(context)
+        )
         staged_navigation = replace(
             navigation_facts,
             mapping_complete=True,
@@ -137,7 +140,7 @@ def capture(output: Path, *, browser_channel: str) -> None:
             normalization_reviewed_count=1,
             preflight_status="BLOCKED",
         )
-        context.navigation.get = lambda _workspace_state: staged_navigation
+        context.navigation.get = lambda _workspace_state, *, actor: staged_navigation
         session = fixture.client.cookies.get("impodo_session")
         if not session:
             raise RuntimeError("The isolated app did not create an authenticated session")

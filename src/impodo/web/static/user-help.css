@@ -37,6 +37,12 @@
   outline-offset: 2px;
 }
 
+.decision-help-link {
+  margin-left: .2rem;
+  font-size: 1rem;
+  vertical-align: middle;
+}
+
 .user-help-groups {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

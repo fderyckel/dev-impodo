@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Validate transfer order · {{ migration_project.display_name }} · Impodo{% endblock %}
 {% block content %}
+  {% from "_user_help.html" import decision_help with context %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Stage 5 of 6 · Review transfer</p>
@@ -38,7 +39,7 @@
     <div class="page-heading compact">
       <div>
         <p class="eyebrow">Dependency planning</p>
-        <h2>Derive the order from every incoming relationship</h2>
+        <h2>Derive the order from every incoming relationship {{ decision_help("load-order") }}</h2>
         <p>
           New related records are scheduled before their owners unless the relationship
           is safely deferred.

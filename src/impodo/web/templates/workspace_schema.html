@@ -4,6 +4,7 @@
   <script src="{{ url_for('static', path='/schema.js') }}" defer></script>
 {% endblock %}
 {% block content %}
+  {% from "_user_help.html" import decision_help with context %}
   {% set local_mode = workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == 'LOCAL' %}
   {% set is_recipe_run_setup = odoo_check_plan is not none %}
   {% set run_kind = 'Production run' if migration_context and migration_context.migration_run.purpose.value == 'PRODUCTION' else 'Test run' %}
@@ -178,7 +179,7 @@
     <div class="page-heading compact">
       <div>
         <p class="eyebrow">Available in Odoo</p>
-        <h2>Choose the Odoo data you need</h2>
+        <h2>Choose the Odoo data you need {{ decision_help("odoo-scope") }}</h2>
         <p>Start with the business records included in this migration.</p>
       </div>
       {% if not model_catalog %}
@@ -594,7 +595,7 @@
         <div class="page-heading compact">
           <div>
             <p class="eyebrow">Matching rules</p>
-            <h2>Tell Impodo how to find existing records</h2>
+            <h2>Tell Impodo how to find existing records {{ decision_help("odoo-identity") }}</h2>
             <p>
               Impodo has filled every matching rule that the captured Odoo
               details support safely. Review the suggestions, change any rule

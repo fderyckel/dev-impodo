@@ -4,6 +4,7 @@
   <script src="{{ url_for('static', path='/review.js') }}" defer></script>
 {% endblock %}
 {% block content %}
+  {% from "_user_help.html" import decision_help with context %}
   {% set is_recipe_application = workspace_navigation.journey == 'RECIPE_APPLICATION' %}
   {% set run_odoo_url = '/projects/' ~ migration_context.project_id ~ '/runs/' ~ migration_context.migration_run_id ~ '/odoo' %}
   {% set odoo_source = workspace_state.source_mode.value == 'ODOO' %}
@@ -249,7 +250,7 @@
           <h2 id="next-action-title">Review complete affected groups</h2>
           <p>Impodo can calculate whether the problem records and every linked parent, child or sibling can stay out of this load together.</p>
         {% elif readiness.blocked_count %}
-          <h2 id="next-action-title">Fix {{ readiness.blocked_count }} row{{ "s" if readiness.blocked_count != 1 else "" }} first</h2>
+          <h2 id="next-action-title">Fix {{ readiness.blocked_count }} row{{ "s" if readiness.blocked_count != 1 else "" }} first {{ decision_help("comparison-blockers") }}</h2>
           <p>These rows cannot continue until their data or field matches are corrected.</p>
         {% elif staging and staging.failed_control_total_count %}
           <h2 id="next-action-title">Review {{ staging.failed_control_total_count }} total{{ "s" if staging.failed_control_total_count != 1 else "" }}</h2>

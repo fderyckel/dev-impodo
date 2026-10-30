@@ -223,6 +223,13 @@ or save any field match.
 
 ### Choose which source rows belong to the migration
 
+Use the question marks beside **Rows to use**, the source and Odoo identity
+headings, or **Choose what goes into each Odoo field** when you need help with
+that decision. Each opens the relevant guide section in a new tab and keeps
+your current choices available in Impodo.
+
+![Question marks beside row selection and the source and Odoo identity choices.](../../images/user/09d-matching-decision-help.png)
+
 **Rows to use** appears before record identity and field matches for each
 table. **Use every row** is the default and preserves the behavior of existing
 mappings. Select **Use only rows that match** when the accepted file contains a
@@ -470,6 +477,11 @@ Odoo target.
 ![One existing fictional Unit of Measure is selected for every Bill of Material row.](../../images/user/11f-mapping-constant-existing-record.png)
 
 ### Choose where a source-provided linked value comes from
+
+The question mark beside **Connect values to existing Odoo lists** opens the
+relationship explanation before you choose how to find the linked record.
+
+![A question mark beside the relationship section opens the guide to connecting a field to another record.](../../images/user/09e-relationship-decision-help.png)
 
 After you select **A value from the source**, choose whether that linked value
 refers to an existing Odoo record or a record from another incoming table:

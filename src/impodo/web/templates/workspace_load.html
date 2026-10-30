@@ -7,6 +7,7 @@
   <script src="{{ url_for('static', path='/execution.js') }}" defer></script>
 {% endblock %}
 {% block content %}
+  {% from "_user_help.html" import decision_help with context %}
   {% set target_environment = 'Production' if migration_context.data_version_purpose == 'PRODUCTION' else 'Test' if migration_context.data_version_purpose == 'TEST' else 'Target' %}
   <nav class="load-stepper" aria-label="Load into Odoo progress">
     <ol>
@@ -93,7 +94,7 @@
         <div class="page-heading compact">
           <div>
             <p class="eyebrow">Related-record order</p>
-            <h2 id="load-order-title">What Impodo will load first</h2>
+            <h2 id="load-order-title">What Impodo will load first {{ decision_help("load-order") }}</h2>
             <p>This order comes from the relationships you reviewed. Change the mappings, included rows, or optional relationships and compare again whenever the business order should change.</p>
           </div>
           <span class="status {% if blocker_summary and blocker_summary.groups %}blocked{% else %}ready{% endif %}">
@@ -250,7 +251,7 @@
     <section class="next-action-card review load-confirmation" aria-labelledby="confirm-load-title">
       <div>
         <p class="eyebrow">Explicit confirmation</p>
-        <h2 id="confirm-load-title">Load {{ preview.snapshot.write_count }} record{{ 's' if preview.snapshot.write_count != 1 else '' }} into {{ preview.snapshot.target_database }}</h2>
+        <h2 id="confirm-load-title">Load {{ preview.snapshot.write_count }} record{{ 's' if preview.snapshot.write_count != 1 else '' }} into {{ preview.snapshot.target_database }} {{ decision_help("load-confirmation") }}</h2>
         {% if preview.prior_interrupted_run %}
           <p>An earlier upload was interrupted. Before loading this fresh comparison, Impodo checks its saved receipts and closes the earlier attempt. Its original records and receipts remain saved.</p>
         {% endif %}
@@ -320,7 +321,7 @@
       <section class="next-action-card review" aria-labelledby="load-recovery-title">
         <div>
           <p class="eyebrow">Interrupted load</p>
-          <h2 id="load-recovery-title">{{ 'Recovery ready' if recovery_check else 'Reconnect and check recovery' }}</h2>
+          <h2 id="load-recovery-title">{{ 'Recovery ready' if recovery_check else 'Reconnect and check recovery' }} {{ decision_help("load-recovery") }}</h2>
           <p><strong>{{ preview.current_run.committed_count }} accepted &middot;
             {{ preview.current_run.planned_count + preview.current_run.retry_ready_count }} waiting to load &middot;
             {{ preview.current_run.in_flight_count + preview.current_run.unknown_count }} uncertain &middot;
@@ -396,6 +397,7 @@
             {% else %}
               {{ reconciliation.verified_count }} verified in Odoo
             {% endif %}
+            {{ decision_help("load-verification") }}
           </h2>
           {% if reconciliation.status.value == 'VERIFIED' %}
             <p>Odoo now matches every field in the confirmed load review. Records needing no change are included in the verified total.</p>

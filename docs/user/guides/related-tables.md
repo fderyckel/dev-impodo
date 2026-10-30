@@ -56,6 +56,11 @@ multiple generated-table rules, and other materialized routes retain the
 
 Open **Source data**, then **Separate combined information**.
 
+The question mark beside **What does your source contain?** opens the choices
+and examples at the beginning of this guide in a new tab.
+
+![Source-organization choices with a question mark beside the decision heading.](../../images/user/06g-source-decision-help.png)
+
 ## Combine partial views of the same records
 
 Choose **Several tables describe the same records** when accepted tables each
