@@ -84,10 +84,10 @@ rows rather than the old 25,000-row preparation refusal for these reviewed
 combinations. Each combined output still allows at most 200 fields. Other
 derived-table shapes keep their separate limits. A flat reusable list made
 from one original source column can prepare beside the combined outputs.
-For optional links to that list, select **Leave the related field blank** under
-**If the source value is blank** in **Match data**. This keeps records whose
-source value is empty without adding an empty related record. The saved
-choice belongs to that field and travels with its Recipe.
+For optional links to that list, leave **Must have a value** unchecked in
+**Match data**. **Required for new records** applies only when creating a
+record. Optional empty links keep their records without adding an empty
+related entry. The Recipe retains these requiredness settings.
 
 For fictional AX customer exports, the primary table might contain
 `AccountNum` and `Party`. Separate contact, address, and payment-term tables
@@ -299,6 +299,12 @@ Impodo suggests the generated table's target model, trace identity, and display
 name. When the captured schema confirms a compatible many2one field, it also
 suggests an **Incoming dataset** relationship from the original table to the
 generated table.
+
+Use the generated **Name** column for the Odoo name when you want to preserve
+the original spelling. The internal **Name matching key** normalizes case to
+group source values. Keep that key as the source row identifier. An older
+mapping that uses it for the Odoo name offers **Use original spelling** in
+[Match data](../workflow/03-match-data.md#preserve-source-spelling-in-a-reusable-list).
 
 Review that suggestion against the functional relationship. Missing related
 values or conflicting display spellings remain visible as preparation issues;

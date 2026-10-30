@@ -326,12 +326,14 @@ lookup evaluation. Cardinality and encoded-lineage budgets remain enforced.
 Joined producers project only columns used by the mapping and their join
 keys; formulas conservatively retain the complete input column set.
 
-Mapping `blank_source_action=leave_blank` overrides a generated-list blank
-finding only for an optional single-column relationship with an empty source
-cell. Nonempty invalid paths still follow their extraction rule. Matching,
-validation, and Recipe reuse keep the same field choice, while Stage 1 stays
-unchanged. Browser evaluator 8 publishes this composed lookup/reference
-meaning; historical evaluator-7 staging remains readable without rehashing.
+Existing Many2one requiredness governs empty links to generated lists. An
+all-blank optional key emits a null reference without a generated-list blank
+finding. Populated invalid paths and partly populated keys still follow their
+checks. `required_on_create` remains a preflight creation constraint, so it
+does not quarantine existing records merely because their source link is
+empty. Matching, validation, and Recipe reuse keep these flags while Stage 1
+stays unchanged. Browser evaluator 9 publishes this meaning; historical
+evaluator-7 and evaluator-8 staging remain readable without rehashing.
 
 The composed route has no physical-row admission cutoff. The capability
 manifest reports `supported_rows=None` and volume advisories above 50,000 rows.

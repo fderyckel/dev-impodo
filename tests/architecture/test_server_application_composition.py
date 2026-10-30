@@ -217,6 +217,7 @@ class ServerApplicationCompositionTests(unittest.TestCase):
             references=_fake("references"),
             recipe_parameters=_fake("recipe_parameters"),
             supporting_lookups=_fake("supporting_lookups"),
+            business_intents=_fake("business_intents"),
             downstream_invalidator=_fake("downstream_invalidator"),
             recipe_applications=_fake("recipe_applications"),
             row_inclusion=_fake("row_inclusion"),

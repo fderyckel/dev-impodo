@@ -60,7 +60,7 @@ def _validate_relationship(
     if metadata is None:
         issues.append(_target_unknown(dataset, path, relation.target_field))
         return
-    if (relation.blank_source_values or relation.blank_source_action == "leave_blank") and metadata.required:
+    if relation.blank_source_values and metadata.required:
         issues.append(
             _issue(
                 "MAPPING_RELATION_BLANK_NOT_ALLOWED", path,

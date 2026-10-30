@@ -3,6 +3,7 @@
 from dataclasses import replace
 from unittest import TestCase
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.workspace.derived_entities import (
     ExactJoinGroupAddition,
     ExactJoinGroupProjection,
@@ -154,7 +155,7 @@ class JoinLookupPreparationTests(TestCase):
                 source_identity_column_keys=(link.canonical_key_column_key,),
                 target_identity=(
                     IdentityComponentMapping(
-                        (link.canonical_key_column_key,), ("ref",), "string"
+                        (link.name_column_key,), ("ref",), "string"
                     ),
                 ),
             ),
@@ -170,7 +171,6 @@ class JoinLookupPreparationTests(TestCase):
                         target_field="x_generated_id",
                         kind="many2one",
                         categorical_policy=CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
-                        blank_source_action="leave_blank",
                         source_column_keys=(columns["Choice"],),
                         resolver=RelationshipResolver(
                             origin=ResolverOrigin.DATASET, dataset_id=lookup.dataset_id
@@ -197,14 +197,17 @@ class JoinLookupPreparationTests(TestCase):
                 ),
             ),
         )
-        revision, validation = run_local_operation_sync(
-            context.mapping_workspace.check_definition,
-            workspace_id,
-            datasets=mappings,
-            expected_parent_version=None,
-            expected_working_draft_version=None,
-            actor=actor,
-        )
+        with collect_duckdb_request_timings() as timings:
+            revision, validation = run_local_operation_sync(
+                context.mapping_workspace.check_definition,
+                workspace_id,
+                datasets=mappings,
+                expected_parent_version=None,
+                expected_working_draft_version=None,
+                actor=actor,
+            )
+        self.assertLessEqual(timings.connection_count, 5)
+        self.assertLessEqual(timings.schema_check_count, 1)
         self.assertNotEqual(validation.status.value, "INVALID", validation.issues)
         draft = context.mapping_workspace.mappings.get_mapping_working_draft(
             workspace_id
@@ -259,6 +262,7 @@ class JoinLookupPreparationTests(TestCase):
         )
         self.assertEqual(sum(row.references["x_generated_id"] is None for row in records), count // 4)
         generated = tuple(row for row in run.rows if row.dataset == "generated_labels")
+        self.assertEqual({row.target_identity for row in generated}, {("A",), ("B",), ("TO_DEFINE",)})
         self.assertEqual(len(generated), 3)
         self.assertEqual(
             sum(

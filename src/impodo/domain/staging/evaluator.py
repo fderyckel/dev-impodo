@@ -181,8 +181,9 @@ class _DerivedReferencePlan:
     prepared_column_key: str
     target_field: str
     blank_source_values: tuple[str, ...] = ()
-    blank_source_action: str = "source_rules"
     required: bool = False
+    optional_many2one: bool = False
+    source_column_keys: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -1454,8 +1455,11 @@ def _compile_derived_reference_plan(
             ),
             target_field=relationship.target_field,
             blank_source_values=relationship.blank_source_values,
-            blank_source_action=relationship.blank_source_action,
-            required=relationship.required or relationship.required_on_create,
+            required=relationship.required,
+            optional_many2one=relationship.kind == "many2one",
+            source_column_keys=(rule.source_level_column_keys
+                if isinstance(rule, HierarchicalLookupRule)
+                else relationship.source_column_keys),
         )
         for relationship_index, relationship in enumerate(mapping.relationships)
         if relationship.resolver.origin
@@ -1487,8 +1491,11 @@ def _normalize_derived_references(
 ) -> tuple[Issue, ...]:
     issues: list[Issue] = []
     for item in plan:
-        if (item.blank_source_action == "leave_blank" and not item.required
-            and _normalized_path(values.get(item.source_column_key), None) is None):
+        if (item.optional_many2one and not item.required and all(
+            _normalized_path(values.get(key), None) is None
+            for key in item.source_column_keys or (item.source_column_key,)
+        ) and (not isinstance(item.rule, HierarchicalLookupRule)
+               or item.rule.all_blank.mode != "fixed")):
             values[item.prepared_column_key] = None
             continue
         if (values.get(item.prepared_column_key) is None

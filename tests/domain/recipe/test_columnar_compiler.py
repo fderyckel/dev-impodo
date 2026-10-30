@@ -641,6 +641,13 @@ class ColumnarCompilerTests(unittest.TestCase):
             ),
             decision.program,
         )
+        self.assertNotIn("blank_source_action", decision.program.to_portable_dict()["relationships"][0])
+        historical = replace(decision.program, compiler_version=11)
+        payload = historical.to_portable_dict()
+        self.assertEqual(payload["relationships"][0]["blank_source_action"], "source_rules")
+        restored = ColumnarTransformationProgram.from_portable_dict(payload)
+        self.assertEqual(restored, historical)
+        self.assertEqual(restored.content_hash, historical.content_hash)
 
     def test_one_unsupported_field_forces_whole_dataset_fallback(self) -> None:
         supported = ScalarFieldMapping(

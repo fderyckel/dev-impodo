@@ -91,6 +91,7 @@ def _workspace() -> MigrationWorkspace:
 
 
 def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute("DROP TABLE IF EXISTS business_intent_revision")
     connection.execute("DROP TABLE IF EXISTS supporting_review_projection")
     connection.execute("DROP TABLE IF EXISTS supporting_data_review")
     connection.execute("DROP TABLE IF EXISTS production_run_values")
@@ -471,6 +472,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                     ),
                     (20, 21, "workspace-engine-v20-to-v21-supporting-data-review"),
                     (21, 22, "workspace-engine-v21-to-v22-supporting-review-projection"),
+                    (22, 23, "workspace-engine-v22-to-v23-business-intent"),
                 ],
             )
             self.assertEqual(

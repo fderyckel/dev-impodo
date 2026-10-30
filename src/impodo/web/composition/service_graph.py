@@ -11,6 +11,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from impodo.application.business_intent_service import (
+    BusinessIntentRepository as BusinessIntentRepositoryPort,
+)
+from impodo.application.business_intent_service import BusinessIntentService
 from impodo.application.correction_execution import (
     CorrectionExecutionRepository,
     CorrectionExecutionService,
@@ -509,6 +513,7 @@ class AuthoringServiceGraph:
     row_inclusion_reviews: RowInclusionReviewService
     matching_order: MatchingOrderService
     recipe_application: RecipeApplicationService
+    business_intents: BusinessIntentService
 
 
 @dataclass(frozen=True, slots=True)
@@ -628,6 +633,7 @@ def build_authoring_service_graph(
     references: RecipeAuthoringReferenceRepository,
     recipe_parameters: RecipeAuthoringParameterRepository,
     supporting_lookups: MappingSupportingLookupReader,
+    business_intents: BusinessIntentRepositoryPort,
     downstream_invalidator: MappingDownstreamInvalidator,
     recipe_applications: AuthoringRecipeApplicationState,
     row_inclusion: AuthoringRowInclusionPorts,
@@ -745,6 +751,11 @@ def build_authoring_service_graph(
         row_inclusion_reviews=row_inclusion_reviews,
     )
     return AuthoringServiceGraph(
+        business_intents=BusinessIntentService(
+            workspaces=workspaces, sources=mapping_sources, schemas=schemas,
+            mappings=mappings, repository=business_intents,
+            authorization=foundation.workspace_access,
+        ),
         recipe_compiler=recipe_compiler,
         recipes=recipe_service,
         recipe_publication=recipe_publication,

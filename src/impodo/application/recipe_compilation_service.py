@@ -836,7 +836,6 @@ class RecipeCompiler:
                             portable(asdict(item)) for item in resolver.value_mappings
                         ],
                         "blank_source_values": list(relation.blank_source_values),
-                        "blank_source_action": relation.blank_source_action,
                     }
                 )
             result.append(

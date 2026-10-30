@@ -22,6 +22,7 @@ from typing import cast
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
+from impodo.adapters.duckdb.business_intent_repository import BusinessIntentRepository
 from impodo.adapters.duckdb.scoped_project_query import (
     LocalScopedMigrationProjectQuery,
 )
@@ -447,6 +448,7 @@ def create_local_app(
         references=advanced_coverage_repository,
         recipe_parameters=recipe_compilation_repository,
         supporting_lookups=supporting_lookup_repository,
+        business_intents=BusinessIntentRepository(database),
         downstream_invalidator=correction_repository,
         recipe_applications=recipe_application_state,
         row_inclusion=row_inclusion_review_repository,

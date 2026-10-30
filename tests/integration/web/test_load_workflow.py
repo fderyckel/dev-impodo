@@ -158,7 +158,18 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             page = self.client.get(
                 f"/workspaces/{workspace_state.workspace_id}/load/outcome"
             )
+            reconciliation.status.value = "FALLOUT"
+            reconciliation.unknown_count = 0
+            reconciliation.rows = (row("VERIFIED", "COMMITTED", 1, 41),
+                row("NOT_WRITTEN", "FAILED", 2), row("NOT_WRITTEN", "BLOCKED", 3))
+            with collect_duckdb_request_timings() as timings:
+                failed_page = self.client.get(f"/workspaces/{workspace_state.workspace_id}/load/outcome")
 
+        self.assertEqual(failed_page.status_code, 200, failed_page.text)
+        self.assertIn("1 written in Odoo · 1 rejected · 1 not attempted", failed_page.text)
+        self.assertIn("Odoo did not reject them individually", failed_page.text)
+        self.assertLessEqual(timings.connection_count, 6)
+        self.assertLessEqual(timings.schema_check_count, 3)
         self.assertEqual(page.status_code, 200, page.text)
         self.assertIn("1 verified", page.text)
         self.assertIn("1 need review", page.text)

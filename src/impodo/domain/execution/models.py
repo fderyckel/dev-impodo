@@ -10,6 +10,8 @@ from enum import StrEnum
 
 from impodo.domain.shared.models import canonical_json_bytes
 
+from .write_diagnostics import OdooWriteDiagnostic
+
 # This is a defensive process-level ceiling, not a recommended Odoo request
 # size.  The operator chooses the effective size for each load; constrained
 # hosted targets can remain at 10 while stronger/self-hosted targets can use a
@@ -76,10 +78,12 @@ class ExecutionRowAttempt:
     transport_phase: str = ""
     recovery_hash: str = ""
     projected_receipts: tuple[ProjectedOdooReceipt, ...] = ()
+    diagnostic: OdooWriteDiagnostic | None = None
 
     def __post_init__(self) -> None:
         if (
             self.source_row < 1
+            or (self.diagnostic is not None and self.diagnostic.model != self.target_model)
             or self.attempt < 0
             or self.schedule_component < -1
             or self.transport_page < -1
@@ -110,12 +114,18 @@ class ExecutionRowAttempt:
     def to_json(self) -> str:
         payload = asdict(self)
         payload["status"] = self.status.value
+        if self.diagnostic is None:
+            payload.pop("diagnostic", None)
+        else:
+            payload["diagnostic"] = self.diagnostic.to_dict()
         return canonical_json_bytes(payload).decode("utf-8")
 
     @classmethod
     def from_json(cls, value: str) -> ExecutionRowAttempt:
         payload = json.loads(value)
         return cls(
+            diagnostic=(OdooWriteDiagnostic.from_dict(payload["diagnostic"])
+                if payload.get("diagnostic") is not None else None),
             row_id=str(payload["row_id"]),
             dataset=str(payload["dataset"]),
             source_row=int(payload["source_row"]),

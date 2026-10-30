@@ -34,13 +34,14 @@ workspace selection and finalizes all logical outputs together. Shared physical
 inputs do not become additional input rows when another output reuses them.
 Each output retains its own complete physical lineage and reconciliation.
 
-Browser evaluator 8 normalizes generated-list references after explicit value
-matches. A Stage 3 `blank_source_action=leave_blank` emits a null reference for
-an empty source cell on an optional single-column Many2one. Required links,
-populated invalid paths, and unrelated extraction findings retain their checks.
-Lookup output omits empty members and keeps every contributing physical row
-for each nonempty canonical value. Historical evaluator-7 staging remains
-readable with its original hash.
+Browser evaluator 9 normalizes generated-list references after explicit value
+matches. Existing Many2one `required` flags govern all-blank keys; an optional
+link emits a null reference without an extra blank-handling action.
+`required_on_create` is enforced only after preflight identifies a creation.
+Populated invalid paths, partly filled keys, and unrelated extraction findings
+retain their checks. Lookup output omits empty members and keeps every
+contributing physical row for each nonempty canonical value. Historical
+evaluator-7 and evaluator-8 staging remain readable with their original hashes.
 
 ## Canonical rows and lineage
 

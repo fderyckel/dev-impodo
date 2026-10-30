@@ -36,6 +36,8 @@ from impodo.domain.execution.odoo_write import (
 )
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 
+from .write_diagnostics import import_rejection_diagnostic
+
 MAX_WRITE_BODY_BYTES = 1024 * 1024
 _EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")
 
@@ -246,7 +248,9 @@ class Json2WriteExecutor:
         identifiers = response.get("ids")
         messages = response.get("messages", [])
         if identifiers is False:
-            raise OdooWriteRejected(_safe_import_error(messages))
+            diagnostic = import_rejection_diagnostic(messages, model=model,
+                fields=field_names, batch_size=len(rows))
+            raise OdooWriteRejected(diagnostic.summary, diagnostic=diagnostic)
         if (
             not isinstance(identifiers, list)
             or any(type(item) is not int or item <= 0 for item in identifiers)
@@ -489,9 +493,3 @@ class Json2WriteExecutor:
                 "Odoo did not return a definitive write result; the outcome is unknown"
             )
         raise OdooWriteRejected(f"Odoo rejected the load request (HTTP {status})")
-
-
-def _safe_import_error(_messages: object) -> str:
-    """Return a fixed error because import details can contain secrets or data."""
-
-    return "Odoo rejected one or more imported rows"

@@ -389,7 +389,11 @@
           <p class="eyebrow">Odoo read-back complete</p>
           <h2 id="load-result-title">
             {% if reconciliation.status.value == 'FALLOUT' %}
+              {% if reconciliation_summary.rejected_count or reconciliation_summary.not_attempted_count %}
+              {{ reconciliation_summary.accepted_count }} written in Odoo · {{ reconciliation_summary.rejected_count }} rejected · {{ reconciliation_summary.not_attempted_count }} not attempted
+              {% else %}
               Odoo accepted {{ reconciliation_summary.accepted_count }} written record{{ 's' if reconciliation_summary.accepted_count != 1 else '' }}, but {{ reconciliation.fallout_count }} need review
+              {% endif %}
             {% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}
               {{ reconciliation.verified_count }} verified &middot;
               {{ reconciliation_summary.known_review_count }} need review &middot;
@@ -409,6 +413,9 @@
             {% endif %}
             <p><strong>{{ reconciliation_summary.different_count }} different &middot; {{ reconciliation_summary.missing_count }} missing &middot; {{ reconciliation_summary.not_written_count }} not written &middot; {{ reconciliation_summary.unknown_count }} unknown.</strong></p>
           {% else %}
+            {% if reconciliation_summary.rejected_count %}
+              <p>Loading stopped after Odoo rejected a write. Records marked not attempted were stopped afterward; Odoo did not reject them individually. Review the rejected row's diagnostic below.</p>
+            {% endif %}
             {% if reconciliation_summary.missing_count == 0 and reconciliation_summary.not_written_count == 0 and reconciliation_summary.unknown_count == 0 %}
               <p>These records were not rejected. Odoo accepted the write, then returned a different final value in {{ reconciliation_summary.affected_field_count }} field{{ 's' if reconciliation_summary.affected_field_count != 1 else '' }}.</p>
             {% else %}

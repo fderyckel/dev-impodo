@@ -43,7 +43,7 @@ from ..mapping.descriptions import transformation_rule_summary
 from ..serialization import content_hash, portable
 
 COLUMNAR_PROGRAM_CONTRACT_VERSION = 7
-COLUMNAR_COMPILER_VERSION = 11
+COLUMNAR_COMPILER_VERSION = 12
 
 
 class _DatasetIdentified(Protocol):
@@ -609,7 +609,7 @@ class ColumnarTransformationProgram:
 
     def to_portable_dict(self) -> dict[str, object]:
         payload = cast(dict[str, object], portable(asdict(self)))
-        if self.compiler_version < 11:
+        if self.compiler_version != 11:
             for relationship in cast(list[dict[str, object]], payload["relationships"]):
                 relationship.pop("blank_source_action", None)
         if self.compiler_version < 9:
@@ -1276,7 +1276,6 @@ def _compile_dataset(
                         for item in resolver.value_mappings
                     ),
                     blank_source_values=relationship.blank_source_values,
-                    blank_source_action=relationship.blank_source_action,
                 )
             )
             draft.use(

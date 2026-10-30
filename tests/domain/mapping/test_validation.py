@@ -315,12 +315,14 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(first.validation_hash, second.validation_hash)
         self.assertEqual(
             definition.content_hash,
-            "sha256:83cc806e2ad20fd762a6659620a5e135fde309702530afd02ff9ea243adddc58",
+            "sha256:cc54e87aff4bf8b2a0ce1b91e2305775681999f45c78c683656d32b9b62757a6",
         )
         self.assertEqual(
             first.validation_hash,
-            "sha256:28078619ce3cdcfc0545e0aae487bf8374db0f1e72295b629cc4e4334aece55a",
+            "sha256:72b020d446a90af79185c49f95145a0cb531dc848da9a8ca582688953df7cc08",
         )
+        self.assertEqual(replace(definition, contract_version=19).content_hash,
+            "sha256:83cc806e2ad20fd762a6659620a5e135fde309702530afd02ff9ea243adddc58")
         self.assertEqual(replace(definition, contract_version=18).content_hash,
             "sha256:5768f73b9c13389e64d19b1f6bcf97c7404794a5d9d076b9bcbfd73a188b2a6e")
         reversed_definition = replace(

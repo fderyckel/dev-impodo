@@ -75,6 +75,13 @@ The checked mapping can also produce an optional, read-only
 transformation-impact snapshot. That preview does not authorize submission or
 replace the required prepared-data review in Stage 4.
 
+The current checked mapping can also bind an explicit immutable
+[business-intent revision](business-intent.md). Its portable model, field,
+relationship, and count expectations retain their input hashes and verified
+Actor. Saving this revision does not approve a comparison or mutate execution
+evidence. Missing historical intent stays absent until an authorized explicit
+save; schema upgrades create no approval.
+
 The engine's flat `WorkspaceState` object is a workbench projection over these
 owners. It is not another identity or lifecycle. Project fields come from
 `MigrationProject`; source fields come from the DataVersion package; mutable
@@ -148,7 +155,7 @@ versions and content identity. A rejected or pending receipt never validates,
 submits, or otherwise authorizes mapping evidence. Pending means the outcome is
 still unknown and forbids automatic mutation replay.
 
-The exact current mapping contract is version 19. It binds an explicit
+The exact current mapping contract is version 20. It binds an explicit
 closed-domain policy for every scalar selection and relationship. Application
 validation scans each affected physical dataset once across all relevant
 fields and embeds immutable `CategoricalCoverageEvidence` in validation
@@ -185,13 +192,12 @@ policy that ignores source nulls cannot accept this decision. The list is
 part of mapping identity and portable Recipe meaning. Earlier contracts omit
 the field and retain their original serialization and content hashes.
 
-Mapping contract version 19 adds `blank_source_action` to source-provided
-Many2one mappings. `source_rules` retains the saved source rule; `leave_blank`
-allows an optional single-column link to be empty when its source cell is
-empty. Required fields and a policy that ignores source nulls cannot accept
-this override. The choice belongs to Stage 3 mapping and Recipe meaning; it
-does not edit the source-preparation plan. Earlier versions omit the field
-and retain their original hashes.
+Mapping contract version 20 removes the redundant `blank_source_action`
+introduced in v19. Current mappings and Recipes use existing Many2one
+requiredness flags; an empty optional link is valid. The exact v19 layout
+remains readable and hashable. Upgrading to v20 discards the obsolete action
+without changing the requiredness flags or source-preparation plan.
+Historical v19 and earlier evidence retains its original content hash.
 
 Mapping contract version 13 added the optional captured projection used when
 Odoo creates a relationship target from an imported source record. Version 14

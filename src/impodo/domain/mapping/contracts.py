@@ -32,9 +32,9 @@ from ..serialization import canonical_json as _canonical_json
 from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
-MAPPING_CONTRACT_VERSION = 19
+MAPPING_CONTRACT_VERSION = 20
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
-    {12, 13, 14, 15, 16, 17, 18, MAPPING_CONTRACT_VERSION}
+    {12, 13, 14, 15, 16, 17, 18, 19, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
 # Exact categorical policies do not require one authored mapping per source
@@ -698,20 +698,13 @@ class RelationshipMapping:
     value_source: RelationshipValueSource = RelationshipValueSource.SOURCE
     constant_reference: ConstantBusinessReference | None = None
     blank_source_values: tuple[str, ...] = ()
+    # Retained only to read and hash the exact historical v19 layout.
     blank_source_action: str = "source_rules"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_column_keys", tuple(self.source_column_keys))
         if self.blank_source_action not in {"source_rules", "leave_blank"}:
             raise ValueError("Blank source action is unsupported")
-        if self.blank_source_action == "leave_blank" and (
-            self.kind != "many2one"
-            or len(self.source_column_keys) != 1
-            or self.value_source != RelationshipValueSource.SOURCE
-            or self.required or self.required_on_create
-            or self.null_policy == "ignore_source_null"
-        ):
-            raise ValueError("Leave blank requires an optional single-column many2one and a policy that compares blanks")
         if not isinstance(self.blank_source_values, (tuple, list)) or any(
             not isinstance(value, str) for value in self.blank_source_values
         ):
@@ -981,6 +974,27 @@ class MappingDefinition:
     def __post_init__(self) -> None:
         if self.contract_version not in SUPPORTED_MAPPING_CONTRACT_VERSIONS:
             raise UnsupportedMappingContractError(self.contract_version)
+        if self.contract_version == 19 and any(
+            relation.blank_source_action == "leave_blank" and (
+                relation.kind != "many2one"
+                or len(relation.source_column_keys) != 1
+                or relation.value_source != RelationshipValueSource.SOURCE
+                or relation.required or relation.required_on_create
+                or relation.null_policy == "ignore_source_null"
+            ) for dataset in self.datasets for relation in dataset.relationships
+        ):
+            raise ValueError("Mapping v19 leave blank requires an optional single-column many2one and a policy that compares blanks")
+        if self.contract_version >= 20 and any(
+            relation.blank_source_action != "source_rules"
+            for dataset in self.datasets for relation in dataset.relationships
+        ):
+            object.__setattr__(self, "datasets", tuple(
+                replace(dataset, relationships=tuple(
+                    replace(relation, blank_source_action="source_rules")
+                    if relation.blank_source_action != "source_rules" else relation
+                    for relation in dataset.relationships
+                )) for dataset in self.datasets
+            ))
         if self.contract_version < 14 and any(
             field.value_source is ScalarValueSource.CONCATENATE
             or field.concatenation is not None
@@ -1239,7 +1253,7 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
-    if contract_version < 19:
+    if contract_version != 19:
         for relationship in payload.get("relationships", ()):
             relationship.pop("blank_source_action", None)
     if contract_version < 18:
@@ -1616,7 +1630,7 @@ def _relationship_from_dict(
     contract_version: int,
 ) -> RelationshipMapping:
     expected_fields = _contract_fields(RelationshipMapping)
-    if contract_version < 19:
+    if contract_version != 19:
         expected_fields.remove("blank_source_action")
     if contract_version < 18:
         expected_fields.remove("blank_source_values")

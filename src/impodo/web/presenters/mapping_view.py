@@ -2259,6 +2259,14 @@ def _mapping_dataset_views(
                 identity_rows.append(
                     {
                         "target_field": target_field,
+                        "original_spelling_column": (
+                            next((column for column in source_dataset.columns
+                                  if column.stable_key == derived_link.name_column_key), None)
+                            if derived_link is not None and component is not None
+                            and target_field == derived_link.target_name_field
+                            and component.source_column_keys == (derived_link.canonical_key_column_key,)
+                            else None
+                        ),
                         "scope": target_field in selected_key.scope_fields,
                         "metadata": metadata,
                         "relational": (

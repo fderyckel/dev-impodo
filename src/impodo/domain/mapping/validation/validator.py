@@ -21,7 +21,7 @@ from impodo.domain.workspace.reference_keys import (
 from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 
 from ...odoo.compatibility import OdooOperation, assess_odoo_operation
-from ...odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ...odoo_source_policy import is_pinned_write_field as _is_pinned_write_field
 from ...relationship_dependencies import extract_dataset_dependency_edges
 from ...schema.governance import SchemaGovernance
 from ...source_binding import OdooSourceBinding, SourceOriginKind
@@ -59,21 +59,6 @@ from .identities import (
 from .relationships import _validate_relationship
 from .row_inclusion import _validate_row_inclusion
 from .scalars import _validate_scalar
-
-
-def _is_pinned_write_field(metadata: object) -> bool:
-    """Apply the fail-closed Tier-1 write policy to captured schema evidence."""
-
-    return bool(
-        getattr(metadata, "type", None)
-        in CURRENT_ODOO_SOURCE_POLICY.writable_field_types
-        and getattr(metadata, "stored", None) is True
-        and getattr(metadata, "readonly", None) is False
-        and getattr(metadata, "computed", None) is False
-        and getattr(metadata, "related", None) is False
-        and getattr(metadata, "translated", None) is False
-        and getattr(metadata, "company_dependent", None) is False
-    )
 
 
 def _claim_target(

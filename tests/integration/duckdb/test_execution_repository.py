@@ -21,6 +21,7 @@ from impodo.domain.execution.models import (
     ExecutionRunStatus,
     ProjectedOdooReceipt,
 )
+from impodo.domain.execution.write_diagnostics import OdooWriteDiagnostic, WriteFailureCode
 from impodo.domain.reconciliation import (
     ReconciliationRow,
     ReconciliationRowStatus,
@@ -44,8 +45,7 @@ TARGET_HASH = "sha256:" + "2" * 64
 
 class ExecutionRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.database = DuckDbWorkspaceDatabase(self.temporary.name)
         self.workspace_states = WorkspaceStateRepository(self.database)
         self.repository = ExecutionRepository(self.database)
@@ -90,6 +90,17 @@ class ExecutionRepositoryTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_rejection_diagnostic_survives_repository_reopen(self) -> None:
+        run = self._run()
+        self.repository.start_run(self.workspace_state.workspace_id, run, actor=LOCAL_ACTOR)
+        started = self._start_batch(run, (run.rows[0],), phase="CREATE", batch=0)[0]
+        diagnostic = OdooWriteDiagnostic(WriteFailureCode.VALIDATION, "res.partner", "load", fields=("name",))
+        failed = replace(started, status=ExecutionRowStatus.FAILED, safe_error=diagnostic.summary, diagnostic=diagnostic)
+        self.repository.record_outcomes(self.workspace_state.workspace_id, run.run_id, (failed,))
+        reopened = ExecutionRepository(self.database).get_run(self.workspace_state.workspace_id, run.run_id)
+        self.assertIsNotNone(reopened)
+        self.assertEqual(reopened.rows[0], failed)
 
     def _run(self) -> ExecutionRun:
         rows = tuple(
@@ -255,6 +266,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
             finished,
         )
         self.assertEqual(finished.batch_rows, 10)
+        self.assertIsNone(finished.rows[0].diagnostic)
         path = self.workspace_states.workspace_directory(self.workspace_state.workspace_id) / "workspace-engine.duckdb"
         with self.workspace_states._connect(path) as connection:
             events = connection.execute(

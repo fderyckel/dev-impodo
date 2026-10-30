@@ -484,6 +484,14 @@ table)** in the browser so it remains distinguishable from the original source
 table. That wording is presentation only; the saved relationship continues to
 use the generated dataset identifier and complete-path business key.
 
+For a generated list whose target-name identity still reads `canonical_key`,
+the identity presenter offers **Use original spelling**. The action selects
+the generated display-name column in the editor; it does not silently migrate
+saved mappings. **Save progress**, checking, and confirmation use the existing
+mapping lifecycle. Source identity and the derived plan stay unchanged.
+The [browser regression](../../../tests/e2e/test_generated_display_names.py)
+checks saving and reopening this choice without rebuilding the list.
+
 Version 14 retains the `conditional_rules` scalar provider introduced in
 version 12. A `SelectionRuleSet` preserves author order, applies
 first-match-wins semantics, and ends with either one captured Odoo technical
@@ -562,23 +570,31 @@ publication and application preserve the decisions, and Recipe review labels
 them **Leave blank (no linked record)** without requiring a target choice.
 Historic mapping versions retain their original field layout and hashes.
 
-Mapping contract v19 adds `RelationshipMapping.blank_source_action`, with
-`source_rules` as the compatibility default and `leave_blank` as an explicit
-per-field override for empty source cells. The Stage 3 control is **If the source
-value is blank**. Only optional, source-provided, single-column Many2one fields
-can use the override. Captured requiredness, either authored required flag, and
-`ignore_source_null` reject it. Partially populated composite keys cannot use
-it. Recipe compilation and application retain the action. Earlier mapping
-contracts omit it from their exact serialized layouts and hashes; columnar
-compiler v11 retains it in current program identity while preserving earlier
-program serialization. The shared row transformer applies the choice before
-generated-list reference checks. It retains checks for populated malformed
-values and keeps the Stage 1 source plan unchanged.
+Mapping contract v20 uses the existing `required` and `required_on_create`
+settings for every Many2one resolver origin. The Stage 3 **Must have a value**
+checkbox requires a populated reference. **Required for new records** is
+enforced when preflight classifies a record as a creation; captured Odoo
+requiredness remains authoritative. A genuinely empty optional key produces
+no reference even when an extraction rule normally sets blank rows aside.
+Partially filled keys, malformed populated paths, and missing target matches
+retain their checks. Hierarchy fallback values and incomplete-path rules
+still apply. The comparison null policy remains independent of requiredness.
+
+Current authoring and Recipes omit the obsolete `blank_source_action` control
+introduced in v19. Exact v19 decoding and serialization remain available for
+historical hashes. Upgrading a mapping discards that redundant action; old
+Recipes rebind using their existing requiredness flags. Columnar compiler v12
+omits it from new programs while preserving the v11 layout when reading
+history. Browser evaluator v9 invalidates earlier prepared evidence without
+rewriting it. This changes no DuckDB query or connection ownership.
 
 [`test_lookup_blank_source.py`](../../../tests/domain/preparation/test_lookup_blank_source.py)
 checks optional empty links, retained required checks, populated values, and
 malformed paths. [`test_mapping_form_roundtrip.py`](../../../tests/integration/web/test_mapping_form_roundtrip.py)
-checks that reopening and saving the field retains the action.
+checks that reopening and saving retains requiredness without an extra control.
+[`test_optional_many2one.py`](../../../tests/domain/preparation/test_optional_many2one.py)
+checks optional blanks, required blanks, create-only requiredness, and populated
+missing references for all three resolver origins.
 
 `CategoricalCoverageService` uses `LogicalSourceValues` for reviewed grouped
 exact-join outputs. `JoinedMappingSourceValues` verifies the saved review,

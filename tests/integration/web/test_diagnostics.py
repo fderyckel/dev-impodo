@@ -45,6 +45,9 @@ from impodo.domain.odoo.contracts import (
     ConnectorTransportError,
     MetadataRequest,
 )
+from impodo.domain.execution.models import ExecutionRowAttempt, ExecutionRowStatus
+from impodo.domain.execution.write_diagnostics import OdooWriteDiagnostic, WriteFailureCode
+from impodo.web.routers.execution import _record_write_diagnostics
 from impodo.web.app import create_local_app
 from impodo.web.diagnostics import (
     DIAGNOSTIC_LOG_NAME,
@@ -251,6 +254,28 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
         self.assertEqual(record["total_rows"], 100)
         self.assertTrue(record["slow"])
         self.assertNotIn("workspace_id", record)
+
+    def test_write_rejection_support_event_omits_business_context(self) -> None:
+        diagnostic = OdooWriteDiagnostic(
+            WriteFailureCode.REQUIRED_VALUE, "x.private", "load", fields=("name",)
+        )
+        row = ExecutionRowAttempt(
+            "private-row", "private-dataset", 2, "x.private", "CREATE",
+            ("name",), "private.external_id", status=ExecutionRowStatus.FAILED,
+            diagnostic=diagnostic,
+        )
+        with _diagnostic_test_directory("impodo-write-rejection") as directory:
+            recorder = LocalDiagnosticRecorder(directory)
+            _record_write_diagnostics(recorder, (row, row))
+            recorder.close()
+            payload = (directory / DIAGNOSTIC_LOG_NAME).read_text(encoding="utf-8")
+            record = json.loads(payload)
+        self.assertEqual(record["stage"], "write_result")
+        self.assertEqual(record["outcome"], "rejected")
+        self.assertEqual(record["reason"], "ODOO_REQUIRED_VALUE_MISSING")
+        self.assertEqual(record["total_rows"], 2)
+        self.assertNotIn("private", payload)
+        self.assertNotIn("fields", record)
 
     def test_operation_stage_records_bounded_related_data_pass_counts(
         self,
@@ -957,6 +982,28 @@ class ClosedConnectionSafeH11ProtocolTests(unittest.TestCase):
 
 
 class ServerSupervisorTests(unittest.TestCase):
+    def test_listener_check_rejects_bound_and_closed_sockets(self) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+            self.assertFalse(listener_is_owned_loopback(listener, port))
+            listener.listen(1)
+            self.assertTrue(listener_is_owned_loopback(listener, port))
+            self.assertFalse(listener_is_owned_loopback(listener, port + 1))
+        self.assertFalse(listener_is_owned_loopback(listener, port))
+
+    def test_darwin_listener_query_requires_exact_listen_state(self) -> None:
+        listener = Mock()
+        listener.getsockname.return_value = ("127.0.0.1", 50000)
+        listener.fileno.return_value = 10
+        with patch("impodo.web.server_supervisor.sys.platform", "darwin"):
+            for state in (b"", b"\x00", b"\x04"):
+                listener.getsockopt.return_value = state
+                self.assertFalse(listener_is_owned_loopback(listener, 50000))
+            listener.getsockopt.return_value = b"\x01"
+            self.assertTrue(listener_is_owned_loopback(listener, 50000))
+        listener.getsockopt.assert_called_with(socket.IPPROTO_TCP, 0x106, 1)
+
     @unittest.skipUnless(os.name == "nt", "Windows event loop only")
     def test_windows_server_uses_selector_event_loop(self) -> None:
         server = Mock()

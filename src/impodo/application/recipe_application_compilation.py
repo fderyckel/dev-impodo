@@ -1658,7 +1658,6 @@ class RecipeApplicationCompiler:
         }
         return RelationshipMapping(
             blank_source_values=item.get("blank_source_values", ()),
-            blank_source_action=str(item.get("blank_source_action", "source_rules")),
             target_field=str(item["target_field"]),
             kind=str(item["kind"]),
             source_column_keys=tuple(

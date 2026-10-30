@@ -113,6 +113,7 @@ class StaticAssetOwnershipTests(unittest.TestCase):
         expected_assets = {
             "mapping/page.html": (
                 "/mapping-save-recovery.js",
+                "/mapping-source-columns.js",
                 "/mapping-editor.js",
                 "/mapping-relation-row.js",
                 "/mapping-formula-validation.js",

@@ -51,7 +51,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const form = event.target;
       if (!(form instanceof HTMLFormElement)) return;
       if (form.target && form.target.toLowerCase() !== "_self") return;
-      const destination = new URL(form.action || window.location.href);
+      const destination = new URL(
+        form.getAttribute("action") || window.location.href,
+        window.location.href
+      );
       if (destination.origin !== window.location.origin) return;
       const method = (form.method || "get").toLowerCase();
       if (method === "dialog") return;

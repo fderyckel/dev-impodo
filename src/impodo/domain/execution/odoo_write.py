@@ -5,12 +5,18 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
+from .write_diagnostics import OdooWriteDiagnostic
+
 MAX_IDENTITY_LOOKUP_KEYS = 100
 MAX_PROJECTED_RECEIPT_IDS = 500
 
 
 class OdooWriteError(RuntimeError):
     """Base class for safe Odoo load failures."""
+
+    def __init__(self, message: str, *, diagnostic: OdooWriteDiagnostic | None = None) -> None:
+        super().__init__(message)
+        self.diagnostic = diagnostic
 
 
 class OdooWriteRejected(OdooWriteError):

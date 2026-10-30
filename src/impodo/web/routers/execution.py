@@ -24,8 +24,13 @@ from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.workspace.access import WorkspaceAccessContext
 from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
 from impodo.domain.correction_origin import CorrectionOriginError
-from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS, ExecutionRunStatus
+from impodo.domain.execution.models import (
+    MAX_CREATE_BATCH_ROWS,
+    ExecutionRowAttempt,
+    ExecutionRunStatus,
+)
 from impodo.domain.execution.odoo_readback import OdooReadbackError
+from impodo.domain.execution.write_diagnostics import WriteFailureCode
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.project.foundation import MigrationConflictError
 from impodo.domain.reconciliation import ReconciliationRun
@@ -376,6 +381,26 @@ def _diagnostic_load_stage(
                 stage,
                 duration_ms=(perf_counter() - started) * 1000,
             )
+
+
+def _record_write_diagnostics(
+    recorder: LocalDiagnosticRecorder | None,
+    rows: Sequence[ExecutionRowAttempt],
+) -> None:
+    """Include aggregate failure codes in support bundles without row data."""
+
+    if recorder is None:
+        return
+    counts = Counter(row.diagnostic.code for row in rows if row.diagnostic is not None)
+    for code, count in sorted(counts.items()):
+        recorder.record_operation_stage(
+            "odoo_load",
+            "write_result",
+            duration_ms=0,
+            outcome="unknown" if code is WriteFailureCode.UNKNOWN else "rejected",
+            reason=code.value,
+            total_rows=count,
+        )
 
 
 def _load_job_display_context(
@@ -1464,6 +1489,7 @@ def build_execution_router(
                             ),
                             progress=report_writing,
                         )
+                _record_write_diagnostics(diagnostic_recorder, run.rows)
                 report_verifying(run)
                 try:
                     with _diagnostic_load_stage(diagnostic_recorder, "verification"):
@@ -2052,6 +2078,8 @@ def _reconciliation_summary(report):
     unknown_count = statuses["OUTCOME_UNKNOWN"]
     return SimpleNamespace(
         accepted_count=sum(row.odoo_id is not None for row in report.rows),
+        rejected_count=sum(row.execution_status == "FAILED" for row in report.rows),
+        not_attempted_count=sum(row.execution_status == "BLOCKED" for row in report.rows),
         different_count=statuses["DIFFERENT"],
         missing_count=statuses["MISSING"],
         not_written_count=(statuses["NOT_WRITTEN"] + statuses["NOT_APPLIED"]),

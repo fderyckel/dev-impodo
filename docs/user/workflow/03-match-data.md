@@ -364,20 +364,24 @@ Recipe run checks new choices separately.
 
 ![The Match values dialog explicitly maps TO_DEFINE to Leave blank while retaining a linked record for Standard.](../../images/user/03c-many2one-leave-blank.png)
 
-For source cells that are already empty, choose **Leave the related field blank**
-under **If the source value is blank** on the linked field in Match data.
-For example, a customer with no Company chain can remain in the import with
-that optional link empty. Leave **Must have a value** and **Required for new
-records** unchecked in **Support options**. Populated values still need a valid
-match. This choice is saved per field and is retained in the Recipe.
+For source cells that are already empty, leave **Must have a value** unchecked
+in the linked field's **Support options**. For example, a customer with no
+Company chain remains in the import with that optional link empty. There is
+no extra blank-handling dropdown. **Required for new records** requires a
+value only when Impodo creates a record; Odoo's own required fields still
+apply. Populated source values must match a valid record.
 
-Stage 1 defines the reusable list; Stage 3 decides whether each field using
-that list may be empty. **Use the saved source rules** retains the existing
-blank handling. The separate blank-comparison choice controls how preparation
-compares the result with Odoo. To prepare an empty link, keep a policy that
-compares blanks rather than **Ignore blank source values**.
+These rules apply to existing Odoo records, incoming tables, and combined
+tables. A reusable list contains only its nonempty entries; accepting an
+empty optional link does not create an empty related record. The Recipe
+retains the requiredness settings. A partially filled key or incomplete
+hierarchy still needs review.
 
-![Match data keeps an optional linked field blank when the source cell is empty.](../../images/user/16g-optional-linked-field-blank.png)
+The separate blank-comparison choice controls what happens to an existing
+Odoo value. **Ignore blank source values** keeps that value during an update.
+It does not make the source field required.
+
+![Support options show the existing requiredness checkboxes unchecked for an optional linked field.](../../images/user/16g-optional-linked-field-blank.png)
 
 This works for linked single-record fields, including custom fields, using
 the related Odoo record type and its reviewed matching rule. For example, a
@@ -419,6 +423,21 @@ many2one. Both relationships use complete generated path keys rather than a
 combined label or final record name.
 
 ![Current combined-source-column controls for a fictional Contact text field.](../../images/user/11e-mapping-combined-columns.png)
+
+### Preserve source spelling in a reusable list
+
+For a generated reusable list, use **Name** when an Odoo name or reference
+should retain the source spelling. For example, a Company chain named
+`Northwind Supply` should keep that capitalization in Odoo. Keep **Name matching
+key** as the **Unique row identifier** for the generated source rows.
+
+If an older mapping uses the internal matching key for the Odoo field, select
+**Use original spelling**, then **Save progress** and **Check matches**. This
+changes the field's source column and preserves the generated list. If those
+records were already loaded, correct the existing Odoo records before loading
+again.
+
+![Use original spelling replaces a normalized matching key with the generated Name column for the Odoo field.](../../images/user/03d-generated-original-spelling.png)
 
 ### Match a generated hierarchy and its original table
 

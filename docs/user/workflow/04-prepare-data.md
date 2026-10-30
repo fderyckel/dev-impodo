@@ -164,10 +164,11 @@ keeps each source row accounted for once, even when both tables use it.
 
 A combined table can also prepare beside a reusable list extracted from one
 source column. For example, customers and their generated Company chain list
-can prepare together. If that optional link may be empty, choose **Leave the
-related field blank** on the field in **Match data**, then check and confirm
-the field matches again. Preparation keeps those customers eligible without
-creating an empty entry in the related list.
+can prepare together. If that optional link may be empty, leave **Must have a
+value** unchecked in **Match data**. Leave **Required for new records**
+unchecked when new customers may also have no chain. Check and confirm the
+field matches after changing these settings. Preparation keeps those
+customers eligible without creating an empty entry in the related list.
 
 For reviewed exact combinations, a large source count is a notice rather than
 a preparation cutoff. The complete route has been checked with 65,299 and

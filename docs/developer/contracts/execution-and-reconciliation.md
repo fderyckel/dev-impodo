@@ -183,6 +183,38 @@ the projected identifier until that journal transition succeeds. The adapter
 does not infer Product or BOM model names or expose a caller-selected Odoo
 method.
 
+## Safe write diagnostics
+
+Every newly rejected or uncertain write retains an `OdooWriteDiagnostic` in
+the affected attempt's existing JSON journal payload. Historical payloads
+without that optional member retain their original serialized form. The
+diagnostic binds the model, operation, bounded batch size, safe reason code,
+and any validated server-reported field or batch range. A batch range is
+reported only when all inspected errors identify the same valid range and the
+message list was not truncated. This does not identify a faulty source row
+when Odoo rejects a whole batch.
+
+The import adapter inspects bounded server messages transiently. It stores a
+fingerprint and message count, never arbitrary message text or submitted
+values. Field names must belong to the reviewed request. An unrecognized or
+missing error retains operation context and a generic rejection code; it must
+not invent a root cause. Create, update, completion, and uncertain outcomes
+have a generic fallback when no structured diagnostic is supplied.
+
+The support log records only aggregate reason codes and affected-attempt
+counts after execution returns. Neither that projection nor diagnostic
+serialization opens another database connection or makes an Odoo request.
+Retry, authorization, journal transactions, and unknown-outcome semantics are
+unchanged. A historic error that was discarded cannot be reconstructed.
+
+`plan_generated_name_repairs` is an export-only helper for a flat generated
+list whose confirmed load used its normalized key as the target name. It
+requires the exact mapping, rule, unambiguous original display candidates, and
+unique verified create receipts. Its result binds each proposed name to the
+saved Odoo and External IDs. It has no writer and grants no load authority.
+Applying an exported correction requires review against the same target and
+current records; a fresh comparison must follow before another migration load.
+
 ## Unknown outcomes, interruption, and retry
 
 A connection reset, timeout, or wrapped upstream error may leave target state

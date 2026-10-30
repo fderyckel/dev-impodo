@@ -1827,6 +1827,10 @@ class ExecutionServiceTests(unittest.TestCase):
         self.assertEqual(executor.updates, [])
         self.assertEqual(run.failed_count, 1)
         self.assertEqual(run.blocked_count, 2)
+        failed = next(row for row in run.rows if row.status is ExecutionRowStatus.FAILED)
+        self.assertIsNotNone(failed.diagnostic)
+        self.assertEqual(failed.diagnostic.model, failed.target_model)
+        self.assertEqual(type(failed).from_json(failed.to_json()), failed)
 
     def test_partial_cycle_resumes_only_the_exact_completion_fields(self):
         snapshot = _remote_cycle_snapshot()
@@ -3943,7 +3947,7 @@ class Json2WriteExecutorTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             OdooWriteRejected,
-            "rejected one or more imported rows",
+            "requires a value",
         ) as caught:
             rejected.load_create_rows(
                 "res.partner",

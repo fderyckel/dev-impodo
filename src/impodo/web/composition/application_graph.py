@@ -381,6 +381,7 @@ def build_web_context(
         derived_entities=support.derived_entities,
         schema_workspace=authoring.schema_workspace,
         mapping_workspace=authoring.mapping_workspace,
+        business_intents=authoring.business_intents,
         matching_order=authoring.matching_order,
         supporting_lookups=support.supporting_lookups,
         recipe_target_matches=support.recipe_target_matches,

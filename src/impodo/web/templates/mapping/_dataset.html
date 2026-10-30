@@ -140,6 +140,12 @@
                           {% endfor %}
                         </select>
                       </label>
+                      {% if row.original_spelling_column %}
+                        <div class="notice warning" data-original-spelling-warning>
+                          <p>This field uses an internal matching key that normalizes case. Use <strong>{{ row.original_spelling_column.source_name }}</strong> to preserve the source spelling in Odoo. If these records were already loaded, correct the existing records before loading again.</p>
+                          <button type="button" class="button secondary compact" data-use-original-spelling data-column-key="{{ row.original_spelling_column.stable_key }}">Use original spelling</button>
+                        </div>
+                      {% endif %}
                       {% if row.relational %}
                         <label>
                           Where should Impodo find the related record?

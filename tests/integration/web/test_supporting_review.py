@@ -8,6 +8,7 @@ from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.adapters.duckdb.unit_of_work import _read_databases
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.shared.models import FieldMetadata, ModelMetadata, TargetRecord
+from impodo.domain.shared.schema import WORKSPACE_SCHEMA_VERSION
 from impodo.domain.workspace.contracts import SchemaField
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.supporting_sources import SupportingSourceLimitError
@@ -196,6 +197,7 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
         path = repository.workspace_directory(self.workspace_id) / "workspace-engine.duckdb"
         with repository._connect(path) as connection:
             original = connection.execute("SELECT review_json FROM supporting_data_review").fetchone()[0]
+            connection.execute("DROP TABLE business_intent_revision")
             connection.execute("DROP TABLE supporting_review_projection")
             connection.execute("UPDATE schema_version SET version = 21")
         self.assertEqual(service.current(self.workspace_id, actor=self.actor), review)
@@ -203,7 +205,7 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(service.rebuild_summary(self.workspace_id, actor=self.actor).evidence_hash, review.content_hash)
         with repository._connect(path) as connection:
             self.assertEqual(connection.execute("SELECT review_json FROM supporting_data_review").fetchone()[0], original)
-            self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], 22)
+            self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], WORKSPACE_SCHEMA_VERSION)
 
     def test_oversized_metadata_shows_blocking_issue_without_a_partial_save_form(self):
         before_calls = len(self.readiness_calls)

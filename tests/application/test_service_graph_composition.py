@@ -90,6 +90,7 @@ class AuthoringServiceGraphTests(unittest.TestCase):
             references=references,
             recipe_parameters=recipe_parameters,
             supporting_lookups=supporting_lookups,
+            business_intents=schemas,
             downstream_invalidator=downstream_invalidator,
             recipe_applications=recipe_applications,
             row_inclusion=row_inclusion,
@@ -101,6 +102,8 @@ class AuthoringServiceGraphTests(unittest.TestCase):
         )
 
         self.assertIs(graph.recipe_compiler.sources, mapping_sources)
+        self.assertIs(graph.business_intents.repository, schemas)
+        self.assertIs(graph.business_intents.sources, mapping_sources)
         self.assertIs(graph.recipe_compiler.mappings, mappings)
         self.assertIs(graph.recipe_publication.compiler, graph.recipe_compiler)
         self.assertIs(graph.recipes.repository, recipes)

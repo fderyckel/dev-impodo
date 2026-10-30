@@ -7,6 +7,7 @@ import logging.config
 import multiprocessing
 import os
 import socket
+import sys
 import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -219,12 +220,19 @@ def listener_is_owned_loopback(listener: socket.socket, port: int) -> bool:
 
     try:
         host, observed_port = listener.getsockname()[:2]
-        accepting = listener.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN)
+        if sys.platform == "darwin":
+            # Darwin exposes this through TCP_CONNECTION_INFO, not SO_ACCEPTCONN.
+            # Public netinet/tcp.h: option 0x106, first byte tcpi_state;
+            # netinet/tcp_fsm.h: TCPS_LISTEN == 1. Read state without accepting
+            # a browser connection or turning a bound socket into a listener.
+            accepting = listener.getsockopt(socket.IPPROTO_TCP, 0x106, 1) == b"\x01"
+        else:
+            accepting = listener.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN) == 1
         return (
             listener.fileno() >= 0
             and host == "127.0.0.1"
             and int(observed_port) == int(port)
-            and accepting == 1
+            and accepting
         )
     except OSError:
         return False

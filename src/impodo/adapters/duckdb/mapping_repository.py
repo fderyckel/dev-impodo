@@ -678,6 +678,7 @@ class MappingRepository(DuckDbRepository):
               FROM mapping_validation
              WHERE version = ?
              ORDER BY created_at DESC, validation_hash
+             LIMIT 1
             """,
             [version],
         )

@@ -34,9 +34,20 @@ def relationship(**changes):
 
 
 class RelationshipBlankValuesTests(unittest.TestCase):
+    def test_old_recipe_blank_action_does_not_override_current_requiredness(self):
+        from impodo.application.recipe_application_compilation import RecipeApplicationCompiler
+
+        legacy = {"target_field": "x_link_id", "kind": "many2one", "source_column_ids": ["old-choice"],
+            "target_model": "x.label", "blank_source_action": "leave_blank"}
+        for required in (False, True):
+            rebound = RecipeApplicationCompiler()._relationship({**legacy, "required": required}, {"old-choice": "current-choice"})
+            self.assertEqual(rebound.required, required)
+            self.assertEqual(rebound.source_column_keys, ("current-choice",))
+            self.assertEqual(rebound.blank_source_action, "source_rules")
+
     def test_blank_source_action_is_versioned_and_does_not_change_old_hashes(self):
         relation = relationship(blank_source_values=(), blank_source_action="leave_blank")
-        definition = MappingDefinition("mapping", "source", "schema", datasets=(DatasetMapping("records", "x_record", relationships=(relation,)),))
+        definition = MappingDefinition("mapping", "source", "schema", datasets=(DatasetMapping("records", "x_record", relationships=(relation,)),), contract_version=19)
         self.assertEqual(MappingDefinition.from_dict(definition.to_dict()), definition)
         with self.assertRaisesRegex(ValueError, "v19"):
             replace(definition, contract_version=18)
@@ -44,11 +55,19 @@ class RelationshipBlankValuesTests(unittest.TestCase):
         self.assertNotIn("blank_source_action", str(old.to_dict()))
         self.assertEqual(MappingDefinition.from_dict(old.to_dict()).content_hash, old.content_hash)
         self.assertNotEqual(old.content_hash, definition.content_hash)
+        current = replace(definition, contract_version=20)
+        self.assertNotIn("blank_source_action", str(current.to_dict()))
+        self.assertEqual(current.datasets[0].relationships[0].blank_source_action, "source_rules")
+        self.assertEqual(MappingDefinition.from_dict(current.to_dict()), current)
+        required = replace(relation, required=True)
+        upgraded = replace(current, datasets=(replace(current.datasets[0], relationships=(required,)),))
+        self.assertTrue(upgraded.datasets[0].relationships[0].required)
 
     def test_blank_source_action_rejects_required_list_constant_or_partial_keys(self):
         for changes in ({"required": True}, {"required_on_create": True}, {"kind": "many2many"}, {"source_column_keys": ("choice", "scope")}, {"null_policy": "ignore_source_null"}):
             with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, "optional single-column many2one"):
-                relationship(blank_source_values=(), blank_source_action="leave_blank", **changes)
+                relation = relationship(blank_source_values=(), blank_source_action="leave_blank", **changes)
+                MappingDefinition("mapping", "source", "schema", datasets=(DatasetMapping("records", "x_record", relationships=(relation,)),), contract_version=19)
 
     def test_captured_required_field_rejects_a_blank_despite_optional_authored_flags(
         self,
@@ -76,7 +95,7 @@ class RelationshipBlankValuesTests(unittest.TestCase):
         governance = fixtures._schema_governance(schema)
         definition = fixtures._valid_definition(selection, governance)
         partner = definition.datasets[1]
-        for changes in ({"blank_source_values": ("TO_DEFINE",)}, {"blank_source_action": "leave_blank"}):
+        for changes in ({"blank_source_values": ("TO_DEFINE",)},):
             relation = replace(partner.relationships[0], categorical_policy=CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH, **changes)
             modified = replace(definition, datasets=(definition.datasets[0], replace(partner, relationships=(relation,))))
             result = MappingSemanticValidator().validate(modified, selection, schema, governance)

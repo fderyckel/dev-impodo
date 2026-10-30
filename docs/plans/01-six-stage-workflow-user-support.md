@@ -21,18 +21,20 @@ health now uses the same recursive key tree. Slice 11 now provides the pure
 source-aware dependency planner and its authorized application query. Slice 12
 now saves reviewed file-source choices and authorizes their exact grouped
 supporting reads. Slice 13 completes Recipe closure and downstream checks for
-those decisions. The next delivery is Slice 14's business-intent contract from
-Proposal 10. Do not build parallel
+those decisions. Slice 14 now records portable business-intent revisions through
+an authorized command and an atomic data-plane store. The next delivery is
+Slice 15's snapshot assessment and execution enforcement from Proposal 10.
+Do not build parallel
 replacements for the implemented default, mapping-impact, comparison, or
 load-recovery flows.
 
 The remaining work is specified in **Remaining implementation slices** below.
-Slices 11 through 13 are implemented. Slices 14 through 16 complete the remaining
+Slices 11 through 14 are implemented. Slices 15 and 16 complete the remaining
 business-intent safety capability. Slices
 17 through 21 cover the remaining protected-review, interface, and acceptance
 commitments.
 Conditional extensions have explicit entry conditions and are not silently
-counted as delivered. Slices 14 through 21 remain proposed.
+counted as delivered. Slices 15 through 21 remain proposed.
 
 The current supported product remains the local application. The shared-server
 track has completed its contract and composition phases and has started a
@@ -351,6 +353,28 @@ remain worker data-plane evidence; future server publication still requires a
 verified receipt. Live-server and large-scale latency qualification remain
 separate from these controlled fixtures.
 
+### Implemented fourteenth slice
+
+Business intent now has one versioned portable contract and one immutable
+workspace data-plane revision. Model modes, scalar fields, authored relationship
+operations, and optional count ranges preserve zero versus unspecified meaning.
+The current checked mapping and existing compatibility, default, create-only,
+and pinned-field policies provide the technical ceiling. Saving can narrow that
+ceiling only, and requires verified Actor authority, reviewed input hashes, and
+the expected revision.
+
+Workspace-engine schema version 23 adds an empty store. Historical workspaces
+receive no intent or approval automatically. Revision and audit publish in one
+transaction with pointer rechecks, exact same-author retries, and conflict
+handling for both insertion and commit. The concurrency test forces two editors
+to publish against the same parent and proves one authoritative result.
+
+The controlled save fixture opens four database owners, checks the engine
+schema once, and performs zero lock retries, source row scans, or Odoo calls.
+The shared application graph injects the store through a port; detailed rules
+stay out of PostgreSQL and the Linux browser process. Snapshot assessment and
+write enforcement remain Slice 15, and the browser editor remains Slice 16.
+
 ### Additional current foundations found during reassessment
 
 The current checkout contains more of the intended workflow than the original
@@ -367,7 +391,7 @@ delivery summary recorded:
 | **7. Rule effects** | The optional **Review rule effects** page and matching review workbook already show changed, fallback, blank, invalid, supplied, and unchanged outcomes for the checked revision. | Prefer field-specific links and compact context over duplicating the complete preview inside every field card. |
 | **8. Root-cause repair** | Prepare data persists causal dependency evidence, publishes direct and transitive impact counts, checks exact post-transformation Decimal values against schema-bound Odoo capacity, and indexes every direct or dependency-affected row for bounded drill-down. Stages 4 and 5 project value-free cards with the saved rule, Odoo-schema alternative, recheck, and paged affected-record action. Browser paging does not rescan the issue graph or numeric values. | Complete for current preparation causes. Extend the shared issue projection only when another stage has authoritative evidence to contribute. |
 | **9. Shared comparison** | The single Stage 4-to-Stage 5 comparison and reviewed deferred-record-group workflow are complete. | Preserve this owner; do not add another target scan. |
-| **10. Intent and cockpit** | Load already has dependency groups, bounded blockers, durable row journals, unknown-outcome states, read-back-gated recovery, reconciliation, and progressive relationship status. | Add the explicit business-intent contract and present it together with the existing execution and recovery evidence. |
+| **10. Intent and cockpit** | Load already has dependency groups, bounded blockers, durable row journals, unknown-outcome states, read-back-gated recovery, reconciliation, and progressive relationship status. Portable business-intent revisions now persist through the authorized application API. | Assess the exact execution snapshot, enforce the saved intent, and present expected versus observed effects with existing execution and recovery evidence. |
 
 The impact score measures the benefit to the data manager, not implementation
 cost:
@@ -1313,8 +1337,10 @@ without weakening the single authoritative comparison.
 dependency groups, grouped snapshot blockers, progressive first-pass and
 relationship status, a durable row journal, unknown-outcome handling,
 read-back-gated recovery, resume of the same journal, and final reconciliation.
-The explicit migration-intent contract and one consolidated expected-versus-
-found presentation remain proposed.
+The explicit business-intent contract and authorized persistence API are also
+implemented. Assessment against the exact execution snapshot, enforcement,
+browser editing, and one consolidated expected-versus-found presentation remain
+proposed.
 
 **Owning stages:** Final review and Load into Odoo.  
 **User impact:** **9.5/10**.
@@ -1409,15 +1435,15 @@ again.
 ## Remaining implementation slices
 
 This is the delivery order as of 2026-10-30. The slice numbers
-continue the delivered increments above. Slices 11 through 13 are implemented.
-The next implementation should start with Slice 14. Each slice must leave its affected behavior and the full
+continue the delivered increments above. Slices 11 through 14 are implemented.
+The next implementation should start with Slice 15. Each slice must leave its affected behavior and the full
 repository gate green before the next slice begins.
 
 ### What is actually left
 
 | Remaining outcome | Slices | Completion evidence |
 | --- | --- | --- |
-| Impodo rejects technically valid writes that contradict the approved migration purpose. | 14–16 | A saved business-intent revision is assessed against the exact execution snapshot, enforced before writes, and displayed with the existing journal and reconciliation states. |
+| Impodo rejects technically valid writes that contradict the approved migration purpose. | 15–16 | The saved business-intent revision is assessed against the exact execution snapshot, enforced before writes, and displayed with the existing journal and reconciliation states. Contract and persistence are delivered in Slice 14. |
 | The data manager can inspect repeated identity groups early. | 17 | Authorized, current, paged duplicate-group evidence explains the source or observed-target cause. |
 | The data manager can inspect unresolved choices in a saved relationship field. | 18 | Protected current pages show the actual choice and cause rather than linking only to the rule editor. |
 | The data manager can see required-value coverage and open the effect of an edited rule directly. | 19–20 | Compact current summaries reuse existing evidence and lead to the exact correction or review page. |
@@ -1509,7 +1535,7 @@ manually adding a read-only reference model to the writable catalogue.
 **Delivery:** Implemented on 2026-10-30. Shared Recipe requirement extraction,
 portable reviewed choices, source-aware closure, mapping and preparation gates,
 atomic bounded summary publication, projection rebuild and scoped access checks
-are current. The next slice is the business-intent contract in Slice 14.
+are current. Business-intent contract delivery is recorded in Slice 14 below.
 
 A saved Recipe should carry the same supporting meaning into another suitable
 Data version without repeating technical configuration.
@@ -1545,6 +1571,19 @@ incoming decisions.
 reviewed dependencies, Recipe reuse, and downstream value checks.
 
 ### Slice 14: Define and persist business intent
+
+**Delivery:** Implemented on 2026-10-30. The portable version 1 contract,
+checked-scope derivation, Actor-authorized application API, immutable
+data-plane revisions, expected-version publication, same-author idempotency,
+input-pointer rechecks, and atomic audit recording are current. Workspace-engine
+version 23 creates an empty intent store and requires an explicit first save.
+The command reuses existing source-mode, compatibility, defaults, create-only,
+and pinned-field policies. Separate Odoo transfer destinations require their
+own scope and cannot inherit source authority. Domain, service, persistence,
+migration, concurrent-edit, and bounded-connection tests cover this foundation.
+The existing load flow does not yet enforce these expectations. Snapshot
+assessment and enforcement remain Slice 15; browser editing and cockpit
+presentation remain Slice 16.
 
 The data manager should be able to say “Update Contacts, create no Products,
 and leave Product prices unchanged” before approving a load.

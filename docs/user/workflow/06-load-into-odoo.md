@@ -209,6 +209,27 @@ sequence above for an Odoo-to-Odoo workspace.
 
 ![Current fallout outcome with the different-values card, field filter, prepared and Odoo values, and read-only re-check.](../../images/user/18-load-fallout.png)
 
+## Understand a stopped load
+
+The outcome separates records **written in Odoo**, **rejected**, and **not
+attempted**. For example, if Odoo accepts one related record and rejects the
+first customer, later customers may remain unattempted. Those later records
+were not individually rejected. Keep the records that were written.
+
+Read the failed row's message. New load attempts retain a safe reason code,
+the affected field when Odoo reports one, and the batch position when Odoo
+identifies it unambiguously. When Odoo gives no usable detail, the message
+says so. A diagnostic bundle includes aggregate failure codes; it excludes
+source values and arbitrary server messages. Older loads cannot recover error
+detail that was not saved at the time.
+
+![A fictional load outcome separates one written record, one rejected record, and one record that was not attempted.](../../images/user/16h-load-rejection-diagnostic.png)
+
+Correct the reported setup or data, prepare again, and run a fresh **Check
+changes** before confirming another load. Check that existing related records
+are reused. If an outcome is uncertain, use the offered read-back or recovery
+action before attempting another write.
+
 ## Correct a verified Authoring load
 
 When an eligible Authoring load is fully verified, its data-project page shows

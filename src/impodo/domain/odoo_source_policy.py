@@ -143,6 +143,19 @@ ODOO_SOURCE_POLICIES = {
 # Compatibility aliases keep existing Odoo 19 artifacts and callers stable.
 CURRENT_ODOO_SOURCE_POLICY = ODOO_19_SOURCE_POLICY
 
+
+def is_pinned_write_field(metadata: object) -> bool:
+    """Apply the existing fail-closed Tier-1 policy to captured field evidence."""
+    return bool(
+        getattr(metadata, "type", None) in CURRENT_ODOO_SOURCE_POLICY.writable_field_types
+        and getattr(metadata, "stored", None) is True
+        and getattr(metadata, "readonly", None) is False
+        and getattr(metadata, "computed", None) is False
+        and getattr(metadata, "related", None) is False
+        and getattr(metadata, "translated", None) is False
+        and getattr(metadata, "company_dependent", None) is False
+    )
+
 # The policy is immutable process metadata. Canonicalize and hash it exactly
 # once, then reuse this fixed boundary value in every catalog and manifest.
 ODOO_SOURCE_POLICY_HASHES = {

@@ -19,6 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol
 
+from impodo.application.business_intent_service import BusinessIntentService
 from impodo.application.data_version.inspection import SourceInspectionService
 from impodo.application.data_version.intake import SourceIntakeService
 from impodo.application.destination_matching_service import (
@@ -273,6 +274,7 @@ class WebContext:
     derived_entities: DerivedEntityWorkspaceService
     schema_workspace: SchemaWorkspaceService
     mapping_workspace: MappingWorkspaceService
+    business_intents: BusinessIntentService
     matching_order: MatchingOrderService
     supporting_lookups: SupportingLookupService
     recipe_target_matches: RecipeTargetMatchService

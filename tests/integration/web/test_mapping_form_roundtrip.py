@@ -86,6 +86,20 @@ class _RenderedControls(HTMLParser):
 
 
 class MappingFormRoundTripTests(unittest.TestCase):
+    def test_generated_name_warns_when_internal_key_would_change_original_spelling(self):
+        category = next(item for item in self.definition.datasets if item.dataset_id == "derived:categories")
+        self.governance.business_keys += (BusinessKeyDefinition("key:category-name", "product.category", ("name",), status=BusinessKeyStatus.CONFIRMED),)
+        category = replace(category, target_identity=(replace(category.target_identity[0], target_fields=("name",)),))
+        definition = replace(self.definition, datasets=tuple(category if item.dataset_id == category.dataset_id else item for item in self.definition.datasets))
+        views = _mapping_dataset_views(self.selection, self.schema, self.governance, definition.datasets,
+            derived_links=self.links, active_dataset_index=0)
+        row = views[0]["identity_rows"][0]
+        self.assertEqual(row["original_spelling_column"].stable_key, "category.name")
+        html = self.template.render(view=views[0], workspace_id="workspace:test", formula_authoring_issues_by_dataset={})
+        self.assertIn("Use original spelling", html)
+        self.assertIn('data-column-key="category.name"', html)
+        # Rendering does not silently alter the saved identity.
+        self.assertEqual(category.target_identity[0].source_column_keys, ("category.key",))
     def test_explicit_blank_relationship_survives_form_reopening(self):
         from impodo.domain.mapping.contracts import CategoricalCoveragePolicy, ReferenceKeyMapping, RelationshipResolver, ResolverOrigin
 
@@ -95,12 +109,12 @@ class MappingFormRoundTripTests(unittest.TestCase):
             resolver=RelationshipResolver(origin=ResolverOrigin.TARGET_CATALOG, model="product.category",
                 key_mappings=(ReferenceKeyMapping("category.parent", "x_code"),)),
             categorical_policy=CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
-            blank_source_values=("TO_DEFINE",), blank_source_action="leave_blank")
+            blank_source_values=("TO_DEFINE",))
         definition = replace(self.definition, datasets=tuple(replace(item, relationships=(relation,)) if item.dataset_id == mapping.dataset_id else item for item in self.definition.datasets))
         reopened = self.roundtrip(definition, 0)
         self.assertEqual(next(item for item in reopened.datasets if item.dataset_id == mapping.dataset_id).relationships[0], relation)
         self.assertTrue(any('"action":"leave_blank"' in value for name, value in self.render_form(definition, 0).multi_items() if name.startswith("relation_value_matches_")))
-        self.assertTrue(any(value == "leave_blank" for name, value in self.render_form(definition, 0).multi_items() if name.startswith("relation_blank_source_action_")))
+        self.assertFalse(any(name.startswith("relation_blank_source_action_") for name, value in self.render_form(definition, 0).multi_items()))
 
     def test_company_scope_must_be_one_checked_odoo_choice(self):
         scope = SimpleNamespace(target_field="company_id", value="United Caps Wiltz")

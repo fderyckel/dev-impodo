@@ -28,9 +28,14 @@ from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.domain.execution.odoo_write import (
     MAX_IDENTITY_LOOKUP_KEYS,
     MAX_PROJECTED_RECEIPT_IDS,
+    OdooWriteError,
     OdooWriteExecutor,
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
+)
+from impodo.domain.execution.write_diagnostics import (
+    OdooWriteDiagnostic,
+    WriteFailureCode,
 )
 from impodo.domain.execution_snapshot import (
     ExecutionDataset,
@@ -1660,13 +1665,10 @@ class ExecutionService:
                         batch=next_transport_batch,
                     )
                     next_transport_batch += 1
+                    import_create = (create_with_external_ids or workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE)
                     try:
                         values = tuple(item[1] for item in prepared_group)
-                        if (
-                            create_with_external_ids
-                            or workspace_state.odoo_connection_mode
-                            is OdooConnectionMode.REMOTE
-                        ):
+                        if import_create:
                             identifiers = executor.load_create_rows(
                                 dataset.target_model,
                                 values,
@@ -1683,6 +1685,7 @@ class ExecutionService:
                                 recorded[row.row_id],
                                 status=ExecutionRowStatus.OUTCOME_UNKNOWN,
                                 safe_error=str(error),
+                                diagnostic=_write_diagnostic(error, row, len(prepared_group), method="load" if import_create else "create"),
                             )
                             for row, _values, _deferred in prepared_group
                         )
@@ -1702,6 +1705,7 @@ class ExecutionService:
                                 recorded[row.row_id],
                                 status=ExecutionRowStatus.FAILED,
                                 safe_error=str(error),
+                                diagnostic=_write_diagnostic(error, row, len(prepared_group), method="load" if import_create else "create"),
                             )
                             for row, _values, _deferred in prepared_group
                         )
@@ -1825,6 +1829,7 @@ class ExecutionService:
                             recorded[row.row_id],
                             status=ExecutionRowStatus.OUTCOME_UNKNOWN,
                             safe_error=str(error),
+                            diagnostic=_write_diagnostic(error, row),
                         )
                         stop_after_unknown = True
                     except OdooWriteRejected as error:
@@ -1832,6 +1837,7 @@ class ExecutionService:
                             recorded[row.row_id],
                             status=ExecutionRowStatus.FAILED,
                             safe_error=str(error),
+                            diagnostic=_write_diagnostic(error, row),
                         )
                         stop_after_rejection = True
                     else:
@@ -2462,6 +2468,7 @@ class ExecutionService:
                 attempt=recorded[row.row_id].attempt + 1,
                 odoo_id=(known_ids or {}).get(row.row_id),
                 safe_error="",
+                diagnostic=None,
                 schedule_component=component,
                 transport_page=page,
                 transport_batch=batch,
@@ -2767,6 +2774,7 @@ class ExecutionService:
                     attempt,
                     status=ExecutionRowStatus.OUTCOME_UNKNOWN,
                     safe_error=str(error),
+                    diagnostic=_write_diagnostic(error, row),
                 )
                 self.journal.record_outcomes(workspace_id, run_id, (outcome,))
                 recorded[row.row_id] = outcome
@@ -2776,6 +2784,7 @@ class ExecutionService:
                 outcome = replace(
                     attempt,
                     status=ExecutionRowStatus.PARTIALLY_APPLIED,
+                    diagnostic=_write_diagnostic(error, row),
                     safe_error=(
                         "Record was created, but its deferred relationship "
                         f"update failed: {error}"
@@ -4056,3 +4065,14 @@ def _domain_cache_key(
     domain: tuple[tuple[str, str, Any], ...],
 ) -> str:
     return canonical_json_text({"model": model, "domain": domain})
+
+
+def _write_diagnostic(error: OdooWriteError, row: ExecutionRow, batch_size: int = 1, *, method: str | None = None) -> OdooWriteDiagnostic:
+    """Always retain operation context, even when Odoo supplies no useful detail."""
+
+    return error.diagnostic or OdooWriteDiagnostic(
+        code=(WriteFailureCode.UNKNOWN if isinstance(error, OdooWriteOutcomeUnknown)
+              else WriteFailureCode.REJECTED),
+        model=row.target_model, method=method or ("create" if row.disposition == "CREATE" else "write"),
+        batch_size=batch_size,
+    )

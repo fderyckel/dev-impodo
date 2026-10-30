@@ -534,6 +534,7 @@ stages:
       - tests/domain/mapping/test_relationship_blank_values.py
       - tests/integration/web/test_mapping_form_roundtrip.py
       - tests/domain/preparation/test_lookup_blank_source.py
+      - tests/domain/preparation/test_optional_many2one.py
       - tests/application/workspace/mapping/test_blank_relationship_choices.py
       - tests/e2e/test_many2one_blank_match.py
       - tests/integration/artifacts/test_joined_mapping_values.py
@@ -757,6 +758,10 @@ stages:
     code_references:
       - src/impodo/application/workspace/execution/service.py::ExecutionService
       - src/impodo/application/workspace/execution/service.py::ExecutionPreview
+      - src/impodo/application/business_intent_service.py::BusinessIntentService
+      - src/impodo/domain/workspace/business_intent.py::BusinessIntent
+      - src/impodo/domain/workspace/business_intent_scope.py::derive_business_intent_scope
+      - src/impodo/adapters/duckdb/business_intent_repository.py::BusinessIntentRepository
       - src/impodo/application/workspace/execution/service.py::ExecutionService.execute
       - src/impodo/application/workspace/execution/service.py::ExecutionService.review_recovery
       - src/impodo/application/workspace/execution/service.py::ExecutionService.resume
@@ -780,6 +785,10 @@ stages:
       - src/impodo/domain/execution/dependency_scheduler.py::schedule_dependencies
       - src/impodo/domain/execution/dependency_scheduler.py::dependency_component_pages
       - src/impodo/domain/execution/odoo_write.py::OdooWriteExecutor
+      - src/impodo/domain/execution/write_diagnostics.py::OdooWriteDiagnostic
+      - src/impodo/domain/execution/generated_name_repair.py::plan_generated_name_repairs
+      - src/impodo/adapters/odoo/write_diagnostics.py::import_rejection_diagnostic
+      - src/impodo/web/routers/execution.py::_record_write_diagnostics
       - src/impodo/adapters/odoo/writer.py::Json2WriteExecutor.find_ids_many
       - src/impodo/domain/relationship_dependencies.py::extract_dataset_dependency_edges
       - src/impodo/domain/mapping/validation/dependencies.py::_validate_dependencies
@@ -817,6 +826,10 @@ stages:
       - scripts/capture_odoo_transfer_screenshots.py::capture
     tests:
       - tests/application/workspace/execution/test_service.py
+      - tests/domain/workspace/test_business_intent.py
+      - tests/domain/workspace/test_business_intent_scope.py
+      - tests/application/workspace/test_business_intent_service.py
+      - tests/integration/duckdb/test_business_intent.py
       - tests/application/workspace/execution/test_recomparison.py
       - tests/integration/web/test_execution.py
       - tests/integration/web/test_hierarchy_workflow.py
@@ -826,6 +839,10 @@ stages:
       - tests/integration/duckdb/test_execution_repository.py
       - tests/application/workspace/execution/test_load_jobs.py
       - tests/domain/execution/test_snapshot.py
+      - tests/domain/execution/test_write_diagnostics.py
+      - tests/domain/execution/test_generated_name_repair.py
+      - tests/e2e/test_generated_display_names.py
+      - tests/integration/web/test_diagnostics.py
       - tests/domain/execution/test_dependency_scheduler.py
       - tests/domain/recipe/test_profile_and_values.py
       - tests/domain/test_relationship_dependencies.py
@@ -858,6 +875,7 @@ stages:
       - tests/integration/duckdb/test_transfer_order_persistence.py
     contracts:
       - docs/developer/contracts/execution-and-reconciliation.md
+      - docs/developer/contracts/business-intent.md
     references:
       - docs/architecture/security-and-infrastructure.md
       - docs/developer/reference/platform-support-and-testing.md

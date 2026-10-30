@@ -572,6 +572,48 @@ this evidence. The read-only recovery-check receipt is another disposable
 browser-session projection; it does not alter the snapshot or journal
 contract.
 
+## Rejection diagnostics and generated names
+
+[`OdooWriteDiagnostic`](../../../src/impodo/domain/execution/write_diagnostics.py)
+retains safe operation context in `ExecutionRowAttempt`. The
+[import-response adapter](../../../src/impodo/adapters/odoo/write_diagnostics.py)
+validates reported fields and batch ranges, classifies recognized errors, and
+fingerprints bounded server text without storing it. The executor attaches
+this evidence to `OdooWriteRejected`; the service persists it through the
+existing journal transaction. Direct writes, completion writes, and uncertain
+outcomes receive generic operation context when the adapter has no detail.
+
+The browser separates written, rejected, and unattempted records. Its support
+projection emits aggregate safe codes and counts using the returned run, with
+no extra repository or Odoo call. The controlled outcome-route regression
+allows at most six physical connections and three schema checks. This is
+fixture evidence, not a live-workspace latency guarantee.
+
+[`plan_generated_name_repairs`](../../../src/impodo/domain/execution/generated_name_repair.py)
+prepares reviewed name corrections from exact flat-list evidence and verified
+receipts. It does not execute them. The mapping editor's **Use original
+spelling** action prevents a saved normalized target-name identity from being
+reused unintentionally. The [execution contract](../contracts/execution-and-reconciliation.md#safe-write-diagnostics)
+defines the evidence and privacy boundaries.
+
+## Business expectations
+
+The internal `context.business_intents` API records immutable business
+expectations through
+[`BusinessIntentService`](../../../src/impodo/application/business_intent_service.py).
+[`BusinessIntent`](../../../src/impodo/domain/workspace/business_intent.py) keeps
+portable modes, field permissions, relationship operations, and count ranges.
+[`derive_business_intent_scope`](../../../src/impodo/domain/workspace/business_intent_scope.py)
+narrows the existing checked mapping and qualified write policy.
+[`BusinessIntentRepository`](../../../src/impodo/adapters/duckdb/business_intent_repository.py)
+publishes an expected revision and Actor audit event atomically in the data
+plane. The [business intent contract](../contracts/business-intent.md) owns
+serialization, limits, concurrency, historical migration, and database lifetime.
+
+This API saves expectations without approving a comparison or changing an
+execution journal. The current load entry conditions and confirmation flow
+remain the execution authority.
+
 ## Completion and navigation
 
 No-change previews complete without transport. A write run completes only when
@@ -738,6 +780,14 @@ qualify another remote topology.
 
 ## Verification
 
+- [Safe write diagnostic tests](../../../tests/domain/execution/test_write_diagnostics.py)
+- [Generated name repair tests](../../../tests/domain/execution/test_generated_name_repair.py)
+- [Original spelling and load outcome browser tests](../../../tests/e2e/test_generated_display_names.py)
+- [Support log privacy tests](../../../tests/integration/web/test_diagnostics.py)
+- [Business intent contract tests](../../../tests/domain/workspace/test_business_intent.py)
+- [Business intent scope tests](../../../tests/domain/workspace/test_business_intent_scope.py)
+- [Business intent service tests](../../../tests/application/workspace/test_business_intent_service.py)
+- [Business intent persistence tests](../../../tests/integration/duckdb/test_business_intent.py)
 - [`scripts/capture_odoo_transfer_screenshots.py`](../../../scripts/capture_odoo_transfer_screenshots.py)
   reproduces the five authenticated, fictional Odoo-to-Odoo decision screens
   used by the paired user guide.

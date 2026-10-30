@@ -452,7 +452,10 @@ class MixedJoinPreparationTests(TestCase):
             ["TO_DEFINE"],
         )
         if stable_lookup:
-            self.assertEqual(next(r for r in saved["relationships"] if r["target_field"] == "x_generated_id")["blank_source_action"], "leave_blank")
+            relation = next(r for r in saved["relationships"] if r["target_field"] == "x_generated_id")
+            self.assertNotIn("blank_source_action", relation)
+            self.assertFalse(relation["required"])
+            self.assertFalse(relation["required_on_create"])
         setup = context.test_runs.start_setup(
             owner.project_id,
             expected_workspace_revision=context.migration_projects.get(
