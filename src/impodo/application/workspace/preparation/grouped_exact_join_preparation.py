@@ -160,18 +160,44 @@ def bounded_exact_join_group(
     physical_selection: SourceSelection,
     effective_selection: SourceSelection,
     plan: DerivedEntityPlan | None,
+    *,
+    dataset_id: str | None = None,
 ) -> BoundedExactJoinGroup | None:
-    """Return the safely qualified grouped exact-join route, if present."""
+    """Qualify a reviewed group, optionally scoped to one value-read output.
 
-    if plan is None or not plan.rules or len(effective_selection.datasets) != 1:
+    Preparation keeps the default exclusive-workspace contract. Value reads
+    may select one complete group beside other independently mapped datasets.
+    """
+
+    if plan is None or not plan.rules:
         return None
     if plan.source_selection_hash != physical_selection.content_hash:
         return None
-    if any(not isinstance(rule, ExactJoinRule) for rule in plan.rules):
-        return None
+    if dataset_id is None:
+        if len(effective_selection.datasets) != 1 or any(
+            not isinstance(rule, ExactJoinRule) for rule in plan.rules
+        ):
+            return None
+        selected_rules = plan.rules
+    else:
+        final = next(
+            (
+                rule for rule in plan.rules
+                if isinstance(rule, ExactJoinRule)
+                and rule.map_output
+                and structural_dataset_id(rule) == dataset_id
+            ),
+            None,
+        )
+        if final is None or final.group_id is None:
+            return None
+        selected_rules = tuple(
+            rule for rule in plan.rules
+            if isinstance(rule, ExactJoinRule) and rule.group_id == final.group_id
+        )
     rules = tuple(
         sorted(
-            (rule for rule in plan.rules if isinstance(rule, ExactJoinRule)),
+            (rule for rule in selected_rules if isinstance(rule, ExactJoinRule)),
             key=lambda rule: rule.group_step or 0,
         )
     )
@@ -191,25 +217,37 @@ def bounded_exact_join_group(
     if (
         primary_id not in physical_ids
         or len(set(participant_ids)) != len(participant_ids)
-        or set(participant_ids) != physical_ids
+        or not set(participant_ids).issubset(physical_ids)
+        or (dataset_id is None and set(participant_ids) != physical_ids)
     ):
         return None
     for previous, rule in itertools.pairwise(rules):
         if rule.left_dataset_id != structural_dataset_id(previous):
             return None
     final_id = structural_dataset_id(rules[-1])
-    effective = effective_selection.datasets[0]
-    if effective.dataset_id != final_id:
+    effective = next(
+        (item for item in effective_selection.datasets if item.dataset_id == final_id),
+        None,
+    )
+    if effective is None or (dataset_id is not None and dataset_id != final_id):
         return None
     if effective.row_count > GROUPED_EXACT_JOIN_OUTPUT_ROW_LIMIT:
         return None
     if (
-        sum(dataset.row_count for dataset in physical_selection.datasets)
+        sum(
+            dataset.row_count for dataset in physical_selection.datasets
+            if dataset.dataset_id in participant_ids
+        )
         > GROUPED_EXACT_JOIN_INPUT_ROW_LIMIT
     ):
         return None
-    reviews = {review.rule_id: review for review in plan.join_reviews}
-    if set(reviews) != {rule.rule_id for rule in rules}:
+    rule_ids = {rule.rule_id for rule in rules}
+    selected_reviews = tuple(
+        review for review in plan.join_reviews
+        if dataset_id is None or review.rule_id in rule_ids
+    )
+    reviews = {review.rule_id: review for review in selected_reviews}
+    if len(reviews) != len(selected_reviews) or set(reviews) != rule_ids:
         return None
     if any(
         not reviews[rule.rule_id].review.can_save

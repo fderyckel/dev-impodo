@@ -60,6 +60,15 @@ def _validate_relationship(
     if metadata is None:
         issues.append(_target_unknown(dataset, path, relation.target_field))
         return
+    if relation.blank_source_values and metadata.required:
+        issues.append(
+            _issue(
+                "MAPPING_RELATION_BLANK_NOT_ALLOWED", path,
+                "This Odoo field requires a linked record and cannot be left blank.",
+                "Match these source choices to existing records.",
+                dataset=dataset, target_field=relation.target_field,
+            )
+        )
     if metadata.type == "one2many":
         inverse = (
             f" through inverse {metadata.relation_field}"
@@ -242,7 +251,7 @@ def _validate_relationship(
         )
     elif (
         policy is CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
-        and relation.resolver.value_mappings
+        and (relation.resolver.value_mappings or relation.blank_source_values)
     ):
         issues.append(
             _issue(

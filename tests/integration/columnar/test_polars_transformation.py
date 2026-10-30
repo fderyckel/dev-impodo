@@ -585,6 +585,28 @@ class PolarsTransformationParityTests(unittest.TestCase):
         self.assertEqual(reference.key, ("PCE",))
         self.assertEqual(reference.model, "uom.uom")
 
+    def test_explicit_blank_many2one_matches_python_and_retains_native_execution(self):
+        mapping = replace(self.definition.datasets[0], relationships=(RelationshipMapping(
+            target_field="x_list_id", kind="many2one", source_column_keys=("product.category",),
+            resolver=RelationshipResolver(origin=ResolverOrigin.TARGET_CATALOG,
+                model="x_list", key_mappings=(ReferenceKeyMapping("product.category", "name"),),
+                value_mappings=(ValueMapping("Other", "Standard"),)),
+            blank_source_values=("Retail",),
+        ),))
+        definition = replace(self.definition, datasets=(mapping,))
+        expected, _report = _python_oracle(definition, self.selection, self.rows)
+        decision = compile_columnar_transformation_program(definition, self.selection, DATASET_ID)
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        self.assertIsNotNone(decision.program)
+        restored = ColumnarTransformationProgram.from_portable_dict(decision.program.to_portable_dict())
+        self.assertEqual(restored, decision.program)
+        destination, prepared = _write_prepared_snapshot(self.root, self.path, self.snapshot, restored)
+        actual = tuple(record for batch in iter_polars_prepared_batches(destination, prepared,
+            self.snapshot, restored, batch_size=1) for record in batch.records)
+        self.assertEqual(actual, expected)
+        self.assertIsNone(actual[0].references["x_list_id"])
+        self.assertEqual(actual[1].references["x_list_id"].key, ("Standard",))
+
     def test_production_projection_skips_full_prepared_record_objects(self) -> None:
         expected_records, _expected_report = _python_oracle(
             self.definition,

@@ -600,7 +600,7 @@ class CategoricalCoverageService:
         issues: list[MappingValidationIssue] = []
         physical_selection = None
         selection_dataset_ids: set[str] = set()
-        joined_values_supported = False
+        has_joined_values = False
         if by_dataset:
             physical_selection = self.sources.get_source_selection(workspace_id)
             if physical_selection is None:
@@ -608,12 +608,6 @@ class CategoricalCoverageService:
             selection_dataset_ids = {
                 item.dataset_id for item in physical_selection.datasets
             }
-            if self.logical_values is not None and any(
-                dataset_id not in selection_dataset_ids for dataset_id in by_dataset
-            ):
-                joined_values_supported = self.logical_values.supports(
-                    workspace_id, selection,
-                )
         for dataset_id in sorted(by_dataset):
             dataset_fields = by_dataset[dataset_id]
             physical_dataset = (
@@ -664,6 +658,14 @@ class CategoricalCoverageService:
                     }
                 )
             )
+            if not scan_fields:
+                continue
+            joined_values_supported = (
+                dataset_id not in selection_dataset_ids
+                and self.logical_values is not None
+                and self.logical_values.supports(workspace_id, selection, dataset_id)
+            )
+            has_joined_values = has_joined_values or joined_values_supported
             if dataset_id not in selection_dataset_ids and not joined_values_supported:
                 for item in scan_fields:
                     results.append(_unsupported_result(item))
@@ -676,8 +678,6 @@ class CategoricalCoverageService:
                             severity="warning",
                         )
                     )
-                continue
-            if not scan_fields:
                 continue
             if physical_selection is None:
                 raise WorkspaceError(
@@ -715,7 +715,7 @@ class CategoricalCoverageService:
                     "parquet_sha256": item.parquet_sha256,
                 }
                 for item in snapshots
-                if item.dataset_id in by_dataset or joined_values_supported
+                if item.dataset_id in by_dataset or has_joined_values
             ),
             scan_contract_hash=CATEGORICAL_SCAN_CONTRACT_HASH,
             provider_and_normalization_semantics_hash=(
@@ -1029,6 +1029,8 @@ def _uncovered_values(
         else:
             mappings = item.require_relationship().resolver.value_mappings
         covered = {mapping.source_value for mapping in mappings}
+        if item.relationship is not None:
+            covered.update(item.relationship.blank_source_values)
         uncovered_values = tuple(
             values
             for values in sorted(raw_counts)

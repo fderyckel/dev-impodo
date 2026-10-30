@@ -45,6 +45,17 @@ mapping confirmation. An Integrated Test creates a separate Recipe work area and
 for each Recipe in an integrated Test plan; earlier prepared rows are not
 copied into it.
 
+Matches confirmed with **Match values** are also Recipe rules when their source
+field belongs to a combined table. For example, a saved match from `Wholesale`
+to an existing Odoo classification is applied to each matching row in the new
+delivery. Impodo rebuilds the combined table and checks its current choices.
+A new choice without a saved match needs your review before the Recipe can
+continue.
+
+An explicit **Leave blank (no linked record)** decision is retained in the
+same way. Preparation leaves that relationship empty on the matching rows;
+you do not need to choose the decision again for a compatible delivery.
+
 This fresh run is mandatory even when the replacement files look identical.
 Preparation, quality findings, duplicate decisions, normalization approval,
 and content hashes from an earlier data version are historical evidence and

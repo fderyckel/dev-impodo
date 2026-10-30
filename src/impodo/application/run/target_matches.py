@@ -486,6 +486,7 @@ def _build_target_match_review(
                     is CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
                 },
                 ambiguous_values=ambiguous,
+                blank_source_values=frozenset(relationship.blank_source_values),
                 submitted=submitted,
             )
             if result.status == "UNSUPPORTED":
@@ -657,6 +658,7 @@ def _target_value_rows(
     *,
     exact_values: Mapping[str, str],
     ambiguous_values: frozenset[str] = frozenset(),
+    blank_source_values: frozenset[str] = frozenset(),
     submitted: Mapping[str, str] | None,
 ) -> tuple[TargetValueRow, ...]:
     choice_labels = {item.value: item.label for item in choices}
@@ -670,7 +672,10 @@ def _target_value_rows(
             source_value,
             exact_values.get(source_value, ""),
         )
-        needs_review = item.values in uncovered or current_target not in choice_values
+        intentional_blank = source_value in blank_source_values
+        needs_review = not intentional_blank and (
+            item.values in uncovered or current_target not in choice_values
+        )
         input_name = f"match_{dataset_index}_{mapping_kind}_{mapping_index}_{row_index}"
         selected = (
             str(submitted.get(input_name, ""))
@@ -681,6 +686,8 @@ def _target_value_rows(
                 else suggestions.get(source_value.strip().casefold(), "")
             )
         )
+        if intentional_blank:
+            selected = ""
         rows.append(
             TargetValueRow(
                 source_value=source_value,
@@ -689,7 +696,7 @@ def _target_value_rows(
                 current_target_label=choice_labels.get(
                     current_target,
                     current_target,
-                ),
+                ) if not intentional_blank else "Leave blank (no linked record)",
                 needs_review=needs_review,
                 input_name=input_name,
                 selected_target_value=selected,

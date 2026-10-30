@@ -13,6 +13,11 @@ workflow documentation. Point-in-time evidence belongs in an owning plan or
 Git history. Remove completed delivery detail and retire completed plans after
 those current references have been verified.
 
+The 2026-10-30 [mixed-workspace preparation proposal](19-bounded-mixed-workspace-preparation.md)
+addresses the reported 65,299-row blocker. It proposes bounded execution and
+row-count advisories and awaits approval; it does not activate the complete
+deferred high-volume track below or change current limits.
+
 ## How the implementation order is decided
 
 The primary criterion is the improvement to a data manager's work. A change

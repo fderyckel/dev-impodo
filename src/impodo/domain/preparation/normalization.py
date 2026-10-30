@@ -219,7 +219,7 @@ def compile_normalization_review_policy(
             if policy is not None:
                 _add_normalization_field_policy(policies, policy)
         for relationship in mapping.relationships:
-            if not relationship.resolver.value_mappings:
+            if not relationship.resolver.value_mappings and not relationship.blank_source_values:
                 continue
             _add_normalization_field_policy(
                 policies,

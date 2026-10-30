@@ -9,7 +9,8 @@ from jinja2 import Environment, FileSystemLoader
 from starlette.datastructures import FormData
 
 from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
-from impodo.domain.mapping.contracts import MappingDefinition, RelationshipValueSource
+from impodo.domain.mapping.contracts import MappingDefinition, RelationshipValueSource, RelationshipMapping
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.workspace.contracts import SchemaField, SchemaModel, SourceDataset, SourceDatasetColumn
@@ -84,6 +85,21 @@ class _RenderedControls(HTMLParser):
 
 
 class MappingFormRoundTripTests(unittest.TestCase):
+    def test_explicit_blank_relationship_survives_form_reopening(self):
+        from impodo.domain.mapping.contracts import CategoricalCoveragePolicy, ReferenceKeyMapping, RelationshipResolver, ResolverOrigin
+
+        mapping = next(item for item in self.definition.datasets if item.dataset_id == "derived:categories")
+        relation = RelationshipMapping(target_field="parent_id", kind="many2one",
+            source_column_keys=("category.parent",),
+            resolver=RelationshipResolver(origin=ResolverOrigin.TARGET_CATALOG, model="product.category",
+                key_mappings=(ReferenceKeyMapping("category.parent", "x_code"),)),
+            categorical_policy=CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
+            blank_source_values=("TO_DEFINE",))
+        definition = replace(self.definition, datasets=tuple(replace(item, relationships=(relation,)) if item.dataset_id == mapping.dataset_id else item for item in self.definition.datasets))
+        reopened = self.roundtrip(definition, 0)
+        self.assertEqual(next(item for item in reopened.datasets if item.dataset_id == mapping.dataset_id).relationships[0], relation)
+        self.assertTrue(any('"action":"leave_blank"' in value for name, value in self.render_form(definition, 0).multi_items() if name.startswith("relation_value_matches_")))
+
     def test_company_scope_must_be_one_checked_odoo_choice(self):
         scope = SimpleNamespace(target_field="company_id", value="United Caps Wiltz")
         reference = SimpleNamespace(
@@ -113,14 +129,14 @@ class MappingFormRoundTripTests(unittest.TestCase):
             actor=object(),
         )
 
-        _require_selected_company_scopes(context, "workspace", datasets, schema)
+        _require_selected_company_scopes(context, "workspace", datasets, schema, actor=LOCAL_ACTOR)
         scope.value = "UNITED CAPS FRANCE"
         with self.assertRaisesRegex(WorkspaceError, "Choose an existing"):
-            _require_selected_company_scopes(context, "workspace", datasets, schema)
+            _require_selected_company_scopes(context, "workspace", datasets, schema, actor=LOCAL_ACTOR)
 
         context.supporting_lookups.current = lambda *_args, **_kwargs: None
         with self.assertRaisesRegex(WorkspaceError, "Choose an existing"):
-            _require_selected_company_scopes(context, "workspace", datasets, schema)
+            _require_selected_company_scopes(context, "workspace", datasets, schema, actor=LOCAL_ACTOR)
 
     def test_any_linked_model_offers_company_scoped_name_candidate(self):
         for model in ("resource.calendar", "x.location"):

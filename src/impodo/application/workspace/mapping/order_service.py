@@ -2504,7 +2504,9 @@ def _relationship_source_key_counts(
             else:
                 source_counts[constant_key] += 1
             continue
-        if not row or all(value is None for value in row):
+        if not row or all(value is None for value in row) or (
+            len(row) == 1 and row[0] in relationship.blank_source_values
+        ):
             blank_rows += 1
             continue
         if relationship.kind == "many2many":

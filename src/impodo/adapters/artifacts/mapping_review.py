@@ -1221,6 +1221,8 @@ def _coverage_proposed_value(mapping, result, values: tuple[str, ...]) -> Any:
             for item in (*reference.key_values, *reference.scope_values)
         )
     if len(values) == 1:
+        if values[0] in relationship.blank_source_values:
+            return "Leave blank (no linked record)"
         matched = next(
             (
                 item.target_value

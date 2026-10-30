@@ -338,6 +338,25 @@ added table that did not match a primary row do not add choices or increase
 their counts. **Check matches** uses the same combined values and reports any
 populated choice that still needs a match.
 
+Other tables and preparation rules can remain in the workspace while you match
+values from a combined table. Impodo checks the selected combination's review
+and reads its own output choices independently.
+
+For an optional linked field, choose **Leave blank (no linked record)** when a
+source choice should produce no link. For example, match `TO_DEFINE` to that
+option while matching `STANDARD` to an existing classification. Leaving the
+dropdown on **Choose Odoo choice** still means that the choice needs review.
+Impodo rejects intentional blanks for required fields. If you previously chose
+**Ignore blank source values**, select a policy that compares blanks before
+saving an intentional blank.
+
+The decision applies to the field on each matching row; it keeps the accepted
+source unchanged. It works with combined tables and is retained in a saved
+Recipe. Prepare data produces no linked record for that choice, and a later
+Recipe run checks new choices separately.
+
+![The Match values dialog explicitly maps TO_DEFINE to Leave blank while retaining a linked record for Standard.](../../images/user/03c-many2one-leave-blank.png)
+
 This works for linked single-record fields, including custom fields, using
 the related Odoo record type and its reviewed matching rule. For example, a
 source classification code can match an existing classification with a

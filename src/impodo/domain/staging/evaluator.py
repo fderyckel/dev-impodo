@@ -141,7 +141,7 @@ class _RelationshipValuePlan:
     source_column_key: str
     prepared_column_key: str
     target_field: str
-    target_by_source: Mapping[str, str]
+    target_by_source: Mapping[str, str | None]
     source_label: str
     rules: str
     apply_to_prepared: bool
@@ -977,8 +977,11 @@ def _compile_dataset_evaluation_plan(
             prepared_column_key=synthetic_relationship_field(index, 0),
             target_field=relationship.target_field,
             target_by_source={
-                item.source_value: item.target_value
-                for item in relationship.resolver.value_mappings
+                **dict.fromkeys(relationship.blank_source_values),
+                **{
+                    item.source_value: item.target_value
+                    for item in relationship.resolver.value_mappings
+                },
             },
             source_label=labels.get(
                 relationship.source_column_keys[0],
@@ -986,14 +989,14 @@ def _compile_dataset_evaluation_plan(
             ),
             rules=(
                 "Reviewed value match "
-                f"({len(relationship.resolver.value_mappings)} confirmed choice(s))"
+                f"({len(relationship.resolver.value_mappings) + len(relationship.blank_source_values)} confirmed choice(s))"
             ),
             apply_to_prepared=(
                 relationship.resolver.origin is not ResolverOrigin.TARGET_THEN_DATASET
             ),
         )
         for index, relationship in enumerate(mapping.relationships)
-        if relationship.resolver.value_mappings
+        if (relationship.resolver.value_mappings or relationship.blank_source_values)
         and len(relationship.source_column_keys) == 1
     )
     scalar_fields = tuple(
@@ -1848,8 +1851,8 @@ def _apply_relationship_value_mappings(
             continue
         source_value = str(raw_value).strip()
         target_value = relationship.target_by_source.get(source_value)
-        if target_value is not None:
-            if relationship.apply_to_prepared:
+        if source_value in relationship.target_by_source:
+            if relationship.apply_to_prepared or target_value is None:
                 values[relationship.prepared_column_key] = target_value
             if impact_collector is not None:
                 impact_collector.record(

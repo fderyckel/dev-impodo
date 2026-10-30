@@ -19,8 +19,10 @@ from impodo.domain.workspace.contracts import SourceSelection
 class LogicalSourceValues(Protocol):
     """Project reviewed logical datasets and count their exact source choices."""
 
-    def supports(self, workspace_id: str, selection: SourceSelection) -> bool:
-        """Return whether the current derivation has a bounded reader."""
+    def supports(
+        self, workspace_id: str, selection: SourceSelection, dataset_id: str
+    ) -> bool:
+        """Return whether the selected dataset has a bounded reader."""
         ...
 
     def project(

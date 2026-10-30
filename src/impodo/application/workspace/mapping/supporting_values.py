@@ -59,6 +59,7 @@ class MappingSupportingSource:
     source_column_keys: tuple[str, ...]
     row_inclusion: RowInclusionPolicy
     value_mappings: tuple[ValueMapping, ...] = ()
+    blank_source_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +106,7 @@ def plan_mapping_supporting_values(
         scope_fields: tuple[str, ...],
         source_column_keys: tuple[str, ...],
         constant_values: tuple[str, ...] | None = None,
+        blank_source_values: tuple[str, ...] = (),
     ) -> None:
         if (
             resolver is None
@@ -135,6 +137,7 @@ def plan_mapping_supporting_values(
                     source_column_keys=source_column_keys,
                     row_inclusion=dataset.row_inclusion,
                     value_mappings=resolver.value_mappings,
+                    blank_source_values=blank_source_values,
                 )
             )
         if constant_values is not None:
@@ -202,6 +205,7 @@ def plan_mapping_supporting_values(
                     for item in (*resolver.key_mappings, *resolver.scope_mappings)
                 ),
                 constant_values=constant_values,
+                blank_source_values=relationship.blank_source_values,
             )
 
     return tuple(

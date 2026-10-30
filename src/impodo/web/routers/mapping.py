@@ -889,6 +889,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     "ambiguous_values": ambiguous_values,
                     "target_checked_at": target_checked_at,
                     "target_choices_reused": target_choices_reused,
+                    "allow_blank": kind == "relationship" and not field.required,
                 }
             )
         except (

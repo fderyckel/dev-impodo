@@ -2599,10 +2599,12 @@ def _mapping_dataset_views(
                     else ""
                 ),
                 "value_mappings_json": _value_mappings_json(
-                    mapping.resolver.value_mappings if mapping else ()
+                    mapping.resolver.value_mappings if mapping else (),
+                    mapping.blank_source_values if mapping else (),
                 ),
-                "matched_choice_count": len(
-                    mapping.resolver.value_mappings if mapping else ()
+                "matched_choice_count": (
+                    len(mapping.resolver.value_mappings) + len(mapping.blank_source_values)
+                    if mapping else 0
                 ),
                 "projection_options": tuple(
                     {
@@ -3314,7 +3316,7 @@ def _manager_quality_rules_from_form(
     return tuple(rules)
 
 
-def _value_mappings_json(mappings) -> str:
+def _value_mappings_json(mappings, blank_source_values=()) -> str:
     return json.dumps(
         [
             {
@@ -3322,6 +3324,9 @@ def _value_mappings_json(mappings) -> str:
                 "target_value": item.target_value,
             }
             for item in mappings
+        ] + [
+            {"source_value": value, "action": "leave_blank"}
+            for value in blank_source_values
         ],
         ensure_ascii=True,
         separators=(",", ":"),

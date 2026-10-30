@@ -26,6 +26,7 @@ from impodo.domain.workspace.contracts import (
     SchemaModel,
     SchemaOrigin,
 )
+from impodo.domain.workspace.derived_entities import SourceDatasetUse
 from impodo.domain.workspace.supporting_lookups import portable_supporting_value
 from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.exact_join_forms import (
@@ -221,6 +222,33 @@ class JoinedValueMatchingTests(TestCase):
             revision.definition.datasets[0].relationships[0].resolver.value_mappings,
             relation.resolver.value_mappings,
         )
+
+        # A second mapping dataset must not disable choices or categorical
+        # validation for the existing, independently reviewed combined table.
+        plan = context.derived_entities.get_derived_entity_plan(workspace_id)
+        run_local_operation_sync(
+            context.derived_entities.save_dataset_uses, workspace_id,
+            dataset_uses={item.dataset_id: SourceDatasetUse.MAP_AND_PREPARE
+                if item.dataset_id == physical.datasets[0].dataset_id else item.use
+                for item in plan.dataset_uses},
+            expected_parent_version=plan.version, actor=actor,
+        )
+        effective = context.queries.get_mapping_source_selection(workspace_id)
+        self.assertEqual(len(effective.datasets), 2)
+        with collect_duckdb_request_timings() as timings:
+            multiple = fixture.client.post(
+                f"/workspaces/{workspace_id}/mapping/value-choices",
+                data={"csrf_token": fixture.csrf, "kind": "relationship", "dataset_id": dataset.dataset_id,
+                    "source_column_key": columns["name"], "target_model": "x_record", "target_field": "x_list_id", "business_key_id": "x_list:ref"},
+                headers=POST_HEADERS,
+            )
+        self.assertEqual(multiple.status_code, 200, multiple.text)
+        self.assertEqual(multiple.json()["source_choices"], response.json()["source_choices"])
+        self.assertLessEqual(timings.connection_count, 13)
+        self.assertLessEqual(timings.schema_check_count, 3)
+        checked = run_local_operation_sync(context.categorical_coverage.collect, workspace_id,
+            replace(revision.definition, source_selection_hash=effective.content_hash), effective, schema)
+        self.assertEqual(checked.issues, ())
 
         # A related model can remain outside the migration scope. Its generic
         # name-within-company candidate must work with the same joined source.

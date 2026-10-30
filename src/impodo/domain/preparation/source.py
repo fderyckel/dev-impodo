@@ -450,6 +450,10 @@ def _prepare_relation(
         )
 
     if relation.kind == "many2one":
+        if relation.blank_source_values and str(
+            row.get(relation.source_fields[0], "")
+        ).strip() in relation.blank_source_values:
+            return None
         incoming_key = _parse_reference_key(
             relation.source_fields,
             row,

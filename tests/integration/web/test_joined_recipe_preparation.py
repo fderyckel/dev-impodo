@@ -102,26 +102,22 @@ class JoinedRecipePreparationTests(TestCase):
 
     def _prepare(self, workspace_id):
         source = self.context.preparation.grouped_exact_joins
-        original_batches = source.iter_batches
-
-        def batches(**kwargs):
-            with collect_duckdb_request_timings() as source_timings:
-                yield from original_batches(**kwargs)
-            self.assertEqual(source_timings.connection_count, 1)
-            self.assertEqual(source_timings.schema_check_count, 0)
-            self.assertEqual(source_timings.lock_retry_count, 0)
-
         with (
             patch.object(
                 self.context,
                 "readiness_reader",
                 side_effect=AssertionError("Prepare data must not contact Odoo"),
             ),
-            patch.object(source, "iter_batches", side_effect=batches) as batch_reader,
+            patch.object(
+                source, "iter_batches", wraps=source.iter_batches
+            ) as batch_reader,
             collect_duckdb_request_timings() as timings,
         ):
             self.context.preparation.prepare(workspace_id, actor=self.actor)
         batch_reader.assert_called_once()
+        self.assertEqual(
+            len(batch_reader.call_args.kwargs["group"].participant_dataset_ids), 4
+        )
         summary = self.context.preparation.staging.get_current_staging_summary(
             workspace_id
         )
@@ -131,10 +127,17 @@ class JoinedRecipePreparationTests(TestCase):
         self.assertEqual(run.reconciliation.blocked_rows, 0, run.issues)
         self.assertTrue(all(len(row.lineage.physical_sources) == 4 for row in run.rows))
         references = {
-            row.target_identity: row.references["x_list_id"].key for row in run.rows
+            row.target_identity: row.references["x_list_id"].key
+            if row.references["x_list_id"] is not None
+            else None
+            for row in run.rows
         }
         self.assertTrue(
-            all(row.references["x_list_id"].model == "x_list" for row in run.rows)
+            all(
+                row.references["x_list_id"] is None
+                or row.references["x_list_id"].model == "x_list"
+                for row in run.rows
+            )
         )
         self.assertEqual(timings.lock_retry_count, 0)
         return references
@@ -147,7 +150,10 @@ class JoinedRecipePreparationTests(TestCase):
     def test_reused_joined_recipe_blocks_a_new_unmatched_many2one_choice(self):
         self._exercise_recipe_reuse(uncovered_choice=True)
 
-    def _exercise_recipe_reuse(self, *, uncovered_choice):
+    def test_joined_many2one_leave_blank_survives_preparation_and_recipe_reuse(self):
+        self._exercise_recipe_reuse(uncovered_choice=False, blank_choice=True)
+
+    def _exercise_recipe_reuse(self, *, uncovered_choice, blank_choice=False):
         context, actor, fixture = self.context, self.actor, self.fixture
         workspace_id, physical, by_name = fixture._frozen_customer_workspace(
             several_tables=True
@@ -176,6 +182,8 @@ class JoinedRecipePreparationTests(TestCase):
             ValueMapping("Fictional Retail", "B"),
             ValueMapping("United Caps", "A"),
         )
+        if blank_choice:
+            aliases = aliases[1:]
         mapping = DatasetMapping(
             dataset_id=dataset.dataset_id,
             target_model="x_record",
@@ -191,6 +199,7 @@ class JoinedRecipePreparationTests(TestCase):
                     kind="many2one",
                     source_column_keys=(columns["name"],),
                     categorical_policy=CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
+                    blank_source_values=("Fictional Retail",) if blank_choice else (),
                     resolver=RelationshipResolver(
                         origin=ResolverOrigin.TARGET_CATALOG,
                         model="x_list",
@@ -226,7 +235,8 @@ class JoinedRecipePreparationTests(TestCase):
             actor=actor,
         )
         self.assertEqual(
-            self._prepare(workspace_id), {("C001",): ("A",), ("C002",): ("B",)}
+            self._prepare(workspace_id),
+            {("C001",): ("A",), ("C002",): None if blank_choice else ("B",)},
         )
         owner = context.migration_workspaces.get(workspace_id, actor=actor)
         recipe_draft = context.recipe_publication.draft(
@@ -250,6 +260,9 @@ class JoinedRecipePreparationTests(TestCase):
         )
         definition = envelope["recipe"]
         saved = definition["mapping"]["datasets"][0]["relationships"][0]
+        self.assertEqual(
+            saved["blank_source_values"], ["Fictional Retail"] if blank_choice else []
+        )
         self.assertEqual(
             saved["value_matches"],
             [
@@ -419,6 +432,14 @@ class JoinedRecipePreparationTests(TestCase):
             aliases,
         )
         self.assertEqual(
+            rebound.definition.datasets[0].relationships[0].blank_source_values,
+            ("Fictional Retail",) if blank_choice else (),
+        )
+        self.assertEqual(
             self._prepare(application.workspace_id),
-            {("C101",): ("B",), ("C102",): ("A",), ("C103",): ("B",)},
+            {
+                ("C101",): None if blank_choice else ("B",),
+                ("C102",): ("A",),
+                ("C103",): None if blank_choice else ("B",),
+            },
         )

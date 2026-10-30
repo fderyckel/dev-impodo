@@ -31,6 +31,9 @@ from impodo.application.workspace.derived_entities import (
 from impodo.application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
 )
+from impodo.application.workspace.preparation.grouped_exact_join_preparation import (
+    bounded_exact_join_group,
+)
 from impodo.domain.mapping.contracts import (
     CategoricalCoveragePolicy,
     DatasetMapping,
@@ -42,6 +45,14 @@ from impodo.domain.mapping.contracts import (
     ValueMapping,
 )
 from impodo.domain.serialization import content_hash
+from impodo.domain.structural import (
+    AggregateOperation,
+    AggregateSpec,
+    GroupAggregateRule,
+    GroupKey,
+    StructuralOutputColumn,
+    structural_dataset_id,
+)
 from impodo.domain.workspace.contracts import (
     SchemaField,
     SchemaModel,
@@ -211,6 +222,9 @@ class JoinedMappingValueTests(unittest.TestCase):
         )
 
     def test_choices_and_generic_many2one_coverage_share_joined_values(self):
+        self._assert_choices_and_coverage()
+
+    def _assert_choices_and_coverage(self):
         choices = self.coverage.source_value_choices(
             self.workspace_id, self.dataset.dataset_id, self.key
         )
@@ -381,3 +395,80 @@ class JoinedMappingValueTests(unittest.TestCase):
         self.assertEqual(sum(item["count"] for item in choices), 4753)
         self.assertEqual(len(choices), 5)
         self.assertEqual(timings.connection_count, 1)
+
+    def test_joined_choices_work_when_an_input_is_also_mapped_directly(self):
+        self.plan = replace(self.plan, dataset_uses=tuple(
+            replace(item, use=SourceDatasetUse.MAP_AND_PREPARE)
+            if item.dataset_id == self.physical.datasets[0].dataset_id else item
+            for item in self.plan.dataset_uses
+        ))
+        self.effective = mapping_source_selection(self.physical, self.plan)
+        self.assertEqual(len(self.effective.datasets), 2)
+        self.assertIsNone(bounded_exact_join_group(self.physical, self.effective, self.plan))
+        self._assert_choices_and_coverage()
+        with collect_duckdb_request_timings() as timings:
+            choices = self.coverage.source_value_choices(
+                self.workspace_id, self.dataset.dataset_id, self.key,
+            )
+        self.assertEqual(choices, (
+            {"value": "BE", "count": 1}, {"value": "FR", "count": 1},
+            {"value": "NL", "count": 1},
+        ))
+        self.assertEqual(timings.connection_count, 1)
+
+    def test_independent_join_groups_read_only_the_selected_group(self):
+        from impodo.adapters.duckdb import grouped_exact_join_source as module
+
+        _primary, region, email = self.physical.datasets
+        request = ExactJoinGroupRequest(
+            output_dataset_name="other_records", primary_dataset_id=region.dataset_id,
+            primary_key_column_keys=("key",), key_value_types=("integer",),
+            additions=(ExactJoinGroupAddition(email.dataset_id, ("key",)),),
+            projections=(ExactJoinGroupProjection(region.dataset_id, "region", "Choice"),),
+        )
+        rules = DerivedEntityWorkspaceService._join_group_rules(request, self.physical, self.plan)
+        with ExitStack() as stack:
+            paths = {snapshot.dataset_id: stack.enter_context(self.artifacts.materialize_source_snapshot(
+                self.physical.data_version_id, snapshot.parquet_storage_key,
+                expected_sha256=snapshot.parquet_sha256,
+            )) for snapshot in self.snapshots if snapshot.dataset_id in {region.dataset_id, email.dataset_id}}
+            preview = DuckDbExactJoinGroupEvaluator(self.database).review(request=request, rules=rules,
+                selection=self.physical, snapshots={item.dataset_id: item for item in self.snapshots}, paths=paths)
+        self.assertTrue(preview.can_save)
+        self.plan = replace(self.plan, rules=(*self.plan.rules, *rules), join_reviews=(
+            *self.plan.join_reviews,
+            SavedExactJoinReview(rules[0].rule_id, content_hash(rules[0].to_dict()), self.physical.content_hash,
+                self.plan.join_reviews[0].input_snapshots, preview.reviews[0]),
+        ))
+        self.effective = mapping_source_selection(self.physical, self.plan)
+        other = next(item for item in self.effective.datasets if item.dataset_id == structural_dataset_id(rules[0]))
+        self.assertIsNone(bounded_exact_join_group(self.physical, self.effective, self.plan))
+        with patch.object(module, "_create_narrow_input", wraps=module._create_narrow_input) as scan, collect_duckdb_request_timings() as timings:
+            choices = self.reader.counts(self.workspace_id, self.effective, other.dataset_id, other.columns[0].stable_key, 1000)
+        self.assertEqual(choices, {"BE": 1, "FR": 1, "NL": 1})
+        self.assertEqual(scan.call_count, 2)
+        self.assertEqual(timings.connection_count, 1)
+        self.plan = replace(self.plan, join_reviews=tuple(
+            replace(review, input_snapshots=(replace(review.input_snapshots[0], logical_hash="sha256:" + "f" * 64), *review.input_snapshots[1:]))
+            if review.rule_id == self.plan.rules[0].rule_id else review
+            for review in self.plan.join_reviews
+        ))
+        with self.assertRaisesRegex(WorkspaceError, "stale"):
+            self.reader.counts(self.workspace_id, self.effective, self.dataset.dataset_id, self.key, 1000)
+        self.assertEqual(self.reader.counts(self.workspace_id, self.effective, other.dataset_id, other.columns[0].stable_key, 1000), choices)
+
+    def test_other_preparation_rules_do_not_disable_joined_choices_or_validation(self):
+        rule = GroupAggregateRule(
+            rule_id=str(uuid4()), output_dataset_name="region_counts",
+            source_dataset_id=self.physical.datasets[1].dataset_id,
+            output_columns=(StructuralOutputColumn("region", "Region", "string"),
+                StructuralOutputColumn("count", "Count", "integer")),
+            group_keys=(GroupKey("region", "region"),),
+            aggregates=(AggregateSpec("count", AggregateOperation.COUNT),),
+        )
+        self.plan = replace(self.plan, rules=(*self.plan.rules, rule))
+        self.effective = mapping_source_selection(self.physical, self.plan)
+        self.assertEqual(len(self.effective.datasets), 2)
+        self.assertFalse(self.reader.supports(self.workspace_id, self.effective, structural_dataset_id(rule)))
+        self.assertTrue(self.reader.supports(self.workspace_id, self.effective, self.dataset.dataset_id))
+        self._assert_choices_and_coverage()

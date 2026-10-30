@@ -17,6 +17,12 @@ qualification, browser recovery checks, and clean reproducible measurements
 remain open. The 100,000-row mixed and related expansion is long-term deferred
 in the [remaining-work roadmap](00-remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
 
+The 2026-10-30 [mixed-workspace proposal](19-bounded-mixed-workspace-preparation.md)
+owns the immediate 65,299-row preparation blocker and proposed row-count
+advisories. It is awaiting approval. This plan continues to own broader
+evaluator and storage improvements rather than a parallel implementation
+of that focused delivery.
+
 | Step | Current progress |
 | --- | --- |
 | 0: Baseline | Route diagnostics identify each table and unsupported rule. Generic regression tests compare the old scan with the shortcut. Controlled scale and timing qualification remain open. |

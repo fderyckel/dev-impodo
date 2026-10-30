@@ -42,8 +42,8 @@ from ..mapping.contracts import (
 from ..mapping.descriptions import transformation_rule_summary
 from ..serialization import content_hash, portable
 
-COLUMNAR_PROGRAM_CONTRACT_VERSION = 6
-COLUMNAR_COMPILER_VERSION = 9
+COLUMNAR_PROGRAM_CONTRACT_VERSION = 7
+COLUMNAR_COMPILER_VERSION = 10
 
 
 class _DatasetIdentified(Protocol):
@@ -497,6 +497,7 @@ class ColumnarRelationshipProgram:
     target_key_fields: tuple[str, ...] = ()
     target_scope_fields: tuple[str, ...] = ()
     target_value_mappings: tuple[tuple[str, str], ...] = ()
+    blank_source_values: tuple[str, ...] = ()
 
     def to_portable_dict(self) -> dict[str, object]:
         return cast(dict[str, object], portable(asdict(self)))
@@ -609,6 +610,9 @@ class ColumnarTransformationProgram:
         payload = cast(dict[str, object], portable(asdict(self)))
         if self.compiler_version < 9:
             payload.pop("identity_resolvers", None)
+        if self.compiler_version < 10:
+            for relationship in cast(list[dict[str, object]], payload["relationships"]):
+                relationship.pop("blank_source_values", None)
         return payload
 
     @classmethod
@@ -783,6 +787,9 @@ class ColumnarTransformationProgram:
             item = cast(Mapping[str, object], value)
             return ColumnarRelationshipProgram(
                 target_field=str(item["target_field"]),
+                blank_source_values=tuple(
+                    str(value) for value in cast(Sequence[object], item.get("blank_source_values", ()))
+                ),
                 parent_dataset_id=str(item.get("parent_dataset_id", "")),
                 parent_dataset_name=str(item.get("parent_dataset_name", "")),
                 key=identity(item["key"]),
@@ -1263,6 +1270,7 @@ def _compile_dataset(
                         (item.source_value, item.target_value)
                         for item in resolver.value_mappings
                     ),
+                    blank_source_values=relationship.blank_source_values,
                 )
             )
             draft.use(

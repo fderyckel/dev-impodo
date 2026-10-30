@@ -284,6 +284,32 @@ and 25,000 for other derived or materialized routes.
 Extending qualification belongs to the
 [remaining scale work](../../plans/00-remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
 
+### Joined relationship matches and Recipe reuse
+
+A reviewed grouped exact join uses the bounded join reader during preparation.
+The relationship compiler applies each saved Many2one value match to that
+logical row and retains a portable related-model key in canonical staging.
+Physical lineage still identifies the contributing accepted source rows.
+Preparation does not fetch target records or resolve numeric Odoo IDs.
+
+Recipe publication retains the logical join group and explicit value matches.
+Application creates fresh rule and group identities for the new delivery.
+`DerivedEntityWorkspaceService.save_derived_entity_plan` reviews those joins
+against the new immutable snapshots before the plan is saved. The review uses
+one bounded DuckDB operation and scans each participating snapshot once.
+Current categorical validation checks the rebuilt logical output; a new
+unmatched choice blocks the application before preparation.
+
+Explicit `blank_source_values` remain part of the rebound mapping. The shared
+row evaluator and native Polars key projection produce null relationships for
+those values, and supporting reads omit the corresponding target-key probes.
+
+[`test_joined_recipe_preparation.py`](../../../tests/integration/web/test_joined_recipe_preparation.py)
+qualifies authoring preparation, stored Recipe publication, fresh-file Test run
+activation, and preparation of the rebound mapping for custom models. It also
+checks changed source keys, retained aliases, fresh review counts, complete
+physical lineage, blocked new choices, and the review connection count.
+
 ## Code references
 
 | Role | Code |

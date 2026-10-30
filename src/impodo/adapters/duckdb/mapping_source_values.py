@@ -58,14 +58,18 @@ class JoinedMappingSourceValues(LogicalSourceValues):
         self.artifacts = artifacts
         self.executor = executor
 
-    def supports(self, workspace_id: str, selection: SourceSelection) -> bool:
-        """Qualify the current grouped derivation using the preparation rules."""
+    def supports(
+        self, workspace_id: str, selection: SourceSelection, dataset_id: str
+    ) -> bool:
+        """Qualify the selected joined output without restricting its siblings."""
 
         physical = self.sources.get_source_selection(workspace_id)
         plan = self.derivations.get_derived_entity_plan(workspace_id)
         return (
             physical is not None
-            and bounded_exact_join_group(physical, selection, plan) is not None
+            and bounded_exact_join_group(
+                physical, selection, plan, dataset_id=dataset_id
+            ) is not None
         )
 
     def project(
@@ -110,10 +114,14 @@ class JoinedMappingSourceValues(LogicalSourceValues):
         physical = self.sources.get_source_selection(workspace_id)
         plan = self.derivations.get_derived_entity_plan(workspace_id)
         group = (
-            bounded_exact_join_group(physical, selection, plan) if physical else None
+            bounded_exact_join_group(physical, selection, plan, dataset_id=dataset_id)
+            if physical else None
         )
         if physical is None or plan is None or group is None:
-            raise WorkspaceError("This source derivation has no bounded value reader")
+            raise WorkspaceError(
+                "Impodo cannot read choices for this table's current preparation rules. "
+                "Review the combined table in Source data."
+            )
         if (
             plan.workspace_id != workspace_id
             or physical.data_version_id != selection.data_version_id
@@ -132,9 +140,9 @@ class JoinedMappingSourceValues(LogicalSourceValues):
             (item.dataset_id, item.logical_hash, item.parquet_sha256)
             for item in snapshots
         }
-        if len(by_id) != len(snapshots) or set(by_id) != set(
-            group.participant_dataset_ids
-        ):
+        if len(by_id) != len(snapshots) or set(by_id) != {
+            item.dataset_id for item in physical.datasets
+        }:
             raise WorkspaceError("Joined source snapshots are incomplete")
         rules = {rule.rule_id: rule for rule in group.rules}
         if any(
@@ -146,6 +154,7 @@ class JoinedMappingSourceValues(LogicalSourceValues):
             }
             != expected
             for review in plan.join_reviews
+            if review.rule_id in rules
         ):
             raise WorkspaceError(
                 "The accepted grouped join review is stale; review the combined table again"
@@ -155,6 +164,8 @@ class JoinedMappingSourceValues(LogicalSourceValues):
         with ExitStack() as stack:
             paths = {}
             for snapshot in snapshots:
+                if snapshot.dataset_id not in group.participant_dataset_ids:
+                    continue
                 path = stack.enter_context(
                     self.artifacts.materialize_source_snapshot(
                         physical.data_version_id,

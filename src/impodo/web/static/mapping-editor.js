@@ -666,9 +666,9 @@ document.addEventListener("DOMContentLoaded", () => {
               (item) =>
                 item &&
                 typeof item.source_value === "string" &&
-                typeof item.target_value === "string"
+                (typeof item.target_value === "string" || item.action === "leave_blank")
             )
-            .map((item) => [item.source_value, item.target_value])
+            .map((item) => [item.source_value, item.action === "leave_blank" ? null : item.target_value])
         );
       } catch {
         return new Map();
@@ -693,7 +693,7 @@ document.addEventListener("DOMContentLoaded", () => {
         valueMatchFreshness.hidden = false;
         if (valueMatchFreshnessText) {
           valueMatchFreshnessText.textContent =
-            "Impodo could not update the saved Odoo values.";
+            "The choices could not be loaded. See the reason above.";
         }
         if (refreshValueMatch) {
           refreshValueMatch.textContent = "Try again";
@@ -745,6 +745,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const existing =
         activeValueMatch.pendingMatches ||
         parseValueMatches(activeValueMatch.storage);
+      const required = activeValueMatch.trigger.closest("[data-relation-mapping-row]")
+        ?.querySelector('[name^="relation_required_"]:checked, [name^="relation_required_create_"]:checked');
+      const allowBlank = payload.allow_blank === true && !required;
+      let blankChoice = `leave-blank:${window.crypto.randomUUID()}`;
+      while (targetValues.has(blankChoice)) blankChoice = `leave-blank:${window.crypto.randomUUID()}`;
+      activeValueMatch.blankChoice = blankChoice;
       let suggested = 0;
       let ambiguousCount = 0;
 
@@ -804,7 +810,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const releaseTargetSelect = (select) => {
         for (const option of Array.from(select.options)) {
-          if (option.value && !option.selected) {
+          if (option.value && !option.selected && !option.dataset.leaveBlank) {
             option.remove();
           }
         }
@@ -822,6 +828,13 @@ document.addEventListener("DOMContentLoaded", () => {
         placeholder.value = "";
         placeholder.textContent = "Choose Odoo choice";
         select.append(placeholder);
+        if (allowBlank) {
+          const blank = document.createElement("option");
+          blank.value = blankChoice;
+          blank.textContent = "Leave blank (no linked record)";
+          blank.dataset.leaveBlank = "true";
+          select.append(blank);
+        }
         select.dataset.sourceValue = sourceValue;
         select.setAttribute("aria-label", `Odoo choice for ${sourceValue}`);
 
@@ -830,10 +843,14 @@ document.addEventListener("DOMContentLoaded", () => {
           ? sourceValue
           : "";
         const selectedTarget =
-          savedTarget && targetValues.has(savedTarget)
+          existing.has(sourceValue) && savedTarget === null && allowBlank
+            ? blankChoice
+            : savedTarget && targetValues.has(savedTarget)
             ? savedTarget
             : suggestedTarget;
-        if (selectedTarget) {
+        if (selectedTarget === blankChoice) {
+          select.value = blankChoice;
+        } else if (selectedTarget) {
           const choice = targetChoices.find(
             (item) => String(item.value) === selectedTarget
           );
@@ -870,18 +887,6 @@ document.addEventListener("DOMContentLoaded", () => {
         ? payload.ambiguous_values
         : [];
       ambiguousCount = ambiguousValues.length;
-      if (valueMatchStatus) {
-        const parts = [
-          `${sourceChoices.length} source choice(s) found.`,
-          `${suggested} exact match(es) suggested.`,
-        ];
-        if (ambiguousValues.length) {
-          parts.push(
-            `${ambiguousValues.length} duplicate Odoo key value(s) were left out.`
-          );
-        }
-        valueMatchStatus.textContent = parts.join(" ");
-      }
       if (valueMatchTableWrap) {
         valueMatchTableWrap.hidden = false;
       }
@@ -927,7 +932,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 .filter((select) => select.value)
                 .map((select) => [
                   select.dataset.sourceValue || "",
-                  select.value,
+                  select.value === activeValueMatch.blankChoice ? null : select.value,
                 ])
             )
           : null;
@@ -1102,10 +1107,9 @@ document.addEventListener("DOMContentLoaded", () => {
         valueMatchRows.querySelectorAll("select[data-source-value]")
       )
         .filter((select) => select.value)
-        .map((select) => ({
-          source_value: select.dataset.sourceValue || "",
-          target_value: select.value,
-        }));
+        .map((select) => select.value === activeValueMatch.blankChoice
+          ? { source_value: select.dataset.sourceValue || "", action: "leave_blank" }
+          : { source_value: select.dataset.sourceValue || "", target_value: select.value });
       activeValueMatch.storage.value = JSON.stringify(mappings);
       const policy = activeValueMatch.storage
         .closest("[data-scalar-mapping-row], [data-relation-mapping-row]")

@@ -145,9 +145,17 @@ def _value_mappings_from_form(
     form,
     field_name: str,
 ) -> tuple[ValueMapping, ...]:
+    return _value_match_decisions_from_form(form, field_name)[0]
+
+
+def _value_match_decisions_from_form(
+    form, field_name: str, *, allow_blank: bool = False,
+) -> tuple[tuple[ValueMapping, ...], tuple[str, ...]]:
+    """Decode explicit record matches and intentional blanks without sentinels."""
+
     raw_value = _text(form, field_name)
     if not raw_value:
-        return ()
+        return (), ()
     try:
         payload = json.loads(raw_value)
     except json.JSONDecodeError as error:
@@ -155,7 +163,22 @@ def _value_mappings_from_form(
     if not isinstance(payload, list) or len(payload) > VALUE_MATCH_MAX_SOURCE_CHOICES:
         raise ValueError("Matched choices are invalid")
     mappings: list[ValueMapping] = []
+    blanks: list[str] = []
+    seen: set[str] = set()
     for item in payload:
+        if (
+            allow_blank and isinstance(item, dict)
+            and set(item) == {"source_value", "action"}
+            and item["action"] == "leave_blank"
+            and isinstance(item["source_value"], str)
+            and item["source_value"].strip()
+        ):
+            source_value = item["source_value"]
+            if source_value in seen:
+                raise ValueError("Every source choice must have one decision")
+            seen.add(source_value)
+            blanks.append(source_value)
+            continue
         if not isinstance(item, dict) or set(item) != {
             "source_value",
             "target_value",
@@ -169,7 +192,10 @@ def _value_mappings_from_form(
         ):
             raise TypeError("Matched choices are invalid")
         mappings.append(ValueMapping(source_value, target_value))
-    return tuple(mappings)
+        if source_value in seen:
+            raise ValueError("Every source choice must have one decision")
+        seen.add(source_value)
+    return tuple(mappings), tuple(blanks)
 
 
 def _optional_nonnegative_query_int(value: str | None) -> int | None:

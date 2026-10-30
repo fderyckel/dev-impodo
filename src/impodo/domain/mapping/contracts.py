@@ -32,9 +32,9 @@ from ..serialization import canonical_json as _canonical_json
 from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
-MAPPING_CONTRACT_VERSION = 17
+MAPPING_CONTRACT_VERSION = 18
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
-    {12, 13, 14, 15, 16, MAPPING_CONTRACT_VERSION}
+    {12, 13, 14, 15, 16, 17, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
 # Exact categorical policies do not require one authored mapping per source
@@ -697,9 +697,43 @@ class RelationshipMapping:
     categorical_policy: CategoricalCoveragePolicy | None = None
     value_source: RelationshipValueSource = RelationshipValueSource.SOURCE
     constant_reference: ConstantBusinessReference | None = None
+    blank_source_values: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_column_keys", tuple(self.source_column_keys))
+        if not isinstance(self.blank_source_values, (tuple, list)) or any(
+            not isinstance(value, str) for value in self.blank_source_values
+        ):
+            raise ValueError("Leave-blank source choices must be a list of text values")
+        blanks = tuple(sorted(set(self.blank_source_values)))
+        if len(blanks) + len(self.resolver.value_mappings) > MAX_VALUE_MAPPINGS or any(
+            not isinstance(value, str)
+            or not value.strip()
+            or value != value.strip()
+            or len(value) > MAX_VALUE_MAPPING_LENGTH
+            for value in blanks
+        ):
+            raise ValueError("Leave-blank source choices are invalid")
+        if set(blanks).intersection(
+            item.source_value for item in self.resolver.value_mappings
+        ):
+            raise ValueError("A source choice cannot match a record and leave it blank")
+        if blanks and (
+            self.kind != "many2one"
+            or len(self.source_column_keys) != 1
+            or self.value_source != RelationshipValueSource.SOURCE
+            or self.required
+            or self.required_on_create
+        ):
+            raise ValueError(
+                "Leave blank requires one source column and an optional many2one field"
+            )
+        object.__setattr__(self, "blank_source_values", blanks)
+        if blanks and self.null_policy == "ignore_source_null":
+            raise ValueError(
+                "Leave blank cannot use Ignore blank source values; "
+                "choose a policy that compares blanks"
+            )
         object.__setattr__(
             self,
             "value_source",
@@ -972,6 +1006,12 @@ class MappingDefinition:
                 f"Mapping contract v{self.contract_version} cannot contain "
                 "an explicit identity null policy"
             )
+        if self.contract_version < 18 and any(
+            relation.blank_source_values
+            for dataset in self.datasets
+            for relation in dataset.relationships
+        ):
+            raise ValueError("Leave-blank decisions require mapping contract v18")
         if self.contract_version == 12 and any(
             resolver.dataset_projection_field is not None
             for dataset in self.datasets
@@ -1183,6 +1223,9 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    if contract_version < 18:
+        for relationship in payload.get("relationships", ()):
+            relationship.pop("blank_source_values", None)
     if contract_version < 17:
         for group in ("target_identity", "target_scope"):
             for component in payload.get(group, ()):
@@ -1554,6 +1597,8 @@ def _relationship_from_dict(
     contract_version: int,
 ) -> RelationshipMapping:
     expected_fields = _contract_fields(RelationshipMapping)
+    if contract_version < 18:
+        expected_fields.remove("blank_source_values")
     if contract_version < 15:
         expected_fields.difference_update({"value_source", "constant_reference"})
     _require_contract_fields(
@@ -1591,6 +1636,7 @@ def _relationship_from_dict(
             if payload.get("constant_reference") is not None
             else None
         ),
+        blank_source_values=payload.get("blank_source_values", ()),
     )
 
 

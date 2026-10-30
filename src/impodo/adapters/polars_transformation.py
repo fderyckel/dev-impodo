@@ -470,6 +470,9 @@ def _compile_lazy_transformation(
         _compile_identity_group(
             tuple(item.key for item in program.relationships),
             "relationship",
+            blank_source_values=tuple(
+                item.blank_source_values for item in program.relationships
+            ),
             pre_normalization_mappings=(
                 tuple(item.target_value_mappings)
                 if program.compiler_version >= 5
@@ -560,6 +563,9 @@ def _execution_layout(
     relationships = _compile_identity_group(
         tuple(item.key for item in program.relationships),
         "relationship",
+        blank_source_values=tuple(
+            item.blank_source_values for item in program.relationships
+        ),
         pre_normalization_mappings=(
             tuple(item.target_value_mappings)
             if program.compiler_version >= 5
@@ -1317,6 +1323,7 @@ def _compile_identity_group(
     role: str,
     *,
     pre_normalization_mappings: Iterable[tuple[tuple[str, str], ...]] = (),
+    blank_source_values: tuple[tuple[str, ...], ...] = (),
     identity_resolvers: Iterable[ColumnarIdentityResolverProgram] = (),
 ) -> tuple[
     tuple[_IdentityComponentLayout, ...],
@@ -1390,6 +1397,10 @@ def _compile_identity_group(
                 if source is not None
                 else pl.lit(literal_value, dtype=pl.String)
             )
+            if component_index < len(blank_source_values) and blank_source_values[component_index]:
+                raw = pl.when(
+                    raw.str.strip_chars().is_in(blank_source_values[component_index])
+                ).then(None).otherwise(raw)
             normalized, _ = _text_expression(raw, text_steps)
             normalized_expressions.append(normalized.alias(normalized_alias))
             value, parse_invalid = _conversion_expression(

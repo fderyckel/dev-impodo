@@ -491,6 +491,7 @@ stages:
       - src/impodo/web/routers/lifecycle.py::build_lifecycle_router
       - src/impodo/web/server_supervisor.py::supervise_server
       - scripts/capture_match_data_recovery_screenshots.py::capture
+      - scripts/capture_many2one_blank_match.py::capture
       - scripts/capture_hierarchy_tutorial_screenshots.py::capture
       - src/impodo/domain/recipe/value_rules.py::validate_formula
       - src/impodo/web/mapping_formula_authoring.py::validate_formula_authoring
@@ -513,6 +514,10 @@ stages:
       - tests/integration/web/test_mapping_impact_presenter.py
       - tests/integration/web/test_mapping_workflow.py
       - tests/integration/web/test_joined_value_matching.py
+      - tests/integration/web/test_joined_recipe_preparation.py
+      - tests/domain/mapping/test_relationship_blank_values.py
+      - tests/application/workspace/mapping/test_blank_relationship_choices.py
+      - tests/e2e/test_many2one_blank_match.py
       - tests/integration/artifacts/test_joined_mapping_values.py
       - tests/integration/web/test_identity_health_presenter.py
       - tests/integration/web/test_identity_choice_review.py
@@ -606,6 +611,7 @@ stages:
       - tests/domain/preparation/test_browser_arithmetic_formula.py
       - tests/domain/preparation/test_normalization.py
       - tests/integration/web/test_preparation_workflow.py
+      - tests/integration/web/test_joined_recipe_preparation.py
       - tests/integration/web/test_normalization_presenter.py
       - tests/application/workspace/test_workflow_issues.py
       - tests/application/workspace/preparation/test_readiness.py

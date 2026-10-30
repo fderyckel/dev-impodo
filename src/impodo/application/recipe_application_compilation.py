@@ -1657,6 +1657,7 @@ class RecipeApplicationCompiler:
             "value_matches": item.get("value_matches", ()),
         }
         return RelationshipMapping(
+            blank_source_values=item.get("blank_source_values", ()),
             target_field=str(item["target_field"]),
             kind=str(item["kind"]),
             source_column_keys=tuple(

@@ -530,6 +530,22 @@ never writes it as an independently owned list. Dynamic value matching reads
 one effective source column and fetches target choices in batches. It persists
 portable codes or business keys, never numeric Odoo IDs.
 
+Mapping contract v18 adds `RelationshipMapping.blank_source_values` for explicit
+blank decisions on optional, single-source-column Many2one fields. The form
+encodes these as `{source_value, action: "leave_blank"}`; the unresolved
+placeholder never creates such a decision. Saved record matches still use
+`ValueMapping`, so no sentinel can collide with an Odoo business key. Captured
+required fields, authored required flags, conflicting record matches, and
+`ignore_source_null` reject blank decisions.
+
+Categorical coverage counts these source values as handled. Relationship
+simulation and supporting-value capture omit them from target-key requests.
+Python preparation emits a null reference, and native program contract v7,
+compiler v10 uses a native Polars expression before key normalization. Recipe
+publication and application preserve the decisions, and Recipe review labels
+them **Leave blank (no linked record)** without requiring a target choice.
+Historic mapping versions retain their original field layout and hashes.
+
 `CategoricalCoverageService` uses `LogicalSourceValues` for reviewed grouped
 exact-join outputs. `JoinedMappingSourceValues` verifies the saved review,
 rule hashes, and every participating immutable snapshot before reading. The
@@ -537,6 +553,15 @@ same projection supports source choices, categorical validation, and identity
 key reads. Categorical scan contract v5 binds joined results to the effective
 selection and all participating physical snapshot hashes. Uncovered explicit
 matches remain blocking findings, and stale join evidence requires review.
+
+Value-read qualification selects the requested dataset's complete join group.
+Other mapped physical tables, independent join groups, and unrelated preparation
+rules do not disable that reader. Categorical coverage qualifies each scanned
+dataset separately and binds all physical snapshot identities whenever a join
+is read. The adapter verifies the selected group's reviews and materializes only
+its participating snapshots. A stale review in another group cannot be used for
+this read or substitute for the selected group's evidence. The default
+whole-workspace preparation qualifier keeps its separate admission limits.
 
 The DuckDB reader projects only requested output columns and necessary join
 keys, scanning each participant once into a narrow temporary table. It
@@ -709,6 +734,11 @@ validation result for the malformed formula.
 | Narrow joined projection and SQL choice counts | [`DuckDbGroupedExactJoinSource`](../../../src/impodo/adapters/duckdb/grouped_exact_join_source.py) |
 | Joined value and scale qualification | [`test_joined_mapping_values.py`](../../../tests/integration/artifacts/test_joined_mapping_values.py) |
 | Generic joined Many2one route qualification | [`test_joined_value_matching.py`](../../../tests/integration/web/test_joined_value_matching.py) |
+| Joined Many2one preparation and Recipe reuse | [`test_joined_recipe_preparation.py`](../../../tests/integration/web/test_joined_recipe_preparation.py) |
+| Explicit blank contract and required-field guards | [`test_relationship_blank_values.py`](../../../tests/domain/mapping/test_relationship_blank_values.py) |
+| Blank decisions in live matching and Recipe review | [`test_blank_relationship_choices.py`](../../../tests/application/workspace/mapping/test_blank_relationship_choices.py) |
+| Blank choices, reopening, and browser save | [`test_many2one_blank_match.py`](../../../tests/e2e/test_many2one_blank_match.py) |
+| Current blank-choice screenshot | [`capture_many2one_blank_match.py`](../../../scripts/capture_many2one_blank_match.py) |
 | Native scalar-provider compiler | [`columnar_transformation.py`](../../../src/impodo/domain/compiler/columnar_transformation.py) |
 | Row relationship preparation | [`source.py`](../../../src/impodo/domain/preparation/source.py) |
 | Rule-impact service | [`TransformationImpactService`](../../../src/impodo/application/workspace/mapping/transformation_impact.py) |

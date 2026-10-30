@@ -115,8 +115,9 @@ To build the logical customer table:
    says **Complete**.
 
 The save creates one plan revision. Physical inputs default to **Preparation
-only**, intermediate execution tables stay private, and only the final logical
-dataset enters **Match data**. Impodo retains the complete per-table review and
+only**, intermediate execution tables stay private, and the final logical
+dataset from this combination enters **Match data**. Other eligible tables can
+remain available for mapping. Impodo retains the complete per-table review and
 row-level physical lineage. The source files do not need to be pre-joined with
 Python or SQL.
 

@@ -73,6 +73,7 @@ from ..forms import (
     _text,
     _texts,
     _value_mappings_from_form,
+    _value_match_decisions_from_form,
 )
 
 
@@ -948,11 +949,10 @@ def _mapping_datasets_from_form(
                     source_identity_by_dataset=source_identity_by_dataset,
                     selection=selection,
                 )
+            value_mappings, blank_source_values = _value_match_decisions_from_form(
+                form, f"relation_value_matches_{dataset_index}_{relation_index}", allow_blank=True,
+            )
             if origin is ResolverOrigin.DATASET:
-                value_mappings = _value_mappings_from_form(
-                    form,
-                    f"relation_value_matches_{dataset_index}_{relation_index}",
-                )
                 if value_mappings:
                     raise ValueError(
                         "Existing-record matches cannot use an incoming dataset"
@@ -990,13 +990,7 @@ def _mapping_datasets_from_form(
                     ),
                     origin=origin,
                     dataset_id=resolver_dataset_id,
-                    value_mappings=_value_mappings_from_form(
-                        form,
-                        (
-                            f"relation_value_matches_{dataset_index}_"
-                            f"{relation_index}"
-                        ),
-                    ),
+                    value_mappings=value_mappings,
                     dataset_projection_field=(
                         projection_field if projection_binding else None
                     ),
@@ -1013,13 +1007,7 @@ def _mapping_datasets_from_form(
                         ),
                         selected_sources,
                     ),
-                    value_mappings=_value_mappings_from_form(
-                        form,
-                        (
-                            f"relation_value_matches_{dataset_index}_"
-                            f"{relation_index}"
-                        ),
-                    ),
+                    value_mappings=value_mappings,
                 )
             policy_text = _text(
                 form,
@@ -1106,11 +1094,12 @@ def _mapping_datasets_from_form(
                         if policy_text
                         else (
                             CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH
-                            if resolver.value_mappings
+                            if resolver.value_mappings or blank_source_values
                             else CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
                         )
                     ),
                     value_source=value_source,
+                    blank_source_values=blank_source_values,
                 )
             )
         mode = MappingTargetMode(

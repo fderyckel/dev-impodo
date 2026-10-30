@@ -228,6 +228,7 @@ def compile_browser_mapping(
                 relation_resolver = resolver(item.resolver)
             relations[item.target_field] = RelationSpec(
                 kind=_relation_kind(item.kind),
+                blank_source_values=item.blank_source_values,
                 source_fields=tuple(
                     synthetic_relationship_field(index, source_index)
                     for source_index, _source_column_key in enumerate(

@@ -800,6 +800,7 @@ class RecipeCompiler:
                         "value_matches": [
                             portable(asdict(item)) for item in resolver.value_mappings
                         ],
+                        "blank_source_values": list(relation.blank_source_values),
                     }
                 )
             result.append(

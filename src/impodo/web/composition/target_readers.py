@@ -1509,6 +1509,8 @@ def _capture_mapping_supporting_values(
                 if len(row) != field_count or any(value is None for value in row):
                     continue
                 normalized = tuple(str(value).strip() for value in row)
+                if len(normalized) == 1 and normalized[0] in source.blank_source_values:
+                    continue
                 if normalized:
                     normalized = (
                         translations.get(normalized[0], normalized[0]),

@@ -40,6 +40,11 @@ and ordered portable key and scope values. It requires no logical source-column
 binding. Each application resolves those values against its own target
 evidence.
 
+A source-backed optional many2one may retain explicit `blank_source_values`.
+Application rebinds its source column and preserves each decision to produce
+no relationship. It must distinguish those decisions from uncovered source
+choices and must not resolve them against an existing target record.
+
 A hierarchical lookup preparation stores two to five ordered logical
 source-column identities, its arbitrary target model and name field, and all
 missing-value policies. Publication replaces every physical hierarchy field
