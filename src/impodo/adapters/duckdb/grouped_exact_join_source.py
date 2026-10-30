@@ -29,9 +29,14 @@ from impodo.domain.source_snapshot import (
 )
 from impodo.domain.structural import structural_dataset_id
 from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
+from impodo.domain.workspace.derived_entities import (
+    DerivedDatasetLink,
+    DerivedEntityRule,
+)
 
 from .database import DuckDbWorkspaceDatabase
 from .exact_join_group_evaluator import parsed_join_key_expression
+from .lookup_preparation_source import iter_lookup_batches
 
 configure_columnar_runtime()
 
@@ -73,6 +78,17 @@ class DuckDbGroupedExactJoinSource(GroupedExactJoinSourcePort):
 
     def __init__(self, database: DuckDbWorkspaceDatabase) -> None:
         self._connection_factory = database.connection_factory
+
+    def iter_lookup_batches(
+        self, *, rule: DerivedEntityRule, link: DerivedDatasetLink,
+        effective_dataset: SourceDataset, snapshot: SourceSnapshot, path: Path,
+        batch_size: int,
+    ) -> Iterator[GroupedExactJoinBatch]:
+        """Delegate one narrow lookup producer within the same worker boundary."""
+
+        yield from iter_lookup_batches(self._connection_factory, rule=rule, link=link,
+            effective_dataset=effective_dataset, snapshot=snapshot, path=path,
+            batch_size=batch_size)
 
     def project_values(
         self,
@@ -417,7 +433,7 @@ def _joined_query(
             )
     selected = ", ".join(value_items)
     if value_keys is None:
-        selected = f"{source_rows}, {selected}"
+        selected = ", ".join(part for part in (source_rows, selected) if part)
     return f"""
         SELECT {selected}
           FROM {tables[shape.primary_dataset_id]} AS {primary_alias}

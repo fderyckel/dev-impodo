@@ -1,5 +1,6 @@
 """Exercise intentional blank choices in an authenticated fictional workspace."""
 
+import os
 import sys
 import unittest
 from unittest.mock import patch
@@ -132,6 +133,7 @@ class Many2oneBlankMatchBrowserTests(unittest.TestCase):
         expect(choice).to_have_value("")
         choice.select_option(label="Leave blank (no linked record)")
         dialog.get_by_role("button", name="Use complete matches", exact=True).click()
+        self.row.get_by_label("If the source value is blank", exact=True).select_option("leave_blank")
         self.assertIn(
             '"action":"leave_blank"',
             self.row.locator("[data-value-match-storage]").input_value(),
@@ -164,9 +166,15 @@ class Many2oneBlankMatchBrowserTests(unittest.TestCase):
             current.definition.datasets[0].relationships[0].blank_source_values,
             ("TO_DEFINE",),
         )
+        self.assertEqual(current.definition.datasets[0].relationships[0].blank_source_action, "leave_blank")
         self.page.reload(wait_until="networkidle")
         self.row.evaluate("""row => { for (let item = row; item; item = item.parentElement) {
             if (item instanceof HTMLDetailsElement) item.open = true; } }""")
+        expect(self.row.get_by_label("If the source value is blank", exact=True)).to_have_value("leave_blank")
+        capture = os.environ.get("IMPODO_BLANK_SOURCE_SCREENSHOT")
+        if capture:
+            self.row.get_by_label("If the source value is blank", exact=True).scroll_into_view_if_needed()
+            self.page.screenshot(path=capture)
         self.row.get_by_role("button", name="Match values", exact=True).click()
         expect(choice.locator("option:checked")).to_have_text(
             "Leave blank (no linked record)"

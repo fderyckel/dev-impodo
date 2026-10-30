@@ -18,6 +18,7 @@ from ...application.workspace.preparation.preparation_job_registry import (
     PreparationJobNotFoundError,
     PreparationJobStateError,
 )
+from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash, _render
@@ -54,48 +55,59 @@ def build_preparation_router(context: WebContext) -> APIRouter:
                 _progress_url(workspace_id, active.job_id),
                 status_code=303,
             )
-        try:
-            workspace = _preparation_workspace(context, workspace_id, actor=actor)
-            workspace = _assert_recipe_application_can_prepare(
-                context, workspace, actor=actor,
+        def project():
+            try:
+                workspace = _preparation_workspace(context, workspace_id, actor=actor)
+                workspace = _assert_recipe_application_can_prepare(
+                    context, workspace, actor=actor,
+                )
+            except WorkspaceError as error:
+                request.session["summary_error"] = str(error)
+                return RedirectResponse(
+                    f"/workspaces/{workspace_id}/summary",
+                    status_code=303,
+                )
+            workspace_state = context.queries.get(workspace_id)
+            resolution = context.resolution.current_summary(workspace_id)
+            if resolution is not None and resolution.status != "FROZEN":
+                return RedirectResponse(
+                    f"/workspaces/{workspace_id}/resolution",
+                    status_code=303,
+                )
+            normalization = context.normalization.current_summary(workspace_id)
+            if normalization is not None:
+                return RedirectResponse(
+                    f"/workspaces/{workspace_id}/normalization",
+                    status_code=303,
+                )
+            revision = context.queries.get_mapping_revision(workspace_id)
+            submission = (
+                context.queries.get_mapping_submission(workspace_id, revision.version)
+                if revision is not None
+                else None
             )
-        except WorkspaceError as error:
-            request.session["summary_error"] = str(error)
-            return RedirectResponse(
-                f"/workspaces/{workspace_id}/summary",
-                status_code=303,
+            can_prepare = bool(
+                revision is not None
+                and submission is not None
+                and submission.mapping_content_hash
+                == revision.definition.content_hash
             )
-        workspace_state = context.queries.get(workspace_id)
-        resolution = context.resolution.current_summary(workspace_id)
-        if resolution is not None and resolution.status != "FROZEN":
-            return RedirectResponse(
-                f"/workspaces/{workspace_id}/resolution",
-                status_code=303,
+            selection = context.queries.get_source_selection(workspace_id)
+            physical_rows = sum(item.row_count for item in selection.datasets) if selection else 0
+            advisory = (
+                f"Preparing {physical_rows:,} source rows across your selected tables. "
+                "This may take longer; you can follow progress or cancel safely."
+                if physical_rows > 50_000 else ""
             )
-        normalization = context.normalization.current_summary(workspace_id)
-        if normalization is not None:
-            return RedirectResponse(
-                f"/workspaces/{workspace_id}/normalization",
-                status_code=303,
+            return _render(
+                request,
+                "workspace_prepare.html",
+                workspace_state=workspace_state,
+                can_prepare=can_prepare,
+                preparation_advisory=advisory,
             )
-        revision = context.queries.get_mapping_revision(workspace_id)
-        submission = (
-            context.queries.get_mapping_submission(workspace_id, revision.version)
-            if revision is not None
-            else None
-        )
-        can_prepare = bool(
-            revision is not None
-            and submission is not None
-            and submission.mapping_content_hash
-            == revision.definition.content_hash
-        )
-        return _render(
-            request,
-            "workspace_prepare.html",
-            workspace_state=workspace_state,
-            can_prepare=can_prepare,
-        )
+
+        return await run_page_read(project)
 
     @router.post("/workspaces/{workspace_id}/summary/check")
     async def check_workspace_data(request: Request, workspace_id: str):

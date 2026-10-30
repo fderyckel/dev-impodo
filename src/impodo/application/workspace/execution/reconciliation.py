@@ -65,6 +65,7 @@ from impodo.domain.shared.models import (
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 from impodo.domain.workspace.errors import WorkspaceError
 
+from .identity_lookups import readback_identity_lookup
 from .service import (
     ExecutionSnapshotRepository,
     _identity_domain,
@@ -650,6 +651,7 @@ class ReconciliationService:
         # An interrupted create may use relational identity components (for
         # example, a BOM line identified by product within one BOM). Resolve
         # those components to exact Odoo IDs before looking for the line.
+        nested = readback_identity_lookup(rows.values(), metadata, reader)
         receipt_ids: dict[tuple[str, str, str], set[int]] = {}
         by_source = {
             (row.dataset, _portable_key(row.source_identity)): row
@@ -761,7 +763,8 @@ class ReconciliationService:
                 batch = ordered[start : start + MAX_READBACK_LOOKUPS]
                 results = reader.find_records_many(
                     model,
-                    tuple(ReadbackLookup(domain=item.domain) for item in batch),
+                    tuple(ReadbackLookup(domain=domain) for domain in nested.translate(
+                        model, tuple(item.domain for item in batch))),
                 )
                 if len(results) != len(batch):
                     raise WorkspaceError(
@@ -830,6 +833,7 @@ class ReconciliationService:
     ) -> dict[tuple[str, tuple[tuple[str, str, Any], ...]], tuple[int, ...]]:
         """Resolve every relationship key in bounded model batches."""
 
+        nested = readback_identity_lookup(by_source.values(), metadata, reader)
         requested: dict[
             str,
             dict[tuple[tuple[str, str, Any], ...], ReadbackLookup],
@@ -871,7 +875,9 @@ class ReconciliationService:
                 batch = items[start : start + MAX_READBACK_LOOKUPS]
                 results = reader.find_records_many(
                     model,
-                    tuple(lookup for _domain, lookup in batch),
+                    tuple(ReadbackLookup(domain=domain, fields=lookup.fields)
+                          for (_original, lookup), domain in zip(batch, nested.translate(
+                              model, tuple(lookup.domain for _original, lookup in batch)), strict=True)),
                 )
                 if len(results) != len(batch):
                     raise WorkspaceError(

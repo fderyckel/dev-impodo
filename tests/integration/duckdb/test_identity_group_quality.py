@@ -202,7 +202,9 @@ class IdentityGroupQualityTests(unittest.TestCase):
                   side_effect=AssertionError("decoded a complete canonical row")),
         ):
             findings = tuple(stored.rows.bounded_identity_group_findings((unsafe,), ("documents", "entries")))
-        self.assertEqual(len(findings), 8)
+        self.assertEqual(len({item[1] for item in findings}), 8)
+        # Retain every unsafe child's causal edge back to the shared parent.
+        self.assertEqual(len(findings), 14)
         self.assertGreater(len(transported), 1)
         self.assertTrue(all(len(batch.payload.encode("utf-8")) <= 300 for batch in transported))
         self.assertTrue(all(len(batch) <= 2 for batch in projections))
@@ -230,7 +232,8 @@ class IdentityGroupQualityTests(unittest.TestCase):
             patch.object(group_adapter, "_iter_group_projection_batches", inspect_projection),
         ):
             findings = tuple(stored.rows.bounded_identity_group_findings((unsafe,), ("documents", "entries")))
-        self.assertEqual(len(findings), 4)
+        self.assertEqual(len({item[1] for item in findings}), 4)
+        self.assertEqual(len(findings), 6)
         self.assertEqual([len(batch) for batch in projections], [1, 1, 1, 1])
 
 

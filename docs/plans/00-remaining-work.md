@@ -13,10 +13,12 @@ workflow documentation. Point-in-time evidence belongs in an owning plan or
 Git history. Remove completed delivery detail and retire completed plans after
 those current references have been verified.
 
-The 2026-10-30 [mixed-workspace preparation proposal](19-bounded-mixed-workspace-preparation.md)
-addresses the reported 65,299-row blocker. It proposes bounded execution and
-row-count advisories and awaits approval; it does not activate the complete
-deferred high-volume track below or change current limits.
+Reviewed exact-join graphs now compose several outputs in one bounded
+preparation session. The 65,299-row workspace shape and a 100,000-row fixture
+reach approved Final review; fresh-file Recipe reuse preserves matches and
+blanks. The current developer workflow owns that implemented boundary. The
+broader high-volume track below retains its remaining workload and platform
+qualification.
 
 ## How the implementation order is decided
 
@@ -152,7 +154,9 @@ Project, Data version, Recipe, run, and workspace model. The
 [Prepare data developer workflow](../developer/workflow/04-prepare-data.md#columnar-compilation-and-execution)
 owns the implemented compiler and native Polars execution boundary.
 
-The current preparation limits are:
+Reviewed exact-join graphs use volume advisories rather than a physical-row
+cutoff. Their worker qualification includes 65,299 and 100,000 source rows.
+Other current preparation limits are:
 
 - 100,000 physical rows for exact-snapshot, single-dataset direct mappings
   compiled entirely to the verified native-columnar route;
@@ -173,14 +177,16 @@ threaten the current workflow remain in scope.
 
 ### 1. Qualify related and mixed preparation at 100,000 rows
 
-**Status:** Deferred. The direct-route foundation is implemented; the mixed and
-derived high-volume route is not qualified.
+**Status:** Partially implemented. Several reviewed exact-join groups and
+direct outputs now share a bounded session. Broader derived operators and the
+Product/BOM release workload remain deferred.
 
 The unfinished outcome is a bounded Product/BOM workflow for approximately
-16,000 products and 80,000 BOM lines, plus a representative mixed or derived
-100,000-row fixture. The work must complete set-based derived and grouped
-production, logical projection, relationship accounting, and dependency
-propagation without whole-run Python collections.
+16,000 products and 80,000 BOM lines. The work must extend bounded production
+to remaining derived operators and qualify large error-heavy finding volume,
+dependency propagation, and supported-platform release behavior. The composed
+exact-join fixture already covers 100,000 physical inputs, shared lineage,
+incoming references, Many2one aliases, and intentional blanks.
 
 Historical Windows relationship qualification in Git retains the completed
 current-boundary evidence. That result does not activate this deferred

@@ -23,6 +23,7 @@ from impodo.web.presenters.mapping_forms import (
     _related_business_keys,
 )
 from impodo.web.presenters.mapping_view import _mapping_dataset_views
+from impodo.web.presenters.user_help import DECISION_HELP_BY_ID
 from impodo.web.routers.mapping import _require_selected_company_scopes
 from tests.support.paths import REPOSITORY_ROOT
 
@@ -94,11 +95,12 @@ class MappingFormRoundTripTests(unittest.TestCase):
             resolver=RelationshipResolver(origin=ResolverOrigin.TARGET_CATALOG, model="product.category",
                 key_mappings=(ReferenceKeyMapping("category.parent", "x_code"),)),
             categorical_policy=CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
-            blank_source_values=("TO_DEFINE",))
+            blank_source_values=("TO_DEFINE",), blank_source_action="leave_blank")
         definition = replace(self.definition, datasets=tuple(replace(item, relationships=(relation,)) if item.dataset_id == mapping.dataset_id else item for item in self.definition.datasets))
         reopened = self.roundtrip(definition, 0)
         self.assertEqual(next(item for item in reopened.datasets if item.dataset_id == mapping.dataset_id).relationships[0], relation)
         self.assertTrue(any('"action":"leave_blank"' in value for name, value in self.render_form(definition, 0).multi_items() if name.startswith("relation_value_matches_")))
+        self.assertTrue(any(value == "leave_blank" for name, value in self.render_form(definition, 0).multi_items() if name.startswith("relation_blank_source_action_")))
 
     def test_company_scope_must_be_one_checked_odoo_choice(self):
         scope = SimpleNamespace(target_field="company_id", value="United Caps Wiltz")
@@ -240,6 +242,8 @@ class MappingFormRoundTripTests(unittest.TestCase):
             autoescape=True,
         )
         environment.globals["app_icon"] = lambda *args: ""
+        environment.globals["decision_help_by_id"] = DECISION_HELP_BY_ID
+        environment.globals["url_for"] = lambda *args, **kwargs: "/static/bootstrap-icons.svg"
         self.template = environment.get_template("mapping/_dataset.html")
 
     def parse(self, form):

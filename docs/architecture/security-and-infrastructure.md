@@ -18,7 +18,7 @@ contain the detailed endpoint-provisioning checklist.
 | Odoo reads | Fixed local reads or closed remote Odoo 19/final Odoo 20 JSON-2 `fields_get` and `search_read` |
 | Odoo writes | Separate explicit local or remote JSON-2 load/create/update capability, bound to one reviewed preview |
 | Execution evidence | Durable per-row journal plus hash-bound read-back reconciliation and fallout export |
-| Current scale | 100,000 verified native-columnar direct rows; 50,000 Python-fallback direct rows; grouped exact joins with 100,000 physical input rows and 50,000 final rows; 25,000 other derived/materialized rows |
+| Current scale | 100,000 verified native-columnar direct rows; 50,000 Python-fallback direct rows; composed reviewed exact joins use volume advisories and have 65,299- and 100,000-input worker qualification; 25,000 other derived/materialized rows |
 | Hosted service | Not part of the current deployment |
 
 ## Trust boundaries

@@ -85,6 +85,22 @@ class RunAwareSchemaRepository:
     def get_schema_governance(self, workspace_id):
         return self.local.get_schema_governance(workspace_id)
 
+    def get_supporting_review(self, workspace_id):
+        return self.local.get_supporting_review(workspace_id)
+
+    def get_supporting_review_summary(self, workspace_id):
+        return self.local.get_supporting_review_summary(workspace_id)
+
+    def rebuild_supporting_review_summary(self, workspace_id):
+        if self.runs.get_workspace_target_schema(workspace_id) is not None:
+            raise MigrationRunPlanningError("Rebuild supporting review in the owning authoring workspace")
+        return self.local.rebuild_supporting_review_summary(workspace_id)
+
+    def save_supporting_review(self, workspace_id, review, *, expected_version, actor):
+        if self.runs.get_workspace_target_schema(workspace_id) is not None:
+            raise MigrationRunPlanningError("Review supporting choices in the owning authoring workspace")
+        return self.local.save_supporting_review(workspace_id, review, expected_version=expected_version, actor=actor)
+
     def save_schema_governance(self, workspace_id, governance, *, actor):
         projection = self.runs.get_workspace_target_schema(workspace_id)
         if (

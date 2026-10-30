@@ -423,7 +423,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         )
 
     def iter_accounting_index_batches(self, connection, batch_size: int):
-        """Yield one-to-one physical lineage in accounting order."""
+        """Yield each physical coordinate and its ordered logical output links."""
 
         yield from self._repository._iter_accounting_index_batches(
             self._workspace_id,

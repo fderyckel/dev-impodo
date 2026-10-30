@@ -18,6 +18,12 @@ from impodo.domain.run.contracts import (
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceDatasetSet
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.supporting_closure import (
+    close_supporting_plan,
+    recipe_supporting_choices,
+    supporting_mapping_conflicts,
+)
+from impodo.domain.workspace.supporting_plan import SupportingSourceDescriptor
 
 from ..domain.coverage import ReferenceBundle
 from ..domain.mapping.contracts import (
@@ -296,6 +302,28 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                     self.references.get_reference_bundle(workspace_id),
                     assessment.target_default_fields,
                 )
+                supporting_choices = recipe_supporting_choices(
+                    _portable_mapping(application_definition.get("odoo_target_contract", {}), "Recipe Odoo target contract"),
+                    effective_bindings,
+                )
+                conflicts = supporting_mapping_conflicts(supporting_choices, datasets, schema)
+                if supporting_choices:
+                    closure = close_supporting_plan(
+                        schema=schema,
+                        datasets=tuple(SupportingSourceDescriptor(
+                            item.dataset_id, item.name, item.origin.value, item.source_evidence_hash
+                        ) for item in selection.datasets),
+                        mappings=datasets, choices=supporting_choices,
+                        source_hash=selection.content_hash, preparation_hash=None,
+                        recipe_hash=content_hash(application_definition),
+                    )
+                    if not closure.proposal.complete:
+                        raise RecipeApplicationError("The Recipe supporting-data plan is incomplete for the current source and Odoo details")
+                if conflicts:
+                    raise RecipeApplicationError(
+                        "The Recipe's reviewed supporting choices conflict with its current mapping: "
+                        + "; ".join(conflicts)
+                    )
                 candidate = MappingDefinition(
                     mapping_id=str(uuid4()),
                     source_selection_hash=selection.content_hash,

@@ -15,6 +15,7 @@
   <section class="form-card narrow">
     {% if can_prepare %}
       <h2>Start preparation</h2>
+      {% if preparation_advisory %}<p class="notice">{{ preparation_advisory }}</p>{% endif %}
       <p>Impodo prepares from the accepted Data version selected by this workspace. You can leave the progress page and return without losing the job.</p>
       <form method="post" action="/workspaces/{{ workspace_id }}/summary/check">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

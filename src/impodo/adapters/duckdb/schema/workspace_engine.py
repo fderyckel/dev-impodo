@@ -39,6 +39,12 @@ from .reconciliation import create_reconciliation_schema
 from .source_snapshot import create_source_snapshot_schema
 from .structure import read_table_columns
 from .supporting_lookup import create_supporting_lookup_schema
+from .supporting_review import (
+    SUPPORTING_REVIEW_COLUMNS,
+    SUPPORTING_REVIEW_SUMMARY_COLUMNS,
+    create_supporting_review_schema,
+    create_supporting_review_summary_schema,
+)
 
 _WORKSPACE_PROJECTION_COLUMNS = (
     "singleton_id",
@@ -303,6 +309,8 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "source_catalog", "source_configuration", "source_file", "source_selection",
         "source_snapshot_current", "source_snapshot_manifest",
         "supporting_lookup_current", "supporting_lookup_revision",
+        "supporting_data_review",
+        "supporting_review_projection",
         "transformation_impact_row", "transformation_impact_run",
         "transformation_rule_acknowledgement", "transformation_rule_impact",
         "workspace_fence", "workspace_projection_cache",
@@ -1031,6 +1039,8 @@ class WorkspaceEngineSchemaMixin:
         create_derived_value_artifact_schema(connection)
         create_recipe_compilation_schema(connection)
         create_supporting_lookup_schema(connection)
+        create_supporting_review_schema(connection)
+        create_supporting_review_summary_schema(connection)
         _create_row_inclusion_review_schema(connection)
         create_cross_store_coordination_schema(connection)
 
@@ -1155,6 +1165,8 @@ class WorkspaceEngineSchemaMixin:
             ),
             ("cross_store_data_receipt", CROSS_STORE_DATA_RECEIPT_COLUMNS),
             ("workspace_fence", WORKSPACE_FENCE_COLUMNS),
+            ("supporting_data_review", SUPPORTING_REVIEW_COLUMNS),
+            ("supporting_review_projection", SUPPORTING_REVIEW_SUMMARY_COLUMNS),
         ):
             if table_columns.get(table, ()) != expected:
                 raise WorkspaceStateCompatibilityError(
@@ -1632,6 +1644,14 @@ def _upgrade_workspace_engine_v19_to_v20(
 
 
 WORKSPACE_ENGINE_UPGRADES = {
+    21: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v21-to-v22-supporting-review-projection",
+        apply=create_supporting_review_summary_schema,
+    ),
+    20: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v20-to-v21-supporting-data-review",
+        apply=create_supporting_review_schema,
+    ),
     1: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v1-to-v2-migration-ledger",
         apply=_upgrade_workspace_engine_v1_to_v2,

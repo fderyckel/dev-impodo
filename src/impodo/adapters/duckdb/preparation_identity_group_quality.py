@@ -220,10 +220,9 @@ def iter_identity_group_findings(connection, session_id, unsafe_row_ids, propaga
         """)
         connection.execute("""
             CREATE TEMP TABLE group_result AS
-            SELECT ordinal, state, parent_dataset, target_field,
-                   MIN(related_ordinal) AS related_ordinal
+            SELECT DISTINCT ordinal, state, parent_dataset, target_field,
+                   related_ordinal
               FROM group_finding
-             GROUP BY ordinal, state, parent_dataset, target_field
         """)
         connection.commit()
     except Exception:
@@ -242,7 +241,7 @@ def iter_identity_group_findings(connection, session_id, unsafe_row_ids, propaga
           JOIN preparation_lineage AS lineage ON lineage.session_id = row.run_id
            AND lineage.dataset = row.dataset AND lineage.output_source_row = row.source_row
          ORDER BY row.ordinal, finding.state, finding.parent_dataset,
-                  finding.target_field
+                  finding.target_field, finding.related_ordinal
     """, [session_id])
     while batch := cursor.fetchmany(PREPARATION_SESSION_ROW_BATCH_SIZE):
         yield from batch

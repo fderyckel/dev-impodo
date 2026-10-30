@@ -43,7 +43,7 @@ from ..mapping.descriptions import transformation_rule_summary
 from ..serialization import content_hash, portable
 
 COLUMNAR_PROGRAM_CONTRACT_VERSION = 7
-COLUMNAR_COMPILER_VERSION = 10
+COLUMNAR_COMPILER_VERSION = 11
 
 
 class _DatasetIdentified(Protocol):
@@ -498,6 +498,7 @@ class ColumnarRelationshipProgram:
     target_scope_fields: tuple[str, ...] = ()
     target_value_mappings: tuple[tuple[str, str], ...] = ()
     blank_source_values: tuple[str, ...] = ()
+    blank_source_action: str = "source_rules"
 
     def to_portable_dict(self) -> dict[str, object]:
         return cast(dict[str, object], portable(asdict(self)))
@@ -608,6 +609,9 @@ class ColumnarTransformationProgram:
 
     def to_portable_dict(self) -> dict[str, object]:
         payload = cast(dict[str, object], portable(asdict(self)))
+        if self.compiler_version < 11:
+            for relationship in cast(list[dict[str, object]], payload["relationships"]):
+                relationship.pop("blank_source_action", None)
         if self.compiler_version < 9:
             payload.pop("identity_resolvers", None)
         if self.compiler_version < 10:
@@ -790,6 +794,7 @@ class ColumnarTransformationProgram:
                 blank_source_values=tuple(
                     str(value) for value in cast(Sequence[object], item.get("blank_source_values", ()))
                 ),
+                blank_source_action=str(item.get("blank_source_action", "source_rules")),
                 parent_dataset_id=str(item.get("parent_dataset_id", "")),
                 parent_dataset_name=str(item.get("parent_dataset_name", "")),
                 key=identity(item["key"]),
@@ -1271,6 +1276,7 @@ def _compile_dataset(
                         for item in resolver.value_mappings
                     ),
                     blank_source_values=relationship.blank_source_values,
+                    blank_source_action=relationship.blank_source_action,
                 )
             )
             draft.use(

@@ -28,6 +28,20 @@ Changed bindings produce a different run and retire the current pointer. They
 never mutate historical staging evidence. Publication rechecks the bindings
 inside the same transaction that advances the current pointer.
 
+Several independently reviewed exact LEFT join groups and unchanged physical
+tables and flat reusable lists can append to one preparation session. The session binds the complete
+workspace selection and finalizes all logical outputs together. Shared physical
+inputs do not become additional input rows when another output reuses them.
+Each output retains its own complete physical lineage and reconciliation.
+
+Browser evaluator 8 normalizes generated-list references after explicit value
+matches. A Stage 3 `blank_source_action=leave_blank` emits a null reference for
+an empty source cell on an optional single-column Many2one. Required links,
+populated invalid paths, and unrelated extraction findings retain their checks.
+Lookup output omits empty members and keeps every contributing physical row
+for each nonempty canonical value. Historical evaluator-7 staging remains
+readable with its original hash.
+
 ## Canonical rows and lineage
 
 Every evaluated input produces a canonical result, including rows with blocking

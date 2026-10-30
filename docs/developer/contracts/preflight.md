@@ -55,6 +55,13 @@ while every descendant extends the relationship path through its parent. The
 planner batches those expressions into bounded requests. It never falls back
 to the leaf name or an unrestricted read.
 
+Resolved incoming identities retain nested business references through every
+governed parent. Those references carry their ordered key and scope field
+names so execution can recheck the same lineage. Numeric parent IDs remain
+inside target evidence and runtime lookups. Source and target identity cycles
+produce blocking evidence rather than recursion failure. Historical references
+without field metadata retain their original portable encoding and hashes.
+
 A remote reader performs one exact identity probe for captured models and, if
 needed, one combined identity probe for all authorized supporting models. A
 local reader receives only models named by the plan. Both paths group bounded

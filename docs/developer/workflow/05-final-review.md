@@ -115,6 +115,13 @@ shared-server adapter must keep the same post-publication, authorized bounded
 query boundary and must not open worker-held DuckDB state while an operation is
 active.
 
+A cause link from an earlier preparation is unavailable when the current run
+no longer contains that cause. The authenticated route returns HTTP 404 rather
+than exposing historical membership or rendering an internal error. Complete
+cause membership retains every unsafe child-to-parent edge, including when a
+second child was already unsafe. This keeps the original direct finding
+connected to its full parent and sibling impact.
+
 Final-review publication derives its own compact issue counts from the complete
 decision set before the rows are streamed to DuckDB. Every blocking technical
 code is retained, even when one record has several blockers; ambiguous target

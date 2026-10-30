@@ -148,7 +148,7 @@ versions and content identity. A rejected or pending receipt never validates,
 submits, or otherwise authorizes mapping evidence. Pending means the outcome is
 still unknown and forbids automatic mutation replay.
 
-The exact current mapping contract is version 18. It binds an explicit
+The exact current mapping contract is version 19. It binds an explicit
 closed-domain policy for every scalar selection and relationship. Application
 validation scans each affected physical dataset once across all relevant
 fields and embeds immutable `CategoricalCoverageEvidence` in validation
@@ -185,6 +185,14 @@ policy that ignores source nulls cannot accept this decision. The list is
 part of mapping identity and portable Recipe meaning. Earlier contracts omit
 the field and retain their original serialization and content hashes.
 
+Mapping contract version 19 adds `blank_source_action` to source-provided
+Many2one mappings. `source_rules` retains the saved source rule; `leave_blank`
+allows an optional single-column link to be empty when its source cell is
+empty. Required fields and a policy that ignores source nulls cannot accept
+this override. The choice belongs to Stage 3 mapping and Recipe meaning; it
+does not edit the source-preparation plan. Earlier versions omit the field
+and retain their original hashes.
+
 Mapping contract version 13 added the optional captured projection used when
 Odoo creates a relationship target from an imported source record. Version 14
 added ordered two-to-five-column text concatenation. Version 15 adds a closed
@@ -212,6 +220,27 @@ Mapping validation contract version 3, supporting lookup contract version 2,
 preflight requirement-plan contract version 2, and Recipe target-contract
 version 2 bind that hash. Retired payload versions are rejected rather than
 loaded, upgraded, or silently reused.
+
+### Reviewed supporting choices
+
+Reviewed file-source supporting choices are immutable workspace evidence bound
+to accepted source, preparation rules, scope, captured schema, target, policy
+and captured read-access hashes. Mapping checks and submission, Recipe
+compilation, and preparation must reject a stale review or a provider that
+contradicts it. An unchecked working draft remains recoverable.
+
+Optional `supporting_choices` in Recipe target-contract version 2 uses logical
+incoming table identities and existing resolver meaning. Applications rebind
+and verify those constraints before publishing a mapping. Historical Recipes
+without this additive field retain their existing contract. Intentionally
+unused and Odoo-managed fields remain in the target metadata requirements so
+later drift cannot silently erase the reviewed choice.
+
+Schema version 22 stores the bounded supporting summary with its review and
+audit in one transaction. Counts and evidence pointers are rebuildable from
+committed decisions. They neither replace detailed authority nor authorize a
+target read. Permission hashes retain their original probe scope; equality is
+checked only between probes for the same model set.
 
 ### Portable matching review
 
@@ -311,6 +340,8 @@ portable source or relationship identities.
 | Confirm a detected target-schema change | Schema governance, Odoo capture selection and snapshot pointers, mapping, and downstream evidence |
 | Change target identity or model scope | Target schema, governance, mapping, comparison, and execution evidence |
 | Change governed business keys | Mapping, target comparison, and execution evidence |
+| Change reviewed supporting decision meaning or its input binding | Mapping current pointer and dependent preparation evidence; accepted source and governed key meaning remain intact |
+| Record another review with identical supporting meaning and input binding | No dependent invalidation; publish its new bounded summary and audit |
 | Change the governed-reference policy | Mapping validation and submission, supporting lookups, preparation, comparison, and new Recipe target contracts |
 | Save or remove a source-preparation rule or dataset-use policy | Mapping and downstream prepared evidence |
 | Rearrange or reset the Stage 3 matching-order preference | No semantic evidence; only workspace-local presentation state changes |

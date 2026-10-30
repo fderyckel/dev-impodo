@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
+from pathlib import Path
+
 from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.application.shared.artifacts import WorkspaceArtifactStore
 
 from ...domain.derived_value_artifact import DerivedValueArtifact
 from ...domain.prepared_snapshot import PreparedSnapshot
+from ...domain.source_snapshot import SOURCE_ROW_COLUMN, SourceSnapshot
 from ...domain.staging.preparation_session import (
+    PreparationSessionStatus,
     PreparationSessionSummary,
     PreparedCanonicalProjection,
 )
+from ...domain.workspace.errors import WorkspaceError
 from .constants import (
     NATIVE_PREPARED_PROJECTION_MEMORY_LIMIT,
     PREPARATION_SESSION_MEMORY_LIMIT,
@@ -27,6 +33,7 @@ from .preparation_session_lifecycle import PreparationSessionLifecycle
 from .preparation_snapshot_bindings import PreparationSnapshotBindings
 from .preparation_stored_run_reader import PreparationStoredRunReader
 from .repository import DuckDbRepository
+from .unit_of_work import retain_databases_for_operation
 
 
 class PreparationSessionRepository(
@@ -52,6 +59,42 @@ class PreparationSessionRepository(
             self
         )
         self._lifecycle = PreparationSessionLifecycle(self)
+
+    def operation_scope(self) -> AbstractContextManager[None]:
+        """Release all producer-phase owners before another preparation phase."""
+
+        return retain_databases_for_operation()
+
+    def register_physical_snapshot(
+        self, workspace_id: str, session_id: str, snapshot: SourceSnapshot, path: Path,
+    ) -> None:
+        """Scan only source ordinals once per snapshot into durable accounting."""
+
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        with self._connect_prepared(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            connection.begin()
+            try:
+                self._require_status(connection, session_id, PreparationSessionStatus.BUILDING)
+                connection.execute(
+                    f"""
+                    INSERT INTO preparation_physical_row
+                    SELECT ?, ?, "{SOURCE_ROW_COLUMN}"
+                      FROM read_parquet(?)
+                    """,
+                    [session_id, snapshot.dataset_id, str(path)],
+                )
+                count = connection.execute(
+                    """SELECT COUNT(*) FROM preparation_physical_row
+                        WHERE session_id = ? AND physical_dataset_id = ?""",
+                    [session_id, snapshot.dataset_id],
+                ).fetchone()
+                if count is None or int(count[0]) != snapshot.row_count:
+                    raise WorkspaceError("Frozen physical accounting is incomplete")
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     def _connect(self, path):
         """Use a smaller hardened buffer allowance for bounded session work."""

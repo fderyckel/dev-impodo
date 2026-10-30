@@ -45,6 +45,10 @@ class CompleteSchemaGovernanceTests(unittest.TestCase):
             self.schemas,
             self.authorization,
         )
+        # This suite isolates key completeness. Supporting decision freshness
+        # has its own application and composed-browser evidence.
+        self.service.supporting_review_inputs = Mock()
+        self.service.supporting.require_current = Mock()
 
     def test_complete_governance_requires_one_rule_for_every_model(self) -> None:
         with self.assertRaisesRegex(

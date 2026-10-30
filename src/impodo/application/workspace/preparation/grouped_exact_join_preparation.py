@@ -1,9 +1,7 @@
-"""Prepare one reviewed grouped exact join through bounded source batches.
+"""Compose reviewed exact joins and frozen tables in one bounded session.
 
-The qualified route is deliberately narrower than the general structural
-evaluator.  It accepts one left-deep group of reviewed exact joins, streams the
-final mapped dataset from a request-scoped columnar adapter, and publishes the
-same durable canonical session evidence used by direct preparation.
+Each output is qualified independently. Producers stream bounded pages while
+one workspace session owns canonical evidence, control totals, and impacts.
 """
 
 from __future__ import annotations
@@ -11,7 +9,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -25,7 +23,11 @@ from impodo.application.shared.artifacts import (
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.errors import ReadinessError
-from impodo.domain.mapping.contracts import MappingDefinition, RowInclusionMode
+from impodo.domain.mapping.contracts import (
+    DatasetMapping,
+    MappingDefinition,
+    RowInclusionMode,
+)
 from impodo.domain.mapping.source_conditions import SourceConditionValueError
 from impodo.domain.preparation.source import (
     CompiledPreparedRowTransformer,
@@ -40,6 +42,7 @@ from impodo.domain.preparation.staging_contracts import (
     canonical_row_from_inclusion_decision,
     canonical_row_from_prepared,
 )
+from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import (
     Issue,
@@ -70,9 +73,16 @@ from impodo.domain.staging.transformation_impact import (
 )
 from impodo.domain.structural import ExactJoinRule, JoinKind, structural_dataset_id
 from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan
+from impodo.domain.workspace.derived_entities import (
+    DerivedDatasetLink,
+    DerivedEntityPlan,
+    DerivedEntityRule,
+    HierarchicalLookupRule,
+    derived_dataset_links,
+)
 from impodo.domain.workspace.workbench import WorkspaceState
 
+from .bounded_preparation import open_bounded_source
 from .readiness_ports import PreparationSessionRepository
 
 GROUPED_EXACT_JOIN_INPUT_ROW_LIMIT = 100_000
@@ -97,10 +107,13 @@ class GroupedExactJoinBatch:
 
     rows: tuple[SourceRow, ...]
     physical_sources: tuple[Mapping[str, tuple[int, ...]], ...]
+    issues: tuple[tuple[Issue, ...], ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.rows) != len(self.physical_sources):
             raise ValueError("Grouped exact-join batch lineage is incomplete")
+        if self.issues and len(self.issues) != len(self.rows):
+            raise ValueError("Prepared source batch findings are incomplete")
 
 
 class GroupedExactJoinSourcePort(Protocol):
@@ -117,6 +130,14 @@ class GroupedExactJoinSourcePort(Protocol):
         batch_size: int,
     ) -> Iterator[GroupedExactJoinBatch]:
         """Yield final joined rows without materializing the complete table."""
+        ...
+
+    def iter_lookup_batches(
+        self, *, rule: DerivedEntityRule, link: DerivedDatasetLink,
+        effective_dataset: SourceDataset, snapshot: SourceSnapshot, path: Path,
+        batch_size: int,
+    ) -> Iterator[GroupedExactJoinBatch]:
+        """Group one frozen value column with complete physical lineage."""
         ...
 
 
@@ -165,8 +186,8 @@ def bounded_exact_join_group(
 ) -> BoundedExactJoinGroup | None:
     """Qualify a reviewed group, optionally scoped to one value-read output.
 
-    Preparation keeps the default exclusive-workspace contract. Value reads
-    may select one complete group beside other independently mapped datasets.
+    The default qualifies an exclusive group. Preparation and value reads can
+    qualify each selected output beside other independently mapped datasets.
     """
 
     if plan is None or not plan.rules:
@@ -231,16 +252,6 @@ def bounded_exact_join_group(
     )
     if effective is None or (dataset_id is not None and dataset_id != final_id):
         return None
-    if effective.row_count > GROUPED_EXACT_JOIN_OUTPUT_ROW_LIMIT:
-        return None
-    if (
-        sum(
-            dataset.row_count for dataset in physical_selection.datasets
-            if dataset.dataset_id in participant_ids
-        )
-        > GROUPED_EXACT_JOIN_INPUT_ROW_LIMIT
-    ):
-        return None
     rule_ids = {rule.rule_id for rule in rules}
     selected_reviews = tuple(
         review for review in plan.join_reviews
@@ -251,6 +262,8 @@ def bounded_exact_join_group(
         return None
     if any(
         not reviews[rule.rule_id].review.can_save
+        or reviews[rule.rule_id].rule_hash != content_hash(rule.to_dict())
+        or reviews[rule.rule_id].source_selection_hash != physical_selection.content_hash
         or reviews[rule.rule_id].review.actual_output_rows != effective.row_count
         for rule in rules
     ):
@@ -261,6 +274,153 @@ def bounded_exact_join_group(
         participant_dataset_ids=participant_ids,
         output_dataset_id=final_id,
     )
+
+
+
+@dataclass(frozen=True, slots=True)
+class BoundedPreparationProducer:
+    """One logical output and its independently verified physical dependencies."""
+
+    dataset: SourceDataset
+    group: BoundedExactJoinGroup | None
+    primary_dataset_id: str
+    participant_dataset_ids: tuple[str, ...]
+    lookup: tuple[DerivedEntityRule, DerivedDatasetLink] | None = None
+
+
+def bounded_preparation_producers(
+    physical_selection: SourceSelection,
+    effective_selection: SourceSelection,
+    plan: DerivedEntityPlan | None,
+) -> tuple[BoundedPreparationProducer, ...] | None:
+    """Qualify every output without reading rows or relaxing join review binds."""
+
+    if plan is None or plan.source_selection_hash != physical_selection.content_hash:
+        return None
+    if physical_selection.data_version_id != effective_selection.data_version_id:
+        return None
+    physical = {item.dataset_id: item for item in physical_selection.datasets}
+    if len(physical) != len(physical_selection.datasets):
+        return None
+    outputs = sorted(effective_selection.datasets, key=lambda item: item.name)
+    if not outputs or len({item.dataset_id for item in outputs}) != len(outputs):
+        return None
+    producers = []
+    lookup_rules = tuple(rule for rule in plan.rules
+                         if isinstance(rule, (DerivedEntityRule, HierarchicalLookupRule)))
+    lookups = {link.derived_dataset_id: (rule, link)
+               for rule, link in zip(lookup_rules, derived_dataset_links(plan), strict=True)}
+    for dataset in outputs:
+        lookup = lookups.get(dataset.dataset_id)
+        group = bounded_exact_join_group(
+            physical_selection, effective_selection, plan, dataset_id=dataset.dataset_id,
+        )
+        if group is not None:
+            producers.append(BoundedPreparationProducer(
+                dataset, group, group.primary_dataset_id, group.participant_dataset_ids,
+            ))
+        elif physical.get(dataset.dataset_id) == dataset:
+            producers.append(BoundedPreparationProducer(
+                dataset, None, dataset.dataset_id, (dataset.dataset_id,),
+            ))
+        elif (lookup is not None and isinstance(lookup[0], DerivedEntityRule)
+              and lookup[0].parent_separator is None
+              and lookup[0].source_dataset_id in physical
+              and lookup[0].source_column_key in {
+                  column.stable_key for column in physical[lookup[0].source_dataset_id].columns
+              }):
+            rule, link = lookup[0], lookup[1]
+            producers.append(BoundedPreparationProducer(
+                dataset, None, rule.source_dataset_id, (rule.source_dataset_id,),
+                (rule, link),
+            ))
+        else:
+            return None
+    return tuple(producers)
+
+
+def _producer_batches(
+    producer: BoundedPreparationProducer,
+    workspace_state: WorkspaceState,
+    physical_selection: SourceSelection,
+    artifacts: GovernedArtifactStores,
+    snapshots: Mapping[str, SourceSnapshot],
+    source: GroupedExactJoinSourcePort,
+    column_keys: tuple[str, ...],
+) -> Iterator[GroupedExactJoinBatch]:
+    """Read each producer's frozen inputs once and retain bounded lineage pages."""
+
+    if producer.lookup is not None:
+        rule, link = producer.lookup
+        snapshot = snapshots[rule.source_dataset_id]
+        with artifacts.materialize_source_snapshot(
+            physical_selection.data_version_id, snapshot.parquet_storage_key,
+            expected_sha256=snapshot.parquet_sha256,
+        ) as path:
+            yield from source.iter_lookup_batches(
+                rule=rule, link=link, effective_dataset=producer.dataset,
+                snapshot=snapshot, path=path, batch_size=GROUPED_EXACT_JOIN_BATCH_ROWS,
+            )
+        return
+    if producer.group is None:
+        with open_bounded_source(
+            workspace_state, physical_selection, producer.dataset, None, artifacts,
+            snapshots[producer.dataset.dataset_id], named_range=None,
+        ) as reader:
+            if reader.content_hash != producer.dataset.source_evidence_hash:
+                raise ReadinessError("Stored source content changed after selection")
+            for rows in reader.iter_batches():
+                yield GroupedExactJoinBatch(
+                    tuple(rows),
+                    tuple({producer.primary_dataset_id: (row.number,)} for row in rows),
+                )
+        return
+    with ExitStack() as stack:
+        paths = {
+            dataset_id: stack.enter_context(artifacts.materialize_source_snapshot(
+                physical_selection.data_version_id,
+                snapshots[dataset_id].parquet_storage_key,
+                expected_sha256=snapshots[dataset_id].parquet_sha256,
+            ))
+            for dataset_id in producer.participant_dataset_ids
+        }
+        yield from source.iter_batches(
+            group=producer.group,
+            physical_selection=physical_selection,
+            effective_dataset=replace(producer.dataset, columns=tuple(
+                column for column in producer.dataset.columns if column.stable_key in column_keys
+            )),
+            snapshots=snapshots,
+            paths=paths,
+            batch_size=GROUPED_EXACT_JOIN_BATCH_ROWS,
+        )
+
+
+def _mapping_column_keys(mapping: DatasetMapping, dataset: SourceDataset) -> tuple[str, ...]:
+    """Project authored source dependencies; retain every column for formulas."""
+
+    keys: set[str] = set()
+    has_formula = False
+
+    def visit(value: object) -> None:
+        nonlocal has_formula
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                if key == "formula" and item:
+                    has_formula = True
+                if key in {"source_column_key", "source_column_keys", "source_identity_column_keys", "key_source_column_keys"}:
+                    if isinstance(item, str):
+                        keys.add(item)
+                    elif isinstance(item, (tuple, list)):
+                        keys.update(part for part in item if isinstance(part, str))
+                visit(item)
+        elif isinstance(value, (tuple, list)):
+            for item in value:
+                visit(item)
+
+    visit(asdict(mapping))
+    return tuple(column.stable_key for column in dataset.columns
+                 if has_formula or column.stable_key in keys)
 
 
 def prepare_bounded_grouped_exact_join_session(
@@ -279,19 +439,27 @@ def prepare_bounded_grouped_exact_join_session(
     source_snapshots: Iterable[SourceSnapshot],
     batch_progress: Callable[[int, int], None] | None = None,
 ) -> BoundedGroupedExactJoinPreparation:
-    """Stream one qualified grouped exact join into durable canonical staging."""
+    """Stream all qualified outputs into one durable canonical staging session."""
 
-    group = bounded_exact_join_group(physical_selection, effective_selection, plan)
-    if group is None:
+    physical_selection_hash = physical_selection.content_hash
+    source_selection_hash = effective_selection.content_hash
+    mapping_hash = definition.content_hash
+    schema_hash = definition.schema_hash
+    derived_plan_hash = plan.content_hash
+    producers = bounded_preparation_producers(physical_selection, effective_selection, plan)
+    if producers is None:
         raise ReadinessError("Bounded grouped exact-join preparation is unavailable")
     if physical_selection.data_version_id != effective_selection.data_version_id:
         raise ReadinessError("Canonical evaluation evidence belongs to another DataVersion")
     if reference_bundle is not None and reference_bundle.workspace_id != workspace_state.workspace_id:
         raise ReadinessError("Reference data belongs to another workspace")
-    if definition.source_selection_hash != effective_selection.content_hash:
+    if definition.source_selection_hash != source_selection_hash:
         raise ReadinessError("The submitted mapping no longer matches its source data")
-    if len(definition.datasets) != 1:
-        raise ReadinessError("Grouped exact-join mapping must contain one final dataset")
+    mappings = {item.dataset_id: item for item in definition.datasets}
+    if len(mappings) != len(definition.datasets) or set(mappings) != {
+        producer.dataset.dataset_id for producer in producers
+    }:
+        raise ReadinessError("Prepared datasets are incomplete or duplicated")
 
     snapshots = tuple(source_snapshots)
     snapshot_by_id = {snapshot.dataset_id: snapshot for snapshot in snapshots}
@@ -309,47 +477,36 @@ def prepare_bounded_grouped_exact_join_session(
         }
         != current_snapshots
         for review in plan.join_reviews
+        if review.rule_id in {rule.rule_id for producer in producers
+                              if producer.group for rule in producer.group.rules}
     ):
         raise ReadinessError("The accepted grouped exact-join review is stale")
     for dataset_id, dataset in physical_by_id.items():
         snapshot = snapshot_by_id[dataset_id]
         validate_snapshot_for_dataset(physical_selection, dataset, snapshot)
 
-    effective = effective_selection.datasets[0]
-    mapping = definition.datasets[0]
-    if mapping.dataset_id != effective.dataset_id:
-        raise ReadinessError("Grouped exact-join mapping dataset is inconsistent")
     compiled_plan = compile_browser_mapping(
-        definition,
-        effective_selection,
-        derived_plan_hash=plan.content_hash,
+        definition, effective_selection, derived_plan_hash=derived_plan_hash,
     )
-    compiled_dataset = compiled_plan.datasets[0]
+    compiled_by_name = {item.name: item for item in compiled_plan.datasets}
     reference_indexes = compile_reference_indexes(reference_bundle)
-    transformer = compile_browser_row_transformer(
-        effective,
-        effective,
-        mapping,
-        None,
-        "source",
-        reference_indexes=reference_indexes,
-    )
-    preparer = CompiledPreparedRowTransformer.compile(
-        compiled_dataset,
-        transformer.headers,
-    )
-    source_hashes = {effective.name: effective.source_evidence_hash}
+    lookup_rules = tuple(rule for rule in plan.rules
+                         if isinstance(rule, (DerivedEntityRule, HierarchicalLookupRule)))
+    lookup_bindings = tuple(zip(lookup_rules, derived_dataset_links(plan), strict=True))
+    source_hashes = {
+        item.name: item.source_evidence_hash for item in effective_selection.datasets
+    }
     field_sources = canonical_field_sources(definition, effective_selection)
     session = sessions.begin_direct_session(
         workspace_state.workspace_id,
         PreparationSessionBindings(
             mapping_id=definition.mapping_id,
             mapping_version=mapping_version,
-            physical_selection_hash=physical_selection.content_hash,
-            source_selection_hash=effective_selection.content_hash,
-            mapping_hash=definition.content_hash,
-            schema_hash=definition.schema_hash,
-            derived_plan_hash=plan.content_hash,
+            physical_selection_hash=physical_selection_hash,
+            source_selection_hash=source_selection_hash,
+            mapping_hash=mapping_hash,
+            schema_hash=schema_hash,
+            derived_plan_hash=derived_plan_hash,
             compiled_plan_hash=compiled_plan.semantic_hash,
             contract_version=STAGING_CONTRACT_VERSION,
             evaluator_version=BROWSER_EVALUATOR_VERSION,
@@ -363,172 +520,188 @@ def prepare_bounded_grouped_exact_join_session(
         session.session_id,
     )
     impact_collector = _TransformationImpactCollector(
-        mapping_content_hash=definition.content_hash,
+        mapping_content_hash=mapping_hash,
         detail_limit=0,
         sink=impact_sink.add,
     )
-    for field in mapping.fields:
-        for rule in reviewable_rule_impact_definitions(mapping.dataset_id, field):
-            impact_collector.register_rule(rule)
+    for mapping in definition.datasets:
+        for field in mapping.fields:
+            for rule in reviewable_rule_impact_definitions(mapping.dataset_id, field):
+                impact_collector.register_rule(rule)
     totals = CompiledControlTotalAccumulator.compile(definition, effective_selection)
     run_issues: list[Issue] = []
-    if preparer.dataset_issue is not None:
-        run_issues.append(preparer.dataset_issue)
-    row_count = 0
-    included_row_count = 0
-    total_physical_rows = sum(item.row_count for item in physical_selection.datasets)
+    total_output_rows = sum(item.dataset.row_count for item in producers)
+    ordinal_offset = 0
+    dataset_evidence: dict[str, tuple[str, StagingDatasetRole, int, str]] = {}
 
     try:
-        with ExitStack() as stack:
-            paths = {
-                dataset_id: stack.enter_context(
-                    artifacts.materialize_source_snapshot(
-                        physical_selection.data_version_id,
-                        snapshot_by_id[dataset_id].parquet_storage_key,
-                        expected_sha256=snapshot_by_id[dataset_id].parquet_sha256,
+        # Account for shared and unused physical inputs once, independently of
+        # how many logical outputs consume them. This scan projects only ordinals.
+        with sessions.operation_scope():
+            for snapshot in snapshots:
+                with artifacts.materialize_source_snapshot(
+                    physical_selection.data_version_id, snapshot.parquet_storage_key,
+                    expected_sha256=snapshot.parquet_sha256,
+                ) as path:
+                    sessions.register_physical_snapshot(
+                        workspace_state.workspace_id, session.session_id, snapshot, path,
                     )
+        with sessions.operation_scope():
+            for producer in producers:
+                effective = producer.dataset
+                mapping = mappings[effective.dataset_id]
+                compiled_dataset = compiled_by_name[effective.name]
+                transformer = compile_browser_row_transformer(
+                    effective, effective, mapping, None, "source",
+                    lookup_bindings=lookup_bindings,
+                    reference_indexes=reference_indexes,
                 )
-                for dataset_id in group.participant_dataset_ids
-            }
-            for batch in source.iter_batches(
-                group=group,
-                physical_selection=physical_selection,
-                effective_dataset=effective,
-                snapshots=snapshot_by_id,
-                paths=paths,
-                batch_size=GROUPED_EXACT_JOIN_BATCH_ROWS,
-            ):
-                prepared_rows: list[CanonicalPreparedSessionRow] = []
-                for joined_row, physical_sources in zip(
-                    batch.rows,
-                    batch.physical_sources,
-                    strict=True,
+                preparer = CompiledPreparedRowTransformer.compile(
+                    compiled_dataset, transformer.headers,
+                )
+                if preparer.dataset_issue is not None:
+                    run_issues.append(preparer.dataset_issue)
+                row_count = 0
+                included_row_count = 0
+                for batch in _producer_batches(
+                    producer, workspace_state, physical_selection, artifacts,
+                    snapshot_by_id, source, _mapping_column_keys(mapping, effective),
                 ):
-                    projected = transformer.project(joined_row)
-                    try:
-                        included = transformer.includes(projected)
-                    except SourceConditionValueError as error:
-                        prepared_rows.append(
-                            _inclusion_session_row(
-                                dataset=effective.name,
-                                source_row=joined_row.number,
-                                target_model=mapping.target_model,
-                                disposition=StagingDisposition.BLOCKED,
-                                issues=(
-                                    Issue(
-                                        code="ROW_INCLUSION_SOURCE_VALUE_INVALID",
-                                        message=str(error),
-                                        severity=Severity.ERROR,
-                                        dataset=effective.name,
-                                        row=joined_row.number,
-                                        field=error.source_column_key,
+                    prepared_rows: list[CanonicalPreparedSessionRow] = []
+                    for batch_index, (joined_row, physical_sources) in enumerate(zip(
+                        batch.rows,
+                        batch.physical_sources,
+                        strict=True,
+                    )):
+                        projected = transformer.project(joined_row)
+                        try:
+                            included = transformer.includes(projected)
+                        except SourceConditionValueError as error:
+                            prepared_rows.append(
+                                _inclusion_session_row(
+                                    dataset=effective.name,
+                                    source_row=joined_row.number,
+                                    target_model=mapping.target_model,
+                                    disposition=StagingDisposition.BLOCKED,
+                                    issues=(
+                                        Issue(
+                                            code="ROW_INCLUSION_SOURCE_VALUE_INVALID",
+                                            message=str(error),
+                                            severity=Severity.ERROR,
+                                            dataset=effective.name,
+                                            row=joined_row.number,
+                                            field=error.source_column_key,
+                                        ),
                                     ),
-                                ),
-                                ordinal=row_count + len(prepared_rows),
-                                source_hash=source_hashes[effective.name],
-                                source_selection_hash=effective_selection.content_hash,
-                                mapping_hash=definition.content_hash,
-                                schema_hash=definition.schema_hash,
-                                derived_plan_hash=plan.content_hash,
-                                source_column_keys=tuple(
-                                    condition.source_column_key
-                                    for condition in mapping.row_inclusion.conditions
-                                ),
-                                primary_dataset_id=group.primary_dataset_id,
-                                physical_sources=physical_sources,
+                                    ordinal=ordinal_offset + row_count + len(prepared_rows),
+                                    source_hash=source_hashes[effective.name],
+                                    source_selection_hash=source_selection_hash,
+                                    mapping_hash=mapping_hash,
+                                    schema_hash=schema_hash,
+                                    derived_plan_hash=derived_plan_hash,
+                                    source_column_keys=tuple(
+                                        condition.source_column_key
+                                        for condition in mapping.row_inclusion.conditions
+                                    ),
+                                    primary_dataset_id=producer.primary_dataset_id,
+                                    physical_sources=physical_sources,
+                                )
                             )
+                            continue
+                        if not included:
+                            prepared_rows.append(
+                                _inclusion_session_row(
+                                    dataset=effective.name,
+                                    source_row=joined_row.number,
+                                    target_model=mapping.target_model,
+                                    disposition=StagingDisposition.EXCLUDED,
+                                    issues=(),
+                                    ordinal=ordinal_offset + row_count + len(prepared_rows),
+                                    source_hash=source_hashes[effective.name],
+                                    source_selection_hash=source_selection_hash,
+                                    mapping_hash=mapping_hash,
+                                    schema_hash=schema_hash,
+                                    derived_plan_hash=derived_plan_hash,
+                                    source_column_keys=tuple(
+                                        condition.source_column_key
+                                        for condition in mapping.row_inclusion.conditions
+                                    ),
+                                    primary_dataset_id=producer.primary_dataset_id,
+                                    physical_sources=physical_sources,
+                                )
+                            )
+                            continue
+                        staged_row, preparation_issues = transformer.finish(
+                            projected,
+                            impact_collector=impact_collector,
                         )
-                        continue
-                    if not included:
+                        if batch.issues:
+                            preparation_issues = (*preparation_issues, *batch.issues[batch_index])
+                        record = preparer.transform(staged_row)
+                        included_row_count += 1
+                        if preparation_issues:
+                            record = replace(record, issues=(*record.issues, *preparation_issues))
+                        totals.add(record)
                         prepared_rows.append(
-                            _inclusion_session_row(
-                                dataset=effective.name,
+                            _canonical_session_row(
+                                record,
                                 source_row=joined_row.number,
-                                target_model=mapping.target_model,
-                                disposition=StagingDisposition.EXCLUDED,
-                                issues=(),
-                                ordinal=row_count + len(prepared_rows),
+                                ordinal=ordinal_offset + row_count + len(prepared_rows),
+                                mode=compiled_dataset.target.mode,
                                 source_hash=source_hashes[effective.name],
-                                source_selection_hash=effective_selection.content_hash,
-                                mapping_hash=definition.content_hash,
-                                schema_hash=definition.schema_hash,
-                                derived_plan_hash=plan.content_hash,
-                                source_column_keys=tuple(
-                                    condition.source_column_key
-                                    for condition in mapping.row_inclusion.conditions
-                                ),
-                                primary_dataset_id=group.primary_dataset_id,
+                                source_selection_hash=source_selection_hash,
+                                mapping_hash=mapping_hash,
+                                schema_hash=schema_hash,
+                                derived_plan_hash=derived_plan_hash,
+                                field_sources=field_sources.get(effective.name, {}),
+                                primary_dataset_id=producer.primary_dataset_id,
                                 physical_sources=physical_sources,
                             )
                         )
-                        continue
-                    staged_row, preparation_issues = transformer.finish(
-                        projected,
-                        impact_collector=impact_collector,
+                    sessions.append_direct_rows(
+                        workspace_state.workspace_id,
+                        session.session_id,
+                        prepared_rows,
                     )
-                    record = preparer.transform(staged_row)
-                    included_row_count += 1
-                    if preparation_issues:
-                        record = replace(record, issues=(*record.issues, *preparation_issues))
-                    totals.add(record)
-                    prepared_rows.append(
-                        _canonical_session_row(
-                            record,
-                            source_row=joined_row.number,
-                            ordinal=row_count + len(prepared_rows),
-                            mode=compiled_dataset.target.mode,
-                            source_hash=source_hashes[effective.name],
-                            source_selection_hash=effective_selection.content_hash,
-                            mapping_hash=definition.content_hash,
-                            schema_hash=definition.schema_hash,
-                            derived_plan_hash=plan.content_hash,
-                            field_sources=field_sources.get(effective.name, {}),
-                            primary_dataset_id=group.primary_dataset_id,
-                            physical_sources=physical_sources,
+                    row_count += len(batch.rows)
+                    if batch_progress is not None:
+                        batch_progress(ordinal_offset + row_count, total_output_rows)
+
+                if producer.lookup is None and row_count != effective.row_count:
+                    raise ReadinessError("Grouped exact-join output row count changed")
+                if mapping.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS and included_row_count == 0:
+                    run_issues.append(
+                        Issue(
+                            code="ROW_INCLUSION_ZERO_INCLUDED",
+                            message=(
+                                "The row-inclusion rule did not include any rows. "
+                                "Review the rule before continuing."
+                            ),
+                            severity=Severity.ERROR,
+                            dataset=effective.name,
                         )
                     )
-                sessions.append_direct_rows(
-                    workspace_state.workspace_id,
-                    session.session_id,
-                    prepared_rows,
-                )
-                row_count += len(batch.rows)
-                if batch_progress is not None:
-                    batch_progress(row_count, total_physical_rows)
-
-        if row_count != effective.row_count:
-            raise ReadinessError("Grouped exact-join output row count changed")
-        if mapping.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS and included_row_count == 0:
-            run_issues.append(
-                Issue(
-                    code="ROW_INCLUSION_ZERO_INCLUDED",
-                    message=(
-                        "The row-inclusion rule did not include any rows. "
-                        "Review the rule before continuing."
-                    ),
-                    severity=Severity.ERROR,
-                    dataset=effective.name,
-                )
-            )
-        impact_sink.flush()
-        run = sessions.finalize_direct_session(
-            workspace_state.workspace_id,
-            session.session_id,
-            dataset_evidence={
-                effective.name: (
-                    group.primary_dataset_id,
-                    StagingDatasetRole.JOIN,
-                    total_physical_rows,
+                dataset_evidence[effective.name] = (
+                    producer.primary_dataset_id,
+                    (StagingDatasetRole.LOOKUP if producer.lookup else
+                     StagingDatasetRole.JOIN if producer.group else StagingDatasetRole.DIRECT),
+                    sum(physical_by_id[item].row_count for item in producer.participant_dataset_ids),
                     mapping.target_model,
                 )
-            },
-            run_issues=run_issues,
-            control_totals=totals.report(),
-            impact_report=impact_collector.report(),
-        )
-        if batch_progress is not None:
-            batch_progress(total_physical_rows, total_physical_rows)
-        return BoundedGroupedExactJoinPreparation(session.session_id, run)
+                ordinal_offset += row_count
+
+            impact_sink.flush()
+            run = sessions.finalize_direct_session(
+                workspace_state.workspace_id,
+                session.session_id,
+                dataset_evidence=dataset_evidence,
+                run_issues=run_issues,
+                control_totals=totals.report(),
+                impact_report=impact_collector.report(),
+            )
+            if batch_progress is not None:
+                batch_progress(total_output_rows, total_output_rows)
+            return BoundedGroupedExactJoinPreparation(session.session_id, run)
     except (ArtifactStoreError, OSError, SourceLoadError, ValueError) as error:
         sessions.fail_session(
             workspace_state.workspace_id,

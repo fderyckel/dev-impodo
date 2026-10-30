@@ -154,8 +154,9 @@ class StageTwoSupportingModelBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Keep linked value", page.text)
         self.assertIn("Reuse or create identity and required values only", page.text)
         self.assertNotIn("Include incoming data", page.text)
-        self.assertNotIn("Reuse existing Odoo records", page.text)
-        self.assertIn("1 Must fix", page.text)
+        self.assertIn("Reuse existing Odoo records", page.text)
+        self.assertIn("Save supporting choices", page.text)
+        self.assertIn("2 Must fix", page.text)
         self.assertIn(
             "Impodo cannot find Unit of Measure in the current Odoo record-type list.",
             page.text,

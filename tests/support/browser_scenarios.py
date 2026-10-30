@@ -905,8 +905,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
     """Create isolated state for ProjectSetupWizardTests capability tests."""
 
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.secrets = MemorySecretStore()
         self.connection_calls: list[tuple[str, str, OdooConnectionMode | None]] = []
         self.schema_calls: list[tuple[str, str]] = []

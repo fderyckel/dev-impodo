@@ -58,7 +58,7 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(unknown.status_code, 422, unknown.text)
         self.assertIn("Unexpected form fields", unknown.text)
 
-    def _frozen_customer_workspace(self, *, several_tables: bool = False):
+    def _frozen_customer_workspace(self, *, several_tables: bool = False, source_files=None):
         created = self._post(
             "/projects/new",
             {
@@ -125,6 +125,8 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
                     ),
                 ]
             )
+        if source_files is not None:
+            files = [("source_file", (name, values, "text/csv")) for name, values in source_files]
         uploaded = self.client.post(
             f"/workspaces/{workspace_id}/files",
             data={"csrf_token": self.csrf, "revision": "1"},
@@ -143,7 +145,7 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertEqual(registered.status_code, 303, registered.text)
         catalogs = context.queries.get_source_catalogs(workspace_id)
-        self.assertEqual(len(catalogs), 4 if several_tables else 2)
+        self.assertEqual(len(catalogs), len(files))
         for catalog in catalogs:
             confirmed = self.client.post(
                 f"/workspaces/{workspace_id}/sources/{catalog.file_id}/configure",
@@ -185,9 +187,7 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         selection = context.queries.get_source_selection(workspace_id)
         self.assertIsNotNone(selection)
         by_name = {dataset.name: dataset for dataset in selection.datasets}
-        expected = {"customer_accounts", "party_details"}
-        if several_tables:
-            expected.update({"customer_addresses", "customer_terms"})
+        expected = {names_by_file[item.display_name] for item in catalogs}
         self.assertEqual(set(by_name), expected)
         return workspace_id, selection, by_name
 

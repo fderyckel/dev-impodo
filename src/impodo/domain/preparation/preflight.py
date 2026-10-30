@@ -23,7 +23,7 @@ from dataclasses import replace
 from typing import Any
 
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
-from impodo.domain.data_version.catalog import TargetCatalog, relation_ids
+from impodo.domain.data_version.catalog import TargetCatalog, relation_id, relation_ids
 from impodo.domain.data_version.metadata import validate_plan_metadata
 from impodo.domain.data_version.selection_domains import (
     apply_live_selection_domains,
@@ -222,6 +222,8 @@ def _resolve_records(
     ) = _hybrid_incoming_outcomes(original, catalog)
 
     cache: dict[tuple[str, int], PreparedRecord] = {}
+    resolving_identities: set[tuple[str, int]] = set()
+    identity_cycle_issues: dict[tuple[str, int], Issue] = {}
     evidence: list[ReferenceResolution] = []
 
     def resolve_record(record: PreparedRecord) -> PreparedRecord:
@@ -230,6 +232,16 @@ def _resolve_records(
         cache_key = (record.dataset, record.source_row)
         if cache_key in cache:
             return cache[cache_key]
+        if cache_key in resolving_identities:
+            cycle_issue = Issue(
+                code="REFERENCE_IDENTITY_CYCLE",
+                message="The incoming identity depends on itself through parent records.",
+                dataset=record.dataset,
+                row=record.source_row,
+            )
+            identity_cycle_issues[cache_key] = cycle_issue
+            return replace(record, issues=(*record.issues, cycle_issue))
+        resolving_identities.add(cache_key)
         dataset = plan.dataset(record.dataset)
         record_issues = list(record.issues)
         incoming_identity = (record.dataset, record.source_identity)
@@ -330,6 +342,10 @@ def _resolve_records(
                     Severity.ERROR,
                 )
             )
+
+        resolving_identities.remove(cache_key)
+        if cache_key in identity_cycle_issues:
+            record_issues.append(identity_cycle_issues[cache_key])
 
         # Relationships need only the referenced row's stable business key.
         # Cache that key before descending into relationships so A -> B -> A
@@ -543,6 +559,7 @@ def _resolve_records(
                                 scope=_resolved_business_components(
                                     target_record.target_scope
                                 ),
+                                **_incoming_reference_shape(plan, target_record.dataset),
                             )
             evidence.append(
                 ReferenceResolution(
@@ -619,6 +636,7 @@ def _resolve_records(
                     model=target_record.target_model,
                     key=_resolved_business_components(target_record.target_identity),
                     scope=_resolved_business_components(target_record.target_scope),
+                    **_incoming_reference_shape(plan, target_record.dataset),
                 )
         else:
             status = "RESOLVED"
@@ -649,15 +667,29 @@ def _resolve_records(
 
 def _resolved_business_components(
     values: Iterable[ScalarValue | LogicalReference | BusinessReference],
-) -> tuple[ScalarValue, ...]:
+) -> tuple[ScalarValue | BusinessReference, ...]:
     """Require a dependency record's business identity to be fully resolved."""
 
-    components: list[ScalarValue] = []
+    components: list[ScalarValue | BusinessReference] = []
     for value in values:
-        if isinstance(value, LogicalReference | BusinessReference):
+        if isinstance(value, LogicalReference):
             raise TypeError("A resolved dependency still contains a symbolic identity")
         components.append(value)
     return tuple(components)
+
+
+def _incoming_reference_shape(
+    plan: CompiledMigrationPlan, dataset_name: str,
+) -> dict[str, tuple[str, ...]]:
+    """Retain governed field paths for identities that contain references."""
+
+    dataset = plan.dataset(dataset_name)
+    return {
+        "target_fields": tuple(field for component in dataset.target_identity.components
+                               for field in component.target_fields),
+        "target_scope_fields": tuple(field for component in dataset.target_identity.scope
+                                     for field in component.target_fields),
+    }
 
 
 def _hybrid_incoming_outcomes(
@@ -782,6 +814,8 @@ def _target_identity(
     components: tuple[IdentityComponent, ...],
     target: TargetRecord,
     catalog: TargetCatalog,
+    *,
+    visiting: frozenset[tuple[str, int]] = frozenset(),
 ) -> tuple[Any, ...]:
     """Canonicalize identity components from an existing Odoo target record.
 
@@ -806,18 +840,37 @@ def _target_identity(
                     )
                 )
             continue
-        model, identity_fields, scope_fields = _resolve_target_shape(
-            plan, component.resolve
-        )
-        result.append(
-            catalog.reference_from_id(
-                model,
-                target.values.get(component.target_fields[0]),
-                identity_fields,
-                scope_fields,
-            )
-        )
+        result.append(_target_reference(plan, component.resolve,
+            target.values.get(component.target_fields[0]), catalog, visiting=visiting))
     return tuple(result)
+
+
+def _target_reference(
+    plan: CompiledMigrationPlan, resolve: ResolveSpec, raw_value: Any,
+    catalog: TargetCatalog, *, visiting: frozenset[tuple[str, int]] = frozenset(),
+) -> BusinessReference | None:
+    """Resolve incoming target identities recursively without portable Odoo IDs."""
+
+    model, identity_fields, scope_fields = _resolve_target_shape(plan, resolve)
+    if resolve.target_model is not None:
+        return catalog.reference_from_id(model, raw_value, identity_fields, scope_fields)
+    identifier = relation_id(raw_value)
+    if identifier is None:
+        return None
+    pointer = (model, identifier)
+    if pointer in visiting:
+        raise ValueError("A target identity contains a relationship cycle")
+    target = catalog.by_id(model, identifier)
+    if target is None:
+        raise KeyError("A target identity parent is absent from the captured evidence")
+    dataset = plan.dataset(str(resolve.dataset))
+    visited = visiting | {pointer}
+    return BusinessReference(
+        model=model,
+        key=_target_identity(plan, dataset.target_identity.components, target, catalog, visiting=visited),
+        scope=_target_identity(plan, dataset.target_identity.scope, target, catalog, visiting=visited),
+        **_incoming_reference_shape(plan, dataset.name),
+    )
 
 
 def _resolve_target_shape(
@@ -1142,15 +1195,12 @@ def _existing_relation(
     produce a false difference.
     """
 
-    model, identity_fields, scope_fields = _resolve_target_shape(plan, spec.resolve)
     if spec.kind == "many2one":
-        return catalog.reference_from_id(
-            model, raw_value, identity_fields, scope_fields
-        )
+        return _target_reference(plan, spec.resolve, raw_value, catalog)
     return tuple(
         sorted(
             (
-                catalog.reference_from_id(model, odoo_id, identity_fields, scope_fields)
+                _target_reference(plan, spec.resolve, odoo_id, catalog)
                 for odoo_id in relation_ids(raw_value)
             ),
             key=lambda item: canonical_json_text(portable_value(item)),

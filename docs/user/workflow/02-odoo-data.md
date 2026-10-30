@@ -56,6 +56,8 @@ same secret. Production continues to require a separate limited write key.
    previews **Keep linked value**: reuse a destination match or create only the
    minimum related record when no match exists. Destination-owned setup such as
    Company is shown separately as **Use existing destination records only**.
+   For accepted file data, also complete **Review supporting-data choices**
+   before confirming the matching rules.
 6. Review fields, types, required values, selections, and relationships.
 7. For a file-source migration, review the matching rule that Impodo prepared
    for each supported writable record type. Change a rule when the proposed
@@ -96,6 +98,34 @@ required collections and incompatible policies remain named exceptions with
 no preselected answer.
 
 ![Impodo previewing Keep linked value for direct Product relationships.](../../images/user/08c-odoo-supporting-data.png)
+
+### Review support for accepted file data
+
+For a file-source migration, choose how each required relationship will be
+supplied, then select **Save supporting choices**. For example, Contacts can
+reuse existing Odoo Countries without putting Countries into the migration's
+write scope. Opening or saving this review does not contact Odoo.
+
+You can choose **Reuse existing Odoo records**, **Use the checked Odoo default**,
+or **Handled by Odoo** when the captured field supports that choice. You can
+leave an optional relationship empty. To use incoming related records, first
+select and save their business record type, load its Odoo details, and then
+choose **Use an accepted incoming table** with its accepted table name. Saving
+supporting choices never adds another record type to the write scope.
+
+After saving reuse choices, **Check existing supporting values** explicitly
+reads their reviewed matching and display fields. Several relationships that
+use the same matching rule share one grouped read. The check cannot change
+Odoo records and does not prove that every source value resolves. Save the
+corresponding field or relationship rule in **Match data**, where Impodo checks
+the actual mapped values.
+
+If the accepted data, prepared table rules, selected business scope, Odoo
+details, or captured read access changes, review and save the current choices
+again. Impodo preserves your accepted data and matching rules. It blocks
+confirmation until the required supporting choices are current.
+
+![Saved file-source choices reuse existing Countries for two Contact relationships without adding Countries to the write scope.](../../images/user/08i-file-supporting-choices.png)
 
 ### Choose how existing records are found
 
@@ -185,6 +215,16 @@ Each later data version must connect its own target, use a fresh read-only key,
 and capture current Odoo details. Applying Recipes to later data versions uses
 fresh work areas and target evidence. Saving a Recipe never copies the
 current target evidence.
+
+A Recipe also keeps your reviewed supporting choices. For example, a BoM can
+use Products from the next accepted delivery while those Products reuse
+existing Odoo categories. Impodo binds incoming choices to the new tables and
+checks that the Recipe's relationship rules still agree. A conflict stops for
+review instead of changing your decision automatically.
+
+If you change a supporting choice, return to **Match data** and check the
+corresponding rule again. Saving the same choices again keeps their dependent
+checks. Older Recipes continue to use their existing saved relationship rules.
 
 ## What to check
 

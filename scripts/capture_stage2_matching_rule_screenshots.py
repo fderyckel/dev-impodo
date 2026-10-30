@@ -190,6 +190,66 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
         fixture.tearDown()
 
 
+def capture_supporting_review(output_directory: Path, *, browser_channel: str) -> None:
+    """Qualify keyboard, persistence and narrow layout with isolated source data."""
+    from playwright.sync_api import expect, sync_playwright
+    from tests.integration.web.test_supporting_review import SupportingReviewBrowserTests
+
+    output_directory.mkdir(parents=True, exist_ok=True)
+    fixture = SupportingReviewBrowserTests(methodName="runTest")
+    fixture.setUp()
+    server = thread = None
+    try:
+        calls = _connector_calls(fixture)
+        cookie = fixture.client.cookies.get("impodo_session")
+        if not cookie:
+            raise RuntimeError("The isolated app did not establish its session")
+        fixture.client.close()
+        server, thread, port = _start_server(fixture.app)
+        base_url = f"http://127.0.0.1:{port}"
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(channel=browser_channel, headless=True)
+            browser_context = browser.new_context(viewport=VIEWPORT, device_scale_factor=1, locale="en-GB")
+            browser_context.add_cookies([{"name": "impodo_session", "value": cookie, "url": base_url, "httpOnly": True, "sameSite": "Strict"}])
+            page = browser_context.new_page()
+            page.goto(f"{base_url}/workspaces/{fixture.workspace_id}/schema", wait_until="networkidle")
+            review = page.locator("#supporting-data-review")
+            choices = review.locator('select[name^="action_"]')
+            expect(choices).to_have_count(2)
+            for choice in choices.all():
+                choice.select_option("REUSE")
+            choices.first.focus()
+            expect(choices.first).to_be_focused()
+            page.keyboard.press("Tab")
+            expect(choices.first).not_to_be_focused()
+            save = review.get_by_role("button", name="Save supporting choices", exact=True)
+            save.focus()
+            save.press("Enter")
+            expect(review).to_contain_text("Supporting choices are current")
+            expect(review.get_by_role("button", name="Check existing supporting values")).to_be_visible()
+            for choice in choices.all():
+                expect(choice).to_have_value("REUSE")
+            _show_decision(page, review)
+            target = output_directory / "08i-file-supporting-choices.png"
+            page.screenshot(path=str(target), full_page=False)
+            print(f"Captured {target}")
+            page.reload(wait_until="networkidle")
+            expect(review).to_contain_text("Supporting choices are current")
+            page.set_viewport_size({"width": 390, "height": 844})
+            _show_decision(page, review)
+            if page.evaluate("document.documentElement.scrollWidth > window.innerWidth + 1"):
+                raise RuntimeError("Supporting review overflows a narrow screen")
+            expect(choices.first).to_be_visible()
+            browser_context.close()
+            browser.close()
+        if _connector_calls(fixture) != calls:
+            raise RuntimeError("Opening or saving supporting choices made an Odoo call")
+    finally:
+        if server is not None and thread is not None:
+            _stop_server(server, thread)
+        fixture.tearDown()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -198,12 +258,18 @@ def main() -> None:
         default=DEFAULT_OUTPUT_DIRECTORY,
     )
     parser.add_argument(
+        "--supporting-review-only",
+        action="store_true",
+        help="Capture and exercise the current file-source supporting decision instead.",
+    )
+    parser.add_argument(
         "--browser-channel",
         default="msedge",
         help="Installed Chromium channel for Playwright. Defaults to msedge.",
     )
     arguments = parser.parse_args()
-    capture(
+    selected_capture = capture_supporting_review if arguments.supporting_review_only else capture
+    selected_capture(
         arguments.output_directory.resolve(),
         browser_channel=arguments.browser_channel,
     )

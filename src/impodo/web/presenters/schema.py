@@ -13,6 +13,7 @@ from starlette.datastructures import FormData
 from impodo.application.browser_queries import SourceReviewPage
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.run.setup_service import RunSetupPage
+from impodo.application.workspace.issues import summarize_workflow_issues
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.business_keys import (
     BUSINESS_KEY_POLICY_VERSION,
@@ -63,6 +64,7 @@ from ..target_credentials import (
 )
 from .common import _render
 from .supporting_models import supporting_model_plan_view
+from .supporting_review import supporting_review_view
 
 
 def _manual_schema_models(
@@ -715,6 +717,14 @@ def _render_schema(
         if workspace_state.source_mode.value == "FILE" and odoo_check_plan is None
         else supporting_model_plan_view(workspace_id, None, None)
     )
+    supporting_review = None
+    if (workspace_state.source_mode.value == "FILE" and odoo_check_plan is None
+            and schema is not None and schema.origin is SchemaOrigin.LIVE_API and selection is not None):
+        supporting_review = supporting_review_view(context, workspace_state, selection, schema, governance, actor=actor)
+    issue_summary = summarize_workflow_issues((
+        *supporting_model_plan["issue_summary"].issues,
+        *(supporting_review["issues"] if supporting_review else ()),
+    ))
     suggested_models = frozenset(
         item
         for item in request.query_params.getlist("suggested_model")
@@ -780,7 +790,8 @@ def _render_schema(
         key_summary=key_summary,
         business_key_policy_version=BUSINESS_KEY_POLICY_VERSION,
         supporting_model_plan=supporting_model_plan,
-        workflow_issue_summary=supporting_model_plan["issue_summary"],
+        supporting_review=supporting_review,
+        workflow_issue_summary=issue_summary,
         local_stack=local_stack,
         manual_schema_by_model=(
             {model.name: model for model in schema.models}

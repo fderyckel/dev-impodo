@@ -9,6 +9,8 @@ eligible dataset. The final-review ports consume those frozen artifacts.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import AbstractContextManager
+from pathlib import Path
 from typing import Protocol
 
 from impodo.application.data_version.inspection import SourceFileCatalog
@@ -180,6 +182,16 @@ class NativePreparedProjectionView(Protocol):
 
 class PreparationSessionRepository(Protocol):
     """Store unpublished bounded batches until canonical publication succeeds."""
+
+    def operation_scope(self) -> AbstractContextManager[None]:
+        """Retain compatible database owners for one synchronous producer phase."""
+        ...
+
+    def register_physical_snapshot(
+        self, workspace_id: str, session_id: str, snapshot: SourceSnapshot, path: Path,
+    ) -> None:
+        """Index all frozen source coordinates, including unused enrichment rows."""
+        ...
 
     def begin_direct_session(
         self,

@@ -9,7 +9,7 @@ boundary and are never passed into the preflight domain or report.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
@@ -1560,6 +1560,8 @@ def _capture_supporting_values(
         tuple[tuple[str, ...], ...],
     ]
     | None = None,
+    publish_operation: Callable[[Callable[[], tuple[SupportingLookupSnapshot, ...]]], tuple[SupportingLookupSnapshot, ...]] | None = None,
+    require_current_access: bool = False,
 ) -> tuple[SupportingLookupSnapshot, ...]:
     """Authorize, batch, verify, and persist supporting destination values."""
 
@@ -1722,7 +1724,15 @@ def _capture_supporting_values(
         actor=actor,
         grouped_requests=grouped_requests,
         record_requests=record_requests,
+        verify_schema_access=require_current_access,
     )
+    if require_current_access and (
+        access.credential_binding_hash, access.principal_hash, access.context_hash
+    ) != (
+        schema.read_credential_binding_hash, schema.read_principal_hash,
+        schema.read_context_hash,
+    ):
+        raise WorkspaceError("Supporting read access changed; check Odoo details again")
     expected_target_hash = target_identity_hash(
         connection_mode=(
             workspace_state.odoo_connection_mode.value
@@ -1856,30 +1866,34 @@ def _capture_supporting_values(
             )
         )
 
-    stored = []
-    for verified_item in verified:
-        item = verified_item.prepared
-        stored.append(
-            context.supporting_lookups.capture(
-                workspace_state.workspace_id,
-                relation_model=item.relation_model,
-                key_fields=item.key_fields,
-                scope_fields=item.scope_fields,
-                display_field=item.display_field,
-                field_contracts=verified_item.field_contracts,
-                target_hash=expected_target_hash,
-                read_credential_binding_hash=access.credential_binding_hash,
-                read_principal_hash=access.principal_hash,
-                read_permission_hash=access.permission_hash,
-                read_context_hash=access.context_hash,
-                captured_at=captured_at,
-                choices=verified_item.choices,
-                ambiguous_values=verified_item.ambiguous_values,
-                actor=actor,
-                reference_policy_hash=current_reference_policy_hash,
+    def publish() -> tuple[SupportingLookupSnapshot, ...]:
+        """Publish already verified values; this callback performs no network I/O."""
+        stored = []
+        for verified_item in verified:
+            item = verified_item.prepared
+            stored.append(
+                context.supporting_lookups.capture(
+                    workspace_state.workspace_id,
+                    relation_model=item.relation_model,
+                    key_fields=item.key_fields,
+                    scope_fields=item.scope_fields,
+                    display_field=item.display_field,
+                    field_contracts=verified_item.field_contracts,
+                    target_hash=expected_target_hash,
+                    read_credential_binding_hash=access.credential_binding_hash,
+                    read_principal_hash=access.principal_hash,
+                    read_permission_hash=access.permission_hash,
+                    read_context_hash=access.context_hash,
+                    captured_at=captured_at,
+                    choices=verified_item.choices,
+                    ambiguous_values=verified_item.ambiguous_values,
+                    actor=actor,
+                    reference_policy_hash=current_reference_policy_hash,
+                )
             )
-        )
-    return tuple(stored)
+        return tuple(stored)
+
+    return publish_operation(publish) if publish_operation is not None else publish()
 
 
 def _ensure_targeted_supporting_read_complete(
@@ -1990,8 +2004,9 @@ def _read_supporting_lookup_batches(
     actor: Actor,
     grouped_requests: tuple[tuple[str, tuple[str, ...]], ...],
     record_requests: tuple[RecordRequest, ...] | None = None,
+    verify_schema_access: bool = False,
 ) -> tuple[MetadataSnapshot, RecordSnapshot, _SupportingLookupAccess]:
-    """Read several related models with one identity probe and bounded requests."""
+    """Batch supporting reads and optionally recheck primary schema access first."""
 
     relation_models = tuple(model_name for model_name, _ in grouped_requests)
     metadata_requests = tuple(
@@ -2064,10 +2079,25 @@ def _read_supporting_lookup_batches(
         raise WorkspaceError(
             "The Odoo read key changed; check the Odoo fields again"
         )
-    identity = context.read_identity_probe(
-        workspace_state,
-        credential.secret,
-        relation_models,
+    primary_access: OdooReadIdentity | None = None
+    if verify_schema_access:
+        # Permission hashes include the probed model set. Compare like scopes;
+        # the supporting-model probe below keeps its own evidence hash.
+        primary_models = tuple(sorted(model.name for model in schema.models))
+        primary_access = context.read_identity_probe(workspace_state, credential.secret, primary_models)
+        if (
+            primary_access.target_hash, primary_access.principal_hash,
+            primary_access.permission_hash, primary_access.context_hash,
+            tuple(sorted(primary_access.readable_models)),
+        ) != (
+            schema.connection_target_hash, schema.read_principal_hash,
+            schema.read_permission_hash, schema.read_context_hash, primary_models,
+        ):
+            raise WorkspaceError("Supporting read access changed; check Odoo details again")
+    identity = (
+        primary_access
+        if primary_access is not None and tuple(sorted(primary_access.readable_models)) == relation_models
+        else context.read_identity_probe(workspace_state, credential.secret, relation_models)
     )
     if identity.target_hash != schema.connection_target_hash:
         raise WorkspaceError(

@@ -53,6 +53,7 @@ from .bounded_preparation import (
 from .grouped_exact_join_preparation import (
     GROUPED_EXACT_JOIN_INPUT_ROW_LIMIT,
     bounded_exact_join_group,
+    bounded_preparation_producers,
 )
 
 
@@ -123,7 +124,7 @@ class PreparationCapabilityManifest:
     """Run-wide preparation admission derived from all required stages."""
 
     physical_rows: int
-    supported_rows: int
+    supported_rows: int | None
     stages: tuple[PreparationStageCapability, ...]
     datasets: tuple[PreparationDatasetCapability, ...] = ()
     materialized_fallback_rows: int = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
@@ -132,7 +133,18 @@ class PreparationCapabilityManifest:
     def admitted(self) -> bool:
         """Whether the complete current preparation path is supported."""
 
-        return self.physical_rows <= self.supported_rows
+        return self.supported_rows is None or self.physical_rows <= self.supported_rows
+
+    @property
+    def volume_advisories(self) -> tuple[str, ...]:
+        """Describe large bounded jobs without imposing an arbitrary row cutoff."""
+
+        if self.supported_rows is not None or self.physical_rows <= 50_000:
+            return ()
+        return (
+            (f"Preparing {self.physical_rows:,} source rows across your selected tables. "
+             "This may take longer; you can follow progress or cancel safely."),
+        )
 
     @property
     def permits_materialized_fallback(self) -> bool:
@@ -176,6 +188,7 @@ class PreparationCapabilityManifest:
             "materialized_fallback_rows": self.materialized_fallback_rows,
             "stages": [item.to_portable_dict() for item in self.stages],
             "datasets": [item.to_portable_dict() for item in self.datasets],
+            "volume_advisories": list(self.volume_advisories),
         }
 
 
@@ -227,6 +240,55 @@ def compile_preparation_capability(
         direct=direct,
         grouped_exact_join=grouped_exact_join is not None,
     )
+    producers = bounded_preparation_producers(
+        physical_selection, effective_selection, derived_plan,
+    )
+    if producers is not None and not _bounded_quality_reasons(
+        definition=definition,
+        physical_selection=physical_selection,
+        effective_selection=effective_selection,
+        current_ruleset=current_ruleset,
+        reference_bundle=reference_bundle,
+        bounded_input=True,
+    ):
+        # Every producer and shared check uses paged durable facts. Row counts
+        # describe volume; integrity and runtime resource guards still apply.
+        mappings = {item.dataset_id: item for item in definition.datasets}
+        return PreparationCapabilityManifest(
+            physical_rows=physical_rows,
+            supported_rows=None,
+            stages=tuple(
+                PreparationStageCapability(
+                    stage=stage,
+                    behavior=behavior,
+                    supported_rows=None,
+                    reason_codes=("BOUNDED_PRODUCER_GRAPH",),
+                )
+                for stage, behavior in (
+                    ("transformation", PreparationRouteBehavior.BOUNDED_PYTHON),
+                    ("canonical_adaptation", PreparationRouteBehavior.BOUNDED_DURABLE),
+                    ("quality", PreparationRouteBehavior.BOUNDED_RUNTIME_GUARDED),
+                    ("normalization", PreparationRouteBehavior.BOUNDED_RUNTIME_GUARDED),
+                    ("relationships", PreparationRouteBehavior.BOUNDED_DURABLE),
+                    ("reporting", PreparationRouteBehavior.DEFERRED),
+                    ("preflight", PreparationRouteBehavior.DEFERRED),
+                )
+            ),
+            datasets=tuple(
+                PreparationDatasetCapability(
+                    dataset_id=producer.dataset.dataset_id,
+                    dataset_name=producer.dataset.name,
+                    behavior=PreparationRouteBehavior.BOUNDED_PYTHON,
+                    reason_codes=(("LOOKUP_VALUE_STREAM",) if producer.lookup
+                                  else ("GROUPED_EXACT_JOIN_STREAM",) if producer.group
+                                  else ("FROZEN_SNAPSHOT_STREAM",)),
+                    incoming_identity_fields=incoming_identity_group_fields(
+                        mappings[producer.dataset.dataset_id]
+                    ) if producer.dataset.dataset_id in mappings else (),
+                )
+                for producer in producers
+            ),
+        )
     if direct:
         transformation_limit = direct_preparation_row_limit(
             definition,

@@ -145,9 +145,9 @@ def _materialize_quality_cause_members(
             SELECT *, {_QUALITY_CAUSE_KEY_SQL} AS cause_key
               FROM parsed_issue_base
         ),
-        impact_walk (cause_key, current_row_id, seen_parent, impact_kind) AS (
+        impact_walk (cause_key, current_row_id, seen_parent, impact_kind, role_path) AS (
             SELECT DISTINCT cause_key, row_id, FALSE,
-                   CAST(NULL AS VARCHAR)
+                   CAST(NULL AS VARCHAR), TRUE
               FROM parsed_issue
              WHERE caused_by_row_id IS NULL
             UNION
@@ -159,7 +159,12 @@ def _materialize_quality_cause_members(
                            THEN 'PARENT'
                        WHEN walk.seen_parent THEN 'SIBLING'
                        ELSE 'CHILD'
-                   END
+                   END,
+                   walk.role_path AND (
+                       inherited.dependency_impact != 'PARENT'
+                       OR walk.impact_kind IS NULL
+                       OR walk.impact_kind = 'PARENT'
+                   )
               FROM impact_walk AS walk
               JOIN parsed_issue AS inherited
                 ON inherited.caused_by_row_id = walk.current_row_id
@@ -175,6 +180,15 @@ def _materialize_quality_cause_members(
         classified_impact AS (
             SELECT cause_key, current_row_id,
                    CASE
+                       WHEN MAX(CASE WHEN role_path AND impact_kind = 'PARENT'
+                                     THEN 1 ELSE 0 END) = 1
+                           THEN 'PARENT'
+                       WHEN MAX(CASE WHEN role_path AND impact_kind = 'CHILD'
+                                     THEN 1 ELSE 0 END) = 1
+                           THEN 'CHILD'
+                       WHEN MAX(CASE WHEN role_path AND impact_kind = 'SIBLING'
+                                     THEN 1 ELSE 0 END) = 1
+                           THEN 'SIBLING'
                        WHEN MAX(CASE WHEN impact_kind = 'SIBLING'
                                      THEN 1 ELSE 0 END) = 1
                            THEN 'SIBLING'
@@ -1034,6 +1048,10 @@ class QualityRepository(DuckDbRepository):
                     projection_payload.get("row_results")
                     or projection_payload.get("source_accounting")
                 )
+                sparse_accounting_storage = bool(
+                    isinstance(projection_payload, dict)
+                    and projection_payload.get("source_accounting")
+                )
                 if effective_dataset_run_id is None:
                     linked = connection.execute(
                         """
@@ -1086,7 +1104,10 @@ class QualityRepository(DuckDbRepository):
                     complete = (
                         len(stored_counts) == 4
                         and stored_counts[0] <= len(run.row_results)
-                        and stored_counts[1] == 0
+                        and stored_counts[1] == (
+                            0 if sparse_accounting_storage
+                            else len(run.source_accounting)
+                        )
                         and stored_counts[2:] == (
                             len(run.issues),
                             len(run.quarantine),
@@ -1095,7 +1116,8 @@ class QualityRepository(DuckDbRepository):
                         and int(linked[0]) == stored_counts[0]
                         and canonical_count is not None
                         and int(canonical_count[0]) == len(run.row_results)
-                        and len(run.source_accounting) == len(run.row_results)
+                        and (not sparse_accounting_storage
+                             or len(run.source_accounting) == len(run.row_results))
                     )
                 if not complete:
                     raise WorkspaceError("Quality evidence was not stored completely")

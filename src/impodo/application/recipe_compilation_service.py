@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Protocol
 
+from impodo.application.supporting_mapping_guard import SupportingMappingPolicy
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.preparation.quality import QualityRuleSet, QualityRuleSource
 from impodo.domain.shared.access import Actor
@@ -35,6 +36,7 @@ from impodo.domain.workspace.derived_entities import (
     HierarchicalLookupRule,
     RelatedDatasetRule,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import (
     GovernedReferenceDecision,
     GovernedReferenceRequest,
@@ -45,7 +47,9 @@ from impodo.domain.workspace.reference_keys import (
     captured_reference_field_contracts,
     reference_policy_hash,
 )
+from impodo.domain.workspace.supporting_closure import portable_supporting_choices
 from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
+from impodo.domain.workspace.supporting_review import SupportingChoice
 
 from ..domain.coverage import ReferenceBundle
 from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
@@ -194,6 +198,7 @@ class RecipeCompiler:
         references: RecipeAuthoringReferenceRepository,
         parameters: RecipeAuthoringParameterRepository | None = None,
         supporting_references: MappingSupportingLookupReader | None = None,
+        supporting_decisions: SupportingMappingPolicy | None = None,
     ) -> None:
         self.sources = sources
         self.mappings = mappings
@@ -203,6 +208,7 @@ class RecipeCompiler:
         self.references = references
         self.parameters = parameters
         self.supporting_references = supporting_references
+        self.supporting_decisions = supporting_decisions
 
     def compile_workspace(
         self,
@@ -337,6 +343,17 @@ class RecipeCompiler:
             )
         try:
             # A Recipe may describe reusable rules, but never a pinned Odoo ID.
+            review = (
+                self.supporting_decisions.require_mapping(
+                    workspace_id, revision.definition.datasets, schema, governance
+                )
+                if self.supporting_decisions is not None else None
+            )
+            mapped_models = {dataset.target_model for dataset in revision.definition.datasets}
+            supporting_choices = tuple(
+                item for item in (review.choices if review else ())
+                if item.source_model in mapped_models
+            )
             parameter_definitions = (
                 self.parameters.get_parameter_definitions(workspace_id)
                 if self.parameters is not None
@@ -360,10 +377,17 @@ class RecipeCompiler:
                         schema,
                     )
                 ),
+                supporting_choices=supporting_choices,
             )
             self._validate_portability(compiled)
         except _RecipeDraftBlocked as error:
             return None, (error.issue,)
+        except WorkspaceError as error:
+            return None, (self._issue(
+                "SUPPORTING_CHOICES_REVIEW_REQUIRED", str(error),
+                "Review supporting choices in Odoo data, then check and submit Match data again.",
+                RecipeDraftRecoveryStep.ODOO_DATA,
+            ),)
         except (
             RecipeConflictError,
             RecipeIntegrityError,
@@ -407,6 +431,7 @@ class RecipeCompiler:
         references: ReferenceBundle | None,
         parameter_definitions: RecipeParameterDefinitions,
         supporting_references: tuple[SupportingLookupSnapshot, ...],
+        supporting_choices: tuple[SupportingChoice, ...] = (),
     ) -> CompiledRecipeDefinition:
         """Translate verified authoring evidence into delivery-independent fields."""
 
@@ -431,6 +456,10 @@ class RecipeCompiler:
             tuple(combined_by_id.values())
         )
         base_ids = {item.dataset_id for item in base_selection.datasets}
+        physical_columns = {
+            (dataset.dataset_id, column.stable_key)
+            for dataset in base_selection.datasets for column in dataset.columns
+        }
         reference_payload, reference_ids = self._references(references)
         mapping_payload = self._mapping(
             revision.definition.datasets,
@@ -485,6 +514,7 @@ class RecipeCompiler:
                         }
                         for column in dataset.columns
                         if (dataset.dataset_id, column.stable_key) in used_columns
+                        and (dataset.dataset_id, column.stable_key) in physical_columns
                     ],
                     "logical_dataset_id": dataset_ids[dataset.dataset_id],
                     "logical_name": dataset.name,
@@ -509,7 +539,12 @@ class RecipeCompiler:
             governance,
             dataset_ids,
             supporting_references,
+            supporting_choices,
         )
+        if supporting_choices:
+            target_contract["supporting_choices"] = portable_supporting_choices(
+                supporting_choices, dataset_ids
+            )
         recipe: dict[str, object] = {
             "contract_versions": dict(CURRENT_RECIPE_CONTRACT_VERSIONS),
             "source_shape": source_shape,
@@ -801,6 +836,7 @@ class RecipeCompiler:
                             portable(asdict(item)) for item in resolver.value_mappings
                         ],
                         "blank_source_values": list(relation.blank_source_values),
+                        "blank_source_action": relation.blank_source_action,
                     }
                 )
             result.append(
@@ -1029,6 +1065,7 @@ class RecipeCompiler:
         governance,
         dataset_ids,
         supporting_references,
+        supporting_choices=(),
     ):
         """Capture reusable Odoo requirements without target-instance facts."""
 
@@ -1060,6 +1097,8 @@ class RecipeCompiler:
             for item in supporting_references
         }
         supporting_fields = {}
+        for choice in supporting_choices:
+            field_roles.setdefault((choice.source_model, choice.field_name), set()).add("supporting_decision")
         governed_signatures = {
             (item.model, item.key_fields, item.scope_fields)
             for item in governance.business_keys

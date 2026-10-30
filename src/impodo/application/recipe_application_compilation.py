@@ -1285,15 +1285,15 @@ class RecipeApplicationCompiler:
     @staticmethod
     def _effective_bindings(selection, base_bindings):
         bindings = dict(base_bindings)
-        used_dataset_ids = {
-            value
+        bound_datasets = {
+            value: logical
             for logical, value in bindings.items()
             if logical.startswith("dataset:")
         }
         for dataset in selection.datasets:
-            if dataset.dataset_id in used_dataset_ids:
-                continue
-            logical_dataset = f"dataset:{_recipe_token(dataset.name)}"
+            logical_dataset = bound_datasets.get(
+                dataset.dataset_id, f"dataset:{_recipe_token(dataset.name)}"
+            )
             if (
                 logical_dataset in bindings
                 and bindings[logical_dataset] != dataset.dataset_id
@@ -1304,7 +1304,7 @@ class RecipeApplicationCompiler:
             bindings[logical_dataset] = dataset.dataset_id
             for column in dataset.columns:
                 logical_column = (
-                    f"column:{_recipe_token(dataset.name)}."
+                    f"column:{logical_dataset.removeprefix('dataset:')}."
                     f"{_recipe_token(column.source_name)}"
                 )
                 if (
@@ -1658,6 +1658,7 @@ class RecipeApplicationCompiler:
         }
         return RelationshipMapping(
             blank_source_values=item.get("blank_source_values", ()),
+            blank_source_action=str(item.get("blank_source_action", "source_rules")),
             target_field=str(item["target_field"]),
             kind=str(item["kind"]),
             source_column_keys=tuple(

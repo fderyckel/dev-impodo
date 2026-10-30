@@ -721,6 +721,9 @@
           <small>No data was changed.</small>
         {% else %}
           <h2>Prepare all source rows for review</h2>
+          {% for advisory in preparation_advisories %}
+          <p class="notice">{{ advisory }}</p>
+          {% endfor %}
           <p>Impodo will apply your confirmed field rules and data checks to {% if evaluation_scale %}{{ "{:,}".format(evaluation_scale.physical_rows) }} {% endif %}source rows.</p>
           <form method="post" action="/workspaces/{{ workspace_id }}/summary/check">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

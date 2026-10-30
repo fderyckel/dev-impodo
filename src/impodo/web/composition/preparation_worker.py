@@ -36,6 +36,7 @@ from impodo.adapters.protected_evidence.credential_vault import CredentialVault
 from impodo.adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
 from impodo.adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
 from impodo.application.odoo_provenance_service import OdooProvenanceService
+from impodo.application.supporting_mapping_guard import SupportingMappingGuard
 from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.application.workspace.preparation.job_models import PreparationWorkspace
 from impodo.application.workspace.preparation.normalization_service import (
@@ -146,4 +147,7 @@ def create_preparation_worker(
         target_mapping_schema_hash=workspace.target_mapping_schema_hash,
         target_float_digits=workspace.target_float_digits,
         grouped_exact_joins=DuckDbGroupedExactJoinSource(database),
+        supporting_decisions=SupportingMappingGuard(
+            workspace_states, sources, SchemaRepository(database), derived_entities
+        ),
     )

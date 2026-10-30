@@ -229,6 +229,7 @@ def compile_browser_mapping(
             relations[item.target_field] = RelationSpec(
                 kind=_relation_kind(item.kind),
                 blank_source_values=item.blank_source_values,
+                blank_source_action=("leave_blank" if item.blank_source_action == "leave_blank" else "source_rules"),
                 source_fields=tuple(
                     synthetic_relationship_field(index, source_index)
                     for source_index, _source_column_key in enumerate(

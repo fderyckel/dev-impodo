@@ -22,6 +22,12 @@ from datetime import UTC, datetime
 from typing import Protocol
 from uuid import uuid4
 
+from impodo.application.supporting_review_service import (
+    SupportingReviewPacket,
+    SupportingReviewRepository,
+    SupportingReviewService,
+    supporting_review_packet,
+)
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
@@ -107,7 +113,7 @@ class SupportingPreparationReader(Protocol):
         ...
 
 
-class SchemaWorkspaceRepository(Protocol):
+class SchemaWorkspaceRepository(SupportingReviewRepository, Protocol):
     """Persist model/schema catalogs and versioned key governance."""
 
     def get_odoo_model_catalog(
@@ -233,6 +239,21 @@ class SchemaWorkspaceService:
         self.schemas = schemas
         self.authorization = authorization
         self.derived_entities = derived_entities
+        self.supporting = SupportingReviewService(schemas, authorization)
+
+    def supporting_review_inputs(self, workspace_id: str, *, actor: Actor, schema: OdooSchemaCatalog | None = None, workspace: WorkspaceState | None = None) -> SupportingReviewPacket:
+        """Read complete current inputs once inside the caller's local operation."""
+        self.authorization.require(actor, Capability.PROJECT_VIEW, workspace_id=workspace_id)
+        workspace = workspace or self.workspaces.get(workspace_id)
+        selection = self.sources.get_source_selection(workspace_id)
+        schema = schema or self.schemas.get_odoo_schema_catalog(workspace_id)
+        preparation = self.derived_entities.get_derived_entity_plan(workspace_id) if self.derived_entities else None
+        governance = self.schemas.get_schema_governance(workspace_id)
+        if selection is None or schema is None:
+            raise WorkspaceError("Accept source data and capture Odoo details before reviewing supporting choices")
+        if schema.connection_target_hash != _target_identity_hash(workspace):
+            raise WorkspaceError("Supporting details belong to a different target")
+        return supporting_review_packet(workspace, selection, schema, preparation, governance)
 
     def supporting_data_plan(
         self,
@@ -1530,6 +1551,7 @@ class SchemaWorkspaceService:
     ) -> SchemaGovernance:
         """Confirm exactly one key for every captured authoring model."""
 
+        self.authorization.require(actor, Capability.SCHEMA_GOVERN, workspace_id=workspace_id)
         definitions = tuple(business_keys)
         schema = self.schemas.get_odoo_schema_catalog(workspace_id)
         if schema is None:
@@ -1564,6 +1586,10 @@ class SchemaWorkspaceService:
                     f"{related_models}. Review the available Odoo data, then "
                     "load the selected Odoo details again."
                 )
+            state = self.workspaces.get(workspace_id)
+            if state.source_mode is SourceMode.FILE:
+                packet = self.supporting_review_inputs(workspace_id, actor=actor, schema=schema, workspace=state)
+                self.supporting.require_current(packet, actor=actor)
         counts = {model.name: 0 for model in schema.models}
         for definition in definitions:
             if definition.status is not BusinessKeyStatus.CONFIRMED:

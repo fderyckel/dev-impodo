@@ -180,6 +180,9 @@ class _DerivedReferencePlan:
     source_column_key: str
     prepared_column_key: str
     target_field: str
+    blank_source_values: tuple[str, ...] = ()
+    blank_source_action: str = "source_rules"
+    required: bool = False
 
 
 @dataclass(slots=True)
@@ -317,12 +320,6 @@ class CompiledBrowserRowTransformer:
         """Apply the row-local mapping rules after cross-row admission."""
 
         _prepare_relationship_values(projected.values, self.evaluation_plan)
-        issues = _normalize_derived_references(
-            projected.values,
-            self.derived_reference_plan,
-            dataset=self.dataset_name,
-            source_row=projected.number,
-        )
         _record_identity_preparation(
             projected.source_values,
             self.evaluation_plan,
@@ -334,6 +331,10 @@ class CompiledBrowserRowTransformer:
             self.evaluation_plan,
             source_row=projected.number,
             impact_collector=impact_collector,
+        )
+        issues = _normalize_derived_references(
+            projected.values, self.derived_reference_plan,
+            dataset=self.dataset_name, source_row=projected.number,
         )
         _apply_scalar_mappings(
             projected.values,
@@ -543,7 +544,7 @@ def evaluate_browser_mapping(
                 structural.table,
                 None,
                 "source",
-                (),
+                tuple(lookup_by_dataset_id.values()),
                 impact_collector=impact_collector,
                 reference_indexes=reference_indexes,
             )
@@ -1439,6 +1440,10 @@ def _compile_derived_reference_plan(
         (link.derived_dataset_id, link.source_column_key): rule
         for rule, link in lookup_bindings
     }
+    flat_lookup_by_dataset = {
+        link.derived_dataset_id: rule for rule, link in lookup_bindings
+        if isinstance(rule, DerivedEntityRule) and rule.parent_separator is None
+    }
     return tuple(
         _DerivedReferencePlan(
             rule=rule,
@@ -1448,6 +1453,9 @@ def _compile_derived_reference_plan(
                 source_index,
             ),
             target_field=relationship.target_field,
+            blank_source_values=relationship.blank_source_values,
+            blank_source_action=relationship.blank_source_action,
+            required=relationship.required or relationship.required_on_create,
         )
         for relationship_index, relationship in enumerate(mapping.relationships)
         if relationship.resolver.origin
@@ -1461,7 +1469,9 @@ def _compile_derived_reference_plan(
                 (
                     relationship.resolver.dataset_id,
                     source_column_key,
-                )
+                ),
+                flat_lookup_by_dataset.get(relationship.resolver.dataset_id)
+                if len(relationship.source_column_keys) == 1 else None,
             ),
         )
         if rule is not None
@@ -1477,6 +1487,13 @@ def _normalize_derived_references(
 ) -> tuple[Issue, ...]:
     issues: list[Issue] = []
     for item in plan:
+        if (item.blank_source_action == "leave_blank" and not item.required
+            and _normalized_path(values.get(item.source_column_key), None) is None):
+            values[item.prepared_column_key] = None
+            continue
+        if (values.get(item.prepared_column_key) is None
+            and str(values.get(item.source_column_key, "")).strip() in item.blank_source_values):
+            continue
         if isinstance(item.rule, HierarchicalLookupRule):
             evaluation = evaluate_hierarchy_path(item.rule, values)
             values[item.prepared_column_key] = (

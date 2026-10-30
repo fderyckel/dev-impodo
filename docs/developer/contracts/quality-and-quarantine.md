@@ -49,11 +49,18 @@ dependent whose matched parent was already unsafe.
 `INCOMING_IDENTITY_DEPENDENT_SET_ASIDE` identifies the reverse propagation
 that keeps an incoming identity group together.
 
-The finding names the linked dataset and affected field. An inherited finding
-also names one deterministic related source row when that row is available.
+The finding names the linked dataset and affected field. Each inherited finding
+also names its causal source row when that row is available.
 Its portable evidence retains that causal row identity and whether the unsafe
 record is the cause's parent or child. Full and bounded evaluation must publish
 the same reason, disposition, field, and causal evidence.
+
+When several unsafe children share an identity parent, publication retains
+each distinct causal edge. Choosing one arbitrary unsafe child could disconnect
+the parent and siblings from the original direct finding. Evaluator 9 preserves
+the complete graph and derives each cause's distinct affected membership from
+it. Earlier evaluator-6, -7, and -8 evidence remains readable with its original
+hash; a new preparation publishes new evidence instead of rewriting history.
 
 Quality publication groups direct causes across the complete run and derives
 their transitive dependency impact. The compact projection counts distinct
@@ -85,6 +92,15 @@ mapping without copying raw business values into the quality ledger.
 Every canonical row has exactly one quality result. Every physical source row
 has one accounting entry with links to all canonical records it contributed to.
 This permits mixed outcomes when one physical row creates several records.
+
+Reviewed exact LEFT join graphs may use the same physical row in several
+combined outputs. The accounting entry retains every canonical link. Unused
+enrichment rows remain visible as `EXCLUDED_BY_RULE` under the accepted join
+choice. They do not become extra logical records. This policy requires a bound
+join plan whose outputs are joins, unchanged direct tables, or flat reusable
+lists. Other unexplained unrepresented source rows still fail closed. Quality
+evaluator 8 applies this policy; evaluator-6 and evaluator-7 history remain
+readable without changing their hashes.
 
 Unrepresented source rows, missing mandatory rule families, stale fields,
 incomplete evidence, and inconsistent hashes fail closed. Set-aside and

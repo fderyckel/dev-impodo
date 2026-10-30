@@ -111,6 +111,10 @@ from impodo.application.source_workspace_service import (
     SourceWorkspaceService,
     WorkspaceStateReader,
 )
+from impodo.application.supporting_mapping_guard import (
+    SupportingMappingGuard,
+    SupportingPreparationPolicy,
+)
 from impodo.application.transfer_execution_service import (
     TransferExecutionService,
     TransferExecutionSourceRepository,
@@ -637,6 +641,7 @@ def build_authoring_service_graph(
 ) -> AuthoringServiceGraph:
     """Wire source, Recipe, and Match data without choosing storage adapters."""
 
+    supporting_decisions = SupportingMappingGuard(workspaces, sources, schemas, derived_entities)
     recipe_compiler = RecipeCompiler(
         mapping_sources,
         mappings,
@@ -646,6 +651,7 @@ def build_authoring_service_graph(
         references,
         recipe_parameters,
         supporting_references=supporting_lookups,
+        supporting_decisions=supporting_decisions,
     )
     recipe_service = RecipeService(recipes, authorization)
     recipe_publication = RecipePublicationService(
@@ -699,6 +705,7 @@ def build_authoring_service_graph(
         downstream_invalidator=downstream_invalidator,
         recipe_applications=recipe_applications,
         row_inclusion_confirmations=row_inclusion,
+        supporting_decisions=supporting_decisions,
     )
     transformation_impact_service = TransformationImpactService(
         workspaces,
@@ -1020,6 +1027,7 @@ def build_preparation_service_graph(
     odoo_provenance: OdooProvenanceService,
     recipe_quality: RecipeQualitySeedRepository,
     grouped_exact_joins: GroupedExactJoinSourcePort | None = None,
+    supporting_decisions: SupportingPreparationPolicy | None = None,
 ) -> PreparationServiceGraph:
     """Wire preparation and final review without choosing concrete adapters."""
 
@@ -1050,6 +1058,7 @@ def build_preparation_service_graph(
         odoo_provenance=odoo_provenance,
         schemas=schemas,
         grouped_exact_joins=grouped_exact_joins,
+        supporting_decisions=supporting_decisions,
     )
     preflight = PreflightService(
         staging,

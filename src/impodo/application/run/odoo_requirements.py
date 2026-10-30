@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Protocol
 
-from impodo.domain.recipe.models import RecipeError
+from impodo.application.recipe.odoo_requirements import (
+    OdooCheckModelRequirement,
+    OdooCheckRelationshipRequirement,
+    OdooCheckRequirementPlan,
+    OdooCheckSupportingRequirement,
+    SelectedRecipeRevision,
+    extract_odoo_requirements,
+)
 from impodo.domain.run.contracts import RecipeRevisionSelection
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-
-from .fresh_data_values import recipe_definition
 
 
 class SelectedRunSetup(Protocol):
@@ -27,19 +31,6 @@ class RunSetupSelectionReader(Protocol):
     def for_workspace(self, workspace_id: str) -> SelectedRunSetup | None: ...
 
 
-class SelectedRecipe(Protocol):
-    """Expose only the Recipe presentation needed by this query."""
-
-    display_name: str
-
-
-class SelectedRecipeRevision(Protocol):
-    """Expose one verified Recipe envelope and its bounded presentation."""
-
-    envelope: Mapping[str, object]
-    recipe: SelectedRecipe
-
-
 class SelectedRecipeRevisionReader(Protocol):
     """Bulk-read the exact Recipe revisions pinned by one run."""
 
@@ -50,47 +41,6 @@ class SelectedRecipeRevisionReader(Protocol):
         *,
         actor: Actor,
     ) -> Mapping[tuple[str, int], SelectedRecipeRevision]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class OdooCheckModelRequirement:
-    """Present one Recipe-derived Odoo model and its exact field scope."""
-
-    model_name: str
-    field_names: tuple[str, ...]
-    recipe_names: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class OdooCheckRelationshipRequirement:
-    """Retain one Recipe-owned path to a supporting Odoo record type."""
-
-    parent_model: str
-    relationship_field: str
-    relationship_type: str
-
-
-@dataclass(frozen=True, slots=True)
-class OdooCheckSupportingRequirement:
-    """Present one current Odoo value set required by selected Recipes."""
-
-    model_name: str
-    key_fields: tuple[str, ...]
-    scope_fields: tuple[str, ...]
-    relationships: tuple[OdooCheckRelationshipRequirement, ...]
-    recipe_names: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class OdooCheckRequirementPlan:
-    """Combine every selected Recipe's target needs before contacting Odoo."""
-
-    models: tuple[OdooCheckModelRequirement, ...]
-    supporting_values: tuple[OdooCheckSupportingRequirement, ...]
-
-    @property
-    def model_names(self) -> tuple[str, ...]:
-        return tuple(item.model_name for item in self.models)
 
 
 class RunOdooRequirementsUseCase:
@@ -153,103 +103,6 @@ class RunOdooRequirementsUseCase:
             selected,
             actor=actor,
         )
-        model_fields: dict[str, set[str]] = {}
-        model_recipes: dict[str, set[str]] = {}
-        supporting_recipes: dict[
-            tuple[str, tuple[str, ...], tuple[str, ...]], set[str]
-        ] = {}
-        supporting_paths: dict[
-            tuple[str, tuple[str, ...], tuple[str, ...]],
-            set[tuple[str, str, str]],
-        ] = {}
-        for selection in binding.selected_revisions:
-            revision = revisions[(selection.recipe_id, selection.recipe_revision)]
-            selected_hash = str(revision.envelope.get("semantic_hash", ""))
-            if selected_hash != selection.semantic_hash:
-                raise RecipeError("The selected Recipe version has changed")
-            definition = recipe_definition(revision.envelope)
-            recipe_name = revision.recipe.display_name
-            raw_contract = definition.get("odoo_target_contract", {})
-            if not isinstance(raw_contract, Mapping):
-                raise RecipeError("The selected Recipe target contract is invalid")
-            contract = dict(raw_contract)
-            for model in contract.get("models", ()):  # type: ignore[union-attr]
-                model_definition = dict(model)
-                model_name = str(model_definition.get("model", "")).strip()
-                if model_name:
-                    model_fields.setdefault(model_name, set()).update(
-                        str(dict(field).get("name", "")).strip()
-                        for field in model_definition.get("fields", ())
-                        if str(dict(field).get("name", "")).strip()
-                    )
-                    model_recipes.setdefault(model_name, set()).add(recipe_name)
-                for raw_path in model_definition.get("reference_paths", ()):
-                    path = dict(raw_path)
-                    key_fields = tuple(
-                        str(value).strip()
-                        for value in path.get("key_fields", ())
-                        if str(value).strip()
-                    )
-                    scope_fields = tuple(
-                        str(value).strip()
-                        for value in path.get("scope_fields", ())
-                        if str(value).strip()
-                    )
-                    parent_model = str(path.get("parent_model", "")).strip()
-                    relationship_field = str(path.get("relationship_field", "")).strip()
-                    relationship_type = str(path.get("relationship_type", "")).strip()
-                    if not (
-                        model_name
-                        and key_fields
-                        and parent_model
-                        and relationship_field
-                        and relationship_type
-                    ):
-                        message = (
-                            "A selected Recipe contains an incomplete Odoo relationship"
-                        )
-                        raise RecipeError(message)
-                    identity = (model_name, key_fields, scope_fields)
-                    supporting_recipes.setdefault(identity, set()).add(recipe_name)
-                    supporting_paths.setdefault(identity, set()).add(
-                        (
-                            parent_model,
-                            relationship_field,
-                            relationship_type,
-                        )
-                    )
-        return OdooCheckRequirementPlan(
-            models=tuple(
-                OdooCheckModelRequirement(
-                    model_name=model_name,
-                    field_names=tuple(sorted(model_fields[model_name])),
-                    recipe_names=tuple(
-                        sorted(model_recipes[model_name], key=str.casefold)
-                    ),
-                )
-                for model_name in sorted(model_fields)
-            ),
-            supporting_values=tuple(
-                OdooCheckSupportingRequirement(
-                    model_name=identity[0],
-                    key_fields=identity[1],
-                    scope_fields=identity[2],
-                    relationships=tuple(
-                        OdooCheckRelationshipRequirement(
-                            parent_model=parent_model,
-                            relationship_field=relationship_field,
-                            relationship_type=relationship_type,
-                        )
-                        for (
-                            parent_model,
-                            relationship_field,
-                            relationship_type,
-                        ) in sorted(supporting_paths[identity])
-                    ),
-                    recipe_names=tuple(
-                        sorted(supporting_recipes[identity], key=str.casefold)
-                    ),
-                )
-                for identity in sorted(supporting_recipes)
-            ),
-        )
+        return extract_odoo_requirements(binding.selected_revisions, revisions)
+
+__all__ = ["OdooCheckModelRequirement", "OdooCheckRelationshipRequirement", "OdooCheckRequirementPlan", "OdooCheckSupportingRequirement", "RunOdooRequirementsUseCase"]

@@ -68,6 +68,8 @@ from impodo.domain.workspace.workbench import (
     transfer_destination_workspace,
 )
 
+from .identity_lookups import NestedIdentityLookup
+
 DEFAULT_CREATE_BATCH_ROWS = 10
 NO_WRITE_ROWS_MESSAGE = "This preview has no rows to create or update"
 MAX_VISIBLE_LOAD_GROUPS = 5
@@ -2203,6 +2205,8 @@ class ExecutionService:
     ) -> None:
         """Fail before journaling when a reviewed create key now exists."""
 
+        nested = NestedIdentityLookup(write_rows, metadata, executor.find_ids_many,
+                                      page_size=MAX_IDENTITY_LOOKUP_KEYS)
         by_model: dict[str, list[tuple[tuple[str, str, Any], ...]]] = {}
         for row in write_rows:
             if row.disposition != "CREATE":
@@ -2220,7 +2224,7 @@ class ExecutionService:
                 domains = by_model[model]
                 for start in range(0, len(domains), MAX_IDENTITY_LOOKUP_KEYS):
                     page = tuple(domains[start : start + MAX_IDENTITY_LOOKUP_KEYS])
-                    matches = executor.find_ids_many(model, page)
+                    matches = executor.find_ids_many(model, nested.translate(model, page))
                     if len(matches) != len(page):
                         raise WorkspaceError(
                             "Odoo returned an incomplete create-key check"
@@ -2244,6 +2248,8 @@ class ExecutionService:
     ) -> dict[str, int]:
         """Bulk-verify every existing target before journaling any write."""
 
+        nested = NestedIdentityLookup(by_source.values(), metadata, executor.find_ids_many,
+                                      page_size=MAX_IDENTITY_LOOKUP_KEYS)
         requirements: dict[str, dict[str, Any]] = {}
 
         def add_requirement(
@@ -2362,7 +2368,7 @@ class ExecutionService:
                     ]
                     matches = executor.find_ids_many(
                         model,
-                        tuple(item["domain"] for item in page),
+                        nested.translate(model, tuple(item["domain"] for item in page)),
                     )
                     if len(matches) != len(page):
                         raise WorkspaceError(
@@ -3199,14 +3205,20 @@ def _identity_domain(
         or len(scope_fields) != len(scope)
     ):
         raise WorkspaceError("The Odoo business-key shape is incomplete")
-    return tuple(
-        (field, "=", _odoo_scalar(value))
-        for field, value in zip(
+    terms: list[tuple[str, str, Any]] = []
+    for field_name, value in zip(
             (*identity_fields, *scope_fields),
             (*identity, *scope),
             strict=True,
-        )
-    )
+    ):
+        if isinstance(value, BusinessReference):
+            nested = _identity_domain(value.target_fields, value.key,
+                                      value.target_scope_fields, value.scope)
+            terms.extend((f"{field_name}.{name}", operator, scalar)
+                         for name, operator, scalar in nested)
+        else:
+            terms.append((field_name, "=", _odoo_scalar(value)))
+    return tuple(terms)
 
 
 def _planned_deferred_create_count(

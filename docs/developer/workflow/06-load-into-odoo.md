@@ -437,6 +437,15 @@ list. A hard-edge row cycle or an unusable incoming target creates snapshot
 blocker evidence and prevents the execution journal and Odoo transport from
 starting.
 
+`NestedIdentityLookup` rechecks nested governed identities from the deepest
+ancestor outward. It groups distinct ancestor keys through the existing
+bounded writer or read-back port, then submits flat domains containing exact
+parent IDs to the native adapters. Odoo therefore never receives a dotted
+`search_read` field request. The cache belongs to one synchronous target
+operation and contains no database connection. The saved snapshot and its
+binding hashes remain authoritative; missing, ambiguous, or retargeted parents
+cannot release a dependent write.
+
 `ExecutionService` consumes the frozen topological component layers through
 pages of at most 500 rows. A page never mixes components. It groups only
 dependency-independent rows by dataset and compatible create shape, journals
@@ -746,6 +755,10 @@ qualify another remote topology.
 - [`tests/application/workspace/execution/test_reconciliation.py`](../../../tests/application/workspace/execution/test_reconciliation.py)
 - [`tests/integration/odoo/test_readback_retries.py`](../../../tests/integration/odoo/test_readback_retries.py)
 - [`tests/integration/web/test_load_workflow.py`](../../../tests/integration/web/test_load_workflow.py)
+- [`tests/domain/preparation/test_hierarchy_identity.py`](../../../tests/domain/preparation/test_hierarchy_identity.py)
+- [`tests/integration/web/test_hierarchy_recipe.py`](../../../tests/integration/web/test_hierarchy_recipe.py)
+- [`tests/integration/web/test_hierarchy_recovery.py`](../../../tests/integration/web/test_hierarchy_recovery.py)
+- [`tests/integration/web/test_hierarchy_workflow.py`](../../../tests/integration/web/test_hierarchy_workflow.py)
 - [`tests/integration/web/test_correction_workflow.py`](../../../tests/integration/web/test_correction_workflow.py)
 - [`tests/application/test_correction_jobs.py`](../../../tests/application/test_correction_jobs.py)
 - [`tests/application/test_correction_orchestration.py`](../../../tests/application/test_correction_orchestration.py)

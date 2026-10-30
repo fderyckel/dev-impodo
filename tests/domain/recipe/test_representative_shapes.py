@@ -178,6 +178,7 @@ def _publish(
     parameters: tuple[RecipeParameterDefinition, ...] = (),
     supporting_references: tuple[SupportingLookupSnapshot, ...] = (),
     mapping_contract_version: int | None = None,
+    supporting_choices=None,
 ) -> dict[str, object]:
     now = datetime.now(UTC)
     workspace_id = str(
@@ -267,6 +268,7 @@ def _publish(
         evidence,
         evidence,
         supporting_references=evidence,
+        supporting_decisions=(SimpleNamespace(require_mapping=lambda *args: SimpleNamespace(choices=supporting_choices)) if supporting_choices is not None else None),
     )
 
     compiled, issues = service.compile_workspace(workspace_id)

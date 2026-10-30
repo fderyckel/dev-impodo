@@ -32,6 +32,7 @@ from impodo.application.shared.artifacts import (
     ArtifactStoreError,
     GovernedArtifactStores,
 )
+from impodo.application.supporting_mapping_guard import SupportingPreparationPolicy
 from impodo.application.workspace.preparation.job_models import PreparationPhase
 from impodo.domain.contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
 from impodo.domain.coverage import ReferenceBundle
@@ -81,7 +82,7 @@ from .bounded_preparation import (
 from .columnar_transformation_port import ColumnarTransformationPort
 from .grouped_exact_join_preparation import (
     GroupedExactJoinSourcePort,
-    bounded_exact_join_group,
+    bounded_preparation_producers,
     prepare_bounded_grouped_exact_join_session,
 )
 
@@ -153,6 +154,7 @@ class PreparationService:
         target_mapping_schema_hash: str | None = None,
         target_float_digits: tuple[tuple[str, str, tuple[int, int]], ...] = (),
         grouped_exact_joins: GroupedExactJoinSourcePort | None = None,
+        supporting_decisions: SupportingPreparationPolicy | None = None,
     ) -> None:
         self.workspaces = workspaces
         self.sources = sources
@@ -171,6 +173,7 @@ class PreparationService:
         self.target_mapping_schema_hash = target_mapping_schema_hash
         self.target_float_digits = target_float_digits
         self.grouped_exact_joins = grouped_exact_joins
+        self.supporting_decisions = supporting_decisions
 
     def prepare(
         self,
@@ -256,6 +259,11 @@ class PreparationService:
         )
 
         derived_plan = self.derived_entities.get_derived_entity_plan(workspace_id)
+        if self.supporting_decisions is not None and self.schemas is not None:
+            self.supporting_decisions.require_preparation(
+                workspace_id, revision.definition.datasets, self.schemas,
+                workspace_state, physical_selection, derived_plan,
+            )
         capability = compile_preparation_capability(
             definition=revision.definition,
             physical_selection=physical_selection,
@@ -342,7 +350,7 @@ class PreparationService:
         elif (
             derived_plan is not None
             and self.grouped_exact_joins is not None
-            and bounded_exact_join_group(
+            and bounded_preparation_producers(
                 physical_selection,
                 effective_selection,
                 derived_plan,

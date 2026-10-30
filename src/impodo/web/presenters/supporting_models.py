@@ -12,6 +12,7 @@ from impodo.application.workspace.issues import (
     WorkflowIssueProjection,
     WorkflowIssueSeverity,
     WorkflowIssueState,
+    WorkflowIssueSummary,
     summarize_workflow_issues,
 )
 from impodo.domain.odoo_relationship_profiles import (
@@ -73,7 +74,7 @@ class SupportingModelPlanView(TypedDict):
 
     groups: tuple[dict[str, object], ...]
     dependency_count: int
-    issue_summary: object
+    issue_summary: WorkflowIssueSummary
     suggestable_model_names: tuple[str, ...]
 
 

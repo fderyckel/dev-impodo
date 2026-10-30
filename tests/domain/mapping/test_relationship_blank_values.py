@@ -34,6 +34,22 @@ def relationship(**changes):
 
 
 class RelationshipBlankValuesTests(unittest.TestCase):
+    def test_blank_source_action_is_versioned_and_does_not_change_old_hashes(self):
+        relation = relationship(blank_source_values=(), blank_source_action="leave_blank")
+        definition = MappingDefinition("mapping", "source", "schema", datasets=(DatasetMapping("records", "x_record", relationships=(relation,)),))
+        self.assertEqual(MappingDefinition.from_dict(definition.to_dict()), definition)
+        with self.assertRaisesRegex(ValueError, "v19"):
+            replace(definition, contract_version=18)
+        old = replace(definition, datasets=(replace(definition.datasets[0], relationships=(replace(relation, blank_source_action="source_rules"),)),), contract_version=18)
+        self.assertNotIn("blank_source_action", str(old.to_dict()))
+        self.assertEqual(MappingDefinition.from_dict(old.to_dict()).content_hash, old.content_hash)
+        self.assertNotEqual(old.content_hash, definition.content_hash)
+
+    def test_blank_source_action_rejects_required_list_constant_or_partial_keys(self):
+        for changes in ({"required": True}, {"required_on_create": True}, {"kind": "many2many"}, {"source_column_keys": ("choice", "scope")}, {"null_policy": "ignore_source_null"}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, "optional single-column many2one"):
+                relationship(blank_source_values=(), blank_source_action="leave_blank", **changes)
+
     def test_captured_required_field_rejects_a_blank_despite_optional_authored_flags(
         self,
     ):
@@ -60,24 +76,11 @@ class RelationshipBlankValuesTests(unittest.TestCase):
         governance = fixtures._schema_governance(schema)
         definition = fixtures._valid_definition(selection, governance)
         partner = definition.datasets[1]
-        relation = replace(
-            partner.relationships[0],
-            blank_source_values=("TO_DEFINE",),
-            categorical_policy=CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
-        )
-        definition = replace(
-            definition,
-            datasets=(
-                definition.datasets[0],
-                replace(partner, relationships=(relation,)),
-            ),
-        )
-        result = MappingSemanticValidator().validate(
-            definition, selection, schema, governance
-        )
-        self.assertIn(
-            "MAPPING_RELATION_BLANK_NOT_ALLOWED", {item.code for item in result.issues}
-        )
+        for changes in ({"blank_source_values": ("TO_DEFINE",)}, {"blank_source_action": "leave_blank"}):
+            relation = replace(partner.relationships[0], categorical_policy=CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH, **changes)
+            modified = replace(definition, datasets=(definition.datasets[0], replace(partner, relationships=(relation,))))
+            result = MappingSemanticValidator().validate(modified, selection, schema, governance)
+            self.assertIn("MAPPING_RELATION_BLANK_NOT_ALLOWED", {item.code for item in result.issues})
 
     def test_blank_decision_roundtrips_and_changes_semantic_hash(self):
         mapping = MappingDefinition(

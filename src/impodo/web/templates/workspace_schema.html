@@ -400,6 +400,7 @@
       </section>
     {% endif %}
 
+    {% include "_supporting_data_review.html" %}
     {% include "_workflow_issue_summary.html" %}
 
     <p id="odoo-details">{% if is_recipe_run_setup %}Recipe-required Odoo record types{% else %}Main Odoo record types selected{% endif %}: <strong>{% if is_recipe_run_setup %}{{ odoo_check_models|length }}{% else %}{{ odoo_root_model_count }}{% endif %}</strong>{% if not is_recipe_run_setup and automatic_supporting_model_count %} <small>Impodo also keeps {{ automatic_supporting_model_count }} linked record type{% if automatic_supporting_model_count != 1 %}s{% endif %} automatically.</small>{% endif %}</p>

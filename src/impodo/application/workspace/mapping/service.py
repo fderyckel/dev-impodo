@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 from uuid import uuid4
 
+from impodo.application.supporting_mapping_guard import SupportingMappingPolicy
 from impodo.domain.mapping.artifacts import (
     MappingRevision,
     MappingSubmission,
@@ -308,6 +309,7 @@ class MappingWorkspaceService:
         row_inclusion_confirmations: (
             MappingRowInclusionConfirmationRepository | None
         ) = None,
+        supporting_decisions: SupportingMappingPolicy | None = None,
     ) -> None:
         self.sources = sources
         self.schemas = schemas
@@ -319,6 +321,7 @@ class MappingWorkspaceService:
         self.downstream_invalidator = downstream_invalidator
         self.recipe_applications = recipe_applications
         self.row_inclusion_confirmations = row_inclusion_confirmations
+        self.supporting_decisions = supporting_decisions
         self.validator = MappingSemanticValidator()
 
     def begin_mutation(
@@ -1189,6 +1192,10 @@ class MappingWorkspaceService:
     ) -> MappingValidationResult:
         """Combine pure semantic validation with workspace-local scan evidence."""
 
+        if self.supporting_decisions is not None:
+            self.supporting_decisions.require_mapping(
+                workspace_id, definition.datasets, schema, governance
+            )
         validation = self.validator.validate(
             definition,
             selection,

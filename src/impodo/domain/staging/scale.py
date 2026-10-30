@@ -20,23 +20,23 @@ class BrowserEvaluationScale:
     """Plain-language supported-size decision for one preparation path."""
 
     physical_rows: int
-    supported_limit: int = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
+    supported_limit: int | None = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
 
     @property
     def supported(self) -> bool:
         """Whether the physical selection fits the in-memory safety limit."""
 
-        return self.physical_rows <= self.supported_limit
+        return self.supported_limit is None or self.physical_rows <= self.supported_limit
 
 
 def browser_evaluation_scale(
     selection: SourceSelection,
     *,
-    supported_limit: int = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
+    supported_limit: int | None = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 ) -> BrowserEvaluationScale:
     """Count frozen physical rows once, before derived datasets expand them."""
 
-    if supported_limit < 1:
+    if supported_limit is not None and supported_limit < 1:
         raise ValueError("supported_limit must be positive")
     return BrowserEvaluationScale(
         physical_rows=sum(item.row_count for item in selection.datasets),

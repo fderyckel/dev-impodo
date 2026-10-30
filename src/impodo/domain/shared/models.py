@@ -94,8 +94,10 @@ class BusinessReference:
     """A portable resolved relationship expressed through a governed key."""
 
     model: str
-    key: tuple[ScalarValue, ...]
-    scope: tuple[ScalarValue, ...] = ()
+    key: tuple[ScalarValue | BusinessReference, ...]
+    scope: tuple[ScalarValue | BusinessReference, ...] = ()
+    target_fields: tuple[str, ...] = ()
+    target_scope_fields: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -510,11 +512,16 @@ def portable_value(value: Any) -> Any:
     if isinstance(value, date):
         return {"type": "date", "value": value.isoformat()}
     if isinstance(value, BusinessReference):
-        return {
+        reference = {
             "model": value.model,
             "key": portable_value(value.key),
             "scope": portable_value(value.scope),
         }
+        if value.target_fields:
+            reference["target_fields"] = list(value.target_fields)
+        if value.target_scope_fields:
+            reference["target_scope_fields"] = list(value.target_scope_fields)
+        return reference
     if isinstance(value, LogicalReference):
         result: dict[str, Any] = {
             "origin": value.origin,
@@ -618,7 +625,7 @@ def restore_portable_value(value: Any) -> Any:
         )
 
     business_keys = {"model", "key", "scope"}
-    if keys == business_keys:
+    if business_keys <= keys <= business_keys | {"target_fields", "target_scope_fields"}:
         restored_key = restore_portable_value(value["key"])
         restored_scope = restore_portable_value(value["scope"])
         if not isinstance(restored_key, tuple) or not isinstance(
@@ -629,6 +636,8 @@ def restore_portable_value(value: Any) -> Any:
             model=str(value["model"]),
             key=restored_key,
             scope=restored_scope,
+            target_fields=tuple(str(field) for field in value.get("target_fields", ())),
+            target_scope_fields=tuple(str(field) for field in value.get("target_scope_fields", ())),
         )
 
     return {

@@ -371,6 +371,7 @@ stages:
     developer_doc: docs/developer/workflow/02-odoo-data.md
     router_modules:
       - src/impodo/web/routers/schema.py
+      - src/impodo/web/routers/supporting_review.py
     templates:
       - src/impodo/web/templates/workspace_schema.html
     code_references:
@@ -391,9 +392,16 @@ stages:
       - src/impodo/domain/workspace/supporting_plan.py::plan_supporting_data
       - src/impodo/domain/workspace/supporting_sources.py::supporting_source_descriptors
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.supporting_data_plan
+      - src/impodo/application/supporting_review_service.py::SupportingReviewService
+      - src/impodo/application/supporting_mapping_guard.py::SupportingMappingGuard
+      - src/impodo/application/recipe/odoo_requirements.py::extract_odoo_requirements
+      - src/impodo/domain/workspace/supporting_closure.py::close_supporting_plan
+      - src/impodo/domain/workspace/supporting_review.py::SupportingReview
+      - src/impodo/adapters/duckdb/supporting_review_repository.py::SupportingReviewRecords
       - src/impodo/web/presenters/schema.py::_schema_key_views
       - src/impodo/web/presenters/supporting_models.py::supporting_model_plan_view
       - scripts/capture_stage2_matching_rule_screenshots.py::capture
+      - scripts/capture_stage2_matching_rule_screenshots.py::capture_supporting_review
     tests:
       - tests/integration/duckdb/test_workspace.py
       - tests/integration/odoo/test_local_reader.py
@@ -402,6 +410,13 @@ stages:
       - tests/domain/workspace/test_supporting_plan.py
       - tests/domain/workspace/test_supporting_sources.py
       - tests/application/workspace/test_supporting_data_plan.py
+      - tests/application/workspace/test_supporting_review.py
+      - tests/application/workspace/test_supporting_mapping_guard.py
+      - tests/application/workspace/test_supporting_lookup_freshness.py
+      - tests/domain/workspace/test_supporting_closure.py
+      - tests/domain/recipe/test_supporting_decisions.py
+      - tests/integration/web/test_supporting_read_access.py
+      - tests/integration/web/test_supporting_review.py
       - tests/application/workspace/test_workflow_issues.py
       - tests/application/workspace/test_schema_governance.py
       - tests/integration/web/test_schema_presenter.py
@@ -517,6 +532,8 @@ stages:
       - tests/integration/web/test_joined_value_matching.py
       - tests/integration/web/test_joined_recipe_preparation.py
       - tests/domain/mapping/test_relationship_blank_values.py
+      - tests/integration/web/test_mapping_form_roundtrip.py
+      - tests/domain/preparation/test_lookup_blank_source.py
       - tests/application/workspace/mapping/test_blank_relationship_choices.py
       - tests/e2e/test_many2one_blank_match.py
       - tests/integration/artifacts/test_joined_mapping_values.py
@@ -591,6 +608,8 @@ stages:
       - src/impodo/domain/preparation/quality.py::quality_dependency_references
       - src/impodo/domain/preparation/quality.py::quality_dependency_reference_contexts
       - src/impodo/application/workspace/preparation/preparation_capability.py::compile_preparation_capability
+      - src/impodo/application/workspace/preparation/grouped_exact_join_preparation.py::bounded_preparation_producers
+      - src/impodo/adapters/duckdb/lookup_preparation_source.py::iter_lookup_batches
       - src/impodo/adapters/duckdb/preparation_stored_run_reader.py::PreparationStoredRunReader
       - src/impodo/application/workspace/preparation/resolution_service.py::ResolutionService
       - src/impodo/application/workspace/preparation/normalization_service.py::NormalizationService
@@ -612,7 +631,14 @@ stages:
       - tests/domain/preparation/test_browser_arithmetic_formula.py
       - tests/domain/preparation/test_normalization.py
       - tests/integration/web/test_preparation_workflow.py
+      - tests/integration/web/test_hierarchy_causes.py
+      - tests/e2e/test_hierarchy_review.py
       - tests/integration/web/test_joined_recipe_preparation.py
+      - tests/integration/web/test_mixed_join_preparation.py
+      - tests/integration/web/test_join_lookup_preparation.py
+      - tests/integration/artifacts/test_lookup_preparation_source.py
+      - tests/integration/artifacts/test_grouped_exact_join_preparation.py
+      - tests/e2e/test_mixed_preparation.py
       - tests/integration/web/test_normalization_presenter.py
       - tests/application/workspace/test_workflow_issues.py
       - tests/application/workspace/preparation/test_readiness.py
@@ -793,6 +819,10 @@ stages:
       - tests/application/workspace/execution/test_service.py
       - tests/application/workspace/execution/test_recomparison.py
       - tests/integration/web/test_execution.py
+      - tests/integration/web/test_hierarchy_workflow.py
+      - tests/integration/web/test_hierarchy_recovery.py
+      - tests/integration/web/test_hierarchy_recipe.py
+      - tests/domain/preparation/test_hierarchy_identity.py
       - tests/integration/duckdb/test_execution_repository.py
       - tests/application/workspace/execution/test_load_jobs.py
       - tests/domain/execution/test_snapshot.py

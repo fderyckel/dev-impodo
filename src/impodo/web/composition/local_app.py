@@ -39,6 +39,7 @@ from impodo.application.shared.build_contract import (
 )
 from impodo.application.shared.jobs import JobDispatcher
 from impodo.application.shared.secrets import SecretStore, SecretStoreError
+from impodo.application.supporting_mapping_guard import SupportingMappingGuard
 from impodo.domain.shared.access import (
     LOCAL_ACTOR,
     Actor,
@@ -486,6 +487,10 @@ def create_local_app(
         odoo_provenance=odoo_sources.provenance,
         recipe_quality=recipe_application_state,
         grouped_exact_joins=DuckDbGroupedExactJoinSource(database),
+        supporting_decisions=SupportingMappingGuard(
+            workspace_state_repository, source_repository, schema_repository,
+            derived_entity_repository,
+        ),
     )
     preflight = preparation_services.preflight
 

@@ -70,6 +70,54 @@ def _revision(display_name: str, semantic_hash: str, models):
 
 
 class RunOdooRequirementsUseCaseTests(unittest.TestCase):
+    def test_overlapping_recipes_keep_revisions_reasons_and_one_supporting_group(self):
+        selections = (_selection("one", "sha256:one"), _selection("two", "sha256:two"))
+        paths = tuple({
+            "model": "res.country", "fields": ({"name": "code"},),
+            "reference_paths": ({"key_fields": ("code",), "scope_fields": (),
+                "parent_model": "res.partner", "relationship_field": name,
+                "relationship_type": "many2one"},),
+        } for name in ("country_id", "birth_country_id"))
+        revisions = _RevisionReader({
+            ("one", 1): _revision("Contacts", "sha256:one", (paths[0],)),
+            ("two", 1): _revision("Birthplaces", "sha256:two", (paths[1],)),
+        })
+        use_case = RunOdooRequirementsUseCase(
+            setups=_SelectionReader(SimpleNamespace(project_id="project", selected_revisions=selections)),
+            recipes=revisions, authorization=_Authorization(),
+        )
+        plan = use_case.for_workspace("workspace", actor=ACTOR)
+        self.assertEqual(len(revisions.calls), 1)
+        self.assertEqual(plan.selected_revisions, selections)
+        self.assertEqual(len(plan.supporting_values), 1)
+        self.assertEqual(len(plan.supporting_values[0].relationships), 2)
+        self.assertEqual(plan.supporting_values[0].recipe_names, ("Birthplaces", "Contacts"))
+        self.assertEqual({(item.recipe_id, item.relationship_field, item.semantic_hash) for item in plan.supporting_values[0].origins}, {("one", "country_id", "sha256:one"), ("two", "birth_country_id", "sha256:two")})
+        self.assertTrue(plan.content_hash.startswith("sha256:"))
+
+    def test_recipe_decision_conflict_and_denial_do_not_select_a_winner(self):
+        from dataclasses import asdict
+        from impodo.domain.workspace.supporting_review import SupportingChoice
+        one = _revision("One", "sha256:one", ())
+        two = _revision("Two", "sha256:two", ())
+        for revision, action in ((one, "REUSE"), (two, "SKIP_OPTIONAL")):
+            choice = SupportingChoice("res.partner", "country_id", action, key_fields=("code",) if action == "REUSE" else ())
+            revision.envelope["recipe"]["odoo_target_contract"]["supporting_choices"] = [asdict(choice)]
+        revisions = _RevisionReader({("one", 1): one, ("two", 1): two})
+        use_case = RunOdooRequirementsUseCase(
+            setups=_SelectionReader(SimpleNamespace(project_id="project", selected_revisions=(_selection("one", "sha256:one"), _selection("two", "sha256:two")))),
+            recipes=revisions, authorization=_Authorization(),
+        )
+        with self.assertRaisesRegex(RecipeError, "disagree.*res.partner.country_id"):
+            use_case.for_workspace("workspace", actor=ACTOR)
+        revisions.calls.clear()
+        from unittest.mock import Mock
+        use_case._authorization = Mock()
+        use_case._authorization.require.side_effect = PermissionError("denied")
+        with self.assertRaises(PermissionError):
+            use_case.for_workspace("workspace", actor=ACTOR)
+        self.assertEqual(revisions.calls, [])
+
     def test_bulk_reads_selected_revisions_once_and_merges_in_memory(self) -> None:
         selections = (
             _selection("recipe-product", "sha256:product"),

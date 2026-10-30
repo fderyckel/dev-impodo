@@ -418,6 +418,15 @@ its source, schema, impact, preparation, comparison, or execution evidence.
 Project-owned application workspaces and drift assessment belong to the
 integrated Test workflow.
 
+When a file workspace has saved supporting choices, `SupportingMappingGuard`
+checks their current input binding and actual field providers before validation
+or submission. Destination-only reuse cannot gain an incoming fallback. An
+incoming choice must name its accepted mapped table. Defaults, Odoo ownership
+and intentionally empty optional relationships must agree with the rules too.
+A conflict names the parent field and points to Odoo data and its Match data
+rule. Saving an unchecked draft remains available. These metadata checks make
+no source-row scan or Odoo request.
+
 ## Contract invariants
 
 Each dataset declares one permitted target model and one operating mode:
@@ -552,6 +561,24 @@ compiler v10 uses a native Polars expression before key normalization. Recipe
 publication and application preserve the decisions, and Recipe review labels
 them **Leave blank (no linked record)** without requiring a target choice.
 Historic mapping versions retain their original field layout and hashes.
+
+Mapping contract v19 adds `RelationshipMapping.blank_source_action`, with
+`source_rules` as the compatibility default and `leave_blank` as an explicit
+per-field override for empty source cells. The Stage 3 control is **If the source
+value is blank**. Only optional, source-provided, single-column Many2one fields
+can use the override. Captured requiredness, either authored required flag, and
+`ignore_source_null` reject it. Partially populated composite keys cannot use
+it. Recipe compilation and application retain the action. Earlier mapping
+contracts omit it from their exact serialized layouts and hashes; columnar
+compiler v11 retains it in current program identity while preserving earlier
+program serialization. The shared row transformer applies the choice before
+generated-list reference checks. It retains checks for populated malformed
+values and keeps the Stage 1 source plan unchanged.
+
+[`test_lookup_blank_source.py`](../../../tests/domain/preparation/test_lookup_blank_source.py)
+checks optional empty links, retained required checks, populated values, and
+malformed paths. [`test_mapping_form_roundtrip.py`](../../../tests/integration/web/test_mapping_form_roundtrip.py)
+checks that reopening and saving the field retains the action.
 
 `CategoricalCoverageService` uses `LogicalSourceValues` for reviewed grouped
 exact-join outputs. `JoinedMappingSourceValues` verifies the saved review,

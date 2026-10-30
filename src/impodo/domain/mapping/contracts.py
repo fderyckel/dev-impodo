@@ -32,9 +32,9 @@ from ..serialization import canonical_json as _canonical_json
 from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
-MAPPING_CONTRACT_VERSION = 18
+MAPPING_CONTRACT_VERSION = 19
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
-    {12, 13, 14, 15, 16, 17, MAPPING_CONTRACT_VERSION}
+    {12, 13, 14, 15, 16, 17, 18, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
 # Exact categorical policies do not require one authored mapping per source
@@ -698,9 +698,20 @@ class RelationshipMapping:
     value_source: RelationshipValueSource = RelationshipValueSource.SOURCE
     constant_reference: ConstantBusinessReference | None = None
     blank_source_values: tuple[str, ...] = ()
+    blank_source_action: str = "source_rules"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_column_keys", tuple(self.source_column_keys))
+        if self.blank_source_action not in {"source_rules", "leave_blank"}:
+            raise ValueError("Blank source action is unsupported")
+        if self.blank_source_action == "leave_blank" and (
+            self.kind != "many2one"
+            or len(self.source_column_keys) != 1
+            or self.value_source != RelationshipValueSource.SOURCE
+            or self.required or self.required_on_create
+            or self.null_policy == "ignore_source_null"
+        ):
+            raise ValueError("Leave blank requires an optional single-column many2one and a policy that compares blanks")
         if not isinstance(self.blank_source_values, (tuple, list)) or any(
             not isinstance(value, str) for value in self.blank_source_values
         ):
@@ -1012,6 +1023,11 @@ class MappingDefinition:
             for relation in dataset.relationships
         ):
             raise ValueError("Leave-blank decisions require mapping contract v18")
+        if self.contract_version < 19 and any(
+            relation.blank_source_action != "source_rules"
+            for dataset in self.datasets for relation in dataset.relationships
+        ):
+            raise ValueError("Blank source actions require mapping contract v19")
         if self.contract_version == 12 and any(
             resolver.dataset_projection_field is not None
             for dataset in self.datasets
@@ -1223,6 +1239,9 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    if contract_version < 19:
+        for relationship in payload.get("relationships", ()):
+            relationship.pop("blank_source_action", None)
     if contract_version < 18:
         for relationship in payload.get("relationships", ()):
             relationship.pop("blank_source_values", None)
@@ -1597,6 +1616,8 @@ def _relationship_from_dict(
     contract_version: int,
 ) -> RelationshipMapping:
     expected_fields = _contract_fields(RelationshipMapping)
+    if contract_version < 19:
+        expected_fields.remove("blank_source_action")
     if contract_version < 18:
         expected_fields.remove("blank_source_values")
     if contract_version < 15:
@@ -1637,6 +1658,7 @@ def _relationship_from_dict(
             else None
         ),
         blank_source_values=payload.get("blank_source_values", ()),
+        blank_source_action=str(payload.get("blank_source_action", "source_rules")),
     )
 
 

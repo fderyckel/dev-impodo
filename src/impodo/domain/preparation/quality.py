@@ -25,6 +25,7 @@ from impodo.domain.preparation.staging_contracts import (
     CanonicalIssue,
     CanonicalRow,
     CanonicalStagingRun,
+    StagingDatasetRole,
     StagingDisposition,
 )
 from impodo.domain.resolution import EffectiveDataset
@@ -43,7 +44,7 @@ from impodo.domain.target_numeric_precision import (
 from impodo.domain.workspace.workbench import WorkspaceState
 
 QUALITY_CONTRACT_VERSION = 5
-QUALITY_EVALUATOR_VERSION = 6
+QUALITY_EVALUATOR_VERSION = 9
 QUALITY_RULESET_CONTRACT_VERSION = 3
 MAX_MANAGER_RULES_PER_DATASET = 3
 MANDATORY_QUALITY_FAMILIES = (
@@ -165,6 +166,17 @@ class QualityCauseImpact(StrEnum):
     PARENT = "PARENT"
     CHILD = "CHILD"
     SIBLING = "SIBLING"
+
+
+def _uses_reviewed_join_accounting(staging: CanonicalStagingRun | StoredCanonicalStagingRun) -> bool:
+    """Recognize accepted left-join graphs whose unused additions stay excluded."""
+
+    return (
+        staging.derived_plan_hash is not None
+        and any(item.role is StagingDatasetRole.JOIN for item in staging.datasets)
+        and all(item.role in {StagingDatasetRole.JOIN, StagingDatasetRole.DIRECT, StagingDatasetRole.LOOKUP}
+                for item in staging.datasets)
+    )
 
 
 class SourceAccountingState(StrEnum):
@@ -766,7 +778,7 @@ class QualityRun:
     def __post_init__(self) -> None:
         if (
             self.contract_version != QUALITY_CONTRACT_VERSION
-            or self.evaluator_version != QUALITY_EVALUATOR_VERSION
+            or self.evaluator_version not in {6, 7, 8, QUALITY_EVALUATOR_VERSION}
         ):
             raise ValueError("Quality evidence version is unsupported")
         if self.effective_dataset_hash is None:
@@ -989,7 +1001,7 @@ class StoredQualityRun:
     def __post_init__(self) -> None:
         if (
             self.contract_version != QUALITY_CONTRACT_VERSION
-            or self.evaluator_version != QUALITY_EVALUATOR_VERSION
+            or self.evaluator_version not in {6, 7, 8, QUALITY_EVALUATOR_VERSION}
         ):
             raise ValueError("Quality evidence version is unsupported")
         if not self.workspace_id:
@@ -1721,7 +1733,7 @@ def evaluate_quality(
             if identity_parent not in parents:
                 parents.append(identity_parent)
 
-    attached_relationship_causes: set[tuple[str, str, str, str]] = set()
+    attached_relationship_causes: set[tuple[str, str, str, str, str | None]] = set()
 
     def attach_relationship_issue(
         row_id: str,
@@ -1736,7 +1748,7 @@ def evaluate_quality(
         rule = relationship_rule_by_row.get(row_id)
         if rule is None:
             return False
-        cause = (row_id, state, linked_dataset, affected_field)
+        cause = (row_id, state, linked_dataset, affected_field, related_row_id)
         if cause in attached_relationship_causes:
             return False
         attached_relationship_causes.add(cause)
@@ -1898,7 +1910,9 @@ def evaluate_quality(
         SourceAccountingEntry(
             physical_dataset_id=dataset_id,
             source_row=source_row,
-            state=(SourceAccountingState.REPRESENTED if row_ids else SourceAccountingState.UNREPRESENTED),
+            state=(SourceAccountingState.REPRESENTED if row_ids
+                   else SourceAccountingState.EXCLUDED_BY_RULE if _uses_reviewed_join_accounting(staging)
+                   else SourceAccountingState.UNREPRESENTED),
             canonical_row_ids=tuple(sorted(row_ids)),
         )
         for (dataset_id, source_row), row_ids in sorted(links.items())

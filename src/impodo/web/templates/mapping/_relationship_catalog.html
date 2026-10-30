@@ -224,6 +224,16 @@
                   </div>
                   <div class="policy-row">
                     <div data-relation-source-policy {% if relation_value_source != 'source' %}hidden{% endif %}>
+                    {% if row.metadata.type == 'many2one' and not row.metadata.required %}
+                    <label for="blank-source-action-{{ dataset_index }}-{{ relation_index }}">
+                      If the source value is blank
+                    </label>
+                      <select id="blank-source-action-{{ dataset_index }}-{{ relation_index }}" name="relation_blank_source_action_{{ dataset_index }}_{{ relation_index }}" data-blank-source-action>
+                        <option value="source_rules" {% if not mapping or mapping.blank_source_action == 'source_rules' %}selected{% endif %}>Use the saved source rules</option>
+                        <option value="leave_blank" {% if mapping and mapping.blank_source_action == 'leave_blank' %}selected{% endif %}>Leave the related field blank</option>
+                      </select>
+                    <small>For an optional field, blank values can leave the link empty while keeping the record. Populated values still need a valid match. Must have a value and Required for new records must be unchecked.</small>
+                    {% endif %}
                     <label>
                       How must source choices identify linked records?
                       {% set relation_policy = mapping.categorical_policy.value if mapping and mapping.categorical_policy else ('' if mapping else 'EXACT_BUSINESS_KEY') %}

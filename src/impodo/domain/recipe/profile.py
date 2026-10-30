@@ -232,6 +232,7 @@ class RelationSpec(StrictModel):
     constant_key_values: tuple[str, ...] = ()
     constant_scope_values: tuple[str, ...] = ()
     blank_source_values: tuple[str, ...] = ()
+    blank_source_action: Literal["source_rules", "leave_blank"] = "source_rules"
     compare: bool = True
     validate_only: bool = False
     required: bool = False
@@ -246,12 +247,12 @@ class RelationSpec(StrictModel):
     def validate_semantics(self) -> RelationSpec:
         """Reject unsafe relation operations and non-blocking compare policies."""
 
-        if self.blank_source_values and (
+        if (self.blank_source_values or self.blank_source_action == "leave_blank") and (
             self.kind != "many2one" or self.value_source != "source"
             or len(self.source_fields) != 1 or self.required or self.required_on_create
         ):
             raise ValueError("Leave blank requires an optional single-column many2one")
-        if self.blank_source_values and self.null_policy == "ignore_source_null":
+        if (self.blank_source_values or self.blank_source_action == "leave_blank") and self.null_policy == "ignore_source_null":
             raise ValueError("Leave blank requires a null policy that compares blanks")
         if self.value_source == "source":
             if not self.source_fields:

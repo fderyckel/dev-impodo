@@ -364,6 +364,21 @@ Recipe run checks new choices separately.
 
 ![The Match values dialog explicitly maps TO_DEFINE to Leave blank while retaining a linked record for Standard.](../../images/user/03c-many2one-leave-blank.png)
 
+For source cells that are already empty, choose **Leave the related field blank**
+under **If the source value is blank** on the linked field in Match data.
+For example, a customer with no Company chain can remain in the import with
+that optional link empty. Leave **Must have a value** and **Required for new
+records** unchecked in **Support options**. Populated values still need a valid
+match. This choice is saved per field and is retained in the Recipe.
+
+Stage 1 defines the reusable list; Stage 3 decides whether each field using
+that list may be empty. **Use the saved source rules** retains the existing
+blank handling. The separate blank-comparison choice controls how preparation
+compares the result with Odoo. To prepare an empty link, keep a policy that
+compares blanks rather than **Ignore blank source values**.
+
+![Match data keeps an optional linked field blank when the source cell is empty.](../../images/user/16g-optional-linked-field-blank.png)
+
 This works for linked single-record fields, including custom fields, using
 the related Odoo record type and its reviewed matching rule. For example, a
 source classification code can match an existing classification with a

@@ -74,11 +74,20 @@ Impodo reviews every row in each participating frozen table through a bounded
 local database operation. The grouped review does not load all wide source
 tables into browser memory and does not use the advanced pairwise editor's
 25,000-row review limit. It has regression coverage for 65,299 rows across
-three inputs with 262 source fields. The same fixture prepares the saved
-combined output through bounded local batches without using the 25,000-row
-materialized fallback. This qualified route supports at most 100,000 physical
-input rows, 50,000 final rows, and 200 final fields. Other derived-table shapes
-keep their separate limits.
+three inputs with 262 source fields. Several saved combinations can prepare
+together, including outputs that share source tables and directly mapped tables
+beside a combination. Preparation has been checked through approval and Final
+review with 65,299 and 100,000 source rows and two combined outputs. Saving and
+reusing a Recipe repeats the join reviews and preserves Many2one matches and
+intentional blank choices. The source count produces an advisory above 50,000
+rows rather than the old 25,000-row preparation refusal for these reviewed
+combinations. Each combined output still allows at most 200 fields. Other
+derived-table shapes keep their separate limits. A flat reusable list made
+from one original source column can prepare beside the combined outputs.
+For optional links to that list, select **Leave the related field blank** under
+**If the source value is blank** in **Match data**. This keeps records whose
+source value is empty without adding an empty related record. The saved
+choice belongs to that field and travels with its Recipe.
 
 For fictional AX customer exports, the primary table might contain
 `AccountNum` and `Party`. Separate contact, address, and payment-term tables
@@ -277,6 +286,12 @@ Computers / Accessories -> entity B
 ```
 
 Do not merge records only because their final labels match.
+
+When you reuse a Recipe that builds a hierarchy from several fields, provide
+the original source fields in the new delivery. Impodo recreates its selected
+category path from the saved rule; you do not need to add that generated field
+to your uploaded file. Parent relationships use the complete hierarchy even
+when several branches end with the same name.
 
 ### Mapping the relationship
 

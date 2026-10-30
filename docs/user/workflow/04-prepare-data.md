@@ -157,6 +157,29 @@ record or checks Odoo before an incoming parent. Impodo still checks the
 complete group together. The route comes from the saved relationship rules,
 so it applies to standard and custom Odoo models without a BoM-specific setup.
 
+Several combined tables can prepare together in the same workspace. For example,
+you can prepare a Contacts table and a second combined Addresses table from the
+same accepted delivery. Impodo checks the relationships between the outputs and
+keeps each source row accounted for once, even when both tables use it.
+
+A combined table can also prepare beside a reusable list extracted from one
+source column. For example, customers and their generated Company chain list
+can prepare together. If that optional link may be empty, choose **Leave the
+related field blank** on the field in **Match data**, then check and confirm
+the field matches again. Preparation keeps those customers eligible without
+creating an empty entry in the related list.
+
+For reviewed exact combinations, a large source count is a notice rather than
+a preparation cutoff. The complete route has been checked with 65,299 and
+100,000 source rows, including two combined outputs, Many2one matches, intentional
+blanks, and reuse of the saved Recipe with fresh files. Above 50,000 source rows,
+**Start preparation** explains that the job may take longer. Select **Prepare
+data** as usual; no extra confirmation is required. Invalid source evidence,
+ambiguous keys, required values, and exhausted processing resources still need
+correction.
+
+![Start preparation shows an advisory for a fictional 65,299-row delivery and keeps Prepare data available.](../../images/user/15a-large-preparation-notice.png)
+
 One generated related table made from the distinct values in a single source
 field can also use the 50,000-source-row route when it contains no more than
 5,000 generated records. For example, a small Work Centres table generated
@@ -164,10 +187,10 @@ from an operation field qualifies. Additional business checks, reference data,
 hierarchies, table splits, or other rules that build tables retain the lower
 materialized limit.
 
-If your selection exceeds its supported route, Impodo stops before preparing
-the rows and reports that limit. Use a source selection within it.
-Restarting the same oversized selection will not change the limit. Your saved
-field matches remain available.
+Other preparation routes keep their separate limits. If one of those routes
+exceeds its supported size, Impodo stops before preparing the rows and reports
+the limiting stage. Restarting the same setup will not change that limit. Your
+saved field matches remain available.
 
 For a Recipe run, return to **Review and load** after preparation stops or you
 reopen Impodo. If the Recipe already has a complete, current saved result,

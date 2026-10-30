@@ -23,10 +23,10 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
 from ...domain.schema.governance import SchemaGovernance
-from .repository import DuckDbRepository
+from .supporting_review_repository import SupportingReviewRecords
 
 
-class SchemaRepository(DuckDbRepository):
+class SchemaRepository(SupportingReviewRecords):
     """Own current schema catalogs and versioned governance evidence."""
 
     def get_odoo_schema_catalog(

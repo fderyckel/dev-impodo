@@ -14,14 +14,15 @@ compiled bounded arithmetic, native relational identity, set-based canonical
 projection, and the 50,000-row worker qualification are implemented. Explicit
 consumer ports, bounded error-heavy finding publication, native Decimal
 qualification, browser recovery checks, and clean reproducible measurements
-remain open. The 100,000-row mixed and related expansion is long-term deferred
+remain open. Broader 100,000-row related workloads remain long-term deferred
 in the [remaining-work roadmap](00-remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
 
-The 2026-10-30 [mixed-workspace proposal](19-bounded-mixed-workspace-preparation.md)
-owns the immediate 65,299-row preparation blocker and proposed row-count
-advisories. It is awaiting approval. This plan continues to own broader
-evaluator and storage improvements rather than a parallel implementation
-of that focused delivery.
+The focused mixed-workspace delivery now composes reviewed exact joins and
+direct outputs in one session. Its current developer workflow records
+65,299-row Recipe reuse, 100,000-row worker qualification, shared accounting,
+and volume advisories. This plan continues to own remaining derived operators,
+native direct producers inside mixed graphs, bounded error-heavy finding
+publication, and broader workload and platform release measurements.
 
 | Step | Current progress |
 | --- | --- |

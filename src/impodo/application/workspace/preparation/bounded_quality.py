@@ -44,6 +44,7 @@ from impodo.domain.preparation.quality import (
     _record_label,
     _relationship_issue_details,
     _setup_issue,
+    _uses_reviewed_join_accounting,
     clean_quality_row_result,
     incoming_identity_group_fields,
     quality_identity_key,
@@ -366,13 +367,18 @@ class _IndexedQualityRows(Sequence[QualityRowResult]):
 
 
 class _IndexedSourceAccounting(Sequence[SourceAccountingEntry]):
-    """Project represented source rows from the one-to-one lineage index."""
+    """Project each physical coordinate once with all of its canonical links."""
 
-    sparse_projection_contract = "direct-represented-v1"
+    sparse_projection_contract: str | None = "direct-represented-v1"
 
-    def __init__(self, rows: _IndexedPreparationRows, row_count: int) -> None:
+    def __init__(
+        self, rows: _IndexedPreparationRows, row_count: int, *, direct: bool = True,
+        exclude_unused: bool = False,
+    ) -> None:
         self._rows = rows
         self._row_count = row_count
+        self.sparse_projection_contract = "direct-represented-v1" if direct else None
+        self._exclude_unused = exclude_unused
 
     def __len__(self) -> int:
         return self._row_count
@@ -412,14 +418,18 @@ class _IndexedSourceAccounting(Sequence[SourceAccountingEntry]):
         for batch in reader(connection, batch_size):
             yield tuple(self._entry(fact) for fact in batch)
 
-    @staticmethod
-    def _entry(fact) -> SourceAccountingEntry:
-        physical_dataset_id, source_row, row_id = fact
+    def _entry(self, fact) -> SourceAccountingEntry:
+        physical_dataset_id, source_row, row_ids = fact
+        if isinstance(row_ids, str):
+            # Historic direct-index adapters returned one scalar link.
+            row_ids = (row_ids,)
         return SourceAccountingEntry(
             physical_dataset_id=str(physical_dataset_id),
             source_row=int(source_row),
-            state=SourceAccountingState.REPRESENTED,
-            canonical_row_ids=(str(row_id),),
+            state=(SourceAccountingState.REPRESENTED if row_ids
+                   else SourceAccountingState.EXCLUDED_BY_RULE if self._exclude_unused
+                   else SourceAccountingState.UNREPRESENTED),
+            canonical_row_ids=tuple(str(row_id) for row_id in row_ids),
         )
 
 
@@ -961,7 +971,7 @@ def _build_indexed_quality_run(
     row_issue_ids: dict[str, set[str]] = {}
     row_metadata: dict[
         str,
-        tuple[_IssueRow, str, int],
+        tuple[_IssueRow, set[tuple[str, int]]],
     ] = {}
     coordinate_ids: dict[tuple[str, int], str] = {}
 
@@ -979,14 +989,10 @@ def _build_indexed_quality_run(
             _indexed_integer(source_row),
             StagingDisposition(str(disposition)),
         )
-        metadata = (
-            row,
-            str(physical_dataset_id),
-            _indexed_integer(physical_source_row),
-        )
-        existing = row_metadata.setdefault(row.row_id, metadata)
-        if existing != metadata:
+        existing_row, coordinates = row_metadata.setdefault(row.row_id, (row, set()))
+        if existing_row != row:
             raise BoundedQualityUnsupported
+        coordinates.add((str(physical_dataset_id), _indexed_integer(physical_source_row)))
         coordinate = (row.dataset, row.source_row)
         prior_id = coordinate_ids.setdefault(coordinate, row.row_id)
         if prior_id != row.row_id:
@@ -1117,7 +1123,7 @@ def _build_indexed_quality_run(
             relationship_finder,
         )
         attached_relationship_causes: set[
-            tuple[str, str, str, str]
+            tuple[str, str, str, str, str | None]
         ] = set()
         unsafe_dispositions = {
             QualityDisposition.BLOCKED,
@@ -1127,7 +1133,7 @@ def _build_indexed_quality_run(
         initially_unsafe = tuple(
             sorted(
                 row_id
-                for row_id, (row, _physical_id, _physical_row)
+                for row_id, (row, _coordinates)
                 in row_metadata.items()
                 if _effective_disposition(
                     row,
@@ -1212,6 +1218,7 @@ def _build_indexed_quality_run(
                 str(resolution_state),
                 str(linked_dataset),
                 str(affected_field),
+                related_row_id,
             )
             if cause in attached_relationship_causes:
                 continue
@@ -1319,7 +1326,7 @@ def _build_indexed_quality_run(
     eligible_count = summary_counts["ready_count"]
     excluded_ids: set[str] = set()
     quarantine: list[QuarantineEntry] = []
-    for row_id, (row, physical_id, physical_row) in row_metadata.items():
+    for row_id, (row, coordinates) in row_metadata.items():
         base = QualityDisposition(row.disposition.value)
         if base in {QualityDisposition.CANDIDATE, QualityDisposition.REFERENCE}:
             summary_counts["ready_count"] -= 1
@@ -1371,7 +1378,7 @@ def _build_indexed_quality_run(
                     row_id=row_id,
                     dataset=row.dataset,
                     source_row=row.source_row,
-                    physical_sources=(f"{physical_id}:{physical_row}",),
+                    physical_sources=tuple(f"{dataset_id}:{source_row}" for dataset_id, source_row in sorted(coordinates)),
                     issue_id=issue.issue_id,
                     rule_id=issue.rule_id,
                     reason_code=issue.reason_code,
@@ -1406,7 +1413,11 @@ def _build_indexed_quality_run(
         schema_hash=staging.schema_hash,
         retention_context_hash=retention_context_hash(workspace_state),
         row_results=rows,
-        source_accounting=_IndexedSourceAccounting(indexed_rows, row_count),
+        source_accounting=_IndexedSourceAccounting(
+            indexed_rows, _indexed_integer(index.get("physical_row_count", row_count)),
+            direct=bool(index.get("direct_accounting", True)),
+            exclude_unused=_uses_reviewed_join_accounting(staging),
+        ),
         issues=tuple(sorted(issue_map.values(), key=lambda item: item.issue_id)),
         quarantine=tuple(sorted(quarantine, key=lambda item: item.entry_id)),
         effective_dataset_hash=published_staging_content_hash,
@@ -1509,7 +1520,7 @@ def _attach_relationship_findings(
             if identity_parent not in parents:
                 parents.append(identity_parent)
 
-    attached_relationship_causes: set[tuple[str, str, str, str]] = set()
+    attached_relationship_causes: set[tuple[str, str, str, str, str | None]] = set()
 
     def attach(
         row_id: str,
@@ -1522,7 +1533,7 @@ def _attach_relationship_findings(
         rule = relationship_rule_by_row.get(row_id)
         if rule is None:
             return False
-        cause = (row_id, state, linked_dataset, affected_field)
+        cause = (row_id, state, linked_dataset, affected_field, related_row_id)
         if cause in attached_relationship_causes:
             return False
         attached_relationship_causes.add(cause)

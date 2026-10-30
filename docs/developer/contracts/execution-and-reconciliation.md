@@ -8,6 +8,15 @@ status: current
 
 ## Scope
 
+Nested parent identities are rechecked from the deepest ancestor outward in
+bounded model-level groups. Each distinct ancestor key is resolved once per
+operation before the native adapter receives an exact numeric-parent domain.
+This avoids requesting dotted fields from Odoo `search_read`. Missing or
+ambiguous ancestors stop the operation. Numeric identifiers remain temporary
+target-specific values, while the saved snapshot retains the complete business
+lineage and protected binding hashes. Execution and read-back use the same
+application lookup planner.
+
 Execution applies only the exact writes frozen by a ready final-review result.
 It uses a narrow write capability, journals intent before transport, stops on
 unknown outcomes, and proves the resulting target state through a separate

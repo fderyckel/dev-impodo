@@ -42,6 +42,7 @@ from impodo.domain.workspace.contracts import (
     SchemaField,
     SourceSelection,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     SourceMode,
@@ -404,7 +405,8 @@ def _render_summary(
             derived_plan,
         )
     )
-    scale_limit = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
+    scale_limit: int | None = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
+    preparation_advisories: tuple[str, ...] = ()
     if bounded_direct:
         scale_limit = BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
     if (
@@ -426,6 +428,7 @@ def _render_summary(
             ),
         )
         scale_limit = capability.supported_rows
+        preparation_advisories = capability.volume_advisories
     evaluation_scale = (
         browser_evaluation_scale(
             source_selection,
@@ -440,6 +443,7 @@ def _render_summary(
             supported_limit=scale_limit,
         )
         if evaluation_scale is not None and not evaluation_scale.supported
+        and scale_limit is not None
         else ""
     )
     submission = (
@@ -845,6 +849,7 @@ def _render_summary(
         readiness_issue_code=readiness_issue_code,
         evaluation_scale=evaluation_scale,
         preparation_limit_message=preparation_limit_message,
+        preparation_advisories=preparation_advisories,
         source_stage_ready=source_stage_ready,
         local_stack=local_stack,
         local_odoo_recovery_needed=local_odoo_recovery_needed,
@@ -904,13 +909,16 @@ def _render_quality_cause(
     ):
         raise HTTPException(status_code=404, detail="Quality review not found")
     page_size = _summary_page_size(request.query_params.get("page_size"))
-    review_page = context.queries.get_quality_cause_review_page(
-        workspace_id,
-        facts.quality_run_id,
-        cause_key,
-        page=_positive_query_int(request.query_params.get("page"), default=1),
-        page_size=page_size,
-    )
+    try:
+        review_page = context.queries.get_quality_cause_review_page(
+            workspace_id,
+            facts.quality_run_id,
+            cause_key,
+            page=_positive_query_int(request.query_params.get("page"), default=1),
+            page_size=page_size,
+        )
+    except WorkspaceError as error:
+        raise HTTPException(status_code=404, detail="Quality cause not found") from error
     cause = review_page.selected_cause
     if cause is None:
         raise HTTPException(status_code=404, detail="Quality cause not found")

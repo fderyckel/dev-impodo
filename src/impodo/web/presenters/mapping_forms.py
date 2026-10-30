@@ -374,6 +374,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"relation_missing_{dataset_index}_{relation_index}",
                     f"relation_ambiguous_{dataset_index}_{relation_index}",
                     f"relation_null_{dataset_index}_{relation_index}",
+                    f"relation_blank_source_action_{dataset_index}_{relation_index}",
                     f"relation_separator_{dataset_index}_{relation_index}",
                     f"relation_value_matches_{dataset_index}_{relation_index}",
                     f"relation_categorical_policy_{dataset_index}_{relation_index}",
@@ -1100,6 +1101,10 @@ def _mapping_datasets_from_form(
                     ),
                     value_source=value_source,
                     blank_source_values=blank_source_values,
+                    blank_source_action=(
+                        _text(form, f"relation_blank_source_action_{dataset_index}_{relation_index}")
+                        or "source_rules"
+                    ),
                 )
             )
         mode = MappingTargetMode(

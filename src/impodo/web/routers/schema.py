@@ -84,6 +84,7 @@ from ..target_credentials import (
     get_target_credential,
     local_read_credential_binding_hash,
 )
+from .supporting_review import build_supporting_review_router
 
 
 async def _capture_selected_schema(
@@ -289,6 +290,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
     """Build the read-only schema discovery and governance routes."""
 
     router = APIRouter()
+    router.include_router(build_supporting_review_router(context))
 
     @router.get("/workspaces/{workspace_id}/schema", response_class=HTMLResponse)
     async def workspace_schema(request: Request, workspace_id: str):

@@ -29,6 +29,27 @@ from .preparation_session_support import (
     canonical_preparation_session_id,
 )
 
+QUALITY_FINDING_INDEX_MAX_BYTES = 64 * 1024 * 1024
+
+
+def _read_finding_projection(cursor: duckdb.DuckDBPyConnection) -> tuple[tuple[object, ...], ...]:
+    """Bound Python finding transport independently of source row volume."""
+
+    rows: list[tuple[object, ...]] = []
+    estimated_bytes = 0
+    while batch := cursor.fetchmany(256):
+        estimated_bytes += sum(
+            512 + sum(len(value.encode("utf-8")) for value in row if isinstance(value, str))
+            for row in batch
+        )
+        if estimated_bytes > QUALITY_FINDING_INDEX_MAX_BYTES:
+            raise WorkspaceError(
+                "The data-check findings exceed the bounded review memory budget. "
+                "Correct the repeated source errors and prepare again; no whole-run fallback was run."
+            )
+        rows.extend(batch)
+    return tuple(rows)
+
 
 class PreparationQualityIndex:
     def _resolve_relationship_edges(
@@ -161,7 +182,7 @@ class PreparationQualityIndex:
         *,
         numeric_fields: tuple[PreparedNumericField, ...] = (),
     ) -> dict[str, object] | None:
-        """Validate a direct prepared run using set-based narrow relations."""
+        """Validate prepared rows and arbitrary physical lineage using narrow facts."""
 
         database_path = (
             self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -246,18 +267,22 @@ class PreparationQualityIndex:
                         AND lineage.dataset = row.dataset
                         AND lineage.output_source_row = row.source_row
                       WHERE row.run_id = ?),
-                    (SELECT COUNT(*) FROM (
-                         SELECT dataset, output_source_row
-                           FROM preparation_lineage WHERE session_id = ?
-                          GROUP BY dataset, output_source_row
-                         HAVING COUNT(*) != 1)),
-                    (SELECT COUNT(*) FROM (
-                         SELECT physical_dataset_id, physical_source_row
-                           FROM preparation_lineage WHERE session_id = ?
-                          GROUP BY physical_dataset_id, physical_source_row
-                         HAVING COUNT(*) != 1))
+                    (SELECT COUNT(*) FROM canonical_staging_row AS row
+                       WHERE row.run_id = ? AND NOT EXISTS (
+                         SELECT 1 FROM preparation_lineage AS lineage
+                          WHERE lineage.session_id = row.run_id
+                            AND lineage.dataset = row.dataset
+                            AND lineage.output_source_row = row.source_row)),
+                    (SELECT COUNT(*) FROM preparation_lineage AS lineage
+                       WHERE lineage.session_id = ? AND NOT EXISTS (
+                         SELECT 1 FROM preparation_physical_row AS physical
+                          WHERE physical.session_id = lineage.session_id
+                            AND physical.physical_dataset_id = lineage.physical_dataset_id
+                            AND physical.source_row = lineage.physical_source_row)),
+                    (SELECT COUNT(DISTINCT (physical_dataset_id, physical_source_row))
+                       FROM preparation_lineage WHERE session_id = ?)
                 """,
-                [session_id, session_id, session_id, session_id, session_id],
+                [session_id, session_id, session_id, session_id, session_id, session_id],
             ).fetchone()
             expected_physical = sum(len(rows) for rows in physical_rows.values())
             stored_datasets = {
@@ -277,14 +302,32 @@ class PreparationQualityIndex:
             }
             if (
                 lineage_counts is None
-                or expected_physical != row_count
                 or stored_datasets != expected_datasets
-                or any(int(value) != row_count for value in lineage_counts[:3])
+                or int(lineage_counts[0]) != expected_physical
+                or int(lineage_counts[1]) != int(lineage_counts[2])
                 or int(lineage_counts[3])
                 or int(lineage_counts[4])
             ):
                 return None
-            issue_rows = connection.execute(
+            finding_volume = connection.execute(
+                """
+                SELECT COALESCE(SUM(octet_length(encode(issue.issue_json)) + 512), 0)
+                  FROM canonical_staging_row_issue AS issue
+                  JOIN canonical_staging_row AS row
+                    ON row.run_id = issue.run_id AND row.ordinal = issue.ordinal
+                  JOIN preparation_lineage AS lineage
+                    ON lineage.session_id = row.run_id AND lineage.dataset = row.dataset
+                   AND lineage.output_source_row = row.source_row
+                 WHERE issue.run_id = ?
+                """,
+                [session_id],
+            ).fetchone()
+            if finding_volume is None or int(finding_volume[0]) > QUALITY_FINDING_INDEX_MAX_BYTES:
+                raise WorkspaceError(
+                    "The data-check findings exceed the bounded review memory budget. "
+                    "Correct the repeated source errors and prepare again; no whole-run fallback was run."
+                )
+            issue_rows = _read_finding_projection(connection.execute(
                 """
                 SELECT issue.ordinal, row.row_id, row.dataset, row.source_row,
                        row.disposition, issue.issue_json,
@@ -302,8 +345,8 @@ class PreparationQualityIndex:
                  ORDER BY issue.ordinal, issue.issue_ordinal
                 """,
                 [session_id],
-            ).fetchall()
-            collisions = connection.execute(
+            ))
+            collisions = _read_finding_projection(connection.execute(
                 """
                 WITH collision AS (
                     SELECT quality_identity_key, COUNT(*) AS identity_count
@@ -326,8 +369,8 @@ class PreparationQualityIndex:
                  ORDER BY row.ordinal
                 """,
                 [session_id, session_id],
-            ).fetchall()
-            exception_rows = connection.execute(
+            ))
+            exception_rows = _read_finding_projection(connection.execute(
                 """
                 SELECT row.ordinal, row.row_id, row.dataset, row.source_row,
                        row.disposition, lineage.physical_dataset_id,
@@ -342,7 +385,7 @@ class PreparationQualityIndex:
                  ORDER BY row.ordinal
                 """,
                 [session_id],
-            ).fetchall()
+            ))
             precision_rows = PreparationQualityIndex._bounded_numeric_precision_rows(
                 self,
                 connection,
@@ -352,6 +395,12 @@ class PreparationQualityIndex:
             )
             return {
                 "row_count": row_count,
+                "physical_row_count": expected_physical,
+                "direct_accounting": (
+                    expected_physical == row_count
+                    and int(lineage_counts[1]) == row_count
+                    and int(lineage_counts[5]) == expected_physical
+                ),
                 "disposition_counts": {
                     "CANDIDATE": int(header[3]),
                     "REFERENCE": int(header[4]),
@@ -727,7 +776,7 @@ class PreparationQualityIndex:
                     """,
                     [canonical_session_id],
                 )
-                findings = tuple(
+                findings = _read_finding_projection(
                     connection.execute(
                         """
                         SELECT DISTINCT child.ordinal, child.row_id, child.dataset,
@@ -756,7 +805,7 @@ class PreparationQualityIndex:
                                   edge.target_field, edge.resolution_state
                         """,
                         [canonical_session_id],
-                    ).fetchall()
+                    )
                 )
                 connection.commit()
                 return findings
@@ -882,25 +931,42 @@ class PreparationQualityIndex:
                     connection=owned,
                 )
             return
-        offset = 0
-        while batch := connection.execute(
+        # Aggregate physical coordinates before paging: shared rows have several
+        # canonical links and unused enrichment rows have none. Keyset paging
+        # avoids rescanning and sorting the whole relation for each page.
+        connection.execute(
             """
-            SELECT lineage.physical_dataset_id,
-                   lineage.physical_source_row, row.row_id
-              FROM preparation_lineage AS lineage
-              JOIN canonical_staging_row AS row
+            CREATE OR REPLACE TEMP TABLE preparation_accounting_projection AS
+            SELECT physical.physical_dataset_id, physical.source_row,
+                   COALESCE(list(DISTINCT row.row_id ORDER BY row.row_id)
+                       FILTER (WHERE row.row_id IS NOT NULL), []) AS row_ids
+              FROM preparation_physical_row AS physical
+              LEFT JOIN preparation_lineage AS lineage
+                ON lineage.session_id = physical.session_id
+               AND lineage.physical_dataset_id = physical.physical_dataset_id
+               AND lineage.physical_source_row = physical.source_row
+              LEFT JOIN canonical_staging_row AS row
                 ON row.run_id = lineage.session_id
                AND row.dataset = lineage.dataset
                AND row.source_row = lineage.output_source_row
-             WHERE lineage.session_id = ?
-             ORDER BY lineage.physical_dataset_id,
-                      lineage.physical_source_row
-             LIMIT ? OFFSET ?
+             WHERE physical.session_id = ?
+             GROUP BY physical.physical_dataset_id, physical.source_row
             """,
-            [session_id, batch_size, offset],
+            [session_id],
+        )
+        prior_dataset, prior_row = "", -1
+        while batch := connection.execute(
+            """
+            SELECT physical_dataset_id, source_row, row_ids
+              FROM preparation_accounting_projection
+             WHERE (physical_dataset_id, source_row) > (?, ?)
+             ORDER BY physical_dataset_id, source_row
+             LIMIT ?
+            """,
+            [prior_dataset, prior_row, batch_size],
         ).fetchall():
             yield batch
-            offset += len(batch)
+            prior_dataset, prior_row = str(batch[-1][0]), int(batch[-1][1])
 
     def _direct_index_contains_row_id(
         self: PreparationSessionRepositoryHost,

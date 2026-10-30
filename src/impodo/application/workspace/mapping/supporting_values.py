@@ -25,6 +25,7 @@ from impodo.domain.workspace.contracts import OdooSchemaCatalog
 from impodo.domain.workspace.reference_keys import (
     reference_policy_hash,
     standard_reference_key,
+    supporting_reference_candidate,
 )
 from impodo.domain.workspace.supporting_lookups import (
     SupportingLookupSnapshot,
@@ -265,11 +266,21 @@ def load_current_mapping_supporting_references(
             requirement.model_name,
             odoo_major_version=odoo_major_version,
         )
+        candidate = supporting_reference_candidate(
+            requirement.model_name, odoo_major_version=odoo_major_version
+        )
+        related = next((model for model in schema.models if model.name == requirement.model_name), None)
         display_field = (
             standard.display_field
             if standard is not None
             and standard.key_fields == requirement.key_fields
             and standard.scope_fields == requirement.scope_fields
+            else candidate.display_field
+            if candidate is not None
+            and candidate.key_fields == requirement.key_fields
+            and candidate.scope_fields == requirement.scope_fields
+            else "name"
+            if related and any(field.name == "name" for field in related.fields)
             else requirement.key_fields[0]
         )
         lookup_keys.add(

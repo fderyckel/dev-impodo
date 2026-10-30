@@ -95,9 +95,9 @@ relationship values or authorize reads, writes, or a stage transition.
 Contract version 1 permits 100 reached models, 1,000 relationship edges, five
 dependency expansions from the selected roots, 1,000 dataset descriptors, and
 200 source-preparation rules. Existing checked defaults and Odoo-managed
-fields retain their direct-classifier meaning. The current Stage 2 browser
-continues to use its direct supporting preview and existing confirmation gate.
-The query does not change that browser contract or Odoo-source edge ownership.
+fields retain their direct-classifier meaning. The browser keeps its direct
+supporting preview and also presents the reviewed file-source decisions
+described below. Odoo-source edge ownership is unchanged.
 
 The composition injects source, schema, preparation, workspace, and
 authorization ports. There is no PostgreSQL or DuckDB dependency in the
@@ -105,6 +105,95 @@ application query or pure planner. A local caller owns one synchronous read
 operation. A shared-server caller must supply authorized verified evidence
 through its adapters; this query does not permit a Linux web request to open
 worker-owned DuckDB state.
+
+### Reviewed file-source supporting decisions
+
+`SupportingReviewService` validates closed choices for each captured parent
+field: incoming data, existing Odoo records, a checked default, Odoo ownership,
+or an unused optional field. Incoming choices require a compatible accepted
+descriptor and an already selected related business model. A save cannot widen
+the write scope. Actual field providers and value-level resolution remain
+owned by Match data.
+
+`supporting_data_review` stores immutable complete revisions in the contained
+workspace engine. Schema version 21 adds this table through a forward-only
+20-to-21 migration; historical stores gain no implicitly approved decisions.
+Schema version 22 adds `supporting_review_projection`, a rebuildable local
+summary containing bounded counts and verified evidence hashes.
+Publication compares the expected review version, reserves the operation UUID,
+checks retry meaning and Actor identity, and writes the revision and audit in
+one transaction. An exact retry returns the original revision. Changed choices
+retire dependent mapping and preparation evidence while preserving accepted
+source data and saved business-key meaning.
+
+The binding hash covers the accepted source, preparation rules, captured schema,
+selected business models, target and Odoo version, reference-policy hashes, and
+captured credential, principal, permission and company-context hashes. Required
+missing or stale choices block `SchemaWorkspaceService.govern_complete` and
+appear through `WorkflowIssueProjection`. The page reads the saved review and
+preparation plan once each, reusing its already loaded workspace, source,
+schema, and governance evidence. Candidate table names appear in one shared
+bounded list rather than a repeated catalogue per relationship.
+
+Reuse choices retain an exact key, scope and display projection derived from
+`GovernedReferenceRequest`, the reviewed reference policies, or the bounded
+supporting-match probe. Caller-provided wider shapes are rejected. The explicit
+`/schema/supporting/check` command prepares immutable metadata and grouped
+requirements inside one local operation, releases every database owner, and
+calls the existing read-only supporting capture path. It rechecks all current
+inputs and the exact saved review inside a second local operation before
+publishing any returned lookup. Changed access or input evidence rejects the
+old result. The existing capture limits, returned-metadata verification, and
+protected lookup snapshots remain authoritative.
+
+The save and check routes authorize the request Actor before governed work.
+They expose no generic Odoo method or write. The complete decisions, read
+scopes, approvals and lookup values remain data-plane evidence. A future
+server adapter must supply authorized worker evidence and verified receipt
+projections; these routes grant no Linux web access to worker-owned DuckDB.
+
+### Recipe closure and downstream freshness
+
+`SupportingMappingGuard` reconciles reviewed choices with the bounded
+source-aware plan before mapping validation or submission, Recipe compilation,
+and preparation. Stale inputs and contradictory field providers block those
+actions. Historical file mappings without a saved review retain their existing
+path. Odoo-source relationship compilation continues to own full incoming
+migration, minimum preservation, destination reuse, and ignored edges.
+
+`RecipeCompiler` stores reviewed choices in the target contract using existing
+logical dataset identities. It retains metadata for intentionally unused and
+Odoo-managed relationships too. `RecipeApplicationService` rebinds incoming
+identities and checks the materialized rules before publishing a mapping.
+The additive choice data constrains existing mapping meaning; it adds no
+resolver and contains no target-access evidence.
+
+`application/recipe/odoo_requirements.py::extract_odoo_requirements` owns shared
+portable extraction. The run query still authorizes and bulk-loads exact
+revisions once, then verifies hashes and merges in memory. Its result retains
+every revision, Recipe reason and relationship path while deduplicating
+compatible reads. Conflicting choices stop the query without choosing a winner.
+
+Permission hashes include the probed model scope. Supporting hashes therefore
+remain separate from primary-schema permission hashes. The explicit review
+check verifies current primary-scope access and exact supporting access. Equal
+scopes share one identity probe; distinct scopes use two bounded probes.
+Page rendering performs neither. Changed captured permission evidence also
+retires a review through its input binding.
+
+The review transaction publishes `supporting_review_projection` with the
+decision and audit. It contains bounded counts and input, decision and complete
+evidence hashes. Authorized `summary` and `rebuild_summary` service methods read
+or reconstruct that metadata without Odoo capture. Currentness requires a
+matching verified input binding; future PostgreSQL publication also requires a
+verified worker receipt. Identical decision meaning preserves dependent mapping
+and preparation pointers when another operation records a new revision.
+
+The mapping guard reads each metadata owner once. Preparation reuses its loaded
+workspace, source and rule metadata. The controlled guard test permits four
+physical owners and zero retries. The page probe used six connections, one
+schema check, zero retries and zero Odoo calls in both saved and unreviewed
+states. These are fixture measurements, not live-server latency qualification.
 
 ### Capture and refresh
 
@@ -259,6 +348,9 @@ remains outside the migration write scope.
 | Matching-rule recommendations | [`business_keys.py`](../../../src/impodo/domain/workspace/business_keys.py) |
 | Supporting-model derivation | [`supporting_models.py`](../../../src/impodo/domain/workspace/supporting_models.py) |
 | Source-aware dependency proposal | [`supporting_plan.py`](../../../src/impodo/domain/workspace/supporting_plan.py) and [`supporting_sources.py`](../../../src/impodo/domain/workspace/supporting_sources.py) |
+| Reviewed supporting decisions | [`supporting_review_service.py`](../../../src/impodo/application/supporting_review_service.py), [`supporting_review.py`](../../../src/impodo/domain/workspace/supporting_review.py), and [`supporting_review_repository.py`](../../../src/impodo/adapters/duckdb/supporting_review_repository.py) |
+| Downstream supporting constraint | [`SupportingMappingGuard`](../../../src/impodo/application/supporting_mapping_guard.py) and [`supporting_closure.py`](../../../src/impodo/domain/workspace/supporting_closure.py) |
+| Shared portable Recipe requirements | [`extract_odoo_requirements`](../../../src/impodo/application/recipe/odoo_requirements.py) |
 | Governed supporting references | [`reference_keys.py`](../../../src/impodo/domain/workspace/reference_keys.py) |
 | Workflow issue projection | [`issues.py`](../../../src/impodo/application/workspace/issues.py) |
 | Browser routes | [`schema.py`](../../../src/impodo/web/routers/schema.py) |
@@ -373,6 +465,15 @@ requires four physical connections, at most four schema checks, and zero lock
 retries. This is structural fixture evidence, not a live latency claim. The
 planner makes no database or Odoo call and adds no work to the current page.
 
+The reviewed-decision page adds two bulk reads, independent of relationship
+count, within the existing retained page operation. The action-rich fixture
+requires at most six physical connections, at most six schema checks, and zero
+lock retries. Rendering and saving perform no Odoo read. Two reviewed edges
+using Countries share one metadata/record request group and one lookup
+publication. The capture fixture proves that no retained DuckDB owner crosses
+the Odoo boundary and that a schema change during the read publishes no old
+lookup. These are controlled fixture results, not live latency measurements.
+
 Read capability is explicit and narrow: model catalogue, metadata, target
 fingerprint, and planned record requests. Batch metadata and record reads by
 model. Never call `fields_get`, selection providers, or relationship catalogues
@@ -394,6 +495,11 @@ scope.
 
 ## Verification
 
+- [Supporting closure and conflicting business choices](../../../tests/domain/workspace/test_supporting_closure.py)
+- [Portable supporting decisions in Recipes](../../../tests/domain/recipe/test_supporting_decisions.py)
+- [Consumer freshness and bulk metadata reads](../../../tests/application/workspace/test_supporting_mapping_guard.py)
+- [Lookup freshness across scoped permission evidence](../../../tests/application/workspace/test_supporting_lookup_freshness.py)
+- [Primary and supporting remote-access probes](../../../tests/integration/web/test_supporting_read_access.py)
 - [`tests/integration/duckdb/test_workspace.py`](../../../tests/integration/duckdb/test_workspace.py)
 - [`tests/integration/odoo/test_local_reader.py`](../../../tests/integration/odoo/test_local_reader.py)
 - [`tests/application/workspace/test_odoo_connection.py`](../../../tests/application/workspace/test_odoo_connection.py)
@@ -403,6 +509,8 @@ scope.
 - [`tests/domain/workspace/test_supporting_plan.py`](../../../tests/domain/workspace/test_supporting_plan.py)
 - [`tests/domain/workspace/test_supporting_sources.py`](../../../tests/domain/workspace/test_supporting_sources.py)
 - [`tests/application/workspace/test_supporting_data_plan.py`](../../../tests/application/workspace/test_supporting_data_plan.py)
+- [`tests/application/workspace/test_supporting_review.py`](../../../tests/application/workspace/test_supporting_review.py)
+- [`tests/integration/web/test_supporting_review.py`](../../../tests/integration/web/test_supporting_review.py)
 - [`tests/application/workspace/test_workflow_issues.py`](../../../tests/application/workspace/test_workflow_issues.py)
 - [`tests/integration/web/test_schema_presenter.py`](../../../tests/integration/web/test_schema_presenter.py)
 - [`tests/integration/web/test_stage12_page_loading.py`](../../../tests/integration/web/test_stage12_page_loading.py)

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
+from unittest.mock import patch
 
 from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
@@ -19,6 +21,7 @@ from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.data_version.source_snapshots import (
     SourceSnapshotCandidateWriter,
     source_snapshot_schema,
@@ -36,6 +39,9 @@ from impodo.application.workspace.preparation.grouped_exact_join_preparation imp
 from impodo.application.workspace.preparation.preparation_capability import (
     compile_preparation_capability,
 )
+from impodo.application.workspace.preparation.bounded_quality import build_bounded_quality_run, materialize_staging_run
+from impodo.domain.preparation.quality import QualityRun, default_quality_ruleset, evaluate_quality
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
@@ -46,7 +52,7 @@ from impodo.domain.preparation.source import SourceRow
 from impodo.domain.preparation.staging_contracts import StagingDatasetRole
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import LOCAL_ACTOR
-from impodo.domain.source_binding import FileSourceBinding
+from impodo.domain.source_binding import FileSourceBinding, OdooSourceBinding
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.workspace.contracts import (
     SourceDataset,
@@ -68,6 +74,18 @@ _SCHEMA_HASH = "sha256:" + "9" * 64
 
 class GroupedExactJoinPreparationTests(unittest.TestCase):
     def test_three_table_join_prepares_generic_model_with_complete_lineage(self) -> None:
+        self._exercise_group()
+
+    def test_odoo_snapshots_use_the_same_generic_join_producer(self) -> None:
+        self._exercise_group(odoo=True)
+
+    def test_joined_findings_keep_all_lineage_and_match_complete_quality(self) -> None:
+        self._exercise_group(bad_values=True)
+
+    def test_join_and_direct_output_share_one_session(self) -> None:
+        self._exercise_group(direct=True)
+
+    def _exercise_group(self, *, odoo=False, bad_values=False, direct=False) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             database = DuckDbWorkspaceDatabase(root / "databases")
@@ -84,6 +102,18 @@ class GroupedExactJoinPreparationTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
             selection = _selection()
+            if odoo:
+                selection = replace(selection, datasets=tuple(
+                    replace(dataset, source=OdooSourceBinding(
+                        capture_selection_hash=content_hash(dataset.name),
+                        model=f"x_{dataset.name}", policy_hash=content_hash("policy"),
+                        connection_target_hash=content_hash("target"),
+                        schema_scope_hash=content_hash("scope"),
+                        read_principal_hash=content_hash("principal"),
+                        read_permission_hash=content_hash("permission"),
+                        context_hash=content_hash("context"),
+                    )) for dataset in selection.datasets
+                ))
             snapshots = tuple(
                 _publish_snapshot(artifacts, selection, dataset)
                 for dataset in selection.datasets
@@ -164,9 +194,15 @@ class GroupedExactJoinPreparationTests(unittest.TestCase):
                     for rule, review in zip(rules, preview.reviews, strict=True)
                 ),
             )
+            if direct:
+                plan = replace(plan, dataset_uses=tuple(
+                    replace(policy, use=SourceDatasetUse.MAP_AND_PREPARE)
+                    if policy.dataset_id == primary.dataset_id else policy
+                    for policy in plan.dataset_uses
+                ))
             effective = mapping_source_selection(selection, plan)
-            self.assertEqual(len(effective.datasets), 1)
-            output = effective.datasets[0]
+            self.assertEqual(len(effective.datasets), 2 if direct else 1)
+            output = next(item for item in effective.datasets if item.name == "records_complete")
             by_name = {column.source_name: column for column in output.columns}
             definition = MappingDefinition(
                 mapping_id=str(uuid4()),
@@ -196,6 +232,7 @@ class GroupedExactJoinPreparationTests(unittest.TestCase):
                             ScalarFieldMapping(
                                 target_field="region_code",
                                 source_column_key=by_name["Region"].stable_key,
+                                value_type="integer" if bad_values else "string",
                             ),
                             ScalarFieldMapping(
                                 target_field="email_address",
@@ -205,6 +242,13 @@ class GroupedExactJoinPreparationTests(unittest.TestCase):
                     ),
                 ),
             )
+            if direct:
+                definition = replace(definition, datasets=(*definition.datasets, DatasetMapping(
+                    dataset_id=primary.dataset_id, target_model="x_generic.primary",
+                    source_identity_column_keys=("key",),
+                    target_identity=(IdentityComponentMapping(("key",), ("external_key",), "integer"),),
+                    fields=(ScalarFieldMapping("display_name", "name"),),
+                )))
             capability = compile_preparation_capability(
                 definition=definition,
                 physical_selection=selection,
@@ -215,35 +259,66 @@ class GroupedExactJoinPreparationTests(unittest.TestCase):
                 reference_bundle=None,
             )
             self.assertTrue(capability.admitted)
-            self.assertIsNotNone(
-                bounded_exact_join_group(selection, effective, plan)
-            )
+            self.assertIsNotNone(bounded_exact_join_group(selection, effective, plan, dataset_id=output.dataset_id))
             sessions = PreparationSessionRepository(database, artifacts)
-            prepared = prepare_bounded_grouped_exact_join_session(
-                workspace,
-                definition,
-                1,
-                selection,
-                effective,
-                plan,
-                artifacts,
-                None,
-                sessions,
-                DuckDbGroupedExactJoinSource(database),
-                actor=LOCAL_ACTOR,
-                source_snapshots=snapshots,
-            )
+            with collect_duckdb_request_timings() as timings:
+                prepared = prepare_bounded_grouped_exact_join_session(
+                    workspace,
+                    definition,
+                    1,
+                    selection,
+                    effective,
+                    plan,
+                    artifacts,
+                    None,
+                    sessions,
+                    DuckDbGroupedExactJoinSource(database),
+                    actor=LOCAL_ACTOR,
+                    source_snapshots=snapshots,
+                )
+            self.assertLessEqual(timings.connection_count, 7)
+            self.assertLessEqual(timings.schema_check_count, 3)
+            self.assertEqual(timings.lock_retry_count, 0)
 
             rows = tuple(prepared.run.rows)
-            self.assertEqual(len(rows), 3)
-            self.assertTrue(all(row.target_model == "x_generic.record" for row in rows))
-            self.assertTrue(all(len(row.lineage.physical_sources) == 3 for row in rows))
+            self.assertEqual(len(rows), 6 if direct else 3)
+            joined_rows = tuple(row for row in rows if row.dataset == output.name)
+            self.assertTrue(all(row.target_model == "x_generic.record" for row in joined_rows))
+            self.assertTrue(all(len(row.lineage.physical_sources) == 3 for row in joined_rows))
             self.assertEqual(prepared.run.derived_plan_hash, plan.content_hash)
-            self.assertEqual(len(prepared.run.datasets), 1)
-            dataset_evidence = prepared.run.datasets[0]
+            self.assertEqual(len(prepared.run.datasets), 2 if direct else 1)
+            dataset_evidence = next(item for item in prepared.run.datasets if item.dataset == output.name)
             self.assertEqual(dataset_evidence.role, StagingDatasetRole.JOIN)
             self.assertEqual(dataset_evidence.input_rows, 9)
             self.assertEqual(dataset_evidence.input_rows_used, 9)
+            ruleset = default_quality_ruleset(workspace_id=workspace.workspace_id,
+                mapping_hash=definition.content_hash, schema_hash=definition.schema_hash,
+                datasets=tuple(item.name for item in effective.datasets))
+            physical_rows = sessions.physical_rows(workspace.workspace_id, prepared.session_id)
+            bounded = build_bounded_quality_run(workspace_state=workspace, staging=prepared.run,
+                physical_rows=physical_rows, ruleset=ruleset, definition=definition,
+                published_staging_content_hash=prepared.run.content_hash)
+            observed = QualityRun(workspace_id=bounded.workspace_id,
+                staging_content_hash=bounded.staging_content_hash,
+                ruleset_hash=bounded.ruleset_hash, mapping_hash=bounded.mapping_hash,
+                schema_hash=bounded.schema_hash, retention_context_hash=bounded.retention_context_hash,
+                row_results=tuple(bounded.row_results), source_accounting=tuple(bounded.source_accounting),
+                issues=bounded.issues, quarantine=bounded.quarantine,
+                effective_dataset_hash=bounded.effective_dataset_hash)
+            expected = evaluate_quality(workspace_state=workspace,
+                staging=materialize_staging_run(prepared.run), physical_rows=physical_rows,
+                ruleset=ruleset, published_staging_content_hash=prepared.run.content_hash)
+            self.assertEqual(observed.to_json(), expected.to_json())
+            legacy = replace(observed, evaluator_version=6)
+            self.assertEqual(QualityRun.from_dict(legacy.to_portable_dict()).content_hash, legacy.content_hash)
+            if bad_values:
+                self.assertTrue(bounded.quarantine)
+                self.assertTrue(all(len(item.physical_sources) == 3 for item in bounded.quarantine))
+                with patch("impodo.adapters.duckdb.preparation_quality_index.QUALITY_FINDING_INDEX_MAX_BYTES", 1):
+                    with self.assertRaisesRegex(WorkspaceError, "memory budget"):
+                        build_bounded_quality_run(workspace_state=workspace, staging=prepared.run,
+                            physical_rows=physical_rows, ruleset=ruleset, definition=definition,
+                            published_staging_content_hash=prepared.run.content_hash)
 
 
 def _selection() -> SourceSelection:

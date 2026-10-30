@@ -32,6 +32,13 @@ before any publication begins. The source-stage readiness gate must also be
 current. For an Odoo source, the schema and capture-plan model sets must match
 and a complete frozen source selection must exist.
 
+For a file workspace with saved supporting choices, preparation also rechecks
+their input binding and agreement with the submitted mapping before evaluating
+rows. `SupportingMappingGuard.require_preparation` reuses the operation's loaded
+workspace, physical selection and preparation rules. The local and spawned
+worker compositions inject the same policy through ports. Odoo-source decisions
+continue through their existing provenance and relationship-scope checks.
+
 ## Implementation flow
 
 `preparation.py` starts and monitors work through `PreparationJobManager`.
@@ -135,7 +142,7 @@ effective selection adds one generated table with no more than 5,000 records.
 Without advanced quality rules or reference data, that route admits 50,000
 physical rows and carries the selected materialized ceiling through the domain
 evaluator, quality fallback, normalization, and relationship checks. Other
-non-direct routes retain the 25,000-row ceiling.
+non-direct routes outside the reviewed exact-join graph retain the 25,000-row ceiling.
 
 The [DuckDB group-quality adapter](../../../src/impodo/adapters/duckdb/preparation_identity_group_quality.py)
 projects only identity, scope, and reference values from stored canonical JSON
@@ -288,10 +295,62 @@ for current direct Python-fallback, relationship, or native relational-identity
 routes pending scale qualification, 50,000 for one low-cardinality
 single-column lookup-derived table without advanced quality or reference data,
 and 25,000 for other derived or materialized routes.
-Extending qualification belongs to the
+Reviewed exact-join graphs use the separate composed route below. Extending
+the remaining direct and general derived qualification belongs to the
 [remaining scale work](../../plans/00-remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
 
 ### Joined relationship matches and Recipe reuse
+
+[`bounded_preparation_producers`](../../../src/impodo/application/workspace/preparation/grouped_exact_join_preparation.py)
+qualifies each effective dataset independently.
+An unchanged physical table, a flat reusable list, or a complete reviewed exact
+LEFT join group can feed the same durable session. Several independent groups
+can share physical inputs. Every output must qualify; unsupported producers retain the guarded
+materialized route rather than silently disabling a required check.
+
+`prepare_bounded_grouped_exact_join_session` compiles the mapping once, retains
+evidence hashes outside its row loop, and appends each producer in stable
+dataset-name order. It finalizes one session after all outputs, control totals,
+impacts, and lineage are complete. Pure direct preparation retains its existing
+native Polars path. Direct tables inside a composed graph use bounded row-local
+transformation from frozen Parquet.
+
+`DuckDbGroupedExactJoinSource.iter_lookup_batches` delegates flat reusable-list
+production to [`iter_lookup_batches`](../../../src/impodo/adapters/duckdb/lookup_preparation_source.py).
+It scans only the immutable source ordinal and lookup value columns into a
+temporary relation, then normalizes each distinct value once through the
+authoritative Unicode path function. Bounded JSON pages carry normalized
+values back into DuckDB for set-wise membership joins. Output keys, first-seen
+labels, alias findings, and complete physical lineage match materialized
+lookup evaluation. Cardinality and encoded-lineage budgets remain enforced.
+Joined producers project only columns used by the mapping and their join
+keys; formulas conservatively retain the complete input column set.
+
+Mapping `blank_source_action=leave_blank` overrides a generated-list blank
+finding only for an optional single-column relationship with an empty source
+cell. Nonempty invalid paths still follow their extraction rule. Matching,
+validation, and Recipe reuse keep the same field choice, while Stage 1 stays
+unchanged. Browser evaluator 8 publishes this composed lookup/reference
+meaning; historical evaluator-7 staging remains readable without rehashing.
+
+The composed route has no physical-row admission cutoff. The capability
+manifest reports `supported_rows=None` and volume advisories above 50,000 rows.
+It still rejects stale reviews and bindings. DuckDB owners are retained only
+within separate synchronous accounting and producer operations, with no await
+or Odoo call inside either scope. Source-row accounting scans the ordinal column
+once per physical snapshot. Each group separately scans only its required keys
+and output columns once per participant, using 256 MB and two threads. Canonical
+pages contain at most 1,000 joined rows and database transport retains its byte
+budgets. The quality finding index has a 64 MiB encoded-finding budget before
+Python collection; exceeding it fails without whole-run fallback.
+
+The quality index verifies arbitrary physical lineage rather than requiring one
+physical row per output. Its accounting projection groups all canonical links
+for each physical coordinate and pages in key order. Shared source rows count
+once. Unused additions in an accepted LEFT join remain `EXCLUDED_BY_RULE`;
+unexplained loss on other routes remains blocking. Quality evaluator 8 records
+this policy for graphs that also contain flat reusable lists. Evaluator-6 and
+evaluator-7 evidence remain readable with their original hashes.
 
 A reviewed grouped exact join uses the bounded join reader during preparation.
 The relationship compiler applies each saved Many2one value match to that
@@ -301,11 +360,53 @@ Preparation does not fetch target records or resolve numeric Odoo IDs.
 
 Recipe publication retains the logical join group and explicit value matches.
 Application creates fresh rule and group identities for the new delivery.
-`DerivedEntityWorkspaceService.save_derived_entity_plan` reviews those joins
+`DerivedEntityWorkspaceService.save_derived_entity_plan` reviews every group
 against the new immutable snapshots before the plan is saved. The review uses
 one bounded DuckDB operation and scans each participating snapshot once.
 Current categorical validation checks the rebuilt logical output; a new
 unmatched choice blocks the application before preparation.
+
+The fictional three-input fixture contains 65,299 physical rows and 262 source
+fields, including empty and colliding fields. Two combined outputs produce
+9,506 eligible rows with incoming references, external aliases, and intentional
+blanks. The real worker, approval, Final review, and fresh-file Recipe reuse are
+covered by [`test_mixed_join_preparation.py`](../../../tests/integration/web/test_mixed_join_preparation.py).
+The suite also qualifies 100,000 inputs and a failed or cancelled repeat that
+preserves the preceding complete result. Joined error findings and captured
+Odoo snapshots have differential quality and complete-lineage tests.
+[`test_grouped_exact_join_preparation.py`](../../../tests/integration/artifacts/test_grouped_exact_join_preparation.py)
+compares complete quality evidence and tests the finding budget.
+[`test_mixed_preparation.py`](../../../tests/e2e/test_mixed_preparation.py)
+checks the advisory, preparation, approval, and Final review in Chromium.
+
+Hierarchy cause navigation is covered by
+[`test_hierarchy_causes.py`](../../../tests/integration/web/test_hierarchy_causes.py)
+and [`test_hierarchy_review.py`](../../../tests/e2e/test_hierarchy_review.py).
+
+[`test_join_lookup_preparation.py`](../../../tests/integration/web/test_join_lookup_preparation.py)
+qualifies the same 65,299-input shape with a reviewed combination and a flat
+generated list. Empty source cells keep optional links empty through real
+worker preparation, approval, Final review, and fresh-file Recipe reuse.
+[`test_lookup_preparation_source.py`](../../../tests/integration/artifacts/test_lookup_preparation_source.py)
+compares Unicode grouping and every source member against the materialized
+oracle. It also bounds database opens and proves normalization occurs once
+per distinct value.
+
+On macOS, six preparations in three fresh worker processes measured 4.08–4.63
+seconds and 349–511 MiB sampled peak worker RSS. Each producer phase used seven
+physical connections, three schema checks, five narrow join-input projections,
+and three ordinal scans, with no lock retries or whole-run reconstruction.
+Staging and quality hashes were identical across all attempts. These are local
+fictional-fixture measurements under concurrent test load, not live workspace
+latency or Linux release qualification. Reproduce them with
+[`benchmark_mixed_preparation.py`](../../../scripts/benchmark_mixed_preparation.py)
+and `--runs 3 --output <temporary-result.json>`.
+
+The producer uses the same frozen snapshot contract for FILE and ODOO inputs.
+Preparation still verifies protected Odoo capture provenance before reading.
+Portable server composition and runtime coordination tests cover the existing
+server boundary; this change does not qualify a deployed Linux/PostgreSQL
+session or enable unfinished remote-server capabilities.
 
 Explicit `blank_source_values` remain part of the rebound mapping. The shared
 row evaluator and native Polars key projection produce null relationships for

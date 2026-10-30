@@ -312,6 +312,31 @@ class DerivedEntityWorkspaceService:
         workspace_id: str,
         plan: DerivedEntityPlan,
     ) -> DerivedEntityPlan:
+        """Review every independent Recipe group before publishing any plan."""
+
+        if plan.join_reviews:
+            return plan
+        groups: dict[str, list[ExactJoinRule]] = {}
+        for rule in plan.rules:
+            if isinstance(rule, ExactJoinRule) and rule.group_id is not None:
+                groups.setdefault(rule.group_id, []).append(rule)
+        if not groups:
+            return plan
+        reviews: list[SavedExactJoinReview] = []
+        for group_id in sorted(groups):
+            reviewed = self._review_recipe_single_join_group(
+                workspace_id, replace(plan, rules=tuple(groups[group_id])),
+            )
+            reviews.extend(reviewed.join_reviews)
+        return replace(plan, join_reviews=tuple(reviews))
+
+    def _review_recipe_single_join_group(
+        self,
+        workspace_id: str,
+        plan: DerivedEntityPlan,
+    ) -> DerivedEntityPlan:
+        """Bind one complete group to fresh snapshots without publishing it."""
+
         if (
             plan.join_reviews
             or not plan.rules
